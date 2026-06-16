@@ -1,0 +1,8 @@
+{
+  "Candidate": {
+    "relevance": 0.8,
+    "coherence": 0.6,
+    "raw_quality": 5.0,
+    "safety": 0.9
+  }
+}

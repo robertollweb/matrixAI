@@ -1,0 +1,76 @@
+{
+  "accepted": true,
+  "source": "accepted_proposal",
+  "project": "EmailAgent",
+  "mode": "classification",
+  "vector": {
+    "name": "Email",
+    "fields": [
+      "urgency",
+      "sender_trust",
+      "topic_support",
+      "topic_sales",
+      "sentiment",
+      "has_attachment",
+      "previous_interactions",
+      "language_confidence"
+    ]
+  },
+  "graph_nodes": [
+    "Email",
+    "Classifier",
+    "Confidence",
+    "ReplyActivation",
+    "DraftReply"
+  ],
+  "actions": [
+    "DraftReply"
+  ],
+  "translation_kinds": [
+    "sigmoid_threshold"
+  ],
+  "checks": [
+    {
+      "name": "architect_plan",
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "planner_verifier",
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "mathematical_rules_resolved",
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "parser",
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "verifier_agent",
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "safety_agent",
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "python_compiler",
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    }
+  ]
+}

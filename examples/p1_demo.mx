@@ -1,0 +1,18 @@
+# MatrixAI P1 demo — núcleo matemático ejecutable
+#
+# Demuestra: parsing, AST, evaluación, trazabilidad
+#
+# Ejecutar:
+#   python3 -m matrixai eval examples/p1_demo.mx \
+#       --input '{"relevance": 0.9, "coherence": 0.8, "cost": 0.1}' \
+#       --trace
+#
+# Resultado esperado:
+#   score    = 0.86
+#   utility  = 0.84
+
+# Función de scoring: suma ponderada de relevance y coherence
+score(x) = 0.6 * relevance(x) + 0.4 * coherence(x)
+
+# Función de utilidad: score menos penalización por coste
+utility(x) = score(x) - 0.2 * cost(x)

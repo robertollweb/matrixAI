@@ -1,0 +1,84 @@
+{
+  "dataset": {
+    "fingerprint": "data_279adcfbc7c4bb76",
+    "name": "EmailTrainingSet",
+    "rows_train": 4,
+    "rows_validation": 2,
+    "source": "<DATASET>",
+    "split": {
+      "config": {
+        "seed": 42,
+        "train": 0.75,
+        "validation": 0.25
+      },
+      "fingerprint": "split_276e95b71e747e92",
+      "train": {
+        "fingerprint": "split_part_7b644ff539c0b02e",
+        "row_hashes": [
+          "row_aaf5a601f2bff10e",
+          "row_89e57e858fc791c9",
+          "row_4a083d2c9ad5ce92",
+          "row_47fb43cb6f8d324e"
+        ],
+        "row_indices": [
+          3,
+          4,
+          5,
+          6
+        ],
+        "rows": 4
+      },
+      "validation": {
+        "fingerprint": "split_part_c33d798faf8d780d",
+        "row_hashes": [
+          "row_320777c2f505eed1",
+          "row_eb61011aad03dc2b"
+        ],
+        "row_indices": [
+          2,
+          7
+        ],
+        "rows": 2
+      }
+    }
+  },
+  "epochs": [
+    {
+      "accuracy": 0.5,
+      "epoch": 1,
+      "train_loss": 1.0678823035094291,
+      "validation_loss": 1.1236422968095716
+    },
+    {
+      "accuracy": 0.5,
+      "epoch": 2,
+      "train_loss": 1.0315486948917616,
+      "validation_loss": 1.1382695421755393
+    },
+    {
+      "accuracy": 0.0,
+      "epoch": 3,
+      "train_loss": 0.9999894644492862,
+      "validation_loss": 1.1461719034658773
+    },
+    {
+      "accuracy": 0.0,
+      "epoch": 4,
+      "train_loss": 0.9715748466004912,
+      "validation_loss": 1.1548397525353145
+    }
+  ],
+  "loss": "cross_entropy",
+  "model": "<MODEL>",
+  "model_hash": "mxai_349b547fade09c18",
+  "optimizer": "sgd",
+  "parameter_schema_hash": "params_9e743b60c37f59a3",
+  "parameters_updated": [
+    "W1",
+    "b1"
+  ],
+  "prediction": "C",
+  "run_id": "email_classifier_001",
+  "selected_parameter_set": "params.best.json",
+  "task_kind": "classification"
+}

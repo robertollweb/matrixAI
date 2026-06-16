@@ -1,0 +1,23 @@
+ACTION_CONTRACT TriggerAlert
+  CAPABILITY email_send
+  SCOPE
+    allowed_recipients = ["ops@example.com", "alerts@example.com"]
+    allowed_domains    = ["example.com"]
+    max_subject_length = 200
+    max_body_length    = 5000
+  END
+  DRY_RUN required
+  ROLLBACK send_correction
+  SANDBOX not_required
+  HUMAN_APPROVAL false
+  RATE_LIMIT per_minute=5 per_hour=30
+  SIGNATURE_REQUIRED true
+END
+
+ROLLBACK send_correction
+  CAPABILITY email_send
+  SCOPE
+    allowed_recipients = ["ops@example.com", "alerts@example.com"]
+    template = "correction"
+  END
+END

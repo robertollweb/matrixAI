@@ -1,0 +1,51 @@
+PROJECT TextEmbedder
+
+# Vocabulary: 30 domain words (billing / technical / sales)
+# Input: bag-of-words binary presence vector derived from raw ticket text.
+# A 1 in column bow_X means the word X appears in the ticket.
+VECTOR TicketBOW[30]
+  bow_account: Score
+  bow_amount: Score
+  bow_api: Score
+  bow_cancel: Score
+  bow_charge: Score
+  bow_connection: Score
+  bow_contract: Score
+  bow_crash: Score
+  bow_demo: Score
+  bow_discount: Score
+  bow_enterprise: Score
+  bow_error: Score
+  bow_features: Score
+  bow_fix: Score
+  bow_help: Score
+  bow_invoice: Score
+  bow_issue: Score
+  bow_login: Score
+  bow_need: Score
+  bow_network: Score
+  bow_payment: Score
+  bow_plan: Score
+  bow_pricing: Score
+  bow_problem: Score
+  bow_refund: Score
+  bow_reset: Score
+  bow_server: Score
+  bow_slow: Score
+  bow_timeout: Score
+  bow_upgrade: Score
+END
+
+# Two-layer dense network: BoW[30] -> Dense(8,relu) -> Dense(1,sigmoid)
+# The 8-unit hidden layer is the learned text projection (text embedding).
+# Output routing_signal in [0,1]: billing ~ 0.1, technical ~ 0.5, sales ~ 0.9.
+NETWORK TextEncoder
+  INPUT TicketBOW
+  LAYER Dense units=8 activation=relu
+  LAYER Dense units=1 activation=sigmoid
+  OUTPUT routing_signal: Score
+END
+
+GRAPH
+  TicketBOW -> TextEncoder
+END

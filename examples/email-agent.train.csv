@@ -1,0 +1,7 @@
+urgency,sender_trust,topic_support,topic_sales,sentiment,has_attachment,previous_interactions,language_confidence,label
+0.95,0.80,1.00,0.00,0.70,0.00,0.60,0.98,support
+0.20,0.90,0.00,1.00,0.85,0.00,0.50,0.97,sales
+0.55,0.75,0.10,0.20,0.60,1.00,0.80,0.93,operations
+0.88,0.65,0.90,0.05,0.40,1.00,0.35,0.91,support
+0.30,0.85,0.05,0.95,0.75,0.00,0.45,0.96,sales
+0.62,0.70,0.20,0.25,0.55,1.00,0.90,0.92,operations

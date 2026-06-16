@@ -1,0 +1,35 @@
+PROJECT FallRisk
+
+VECTOR Patient[5]
+  age
+  mobility
+  medication_load
+  previous_falls
+  cognitive_state
+END
+
+FUNCTION RiskModel
+  R = sigmoid(W1 * Patient + b1)
+END
+
+FUNCTION AlertActivation
+  A = sigmoid(20 * (Risk.mean - 0.8))
+END
+
+DISTRIBUTION Risk
+  Risk ~ Normal(R, uncertainty(Patient))
+END
+
+GRAPH
+  Patient -> RiskModel -> Risk -> AlertActivation -> Notify
+END
+
+ACTION Notify
+  WHEN AlertActivation > 0.90
+  POLICY simulate_only
+  CALL simulated.nurse_station.alert
+END
+
+AUDIT
+  EXPLAIN Patient -> RiskModel -> Risk -> AlertActivation -> Notify
+END

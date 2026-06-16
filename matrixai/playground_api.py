@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Roberto Llamosas Conde
+"""Stable public API of the MatrixAI playground engine.
+
+This module is the supported surface for building a playground or a product on top
+of the MatrixAI core. It re-exports, with stable public names, the request handlers
+and helpers that today live (with private ``_`` names) inside :mod:`matrixai.playground`.
+
+Why it exists
+-------------
+The technical playground (open source, served at ``/expert``) and any product built
+on top of the core share the same engine: prompt analysis, dataset generation,
+CSV validation, training (sync + async jobs), schema coercion and LLM helpers.
+Importing those through this module — instead of reaching into ``matrixai.playground``
+private names — gives downstream code (e.g. a separate Studio backend) a stable
+contract that survives internal refactors of ``playground.py``.
+
+Guarantee
+---------
+Everything here is part of the AGPL-3.0 core. Names listed in ``__all__`` are stable;
+the underlying private functions in ``playground.py`` may be renamed or moved without
+breaking importers of this module.
+"""
+
+from __future__ import annotations
+
+from matrixai.playground import (
+    # Already-public engine entry points
+    analyze_playground_request,
+    serve,
+    # Shared model/visual view used by both the technical playground and products
+    _visual_model as visual_model,
+    # Shared module state: repo root (bundled examples) and the training job
+    # registry. A product building on the core must use the SAME registry object
+    # (not a copy) so async jobs submitted via submit_training_job are visible.
+    PROJECT_ROOT,
+    _training_jobs as training_jobs,
+    # HTTP handler factory (build a server reusing the core router)
+    _handler_class as handler_class,
+    # Training-text + dataset generation
+    _generate_training_from_mxai as generate_training_from_mxai,
+    _generate_synthetic_dataset as generate_synthetic_dataset,
+    _suggest_field_ranges as suggest_field_ranges,
+    _validate_training_csv as validate_training_csv,
+    # Training — synchronous and async jobs (shared job registry lives in the core)
+    _run_playground_training as run_playground_training,
+    _submit_training_job as submit_training_job,
+    _get_job_status as get_job_status,
+    _cancel_job as cancel_job,
+    # Execution / refinement
+    _playground_run_with_params as playground_run_with_params,
+    _refine_prompt as refine_prompt,
+    # Field schema coercion (ranges / types / categoricals / identifiers)
+    _coerce_field_ranges as coerce_field_ranges,
+    _coerce_field_types as coerce_field_types,
+    _coerce_field_categories as coerce_field_categories,
+    _coerce_field_identifiers as coerce_field_identifiers,
+    _normalize_csv_with_ranges as normalize_csv_with_ranges,
+    # Pipeline view helpers
+    _build_pipeline_stages as build_pipeline_stages,
+    _build_artifacts as build_artifacts,
+    # LLM-assisted helpers
+    _dense_llm_schema as dense_llm_schema,
+    _llm_field_ranges as llm_field_ranges,
+    _resolve_llm_config_path as resolve_llm_config_path,
+    _detect_llm_mode as detect_llm_mode,
+    # Misc utilities
+    _safe_float as safe_float,
+)
+
+__all__ = [
+    "analyze_playground_request",
+    "serve",
+    "handler_class",
+    "visual_model",
+    "PROJECT_ROOT",
+    "training_jobs",
+    "generate_training_from_mxai",
+    "generate_synthetic_dataset",
+    "suggest_field_ranges",
+    "validate_training_csv",
+    "run_playground_training",
+    "submit_training_job",
+    "get_job_status",
+    "cancel_job",
+    "playground_run_with_params",
+    "refine_prompt",
+    "coerce_field_ranges",
+    "coerce_field_types",
+    "coerce_field_categories",
+    "coerce_field_identifiers",
+    "normalize_csv_with_ranges",
+    "build_pipeline_stages",
+    "build_artifacts",
+    "dense_llm_schema",
+    "llm_field_ranges",
+    "resolve_llm_config_path",
+    "detect_llm_mode",
+    "safe_float",
+]

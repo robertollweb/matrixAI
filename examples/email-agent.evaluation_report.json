@@ -1,0 +1,78 @@
+{
+  "accuracy": 0.6666666666666666,
+  "confusion_matrix": {
+    "operations": {
+      "operations": 1,
+      "sales": 0,
+      "support": 0
+    },
+    "sales": {
+      "operations": 0,
+      "sales": 1,
+      "support": 0
+    },
+    "support": {
+      "operations": 1,
+      "sales": 0,
+      "support": 0
+    }
+  },
+  "dataset": "examples/email-agent.test.csv",
+  "dataset_fingerprint": "data_05811ab51970e0ed",
+  "dataset_schema": {
+    "input_columns": [
+      "urgency",
+      "sender_trust",
+      "topic_support",
+      "topic_sales",
+      "sentiment",
+      "has_attachment",
+      "previous_interactions",
+      "language_confidence"
+    ],
+    "input_vector": "Email",
+    "labels": [
+      "support",
+      "sales",
+      "operations"
+    ],
+    "rows": 3,
+    "source": "examples/email-agent.test.csv",
+    "source_kind": "csv",
+    "target": "label"
+  },
+  "labels": [
+    "support",
+    "sales",
+    "operations"
+  ],
+  "loss": 1.0857501087095252,
+  "macro_f1": 0.5555555555555555,
+  "macro_precision": 0.5,
+  "macro_recall": 0.6666666666666666,
+  "model": "examples/email-agent.typed.mxai",
+  "model_hash": "mxai_95d06db23a86dd10",
+  "parameter_schema_hash": "params_9e743b60c37f59a3",
+  "parameter_set_id": "email_run_best",
+  "per_label": {
+    "operations": {
+      "f1": 0.6666666666666666,
+      "precision": 0.5,
+      "recall": 1.0,
+      "support": 1
+    },
+    "sales": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "support": 1
+    },
+    "support": {
+      "f1": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "support": 1
+    }
+  },
+  "rows": 3
+}

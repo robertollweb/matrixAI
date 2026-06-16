@@ -1,0 +1,28 @@
+PROJECT ContinuousScoringTyped
+
+VECTOR Candidate[4]
+  relevance: Score
+  coherence: Score
+  raw_quality: Score[0, 10]
+  safety: Score
+END
+
+FUNCTION FinalScore
+  final_score: Score = 0.7 * relevance + 0.3 * coherence
+END
+
+FUNCTION Quality
+  quality: Score = scale(raw_quality, 0, 10)
+END
+
+FUNCTION Readiness
+  readiness: Score = mean(final_score, quality, safety)
+END
+
+GRAPH
+  Candidate -> FinalScore -> Quality -> Readiness
+END
+
+AUDIT
+  EXPLAIN Candidate -> FinalScore -> Quality -> Readiness
+END

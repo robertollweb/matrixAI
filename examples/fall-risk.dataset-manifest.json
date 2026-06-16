@@ -1,0 +1,49 @@
+{
+  "version": "matrixai.dataset_manifest.v1",
+  "name": "fall-risk-label-datasets-v1",
+  "datasets": [
+    {
+      "role": "train",
+      "source": "fall-risk.train.csv",
+      "version": "2026-05-02",
+      "sha256": "af222d1243e50a04089b3976ff83d447bcfdc9172ad202f30b1a692f8b9aebde",
+      "fingerprint": "data_af222d1243e50a04",
+      "rows": 8
+    },
+    {
+      "role": "evaluation",
+      "source": "fall-risk.test.csv",
+      "version": "2026-05-02",
+      "sha256": "acac0c8e0f2c12028bffd855de7a5bbf6034ee35baf3e5ab0bf0c7480c316771",
+      "fingerprint": "data_acac0c8e0f2c1202",
+      "rows": 4
+    }
+  ],
+  "splits": [
+    {
+      "name": "holdout-v1",
+      "version": "2026-05-02",
+      "strategy": "holdout",
+      "partitions": [
+        {
+          "role": "train",
+          "dataset": "train",
+          "rows": 8,
+          "row_indices": [2, 3, 4, 5, 6, 7, 8, 9],
+          "fingerprint": "split_part_bd849fe68d83ea1f"
+        },
+        {
+          "role": "evaluation",
+          "dataset": "evaluation",
+          "rows": 4,
+          "row_indices": [2, 3, 4, 5],
+          "fingerprint": "split_part_ade352a1c591fa2d"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "domain": "fall-risk",
+    "target": "risk_label"
+  }
+}

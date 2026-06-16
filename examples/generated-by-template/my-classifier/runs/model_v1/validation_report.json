@@ -1,0 +1,37 @@
+{
+  "dataset_path": "my-first-classifier/dataset/train.csv",
+  "differentiability": {
+    "errors": [],
+    "ok": true,
+    "parameter_paths": {
+      "W1": [
+        "ClassifierModel"
+      ],
+      "b1": [
+        "ClassifierModel"
+      ]
+    },
+    "prediction_node": "ClassifierModel",
+    "warnings": []
+  },
+  "errors": [],
+  "model_path": "my-first-classifier/my-first-classifier.mxai",
+  "ok": true,
+  "trainable_parameters": [
+    {
+      "function": "ClassifierModel",
+      "name": "W1",
+      "role": "weights",
+      "shape": [
+        3
+      ]
+    },
+    {
+      "function": "ClassifierModel",
+      "name": "b1",
+      "role": "bias",
+      "shape": []
+    }
+  ],
+  "warnings": []
+}

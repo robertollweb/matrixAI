@@ -1,0 +1,63 @@
+{
+  "environment": {
+    "python": "3.12.3",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "processor": "x86_64",
+    "sklearn": "1.8.0",
+    "ram_gb": 15.6
+  },
+  "baseline_description": "ThreadingHTTPServer + sklearn LogisticRegression (real model, same dataset, same threading model)",
+  "matrixai": {
+    "1": {
+      "rps": 1013.0,
+      "p50": 0.7,
+      "p95": 3.9,
+      "p99": 4.7
+    },
+    "5": {
+      "rps": 1989.2,
+      "p50": 2.5,
+      "p95": 3.6,
+      "p99": 3.9
+    },
+    "10": {
+      "rps": 3064.6,
+      "p50": 3.2,
+      "p95": 5.1,
+      "p99": 6.1
+    },
+    "20": {
+      "rps": 5246.7,
+      "p50": 3.5,
+      "p95": 6.4,
+      "p99": 9.4
+    }
+  },
+  "baseline": {
+    "1": {
+      "rps": 1113.5,
+      "p50": 0.8,
+      "p95": 1.3,
+      "p99": 1.8
+    },
+    "5": {
+      "rps": 1829.3,
+      "p50": 2.8,
+      "p95": 4.1,
+      "p99": 4.8
+    },
+    "10": {
+      "rps": 665.8,
+      "p50": 4.4,
+      "p95": 6.4,
+      "p99": 1059.7
+    },
+    "20": {
+      "rps": 807.3,
+      "p50": 4.8,
+      "p95": 7.6,
+      "p99": 1002.5
+    }
+  }
+}

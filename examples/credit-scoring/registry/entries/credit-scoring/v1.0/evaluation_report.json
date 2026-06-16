@@ -1,0 +1,10 @@
+{
+  "version": "v1.0",
+  "accuracy": 0.875,
+  "best_epoch": 34,
+  "best_validation_loss": 0.40301,
+  "trained_at": "2026-05-26T13:39:42.800210+00:00",
+  "dataset": "data/train.csv",
+  "learning_rate": 0.5,
+  "seed": 42
+}

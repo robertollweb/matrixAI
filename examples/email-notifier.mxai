@@ -1,0 +1,18 @@
+PROJECT EmailNotifier
+
+VECTOR Alert[3]
+  severity
+  source_trust
+  is_business_hours
+END
+
+ACTION SendNotification
+  TARGET email_send
+  POLICY real_with_audit
+  CONDITION severity > 0.7
+  INPUT recipient: String, subject: String, body: String
+END
+
+GRAPH
+  Alert -> SendNotification
+END

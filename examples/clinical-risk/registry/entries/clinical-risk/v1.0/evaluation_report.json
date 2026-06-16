@@ -1,0 +1,8 @@
+{
+  "accuracy": 1.0,
+  "best_epoch": 50,
+  "best_validation_loss": 0.44216,
+  "learning_rate": 0.8,
+  "seed": 7,
+  "trained_at": "2026-05-26T12:46:55.659268+00:00"
+}

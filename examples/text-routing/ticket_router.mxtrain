@@ -1,0 +1,43 @@
+MODEL examples/text-routing/ticket_router.mxai
+
+DATASET TicketDataset
+  SOURCE csv("examples/text-routing/data/train.csv")
+  INPUT TicketFeatures FROM COLUMNS [
+    word_count,
+    has_price,
+    has_error,
+    is_question,
+    urgency_score
+  ]
+  TARGET category: Label[billing, technical, sales]
+  SPLIT train=0.8 validation=0.2 seed=42
+  BATCH size=8 shuffle=true
+END
+
+LOSS RoutingLoss
+  TYPE cross_entropy
+  PREDICTION C
+  TARGET category
+END
+
+OPTIMIZER RoutingOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.3
+  UPDATE W1, b1
+END
+
+METRIC Accuracy
+  TYPE accuracy
+  PREDICTION C
+  TARGET category
+END
+
+RUN
+  EPOCHS 60
+  EARLY_STOP patience=5 metric=validation_loss
+  SAVE_BEST true
+END
+
+# NOTE: ticket_router.mxai is the standalone reference model (5 features -> 3 classes).
+# The composite pipeline (text_routing_pipeline.mxai) uses feature_extractor + route_classifier.
+# See run_case.py for the full demo.

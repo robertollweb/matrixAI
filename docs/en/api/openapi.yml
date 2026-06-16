@@ -1,0 +1,478 @@
+openapi: "3.0.3"
+info:
+  title: MatrixAI API
+  version: "1.0.0"
+  description: |
+    REST API for MatrixAI — auditable AI model language, runtime and deployment framework.
+
+    All endpoints under `/api/v1/` are versioned and stable per the compatibility policy
+    in `docs/en/VERSIONING.md`. Legacy unversioned routes (`/predict`, `/health`, etc.)
+    are preserved as backwards-compatible aliases.
+
+    **Authentication:** pass the API key as `Authorization: Bearer <key>` or `X-API-Key: <key>`.
+    Registry write endpoints (push, tag) require the write key.
+    Registry read endpoints also accept a read-only key (`MATRIXAI_API_KEY_READ`).
+
+servers:
+  - url: http://127.0.0.1:8000
+    description: Local development server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [ok, error, code]
+      properties:
+        ok:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "Entry not found in registry"
+        code:
+          type: string
+          example: "NOT_FOUND"
+
+    RegistryEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        matrixai_version:
+          type: string
+        entry_hash:
+          type: string
+        model_hash:
+          type: string
+        parameter_set_id:
+          type: string
+        metrics:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        interpretability_level:
+          type: string
+
+security:
+  - BearerAuth: []
+  - ApiKeyHeader: []
+
+paths:
+  /api/v1/health:
+    get:
+      summary: Server health and metrics
+      security: []
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  status:
+                    type: string
+                    example: ok
+                  backend:
+                    type: string
+                  metrics:
+                    type: object
+
+  /api/v1/metrics:
+    get:
+      summary: Prometheus-format metrics
+      security: []
+      responses:
+        "200":
+          description: Prometheus text format metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1/predict:
+    post:
+      summary: Run inference on the loaded model
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  description: Single input
+                - type: array
+                  description: Batch input
+      responses:
+        "200":
+          description: Inference result
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/execute-action:
+    post:
+      summary: Execute a real action defined in the loaded .mxact contract
+      description: Requires `--allow-real-actions` on server start.
+      responses:
+        "200":
+          description: Action trace result
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No action contract loaded
+
+  /api/v1/feedback:
+    post:
+      summary: Record ground truth for drift monitoring
+      description: Requires `--continual-policy` on server start.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prediction, ground_truth]
+              properties:
+                prediction:
+                  type: string
+                ground_truth:
+                  type: string
+                trace_id:
+                  type: string
+      responses:
+        "200":
+          description: Feedback recorded
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/registry:
+    get:
+      summary: List models in the registry
+      description: Requires `--registry` on server start.
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - in: query
+          name: name
+          schema:
+            type: string
+          description: Filter by model name
+      responses:
+        "200":
+          description: Paginated list of registry entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  models:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RegistryEntry"
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: Registry not loaded
+
+  /api/v1/registry/push:
+    post:
+      summary: Push a model from a local run directory into the registry
+      description: Write scope required. The run_dir must be accessible on the server.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, version, run_dir]
+              properties:
+                name:
+                  type: string
+                version:
+                  type: string
+                run_dir:
+                  type: string
+                  description: Absolute path to the training run directory on the server
+      responses:
+        "201":
+          description: Model pushed successfully
+        "400":
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Duplicate entry (registry is append-only)
+
+  /api/v1/registry/{name}/{version}:
+    get:
+      summary: Show registry entry metadata
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: version
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Registry entry
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  model:
+                    $ref: "#/components/schemas/RegistryEntry"
+        "404":
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/registry/{name}/{version}/predict:
+    post:
+      summary: Run inference on a model loaded from the registry
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: version
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                - type: array
+      responses:
+        "200":
+          description: Inference result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  result:
+                    type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Model not found in registry
+
+  /api/v1/registry/{name}/{version}/verify:
+    post:
+      summary: Verify integrity and signature of a registry entry
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: version
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  verified:
+                    type: boolean
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+        "409":
+          description: Integrity mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/registry/{name}/tags:
+    get:
+      summary: List all tags for a model
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tag list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  name:
+                    type: string
+                  tags:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tag:
+                          type: string
+                        version:
+                          type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/registry/{name}/{version}/pull:
+    get:
+      summary: Pull model program text and parameters
+      description: Returns the model.mxai content and params.json so a client can use the model without filesystem access.
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: version
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Model text and params
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  name:
+                    type: string
+                  version:
+                    type: string
+                  model_text:
+                    type: string
+                  params:
+                    type: object
+        "404":
+          description: Model file not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/registry/{name}/tag/{tag}:
+    post:
+      summary: Tag a registry entry version
+      description: Write scope required.
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: tag
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version:
+                  type: string
+      responses:
+        "200":
+          description: Tag created
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Model version not found
+
+components:
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

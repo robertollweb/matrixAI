@@ -1,0 +1,101 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build package
+        run: |
+          pip install build
+          python -m build
+
+      - name: SHA-256 checksums
+        run: |
+          sha256sum dist/*.whl dist/*.tar.gz > dist/SHA256SUMS
+          cat dist/SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  audit:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit dist/*.whl
+
+  publish-pypi:
+    needs: audit
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
+  release:
+    needs: [build, publish-pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body: |
+            ## MatrixAI Core ${{ needs.build.outputs.version }}
+
+            **Install from PyPI:**
+            ```
+            pip install matrixai-core==${{ needs.build.outputs.version }}
+            ```
+
+            **Optional extras:**
+            ```
+            pip install "matrixai-core[torch]"    # GPU training via PyTorch
+            pip install "matrixai-core[export]"   # ONNX export
+            ```
+
+            SHA-256 checksums of all artifacts are attached as `SHA256SUMS`.

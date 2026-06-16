@@ -1,0 +1,4 @@
+if risk > 0.8 then alert
+if age > 0.8 and mobility < 0.3 then notify
+if urgency > 0.9 or priority > 0.85 then dispatch
+classify Email into support, sales, operations

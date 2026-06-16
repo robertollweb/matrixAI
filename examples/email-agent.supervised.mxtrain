@@ -1,0 +1,42 @@
+MODEL examples/email-agent.typed.mxai
+
+DATASET EmailTrainingSet
+  SOURCE csv("examples/email-agent.train.csv")
+  INPUT Email FROM COLUMNS [
+    urgency,
+    sender_trust,
+    topic_support,
+    topic_sales,
+    sentiment,
+    has_attachment,
+    previous_interactions,
+    language_confidence
+  ]
+  TARGET label: Label[support, sales, operations]
+  SPLIT train=0.75 validation=0.25 seed=42
+  BATCH size=2 shuffle=true
+END
+
+LOSS EmailLoss
+  TYPE cross_entropy
+  PREDICTION C
+  TARGET label
+END
+
+OPTIMIZER EmailOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.05
+  UPDATE W1, b1
+END
+
+METRIC Accuracy
+  TYPE accuracy
+  PREDICTION C
+  TARGET label
+END
+
+RUN
+  EPOCHS 20
+  EARLY_STOP patience=3 metric=validation_loss
+  SAVE_BEST true
+END

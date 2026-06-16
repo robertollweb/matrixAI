@@ -1,0 +1,9 @@
+{
+  "Patient": {
+    "age": 0.92,
+    "mobility": 0.22,
+    "medication_load": 0.76,
+    "previous_falls": 1.0,
+    "cognitive_state": 0.48
+  }
+}

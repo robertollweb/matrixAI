@@ -1,0 +1,23 @@
+PROJECT FallRisk
+INTENT Detect patient fall risk and notify staff only when risk confidence is high.
+MODE risk
+ENTITY Patient
+
+FIELDS Patient
+  age
+  mobility
+  medication_load
+  previous_falls
+  cognitive_state
+END
+
+GOAL minimize_fall_incidents
+GOAL minimize_false_alerts
+
+CONSTRAINT risk > 0.80
+ACTION_THRESHOLD 0.90
+
+ACTION Notify
+  POLICY simulate_only
+  CALL simulated.nurse_station.alert
+END

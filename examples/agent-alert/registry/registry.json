@@ -1,0 +1,10 @@
+{
+  "version": "0.21.0",
+  "entries": [
+    {
+      "name": "alert-monitor",
+      "version": "v1.0",
+      "entry_hash": "sha256:c35c493fbe68fec8c9efb14f4c0ec7e6344d8f121b273d0ddab275f15f3f2ae8"
+    }
+  ]
+}

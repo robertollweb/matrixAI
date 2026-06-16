@@ -1,0 +1,7 @@
+{
+  "run_id": "9016891f",
+  "epochs": 120,
+  "best_epoch": 7,
+  "best_val_loss": 0.3368133263194635,
+  "network": "TextEncoder"
+}

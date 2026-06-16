@@ -1,0 +1,25 @@
+PROJECT CreditScoring
+
+VECTOR Application[5]
+  income_score: Score
+  credit_history: Score
+  debt_ratio: Risk
+  employment_years: Score
+  loan_amount_ratio: Risk
+END
+
+FUNCTION ScoringModel
+  R: Risk = sigmoid(W1 * Application + b1)
+END
+
+DISTRIBUTION ApprovalScore
+  ApprovalScore ~ Normal(R, uncertainty(Application))
+END
+
+GRAPH
+  Application -> ScoringModel -> ApprovalScore
+END
+
+AUDIT
+  EXPLAIN Application -> ScoringModel -> ApprovalScore
+END

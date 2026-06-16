@@ -1,0 +1,58 @@
+{
+  "environment": {
+    "python": "3.12.3",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "machine": "x86_64",
+    "processor": "x86_64",
+    "sklearn": "1.8.0",
+    "ram_gb": 15.6
+  },
+  "reps": 5,
+  "note": "sklearn pre-imported; import overhead excluded from timing",
+  "results": [
+    {
+      "pipeline": "credit_scoring",
+      "matrixai_median_s": 0.034,
+      "matrixai_max_s": 0.096,
+      "matrixai_accuracy": 0.875,
+      "matrixai_best_epoch": 39,
+      "sklearn_median_s": 0.003,
+      "sklearn_max_s": 0.005,
+      "sklearn_accuracy": 0.85,
+      "ratio_median": 11.3
+    },
+    {
+      "pipeline": "clinical_risk",
+      "matrixai_median_s": 0.023,
+      "matrixai_max_s": 0.026,
+      "matrixai_accuracy": 1.0,
+      "matrixai_best_epoch": 50,
+      "sklearn_median_s": 0.001,
+      "sklearn_max_s": 0.002,
+      "sklearn_accuracy": 0.8958,
+      "ratio_median": 23.0
+    },
+    {
+      "pipeline": "agent_alert",
+      "matrixai_median_s": 0.015,
+      "matrixai_max_s": 0.017,
+      "matrixai_accuracy": 1.0,
+      "matrixai_best_epoch": 77,
+      "sklearn_median_s": 0.001,
+      "sklearn_max_s": 0.002,
+      "sklearn_accuracy": 0.8333,
+      "ratio_median": 15.0
+    },
+    {
+      "pipeline": "text_routing_fe",
+      "matrixai_median_s": 0.088,
+      "matrixai_max_s": 0.1,
+      "matrixai_accuracy": 1.0,
+      "matrixai_best_epoch": 7,
+      "sklearn_median_s": 0.023,
+      "sklearn_max_s": 0.024,
+      "sklearn_accuracy": 1.0,
+      "ratio_median": 3.8
+    }
+  ]
+}

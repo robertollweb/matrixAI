@@ -1,0 +1,25 @@
+{
+  "name": "alert-monitor",
+  "version": "v1.0",
+  "entry_hash": "sha256:c35c493fbe68fec8c9efb14f4c0ec7e6344d8f121b273d0ddab275f15f3f2ae8",
+  "model_hash": "sha256:07f8aaa630bcb71094b8ab0f60da4017a9f113a59726ca632b4a35cdc774c1e0",
+  "parameter_schema_hash": "params_59a5f49ba60ac542",
+  "parameter_set_id": "train_out_best",
+  "input_type": {},
+  "output_type": {},
+  "metrics": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "macro_precision": 1.0,
+    "macro_recall": 1.0,
+    "validation_loss": 0.322438387545791
+  },
+  "matrixai_version": "0.21.0",
+  "created_at": "2026-05-26T12:46:58.696362+00:00",
+  "training_dataset_fingerprint": "",
+  "interpretability_level": "full",
+  "training_trace_hash": "sha256:976c010673a8f33d7a0719c95856a6268d55928334ca0affe91f156daba30b79",
+  "evaluation_report_hash": "sha256:c50b224b747df2c6fbca445dbc175596a64c88b2e657bdfccdb29ac5e976abbf",
+  "params_content_hash": "sha256:9df1f6b83fe898923130326624127446f2be7e6f122c1b1ee5500b6d09d80b13",
+  "blockers": []
+}

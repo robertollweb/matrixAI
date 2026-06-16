@@ -1,0 +1,15 @@
+{
+  "version": "0.21.0",
+  "entries": [
+    {
+      "name": "credit-scoring",
+      "version": "v1.0",
+      "entry_hash": "sha256:ba171c3973a0f91416f0ee797009cdc48c9748113a7978bf621cfb52a93abcfa"
+    },
+    {
+      "name": "credit-scoring",
+      "version": "v1.1",
+      "entry_hash": "sha256:070f1b1f6c878b54d01f5c406dfd490bce1429d42b28c350573ea8ee2e032937"
+    }
+  ]
+}

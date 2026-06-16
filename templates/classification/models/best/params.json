@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "model_name": "$project_name",
+    "version": "1.0",
+    "status": "example",
+    "description": "Example model parameters. Train the model to replace with real parameters."
+  },
+  "parameters": {
+    "W1": {
+      "shape": [3],
+      "dtype": "float32",
+      "role": "weight",
+      "values": [0.1, 0.1, 0.1]
+    },
+    "b1": {
+      "shape": [],
+      "dtype": "float32",
+      "role": "bias",
+      "values": 0.0
+    }
+  }
+}

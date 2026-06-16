@@ -1,0 +1,108 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Roberto Llamosas Conde
+
+from matrixai.continual.parser import MxcontinualParseError, parse_mxcontinual
+from matrixai.continual.dataset import ContinualDataset
+from matrixai.continual.trainer import IncrementalTrainer, IncrementalTrainingResult
+from matrixai.continual.monitor import OnlineObservation, ProductionMonitor, WindowMetrics
+from matrixai.continual.rollback import RollbackCheckResult, RollbackEvent, RollbackManager
+from matrixai.continual.refinement_bridge import DriftRefinementBridge
+from matrixai.continual.versioning import (
+    ContinualVersioner,
+    ContinualVersioningError,
+    ContinualVersioningResult,
+)
+from matrixai.continual.approval import (
+    ApprovalGate,
+    ApprovalGateReport,
+    approve_pending_approval,
+    HoldoutMetrics,
+    PendingApproval,
+    RegressionGuardResult,
+)
+from matrixai.continual.drift import (
+    ConceptDriftDetector,
+    ConceptDriftReport,
+    DriftDetector,
+    DriftReport,
+    FeatureDriftResult,
+    MAX_CHI_SQUARE_CATEGORIES,
+    compute_chi_square,
+    compute_chi_square_from_samples,
+    compute_js_divergence,
+    compute_ks_statistic,
+    compute_psi,
+    compute_wasserstein,
+)
+from matrixai.ir.continual import (
+    ApprovalGateSpec,
+    ContinualAuditSpec,
+    ContinualPolicySpec,
+    ContinualRollbackSpec,
+    ContinualTrainingSpec,
+    ConceptDriftSpec,
+    DatasetMixSpec,
+    DriftDetectionSpec,
+    EarlyStopSpec,
+    FeatureDriftMethodSpec,
+    GroundTruthSpec,
+    RecencyDecaySpec,
+    RegressionGuardSpec,
+    UpdateTriggerSpec,
+    VALID_DRIFT_METHODS,
+    canonical_dict,
+    compute_policy_hash,
+)
+
+__all__ = [
+    "ContinualDataset",
+    "IncrementalTrainer",
+    "IncrementalTrainingResult",
+    "OnlineObservation",
+    "ProductionMonitor",
+    "WindowMetrics",
+    "ContinualVersioner",
+    "ContinualVersioningError",
+    "ContinualVersioningResult",
+    "ApprovalGate",
+    "ApprovalGateReport",
+    "approve_pending_approval",
+    "HoldoutMetrics",
+    "PendingApproval",
+    "RegressionGuardResult",
+    "ConceptDriftDetector",
+    "ConceptDriftReport",
+    "DriftDetector",
+    "DriftReport",
+    "FeatureDriftResult",
+    "MAX_CHI_SQUARE_CATEGORIES",
+    "compute_chi_square",
+    "compute_chi_square_from_samples",
+    "compute_js_divergence",
+    "compute_ks_statistic",
+    "compute_psi",
+    "compute_wasserstein",
+    "ApprovalGateSpec",
+    "ContinualAuditSpec",
+    "ContinualPolicySpec",
+    "ContinualRollbackSpec",
+    "ContinualTrainingSpec",
+    "ConceptDriftSpec",
+    "DatasetMixSpec",
+    "DriftDetectionSpec",
+    "EarlyStopSpec",
+    "FeatureDriftMethodSpec",
+    "GroundTruthSpec",
+    "MxcontinualParseError",
+    "RecencyDecaySpec",
+    "RegressionGuardSpec",
+    "UpdateTriggerSpec",
+    "VALID_DRIFT_METHODS",
+    "canonical_dict",
+    "compute_policy_hash",
+    "parse_mxcontinual",
+    "RollbackCheckResult",
+    "RollbackEvent",
+    "RollbackManager",
+    "DriftRefinementBridge",
+]

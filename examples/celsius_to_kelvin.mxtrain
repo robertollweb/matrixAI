@@ -1,0 +1,32 @@
+MODEL examples/celsius_to_kelvin.mxai
+
+DATASET CelsiusToKelvinSet
+  SOURCE csv("examples/celsius_to_kelvin.train.csv")
+  INPUT Reading FROM COLUMNS [celsius]
+  TARGET predicted_kelvin: Scalar[0, 1000]
+  SPLIT train=0.8 validation=0.2 seed=42
+  BATCH size=4 shuffle=true
+END
+
+LOSS KelvinLoss
+  TYPE mse
+  PREDICTION predicted_kelvin
+  TARGET predicted_kelvin
+END
+
+OPTIMIZER KelvinOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.0003
+  UPDATE W1, b1
+END
+
+METRIC KelvinMAE
+  TYPE mae
+  PREDICTION predicted_kelvin
+  TARGET predicted_kelvin
+END
+
+RUN
+  EPOCHS 10000
+  SAVE_BEST true
+END

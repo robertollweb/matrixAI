@@ -1,0 +1,34 @@
+MODEL examples/transformer-classifier.mxai
+
+DATASET TransformerTrainingSet
+  SOURCE csv("examples/transformer-classifier.train.csv")
+  INPUT Input FROM COLUMNS [
+    t0, t1, t2, t3, t4, t5, t6, t7
+  ]
+  TARGET label: Label[class_a, class_b]
+  SPLIT train=0.75 validation=0.25 seed=42
+  BATCH size=4 shuffle=true
+END
+
+LOSS TransformerLoss
+  TYPE cross_entropy
+  PREDICTION logits
+  TARGET label
+END
+
+OPTIMIZER TransformerOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.01
+  UPDATE encoder_embed.*, encoder_attn.*, encoder_ffn.*, classifier.*
+END
+
+METRIC Accuracy
+  TYPE accuracy
+  PREDICTION logits
+  TARGET label
+END
+
+RUN
+  EPOCHS 10
+  SAVE_BEST true
+END

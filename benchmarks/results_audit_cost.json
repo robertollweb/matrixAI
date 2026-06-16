@@ -1,0 +1,32 @@
+{
+  "inference_no_audit": {
+    "median_ms": 0.005,
+    "p95_ms": 0.009,
+    "p99_ms": 0.03,
+    "min_ms": 0.005
+  },
+  "registry_verify": {
+    "median_ms": 0.171,
+    "p95_ms": 0.275,
+    "p99_ms": 0.387,
+    "min_ms": 0.155
+  },
+  "hmac_sign": {
+    "median_ms": 0.003,
+    "p95_ms": 0.004,
+    "p99_ms": 0.018,
+    "min_ms": 0.003
+  },
+  "dry_run": {
+    "median_ms": 0.014,
+    "p95_ms": 0.021,
+    "p99_ms": 0.057,
+    "min_ms": 0.013
+  },
+  "push_run_dir": {
+    "median_ms": 0.991,
+    "p95_ms": 2.015,
+    "p99_ms": 2.015,
+    "min_ms": 0.863
+  }
+}

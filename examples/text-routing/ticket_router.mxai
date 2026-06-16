@@ -1,0 +1,25 @@
+PROJECT TicketRouter
+
+VECTOR TicketFeatures[5]
+  word_count: Score
+  has_price: Score
+  has_error: Score
+  is_question: Score
+  urgency_score: Score
+END
+
+FUNCTION Route
+  C: ProbabilityMap = softmax(W1 * TicketFeatures + b1)
+END
+
+DISTRIBUTION Queue
+  Queue ~ Categorical(C)
+END
+
+GRAPH
+  TicketFeatures -> Route -> Queue
+END
+
+AUDIT
+  EXPLAIN TicketFeatures -> Route -> Queue
+END

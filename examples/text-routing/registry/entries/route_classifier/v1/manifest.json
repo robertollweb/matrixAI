@@ -1,0 +1,19 @@
+{
+  "name": "route_classifier",
+  "version": "v1",
+  "entry_hash": "sha256:f628823298aefc2d6c3ea9322288576b2f2a7736e4be8939f621ccc9a8d63205",
+  "model_hash": "sha256:fb6a9c931f8eaa236ae53b2ae544257379f18ebcbc589b48043b6227e828e094",
+  "parameter_schema_hash": "params_927678e698367f45",
+  "parameter_set_id": "Classify_initial",
+  "input_type": {},
+  "output_type": {},
+  "metrics": {},
+  "matrixai_version": "0.21.0",
+  "created_at": "2026-05-26T12:23:07.198628+00:00",
+  "training_dataset_fingerprint": "",
+  "interpretability_level": "full",
+  "training_trace_hash": "sha256:8316d6771d1b986069fd4199899c04a8c955920827febc678d5fe5453c772e9c",
+  "evaluation_report_hash": "sha256:c7e6f8c15c59a0fa619f9b4b80a6941d94d5b7305ef07cb62837bedd664a3603",
+  "params_content_hash": "sha256:a51b92efd221fd07f91a4aecf4b1926f92cb02293c039ec68f7530d993c177d7",
+  "blockers": []
+}

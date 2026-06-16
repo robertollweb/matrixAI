@@ -1,0 +1,9 @@
+{
+  "component": "text_embedder",
+  "routing_accuracy": 1.0,
+  "best_epoch": 7,
+  "best_validation_loss": 0.336813,
+  "trained_at": "2026-05-26T12:23:07.167113+00:00",
+  "architecture": "BoW[30] -> Dense(8,relu) -> Dense(1,sigmoid)",
+  "vocab_size": 30
+}

@@ -1,0 +1,29 @@
+MatrixAI
+Copyright (C) 2026 Roberto Llamosas Conde
+
+This product includes software developed by Roberto Llamosas Conde.
+
+Licensing
+---------
+MatrixAI (core and CLI) is free software licensed under the
+GNU Affero General Public License version 3 (AGPL-3.0-only).
+See the LICENSE file for the full license text.
+
+Each source file carries an SPDX identifier:
+    SPDX-License-Identifier: AGPL-3.0-only
+
+Authorship and Brand
+--------------------
+The MatrixAI name, the matrixaistudio.org domain, and the public project
+identity belong to the author, Roberto Llamosas Conde. The AGPL-3.0-only
+license guarantees attribution of authorship in every distributed copy.
+
+References to external providers, protocols, or API formats appear only
+where technically necessary to describe configurable compatibility, and
+do not imply endorsement, affiliation, or trademark ownership.
+
+Commercial and Fiscal Notice
+----------------------------
+This notice is an authorship and licensing record, not legal, tax, or
+accounting advice. Any future commercial layer, donation handling, or paid
+license terms must be reviewed with qualified professionals before launch.

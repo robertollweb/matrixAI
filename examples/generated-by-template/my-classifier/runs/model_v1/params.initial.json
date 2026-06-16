@@ -1,0 +1,33 @@
+{
+  "metrics": {},
+  "model_hash": "mxai_ff6fcc66e359a93d",
+  "parameter_schema_hash": "params_7bdee2c45b56c62e",
+  "parameter_set_id": "model_v1_initial",
+  "parameters": {
+    "W1": {
+      "dtype": "float32",
+      "function": "ClassifierModel",
+      "initializer": "deterministic_uniform",
+      "role": "weights",
+      "shape": [
+        3
+      ],
+      "type": "Vector[3]",
+      "values": [
+        -0.01666667,
+        0.01666667,
+        0.05
+      ]
+    },
+    "b1": {
+      "dtype": "float32",
+      "function": "ClassifierModel",
+      "initializer": "zeros",
+      "role": "bias",
+      "shape": [],
+      "type": "Scalar",
+      "values": 0.0
+    }
+  },
+  "source": "initial"
+}

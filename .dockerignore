@@ -1,0 +1,48 @@
+# Sensitive / development-only — never enter the product image
+.env
+documentacion/
+notasRober.txt
+
+# VCS & editor
+.git/
+.gitignore
+.github/
+.vscode/
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+matrixai.egg-info/
+matrixai_core.egg-info/
+dist/
+build/
+*.whl
+*.tar.gz
+
+# Dev tooling / CI
+pr1-validation/
+node_modules/
+benchmarks/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Docs & media (only /docs travels in the bundle, not the full repo docs)
+documentacion/
+subido/
+*.mp4
+*.m4a
+*.png
+*.jpg
+*.svg
+
+# Node
+package-lock.json
+package.json
+
+# macOS
+.DS_Store

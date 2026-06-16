@@ -1,0 +1,25 @@
+{
+  "name": "credit-scoring",
+  "version": "v1.0",
+  "entry_hash": "sha256:ba171c3973a0f91416f0ee797009cdc48c9748113a7978bf621cfb52a93abcfa",
+  "model_hash": "sha256:05ca85333c05bbc376acf400741c0be6c99a2af6bdbbb4648c992e5e0bff06fb",
+  "parameter_schema_hash": "params_51b4404d9ecaab19",
+  "parameter_set_id": "v1.0_best",
+  "input_type": {},
+  "output_type": {},
+  "metrics": {
+    "accuracy": 0.875,
+    "macro_f1": 0.8633776091081594,
+    "macro_precision": 0.8555555555555556,
+    "macro_recall": 0.875,
+    "validation_loss": 0.4030101197398543
+  },
+  "matrixai_version": "0.21.0",
+  "created_at": "2026-05-26T13:39:42.800696+00:00",
+  "training_dataset_fingerprint": "",
+  "interpretability_level": "full",
+  "training_trace_hash": "sha256:7140b300571489ef42a1e5ed0b44295b02d116134fb704205a448fbc902e335b",
+  "evaluation_report_hash": "sha256:5e61eb07eb8e7c742fa42683c02322d58c75aec50cdf940232ff45c21aca6e0a",
+  "params_content_hash": "sha256:197a5b1897c42a0dacb2098a9ef1feb261695c5419484201c315f53590aca15f",
+  "blockers": []
+}

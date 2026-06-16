@@ -1,0 +1,23 @@
+PROJECT TextRoutingPipeline
+
+IMPORT TextEncoder FROM registry text_encoder@v1 FROZEN
+IMPORT SentimentClassifier FROM registry sentiment_classifier@v1 TRAINABLE
+
+VECTOR RawInput[1]
+  text
+END
+
+NETWORK Router
+  INPUT TextEncoder
+  LAYER Dense units=4 activation=relu
+  LAYER Dense units=2 activation=softmax
+  OUTPUT route: Categorical
+END
+
+GRAPH
+  RawInput -> TextEncoder
+  TextEncoder -> SentimentClassifier
+  TextEncoder -> Router
+  SentimentClassifier -> Output
+  Router -> Output
+END

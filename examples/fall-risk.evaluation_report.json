@@ -1,0 +1,60 @@
+{
+  "accuracy": 1.0,
+  "confusion_matrix": {
+    "high": {
+      "high": 2,
+      "low": 0
+    },
+    "low": {
+      "high": 0,
+      "low": 2
+    }
+  },
+  "dataset": "examples/fall-risk.test.csv",
+  "dataset_fingerprint": "data_acac0c8e0f2c1202",
+  "dataset_schema": {
+    "input_columns": [
+      "age",
+      "mobility",
+      "medication_load",
+      "previous_falls",
+      "cognitive_state"
+    ],
+    "input_vector": "Patient",
+    "labels": [
+      "low",
+      "high"
+    ],
+    "rows": 4,
+    "source": "examples/fall-risk.test.csv",
+    "source_kind": "csv",
+    "target": "risk_label"
+  },
+  "labels": [
+    "low",
+    "high"
+  ],
+  "loss": 0.07807832605772602,
+  "macro_f1": 1.0,
+  "macro_precision": 1.0,
+  "macro_recall": 1.0,
+  "model": "examples/fall-risk.typed.mxai",
+  "model_hash": "mxai_cd7b39f05ae34168",
+  "parameter_schema_hash": "params_8ff01d556bc0a7a3",
+  "parameter_set_id": "fall_run_best",
+  "per_label": {
+    "high": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "support": 2
+    },
+    "low": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "support": 2
+    }
+  },
+  "rows": 4
+}

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "matrixai-core"
+version = "1.0.0"
+description = "Auditable AI model language, runtime and deployment framework"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Roberto Llamosas Conde" }]
+license = { file = "LICENSE" }
+dependencies = []
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://matrixaistudio.org"
+Repository = "https://github.com/robertollweb/matrixAI"
+Documentation = "https://github.com/robertollweb/matrixAI/tree/main/docs"
+"Bug Tracker" = "https://github.com/robertollweb/matrixAI/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+export = ["onnx>=1.14", "onnxruntime>=1.14", "numpy>=1.24"]
+torch = ["torch>=2.0"]
+
+[project.scripts]
+matrixai = "matrixai.cli:main"
+
+[tool.setuptools]
+license-files = ["LICENSE"]
+
+[tool.setuptools.packages.find]
+include = ["matrixai*"]
+
+[tool.setuptools.package-data]
+matrixai = ["templates/**/*"]

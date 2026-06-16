@@ -1,0 +1,26 @@
+PROJECT EmailAgent
+INTENT Classify incoming emails and draft a response only when confidence is high.
+MODE classification
+ENTITY Email
+
+FIELDS Email
+  urgency
+  sender_trust
+  topic_support
+  topic_sales
+  sentiment
+  has_attachment
+  previous_interactions
+  language_confidence
+END
+
+GOAL classify_incoming_email
+GOAL minimize_false_replies
+
+CONSTRAINT confidence > 0.95
+ACTION_THRESHOLD 0.90
+
+ACTION DraftReply
+  POLICY simulate_only
+  CALL simulated.email.draft
+END

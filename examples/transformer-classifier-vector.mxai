@@ -1,0 +1,67 @@
+PROJECT transformer_classifier
+
+LAYER encoder_attn(Tensor[8]) -> Tensor[8]
+  PARAM Wq Tensor[8, 8]
+  PARAM Wk Tensor[8, 8]
+  PARAM Wv Tensor[8, 8]
+  PARAM Wo Tensor[8, 8]
+  PARAM gain Tensor[8]
+  PARAM bias Tensor[8]
+  q = matmul(input, Wq)
+  k = matmul(input, Wk)
+  v = matmul(input, Wv)
+  attn = attention(q, k, v)
+  proj = matmul(attn, Wo)
+  res = residual(input, proj)
+  result = layer_norm(res, gain, bias)
+END
+
+LAYER encoder_ffn(Tensor[8]) -> Tensor[8]
+  PARAM W1 Tensor[8, 32]
+  PARAM b1 Tensor[32]
+  PARAM W2 Tensor[32, 8]
+  PARAM b2 Tensor[8]
+  PARAM gain Tensor[8]
+  PARAM bias Tensor[8]
+  hidden = matmul(input, W1)
+  hidden_b = residual(hidden, b1)
+  activated = gelu(hidden_b)
+  proj = matmul(activated, W2)
+  res = residual(proj, b2)
+  normed = residual(input, res)
+  result = layer_norm(normed, gain, bias)
+END
+
+LAYER classifier(Tensor[8]) -> Tensor[2]
+  PARAM W Tensor[8, 2]
+  PARAM b Tensor[2]
+  proj = matmul(input, W)
+  result = residual(proj, b)
+END
+
+VECTOR Input[8]
+  x0 : Scalar
+  x1 : Scalar
+  x2 : Scalar
+  x3 : Scalar
+  x4 : Scalar
+  x5 : Scalar
+  x6 : Scalar
+  x7 : Scalar
+END
+
+FUNCTION AttnBlock
+  attn_block = call_layer(encoder_attn, Input)
+END
+
+FUNCTION FfnBlock
+  ffn_block = call_layer(encoder_ffn, attn_block)
+END
+
+FUNCTION Logits
+  logits = call_layer(classifier, ffn_block)
+END
+
+GRAPH
+  Input -> AttnBlock -> FfnBlock -> Logits
+END

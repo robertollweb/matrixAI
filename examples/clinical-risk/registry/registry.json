@@ -1,0 +1,10 @@
+{
+  "version": "0.21.0",
+  "entries": [
+    {
+      "name": "clinical-risk",
+      "version": "v1.0",
+      "entry_hash": "sha256:e3b12163364e7c32d387363e664d4133130dfe783020d90237ac0554bd81e731"
+    }
+  ]
+}

@@ -1,0 +1,693 @@
+{
+  "backend_report": {
+    "autodiff_plan": {
+      "blocked_nodes": [],
+      "differentiable_nodes": [
+        "Patient",
+        "RiskModel"
+      ],
+      "notes": [
+        "autodiff execution is not implemented by the differentiable_python target"
+      ],
+      "parameterized_nodes": [
+        "RiskModel"
+      ],
+      "ready": true,
+      "runtime_boundaries": [],
+      "status": "metadata_only",
+      "target": "differentiable_python",
+      "trainable_parameters": [
+        {
+          "function": "RiskModel",
+          "name": "W1",
+          "role": "weights",
+          "shape": [
+            5
+          ]
+        },
+        {
+          "function": "RiskModel",
+          "name": "b1",
+          "role": "bias",
+          "shape": []
+        }
+      ]
+    },
+    "backend": {},
+    "differentiable_nodes": [
+      "Patient",
+      "RiskModel"
+    ],
+    "nodes": [
+      {
+        "differentiable": true,
+        "node": "Patient",
+        "node_type": "vector",
+        "output_shape": [
+          5
+        ],
+        "reason": "numeric vector input",
+        "supported": true,
+        "type_constraints": {
+          "fields": {
+            "age": {
+              "name": "Score",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            },
+            "cognitive_state": {
+              "name": "Score",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            },
+            "medication_load": {
+              "name": "Risk",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            },
+            "mobility": {
+              "name": "Score",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            },
+            "previous_falls": {
+              "name": "Probability",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            }
+          }
+        }
+      },
+      {
+        "differentiable": true,
+        "kind": "sigmoid_linear",
+        "node": "RiskModel",
+        "node_type": "function",
+        "output_shape": [],
+        "reason": "continuous function kind supported by backend contract",
+        "supported": true,
+        "type_constraints": {
+          "output": {
+            "name": "R",
+            "type": {
+              "name": "Risk",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            }
+          }
+        }
+      }
+    ],
+    "ok": true,
+    "parameter_errors": [],
+    "parameter_manifest": [
+      {
+        "dtype": "float32",
+        "function": "RiskModel",
+        "initial_value": [
+          -0.03,
+          -0.01,
+          0.01,
+          0.03,
+          0.05
+        ],
+        "initializer": "deterministic_uniform",
+        "name": "W1",
+        "path": "W1",
+        "role": "weights",
+        "shape": [
+          5
+        ],
+        "trainable": true
+      },
+      {
+        "dtype": "float32",
+        "function": "RiskModel",
+        "initial_value": 0.0,
+        "initializer": "zeros",
+        "name": "b1",
+        "path": "b1",
+        "role": "bias",
+        "shape": [],
+        "trainable": true
+      }
+    ],
+    "project": "ClinicalRisk",
+    "target": "differentiable_python",
+    "tensor_shapes": {
+      "Patient": [
+        5
+      ],
+      "RiskModel": []
+    },
+    "trainable_parameters": [
+      {
+        "function": "RiskModel",
+        "name": "W1",
+        "role": "weights",
+        "shape": [
+          5
+        ]
+      },
+      {
+        "function": "RiskModel",
+        "name": "b1",
+        "role": "bias",
+        "shape": []
+      }
+    ],
+    "type_constraints": {
+      "Patient": {
+        "fields": {
+          "age": {
+            "name": "Score",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "cognitive_state": {
+            "name": "Score",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "medication_load": {
+            "name": "Risk",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "mobility": {
+            "name": "Score",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "previous_falls": {
+            "name": "Probability",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          }
+        }
+      },
+      "RiskModel": {
+        "output": {
+          "name": "R",
+          "type": {
+            "name": "Risk",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          }
+        }
+      }
+    },
+    "unsupported_nodes": [],
+    "warnings": []
+  },
+  "dataset": {
+    "fingerprint": "data_0ed177ad2be1e7c5",
+    "name": "PatientData",
+    "rows_train": 38,
+    "rows_validation": 10,
+    "source": "/home/deployer/matrixAI/examples/clinical-risk/data/train.csv",
+    "split": {
+      "config": {
+        "seed": 7,
+        "train": 0.8,
+        "validation": 0.2
+      },
+      "fingerprint": "split_d410d1eb08edb141",
+      "train": {
+        "fingerprint": "split_part_c1e9ee63a8448fed",
+        "row_hashes": [
+          "row_5e994cccf8203cd7",
+          "row_c65a086d047e7bc5",
+          "row_57b31770ed82c29d",
+          "row_a327dc2dd151cf9e",
+          "row_a1ddf632e22a742a",
+          "row_95789b5406587a87",
+          "row_de06b688bc0387e2",
+          "row_651442d48141c826",
+          "row_a5fd5a5f8913917b",
+          "row_27405fc8e5bf70c3",
+          "row_4eb38db1adcb5cc1",
+          "row_57d9669aada709b5",
+          "row_2f68dade0eed655e",
+          "row_800697427c9bd12d",
+          "row_f827fa972eba7772",
+          "row_2eb9e72206b1750c",
+          "row_779d996cb6febea1",
+          "row_ec60354c1ad155ed",
+          "row_aa7db98a1e06c0a7",
+          "row_af7dd1a307525b18",
+          "row_a2b643343cd77d75",
+          "row_f10647be1b002d07",
+          "row_b65d949bc847c35b",
+          "row_93aeed1d9bd9e59c",
+          "row_39f1d6ed141acf47",
+          "row_6abccfe8e6617ed5",
+          "row_1169ed0ec24eb1ed",
+          "row_0b9a8a7e716db4cc",
+          "row_308a8f64717994f8",
+          "row_5ec091f379e10920",
+          "row_b1830a12f3854576",
+          "row_02017e6d8f18a0d3",
+          "row_fc9943f69e45abad",
+          "row_a06c4b03832a336e",
+          "row_db40e50bd583abfc",
+          "row_370c169a1925bd7c",
+          "row_7c61196a4b761ce6",
+          "row_2af8ca4d27311164"
+        ],
+        "row_indices": [
+          2,
+          3,
+          4,
+          7,
+          9,
+          10,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          23,
+          24,
+          26,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          37,
+          38,
+          40,
+          41,
+          42,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49
+        ],
+        "rows": 38
+      },
+      "validation": {
+        "fingerprint": "split_part_7e7460b2c6ae967b",
+        "row_hashes": [
+          "row_38c2d6b9ab246b9a",
+          "row_6e398ab840585e74",
+          "row_7a34b1876f4cd403",
+          "row_3c1ed24ea8a14e04",
+          "row_4c36f8b6065e39eb",
+          "row_b2fc9aa52430b772",
+          "row_9110e2b2a6e7f715",
+          "row_890f170e42a8d322",
+          "row_498f0e6609472533",
+          "row_d505d0dc1f625bca"
+        ],
+        "row_indices": [
+          5,
+          6,
+          8,
+          11,
+          22,
+          25,
+          27,
+          36,
+          39,
+          43
+        ],
+        "rows": 10
+      }
+    }
+  },
+  "epochs": [
+    {
+      "accuracy": 0.7,
+      "epoch": 1,
+      "train_loss": 0.6542346307152529,
+      "validation_loss": 0.5842280536044633
+    },
+    {
+      "accuracy": 0.9,
+      "epoch": 2,
+      "train_loss": 0.6257459933959307,
+      "validation_loss": 0.5736221726322077
+    },
+    {
+      "accuracy": 0.9,
+      "epoch": 3,
+      "train_loss": 0.6061000370391558,
+      "validation_loss": 0.5497734077594654
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 4,
+      "train_loss": 0.5933177147951082,
+      "validation_loss": 0.5528765252256451
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 5,
+      "train_loss": 0.5779298265992526,
+      "validation_loss": 0.5265551935450185
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 6,
+      "train_loss": 0.5673406607127821,
+      "validation_loss": 0.5105622993033238
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 7,
+      "train_loss": 0.559069100235618,
+      "validation_loss": 0.49909026556211644
+    },
+    {
+      "accuracy": 0.9,
+      "epoch": 8,
+      "train_loss": 0.5526945611298688,
+      "validation_loss": 0.4878588215289733
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 9,
+      "train_loss": 0.5467551453957229,
+      "validation_loss": 0.48738057611020996
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 10,
+      "train_loss": 0.5417171730278315,
+      "validation_loss": 0.47997990207332525
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 11,
+      "train_loss": 0.5375555427251574,
+      "validation_loss": 0.4745953810271108
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 12,
+      "train_loss": 0.5343343068795514,
+      "validation_loss": 0.4682408438302687
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 13,
+      "train_loss": 0.5314978998008041,
+      "validation_loss": 0.4649401964975602
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 14,
+      "train_loss": 0.5285771147062079,
+      "validation_loss": 0.4643227050657989
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 15,
+      "train_loss": 0.5263291993951468,
+      "validation_loss": 0.46052121020463826
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 16,
+      "train_loss": 0.5249982552932182,
+      "validation_loss": 0.45758741545083204
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 17,
+      "train_loss": 0.5228693002518193,
+      "validation_loss": 0.45734726419398386
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 18,
+      "train_loss": 0.5214337732339881,
+      "validation_loss": 0.45477307565501235
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 19,
+      "train_loss": 0.5202159222816333,
+      "validation_loss": 0.45316047581683233
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 20,
+      "train_loss": 0.5190054401762804,
+      "validation_loss": 0.4526247131246248
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 21,
+      "train_loss": 0.5180018301785767,
+      "validation_loss": 0.4511750718076056
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 22,
+      "train_loss": 0.517192891010538,
+      "validation_loss": 0.4499077169718369
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 23,
+      "train_loss": 0.5165142454986463,
+      "validation_loss": 0.4489462915045161
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 24,
+      "train_loss": 0.5157763738923563,
+      "validation_loss": 0.4482111265165686
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 25,
+      "train_loss": 0.5151446598504988,
+      "validation_loss": 0.44761362405312843
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 26,
+      "train_loss": 0.5147388869756239,
+      "validation_loss": 0.44773578746893883
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 27,
+      "train_loss": 0.5141754137457154,
+      "validation_loss": 0.44692171103562206
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 28,
+      "train_loss": 0.5137942711987586,
+      "validation_loss": 0.4464889929016874
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 29,
+      "train_loss": 0.5135189030657987,
+      "validation_loss": 0.4455782886679561
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 30,
+      "train_loss": 0.5129683969669542,
+      "validation_loss": 0.44522749494110814
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 31,
+      "train_loss": 0.5127713361311153,
+      "validation_loss": 0.44485199333178194
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 32,
+      "train_loss": 0.5124114512593538,
+      "validation_loss": 0.44458512217383117
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 33,
+      "train_loss": 0.5121855157945299,
+      "validation_loss": 0.44428199030784865
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 34,
+      "train_loss": 0.5120172900356083,
+      "validation_loss": 0.4442351989990043
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 35,
+      "train_loss": 0.5118045204925761,
+      "validation_loss": 0.44383217512982237
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 36,
+      "train_loss": 0.5115888609040427,
+      "validation_loss": 0.44362845458763545
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 37,
+      "train_loss": 0.5114203769728195,
+      "validation_loss": 0.4434573808358386
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 38,
+      "train_loss": 0.5113316976974464,
+      "validation_loss": 0.44330379467624825
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 39,
+      "train_loss": 0.5111567102597485,
+      "validation_loss": 0.4431492825031267
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 40,
+      "train_loss": 0.5110545784796735,
+      "validation_loss": 0.44300668655888487
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 41,
+      "train_loss": 0.5109255989011254,
+      "validation_loss": 0.4428672035762145
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 42,
+      "train_loss": 0.5108431952733108,
+      "validation_loss": 0.44277162071831666
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 43,
+      "train_loss": 0.5107295905470043,
+      "validation_loss": 0.4426406021140473
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 44,
+      "train_loss": 0.5107045526843005,
+      "validation_loss": 0.4425722763152093
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 45,
+      "train_loss": 0.5105755024733898,
+      "validation_loss": 0.44246516709955064
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 46,
+      "train_loss": 0.5105009675808786,
+      "validation_loss": 0.44237149923559027
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 47,
+      "train_loss": 0.5104718149213578,
+      "validation_loss": 0.44229088087502416
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 48,
+      "train_loss": 0.5103866903969196,
+      "validation_loss": 0.4422207606767195
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 49,
+      "train_loss": 0.5103312092777342,
+      "validation_loss": 0.4421770936063588
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 50,
+      "train_loss": 0.5102971850293694,
+      "validation_loss": 0.4421602487121448
+    }
+  ],
+  "loss": "binary_cross_entropy",
+  "model": "/home/deployer/matrixAI/examples/clinical-risk/clinical_risk.mxai",
+  "model_hash": "mxai_65eecb6b879ca77f",
+  "optimizer": "sgd",
+  "parameter_schema_hash": "params_8ff01d556bc0a7a3",
+  "parameters_updated": [
+    "W1",
+    "b1"
+  ],
+  "prediction": "R",
+  "run_id": "train_out",
+  "selected_parameter_set": "params.best.json",
+  "task_kind": "classification"
+}

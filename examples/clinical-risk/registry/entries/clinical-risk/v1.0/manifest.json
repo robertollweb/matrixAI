@@ -1,0 +1,25 @@
+{
+  "name": "clinical-risk",
+  "version": "v1.0",
+  "entry_hash": "sha256:e3b12163364e7c32d387363e664d4133130dfe783020d90237ac0554bd81e731",
+  "model_hash": "sha256:8c690fe6c7ae92fe14dc99edb3d514e56d5e569593db26cee1b999e28998b97c",
+  "parameter_schema_hash": "params_8ff01d556bc0a7a3",
+  "parameter_set_id": "train_out_best",
+  "input_type": {},
+  "output_type": {},
+  "metrics": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "macro_precision": 1.0,
+    "macro_recall": 1.0,
+    "validation_loss": 0.4421602487121448
+  },
+  "matrixai_version": "0.21.0",
+  "created_at": "2026-05-26T12:46:55.659907+00:00",
+  "training_dataset_fingerprint": "",
+  "interpretability_level": "full",
+  "training_trace_hash": "sha256:466ef3e730e5396f96f552f828bcea540336796e9abc1c41d22028295617c47c",
+  "evaluation_report_hash": "sha256:2fec0ca54e1938cd4630a0c554fef3ba952467631c49b345260900672b584984",
+  "params_content_hash": "sha256:a6244a979dc0ee451ce68e462895b5eb1079183de093f4f179e86a494c42552f",
+  "blockers": []
+}

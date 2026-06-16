@@ -1,0 +1,174 @@
+[
+  {
+    "name": "score",
+    "value": 0.8600000000000001,
+    "trace": {
+      "node": "score",
+      "expression": "((0.6 * relevance(x)) + (0.4 * coherence(x)))",
+      "inputs": {
+        "relevance": 0.9,
+        "coherence": 0.8,
+        "cost": 0.1,
+        "x": {
+          "relevance": 0.9,
+          "coherence": 0.8,
+          "cost": 0.1
+        }
+      },
+      "steps": [
+        {
+          "op": "relevance",
+          "args": [
+            {
+              "relevance": 0.9,
+              "coherence": 0.8,
+              "cost": 0.1
+            }
+          ],
+          "result": 0.9
+        },
+        {
+          "op": "*",
+          "args": [
+            0.6,
+            0.9
+          ],
+          "result": 0.54
+        },
+        {
+          "op": "coherence",
+          "args": [
+            {
+              "relevance": 0.9,
+              "coherence": 0.8,
+              "cost": 0.1
+            }
+          ],
+          "result": 0.8
+        },
+        {
+          "op": "*",
+          "args": [
+            0.4,
+            0.8
+          ],
+          "result": 0.32000000000000006
+        },
+        {
+          "op": "+",
+          "args": [
+            0.54,
+            0.32000000000000006
+          ],
+          "result": 0.8600000000000001
+        }
+      ],
+      "output": 0.8600000000000001
+    }
+  },
+  {
+    "name": "utility",
+    "value": 0.8400000000000001,
+    "trace": {
+      "node": "utility",
+      "expression": "(score(x) - (0.2 * cost(x)))",
+      "inputs": {
+        "relevance": 0.9,
+        "coherence": 0.8,
+        "cost": 0.1,
+        "x": {
+          "relevance": 0.9,
+          "coherence": 0.8,
+          "cost": 0.1
+        }
+      },
+      "steps": [
+        {
+          "op": "relevance",
+          "args": [
+            {
+              "relevance": 0.9,
+              "coherence": 0.8,
+              "cost": 0.1
+            }
+          ],
+          "result": 0.9
+        },
+        {
+          "op": "*",
+          "args": [
+            0.6,
+            0.9
+          ],
+          "result": 0.54
+        },
+        {
+          "op": "coherence",
+          "args": [
+            {
+              "relevance": 0.9,
+              "coherence": 0.8,
+              "cost": 0.1
+            }
+          ],
+          "result": 0.8
+        },
+        {
+          "op": "*",
+          "args": [
+            0.4,
+            0.8
+          ],
+          "result": 0.32000000000000006
+        },
+        {
+          "op": "+",
+          "args": [
+            0.54,
+            0.32000000000000006
+          ],
+          "result": 0.8600000000000001
+        },
+        {
+          "op": "score",
+          "args": [
+            {
+              "relevance": 0.9,
+              "coherence": 0.8,
+              "cost": 0.1
+            }
+          ],
+          "result": 0.8600000000000001
+        },
+        {
+          "op": "cost",
+          "args": [
+            {
+              "relevance": 0.9,
+              "coherence": 0.8,
+              "cost": 0.1
+            }
+          ],
+          "result": 0.1
+        },
+        {
+          "op": "*",
+          "args": [
+            0.2,
+            0.1
+          ],
+          "result": 0.020000000000000004
+        },
+        {
+          "op": "-",
+          "args": [
+            0.8600000000000001,
+            0.020000000000000004
+          ],
+          "result": 0.8400000000000001
+        }
+      ],
+      "output": 0.8400000000000001
+    }
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "Order": {
+    "urgency": 0.97,
+    "medication_risk": 0.95,
+    "stock_level": 0.85,
+    "patient_priority": 0.99,
+    "interaction_risk": 0.92,
+    "time_limit": 0.98
+  }
+}

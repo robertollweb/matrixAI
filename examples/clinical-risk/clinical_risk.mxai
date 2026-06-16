@@ -1,0 +1,26 @@
+PROJECT ClinicalRisk
+
+# Five normalized clinical features for fall-risk assessment (0-1 range).
+# All values are scores derived from clinical assessment instruments.
+VECTOR Patient[5]
+  age: Score
+  mobility: Score
+  medication_load: Risk
+  previous_falls: Probability
+  cognitive_state: Score
+END
+
+# Single-layer linear risk model: weighted sum of clinical signals → sigmoid → risk score.
+# For a linear model, the exact contribution of each feature is W1[i] * feature[i],
+# enabling honest, mathematically precise feature attribution.
+FUNCTION RiskModel
+  R: Risk = sigmoid(W1 * Patient + b1)
+END
+
+GRAPH
+  Patient -> RiskModel
+END
+
+AUDIT
+  EXPLAIN Patient -> RiskModel
+END

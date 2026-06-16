@@ -1,0 +1,7 @@
+{
+  "component": "route_classifier",
+  "routing_accuracy": 1.0,
+  "best_epoch": 80,
+  "best_validation_loss": 0.179673,
+  "trained_at": "2026-05-26T12:23:07.198364+00:00"
+}

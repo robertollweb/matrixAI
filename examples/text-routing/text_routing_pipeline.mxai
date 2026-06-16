@@ -1,0 +1,46 @@
+PROJECT TextRoutingPipeline
+
+IMPORT FeatureExtractor FROM registry feature_extractor@v1 FROZEN
+IMPORT RouteClassifier FROM registry route_classifier@v1 FROZEN
+
+# Input: 30-word bag-of-words vector derived from raw ticket text.
+VECTOR TicketBOW[30]
+  bow_account: Score
+  bow_amount: Score
+  bow_api: Score
+  bow_cancel: Score
+  bow_charge: Score
+  bow_connection: Score
+  bow_contract: Score
+  bow_crash: Score
+  bow_demo: Score
+  bow_discount: Score
+  bow_enterprise: Score
+  bow_error: Score
+  bow_features: Score
+  bow_fix: Score
+  bow_help: Score
+  bow_invoice: Score
+  bow_issue: Score
+  bow_login: Score
+  bow_need: Score
+  bow_network: Score
+  bow_payment: Score
+  bow_plan: Score
+  bow_pricing: Score
+  bow_problem: Score
+  bow_refund: Score
+  bow_reset: Score
+  bow_server: Score
+  bow_slow: Score
+  bow_timeout: Score
+  bow_upgrade: Score
+END
+
+GRAPH
+  TicketBOW -> FeatureExtractor -> RouteClassifier
+END
+
+AUDIT
+  EXPLAIN TicketBOW -> FeatureExtractor -> RouteClassifier
+END

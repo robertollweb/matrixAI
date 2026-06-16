@@ -1,0 +1,847 @@
+{
+  "backend_report": {
+    "autodiff_plan": {
+      "blocked_nodes": [],
+      "differentiable_nodes": [
+        "Application",
+        "ScoringModel"
+      ],
+      "notes": [
+        "autodiff execution is not implemented by the differentiable_python target"
+      ],
+      "parameterized_nodes": [
+        "ScoringModel"
+      ],
+      "ready": true,
+      "runtime_boundaries": [
+        "ApprovalScore"
+      ],
+      "status": "metadata_only",
+      "target": "differentiable_python",
+      "trainable_parameters": [
+        {
+          "function": "ScoringModel",
+          "name": "W1",
+          "role": "weights",
+          "shape": [
+            5
+          ]
+        },
+        {
+          "function": "ScoringModel",
+          "name": "b1",
+          "role": "bias",
+          "shape": []
+        }
+      ]
+    },
+    "backend": {},
+    "differentiable_nodes": [
+      "Application",
+      "ScoringModel"
+    ],
+    "nodes": [
+      {
+        "differentiable": true,
+        "node": "Application",
+        "node_type": "vector",
+        "output_shape": [
+          5
+        ],
+        "reason": "numeric vector input",
+        "supported": true,
+        "type_constraints": {
+          "fields": {
+            "credit_history": {
+              "name": "Score",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            },
+            "debt_ratio": {
+              "name": "Risk",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            },
+            "employment_years": {
+              "name": "Score",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            },
+            "income_score": {
+              "name": "Score",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            },
+            "loan_amount_ratio": {
+              "name": "Risk",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            }
+          }
+        }
+      },
+      {
+        "differentiable": true,
+        "kind": "sigmoid_linear",
+        "node": "ScoringModel",
+        "node_type": "function",
+        "output_shape": [],
+        "reason": "continuous function kind supported by backend contract",
+        "supported": true,
+        "type_constraints": {
+          "output": {
+            "name": "R",
+            "type": {
+              "name": "Risk",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            }
+          }
+        }
+      },
+      {
+        "differentiable": false,
+        "kind": "Normal",
+        "node": "ApprovalScore",
+        "node_type": "distribution",
+        "reason": "probabilistic distribution is a runtime boundary for this backend contract",
+        "supported": true
+      }
+    ],
+    "ok": true,
+    "parameter_errors": [],
+    "parameter_manifest": [
+      {
+        "dtype": "float32",
+        "function": "ScoringModel",
+        "initial_value": [
+          -0.03,
+          -0.01,
+          0.01,
+          0.03,
+          0.05
+        ],
+        "initializer": "deterministic_uniform",
+        "name": "W1",
+        "path": "W1",
+        "role": "weights",
+        "shape": [
+          5
+        ],
+        "trainable": true
+      },
+      {
+        "dtype": "float32",
+        "function": "ScoringModel",
+        "initial_value": 0.0,
+        "initializer": "zeros",
+        "name": "b1",
+        "path": "b1",
+        "role": "bias",
+        "shape": [],
+        "trainable": true
+      }
+    ],
+    "project": "CreditScoring",
+    "target": "differentiable_python",
+    "tensor_shapes": {
+      "Application": [
+        5
+      ],
+      "ScoringModel": []
+    },
+    "trainable_parameters": [
+      {
+        "function": "ScoringModel",
+        "name": "W1",
+        "role": "weights",
+        "shape": [
+          5
+        ]
+      },
+      {
+        "function": "ScoringModel",
+        "name": "b1",
+        "role": "bias",
+        "shape": []
+      }
+    ],
+    "type_constraints": {
+      "Application": {
+        "fields": {
+          "credit_history": {
+            "name": "Score",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "debt_ratio": {
+            "name": "Risk",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "employment_years": {
+            "name": "Score",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "income_score": {
+            "name": "Score",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "loan_amount_ratio": {
+            "name": "Risk",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          }
+        }
+      },
+      "ScoringModel": {
+        "output": {
+          "name": "R",
+          "type": {
+            "name": "Risk",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          }
+        }
+      }
+    },
+    "unsupported_nodes": [],
+    "warnings": []
+  },
+  "dataset": {
+    "fingerprint": "data_1fb25062b8fff6c5",
+    "name": "CreditApplications",
+    "rows_train": 96,
+    "rows_validation": 24,
+    "source": "/home/deployer/matrixAI/examples/credit-scoring/data/train.csv",
+    "split": {
+      "config": {
+        "seed": 99,
+        "train": 0.8,
+        "validation": 0.2
+      },
+      "fingerprint": "split_a2582b29b7f7bb95",
+      "train": {
+        "fingerprint": "split_part_92b61c9ef1525f09",
+        "row_hashes": [
+          "row_8e6467bea7cfb38c",
+          "row_8a2430f6a7b6eff6",
+          "row_307b256f6623d68d",
+          "row_4a6f6598807e7318",
+          "row_49d6077a49dfa6f3",
+          "row_d3cb391b00f5bc1a",
+          "row_3090b425247ff47d",
+          "row_bf9f0515620dcd61",
+          "row_3ab8c337fa643cea",
+          "row_ab0ea455e55e8672",
+          "row_972746adee5801e7",
+          "row_fc0043c75bcb82d4",
+          "row_22f650857fe3833a",
+          "row_30030f9fe691af7f",
+          "row_d5e2baa9bec6d35a",
+          "row_8aa3fbc99443b5fb",
+          "row_c4801b34553ddb92",
+          "row_90ebe50040c6e906",
+          "row_0b22b3b578e72d06",
+          "row_9064dd6f02d436c7",
+          "row_eb8d59db40067e34",
+          "row_972f03a71166604d",
+          "row_1d22a08ab9ce2340",
+          "row_be22e558c3676aa5",
+          "row_6f0e8732de12ebab",
+          "row_cecb3f5106bafe1c",
+          "row_bc04275ed1abafdc",
+          "row_6c90314964fc4023",
+          "row_e52644578c739730",
+          "row_ec31796ed897b62d",
+          "row_45f0d24cfb179ee9",
+          "row_1876a44d12ffb8dc",
+          "row_06a5e10b25c6b128",
+          "row_44230d37675d7841",
+          "row_d305d2f8554ac4a6",
+          "row_a31b3d65e1ada8b7",
+          "row_6c9e7d7d16291ec1",
+          "row_0efe2b6a089a51a9",
+          "row_ada11da2ec95bc07",
+          "row_8be243a1d20c84c4",
+          "row_dbf1e73b067fdd70",
+          "row_08dcf3f195e33de8",
+          "row_c21ef97320c09b21",
+          "row_e1375f61729293eb",
+          "row_aa251dd9fb2fe9c8",
+          "row_76e42f388ac81409",
+          "row_6e86fe74a322bc13",
+          "row_1cf1a49dd7627907",
+          "row_50f678f53e78fc29",
+          "row_bd48738327a8dcba",
+          "row_167e02d5b5a90cb5",
+          "row_bfd181a3e1422739",
+          "row_cf4640ca8a50d39e",
+          "row_88191dd8d978371f",
+          "row_598860bd8100c33a",
+          "row_8a0d22c4fa5fcd6f",
+          "row_5e42d6ab1803d761",
+          "row_2abe97b095c9ffb1",
+          "row_8c9a45aa3c38fc40",
+          "row_a77b36615daaebfb",
+          "row_8da34bc34a3615fc",
+          "row_6ab05ccda246dc31",
+          "row_7d9a1ad158f2980b",
+          "row_42f54ca4c9de1628",
+          "row_c8492bdd03c566c0",
+          "row_f1d305e42132d80b",
+          "row_d6e6df9377d20f2d",
+          "row_623f18c6af502936",
+          "row_e6edaa7dce17274a",
+          "row_2dfe7eb4f27117cd",
+          "row_1445d57f557472bc",
+          "row_451d9c2e98602f2d",
+          "row_c812052cba95363c",
+          "row_48ef1a5e6f85e91d",
+          "row_c3e16c9e9eb47f8a",
+          "row_4f89fed217d1eb49",
+          "row_58262235f955c06d",
+          "row_169611b979fca03b",
+          "row_1d8819e5c6f49e17",
+          "row_482dbdfa2cd8fb74",
+          "row_9c41892ec495204a",
+          "row_600168087e964e57",
+          "row_a1d9f1c006c77b17",
+          "row_54fdf680e259bed2",
+          "row_c3f1962c7b444eac",
+          "row_66f47cec0190c6ec",
+          "row_2f8c79d31e8e654f",
+          "row_b6076ad3497a42f1",
+          "row_176d9996aba66717",
+          "row_0d4590bbba13fc22",
+          "row_d120207a8757890f",
+          "row_61d9ee06dc8f2230",
+          "row_b770cab96594b6b5",
+          "row_4b27b1f948516c81",
+          "row_80480856a551342a",
+          "row_cfd9e43916902332"
+        ],
+        "row_indices": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          14,
+          15,
+          16,
+          17,
+          18,
+          20,
+          21,
+          22,
+          23,
+          25,
+          26,
+          28,
+          29,
+          30,
+          32,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          52,
+          54,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          65,
+          66,
+          67,
+          68,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          79,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          90,
+          92,
+          93,
+          96,
+          97,
+          98,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          120,
+          121
+        ],
+        "rows": 96
+      },
+      "validation": {
+        "fingerprint": "split_part_cae4e58e6345fc66",
+        "row_hashes": [
+          "row_dc0c262c815e0a38",
+          "row_514d2c733c6cee77",
+          "row_bba18ebe15018d49",
+          "row_8070d379f51d3d03",
+          "row_0ed31b7e0c1f4be7",
+          "row_0a5f37b9e12c412e",
+          "row_a49d40e779a78c7a",
+          "row_904e6a03e09d7e94",
+          "row_d2c4f8b18f510c4b",
+          "row_ed291416f21b2c75",
+          "row_edea786d6cfe038b",
+          "row_7eeca8106c8a7431",
+          "row_1196cdd47842fa72",
+          "row_1ae4d0f33eae6f3c",
+          "row_fda1f81dcf90d774",
+          "row_dd2d75d0a28ce017",
+          "row_a0da3dc86ba9aaa8",
+          "row_a195600ce8ac7f96",
+          "row_09f9898a88d9513b",
+          "row_f5a4f2d11c83262f",
+          "row_a5411a671a58628d",
+          "row_03dc7f5575ab5b2a",
+          "row_1fc2182b63ecc438",
+          "row_78330fa40ad6157a"
+        ],
+        "row_indices": [
+          13,
+          19,
+          24,
+          27,
+          31,
+          33,
+          34,
+          50,
+          51,
+          53,
+          55,
+          64,
+          69,
+          70,
+          78,
+          80,
+          81,
+          89,
+          91,
+          94,
+          95,
+          99,
+          112,
+          119
+        ],
+        "rows": 24
+      }
+    }
+  },
+  "epochs": [
+    {
+      "accuracy": 0.7083333333333334,
+      "epoch": 1,
+      "train_loss": 0.626775796952333,
+      "validation_loss": 0.5871210575150535
+    },
+    {
+      "accuracy": 0.7083333333333334,
+      "epoch": 2,
+      "train_loss": 0.607031345642057,
+      "validation_loss": 0.5691230383802446
+    },
+    {
+      "accuracy": 0.7083333333333334,
+      "epoch": 3,
+      "train_loss": 0.5891770858073242,
+      "validation_loss": 0.5537148143214645
+    },
+    {
+      "accuracy": 0.7083333333333334,
+      "epoch": 4,
+      "train_loss": 0.5765789689182198,
+      "validation_loss": 0.5353949228824281
+    },
+    {
+      "accuracy": 0.7083333333333334,
+      "epoch": 5,
+      "train_loss": 0.5597634783614106,
+      "validation_loss": 0.5235925373273647
+    },
+    {
+      "accuracy": 0.7083333333333334,
+      "epoch": 6,
+      "train_loss": 0.5457575440530317,
+      "validation_loss": 0.5145251023152324
+    },
+    {
+      "accuracy": 0.7083333333333334,
+      "epoch": 7,
+      "train_loss": 0.533878655869008,
+      "validation_loss": 0.5035218593837357
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 8,
+      "train_loss": 0.5235805302958741,
+      "validation_loss": 0.4958010482613582
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 9,
+      "train_loss": 0.5141618600111509,
+      "validation_loss": 0.48732512841865705
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 10,
+      "train_loss": 0.5042134305621954,
+      "validation_loss": 0.477032511166856
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 11,
+      "train_loss": 0.4964622646247832,
+      "validation_loss": 0.4663286030026797
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 12,
+      "train_loss": 0.48823163480016524,
+      "validation_loss": 0.4617381494765492
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 13,
+      "train_loss": 0.4801987720953993,
+      "validation_loss": 0.4526432167115748
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 14,
+      "train_loss": 0.47369565929575824,
+      "validation_loss": 0.4461837873830667
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 15,
+      "train_loss": 0.46706182494799253,
+      "validation_loss": 0.44014819674412764
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 16,
+      "train_loss": 0.46178577363820184,
+      "validation_loss": 0.4356420201484484
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 17,
+      "train_loss": 0.4562620984856431,
+      "validation_loss": 0.4298608083513968
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 18,
+      "train_loss": 0.4514061857009315,
+      "validation_loss": 0.4253657361883812
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 19,
+      "train_loss": 0.44603429112908793,
+      "validation_loss": 0.42024044896240853
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 20,
+      "train_loss": 0.44257812986319195,
+      "validation_loss": 0.4171976549663711
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 21,
+      "train_loss": 0.43900327405272627,
+      "validation_loss": 0.4140204454883413
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 22,
+      "train_loss": 0.4337297119750933,
+      "validation_loss": 0.4085533099491379
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 23,
+      "train_loss": 0.4299890057378428,
+      "validation_loss": 0.4043646802326138
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 24,
+      "train_loss": 0.4265985020034258,
+      "validation_loss": 0.4018953054772753
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 25,
+      "train_loss": 0.42316134989124915,
+      "validation_loss": 0.39768484943465227
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 26,
+      "train_loss": 0.4203001774752366,
+      "validation_loss": 0.3944361496737514
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 27,
+      "train_loss": 0.418289074820013,
+      "validation_loss": 0.3947114810111055
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 28,
+      "train_loss": 0.4145995322472351,
+      "validation_loss": 0.39023130053345234
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 29,
+      "train_loss": 0.41261132340814033,
+      "validation_loss": 0.38606835220900554
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 30,
+      "train_loss": 0.4094571827657436,
+      "validation_loss": 0.3851341457338691
+    },
+    {
+      "accuracy": 0.8333333333333334,
+      "epoch": 31,
+      "train_loss": 0.4074710930533983,
+      "validation_loss": 0.38386459988213756
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 32,
+      "train_loss": 0.40467814577474526,
+      "validation_loss": 0.37935856644538585
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 33,
+      "train_loss": 0.40332474893050313,
+      "validation_loss": 0.3762683978651875
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 34,
+      "train_loss": 0.400452616669356,
+      "validation_loss": 0.37505163358625676
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 35,
+      "train_loss": 0.39859335174894706,
+      "validation_loss": 0.37430337678872433
+    },
+    {
+      "accuracy": 0.9166666666666666,
+      "epoch": 36,
+      "train_loss": 0.3998246703375905,
+      "validation_loss": 0.3702576477302421
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 37,
+      "train_loss": 0.3948379498152755,
+      "validation_loss": 0.369697853973249
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 38,
+      "train_loss": 0.39373370781905154,
+      "validation_loss": 0.36655413796256897
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 39,
+      "train_loss": 0.39229986980966675,
+      "validation_loss": 0.3647064393067006
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 40,
+      "train_loss": 0.39024274936835107,
+      "validation_loss": 0.3635267317437069
+    },
+    {
+      "accuracy": 0.9166666666666666,
+      "epoch": 41,
+      "train_loss": 0.3899689328094939,
+      "validation_loss": 0.36107464545059315
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 42,
+      "train_loss": 0.3871715100358633,
+      "validation_loss": 0.36072890009675124
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 43,
+      "train_loss": 0.38564653124338527,
+      "validation_loss": 0.3599368311290852
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 44,
+      "train_loss": 0.384681082589681,
+      "validation_loss": 0.3613494021020393
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 45,
+      "train_loss": 0.3833949341575238,
+      "validation_loss": 0.3600483699507593
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 46,
+      "train_loss": 0.3817995186473037,
+      "validation_loss": 0.3570350884636235
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 47,
+      "train_loss": 0.380748681481952,
+      "validation_loss": 0.35667088264750907
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 48,
+      "train_loss": 0.38042074265860343,
+      "validation_loss": 0.3582309891482424
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 49,
+      "train_loss": 0.3785508159117699,
+      "validation_loss": 0.3545287012003642
+    },
+    {
+      "accuracy": 0.875,
+      "epoch": 50,
+      "train_loss": 0.3772655263095723,
+      "validation_loss": 0.35156290510161375
+    }
+  ],
+  "loss": "binary_cross_entropy",
+  "model": "/home/deployer/matrixAI/examples/credit-scoring/credit_scoring.mxai",
+  "model_hash": "mxai_b3d85c6c82503835",
+  "optimizer": "sgd",
+  "parameter_schema_hash": "params_51b4404d9ecaab19",
+  "parameters_updated": [
+    "W1",
+    "b1"
+  ],
+  "prediction": "R",
+  "run_id": "v1.1",
+  "selected_parameter_set": "params.best.json",
+  "task_kind": "classification"
+}

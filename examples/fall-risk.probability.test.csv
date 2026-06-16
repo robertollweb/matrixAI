@@ -1,0 +1,5 @@
+age,mobility,medication_load,previous_falls,cognitive_state,risk_probability
+0.84,0.77,0.74,0.9,0.73,0.91
+0.24,0.21,0.16,0.0,0.20,0.09
+0.76,0.70,0.67,0.8,0.69,0.84
+0.30,0.28,0.20,0.1,0.25,0.13

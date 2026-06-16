@@ -1,0 +1,39 @@
+{
+  "metrics": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "macro_precision": 1.0,
+    "macro_recall": 1.0,
+    "validation_loss": 0.322438387545791
+  },
+  "model_hash": "mxai_20d8ce3f0385dec4",
+  "parameter_schema_hash": "params_59a5f49ba60ac542",
+  "parameter_set_id": "train_out_best",
+  "parameters": {
+    "W1": {
+      "dtype": "float32",
+      "function": "AlertModel",
+      "initializer": "deterministic_uniform",
+      "role": "weights",
+      "shape": [
+        3
+      ],
+      "type": "Vector[3]",
+      "values": [
+        5.2894952402,
+        -0.6019858137,
+        -0.2917094955
+      ]
+    },
+    "b1": {
+      "dtype": "float32",
+      "function": "AlertModel",
+      "initializer": "zeros",
+      "role": "bias",
+      "shape": [],
+      "type": "Scalar",
+      "values": -3.4860911612
+    }
+  },
+  "source": "trained"
+}

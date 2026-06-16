@@ -1,0 +1,65 @@
+CONTINUAL_POLICY CreditScoringContinual
+  TARGET_MODEL examples/credit-scoring/credit_scoring.mxai
+  BASE_PARAMETER_SET examples/credit-scoring/registry/entries/credit-scoring/v1.0/params.json
+  REGISTRY_NAME credit-scoring
+  BASE_VERSION v1.0
+
+  GROUND_TRUTH
+    WINDOW_DAYS 7
+    REQUIRED_FIELD label
+  END
+
+  DRIFT_DETECTION
+    FEATURES [income_score, credit_history, debt_ratio, employment_years, loan_amount_ratio]
+    METHODS
+      income_score: ks threshold=0.15
+      credit_history: ks threshold=0.15
+      debt_ratio: psi threshold=0.20
+    END
+    MIN_SAMPLES 5
+    CHECK_FREQUENCY daily
+    REFERENCE_DATASET base_training
+  END
+
+  UPDATE_TRIGGER
+    MIN_NEW_SAMPLES 20
+    MIN_GROUND_TRUTH_RATIO 0.5
+    COOLDOWN_DAYS 1
+  END
+
+  TRAINING
+    METHOD incremental_finetune
+    LEARNING_RATE_FACTOR 0.1
+    MAX_EPOCHS 10
+    DATASET_MIX
+      BASE_WEIGHT 0.6
+      PRODUCTION_WEIGHT 0.4
+      RECENCY_DECAY linear
+    END
+  END
+
+  APPROVAL_GATE
+    HOLDOUT_FRACTION 0.2
+    REGRESSION_GUARD
+      METRIC accuracy
+      MIN_DELTA -0.02
+    END
+    HUMAN_APPROVAL false
+  END
+
+  ROLLBACK
+    AUTO_TRIGGER false
+    METRIC accuracy
+    SLIDING_WINDOW_HOURS 24
+    DEGRADATION_THRESHOLD 0.05
+    MIN_SAMPLES_IN_WINDOW 5
+  END
+
+  AUDIT
+    PERSIST_DRIFT_REPORTS true
+    PERSIST_UPDATE_TRACES true
+    EMIT_REFINEMENT_HINT_ON_SUSTAINED_DRIFT false
+    REFINEMENT_DRIFT_PERSISTENCE_DAYS 3
+    SIGNATURE_REQUIRED false
+  END
+END

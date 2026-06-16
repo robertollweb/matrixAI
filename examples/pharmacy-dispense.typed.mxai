@@ -1,0 +1,36 @@
+PROJECT PharmacyDispenseTyped
+
+VECTOR Order[6]
+  urgency: Score
+  medication_risk: Risk
+  stock_level: Score
+  patient_priority: Score
+  interaction_risk: Risk
+  time_limit: Score
+END
+
+FUNCTION PriorityModel
+  R: Risk = sigmoid(W1 * Order + b1)
+END
+
+FUNCTION DispenseActivation
+  A: ActionSignal = sigmoid(50 * (DispatchScore.mean - 0.75))
+END
+
+DISTRIBUTION DispatchScore
+  DispatchScore ~ Normal(R, uncertainty(Order))
+END
+
+GRAPH
+  Order -> PriorityModel -> DispatchScore -> DispenseActivation -> Dispense
+END
+
+ACTION Dispense
+  WHEN DispenseActivation > 0.90
+  POLICY simulate_only
+  CALL simulated.pharmacy.dispense
+END
+
+AUDIT
+  EXPLAIN Order -> PriorityModel -> DispatchScore -> DispenseActivation -> Dispense
+END

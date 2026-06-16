@@ -1,0 +1,48 @@
+{
+  "metrics": {},
+  "model_hash": "mxai_512478a17851f957",
+  "parameter_schema_hash": "params_927678e698367f45",
+  "parameter_set_id": "Classify_initial",
+  "parameters": {
+    "Classify.W1": {
+      "dtype": "float32",
+      "function": "Classify",
+      "initializer": "xavier_normal",
+      "is_layer": true,
+      "role": "weights",
+      "shape": [
+        3,
+        1
+      ],
+      "type": "Tensor[3,1]",
+      "values": [
+        [
+          -13.426839012289362
+        ],
+        [
+          1.09597790143609
+        ],
+        [
+          12.028000352851242
+        ]
+      ]
+    },
+    "Classify.b1": {
+      "dtype": "float32",
+      "function": "Classify",
+      "initializer": "zeros",
+      "is_layer": true,
+      "role": "bias",
+      "shape": [
+        3
+      ],
+      "type": "Vector[3]",
+      "values": [
+        5.227577609027423,
+        1.2645192338815932,
+        -6.4920968429090165
+      ]
+    }
+  },
+  "source": "trained"
+}

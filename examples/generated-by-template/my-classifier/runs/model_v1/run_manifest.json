@@ -1,0 +1,11 @@
+{
+  "metrics": "metrics.json",
+  "model_snapshot": "model_snapshot.mxai",
+  "params_best": "params.best.json",
+  "params_final": "params.final.json",
+  "params_initial": "params.initial.json",
+  "run_id": "model_v1",
+  "train_config": "train_config.mxtrain",
+  "training_trace": "training_trace.json",
+  "validation_report": "validation_report.json"
+}

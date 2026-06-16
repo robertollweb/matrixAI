@@ -1,0 +1,121 @@
+{
+  "project": "EmailAgent",
+  "vectors": [
+    {
+      "name": "Email",
+      "size": 8,
+      "fields": [
+        "urgency",
+        "sender_trust",
+        "topic_support",
+        "topic_sales",
+        "sentiment",
+        "has_attachment",
+        "previous_interactions",
+        "language_confidence"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "Classifier",
+      "output": "C",
+      "expression": "softmax(W1 * Email + b1)",
+      "semantic": {
+        "raw": "softmax(W1 * Email + b1)",
+        "kind": "softmax_linear",
+        "inputs": [
+          "Email"
+        ],
+        "parameters": {
+          "weights": "W1",
+          "bias": "b1"
+        }
+      }
+    },
+    {
+      "name": "ReplyActivation",
+      "output": "A",
+      "expression": "sigmoid(50 * (Confidence.max - 0.95))",
+      "semantic": {
+        "raw": "sigmoid(50 * (Confidence.max - 0.95))",
+        "kind": "sigmoid_threshold",
+        "inputs": [
+          "Confidence.max"
+        ],
+        "parameters": {
+          "scale": 50.0,
+          "threshold": 0.95
+        }
+      }
+    }
+  ],
+  "distributions": [
+    {
+      "name": "Confidence",
+      "variable": "Confidence",
+      "distribution_type": "Categorical",
+      "source": "C",
+      "raw": "Confidence ~ Categorical(C)"
+    }
+  ],
+  "graph": {
+    "nodes": [
+      "Email",
+      "Classifier",
+      "Confidence",
+      "ReplyActivation",
+      "DraftReply"
+    ],
+    "edges": [
+      [
+        "Email",
+        "Classifier"
+      ],
+      [
+        "Classifier",
+        "Confidence"
+      ],
+      [
+        "Confidence",
+        "ReplyActivation"
+      ],
+      [
+        "ReplyActivation",
+        "DraftReply"
+      ]
+    ],
+    "node_types": {
+      "Email": "vector",
+      "Classifier": "function",
+      "Confidence": "distribution",
+      "ReplyActivation": "function",
+      "DraftReply": "action"
+    }
+  },
+  "actions": [
+    {
+      "name": "DraftReply",
+      "when": "ReplyActivation > 0.90",
+      "call": "simulated.email.draft",
+      "condition": {
+        "raw": "ReplyActivation > 0.90",
+        "source": "ReplyActivation",
+        "operator": ">",
+        "threshold": 0.9
+      },
+      "policy": "simulate_only",
+      "target": "",
+      "input_params": []
+    }
+  ],
+  "audit": {
+    "explain": [
+      "Email",
+      "Classifier",
+      "Confidence",
+      "ReplyActivation",
+      "DraftReply"
+    ]
+  }
+}

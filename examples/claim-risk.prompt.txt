@@ -1,0 +1,1 @@
+Proyecto ClaimRisk. Entidad Claim. Campos: severity, amount, customer_history, fraud_score. Si severity > 0.7 y fraud_score > 0.8 entonces Notify. Prioriza seguridad.

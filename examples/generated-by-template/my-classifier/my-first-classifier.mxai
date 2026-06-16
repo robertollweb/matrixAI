@@ -1,0 +1,23 @@
+PROJECT my-first-classifier
+
+VECTOR Features[3]
+  feature_1: Score
+  feature_2: Score
+  feature_3: Score
+END
+
+FUNCTION ClassifierModel
+  R: Risk = sigmoid(W1 * Features + b1)
+END
+
+DISTRIBUTION Classification
+  Classification ~ Normal(R, uncertainty(Features))
+END
+
+GRAPH
+  Features -> ClassifierModel -> Classification
+END
+
+AUDIT
+  EXPLAIN Features -> ClassifierModel -> Classification
+END

@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.env
+.venv
+env/
+venv/
+*.log
+.DS_Store
+*.tmp
+node_modules/
+
+# Proyectos generados por usuarios con matrixai init (no versionar)
+my-first-classifier/
+
+# Notas personales
+notasRober.txt
+
+# Documentación interna de desarrollo (uso personal, no para el repo público)
+documentacion/
+pr1-validation/

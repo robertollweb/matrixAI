@@ -1,0 +1,24 @@
+PROJECT PharmacyDispense
+INTENT Prioritize medication dispensing orders and dispatch only when the priority score is high enough to warrant immediate action.
+MODE risk
+ENTITY Order
+
+FIELDS Order
+  urgency
+  medication_risk
+  stock_level
+  patient_priority
+  interaction_risk
+  time_limit
+END
+
+GOAL maximize_safety
+GOAL minimize_latency
+
+CONSTRAINT risk > 0.75
+ACTION_THRESHOLD 0.90
+
+ACTION Dispense
+  POLICY simulate_only
+  CALL simulated.pharmacy.dispense
+END

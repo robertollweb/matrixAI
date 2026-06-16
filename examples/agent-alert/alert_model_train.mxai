@@ -1,0 +1,15 @@
+PROJECT AlertMonitorTraining
+
+VECTOR SystemMetrics[3]
+  severity: Score
+  source_trust: Score
+  is_business_hours: Score
+END
+
+FUNCTION AlertModel
+  R: Risk = sigmoid(W1 * SystemMetrics + b1)
+END
+
+GRAPH
+  SystemMetrics -> AlertModel
+END

@@ -1,0 +1,32 @@
+MODEL my-first-classifier.mxai
+
+DATASET TrainingSet
+  SOURCE csv("dataset/train.csv")
+  INPUT Features FROM COLUMNS [feature_1, feature_2, feature_3]
+  TARGET label: Probability
+  SPLIT train=0.8 validation=0.2 seed=42
+  BATCH size=4 shuffle=true
+END
+
+LOSS ClassificationLoss
+  TYPE binary_cross_entropy
+  PREDICTION R
+  TARGET label
+END
+
+OPTIMIZER ClassificationOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.5
+  UPDATE W1, b1
+END
+
+METRIC Accuracy
+  TYPE accuracy
+  PREDICTION R
+  TARGET label
+END
+
+RUN
+  EPOCHS 30
+  SAVE_BEST true
+END

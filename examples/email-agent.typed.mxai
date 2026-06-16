@@ -1,0 +1,38 @@
+PROJECT EmailAgentTyped
+
+VECTOR Email[8]
+  urgency: Score
+  sender_trust: Score
+  topic_support: Probability
+  topic_sales: Probability
+  sentiment: Score
+  has_attachment: Probability
+  previous_interactions: Score
+  language_confidence: Confidence
+END
+
+FUNCTION Classifier
+  C: ProbabilityMap = softmax(W1 * Email + b1)
+END
+
+FUNCTION ReplyActivation
+  A: ActionSignal = sigmoid(50 * (Confidence.max - 0.95))
+END
+
+DISTRIBUTION Confidence
+  Confidence ~ Categorical(C)
+END
+
+GRAPH
+  Email -> Classifier -> Confidence -> ReplyActivation -> DraftReply
+END
+
+ACTION DraftReply
+  WHEN ReplyActivation > 0.90
+  POLICY simulate_only
+  CALL simulated.email.draft
+END
+
+AUDIT
+  EXPLAIN Email -> Classifier -> Confidence -> ReplyActivation -> DraftReply
+END

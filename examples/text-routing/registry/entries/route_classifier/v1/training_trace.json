@@ -1,0 +1,7 @@
+{
+  "run_id": "73dee5b1",
+  "epochs": 80,
+  "best_epoch": 80,
+  "best_val_loss": 0.1796726357871706,
+  "network": "Classify"
+}

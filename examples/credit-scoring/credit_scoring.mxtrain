@@ -1,0 +1,38 @@
+MODEL credit_scoring.mxai
+
+DATASET CreditApplications
+  SOURCE csv("data/train.csv")
+  INPUT Application FROM COLUMNS [
+    income_score,
+    credit_history,
+    debt_ratio,
+    employment_years,
+    loan_amount_ratio
+  ]
+  TARGET approved: Probability
+  SPLIT train=0.8 validation=0.2 seed=42
+  BATCH size=8 shuffle=true
+END
+
+LOSS CreditLoss
+  TYPE binary_cross_entropy
+  PREDICTION R
+  TARGET approved
+END
+
+OPTIMIZER CreditOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.5
+  UPDATE W1, b1
+END
+
+METRIC Accuracy
+  TYPE accuracy
+  PREDICTION R
+  TARGET approved
+END
+
+RUN
+  EPOCHS 40
+  SAVE_BEST true
+END

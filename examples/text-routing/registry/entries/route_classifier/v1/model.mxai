@@ -1,0 +1,15 @@
+PROJECT RouteClassifier
+
+VECTOR Signal[1]
+  routing_signal: Score
+END
+
+NETWORK Classify
+  INPUT Signal
+  LAYER Dense units=3 activation=softmax
+  OUTPUT probs: Tensor
+END
+
+GRAPH
+  Signal -> Classify
+END

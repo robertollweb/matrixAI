@@ -1,0 +1,141 @@
+{
+  "state": {
+    "Email": [
+      0.84,
+      0.96,
+      0.99,
+      0.04,
+      0.72,
+      0.0,
+      0.88,
+      0.97
+    ],
+    "urgency": 0.84,
+    "sender_trust": 0.96,
+    "topic_support": 0.99,
+    "topic_sales": 0.04,
+    "sentiment": 0.72,
+    "has_attachment": 0.0,
+    "previous_interactions": 0.88,
+    "language_confidence": 0.97,
+    "Classifier": {
+      "support": 0.99958790003414,
+      "sales": 0.00012635537494574023,
+      "operations": 0.00028574459091427253
+    },
+    "C": {
+      "support": 0.99958790003414,
+      "sales": 0.00012635537494574023,
+      "operations": 0.00028574459091427253
+    },
+    "Confidence": {
+      "type": "Categorical",
+      "probabilities": {
+        "support": 0.99958790003414,
+        "sales": 0.00012635537494574023,
+        "operations": 0.00028574459091427253
+      },
+      "label": "support",
+      "max": 0.99958790003414
+    },
+    "ReplyActivation": 0.9226846497198545,
+    "A": 0.9226846497198545
+  },
+  "trace": [
+    {
+      "step": 1,
+      "status": "ok",
+      "node": "Email",
+      "node_type": "vector",
+      "value": [
+        0.84,
+        0.96,
+        0.99,
+        0.04,
+        0.72,
+        0.0,
+        0.88,
+        0.97
+      ],
+      "output_ref": "Email"
+    },
+    {
+      "step": 2,
+      "status": "ok",
+      "node": "Classifier",
+      "node_type": "function",
+      "value": {
+        "support": 0.99958790003414,
+        "sales": 0.00012635537494574023,
+        "operations": 0.00028574459091427253
+      },
+      "output_ref": "C",
+      "expression_kind": "softmax_linear",
+      "inputs": [
+        "Email"
+      ]
+    },
+    {
+      "step": 3,
+      "status": "ok",
+      "node": "Confidence",
+      "node_type": "distribution",
+      "value": {
+        "type": "Categorical",
+        "probabilities": {
+          "support": 0.99958790003414,
+          "sales": 0.00012635537494574023,
+          "operations": 0.00028574459091427253
+        },
+        "label": "support",
+        "max": 0.99958790003414
+      },
+      "output_ref": "Confidence",
+      "distribution_type": "Categorical"
+    },
+    {
+      "step": 4,
+      "status": "ok",
+      "node": "ReplyActivation",
+      "node_type": "function",
+      "value": 0.9226846497198545,
+      "output_ref": "A",
+      "expression_kind": "sigmoid_threshold",
+      "inputs": [
+        "Confidence.max"
+      ]
+    },
+    {
+      "step": 5,
+      "status": "ok",
+      "node": "DraftReply",
+      "node_type": "action",
+      "value": {
+        "name": "DraftReply",
+        "call": "simulated.email.draft",
+        "source": "ReplyActivation",
+        "operator": ">",
+        "value": 0.9226846497198545,
+        "threshold": 0.9,
+        "activated": true,
+        "policy": "simulate_only",
+        "simulated": true
+      },
+      "output_ref": "DraftReply",
+      "policy": "simulate_only"
+    }
+  ],
+  "actions": [
+    {
+      "name": "DraftReply",
+      "call": "simulated.email.draft",
+      "source": "ReplyActivation",
+      "operator": ">",
+      "value": 0.9226846497198545,
+      "threshold": 0.9,
+      "activated": true,
+      "policy": "simulate_only",
+      "simulated": true
+    }
+  ]
+}

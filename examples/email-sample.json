@@ -1,0 +1,12 @@
+{
+  "Email": {
+    "urgency": 0.84,
+    "sender_trust": 0.96,
+    "topic_support": 0.99,
+    "topic_sales": 0.04,
+    "sentiment": 0.72,
+    "has_attachment": 0.0,
+    "previous_interactions": 0.88,
+    "language_confidence": 0.97
+  }
+}

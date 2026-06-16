@@ -1,0 +1,38 @@
+MODEL examples/fall-risk.typed.mxai
+
+DATASET FallRiskProbabilityTrainingSet
+  SOURCE csv("examples/fall-risk.probability.train.csv")
+  INPUT Patient FROM COLUMNS [
+    age,
+    mobility,
+    medication_load,
+    previous_falls,
+    cognitive_state
+  ]
+  TARGET risk_probability: Probability
+  SPLIT train=0.75 validation=0.25 seed=7
+  BATCH size=2 shuffle=true
+END
+
+LOSS FallRiskProbabilityLoss
+  TYPE binary_cross_entropy
+  PREDICTION R
+  TARGET risk_probability
+END
+
+OPTIMIZER FallRiskProbabilityOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.8
+  UPDATE W1, b1
+END
+
+METRIC Accuracy
+  TYPE accuracy
+  PREDICTION R
+  TARGET risk_probability
+END
+
+RUN
+  EPOCHS 30
+  SAVE_BEST true
+END

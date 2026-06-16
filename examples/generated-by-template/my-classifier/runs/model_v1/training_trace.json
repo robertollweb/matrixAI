@@ -1,0 +1,479 @@
+{
+  "backend_report": {
+    "autodiff_plan": {
+      "blocked_nodes": [],
+      "differentiable_nodes": [
+        "Features",
+        "ClassifierModel"
+      ],
+      "notes": [
+        "autodiff execution is not implemented by the differentiable_python target"
+      ],
+      "parameterized_nodes": [
+        "ClassifierModel"
+      ],
+      "ready": true,
+      "runtime_boundaries": [
+        "Classification"
+      ],
+      "status": "metadata_only",
+      "target": "differentiable_python",
+      "trainable_parameters": [
+        {
+          "function": "ClassifierModel",
+          "name": "W1",
+          "role": "weights",
+          "shape": [
+            3
+          ]
+        },
+        {
+          "function": "ClassifierModel",
+          "name": "b1",
+          "role": "bias",
+          "shape": []
+        }
+      ]
+    },
+    "backend": {},
+    "differentiable_nodes": [
+      "Features",
+      "ClassifierModel"
+    ],
+    "nodes": [
+      {
+        "differentiable": true,
+        "node": "Features",
+        "node_type": "vector",
+        "output_shape": [
+          3
+        ],
+        "reason": "numeric vector input",
+        "supported": true,
+        "type_constraints": {
+          "fields": {
+            "feature_1": {
+              "name": "Score",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            },
+            "feature_2": {
+              "name": "Score",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            },
+            "feature_3": {
+              "name": "Score",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            }
+          }
+        }
+      },
+      {
+        "differentiable": true,
+        "kind": "sigmoid_linear",
+        "node": "ClassifierModel",
+        "node_type": "function",
+        "output_shape": [],
+        "reason": "continuous function kind supported by backend contract",
+        "supported": true,
+        "type_constraints": {
+          "output": {
+            "name": "R",
+            "type": {
+              "name": "Risk",
+              "range": {
+                "inclusive_max": true,
+                "inclusive_min": true,
+                "max": 1.0,
+                "min": 0.0
+              }
+            }
+          }
+        }
+      },
+      {
+        "differentiable": false,
+        "kind": "Normal",
+        "node": "Classification",
+        "node_type": "distribution",
+        "reason": "probabilistic distribution is a runtime boundary for this backend contract",
+        "supported": true
+      }
+    ],
+    "ok": true,
+    "parameter_errors": [],
+    "parameter_manifest": [
+      {
+        "dtype": "float32",
+        "function": "ClassifierModel",
+        "initial_value": [
+          -0.01666667,
+          0.01666667,
+          0.05
+        ],
+        "initializer": "deterministic_uniform",
+        "name": "W1",
+        "path": "W1",
+        "role": "weights",
+        "shape": [
+          3
+        ],
+        "trainable": true
+      },
+      {
+        "dtype": "float32",
+        "function": "ClassifierModel",
+        "initial_value": 0.0,
+        "initializer": "zeros",
+        "name": "b1",
+        "path": "b1",
+        "role": "bias",
+        "shape": [],
+        "trainable": true
+      }
+    ],
+    "project": "my-first-classifier",
+    "target": "differentiable_python",
+    "tensor_shapes": {
+      "ClassifierModel": [],
+      "Features": [
+        3
+      ]
+    },
+    "trainable_parameters": [
+      {
+        "function": "ClassifierModel",
+        "name": "W1",
+        "role": "weights",
+        "shape": [
+          3
+        ]
+      },
+      {
+        "function": "ClassifierModel",
+        "name": "b1",
+        "role": "bias",
+        "shape": []
+      }
+    ],
+    "type_constraints": {
+      "ClassifierModel": {
+        "output": {
+          "name": "R",
+          "type": {
+            "name": "Risk",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          }
+        }
+      },
+      "Features": {
+        "fields": {
+          "feature_1": {
+            "name": "Score",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "feature_2": {
+            "name": "Score",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          },
+          "feature_3": {
+            "name": "Score",
+            "range": {
+              "inclusive_max": true,
+              "inclusive_min": true,
+              "max": 1.0,
+              "min": 0.0
+            }
+          }
+        }
+      }
+    },
+    "unsupported_nodes": [],
+    "warnings": []
+  },
+  "dataset": {
+    "fingerprint": "data_fe006cb93b8b285f",
+    "name": "TrainingSet",
+    "rows_train": 12,
+    "rows_validation": 3,
+    "source": "my-first-classifier/dataset/train.csv",
+    "split": {
+      "config": {
+        "seed": 42,
+        "train": 0.8,
+        "validation": 0.2
+      },
+      "fingerprint": "split_6a957e38e0630ae4",
+      "train": {
+        "fingerprint": "split_part_24f03a981bf8b3b4",
+        "row_hashes": [
+          "row_04c6a1775ba46e05",
+          "row_4aa4fb0419b3c659",
+          "row_06df04783146411b",
+          "row_2220ed976fe95b2c",
+          "row_08ef181d9eace297",
+          "row_7038dd7b1cb88e5a",
+          "row_422cfb370e5678de",
+          "row_b84e1697d9532d60",
+          "row_c4a027c90c8fe36e",
+          "row_9840b38a2840513b",
+          "row_0581cb4bb534b68e",
+          "row_e5609995ede0011e"
+        ],
+        "row_indices": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          13,
+          14,
+          15,
+          16
+        ],
+        "rows": 12
+      },
+      "validation": {
+        "fingerprint": "split_part_72d04455436633ca",
+        "row_hashes": [
+          "row_4ad6950caf5c7e72",
+          "row_336b7c2396af49cc",
+          "row_b4e21f9d5d12a6cd"
+        ],
+        "row_indices": [
+          2,
+          3,
+          12
+        ],
+        "rows": 3
+      }
+    }
+  },
+  "epochs": [
+    {
+      "accuracy": 1.0,
+      "epoch": 1,
+      "train_loss": 0.5856231662718088,
+      "validation_loss": 0.4978700304563899
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 2,
+      "train_loss": 0.5117037987657734,
+      "validation_loss": 0.3998440351183181
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 3,
+      "train_loss": 0.4514382511984341,
+      "validation_loss": 0.36206896342538464
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 4,
+      "train_loss": 0.40257766723490934,
+      "validation_loss": 0.3143432971241932
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 5,
+      "train_loss": 0.36188665191905933,
+      "validation_loss": 0.28621998875774274
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 6,
+      "train_loss": 0.32757455382613276,
+      "validation_loss": 0.26281563857036583
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 7,
+      "train_loss": 0.2981068328581405,
+      "validation_loss": 0.24875021676942297
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 8,
+      "train_loss": 0.27275150177460533,
+      "validation_loss": 0.23618158332824948
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 9,
+      "train_loss": 0.25122019017918357,
+      "validation_loss": 0.2168380320928741
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 10,
+      "train_loss": 0.2325375347425526,
+      "validation_loss": 0.20095937919806386
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 11,
+      "train_loss": 0.21620603499733396,
+      "validation_loss": 0.1876094293460215
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 12,
+      "train_loss": 0.20182386009703843,
+      "validation_loss": 0.1762020819255955
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 13,
+      "train_loss": 0.18908873635219833,
+      "validation_loss": 0.16616572023240853
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 14,
+      "train_loss": 0.1777444630371513,
+      "validation_loss": 0.15723914700233174
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 15,
+      "train_loss": 0.16758623179350116,
+      "validation_loss": 0.14925641961509536
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 16,
+      "train_loss": 0.1583747519645069,
+      "validation_loss": 0.1418691602264378
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 17,
+      "train_loss": 0.1500119116482366,
+      "validation_loss": 0.13347581446810308
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 18,
+      "train_loss": 0.14252935865087846,
+      "validation_loss": 0.12809429356011884
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 19,
+      "train_loss": 0.13571419303657065,
+      "validation_loss": 0.12315054900843325
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 20,
+      "train_loss": 0.1294106112146848,
+      "validation_loss": 0.11750357020327638
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 21,
+      "train_loss": 0.12367041606966721,
+      "validation_loss": 0.11397589763438064
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 22,
+      "train_loss": 0.11836659008944794,
+      "validation_loss": 0.10873129295028626
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 23,
+      "train_loss": 0.11349978956461097,
+      "validation_loss": 0.10569351853548808
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 24,
+      "train_loss": 0.10902598982380989,
+      "validation_loss": 0.10245894131666594
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 25,
+      "train_loss": 0.10487935570517805,
+      "validation_loss": 0.09928190307013135
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 26,
+      "train_loss": 0.10102020539676781,
+      "validation_loss": 0.09600869665768662
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 27,
+      "train_loss": 0.09739087579596223,
+      "validation_loss": 0.09209733608319032
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 28,
+      "train_loss": 0.09399936477569905,
+      "validation_loss": 0.08880026562919811
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 29,
+      "train_loss": 0.09083416650934018,
+      "validation_loss": 0.08567811720995548
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 30,
+      "train_loss": 0.08787765202895322,
+      "validation_loss": 0.083058926734615
+    }
+  ],
+  "loss": "binary_cross_entropy",
+  "model": "my-first-classifier/my-first-classifier.mxai",
+  "model_hash": "mxai_ff6fcc66e359a93d",
+  "optimizer": "sgd",
+  "parameter_schema_hash": "params_7bdee2c45b56c62e",
+  "parameters_updated": [
+    "W1",
+    "b1"
+  ],
+  "prediction": "R",
+  "run_id": "model_v1",
+  "selected_parameter_set": "params.best.json",
+  "task_kind": "classification"
+}

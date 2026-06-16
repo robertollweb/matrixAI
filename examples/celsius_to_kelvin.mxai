@@ -1,0 +1,19 @@
+PROJECT CelsiusToKelvin
+
+VECTOR Reading[1]
+  celsius: Scalar
+END
+
+PARAM W1 Vector[1]
+END
+
+PARAM b1 Scalar
+END
+
+FUNCTION KelvinPrediction
+  predicted_kelvin: Scalar = linear(W1 * Reading + b1)
+END
+
+GRAPH
+  Reading -> KelvinPrediction
+END

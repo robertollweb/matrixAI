@@ -1,0 +1,49 @@
+{
+  "accepted": false,
+  "source": "rejected_proposal",
+  "project": "UnsafeEmail",
+  "mode": "classification",
+  "vector": {
+    "name": "Email",
+    "fields": [
+      "urgency",
+      "sender_trust"
+    ]
+  },
+  "graph_nodes": [
+    "Email",
+    "Classifier",
+    "Confidence",
+    "ReplyActivation",
+    "DraftReply"
+  ],
+  "actions": [
+    "DraftReply"
+  ],
+  "translation_kinds": [
+    "sigmoid_threshold"
+  ],
+  "checks": [
+    {
+      "name": "architect_plan",
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "name": "planner_verifier",
+      "ok": false,
+      "errors": [
+        "PLAN action DraftReply must use policy simulate_only in MVP",
+        "PLAN action DraftReply must call a simulated.* target in MVP"
+      ],
+      "warnings": []
+    },
+    {
+      "name": "mathematical_rules_resolved",
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    }
+  ]
+}

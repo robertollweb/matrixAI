@@ -1,0 +1,26 @@
+{
+  "name": "credit-scoring",
+  "version": "v1.1",
+  "entry_hash": "sha256:070f1b1f6c878b54d01f5c406dfd490bce1429d42b28c350573ea8ee2e032937",
+  "model_hash": "sha256:05ca85333c05bbc376acf400741c0be6c99a2af6bdbbb4648c992e5e0bff06fb",
+  "parameter_schema_hash": "params_51b4404d9ecaab19",
+  "parameter_set_id": "v1.1_best",
+  "input_type": {},
+  "output_type": {},
+  "metrics": {
+    "accuracy": 0.875,
+    "macro_f1": 0.8230958230958231,
+    "macro_precision": 0.925,
+    "macro_recall": 0.7857142857142857,
+    "validation_loss": 0.35156290510161375,
+    "parent_parameter_set_id": "v1.0_best"
+  },
+  "matrixai_version": "0.21.0",
+  "created_at": "2026-05-26T13:39:42.833470+00:00",
+  "training_dataset_fingerprint": "",
+  "interpretability_level": "full",
+  "training_trace_hash": "sha256:16877660951741ea790fcc3b147eddd20b1d26caae5e0bb7292a6a16c9d744af",
+  "evaluation_report_hash": "sha256:5862f3e219a09c2d16c5f75c382041e0c13221358c034b2c6f7fa0b5622d8c36",
+  "params_content_hash": "sha256:328cb5da319a2ca75eef15e524a5751240dd309842bb1dbb5c76e43e91833ebd",
+  "blockers": []
+}

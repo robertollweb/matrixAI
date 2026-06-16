@@ -1,0 +1,29 @@
+{
+  "name": "matrixai",
+  "version": "1.0.0",
+  "description": "MatrixAI es un prototipo de lenguaje/IR matematica para IA. Representa sistemas como grafos de vectores, funciones continuas, distribuciones probabilisticas, acciones discretas y auditoria agentica.",
+  "main": "index.js",
+  "directories": {
+    "example": "examples",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robertollweb/matrixAI.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/robertollweb/matrixAI/issues"
+  },
+  "homepage": "https://github.com/robertollweb/matrixAI#readme",
+  "dependencies": {
+    "onnxruntime-node": "^1.26.0",
+    "onnxruntime-web": "^1.26.0"
+  }
+}

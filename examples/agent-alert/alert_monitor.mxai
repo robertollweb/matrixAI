@@ -1,0 +1,22 @@
+PROJECT AlertMonitor
+
+VECTOR SystemMetrics[3]
+  severity: Score
+  source_trust: Score
+  is_business_hours: Score
+END
+
+FUNCTION AlertModel
+  R: Risk = sigmoid(W1 * SystemMetrics + b1)
+END
+
+ACTION TriggerAlert
+  TARGET email_send
+  POLICY real_with_audit
+  CONDITION R > 0.7
+  INPUT recipient: String, subject: String, body: String
+END
+
+GRAPH
+  SystemMetrics -> AlertModel -> TriggerAlert
+END
