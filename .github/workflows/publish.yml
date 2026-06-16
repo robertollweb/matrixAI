@@ -52,6 +52,9 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Remove non-package files
+        run: rm -f dist/SHA256SUMS
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
