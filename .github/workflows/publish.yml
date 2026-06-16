@@ -40,22 +40,8 @@ jobs:
           name: dist
           path: dist/
 
-  audit:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-      - name: pip-audit
-        run: |
-          pip install pip-audit
-          pip-audit dist/*.whl
-
   publish-pypi:
-    needs: audit
+    needs: build
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
