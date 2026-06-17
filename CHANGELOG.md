@@ -37,7 +37,7 @@ Complete command surface:
 | `matrixai run` | Run inference on a trained model |
 | `matrixai serve` | Serve a model over HTTP with auth and rate limiting |
 | `matrixai prompt` | Generate a `.mxai` program from a natural-language prompt |
-| `matrixai studio` | Launch the browser-based model development environment |
+| `matrixai playground` | Launch the local prompt-to-runtime playground |
 | `matrixai pack` | Package a model for Docker deployment |
 | `matrixai export` | Export a model to ONNX or WASM |
 | `matrixai registry` | Push, pull, verify and inspect model registry entries |
@@ -72,12 +72,10 @@ Complete command surface:
 - ONNX export with equivalence validation (`pip install matrixai-core[export]`)
 - WASM bundles for browser and edge deployment
 - `matrixai pack --docker` generates a production-ready Dockerfile and Compose file
-- Official Docker image: `ghcr.io/robertollweb/matrixai:1.0.0`
 
 ### Distribution
 
 - PyPI package: `pip install matrixai-core`
-- Docker image: `ghcr.io/robertollweb/matrixai:1.0.0` and `:latest`
 - SHA-256 checksums published with each release
 - PyPI Trusted Publishing — no manual credentials in CI
 

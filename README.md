@@ -40,7 +40,7 @@ matrixai --help
 - **Continual learning**: `.mxcontinual` policies with drift detection and automatic versioning
 - **HTTP server**: `/predict`, `/metrics` (Prometheus), `/execute-action`, `/feedback` with API key auth
 - **ONNX / WASM export**: edge deployment bundles and browser-ready WASM packages
-- **Studio**: browser-based model development environment (`matrixai studio`)
+- **Studio**: browser-based model development environment — a separate product at [matrixaistudio.org](https://matrixaistudio.org), built on this core
 
 ---
 
@@ -192,14 +192,18 @@ For **Google Gemini** or **DeepSeek** — see the full list of providers and exa
 
 ## Studio
 
-Browser-based model development environment. Generate models from prompts, train, evaluate and explore — no CLI required.
+MatrixAI Studio is a browser-based model development environment — generate models from
+prompts, train, evaluate and explore without writing code. It is distributed as a
+separate product built on this core.
+
+→ **[matrixaistudio.org](https://matrixaistudio.org)** — downloads, documentation and member resources.
+
+The core itself ships a local technical playground (prompt → runtime):
 
 ```bash
-python -m matrixai studio
+python -m matrixai playground --open
 # → http://127.0.0.1:8765
 ```
-
-The `/expert` route opens the full technical workbench for `.mxai` editing, pipeline inspection and runtime diagnostics.
 
 ---
 
