@@ -300,3 +300,43 @@ def test_depth_not_extracted_from_irrelevant_numbers():
     # "30 días" should not be parsed as 30 hidden layers
     result = gen.generate("detectar reingresos hospitalarios en 30 dias")
     assert len(result.hidden_layers) <= 5  # default, not 30
+
+
+# ---------------------------------------------------------------------------
+# Label extraction — trailing prose must not be swallowed; space-separated labels
+# ---------------------------------------------------------------------------
+
+def test_labels_not_swallowed_by_trailing_prose():
+    # The reported bug: "BAJO MEDIO ALTO con una red profunda…" produced one giant
+    # label. The descriptive connector must truncate the label region.
+    labels = gen._extract_labels(
+        "Clasificar el riesgo en 3 niveles BAJO MEDIO ALTO con una red profunda "
+        "de bloques residuales con LayerNorm y Dropout, features f1 f2 f3 f4"
+    )
+    assert labels == ["bajo", "medio", "alto"]
+
+
+def test_space_separated_labels():
+    assert gen._extract_labels(
+        "clasificar riesgo en niveles bajo medio alto critico usando una red profunda"
+    ) == ["bajo", "medio", "alto", "critico"]
+
+
+def test_comma_separated_multiword_labels_preserved():
+    # Comma/connector-separated multi-word labels must stay intact (no space split).
+    assert gen._extract_labels("clases: muy bajo, bajo, alto") == ["muy_bajo", "bajo", "alto"]
+
+
+def test_label_extraction_truncates_at_feature_description():
+    assert gen._extract_labels(
+        "clasificar en clases A B C con features edad, imc, glucosa"
+    ) == ["a", "b", "c"]
+
+
+def test_generated_mxai_has_clean_labels():
+    # End-to-end: the OUTPUT ProbabilityMap carries the real class names, not prose.
+    result = gen.generate(
+        "Clasificar el riesgo en 3 niveles BAJO MEDIO ALTO con una red profunda, "
+        "features f1 f2 f3 f4"
+    )
+    assert "ProbabilityMap[bajo, medio, alto]" in result.mxai_text

@@ -25,6 +25,7 @@ class SyntheticDataGenerator:
         domain_scale: bool = False,
         field_types: dict[str, str] | None = None,
         one_hot_groups: dict[str, list[str]] | None = None,
+        domain_rules: Any = None,
     ):
         self.program = program
         self.training = training
@@ -49,6 +50,20 @@ class SyntheticDataGenerator:
         self._one_hot_members: set[str] = {
             col for members in self.one_hot_groups.values() for col in members
         }
+
+        # M8 v2: LLM-proposed domain rules (already normalized to [0,1]). When set,
+        # multiclass labels come from the deterministic evaluator (plausible signal)
+        # instead of the untrained runtime (toy). None → unchanged coherent behaviour.
+        self.domain_rules = domain_rules
+        self.domain_rules_used: int = 0
+        # True when domain-rule labelling collapsed to a single class on the sampled
+        # rows (bad thresholds / missing ranges / unhit branches) → the signal is
+        # useless and the caller should fall back to coherent honestly.
+        self.domain_rules_degenerate: bool = False
+        # Declared classes that never appear in the generated data (≥2 still present,
+        # so not degenerate). The caller warns: the model can't learn absent classes
+        # and macro F1 will be low. Populated after generate() for classification.
+        self.missing_labels: list[str] = []
 
         self.rng = random.Random(seed)
         # Rows in coherent mode that fell back to random (runtime failure or no valid label).
@@ -149,6 +164,12 @@ class SyntheticDataGenerator:
                         fell_back = True
                     if fell_back:
                         self.coherent_fallback_count += 1
+                elif self.domain_rules is not None:
+                    # M8 v2: deterministic domain-rule labelling (plausible signal).
+                    # Rules are pre-normalized to [0,1]; row_dict is still normalized
+                    # here (domain-scale conversion happens later).
+                    row_dict[target_name] = self.domain_rules.label_for(row_dict)
+                    self.domain_rules_used += 1
                 else:
                     from matrixai.runtime.runtime import MatrixAIRuntime
                     fell_back = False
@@ -209,7 +230,10 @@ class SyntheticDataGenerator:
         # Threshold: any class with < (rows / n_classes) * 0.4 rows triggers rebalance.
         # Rebalancing sorts rows by mean feature score and assigns labels in equal chunks —
         # this creates a genuine monotonic correlation without running the runtime again.
-        if not is_regression and not is_probability and target_labels and len(target_labels) >= 2:
+        # M8 v2: never rebalance domain-rule labels — the class skew (e.g. few
+        # CRÍTICO) is the intended domain distribution; rebalancing would destroy it.
+        if (not is_regression and not is_probability and target_labels
+                and len(target_labels) >= 2 and not self.domain_rules_used):
             from collections import Counter  # noqa: PLC0415
             counts = Counter(r[target_name] for r in generated_rows)
             min_expected = max(1, self.rows // len(target_labels))
@@ -217,6 +241,18 @@ class SyntheticDataGenerator:
                 generated_rows = self._rebalance_labels(
                     generated_rows, target_name, target_labels, input_columns,
                 )
+
+        # M8 v2: flag degenerate domain-rule labelling (≈1 class) so the caller can
+        # fall back to coherent instead of shipping a single-class (useless) dataset.
+        if self.domain_rules_used:
+            distinct = {r[target_name] for r in generated_rows}
+            self.domain_rules_degenerate = len(distinct) < 2
+
+        # M8 v2: declared classes absent from the data (≥2 present → not degenerate).
+        # The model can't learn classes it never sees → low macro F1; the caller warns.
+        if not is_regression and not is_probability and target_labels:
+            present = {r[target_name] for r in generated_rows}
+            self.missing_labels = [lbl for lbl in target_labels if lbl not in present]
 
         # M5: convert ranged input columns to domain scale for human-readable
         # output. Done AFTER labels and rebalancing so all internal logic ran
@@ -310,6 +346,16 @@ class SyntheticDataGenerator:
             lo, hi = self.field_ranges[field_name]
             raw = self.rng.uniform(lo, hi)
             return round((raw - lo) / (hi - lo) if hi != lo else 0.5, 4)
+
+        # Integer fields (e.g. an EMBEDDING source `cat: Integer[0, vocab-1]`) must
+        # sample whole indices, not floats — the embedding lookup uses the raw index
+        # and the value is NOT normalized. randint is inclusive on both ends.
+        if type_spec.name == "Integer" and type_spec.range is not None:
+            lo = int(type_spec.range.minimum) if type_spec.range.minimum is not None else 0
+            hi = int(type_spec.range.maximum) if type_spec.range.maximum is not None else 1
+            if hi < lo:
+                lo, hi = hi, lo
+            return float(self.rng.randint(lo, hi))
 
         # Explicit range in the DSL (e.g. FLOAT [10, 20]): honour it as-is.
         # The user or the type system defined this range intentionally.

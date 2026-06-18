@@ -39,7 +39,9 @@ matrixai --help
 - **Real actions**: `.mxact` contracts with HMAC-signed traces, dry-run and rollback
 - **Continual learning**: `.mxcontinual` policies with drift detection and automatic versioning
 - **HTTP server**: `/predict`, `/metrics` (Prometheus), `/execute-action`, `/feedback` with API key auth
-- **ONNX / WASM export**: edge deployment bundles and browser-ready WASM packages
+- **ONNX / WASM export**: edge deployment bundles and browser-ready WASM packages — for
+  dense **and composite** networks (residual blocks, LayerNorm, embeddings, concat), with
+  output equivalence validated against the reference forward pass
 - **Studio**: browser-based model development environment — a separate product at [matrixaistudio.org](https://matrixaistudio.org), built on this core
 
 ---

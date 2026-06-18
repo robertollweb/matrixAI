@@ -75,8 +75,8 @@ class OnnxExporter:
                 "Export refused: ParameterSet was not trained on this .mxai."
             )
 
-        # Guardrail: ParameterSet shapes and schema must be consistent
-        val = validate_parameter_set(program, parameter_set)
+        # Guardrail: ParameterSet shapes and schema must be consistent.
+        val = validate_export_parameter_set(program, parameter_set)
         if not val.ok:
             raise OnnxExportError(
                 f"ParameterSet validation failed for {program.project!r}: "
@@ -89,6 +89,7 @@ class OnnxExporter:
                       if f.semantic.kind in ("softmax_linear", "sigmoid_linear")]
         skipped = [f.name for f in program.functions if f.semantic.kind not in _SUPPORTED_KINDS]
         dense_nets = [n for n in program.networks if getattr(n, "kind", "") == "dense_network"]
+        composite_nets = [n for n in program.networks if getattr(n, "kind", "") == "composite_network"]
 
         if layer_call_fns:
             # Input size for result: from VECTOR or SEQUENCE spec
@@ -137,6 +138,20 @@ class OnnxExporter:
             labels = []
             kind = "dense_network"
             skipped = [n.name for n in dense_nets[1:]]
+        elif composite_nets:
+            # M2 v2 — composite_network (P19 blocks/residual/LayerNorm/Dropout/embeddings)
+            # produced by CompositeNetworkGenerator. Lower the composite forward to ONNX.
+            network = composite_nets[0]
+            if not program.vectors:
+                raise OnnxExportError(f"No VECTOR input for composite network {network.name!r}")
+            input_dim = program.vectors[0].size
+            nodes, initializers, x_info, y_info, out_shape = _build_composite_network_pipeline(
+                network, program, parameter_set, np, numpy_helper, helper, TensorProto
+            )
+            exported_names = [network.name]
+            labels = []
+            kind = "composite_network"
+            skipped = [n.name for n in composite_nets[1:]]
         else:
             kinds = {f.semantic.kind for f in program.functions}
             raise OnnxExportError(
@@ -186,6 +201,23 @@ class OnnxExporter:
             skipped_functions=skipped,
             labels=labels,
         )
+
+
+def validate_export_parameter_set(program, parameter_set):
+    """Validate a ParameterSet for export, dispatching composite networks (P19) to
+    their dedicated validator. The generic BackendContractAnalyzer-based validator
+    only knows dense/function programs and would reject composite parameter schemas."""
+    composite = [n for n in program.networks if getattr(n, "kind", "") == "composite_network"]
+    if composite:
+        from matrixai.types import check_composite_network_types
+        from matrixai.parameters.network_params import validate_composite_network_parameter_set
+        net = composite[0]
+        vector_map = {v.name: v for v in program.vectors}
+        type_result = check_composite_network_types(net, vector_map)
+        return validate_composite_network_parameter_set(
+            net, type_result, parameter_set, program_hash(program)
+        )
+    return validate_parameter_set(program, parameter_set)
 
 
 def export_onnx(
@@ -511,6 +543,209 @@ def _build_dense_network_pipeline(network, program, parameter_set, np, numpy_hel
 
     y_info = helper.make_tensor_value_info(current, TensorProto.FLOAT, current_shape)
     return nodes, initializers, x_info, y_info, current_shape
+
+
+def _emit_dense_activation(act, pre_act, post_act, helper):
+    """Emit the ONNX activation node for a Dense/Activation layer. Softmax over the
+    last axis (composite tensors are [batch, dim], so axis=1)."""
+    act = (act or "linear").lower()
+    if act == "relu":
+        return helper.make_node("Relu", inputs=[pre_act], outputs=[post_act])
+    if act == "sigmoid":
+        return helper.make_node("Sigmoid", inputs=[pre_act], outputs=[post_act])
+    if act == "tanh":
+        return helper.make_node("Tanh", inputs=[pre_act], outputs=[post_act])
+    if act == "softmax":
+        return helper.make_node("Softmax", inputs=[pre_act], outputs=[post_act], axis=1)
+    # linear / identity
+    return helper.make_node("Identity", inputs=[pre_act], outputs=[post_act])
+
+
+def _build_composite_layer_onnx_nodes(layer, prefix, tag, current, current_dim,
+                                      parameter_set, np, numpy_helper, helper):
+    """Lower one CompositeLayerSpec to ONNX nodes. Mirrors composite_forward's
+    _forward_composite_layer (inference: Dropout/Pool/Reshape are identity).
+
+    Returns (nodes, initializers, output_tensor, output_dim).
+    """
+    nodes: list = []
+    initializers: list = []
+    lt = layer.layer_type
+    pfx = f"{prefix}.L{layer.index}"          # parameter-store key prefix
+    name = f"{tag}_L{layer.index}"            # ONNX tensor-name prefix (dots are awkward)
+
+    if lt == "Dense":
+        w_key = f"{pfx}.W"
+        b_key = f"{pfx}.b"
+        if w_key not in parameter_set.parameters:
+            raise OnnxExportError(f"Composite parameter {w_key!r} not found in ParameterSet")
+        if b_key not in parameter_set.parameters:
+            raise OnnxExportError(f"Composite parameter {b_key!r} not found in ParameterSet")
+        W = np.array(parameter_set.parameters[w_key]["values"], dtype=np.float32)  # (out, in)
+        b = np.array(parameter_set.parameters[b_key]["values"], dtype=np.float32)  # (out,)
+        w_name, b_name = f"{name}_W", f"{name}_b"
+        pre_act, post_act = f"{name}_pre", f"{name}_out"
+        initializers.append(numpy_helper.from_array(W, name=w_name))
+        initializers.append(numpy_helper.from_array(b, name=b_name))
+        nodes.append(helper.make_node(
+            "Gemm", inputs=[current, w_name, b_name], outputs=[pre_act],
+            transB=1, alpha=1.0, beta=1.0,
+        ))
+        nodes.append(_emit_dense_activation(layer.activation, pre_act, post_act, helper))
+        return nodes, initializers, post_act, int(W.shape[0])
+
+    if lt == "LayerNorm":
+        gamma_key = f"{pfx}.gamma"
+        beta_key = f"{pfx}.beta"
+        if gamma_key not in parameter_set.parameters:
+            raise OnnxExportError(f"Composite parameter {gamma_key!r} not found in ParameterSet")
+        if beta_key not in parameter_set.parameters:
+            raise OnnxExportError(f"Composite parameter {beta_key!r} not found in ParameterSet")
+        gamma = np.array(parameter_set.parameters[gamma_key]["values"], dtype=np.float32)
+        beta = np.array(parameter_set.parameters[beta_key]["values"], dtype=np.float32)
+        g_name, bt_name, out = f"{name}_gamma", f"{name}_beta", f"{name}_ln"
+        initializers.append(numpy_helper.from_array(gamma, name=g_name))
+        initializers.append(numpy_helper.from_array(beta, name=bt_name))
+        nodes.append(helper.make_node(
+            "LayerNormalization", inputs=[current, g_name, bt_name], outputs=[out],
+            axis=-1, epsilon=1e-5,
+        ))
+        return nodes, initializers, out, current_dim
+
+    if lt == "Activation":
+        out = f"{name}_act"
+        nodes.append(_emit_dense_activation(getattr(layer, "activation_kind", "relu"),
+                                            current, out, helper))
+        return nodes, initializers, out, current_dim
+
+    if lt in ("Dropout", "Pool", "Reshape"):
+        # Inference-time identity (composite_forward training=False): pass the tensor
+        # through with no node, exactly like the stdlib forward.
+        return [], [], current, current_dim
+
+    raise OnnxExportError(
+        f"Unsupported composite layer type {lt!r} in {prefix!r}. "
+        f"Supported: Dense, LayerNorm, Dropout, Activation, Pool, Reshape"
+    )
+
+
+def _build_composite_network_pipeline(network, program, parameter_set, np, numpy_helper, helper, TensorProto):
+    """Build ONNX nodes for a composite_network (P19) produced by CompositeNetworkGenerator.
+
+    Mirrors composite_forward: VECTOR input → embeddings (Gather) → concats (Concat) →
+    interleaved top_layers/blocks (residual connections via Add).
+    """
+    from matrixai.ir.schema import get_interleaved_body
+
+    vec = program.vectors[0]
+    nodes: list = []
+    initializers: list = []
+    x_info = helper.make_tensor_value_info(vec.name, TensorProto.FLOAT, [-1, vec.size])
+    tag = network.name
+
+    # named tensors: name -> (onnx_tensor_name, dim). Mirrors composite_forward.
+    named: dict[str, tuple[str, int]] = {}
+    field_index = {f: i for i, f in enumerate(vec.fields)}
+
+    def _field_column(name: str) -> tuple[str, int]:
+        """Slice one input field as a [batch, 1] column (cached)."""
+        if name in named:
+            return named[name]
+        if name not in field_index:
+            raise OnnxExportError(f"Composite network {tag!r}: field {name!r} not in VECTOR")
+        idx_init = f"{tag}_idx_{name}"
+        initializers.append(numpy_helper.from_array(np.array([field_index[name]], dtype=np.int64), name=idx_init))
+        out = f"{tag}_col_{name}"
+        nodes.append(helper.make_node("Gather", inputs=[vec.name, idx_init], outputs=[out], axis=1))
+        named[name] = (out, 1)
+        return named[name]
+
+    # 1. Embeddings: round the source field index, Cast to int64, Gather a table row.
+    for emb in getattr(network, "embeddings", []):
+        table_key = f"{tag}.{emb.name}.table"
+        if table_key not in parameter_set.parameters:
+            raise OnnxExportError(f"Composite parameter {table_key!r} not found in ParameterSet")
+        table = np.array(parameter_set.parameters[table_key]["values"], dtype=np.float32)  # (vocab, dim)
+        dim = int(table.shape[1])
+        col, _ = _field_column(emb.source)
+        rounded = f"{tag}_{emb.name}_round"
+        idx_i64 = f"{tag}_{emb.name}_i64"
+        idx_flat = f"{tag}_{emb.name}_flat"
+        table_name = f"{tag}_{emb.name}_table"
+        emb_out = f"{tag}_{emb.name}_emb"
+        flat_shape = f"{tag}_{emb.name}_flatshape"
+        initializers.append(numpy_helper.from_array(table, name=table_name))
+        initializers.append(numpy_helper.from_array(np.array([-1], dtype=np.int64), name=flat_shape))
+        # int(round(x)) — ONNX Round is round-half-to-even, matching Python round().
+        nodes.append(helper.make_node("Round", inputs=[col], outputs=[rounded]))
+        nodes.append(helper.make_node("Cast", inputs=[rounded], outputs=[idx_i64], to=TensorProto.INT64))
+        nodes.append(helper.make_node("Reshape", inputs=[idx_i64, flat_shape], outputs=[idx_flat]))
+        nodes.append(helper.make_node("Gather", inputs=[table_name, idx_flat], outputs=[emb_out], axis=0))
+        named[emb.name] = (emb_out, dim)
+
+    # 2. Concats: combine named tensors along the feature axis.
+    for concat in getattr(network, "concats", []):
+        parts = [_field_column(s) if s not in named else named[s] for s in concat.sources]
+        concat_out = f"{tag}_concat_{concat.name}"
+        nodes.append(helper.make_node(
+            "Concat", inputs=[t for t, _ in parts], outputs=[concat_out], axis=1))
+        named[concat.name] = (concat_out, sum(d for _, d in parts))
+
+    # 3. Initial current vector (mirrors composite_forward step 4).
+    concats = getattr(network, "concats", [])
+    if concats:
+        current, current_dim = named[concats[-1].name]
+    else:
+        # No concats: the flat input VECTOR is the feature vector (embeddings, if any,
+        # would be unused — the generator never emits that shape).
+        current = vec.name
+        current_dim = vec.size
+
+    for _, kind, spec in get_interleaved_body(network):
+        if kind == "layer":
+            n, inits, current, current_dim = _build_composite_layer_onnx_nodes(
+                spec, network.name, network.name, current, current_dim,
+                parameter_set, np, numpy_helper, helper,
+            )
+            nodes.extend(n)
+            initializers.extend(inits)
+        else:
+            block = spec
+            residual_from = getattr(block, "residual_from", "")
+            block_input = current
+            block_dim = current_dim
+            block_prefix = f"{network.name}.{block.name}"
+            block_tag = f"{network.name}_{block.name}"
+            for layer in block.layers:
+                n, inits, current, current_dim = _build_composite_layer_onnx_nodes(
+                    layer, block_prefix, block_tag, current, current_dim,
+                    parameter_set, np, numpy_helper, helper,
+                )
+                nodes.extend(n)
+                initializers.extend(inits)
+            if residual_from:
+                if residual_from == "PREVIOUS":
+                    res_tensor, res_dim = block_input, block_dim
+                elif residual_from in named:
+                    res_tensor, res_dim = named[residual_from]
+                else:
+                    raise OnnxExportError(
+                        f"Block {block.name!r}: RESIDUAL FROM {residual_from!r} not a known "
+                        f"tensor (expected PREVIOUS or a named embedding/concat/field)"
+                    )
+                if res_dim != current_dim:
+                    raise OnnxExportError(
+                        f"Block {block.name!r}: RESIDUAL shape mismatch "
+                        f"(residual={res_dim}, block_output={current_dim})"
+                    )
+                res_out = f"{block_tag}_residual"
+                nodes.append(helper.make_node(
+                    "Add", inputs=[res_tensor, current], outputs=[res_out]))
+                current = res_out
+
+    out_shape = [-1, current_dim]
+    y_info = helper.make_tensor_value_info(current, TensorProto.FLOAT, out_shape)
+    return nodes, initializers, x_info, y_info, out_shape
 
 
 def _add_gelu_nodes(x_tensor, output_tensor, layer_name, helper, numpy_helper, np):

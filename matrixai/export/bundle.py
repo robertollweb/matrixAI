@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from matrixai.ir import MatrixAIProgram
-from matrixai.parameters import validate_parameter_set
+from matrixai.export.onnx_exporter import validate_export_parameter_set
 from matrixai.parameters.store import ParameterSet, program_hash
 from matrixai.export.onnx_exporter import OnnxExporter, OnnxExportResult, OnnxExportError
 from matrixai.export.equivalence import (
@@ -83,7 +83,7 @@ class EdgeBundler:
             )
 
         # Validate ParameterSet shapes/schema before touching disk
-        val = validate_parameter_set(program, parameter_set)
+        val = validate_export_parameter_set(program, parameter_set)
         if not val.ok:
             raise EdgeBundleError(
                 f"ParameterSet validation failed: {'; '.join(val.errors)}"

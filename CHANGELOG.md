@@ -7,6 +7,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **ONNX / WASM export for composite networks (P19)** — residual blocks, LayerNorm,
+  Dropout (identity at inference), native embeddings and concat now lower to ONNX
+  (and WASM by delegation), with onnxruntime↔reference equivalence validation. The
+  edge bundle exports them too. Dense export is unchanged.
+- **LLM as domain simulator** — the schema designer can propose bounded threshold
+  rules (`feature OP value`, AND/OR) that a deterministic evaluator applies to label
+  synthetic data with plausible, learnable signal instead of a toy mapping. Falls back
+  to coherent labelling when no rules are usable; collapsed/missing-class datasets are
+  flagged honestly.
+- **Native embeddings from prompt** — the schema can declare high-cardinality
+  categoricals (`field:vocab`); the composite generator emits `EMBEDDING` + `CONCAT`
+  for them, with integer-index synthetic data.
+
+### Changed
+
+- Training epochs and `early_stop` from the prompt are honoured by the composite
+  generator too (not only dense). The epoch sanity ceiling is 1000.
+- The training wall-clock budget (`MATRIXAI_TRAIN_TIMEOUT`) can be disabled with `0`
+  (train to completion); the default stays 300s.
+
+### Fixed
+
+- Prompt label extraction no longer swallows trailing prose (e.g. `niveles BAJO MEDIO
+  ALTO con una red…`) and now parses space-separated labels.
+- Sequence detection aligned across the generator and the playground so a tabular
+  composite (e.g. with embeddings) is not mislabelled as a sequence.
+
+---
+
 ## [1.0.0] — 2026-05-30
 
 First stable public release.

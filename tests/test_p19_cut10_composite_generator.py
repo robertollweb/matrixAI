@@ -130,6 +130,36 @@ class TestSequenceInput:
         assert not result.is_sequence
         assert "POOL mean" not in result.mxai_text
 
+    def test_composite_honors_epochs_and_early_stop_from_prompt(self):
+        # The composite generator must thread epochs/early_stop from the prompt (it
+        # used to ignore them → default 50). The user controls their machine.
+        result = gen.generate(
+            "clasificar riesgo bajo medio alto con bloques residuales. "
+            "epochs=300 early_stop patience=20 metric=validation_loss",
+            labels=["a", "b", "c"],
+        )
+        assert "EPOCHS 300" in result.training_text
+        assert "EARLY_STOP patience=20 metric=validation_loss" in result.training_text
+
+    def test_composite_default_epochs_when_unspecified(self):
+        result = gen.generate("clasificar a b c con bloques residuales", labels=["a", "b", "c"])
+        assert "EPOCHS 50" in result.training_text
+
+    def test_bare_series_word_is_not_a_sequence(self):
+        # M8 v2 post-audit: bare "series"/"serie"/"seq" must NOT trigger sequence
+        # detection (they did → tabular composites were mislabelled "sequence" with
+        # a spurious POOL). Aligned with playground._SEQUENCE_HINTS.
+        for prompt in ("clasificar una series de productos por categoria",
+                       "predecir la serie de ventas por tienda",
+                       "clasificar seq de clientes"):
+            result = gen.generate(prompt, categorical_fields={"categoria": 40},
+                                  labels=["a", "b", "c"])
+            assert not result.is_sequence, prompt
+            assert "POOL mean" not in result.mxai_text
+        # genuine time-series wording still detected
+        assert gen.generate("clasificar una serie temporal de sensores",
+                            labels=["a", "b"]).is_sequence
+
 
 # ---------------------------------------------------------------------------
 # TestFallback

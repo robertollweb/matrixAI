@@ -14,6 +14,8 @@ from matrixai.training.dense_generator import (
     DenseNetworkGenerator,
     _any,
     _build_training_text,
+    extract_epochs_from_prompt,
+    extract_early_stop_from_prompt,
     _default_fields,
     _default_hidden_layers,
     _default_labels,
@@ -62,9 +64,13 @@ class CompositeNetworkGenerator:
         "complejo", "complex", "no lineal", "nonlinear",
         "expresiv", "expressive", "preciso", "precise",
     ]
+    # Aligned with playground._SEQUENCE_HINTS so a tabular composite (e.g. with
+    # embeddings) is NOT mislabelled as a sequence + given a spurious POOL. Bare
+    # "serie"/"series"/"seq" were false positives (Spanish "una serie de…", etc.);
+    # genuine sequences need explicit time-series wording.
     _SEQUENCE_KEYWORDS = [
-        "secuencia", "sequence", "serie", "series",
-        "temporal", "time series", "seq",
+        "secuencia", "sequence", "serie temporal", "series temporales",
+        "time series", "temporal", "recurren",
     ]
     _CAT_KEYWORDS = [
         "categ", "tipo", "genre", "gender", "rol", "region",
@@ -152,11 +158,22 @@ class CompositeNetworkGenerator:
                 resolved_hidden, output_units, output_activation, output_type,
             )
 
+        # Honour epochs / early_stop from the prompt (like the dense generator);
+        # default when absent. The user controls their machine (downloadable Studio).
         training_text = _build_training_text(
             resolved_name, resolved_entity, resolved_fields,
             out_name, _dataset_target_type(task, resolved_labels if task == "multiclass" else None), loss_type,
+            epochs=extract_epochs_from_prompt(clean),
+            early_stop=extract_early_stop_from_prompt(clean),
         )
-        dataset_template_text = ",".join(resolved_fields + [out_name]) + "\n"
+        # Include a dummy data row so the TrainingVerifier sees ≥1 row (mirrors the
+        # dense generator). Categorical/embedding fields take an integer index (0);
+        # scalars take 0.0; the target takes the first label (multiclass) or 0.0.
+        dummy_target = resolved_labels[0] if task == "multiclass" else "0.0"
+        dummy_values = ["0" if f in cat_fields_dict else "0.0" for f in resolved_fields] + [dummy_target]
+        dataset_template_text = (
+            ",".join(resolved_fields + [out_name]) + "\n" + ",".join(dummy_values) + "\n"
+        )
 
         assumptions = [
             f"CompositeNetworkGenerator inferred task={task}",
@@ -215,7 +232,8 @@ def _build_composite_mxai(
     field_lines: list[str] = []
     for f in fields:
         if f in cat_fields:
-            field_lines.append(f"  {f}: Integer[0, {cat_fields[f]}]")
+            # Embedding index range is 0..vocab-1 (inclusive); the table has `vocab` rows.
+            field_lines.append(f"  {f}: Integer[0, {max(cat_fields[f] - 1, 0)}]")
         else:
             field_lines.append(f"  {f}: Scalar")
 

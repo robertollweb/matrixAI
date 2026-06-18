@@ -91,6 +91,14 @@ class DenseNetworkGenerator:
         r"(?:labels?|etiquetas|clases|categorias|categories|niveles?|levels?)\s*(?::|=|son|are)?\s*(?P<labels>[^.;\n]+)",
         re.IGNORECASE,
     )
+    # Truncates the captured label region at descriptive connectors so trailing
+    # prose (architecture/feature descriptions) is not parsed as class names.
+    _LABEL_STOP_RE = re.compile(
+        r"\s+(?:con|usando|mediante|para|seg[uú]n|a\s+partir\s+de|y\s+una|"
+        r"with|using|from|based\s+on|"
+        r"features?|caracter[ií]sticas?|variables?|columnas?|atributos?)\b.*$",
+        re.IGNORECASE | re.DOTALL,
+    )
     _NAME_RE = re.compile(
         r"\b(?:network|red|modelo|model)\s*(?:llamad[ao]|named|called)?\s*(?P<name>[A-Za-z_][\w]*)",
         re.IGNORECASE,
@@ -200,19 +208,10 @@ class DenseNetworkGenerator:
         return _default_hidden_layers(input_dim)
 
     def _extract_epochs(self, prompt: str) -> int:
-        m = self._EPOCHS_RE.search(_norm(prompt))
-        if m:
-            n = int(m.group(1) or m.group(2))
-            return max(1, min(n, self._MAX_EPOCHS))
-        return self._DEFAULT_EPOCHS
+        return extract_epochs_from_prompt(prompt)
 
     def _extract_early_stop(self, prompt: str) -> tuple[int, str] | None:
-        m = self._EARLY_STOP_RE.search(_norm(prompt))
-        if m:
-            patience = max(1, int(m.group(1)))
-            metric = m.group(2) or "validation_loss"
-            return (patience, metric)
-        return None
+        return extract_early_stop_from_prompt(prompt)
 
     def _detect_task(self, prompt: str, labels: list[str] | None) -> str:
         # Regression keywords in the prompt take priority over LLM-supplied labels,
@@ -244,9 +243,20 @@ class DenseNetworkGenerator:
         if not m:
             return []
         raw = m.group("labels")
-        parts = re.split(r",|;|\s+y\s+|\s+and\s+|\s+o\s+|\s+or\s+", raw, flags=re.IGNORECASE)
+        # Drop trailing descriptive prose so it is not swallowed as labels, e.g.
+        # "BAJO MEDIO ALTO con una red profunda…" → "BAJO MEDIO ALTO". The connectors
+        # introduce architecture/feature descriptions, not class names.
+        raw = self._LABEL_STOP_RE.sub("", raw).strip()
+        parts = [p for p in re.split(r",|;|\s+y\s+|\s+and\s+|\s+o\s+|\s+or\s+", raw,
+                                     flags=re.IGNORECASE) if p.strip()]
+        # Space-separated short labels ("BAJO MEDIO ALTO") when no explicit separator
+        # produced a list. Multi-word labels stay intact when comma/connector-separated.
+        if len(parts) < 2:
+            ws = raw.split()
+            if len(ws) >= 2:
+                parts = ws
         result = [_identifier(p) for p in parts if _identifier(p)]
-        return result if len(result) >= 2 else []
+        return result[:12] if len(result) >= 2 else []
 
     def _extract_fields(self, prompt: str) -> list[str]:
         m = self._FIELD_RE.search(prompt)
@@ -388,6 +398,24 @@ def _build_mxai_text(
         f"  EXPLAIN {input_name} -> {network_name}\n"
         f"END\n"
     )
+
+
+def extract_epochs_from_prompt(prompt: str) -> int:
+    """EPOCHS from the prompt (`epochs=300`, `300 epocas`), capped at the sanity
+    ceiling; default when absent. Shared by the dense and composite generators."""
+    m = DenseNetworkGenerator._EPOCHS_RE.search(_norm(prompt))
+    if m:
+        n = int(m.group(1) or m.group(2))
+        return max(1, min(n, DenseNetworkGenerator._MAX_EPOCHS))
+    return DenseNetworkGenerator._DEFAULT_EPOCHS
+
+
+def extract_early_stop_from_prompt(prompt: str) -> tuple[int, str] | None:
+    """(patience, metric) from `early_stop patience=20 metric=validation_loss`."""
+    m = DenseNetworkGenerator._EARLY_STOP_RE.search(_norm(prompt))
+    if m:
+        return (max(1, int(m.group(1))), m.group(2) or "validation_loss")
+    return None
 
 
 def _build_training_text(

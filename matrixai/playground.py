@@ -308,10 +308,20 @@ def _build_artifacts(
 # P9 operational limits
 _P9_MAX_CSV_BYTES = 50_000_000
 _P9_MAX_ROWS = 50_000
-_P9_MAX_EPOCHS = 200
-# Configurable via MATRIXAI_TRAIN_TIMEOUT env var. Default 300s covers 50K-row
-# datasets on CPU. Set lower in tests; raise in high-row production scenarios.
+# Sanity ceiling against typos (e.g. 999999). Explicit prompt requests up to this
+# are honoured — the user controls their machine (the Studio is downloadable).
+_P9_MAX_EPOCHS = 1000
+# Wall-clock training budget, configurable via MATRIXAI_TRAIN_TIMEOUT.
+# Default 300s protects a SHARED hosted playground. **Set to 0 to disable** (no
+# limit) — the downloadable Studio sets 0 because the machine is the user's and a
+# large model may legitimately train for hours/days; the Cancel button is the
+# real user control. <=0 means "train to completion".
 _P9_TRAIN_TIMEOUT = int(os.environ.get("MATRIXAI_TRAIN_TIMEOUT", "300"))
+
+
+def _train_join_timeout() -> float | None:
+    """None (block until done) when the wall-clock budget is disabled (<=0)."""
+    return _P9_TRAIN_TIMEOUT if _P9_TRAIN_TIMEOUT and _P9_TRAIN_TIMEOUT > 0 else None
 
 # P9 async job store
 class _TrainingCancelled(Exception):
@@ -492,6 +502,27 @@ def _generate_synthetic_dataset(
         # S2: declared types only apply to real (non one-hot) input columns
         types = {col: t for col, t in (field_types or {}).items() if col in rangeable}
 
+        # M8 v2: LLM as domain simulator — propose feature→class threshold rules ONCE,
+        # normalize to [0,1], and let the generator label rows deterministically with
+        # plausible signal. Only for multiclass classification in coherent mode with the
+        # LLM active; invalid/absent rules → fall back to the toy coherent labelling.
+        domain_rules = None
+        domain_rules_text = ""
+        target_type = training.dataset.target.type
+        dr_labels = list(target_type.parameters.get("labels")
+                         or target_type.parameters.get("args", []))
+        is_multiclass = (target_type.name not in {"Scalar", "Integer"}
+                         and target_type.name.lower() != "probability"
+                         and len(dr_labels) >= 2)
+        if (mode == "coherent" and use_llm and is_multiclass
+                and _detect_llm_mode().get("active", False)):
+            project = re.search(r"^\s*PROJECT\s+(\S+)", mxai_text, re.MULTILINE)
+            context = project.group(1) if project else ""
+            dr = _llm_domain_rules(context, rangeable, dr_labels)
+            if dr is not None and not dr.validate(rangeable, dr_labels):
+                domain_rules = dr.normalized(field_ranges)  # eval in [0,1] space
+                domain_rules_text = dr.to_text()             # domain scale, for audit
+
         generator = SyntheticDataGenerator(
             program=program,
             training=training,
@@ -504,8 +535,35 @@ def _generate_synthetic_dataset(
             domain_scale=True,
             field_types=types or None,
             one_hot_groups=expansion.groups or None,
+            domain_rules=domain_rules,
         )
         adapter = generator.generate()
+
+        # M8 v2: if the domain rules collapsed to a single class on the sampled data
+        # (bad thresholds / missing ranges / unhit branches), the signal is useless.
+        # Fall back to coherent labelling honestly instead of shipping it as "domain".
+        domain_degenerate_warning = ""
+        if domain_rules is not None and generator.domain_rules_degenerate:
+            domain_degenerate_warning = (
+                "Las reglas de dominio propuestas por el LLM no discriminaron sobre los "
+                "datos generados (casi todas las filas cayeron en una sola clase); se usó "
+                "el modo coherente. Ajusta el prompt o sube datos reales."
+            )
+            domain_rules = None
+            domain_rules_text = ""
+            generator = SyntheticDataGenerator(
+                program=program,
+                training=training,
+                seed=seed,
+                rows=rows,
+                mode=mode,
+                field_ranges=field_ranges if field_ranges else None,
+                domain_scale=True,
+                field_types=types or None,
+                one_hot_groups=expansion.groups or None,
+                domain_rules=None,
+            )
+            adapter = generator.generate()
 
         schema = adapter.schema()
         columns = list(schema.input_columns) + [schema.target]
@@ -551,9 +609,33 @@ def _generate_synthetic_dataset(
         # relationship (labels independent of features) → the model can only
         # predict the prior (collapse). Real signal needs an uploaded CSV.
         is_classification = bool(schema.labels)
-        result["label_origin"] = (
-            "synthetic_random" if mode == "random" else "synthetic_coherent"
-        )
+        if generator.domain_rules_used:
+            # M8 v2: labels followed LLM-proposed domain rules (plausible, not toy).
+            result["label_origin"] = "synthetic_domain"
+            result["domain_rules"] = domain_rules_text
+            result["domain_notice"] = (
+                "Etiquetas generadas por reglas de dominio propuestas por el LLM "
+                "(sintéticas pero plausibles, no de juguete). Sube datos reales para "
+                "producción."
+            )
+        else:
+            result["label_origin"] = (
+                "synthetic_random" if mode == "random" else "synthetic_coherent"
+            )
+        if domain_degenerate_warning:
+            result["domain_degenerate_warning"] = domain_degenerate_warning
+        # M8 v2: declared classes absent from the generated data → the model can't
+        # learn them and macro F1 will be low. Honest warning (not a block: ≥2 are
+        # present; the single-class case is already handled by the degeneracy fallback).
+        if is_classification and getattr(generator, "missing_labels", None):
+            result["missing_labels"] = list(generator.missing_labels)
+            _present = [l for l in schema.labels if l not in generator.missing_labels]
+            result["missing_classes_warning"] = (
+                f"El dataset solo contiene {len(_present)} de {len(schema.labels)} clases "
+                f"(faltan: {', '.join(generator.missing_labels)}). El modelo no aprenderá "
+                f"las clases ausentes y el F1 macro será bajo. Ajusta el prompt/reglas o "
+                f"sube datos reales."
+            )
         if is_classification and mode == "random":
             result["signal_warning"] = (
                 "Datos sintéticos aleatorios: la salida no depende de la entrada, "
@@ -827,7 +909,7 @@ def _run_playground_dense_training(
         tmp = Path(tmpdir)
         t = threading.Thread(target=_do_train, args=(tmp,), daemon=True)
         t.start()
-        t.join(timeout=_P9_TRAIN_TIMEOUT)
+        t.join(timeout=_train_join_timeout())
         if t.is_alive():
             return {"ok": False, "error": f"Entrenamiento superó el límite de {_P9_TRAIN_TIMEOUT}s"}
         if error_holder:
@@ -1018,7 +1100,7 @@ def _run_playground_training(
 
         t = threading.Thread(target=_do_generic, args=(Path("."),), daemon=True)
         t.start()
-        t.join(timeout=_P9_TRAIN_TIMEOUT)
+        t.join(timeout=_train_join_timeout())
         if t.is_alive():
             return {"ok": False, "error": f"Entrenamiento superó el límite de {_P9_TRAIN_TIMEOUT}s"}
         if error_holder:
@@ -1064,7 +1146,7 @@ def _run_playground_training(
         tmp = Path(tmpdir)
         t = threading.Thread(target=_do_train, args=(tmp,), daemon=True)
         t.start()
-        t.join(timeout=_P9_TRAIN_TIMEOUT)
+        t.join(timeout=_train_join_timeout())
         if t.is_alive():
             return {"ok": False, "error": f"Entrenamiento superó el límite de {_P9_TRAIN_TIMEOUT}s"}
         if error_holder:
@@ -1466,14 +1548,20 @@ def _submit_training_job(
                 raise _TrainingCancelled()
             job["epochs"].append(entry)
 
-        # Watchdog: enforce 30s hard limit on async path (same as sync path)
+        # Watchdog: enforce the wall-clock budget on the async path (same as sync).
+        # Disabled when the budget is <=0 (downloadable Studio): the job runs to
+        # completion and the user's Cancel button is the control.
         def _on_timeout() -> None:
             cancel_event.set()
             job["_timed_out"] = True
 
-        watchdog = threading.Timer(_P9_TRAIN_TIMEOUT, _on_timeout)
-        watchdog.daemon = True
-        watchdog.start()
+        watchdog = (
+            threading.Timer(_P9_TRAIN_TIMEOUT, _on_timeout)
+            if _P9_TRAIN_TIMEOUT and _P9_TRAIN_TIMEOUT > 0 else None
+        )
+        if watchdog is not None:
+            watchdog.daemon = True
+            watchdog.start()
         try:
             if prediction_kind == "layer_call":
                 result = _run_playground_generic_training(
@@ -1528,7 +1616,8 @@ def _submit_training_job(
             job["status"] = "error"
             job["error"] = str(exc)
         finally:
-            watchdog.cancel()
+            if watchdog is not None:
+                watchdog.cancel()
 
     job["cancel_event"] = cancel_event
     threading.Thread(target=_run, daemon=True).start()
@@ -1731,6 +1820,10 @@ _DENSE_SCHEMA_SYSTEM = (
     "choose 'residual' ONLY for genuinely deep/complex non-linear problems. NEVER put "
     "a narrow ReLU layer right before the output.\n"
     "LAYERS: comma-separated hidden layer sizes (2-12 integers; honour any architecture the user explicitly requests, e.g. 64, 64, 64, 32)\n"
+    "CATEGORICALS: comma-separated 'field:vocab' for high-cardinality categorical "
+    "features that have NO natural order (e.g. product_id:5000, diagnosis_code:1200). "
+    "vocab is the approximate number of distinct values. Omit the line when there are "
+    "no such features; do NOT list ordered/numeric features here.\n"
     "RATIONALE: one short sentence justifying the architecture choice\n\n"
     "Use precise domain vocabulary. No explanations beyond the RATIONALE line."
 )
@@ -1769,6 +1862,18 @@ def _parse_dense_schema(text: str) -> dict[str, Any]:
             val = line[len("ARCHITECTURE:"):].strip().lower()
             if val:
                 result["architecture"] = "residual" if "resid" in val else "dense"
+        elif line.startswith("CATEGORICALS:"):
+            # M2 v2 C5: high-cardinality categoricals the LLM proposes for native
+            # EMBEDDING. Parse 'field:vocab' pairs; ignore malformed entries.
+            cats: dict[str, int] = {}
+            for item in line[len("CATEGORICALS:"):].split(","):
+                m = re.match(r"^\s*(\w+)\s*:\s*(\d+)\s*$", item)
+                if m:
+                    vocab = int(m.group(2))
+                    if vocab >= 2:
+                        cats[m.group(1)] = vocab
+            if cats:
+                result["categorical_fields"] = cats
         elif line.startswith("RATIONALE:"):
             rationale = line[len("RATIONALE:"):].strip()
             if rationale:
@@ -1822,6 +1927,48 @@ def _llm_field_ranges(fields: list[str], context: str = "") -> dict[str, tuple[f
         return _parse_field_ranges(text)
     except Exception:  # noqa: BLE001
         return {}
+
+
+# M8 v2 — LLM as domain simulator: propose the feature→class logic ONCE as bounded
+# threshold rules. A deterministic evaluator (domain_rules.py) applies them to every
+# sampled row → synthetic data with plausible, learnable signal instead of toy.
+_DOMAIN_RULES_SYSTEM = (
+    "You are a domain expert defining how input features determine the output class "
+    "in a realistic dataset. Given the problem, the input features and the class "
+    "labels, write deterministic threshold rules a real expert would use.\n\n"
+    "Respond with one rule per line, the most severe/specific class first, in EXACTLY "
+    "this format — no other text:\n\n"
+    "CLASS_LABEL: feature OP value [AND|OR feature OP value ...]\n"
+    "DEFAULT: CLASS_LABEL\n\n"
+    "Rules:\n"
+    "- OP is one of < <= > >= ==. 'value' is a plain number in the feature's natural "
+    "domain scale (e.g. age 65, charlson_index 15, creatinine 4).\n"
+    "- Use ONLY the given feature names and class labels, verbatim.\n"
+    "- A single line uses either AND or OR, never both.\n"
+    "- Order rules from the most severe / least common class to the least; the first "
+    "matching rule wins.\n"
+    "- End with DEFAULT: <the baseline / most common class>.\n"
+    "- Encode genuine domain knowledge so labels are plausible, not arbitrary."
+)
+
+
+def _llm_domain_rules(prompt: str, features: list[str], labels: list[str]):
+    """Ask the LLM for domain threshold rules; return a parsed DomainRules or None.
+
+    Returns None on any failure (no provider, error) — the caller validates and falls
+    back to the toy `coherent` labelling."""
+    from matrixai.training.domain_rules import parse_domain_rules  # noqa: PLC0415
+    try:
+        provider = ChatCompletionsLLMProposalProvider.from_env()
+        user = (
+            f"Problem: {prompt}\n"
+            f"Features: {', '.join(features)}\n"
+            f"Classes: {', '.join(labels)}"
+        )
+        text = provider.complete(_DOMAIN_RULES_SYSTEM, user)
+        return parse_domain_rules(text)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _is_neural_prompt(prompt: str) -> bool:
@@ -1904,6 +2051,9 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
             # Pop them out so they don't reach the generators (not kwargs).
             llm_architecture = llm_schema.pop("architecture", None)
             llm_rationale = llm_schema.pop("rationale", None)
+            # M2 v2 C5: the LLM may declare high-cardinality categoricals for native
+            # EMBEDDING. They route to the composite generator (embeddings need it).
+            llm_categoricals = llm_schema.pop("categorical_fields", None) or {}
             llm_kwargs: dict[str, Any] = llm_schema
 
             # M2-C3: robustness notices (the downloadable Studio gets unknown prompts)
@@ -1920,27 +2070,47 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     "Operaciones no soportadas (se omiten): " + ", ".join(unsupported) + "."
                 )
             # Composite when the prompt hints at it OR the LLM (M8-B1) proposes
-            # 'residual'; never for sequence prompts (flat-CSV pipeline, v1).
+            # 'residual' OR the LLM (M2 v2 C5) declares categoricals for EMBEDDING;
+            # never for sequence prompts (flat-CSV pipeline, v1).
             want_composite = (
-                _prompt_wants_composite(prompt) or llm_architecture == "residual"
+                _prompt_wants_composite(prompt)
+                or llm_architecture == "residual"
+                or bool(llm_categoricals)
             ) and not is_seq
             try:
                 if want_composite:
                     from matrixai.training.composite_generator import (  # noqa: PLC0415
                         CompositeNetworkGenerator,
                     )
-                    # v1: categoricals go through the S2 one-hot editor, not native
-                    # EMBEDDING (categorical_fields={} suppresses embedding emission);
-                    # force_residual ensures the residual block is actually emitted.
+                    # M2 v2 C5: LLM-declared high-cardinality categoricals become native
+                    # EMBEDDING blocks (the generator emits EMBEDDING+CONCAT for vocab>5).
+                    # Small/ordered features stay scalar; one-hot remains the editor path.
+                    # force_residual ensures a residual block when the prompt asks for one.
                     comp_kwargs = {
                         k: v for k, v in llm_kwargs.items()
                         if k in ("input_fields", "labels", "network_name", "input_name")
                     }
+                    # A categorical must be a real VECTOR field, or its EMBEDDING would
+                    # reference a column that does not exist. When the LLM gave explicit
+                    # fields, fold any missing categorical into them; otherwise (fields
+                    # invented by the generator) drop the orphaned categoricals.
+                    if llm_categoricals:
+                        if comp_kwargs.get("input_fields"):
+                            fields_list = list(comp_kwargs["input_fields"])
+                            for cf in llm_categoricals:
+                                if cf not in fields_list:
+                                    fields_list.append(cf)
+                            comp_kwargs["input_fields"] = fields_list
+                        else:
+                            llm_categoricals = {}
                     gen = CompositeNetworkGenerator().generate(
-                        prompt, categorical_fields={}, force_residual=True, **comp_kwargs,
+                        prompt,
+                        categorical_fields=llm_categoricals,
+                        force_residual=_prompt_wants_composite(prompt) or llm_architecture == "residual",
+                        **comp_kwargs,
                     )
                     gen_source = "composite_generator"
-                    llm_used = bool(comp_kwargs)
+                    llm_used = bool(comp_kwargs) or bool(llm_categoricals)
                 else:
                     gen = DenseNetworkGenerator().generate(prompt, **llm_kwargs)
                     gen_source = "dense_generator"
@@ -1962,8 +2132,17 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 result["llm_schema_used"] = llm_used
                 # M8-B1: record who chose the architecture + the LLM's rationale,
                 # for auditability. The deterministic sanitizer (A1) still governs.
+                _emitted_embeddings = bool(getattr(gen, "embeddings", []))
+                _is_residual = (
+                    llm_architecture == "residual" or _prompt_wants_composite(prompt)
+                )
+                arch_kind = (
+                    "residual" if _is_residual
+                    else "composite" if want_composite  # M2 v2 C5: embedding-only composite
+                    else "dense"
+                )
                 result["architecture_decision"] = {
-                    "kind": "residual" if want_composite else "dense",
+                    "kind": arch_kind,
                     "source": ("llm" if llm_architecture
                                else "prompt_hints" if _prompt_wants_composite(prompt)
                                else "default"),
@@ -1972,6 +2151,16 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 if llm_rationale:
                     gen_warnings.append(f"Arquitectura ({result['architecture_decision']['kind']}, "
                                         f"propuesta por el LLM): {llm_rationale}")
+                # M2 v2 C5: surface the native embeddings the LLM proposed (audit).
+                if _emitted_embeddings:
+                    _emb_fields = ", ".join(
+                        f"{e['field']} (vocab {e['vocab']}, dim {e['dim']})"
+                        for e in gen.embeddings
+                    )
+                    gen_warnings.append(
+                        "Categóricas con EMBEDDING nativo (propuestas por el LLM): "
+                        + _emb_fields + "."
+                    )
                 notes = list(gen_warnings)
                 # M8-A1: the generator's own warnings include the architecture
                 # sanitizer notes (widened ReLU bottlenecks) — surface them.

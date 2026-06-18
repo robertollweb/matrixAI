@@ -75,8 +75,34 @@ class OnnxEquivalenceValidator:
         # Dense-network programs have no FUNCTION declarations; use numpy forward pass.
         dense_nets = [n for n in program.networks if getattr(n, "kind", "") == "dense_network"]
         is_dense_only = bool(dense_nets) and not program.functions
+        # Composite networks (P19) use the stdlib composite_forward as reference.
+        composite_nets = [n for n in program.networks if getattr(n, "kind", "") == "composite_network"]
 
-        if is_dense_only:
+        if composite_nets:
+            network = composite_nets[0]
+            if not program.vectors:
+                raise OnnxEquivalenceError(f"No VECTOR input for composite network {network.name!r}")
+            vector = program.vectors[0]
+            inputs = rng.random((n_samples, vector.size), dtype=np.float64).astype(np.float32)
+            for row in inputs:
+                ref_out = _run_composite_forward(network, parameter_set, vector, row)
+                ort_out = _run_ort(sess, vector, row, np)
+                if len(ref_out) != len(ort_out):
+                    raise OnnxEquivalenceError(
+                        f"Output length mismatch: composite_forward={len(ref_out)}, ort={len(ort_out)}"
+                    )
+                n_out = len(ref_out)
+                for a, b in zip(ref_out, ort_out):
+                    a_f, b_f = float(a), float(b)
+                    abs_diff = abs(a_f - b_f)
+                    rel_diff = abs_diff / max(abs(b_f), 1e-10)
+                    if abs_diff > max_abs:
+                        max_abs = abs_diff
+                    if rel_diff > max_rel:
+                        max_rel = rel_diff
+                    if abs_diff > atol + rtol * abs(b_f):
+                        all_close = False
+        elif is_dense_only:
             network = dense_nets[0]
             if not program.vectors:
                 raise OnnxEquivalenceError(f"No VECTOR input for dense network {network.name!r}")
@@ -319,6 +345,14 @@ def _run_numpy_dense(network, parameter_set: ParameterSet, row, np) -> list[floa
             x = e / e.sum(axis=1, keepdims=True)
         # linear / identity: no-op
     return x.flatten().tolist()
+
+
+def _run_composite_forward(network, parameter_set: ParameterSet, vector, row) -> list[float]:
+    """Reference forward for a composite_network (P19) — mirrors what the ONNX graph
+    computes (composite_forward at inference: Dropout/Pool/Reshape are identity)."""
+    from matrixai.forward.composite_forward import composite_forward
+    input_data = {field: float(v) for field, v in zip(vector.fields, row)}
+    return [float(v) for v in composite_forward(network, parameter_set, input_data, training=False)]
 
 
 def _import_ort_session(onnx_path: str | Path):

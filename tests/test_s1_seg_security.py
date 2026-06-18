@@ -111,6 +111,22 @@ class TestTrainingTimeout:
             importlib.reload(pg)
             assert pg._P9_TRAIN_TIMEOUT == 60
 
+    def test_timeout_zero_disables_wall_clock_limit(self):
+        # Downloadable Studio: MATRIXAI_TRAIN_TIMEOUT=0 → no limit (train to
+        # completion; Cancel is the user's control). join timeout becomes None.
+        with patch.dict(os.environ, {"MATRIXAI_TRAIN_TIMEOUT": "0"}):
+            import importlib
+            import matrixai.playground as pg
+            importlib.reload(pg)
+            assert pg._P9_TRAIN_TIMEOUT == 0
+            assert pg._train_join_timeout() is None
+        # a positive budget still maps to the numeric join timeout
+        with patch.dict(os.environ, {"MATRIXAI_TRAIN_TIMEOUT": "120"}):
+            import importlib
+            import matrixai.playground as pg
+            importlib.reload(pg)
+            assert pg._train_join_timeout() == 120
+
     def test_compose_passes_timeout_to_container(self):
         compose = Path(__file__).parent.parent.parent / "matrixaistudio" / "bundle" / "docker-compose.yml"
         text = compose.read_text(encoding="utf-8")

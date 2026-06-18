@@ -18,9 +18,13 @@ from pathlib import Path
 from typing import Any
 
 from matrixai.ir import MatrixAIProgram
-from matrixai.parameters import validate_parameter_set
 from matrixai.parameters.store import ParameterSet
-from matrixai.export.onnx_exporter import OnnxExporter, OnnxExportResult, OnnxExportError
+from matrixai.export.onnx_exporter import (
+    OnnxExporter,
+    OnnxExportResult,
+    OnnxExportError,
+    validate_export_parameter_set,
+)
 from matrixai.export.equivalence import (
     OnnxEquivalenceResult,
     OnnxEquivalenceValidator,
@@ -101,7 +105,7 @@ class WasmExporter:
             )
 
         # Validate ParameterSet shapes/schema before touching disk
-        val = validate_parameter_set(program, parameter_set)
+        val = validate_export_parameter_set(program, parameter_set)
         if not val.ok:
             raise WasmExportError(
                 f"ParameterSet validation failed: {'; '.join(val.errors)}"

@@ -346,11 +346,18 @@ class P9TrainingLoopTest(unittest.TestCase):
         self.assertIn("W1", r["params_best"]["parameters"])
 
     def test_run_playground_training_caps_epochs(self) -> None:
-        from matrixai.playground import _run_playground_training, _P9_MAX_EPOCHS
-        training_text = self._get_training_text()
-        r = _run_playground_training(self.MXAI, training_text, self.CSV, epochs_override=_P9_MAX_EPOCHS + 50)
+        # The sanity ceiling clamps absurd values, but an explicit in-range request
+        # is honoured verbatim (the user controls their machine). Tested on the pure
+        # cap function to avoid actually training up to the ceiling.
+        from matrixai.playground import _apply_epoch_cap, _run_playground_training, _P9_MAX_EPOCHS
+        from matrixai.training.parser import parse_training_text
+        training = parse_training_text(self._get_training_text())
+        self.assertEqual(_apply_epoch_cap(training, _P9_MAX_EPOCHS + 50), _P9_MAX_EPOCHS)
+        self.assertEqual(_apply_epoch_cap(training, 7), 7)  # explicit value honoured
+        # e2e: a small explicit override actually limits the run
+        r = _run_playground_training(self.MXAI, self._get_training_text(), self.CSV, epochs_override=5)
         self.assertTrue(r["ok"])
-        self.assertLessEqual(len(r["epochs"]), _P9_MAX_EPOCHS)
+        self.assertLessEqual(len(r["epochs"]), 5)
 
     def test_playground_run_with_params_uses_trained_weights(self) -> None:
         from matrixai.playground import _run_playground_training, _playground_run_with_params
