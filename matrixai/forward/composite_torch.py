@@ -40,11 +40,15 @@ def composite_network_to_torch_module(
         table_key = f"{network.name}.{emb.name}.table"
         if table_key not in parameter_set.parameters:
             raise CompositeTorchError(f"Missing embedding table parameter: {table_key!r}")
-        table = parameter_set.parameters[table_key]["values"]
-        vocab, dim = len(table), len(table[0])
+        # M15(f): dims desde shape; copiar la tabla solo si la plantilla trae valores
+        # (with_values=False → init nativo de nn.Embedding).
+        table = parameter_set.parameters[table_key].get("values")
+        shape = parameter_set.parameters[table_key].get("shape")
+        vocab, dim = (int(shape[0]), int(shape[1])) if shape else (len(table), len(table[0]))
         emb_mod = nn.Embedding(vocab, dim)
-        with torch.no_grad():
-            emb_mod.weight.data = torch.tensor(table, dtype=torch.float32)
+        if table is not None:
+            with torch.no_grad():
+                emb_mod.weight.data = torch.tensor(table, dtype=torch.float32)
         embedding_modules[emb.name] = emb_mod
 
     # --- Body items (interleaved top_layers and blocks) ---
@@ -93,6 +97,32 @@ def composite_torch_forward(
     if training != module_mode:
         module.train(module_mode)
     return result.tolist()
+
+
+def composite_torch_forward_batch(
+    module: Any,
+    batch: list[dict[str, Any]],
+    training: bool = False,
+) -> list[list[float]]:
+    """M15(e) — batched forward over a list of input dicts → list of output rows.
+
+    Same semantics as calling composite_torch_forward per sample, but in a single
+    batched pass (one kernel per layer instead of one per sample). Used by the torch
+    composite evaluator. Returns a Python list of lists.
+    """
+    import torch
+    if not batch:
+        return []
+    module_mode = module.training
+    if training:
+        module.train()
+    else:
+        module.eval()
+    with torch.no_grad():
+        result = module.forward_batch(batch)
+    if training != module_mode:
+        module.train(module_mode)
+    return result.detach().cpu().tolist()
 
 
 def torch_module_to_composite_parameter_set(
@@ -159,13 +189,17 @@ def _build_layer_module(
             raise CompositeTorchError(f"Missing parameter {w_path!r}")
         if b_path not in parameter_set.parameters:
             raise CompositeTorchError(f"Missing parameter {b_path!r}")
-        W = parameter_set.parameters[w_path]["values"]
-        b = parameter_set.parameters[b_path]["values"]
-        out_f, in_f = len(W), len(W[0])
+        # M15(f): dims desde shape; copiar pesos solo si la plantilla los trae
+        # (with_values=False → init nativo de nn.Linear, sembrado por torch.manual_seed).
+        W = parameter_set.parameters[w_path].get("values")
+        b = parameter_set.parameters[b_path].get("values")
+        w_shape = parameter_set.parameters[w_path].get("shape")
+        out_f, in_f = (int(w_shape[0]), int(w_shape[1])) if w_shape else (len(W), len(W[0]))
         linear = nn.Linear(in_f, out_f)
-        with torch.no_grad():
-            linear.weight.data = torch.tensor(W, dtype=torch.float32)
-            linear.bias.data = torch.tensor(b, dtype=torch.float32)
+        if W is not None and b is not None:
+            with torch.no_grad():
+                linear.weight.data = torch.tensor(W, dtype=torch.float32)
+                linear.bias.data = torch.tensor(b, dtype=torch.float32)
         layer_modules[key] = linear
 
     elif lt == "LayerNorm":
@@ -173,13 +207,16 @@ def _build_layer_module(
         b_path = f"{param_prefix}.{param_key}.beta"
         if g_path not in parameter_set.parameters:
             raise CompositeTorchError(f"Missing parameter {g_path!r}")
-        gamma = parameter_set.parameters[g_path]["values"]
-        beta = parameter_set.parameters[b_path]["values"]
-        features = len(gamma)
+        # M15(f): dims desde shape; copiar gamma/beta solo si la plantilla los trae.
+        gamma = parameter_set.parameters[g_path].get("values")
+        beta = parameter_set.parameters[b_path].get("values")
+        g_shape = parameter_set.parameters[g_path].get("shape")
+        features = int(g_shape[0]) if g_shape else len(gamma)
         ln = nn.LayerNorm(features, eps=1e-5, elementwise_affine=True)
-        with torch.no_grad():
-            ln.weight.data = torch.tensor(gamma, dtype=torch.float32)
-            ln.bias.data = torch.tensor(beta, dtype=torch.float32)
+        if gamma is not None and beta is not None:
+            with torch.no_grad():
+                ln.weight.data = torch.tensor(gamma, dtype=torch.float32)
+                ln.bias.data = torch.tensor(beta, dtype=torch.float32)
         layer_modules[key] = ln
 
     elif lt == "Dropout":
@@ -281,6 +318,10 @@ class _CompositeNetworkModule:
         self._module.eval()
         return self
 
+    def to(self, device: Any) -> "_CompositeNetworkModule":
+        self._module.to(device)
+        return self
+
     def parameters(self) -> Any:
         return self._module.parameters()
 
@@ -290,13 +331,20 @@ class _CompositeNetworkModule:
     def forward_with_dict(self, input_data: dict[str, Any]) -> Any:
         import torch
 
+        # Device-aware: place input tensors on the same device as the module's
+        # parameters so GPU (CUDA) training/inference works, not only CPU.
+        try:
+            device = next(self._module.parameters()).device
+        except StopIteration:
+            device = torch.device("cpu")
+
         # 1. Convert input fields to tensors
         named: dict[str, Any] = {}
         for name, value in input_data.items():
             if isinstance(value, (int, float)):
-                named[name] = torch.tensor([float(value)], dtype=torch.float32)
+                named[name] = torch.tensor([float(value)], dtype=torch.float32, device=device)
             else:
-                named[name] = torch.tensor([float(v) for v in value], dtype=torch.float32)
+                named[name] = torch.tensor([float(v) for v in value], dtype=torch.float32, device=device)
 
         # 2. Embedding lookups
         for emb_name, source in self._embed_specs:
@@ -333,6 +381,69 @@ class _CompositeNetworkModule:
                 for layer in block.layers:
                     key = f"{block.name}__L{layer.index}"
                     current = self._apply_layer(layer, current, key)
+                if skip is not None:
+                    current = current + skip
+
+        return current
+
+    def forward_batch(self, batch: list[dict[str, Any]]) -> Any:
+        """M15(e) — batched forward over a list of input dicts → tensor (batch, out).
+
+        Mirrors forward_with_dict but carries a leading batch dimension through the
+        whole body. nn.Linear / LayerNorm / activations operate on the last dim, so
+        the body loop and _apply_layer work unchanged with the extra batch axis →
+        the result is IDÉNTICO al per-muestra (LayerNorm normaliza por fila igual).
+        Mueve los matmuls a un solo kernel por capa en vez de uno por muestra.
+        """
+        import torch
+
+        try:
+            device = next(self._module.parameters()).device
+        except StopIteration:
+            device = torch.device("cpu")
+
+        # 1. Stack each input field across the batch → (n, width) per field.
+        keys = list(batch[0].keys())
+        named: dict[str, Any] = {}
+        for name in keys:
+            col = []
+            for row in batch:
+                v = row[name]
+                col.append([float(v)] if isinstance(v, (int, float)) else [float(x) for x in v])
+            named[name] = torch.tensor(col, dtype=torch.float32, device=device)  # (n, width)
+
+        # 2. Embedding lookups (batched): idx (n,) → (n, dim)
+        for emb_name, source in self._embed_specs:
+            idx = named[source].long().squeeze(-1)
+            named[emb_name] = self._module.embeddings[emb_name](idx)
+
+        # 3. Concats over the feature dim
+        for concat_name, sources in self._concat_specs:
+            named[concat_name] = torch.cat([named[s] for s in sources], dim=-1)
+
+        # 4. Initial current vector (n, total_features)
+        emb_names = {e[0] for e in self._embed_specs}
+        if self._concat_specs:
+            current = named[self._concat_specs[-1][0]]
+        else:
+            parts = [named[k] for k in keys if k not in emb_names]
+            current = torch.cat(parts, dim=-1) if len(parts) > 1 else parts[0]
+
+        # 5. Body items in textual order (batch dim flows through unchanged).
+        for _, kind, spec in self._body_items:
+            if kind == "layer":
+                current = self._apply_layer(spec, current, f"L{spec.index}")
+            else:
+                block = spec
+                residual_from = getattr(block, "residual_from", "")
+                if residual_from == "PREVIOUS":
+                    skip = current
+                elif residual_from:
+                    skip = named.get(residual_from)
+                else:
+                    skip = None
+                for layer in block.layers:
+                    current = self._apply_layer(layer, current, f"{block.name}__L{layer.index}")
                 if skip is not None:
                     current = current + skip
 
@@ -390,6 +501,10 @@ class _TorchCompositeModule:
 
     def eval(self) -> "_TorchCompositeModule":
         self._inner.eval()
+        return self
+
+    def to(self, device: Any) -> "_TorchCompositeModule":
+        self._inner.to(device)
         return self
 
     def parameters(self) -> Any:

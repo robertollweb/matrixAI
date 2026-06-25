@@ -17,7 +17,6 @@ from matrixai.training.dense_generator import (
     extract_epochs_from_prompt,
     extract_early_stop_from_prompt,
     _default_fields,
-    _default_hidden_layers,
     _default_labels,
     _default_network_name,
     _identifier,
@@ -105,7 +104,9 @@ class CompositeNetworkGenerator:
         resolved_entity = input_name or _dg._extract_entity(clean) or "Input"
 
         output_activation, output_type, output_units, loss_type = _output_config(task, resolved_labels)
-        resolved_hidden = _default_hidden_layers(input_dim)
+        # M17: honra el ancho (units=N) y la profundidad del prompt igual que el generador
+        # denso; sin ancho/profundidad explícitos cae a _default_hidden_layers (intacto).
+        resolved_hidden = _dg._extract_hidden_layers(clean, input_dim)
         out_name = _output_name(output_activation)
 
         text = _norm(clean).lower()
@@ -253,6 +254,10 @@ def _build_composite_mxai(
     if is_sequence:
         net_lines.append("  POOL mean")
 
+    # M17: en residual, la Dense pre-bloque fija el ancho (el RESIDUAL exige misma
+    # dimensión) y la Dense INTERNA del bloque cuenta como una capa oculta del prompt;
+    # así el nº total de Dense ocultas emitidas = profundidad pedida.
+    #   pre_block (1) + bloque (1, consume la capa 2) + post (hidden_layers[2:])  = N
     pre_block = hidden_layers[:1] if hidden_layers and block_infos else hidden_layers
     for units, activation in pre_block:
         net_lines.append(f"  LAYER Dense units={units} activation={activation}")
@@ -267,8 +272,9 @@ def _build_composite_mxai(
         net_lines.append("    RESIDUAL FROM PREVIOUS")
         net_lines.append("  END")
 
-    if block_infos and len(hidden_layers) > 1:
-        for units, activation in hidden_layers[1:]:
+    # post-bloque: las capas restantes tras consumir la del bloque (índice 1).
+    if block_infos:
+        for units, activation in hidden_layers[2:]:
             net_lines.append(f"  LAYER Dense units={units} activation={activation}")
 
     net_lines.append(f"  LAYER Dense units={output_units} activation={output_activation}")

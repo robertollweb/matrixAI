@@ -79,8 +79,16 @@ def build_network_parameter_set(
     parameter_set_id: str | None = None,
     seed: int = 42,
     output_name: str = "",
+    with_values: bool = True,
 ) -> ParameterSet:
-    """Build an initial ParameterSet for a dense network with He/Xavier initialization."""
+    """Build an initial ParameterSet for a dense network with He/Xavier initialization.
+
+    M15(a): con ``with_values=False`` devuelve una **plantilla de estructura** (shapes,
+    manifest) con ``values=None`` — sin generar pesos en Python. La usan los caminos torch,
+    donde el módulo se inicializa con el init nativo de torch (Kaiming); los pesos
+    construidos a mano serían redundantes (el entrenamiento los reemplaza). Evita el coste
+    O(params) en Python para redes anchas.
+    """
     manifest = network_parameter_manifest(network.name, resolved_layers)
     schema_digest = network_parameter_schema_hash(network.name, resolved_layers, output_name)
     rng = random.Random(seed)
@@ -91,8 +99,10 @@ def build_network_parameter_set(
         shape = entry["shape"]
         initializer = entry["initializer"]
 
-        if initializer == "zeros":
-            values: Any = [0.0] * shape[0]
+        if not with_values:
+            values: Any = None
+        elif initializer == "zeros":
+            values = [0.0] * shape[0]
         else:
             values = _init_weights(shape, initializer, rng)
 
@@ -314,8 +324,15 @@ def build_composite_network_parameter_set(
     parameter_set_id: str | None = None,
     seed: int = 42,
     output_name: str = "",
+    with_values: bool = True,
 ) -> ParameterSet:
-    """Build an initial ParameterSet for a composite_network (P19)."""
+    """Build an initial ParameterSet for a composite_network (P19).
+
+    M15(f): con `with_values=False` devuelve solo la plantilla de estructura (shapes, sin
+    generar los pesos en Python). El camino torch usa el init nativo de los módulos
+    (`composite_network_to_torch_module` lee `shape` y deja el init de nn.* cuando no hay
+    valores), evitando el coste O(params) de materializar listas. Espejo de M15(a) del denso.
+    El camino stdlib y el export siguen usando `with_values=True` (necesitan los valores)."""
     manifest = composite_network_parameter_manifest(network.name, network, type_result)
     schema_digest = composite_network_parameter_schema_hash(
         network.name, network, type_result, output_name
@@ -328,8 +345,10 @@ def build_composite_network_parameter_set(
         shape = entry["shape"]
         initializer = entry["initializer"]
 
-        if initializer == "zeros":
-            values: Any = [0.0] * shape[0]
+        if not with_values:
+            values: Any = None
+        elif initializer == "zeros":
+            values = [0.0] * shape[0]
         elif initializer == "ones":
             values = [1.0] * shape[0]
         elif len(shape) == 1:

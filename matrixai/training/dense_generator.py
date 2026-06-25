@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from matrixai.ir.schema import DenseLayerSpec, NetworkSpec
+from matrixai import limits as _limits
 
 
 class DenseNetworkGeneratorError(ValueError):
@@ -107,11 +108,25 @@ class DenseNetworkGenerator:
         r"\b(?:entidad|entity|entrada|input)\s*(?:llamad[ao]|named|called)?\s*(?P<name>[A-Za-z_][\w]*)",
         re.IGNORECASE,
     )
+    # "12 capas", "12 capas Dense ocultas", "12 hidden layers", "12 layers". La palabra
+    # "Dense"/"densas"/"ocultas" entre medias NO debe romper la detección (antes exigía
+    # "capas ocultas" juntas → "capas Dense ocultas" no casaba y caía al default).
     _DEPTH_RE = re.compile(
-        r"(\d+)\s*(?:capas\s+(?:ocultas?|densas?)|hidden\s+layers?|layers?\s+ocultas?)",
+        r"(\d+)\s*(?:capas|hidden\s+layers?|layers?)\b",
         re.IGNORECASE,
     )
+    # M12: el tope de profundidad ahora es configurable en runtime (limits.cap(..,"max_depth"));
+    # este valor es solo el default histórico (perfil equilibrado), conservado como referencia.
     _MAX_EXPLICIT_DEPTH = 12
+    # M12 — ancho de capa desde el prompt ("2048 unidades", "units=2048"). Sin esto el
+    # ancho lo fija el tapering (máx 256) y no se pueden pedir redes grandes (la GPU no
+    # se carga). El tope es de cordura (evita typos tipo units=999999), no de capacidad:
+    # la máquina del usuario manda (ver M12 en MEJORAS_FUTURAS).
+    _WIDTH_RE = re.compile(
+        r"units?\s*[:=]\s*(\d+)|(\d+)\s*(?:unidades|neuronas|units|de\s+ancho)",
+        re.IGNORECASE,
+    )
+    _MAX_EXPLICIT_WIDTH = 16384
     _EPOCHS_RE = re.compile(
         r"(?:\bepochs?\b|\bepocas?\b)\s*[:=]?\s*(\d+)|(\d+)\s*(?:\bepochs?\b|\bepocas?\b)",
         re.IGNORECASE,
@@ -201,11 +216,29 @@ class DenseNetworkGenerator:
         )
 
     def _extract_hidden_layers(self, prompt: str, input_dim: int) -> list[tuple[int, str]]:
-        m = self._DEPTH_RE.search(_norm(prompt))
+        norm = _norm(prompt)
+        width = self._extract_width(norm)
+        m = self._DEPTH_RE.search(norm)
         if m:
-            n = min(int(m.group(1)), self._MAX_EXPLICIT_DEPTH)
+            n = _limits.cap(int(m.group(1)), "max_depth")
+            # M12: ancho del prompt → capas uniformes de ese ancho; si no, tapering.
+            if width is not None:
+                return [(width, "relu")] * n
             return _hidden_layers_for_depth(n, input_dim)
+        if width is not None:
+            # Ancho explícito sin profundidad → profundidad por defecto con ese ancho.
+            n = len(_default_hidden_layers(input_dim))
+            return [(width, "relu")] * n
         return _default_hidden_layers(input_dim)
+
+    def _extract_width(self, norm_prompt: str) -> int | None:
+        m = self._WIDTH_RE.search(norm_prompt)
+        if not m:
+            return None
+        raw = int(m.group(1) or m.group(2))
+        if raw <= 0:
+            return None
+        return min(raw, self._MAX_EXPLICIT_WIDTH)
 
     def _extract_epochs(self, prompt: str) -> int:
         return extract_epochs_from_prompt(prompt)
@@ -239,6 +272,15 @@ class DenseNetworkGenerator:
         return "regression"
 
     def _extract_labels(self, prompt: str) -> list[str]:
+        # Prioridad: etiquetas EXPLÍCITAS en ProbabilityMap[...] / Label[...] (lo más
+        # fiable; evita capturar prosa como "(6 clases)" o "categorias a partir de...").
+        mb = re.search(r"(?:ProbabilityMap|Label)\s*\[\s*(?P<labels>[^\]]+)\]", prompt, re.IGNORECASE)
+        if mb:
+            parts = [p for p in re.split(r",|;", mb.group("labels")) if p.strip()]
+            bracket = [_identifier(p) for p in parts if _identifier(p)]
+            if len(bracket) >= 2:
+                m_labels = _limits.get_limit("max_labels")
+                return bracket if m_labels is None else bracket[:m_labels]
         m = self._LABEL_RE.search(prompt)
         if not m:
             return []
@@ -256,13 +298,24 @@ class DenseNetworkGenerator:
             if len(ws) >= 2:
                 parts = ws
         result = [_identifier(p) for p in parts if _identifier(p)]
-        return result[:12] if len(result) >= 2 else []
+        if len(result) < 2:
+            return []
+        m_labels = _limits.get_limit("max_labels")
+        return result if m_labels is None else result[:m_labels]
 
     def _extract_fields(self, prompt: str) -> list[str]:
         m = self._FIELD_RE.search(prompt)
         if not m:
             return []
         raw = m.group("fields")
+        # Si tras la palabra clave queda una CABECERA con dos puntos antes de la lista
+        # ("NUMÉRICAS (24), normalizables a su rango físico: vibracion_axial, ..."), la
+        # lista real empieza tras el PRIMER ':' — lo anterior es prosa, no son campos.
+        if ":" in raw:
+            raw = raw.split(":", 1)[1]
+        # Quita rangos/anotaciones entre corchetes o paréntesis de cada campo
+        # ("vibracion_axial [0-50]" → "vibracion_axial", "(24)" → "").
+        raw = re.sub(r"[\[(][^\])]*[\])]", " ", raw)
         parts = re.split(r",|;|\s+y\s+|\s+and\s+", raw, flags=re.IGNORECASE)
         result = [_identifier(p) for p in parts if _identifier(p)]
         return result if len(result) >= 2 else []

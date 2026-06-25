@@ -36,12 +36,16 @@ REG_TRAIN = (
 
 
 class TestLabelOrigin:
-    def test_coherent_origin_no_warning(self):
+    def test_coherent_without_domain_rules_degrades_to_random(self):
+        # Opción A: la generación no ejecuta la red para etiquetar. 'coherent' sin
+        # reglas de dominio del LLM → valores realistas + etiquetas ALEATORIAS
+        # (honesto: sin relación entrada→salida), no etiquetas derivadas de un
+        # forward de una red sin entrenar.
         from matrixai.playground import _generate_synthetic_dataset
         r = _generate_synthetic_dataset(MXAI, MXTRAIN, 12, 42, "coherent", use_llm=False)
         assert r["ok"], r.get("error")
-        assert r["label_origin"] == "synthetic_coherent"
-        assert "signal_warning" not in r
+        assert r["label_origin"] == "synthetic_random"
+        assert "no depende de la entrada" in r["signal_warning"]
 
     def test_random_classification_warns(self):
         from matrixai.playground import _generate_synthetic_dataset

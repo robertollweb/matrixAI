@@ -42,6 +42,7 @@ from matrixai.playground import (
     _generate_synthetic_dataset as generate_synthetic_dataset,
     _suggest_field_ranges as suggest_field_ranges,
     _validate_training_csv as validate_training_csv,
+    _csv_template as csv_template,
     # Training — synchronous and async jobs (shared job registry lives in the core)
     _run_playground_training as run_playground_training,
     _submit_training_job as submit_training_job,
@@ -79,6 +80,7 @@ __all__ = [
     "generate_synthetic_dataset",
     "suggest_field_ranges",
     "validate_training_csv",
+    "csv_template",
     "run_playground_training",
     "submit_training_job",
     "get_job_status",

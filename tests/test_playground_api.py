@@ -25,6 +25,7 @@ _ALIAS_MAP = {
     "generate_synthetic_dataset": "_generate_synthetic_dataset",
     "suggest_field_ranges": "_suggest_field_ranges",
     "validate_training_csv": "_validate_training_csv",
+    "csv_template": "_csv_template",
     "run_playground_training": "_run_playground_training",
     "submit_training_job": "_submit_training_job",
     "get_job_status": "_get_job_status",

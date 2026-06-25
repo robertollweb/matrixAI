@@ -84,37 +84,45 @@ def evaluate_dense_network(
 
     predictions: list[list[float]] = []
     targets: list[list[float]] = []
-    total_loss = 0.0
-
     for input_vec, target in examples:
-        output = dense_forward(network, parameter_set, input_vec)
-        total_loss += compute_loss(loss_fn, output, target)
-        predictions.append(output)
+        predictions.append(dense_forward(network, parameter_set, input_vec))
         targets.append(target)
 
-    avg_loss = total_loss / len(examples)
+    return result_from_predictions(predictions, targets, loss_fn, labels)
+
+
+def result_from_predictions(
+    predictions: list[list[float]],
+    targets: list[list[float]],
+    loss_fn: str,
+    labels: list[str] | None = None,
+) -> DenseEvaluationResult:
+    """Build a DenseEvaluationResult from precomputed predictions (the network's
+    probability outputs) and targets.
+
+    Shared by the stdlib evaluator (per-row `dense_forward`) and the torch/GPU
+    evaluator (batched forward) so both compute IDENTICAL metrics — only the forward
+    pass differs. M14 (GPU end-to-end: la evaluación no debe ir por CPU fila a fila).
+    """
+    if not predictions:
+        raise ValueError("predictions must be non-empty")
+    total_loss = sum(compute_loss(loss_fn, p, t) for p, t in zip(predictions, targets))
+    avg_loss = total_loss / len(predictions)
+    rows = len(predictions)
 
     if loss_fn == "mse":
         return DenseEvaluationResult(
-            rows=len(examples),
-            loss=avg_loss,
-            loss_fn=loss_fn,
+            rows=rows, loss=avg_loss, loss_fn=loss_fn,
             **_regression_metrics(predictions, targets),
         )
     elif loss_fn == "cross_entropy":
         return DenseEvaluationResult(
-            rows=len(examples),
-            loss=avg_loss,
-            loss_fn=loss_fn,
-            labels=list(labels or []),
+            rows=rows, loss=avg_loss, loss_fn=loss_fn, labels=list(labels or []),
             **_multiclass_metrics(predictions, targets, labels or []),
         )
     elif loss_fn == "binary_cross_entropy":
         return DenseEvaluationResult(
-            rows=len(examples),
-            loss=avg_loss,
-            loss_fn=loss_fn,
-            labels=list(labels or []),
+            rows=rows, loss=avg_loss, loss_fn=loss_fn, labels=list(labels or []),
             **_binary_metrics(predictions, targets, labels or []),
         )
     else:

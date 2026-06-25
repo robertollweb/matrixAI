@@ -10,13 +10,9 @@ from typing import Any
 
 from matrixai.forward.composite_forward import composite_forward
 from matrixai.parameters.store import ParameterSet
-from matrixai.training.dense_backprop import compute_loss
 from matrixai.training.dense_evaluator import (
     DenseEvaluationResult,
-    _argmax,
-    _binary_metrics,
-    _multiclass_metrics,
-    _regression_metrics,
+    result_from_predictions,
 )
 
 
@@ -43,41 +39,11 @@ def evaluate_composite_network(
 
     predictions: list[list[float]] = []
     targets: list[list[float]] = []
-    total_loss = 0.0
-
     for input_data, target in examples:
-        output = composite_forward(network, parameter_set, input_data, training=False)
-        total_loss += compute_loss(loss_fn, output, target)
-        predictions.append(output)
+        predictions.append(composite_forward(network, parameter_set, input_data, training=False))
         targets.append(target)
 
-    avg_loss = total_loss / len(examples)
-
-    if loss_fn == "mse":
-        return DenseEvaluationResult(
-            rows=len(examples),
-            loss=avg_loss,
-            loss_fn=loss_fn,
-            **_regression_metrics(predictions, targets),
-        )
-    elif loss_fn == "cross_entropy":
-        return DenseEvaluationResult(
-            rows=len(examples),
-            loss=avg_loss,
-            loss_fn=loss_fn,
-            labels=list(labels or []),
-            **_multiclass_metrics(predictions, targets, labels or []),
-        )
-    elif loss_fn == "binary_cross_entropy":
-        return DenseEvaluationResult(
-            rows=len(examples),
-            loss=avg_loss,
-            loss_fn=loss_fn,
-            labels=list(labels or []),
-            **_binary_metrics(predictions, targets, labels or []),
-        )
-    else:
-        raise ValueError(f"Unknown loss_fn: {loss_fn!r}")
+    return result_from_predictions(predictions, targets, loss_fn, labels)
 
 
 def composite_examples_from_csv(

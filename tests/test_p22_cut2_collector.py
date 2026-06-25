@@ -351,7 +351,10 @@ class TestContinualIngestCLI:
 
         policy_path = tmp_path / "policy.mxcontinual"
         policy_path.write_text(_POLICY_REQUIRES_SIG)
-        trace = _make_trace("act-cli-001", signing_key=_SIGNING_KEY)
+        # El CLI valida la ventana de ground truth contra el reloj REAL (no _NOW),
+        # así que la traza debe datarse relativa a ahora para no caducar con el tiempo.
+        fresh = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        trace = _make_trace("act-cli-001", executed_at=fresh, signing_key=_SIGNING_KEY)
         trace_path = tmp_path / "trace.json"
         trace_path.write_text(json.dumps(dataclasses.asdict(trace)))
 
@@ -377,7 +380,9 @@ class TestContinualIngestCLI:
 
         policy_path = tmp_path / "policy.mxcontinual"
         policy_path.write_text(_POLICY_REQUIRES_SIG)
-        trace = _make_trace("act-cli-002", signing_key=_SIGNING_KEY)
+        # Datar relativa al reloj real (la ventana se valida contra now real en el CLI).
+        fresh = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        trace = _make_trace("act-cli-002", executed_at=fresh, signing_key=_SIGNING_KEY)
         trace_path = tmp_path / "trace.json"
         trace_path.write_text(json.dumps(dataclasses.asdict(trace)))
 

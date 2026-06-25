@@ -43,15 +43,25 @@ def dense_network_to_torch_module(network: Any, parameter_set: ParameterSet) -> 
         if b_key not in parameter_set.parameters:
             raise DenseTorchError(f"Missing parameter {b_key!r} in ParameterSet")
 
-        W = parameter_set.parameters[w_key]["values"]
-        b = parameter_set.parameters[b_key]["values"]
-        out_features = len(W)
-        in_features = len(W[0])
+        W = parameter_set.parameters[w_key].get("values")
+        b = parameter_set.parameters[b_key].get("values")
+        # M15(a): las dimensiones salen del campo `shape` para poder construir el módulo
+        # SIN valores (plantilla de estructura) y dejar el init nativo de nn.Linear.
+        shape = parameter_set.parameters[w_key].get("shape")
+        if shape and len(shape) == 2:
+            out_features, in_features = int(shape[0]), int(shape[1])
+        elif W is not None:
+            out_features, in_features = len(W), len(W[0])
+        else:
+            raise DenseTorchError(f"Cannot determine shape for {w_key!r} (no shape, no values)")
 
         linear = nn.Linear(in_features, out_features)
-        with torch.no_grad():
-            linear.weight.copy_(torch.tensor(W, dtype=torch.float32))
-            linear.bias.copy_(torch.tensor(b, dtype=torch.float32))
+        # Si la plantilla trae pesos, se cargan; si vienen None (plantilla de estructura),
+        # se deja el init nativo de torch (Kaiming) — más rápido y se entrena igual.
+        if W is not None and b is not None:
+            with torch.no_grad():
+                linear.weight.copy_(torch.tensor(W, dtype=torch.float32))
+                linear.bias.copy_(torch.tensor(b, dtype=torch.float32))
 
         linears.append(linear)
         activations.append(layer.activation)

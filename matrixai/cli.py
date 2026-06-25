@@ -377,7 +377,7 @@ def main() -> int:
     )
     generate_dataset_parser.add_argument("file", help=".mxai model file")
     generate_dataset_parser.add_argument("--training", required=True, help=".mxtrain training spec")
-    generate_dataset_parser.add_argument("--rows", type=int, default=200, help="Total rows to generate (default: 200, max: 50000)")
+    generate_dataset_parser.add_argument("--rows", type=int, default=200, help="Total rows to generate (default: 200). Upper bound governed by the limits profile (MATRIXAI_LIMITS_PROFILE: equilibrado=50000, ilimitado=none; or MATRIXAI_MAX_ROWS)")
     generate_dataset_parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility (default: 42)")
     generate_dataset_parser.add_argument(
         "--mode",
@@ -2275,8 +2275,12 @@ def _cmd_generate_dataset(args) -> int:
     if rows_requested < 2:
         print("--rows must be at least 2 (need at least 1 train + 1 eval row)", file=sys.stderr)
         return 1
-    if rows_requested > 50_000:
-        print("--rows exceeds maximum of 50000", file=sys.stderr)
+    # M12: el tope de filas lo gobierna el perfil de límites (env/MATRIXAI_LIMITS_PROFILE),
+    # no un hard cap. En 'ilimitado' no hay tope; en 'equilibrado' (default) son 50000.
+    from matrixai import limits as _limits
+    if _limits.exceeds(rows_requested, "max_rows"):
+        print(f"--rows exceeds the configured maximum of {_limits.get_limit('max_rows')} "
+              f"(raise it with MATRIXAI_LIMITS_PROFILE=ilimitado or MATRIXAI_MAX_ROWS)", file=sys.stderr)
         return 1
 
     try:

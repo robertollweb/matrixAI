@@ -108,18 +108,17 @@ class TestP12SyntheticDataGenerator(unittest.TestCase):
         gen.generate()
         self.assertEqual(gen.coherent_fallback_count, 0)
 
-    def test_coherent_mode_fallback_counted_when_runtime_cannot_resolve(self):
-        # This program has no GRAPH/RULES so the runtime produces no label: all rows fall back.
+    def test_coherent_without_rules_is_random_no_runtime_no_warning(self):
+        # Opción A global (2026-06-24): coherent sin domain_rules NO ejecuta el runtime;
+        # etiqueta aleatorio. Sin fallback contado (count=0) y sin UserWarning de fallback.
         import warnings
         gen = SyntheticDataGenerator(self.program, self.training, 42, 10, "coherent")
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            gen.generate()
-        self.assertEqual(gen.coherent_fallback_count, 10)
-        self.assertTrue(any(issubclass(w.category, UserWarning) for w in caught))
-        msg = str(caught[0].message)
-        self.assertIn("10/10", msg)
-        self.assertIn("coherent", msg)
+            adapter = gen.generate()
+        self.assertEqual(gen.coherent_fallback_count, 0)  # ya no hay fallback de runtime
+        self.assertFalse(any("fell back" in str(w.message) for w in caught))
+        self.assertEqual(len(adapter.rows), 10)
 
     def test_coherent_mode_no_warning_when_no_fallback(self):
         # Use random mode as a proxy — coherent with a working runtime should not emit warning.

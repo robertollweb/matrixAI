@@ -107,10 +107,11 @@ def test_generate_synthetic_dataset_domain_origin_with_llm():
     assert highs and all(x["riesgo"] == "ALTO" for x in highs)
 
 
-def test_fallback_to_coherent_without_llm():
-    # use_llm False → no domain rules → toy coherent, no domain fields
+def test_fallback_to_random_without_llm():
+    # Opción A: use_llm False → no domain rules → la generación NO ejecuta la red,
+    # etiquetas aleatorias (valores realistas por rangos, etiqueta sin señal).
     r = _generate_synthetic_dataset(MXAI, TRAIN, 30, 7, "coherent", use_llm=False)
-    assert r["label_origin"] == "synthetic_coherent"
+    assert r["label_origin"] == "synthetic_random"
     assert "domain_rules" not in r
 
 
@@ -140,8 +141,8 @@ def test_no_missing_warning_when_all_classes_present():
 
 def test_fallback_when_domain_rules_collapse_to_one_class():
     # Syntactically valid rules, but an impossible threshold (charlson > 500) means
-    # every row falls to DEFAULT → single class. This must fall back to coherent and
-    # warn, not ship a useless single-class dataset as "synthetic_domain".
+    # every row falls to DEFAULT → single class. Opción A: must fall back to RANDOM
+    # labels and warn, not ship a useless single-class dataset as "synthetic_domain".
     class _CollapseProvider:
         def complete(self, system, user):  # noqa: ARG002
             return "ALTO: indice_charlson > 500\nMEDIO: creatinina > 500\nDEFAULT: BAJO\n"
@@ -151,7 +152,7 @@ def test_fallback_when_domain_rules_collapse_to_one_class():
          patch("matrixai.playground._llm_field_ranges",
                return_value={"indice_charlson": (0, 20), "creatinina": (0, 15), "edad": (0, 120)}):
         r = _generate_synthetic_dataset(MXAI, TRAIN, 40, 7, "coherent", use_llm=True)
-    assert r["label_origin"] == "synthetic_coherent"  # fell back
+    assert r["label_origin"] == "synthetic_random"  # fell back (no network run)
     assert "domain_rules" not in r
     assert "domain_degenerate_warning" in r
 
@@ -165,5 +166,5 @@ def test_fallback_when_llm_rules_invalid():
                return_value=_BadProvider()), \
          patch("matrixai.playground._llm_field_ranges", return_value={}):
         r = _generate_synthetic_dataset(MXAI, TRAIN, 30, 7, "coherent", use_llm=True)
-    assert r["label_origin"] == "synthetic_coherent"
+    assert r["label_origin"] == "synthetic_random"  # invalid rules → no network run
     assert "domain_rules" not in r

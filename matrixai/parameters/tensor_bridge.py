@@ -125,6 +125,33 @@ def torch_available() -> bool:
     return util.find_spec("torch") is not None
 
 
+def enable_tf32_if_cuda(device: str) -> bool:
+    """M15(c) — habilita TF32 (tensor cores) en matmul/cudnn cuando se entrena en CUDA.
+
+    En Ampere+ (A100, RTX 30/40/Ada), TF32 multiplica el throughput de las matmul fp32
+    ~5-8x con pérdida de precisión despreciable para entrenamiento (mantisa de 10 bits).
+    SÓLO afecta a CUDA: el camino CPU y el stdlib determinista quedan intactos, así que no
+    toca la reproducibilidad/auditoría del suelo determinista. El camino torch/GPU es el
+    "techo de velocidad", no la fuente de verdad. Desactivable con MATRIXAI_GPU_TF32=0.
+
+    Devuelve True si lo activó. Idempotente y barato (flags globales de torch).
+    """
+    import os
+    if os.environ.get("MATRIXAI_GPU_TF32", "1") == "0":
+        return False
+    if not str(device).startswith("cuda") or not torch_available():
+        return False
+    try:
+        torch = import_module("torch")
+        if not torch.cuda.is_available():
+            return False
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def torch_device_info() -> dict[str, Any]:
     """Report available hardware devices and PyTorch version. Safe to call without torch installed."""
     if not torch_available():

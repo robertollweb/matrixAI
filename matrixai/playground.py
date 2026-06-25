@@ -305,12 +305,14 @@ def _build_artifacts(
     return result
 
 
-# P9 operational limits
-_P9_MAX_CSV_BYTES = 50_000_000
-_P9_MAX_ROWS = 50_000
-# Sanity ceiling against typos (e.g. 999999). Explicit prompt requests up to this
-# are honoured — the user controls their machine (the Studio is downloadable).
-_P9_MAX_EPOCHS = 1000
+# P9 operational limits — M12: ahora configurables en runtime (hosted/env/perfil) vía
+# `matrixai.limits`. Estas constantes son los DEFAULTS (perfil "equilibrado") y se
+# conservan para compatibilidad/visualización; el código de runtime llama a
+# `limits.cap()/exceeds()/get_limit()` para respetar la configuración del usuario.
+from matrixai import limits as _limits  # noqa: E402
+_P9_MAX_CSV_BYTES = _limits._EQUILIBRADO["max_csv_bytes"]
+_P9_MAX_ROWS = _limits._EQUILIBRADO["max_rows"]
+_P9_MAX_EPOCHS = _limits._EQUILIBRADO["max_epochs"]
 # Wall-clock training budget, configurable via MATRIXAI_TRAIN_TIMEOUT.
 # Default 300s protects a SHARED hosted playground. **Set to 0 to disable** (no
 # limit) — the downloadable Studio sets 0 because the machine is the user's and a
@@ -329,6 +331,23 @@ class _TrainingCancelled(Exception):
 
 _training_jobs: dict[str, dict[str, Any]] = {}
 _MAX_JOBS = 20
+
+
+def _diag(msg: str) -> None:
+    """Log de diagnóstico: a stdout (puede perderse en Colab si sale de un hilo de fondo
+    de una celda terminada) Y a un fichero recuperable con `!tail`. En Colab el fichero
+    cae en /content/matrixai_diag.log (o MATRIXAI_DIAG_LOG). Best-effort: nunca falla."""
+    line = f"[matrixai] {msg}"
+    print(line, flush=True)
+    try:
+        import time as _t
+        path = os.environ.get("MATRIXAI_DIAG_LOG") or (
+            "/content/matrixai_diag.log" if os.path.isdir("/content") else "/tmp/matrixai_diag.log"
+        )
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(f"{_t.strftime('%H:%M:%S')} {line}\n")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _mxai_project_stem(mxai_text: str) -> str:
@@ -451,9 +470,26 @@ def _generate_synthetic_dataset(
 ) -> dict[str, Any]:
     if not mxai_text.strip() or not training_text.strip():
         return {"ok": False, "error": "mxai_text y training_text son obligatorios"}
-    rows = max(2, min(int(rows), _P9_MAX_ROWS))
+    requested_rows = int(rows)
+    rows = max(2, _limits.cap(requested_rows, "max_rows"))
+    # Si el perfil de límites recortó las filas pedidas, avisamos (no silenciosamente):
+    # el frontend ya no topa, así que el cap solo lo aplica el backend según el perfil.
+    rows_capped_warning = ""
+    if requested_rows > rows:
+        _eff = _limits.get_limit("max_rows")
+        rows_capped_warning = (
+            f"Pediste {requested_rows} filas pero el perfil de límites las recortó a {_eff}. "
+            f"Cambia el perfil a 'ilimitado' en Ajustes → Límites para generar más."
+        )
     if mode not in ("random", "coherent"):
         mode = "random"
+    # M9: aviso accionable ante .mxai incoherente (elipsis / dim≠campos / columnas≠VECTOR)
+    # antes de que el parser falle con un error técnico opaco.
+    from matrixai.training.coherence import check_dataset_coherence
+    _coh = check_dataset_coherence(mxai_text, training_text)
+    if not _coh.ok:
+        return {"ok": False, "error": _coh.error_es, "error_en": _coh.error_en,
+                "error_kind": "coherence"}
     try:
         from matrixai.parser import parse_text
         from matrixai.training.parser import parse_training_text
@@ -523,12 +559,21 @@ def _generate_synthetic_dataset(
                 domain_rules = dr.normalized(field_ranges)  # eval in [0,1] space
                 domain_rules_text = dr.to_text()             # domain scale, for audit
 
+        # Opción A: la generación NUNCA instancia ni ejecuta el modelo para etiquetar.
+        # Una red sin entrenar (init aleatorio) es un etiquetador arbitrario y, en redes
+        # grandes, construirla y ejecutarla cuelga (p.ej. 24×8192 ≈ minutos/GB). Los
+        # VALORES de las columnas se muestrean igual de los rangos (LLM/"Sugerir rangos");
+        # las ETIQUETAS usan reglas de dominio del LLM si las hay, y si no, random. Así
+        # 'coherent' sin reglas pasa a "valores realistas + etiquetas aleatorias" en vez
+        # de etiquetas derivadas de un forward de la red.
+        effective_mode = "random" if (mode == "coherent" and domain_rules is None) else mode
+
         generator = SyntheticDataGenerator(
             program=program,
             training=training,
             seed=seed,
             rows=rows,
-            mode=mode,
+            mode=effective_mode,
             field_ranges=field_ranges if field_ranges else None,
             # M5: human-readable CSV (salary 35000, age 72). Training normalizes
             # back at the boundary using the field_ranges returned below.
@@ -546,17 +591,19 @@ def _generate_synthetic_dataset(
         if domain_rules is not None and generator.domain_rules_degenerate:
             domain_degenerate_warning = (
                 "Las reglas de dominio propuestas por el LLM no discriminaron sobre los "
-                "datos generados (casi todas las filas cayeron en una sola clase); se usó "
-                "el modo coherente. Ajusta el prompt o sube datos reales."
+                "datos generados (casi todas las filas cayeron en una sola clase); se usaron "
+                "etiquetas aleatorias. Ajusta el prompt o sube datos reales."
             )
             domain_rules = None
             domain_rules_text = ""
+            # Opción A: sin reglas válidas no se ejecuta la red → etiquetas aleatorias.
+            effective_mode = "random" if mode == "coherent" else mode
             generator = SyntheticDataGenerator(
                 program=program,
                 training=training,
                 seed=seed,
                 rows=rows,
-                mode=mode,
+                mode=effective_mode,
                 field_ranges=field_ranges if field_ranges else None,
                 domain_scale=True,
                 field_types=types or None,
@@ -575,14 +622,17 @@ def _generate_synthetic_dataset(
             writer.writerow({col: row[col] for col in columns})
         csv_text = buf.getvalue()
 
-        if len(csv_text.encode()) > _P9_MAX_CSV_BYTES:
-            return {"ok": False, "error": f"Dataset sintetico supera el límite de {_P9_MAX_CSV_BYTES // 1000} KB"}
+        if _limits.exceeds(len(csv_text.encode()), "max_csv_bytes"):
+            _lim = _limits.get_limit("max_csv_bytes")
+            return {"ok": False, "error": f"Dataset sintetico supera el límite de {_lim // 1000} KB"}
 
         result: dict[str, Any] = {
             "ok": True,
             "csv_text": csv_text,
             "rows": rows,
             "seed": seed,
+            # Echo the requested mode; `label_origin` below carries what the labels
+            # actually are (synthetic_random when coherent degraded under option A).
             "mode": mode,
             "fingerprint": adapter.fingerprint(),
             "columns": columns,
@@ -604,6 +654,8 @@ def _generate_synthetic_dataset(
             # S2-C4: identifier columns dropped from the model (no predictive signal)
             "excluded_identifiers": excluded_ids,
         }
+        if rows_capped_warning:
+            result["rows_capped_warning"] = rows_capped_warning
         # M8-C1: be honest about what the labels represent. Synthetic labels are
         # learnable but a toy; random-mode classification has NO input→output
         # relationship (labels independent of features) → the model can only
@@ -620,7 +672,7 @@ def _generate_synthetic_dataset(
             )
         else:
             result["label_origin"] = (
-                "synthetic_random" if mode == "random" else "synthetic_coherent"
+                "synthetic_random" if effective_mode == "random" else "synthetic_coherent"
             )
         if domain_degenerate_warning:
             result["domain_degenerate_warning"] = domain_degenerate_warning
@@ -636,11 +688,12 @@ def _generate_synthetic_dataset(
                 f"las clases ausentes y el F1 macro será bajo. Ajusta el prompt/reglas o "
                 f"sube datos reales."
             )
-        if is_classification and mode == "random":
+        if is_classification and effective_mode == "random":
             result["signal_warning"] = (
                 "Datos sintéticos aleatorios: la salida no depende de la entrada, "
                 "así que el modelo no puede aprender nada (colapsará al predictor "
-                "constante). Usa el modo coherente o sube datos reales."
+                "constante). Para señal real, activa las reglas de dominio del LLM "
+                "o sube datos reales."
             )
         if model_changed:
             # The VECTOR/columns changed (one-hot and/or excluded ids) — the
@@ -697,6 +750,57 @@ def _suggest_field_ranges(mxai_text: str, training_text: str) -> dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
+def _expected_csv_columns(training: Any) -> tuple[list[str], str]:
+    """M16 — columnas que un CSV subido debe CONTENER: features de INPUT FROM COLUMNS + la
+    columna target (su nombre semántico del TARGET, p. ej. `estado`). Se leen por nombre:
+    el orden no importa y las columnas extra se ignoran (solo se exige que estén presentes)."""
+    input_columns = list(training.dataset.input.columns)
+    target_column = training.dataset.target.name
+    return input_columns, target_column
+
+
+def _csv_template(mxai_text: str, training_text: str) -> dict[str, Any]:
+    """M16 — plantilla exacta del CSV de entrenamiento esperado: nombres de columnas
+    (features + target), clases (si clasificación) y un CSV de ejemplo descargable, para
+    que el usuario sepa qué subir (nombres y formato) sin adivinar."""
+    if not mxai_text.strip() or not training_text.strip():
+        return {"ok": False, "error": "mxai_text y training_text son obligatorios"}
+    try:
+        from matrixai.parser import parse_text
+        from matrixai.training.parser import parse_training_text
+        from matrixai.training.dense_trainer import _labels_from_spec
+
+        parse_text(mxai_text)
+        training = parse_training_text(training_text)
+        input_columns, target_column = _expected_csv_columns(training)
+        labels = _labels_from_spec(training)
+        columns = input_columns + [target_column]
+
+        # 2 filas de ejemplo: inputs en 0.5 (mitad de [0,1]); target = primera clase, o
+        # 0.0 si es regresión. Solo ilustra el FORMATO y los nombres de columna.
+        example_target = labels[0] if labels else "0.0"
+        example_row = ",".join(["0.5"] * len(input_columns) + [str(example_target)])
+        template_csv = ",".join(columns) + "\n" + example_row + "\n" + example_row + "\n"
+
+        return {
+            "ok": True,
+            "columns": columns,
+            "input_columns": input_columns,
+            "target_column": target_column,
+            "labels": list(labels),
+            "is_classification": bool(labels),
+            "template_csv": template_csv,
+            "note": (
+                "El CSV debe contener estas columnas (mismos nombres); el orden no importa y "
+                f"las columnas extra se ignoran. La columna objetivo es '{target_column}'. Los "
+                "valores numéricos van en escala de dominio (los rangos guardados); las clases, "
+                "como texto."
+            ),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+
+
 def _validate_training_csv(
     mxai_text: str,
     training_text: str,
@@ -705,8 +809,9 @@ def _validate_training_csv(
 ) -> dict[str, Any]:
     if not mxai_text.strip() or not training_text.strip() or not csv_text.strip():
         return {"ok": False, "error": "mxai_text, training_text y csv_text son obligatorios"}
-    if len(csv_text.encode()) > _P9_MAX_CSV_BYTES:
-        return {"ok": False, "error": f"CSV supera el límite de {_P9_MAX_CSV_BYTES // 1000} KB"}
+    if _limits.exceeds(len(csv_text.encode()), "max_csv_bytes"):
+        _lim = _limits.get_limit("max_csv_bytes")
+        return {"ok": False, "error": f"CSV supera el límite de {_lim // 1000} KB"}
     # M5: domain-scale CSV must be normalized before the TrainingVerifier checks
     # values against the DSL type ranges (Scalar [0,1]).
     if field_ranges:
@@ -715,6 +820,40 @@ def _validate_training_csv(
         training = parse_training_text(training_text)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"training_text inválido: {exc}"}
+
+    # M16 — chequeo de cabecera con mensaje accionable ANTES del verificador técnico:
+    # si faltan columnas esperadas, decimos exactamente cuáles (y cuáles llegaron).
+    input_columns, target_column = _expected_csv_columns(training)
+    expected_columns = input_columns + [target_column]
+    header_line = csv_text.splitlines()[0] if csv_text.strip() else ""
+    found_columns = [c.strip() for c in header_line.split(",") if c.strip()]
+    missing = [c for c in expected_columns if c not in found_columns]
+    if missing:
+        return {
+            "ok": False,
+            "expected_columns": expected_columns,
+            "found_columns": found_columns,
+            "missing_columns": missing,
+            "target_column": target_column,
+            "error": (
+                f"El CSV no tiene las columnas esperadas. Faltan: {', '.join(missing)}. "
+                f"Esperadas: {', '.join(expected_columns)} (la columna objetivo es "
+                f"'{target_column}'). Encontradas: {', '.join(found_columns) or '(ninguna)'}. "
+                f"Descarga la plantilla para ver el formato exacto."
+            ),
+            "error_en": (
+                f"The CSV is missing expected columns. Missing: {', '.join(missing)}. "
+                f"Expected: {', '.join(expected_columns)} (target column is '{target_column}'). "
+                f"Found: {', '.join(found_columns) or '(none)'}. Download the template for the "
+                f"exact format."
+            ),
+            "error_kind": "csv_columns",
+        }
+
+    # Columnas extra (presentes en el CSV pero no esperadas): no bloquean —se leen por
+    # nombre, así que las extra se ignoran— pero avisamos para que sea transparente.
+    extra_columns = [c for c in found_columns if c not in expected_columns]
+
     stem = _mxai_project_stem(mxai_text)
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -733,8 +872,8 @@ def _validate_training_csv(
             rows = 0
             with csv_path.open(newline="", encoding="utf-8") as fh:
                 rows = sum(1 for _ in csv.reader(fh)) - 1  # subtract header
-            if rows > _P9_MAX_ROWS:
-                return {"ok": False, "error": f"CSV tiene {rows} filas, máximo {_P9_MAX_ROWS}"}
+            if _limits.exceeds(rows, "max_rows"):
+                return {"ok": False, "error": f"CSV tiene {rows} filas, máximo {_limits.get_limit('max_rows')}"}
             warnings_out = list(report.warnings)
             # M5-C3: uploaded CSV without ranges but with domain-scale values on
             # untyped fields — the verifier cannot catch it (no declared range)
@@ -743,7 +882,13 @@ def _validate_training_csv(
                 scale_warning = _detect_domain_scale_csv(csv_text, training)
                 if scale_warning:
                     warnings_out.append(scale_warning)
-            return {"ok": True, "rows": rows, "warnings": warnings_out}
+            if extra_columns:
+                warnings_out.append(
+                    f"El CSV tiene columnas extra que se ignorarán: {', '.join(extra_columns)}."
+                )
+            return {"ok": True, "rows": rows, "warnings": warnings_out,
+                    "expected_columns": expected_columns,
+                    "extra_columns": extra_columns}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}
 
@@ -780,9 +925,9 @@ def _detect_domain_scale_csv(csv_text: str, training: Any, sample_rows: int = 20
 
 def _apply_epoch_cap(training: Any, epochs_override: int | None) -> int | None:
     if epochs_override is not None:
-        return min(int(epochs_override), _P9_MAX_EPOCHS)
-    if training.run and training.run.epochs > _P9_MAX_EPOCHS:
-        return _P9_MAX_EPOCHS
+        return _limits.cap(int(epochs_override), "max_epochs")
+    if training.run and _limits.exceeds(training.run.epochs, "max_epochs"):
+        return _limits.get_limit("max_epochs")
     return None
 
 
@@ -862,6 +1007,210 @@ def _collect_training_result(tmp: Path, run_result: Any, spec: Any) -> dict[str,
     }
 
 
+def _select_train_backend() -> tuple[bool, str]:
+    """GPU-C3 — (use_torch, device) for Studio training.
+
+    Policy via MATRIXAI_TRAIN_BACKEND: 'auto' (default) → torch on CUDA when
+    available, else stdlib; 'torch' → force the torch path (cuda if present, else
+    cpu — useful to test the torch path on a CPU box); 'stdlib' → never torch.
+    The downloadable Studio 'just works': GPU accelerates, CPU-only falls back to
+    stdlib with no config and no regression."""
+    mode = os.environ.get("MATRIXAI_TRAIN_BACKEND", "auto").strip().lower()
+    if mode == "stdlib":
+        return (False, "cpu")
+    try:
+        from matrixai.parameters.tensor_bridge import torch_available
+        if not torch_available():
+            return (False, "cpu")
+        import torch
+        cuda = bool(torch.cuda.is_available())
+    except Exception:  # noqa: BLE001
+        return (False, "cpu")
+    if mode == "torch":
+        return (True, "cuda" if cuda else "cpu")
+    return (cuda, "cuda" if cuda else "cpu")  # auto
+
+
+def _eval_report_from_dense_result(dense_result: Any, labels: list[str] | None) -> dict[str, Any]:
+    """M14 — construye el report (mismas claves que EvaluationResult.to_dict consumidas
+    aguas abajo) a partir de un DenseEvaluationResult del evaluador torch/GPU."""
+    per_label: dict[str, dict[str, float]] = {}
+    if labels and dense_result.precision:
+        for lbl in labels:
+            per_label[lbl] = {
+                "precision": dense_result.precision.get(lbl, 0.0),
+                "recall": dense_result.recall.get(lbl, 0.0),
+                "f1": dense_result.f1.get(lbl, 0.0),
+            }
+    return {
+        "rows": dense_result.rows,
+        "loss": dense_result.loss,
+        "accuracy": dense_result.accuracy,
+        "macro_f1": dense_result.macro_f1,
+        "confusion_matrix": dense_result.confusion_matrix,
+        "labels": list(labels or []),
+        "per_label": per_label,
+        "mae": dense_result.mae,
+        "rmse": dense_result.rmse,
+        "r2": dense_result.r2,
+    }
+
+
+def _dense_torch_train_result(
+    mxai_text: str,
+    training: Any,
+    spec: Any,
+    csv_text: str,
+    device: str,
+    seed: int,
+    epoch_callback: Any,
+    cancel_check: Any = None,
+) -> dict[str, Any]:
+    """GPU-C3 — train a dense_network with the torch trainer and build the SAME
+    result shape as the stdlib path (so snapshot/infer/export/M3 metrics are
+    unaffected). Evaluation uses evaluate_dense_network_torch (batched, chunked)."""
+    from matrixai.types import check_network_types
+    from matrixai.parameters.network_params import build_network_parameter_set
+    from matrixai.parameters.store import program_hash
+    from matrixai.training.dense_trainer import (
+        _labels_from_spec, _examples_to_xy,
+    )
+    from matrixai.training.data import CSVDataAdapter
+    from matrixai.training.dense_torch_trainer import (
+        train_dense_network_torch, evaluate_dense_network_torch,
+    )
+
+    program = parse_text(mxai_text)
+    if not program.networks:
+        return {"ok": False, "error": "El modelo no define ninguna NETWORK"}
+    net = program.networks[0]
+    vector_map = {v.name: v for v in program.vectors}
+    vector = vector_map.get(net.input)
+    if vector is None:
+        return {"ok": False, "error": f"VECTOR de entrada {net.input!r} no encontrado"}
+    type_result = check_network_types(net, vector_map)
+    resolved_layers = type_result.resolved_layers if type_result.resolved_layers else net.layers
+
+    loss_fn = training.loss.type if training.loss else "mse"
+    lr = training.optimizer.learning_rate if training.optimizer else 0.01
+    epochs = spec.run.epochs if spec.run else (training.run.epochs if training.run else 50)
+    patience = spec.run.early_stop_patience if spec.run else None
+    # Honor explicit BATCH size from the training spec (overrides the trainer default).
+    batch_size: int | None = (
+        training.dataset.batch.size if (training.dataset and training.dataset.batch) else None
+    )
+    labels = _labels_from_spec(training)
+    epoch_trace: list[dict[str, Any]] = []
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        (tmp / Path(training.model).name).write_text(mxai_text, encoding="utf-8")
+        data_path = tmp / Path(training.dataset.source).name
+        data_path.write_text(csv_text, encoding="utf-8")
+        adapter = CSVDataAdapter(
+            data_path, vector.name, list(vector.fields),
+            training.dataset.target.name, labels if labels else None,
+        )
+        examples = _examples_to_xy(adapter.examples(), loss_fn, labels)
+        if not examples:
+            return {"ok": False, "error": "El dataset no produjo ejemplos válidos"}
+
+        # M15(a): plantilla de estructura (sin pesos en Python); el módulo torch usa su
+        # init nativo (Kaiming), sembrado por torch.manual_seed(seed) en el trainer.
+        ps = build_network_parameter_set(net, resolved_layers, program_hash(program),
+                                         seed=seed, with_values=False)
+
+        def _torch_cb(e: dict[str, Any]) -> None:
+            entry = {"epoch": e["epoch"], "train_loss": round(e["loss"], 6),
+                     "validation_loss": round(e["val_loss"], 6), "accuracy": None}
+            epoch_trace.append(entry)
+            if epoch_callback is not None:
+                epoch_callback(entry)  # may raise _TrainingCancelled
+
+        # Log ANTES de entrenar: confirma backend (cuda/cpu) y que el preprocesado de
+        # las filas terminó y arranca el bucle (si no aparece, está aún cargando el CSV).
+        _diag(f"inicia entrenamiento: device={device}, ejemplos={len(examples)}, "
+              f"epochs={epochs}, batch spec={batch_size}")
+        tr = train_dense_network_torch(
+            net, ps, examples, loss_fn, lr=lr, epochs=epochs,
+            early_stop=(patience, "validation_loss") if patience else None,
+            device=device, seed=seed, batch_size=batch_size,
+            epoch_callback=_torch_cb, cancel_check=cancel_check,
+        )
+        # Visible en Colab: batch del spec (autogenerado = 8) vs el efectivo en GPU.
+        _diag(f"entrenamiento OK en {device}: batch spec={batch_size} → efectivo={tr.get('batch_size')} "
+              f"(ejemplos={len(examples)}, VRAM pico={tr.get('peak_vram_gb')} GB)")
+        best_ps = tr["best_params"]
+        # M14 — evaluación BATCHED en torch/GPU (no fila a fila en CPU). Reusa los
+        # `examples` ya cargados; sin re-leer el CSV. Con datasets grandes + redes
+        # anchas evita que el run se cuelgue evaluando en CPU tras entrenar en GPU.
+        evaluation_warning: str | None = None
+        try:
+            dense_result = evaluate_dense_network_torch(
+                net, best_ps, examples, loss_fn, labels=labels or None, device=device,
+                cancel_check=cancel_check,
+            )
+            evaluation_report = _eval_report_from_dense_result(dense_result, labels)
+            evaluation_backend = device
+        except _TrainingCancelled:
+            raise
+        except Exception as _eval_exc:  # noqa: BLE001
+            evaluation_report = None
+            evaluation_backend = "failed"
+            evaluation_warning = f"eval torch failed, metrics unavailable: {_eval_exc}"
+
+    # M7 en GPU: prueba de colapso por torch (4 forwards instantáneos) en vez del runtime
+    # Python de `_probe_model_collapse` (O(params)×4 → minutos y GBs de RAM con redes
+    # grandes; era el "se queda pensando" al acabar). Se adjunta aquí para que
+    # `_attach_collapse_check` detecte que ya está probado y NO repita la versión lenta.
+    _collapse = None
+    try:
+        from matrixai.training.dense_torch_trainer import probe_collapse_torch
+        _collapse = probe_collapse_torch(net, best_ps, len(vector.fields), device=device)
+    except Exception:  # noqa: BLE001
+        _collapse = None
+
+    is_reg = loss_fn == "mse"
+    er = evaluation_report or {}
+    result = {
+        "ok": True,
+        "task_kind": "regression" if is_reg else "classification",
+        "run_id": uuid.uuid4().hex[:8],
+        "best_epoch": tr["best_epoch"],
+        "best_validation_loss": tr["best_val_loss"],
+        "final_train_loss": tr["train_loss"],
+        "accuracy": None if is_reg else er.get("accuracy"),
+        "macro_f1": er.get("macro_f1"),
+        "confusion_matrix": er.get("confusion_matrix"),
+        "labels": er.get("labels"),
+        "per_label": er.get("per_label"),
+        "mae": er.get("mae"),
+        "rmse": er.get("rmse"),
+        "r2": er.get("r2"),
+        "backend": device,
+        "evaluation_backend": evaluation_backend,
+        "evaluation_warning": evaluation_warning,
+        "effective_batch_size": tr.get("batch_size"),
+        "epochs": epoch_trace,
+        "params_best": best_ps.to_dict(),
+        "metrics": {"epochs": epoch_trace},
+        "training_trace": {"backend_report": {"target": device},
+                           "task_kind": "regression" if is_reg else "classification"},
+        "evaluation_report": evaluation_report,
+    }
+    if _collapse is not None:
+        result["model_collapsed"] = bool(_collapse["collapsed"])
+        if _collapse["collapsed"]:
+            result["collapse_constant_output"] = _collapse.get("constant_output")
+            result["collapse_warning"] = (
+                "El modelo entrenado produce la misma salida para cualquier entrada "
+                "(predictor constante). Suele deberse a una red demasiado profunda o a "
+                "un cuello de botella ReLU antes de la capa de salida: simplifica la "
+                "arquitectura y reentrena."
+            )
+    return result
+
+
 def _run_playground_dense_training(
     mxai_text: str,
     training_text: str,
@@ -869,6 +1218,7 @@ def _run_playground_dense_training(
     epochs_override: int | None = None,
     epoch_callback: Any = None,
     seed: int = 42,
+    cancel_check: Any = None,
 ) -> dict[str, Any]:
     """Synchronous training for NETWORK (dense) models using DenseSupervisedTrainer."""
     try:
@@ -879,8 +1229,40 @@ def _run_playground_dense_training(
     epochs_override = _apply_epoch_cap(training, epochs_override)
     spec = _build_spec_with_epochs(training, epochs_override)
 
+    # GPU-C3: when a GPU/torch backend is selected, train with the torch trainer
+    # (batched — this is where GPU helps); otherwise fall through to stdlib.
+    use_torch, device = _select_train_backend()
+    # Diagnóstico clave: por qué se usa (o no) la GPU. Si use_torch=False con una GPU
+    # presente, el entrenamiento va por stdlib/CPU (lento, GPU ociosa). Reporta el motivo.
+    _ta = _tcuda = "?"
+    try:
+        from matrixai.parameters.tensor_bridge import torch_available as _tav
+        _ta = _tav()
+        if _ta:
+            import torch as _t
+            _tcuda = bool(_t.cuda.is_available())
+    except Exception as _e:  # noqa: BLE001
+        _ta = f"error:{_e}"
+    _diag(f"backend dense seleccionado: use_torch={use_torch}, device={device} | "
+          f"MATRIXAI_TRAIN_BACKEND={os.environ.get('MATRIXAI_TRAIN_BACKEND','auto')}, "
+          f"torch_available={_ta}, cuda_available={_tcuda}")
+    if use_torch:
+        try:
+            return _dense_torch_train_result(mxai_text, training, spec, csv_text,
+                                             device, seed, epoch_callback, cancel_check)
+        except _TrainingCancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001  — never let GPU break training: fall back
+            import logging as _log
+            _log.getLogger(__name__).warning("torch dense training failed, falling back to stdlib: %s", exc)
+            # Visible en Colab: si esto aparece, la GPU NO se está usando (entrena en CPU,
+            # lentísimo con muchas filas). El motivo (p.ej. CUDA OOM) va en el mensaje.
+            _diag(f"⚠️ el entrenamiento torch/GPU falló → fallback a CPU (stdlib): {exc}")
+
     # Collect epoch data locally; also forward to caller's callback (async path).
     epoch_trace: list[dict[str, Any]] = []
+    _diag("entrenando por camino STDLIB (CPU) — la GPU NO se usa aquí; "
+          "construye los pesos en Python (~20s para 12×2048) y entrena en CPU (lento con muchas filas)")
 
     def _internal_cb(entry: dict[str, Any]) -> None:
         epoch_trace.append(entry)
@@ -940,6 +1322,7 @@ def _run_playground_composite_training(
     epochs_override: int | None = None,
     epoch_callback: Any = None,
     seed: int = 42,
+    cancel_check: Any = None,
 ) -> dict[str, Any]:
     """M2-C2 — Synchronous training for composite (P19) NETWORK models.
 
@@ -1002,45 +1385,91 @@ def _run_playground_composite_training(
         val_ex = examples[n_train:] or examples[-1:]
 
         mhash = program_hash(program)
-        ps = build_composite_network_parameter_set(net, type_result, model_hash_str=mhash, seed=seed)
-        best_ps = ps
-        best_val_loss = float("inf")
-        best_epoch = 1
-        final_train_loss = 0.0
         epoch_trace: list[dict[str, Any]] = []
+        use_torch, device = _select_train_backend()
+        # M15(f): en torch, plantilla sin pesos (init nativo, sembrado por manual_seed);
+        # en stdlib, valores reales (composite_train_step los necesita).
+        ps = build_composite_network_parameter_set(
+            net, type_result, model_hash_str=mhash, seed=seed, with_values=not use_torch,
+        )
 
-        for epoch in range(1, epochs + 1):
-            epoch_loss = 0.0
-            for x, y in train_ex:
-                ps, loss = composite_train_step(net, ps, x, y, loss_fn, learning_rate=lr, training=True)
-                epoch_loss += loss
-            final_train_loss = epoch_loss / len(train_ex) if train_ex else 0.0
+        if use_torch:
+            # GPU-C3: torch backend (CUDA when available). Evaluation/result identical.
+            from matrixai.training.composite_torch_trainer import train_composite_network_torch
 
-            val_loss = 0.0
-            for x, y in val_ex:
-                pred = composite_forward(net, ps, x, training=False)
-                val_loss += compute_loss(loss_fn, pred, y)
-            val_loss = val_loss / len(val_ex) if val_ex else final_train_loss
+            def _torch_cb(e: dict[str, Any]) -> None:
+                entry = {"epoch": e["epoch"], "train_loss": round(e["loss"], 6),
+                         "validation_loss": round(e["val_loss"], 6), "accuracy": None}
+                epoch_trace.append(entry)
+                if epoch_callback is not None:
+                    epoch_callback(entry)  # may raise _TrainingCancelled
 
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                best_ps = ps
-                best_epoch = epoch
+            tr = train_composite_network_torch(
+                net, ps, examples, loss_fn, lr=lr, epochs=epochs,
+                early_stop=(patience, "validation_loss") if patience else None,
+                device=device, seed=seed, epoch_callback=_torch_cb, cancel_check=cancel_check,
+            )
+            best_ps = tr["best_params"]
+            best_epoch = tr["best_epoch"]
+            best_val_loss = tr["best_val_loss"]
+            final_train_loss = tr["train_loss"]
+            backend_label = device  # "cuda" | "cpu"
+        else:
+            best_ps = ps
+            best_val_loss = float("inf")
+            best_epoch = 1
+            final_train_loss = 0.0
+            for epoch in range(1, epochs + 1):
+                epoch_loss = 0.0
+                for x, y in train_ex:
+                    ps, loss = composite_train_step(net, ps, x, y, loss_fn, learning_rate=lr, training=True)
+                    epoch_loss += loss
+                final_train_loss = epoch_loss / len(train_ex) if train_ex else 0.0
 
-            entry = {
-                "epoch": epoch,
-                "train_loss": round(final_train_loss, 6),
-                "validation_loss": round(val_loss, 6),
-                "accuracy": None,
-            }
-            epoch_trace.append(entry)
-            if epoch_callback is not None:
-                epoch_callback(entry)  # may raise _TrainingCancelled on cancel/timeout
+                val_loss = 0.0
+                for x, y in val_ex:
+                    pred = composite_forward(net, ps, x, training=False)
+                    val_loss += compute_loss(loss_fn, pred, y)
+                val_loss = val_loss / len(val_ex) if val_ex else final_train_loss
 
-            if patience is not None and (epoch - best_epoch) >= patience:
-                break
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    best_ps = ps
+                    best_epoch = epoch
 
-        ev = evaluate_composite_network(net, best_ps, val_ex, loss_fn, labels=labels or None)
+                entry = {
+                    "epoch": epoch,
+                    "train_loss": round(final_train_loss, 6),
+                    "validation_loss": round(val_loss, 6),
+                    "accuracy": None,
+                }
+                epoch_trace.append(entry)
+                if epoch_callback is not None:
+                    epoch_callback(entry)  # may raise _TrainingCancelled on cancel/timeout
+
+                if patience is not None and (epoch - best_epoch) >= patience:
+                    break
+            backend_label = "stdlib"
+
+        # M14 — si se entrenó en torch/GPU, evaluar también por torch (no CPU por muestra).
+        composite_eval_warning: str | None = None
+        if use_torch:
+            from matrixai.training.composite_torch_trainer import evaluate_composite_network_torch
+            try:
+                ev = evaluate_composite_network_torch(
+                    net, best_ps, val_ex, loss_fn, labels=labels or None, device=device,
+                    cancel_check=cancel_check,
+                )
+                composite_eval_backend = device
+            except _TrainingCancelled:
+                raise
+            except Exception as _eval_exc:  # noqa: BLE001
+                ev = evaluate_composite_network(net, best_ps, val_ex, loss_fn, labels=labels or None)
+                composite_eval_backend = "stdlib_fallback"
+                composite_eval_warning = f"eval torch failed, fell back to stdlib: {_eval_exc}"
+        else:
+            ev = evaluate_composite_network(net, best_ps, val_ex, loss_fn, labels=labels or None)
+            composite_eval_backend = "stdlib"
         evaluation_report = ev.to_dict()
         is_reg = ev.is_regression()
 
@@ -1059,11 +1488,13 @@ def _run_playground_composite_training(
             "mae": evaluation_report.get("mae"),
             "rmse": evaluation_report.get("rmse"),
             "r2": evaluation_report.get("r2"),
-            "backend": "stdlib",
+            "backend": backend_label,
+            "evaluation_backend": composite_eval_backend,
+            "evaluation_warning": composite_eval_warning,
             "epochs": epoch_trace,
             "params_best": best_ps.to_dict(),
             "metrics": {"epochs": epoch_trace},
-            "training_trace": {"backend_report": {"target": "stdlib"}, "task_kind":
+            "training_trace": {"backend_report": {"target": backend_label}, "task_kind":
                                "regression" if is_reg else "classification"},
             "evaluation_report": evaluation_report,
             "network_kind": "composite_network",
@@ -1172,9 +1603,9 @@ def _run_playground_generic_training(
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"training_text inválido: {exc}"}
 
-    epochs = min(
+    epochs = _limits.cap(
         int(epochs_override) if epochs_override is not None else (training.run.epochs if training.run else 10),
-        _P9_MAX_EPOCHS,
+        "max_epochs",
     )
 
     try:
@@ -1484,6 +1915,10 @@ def _attach_collapse_check(result: Any, mxai_text: str) -> Any:
     """M7 — annotate a successful training result with the collapse probe."""
     if not isinstance(result, dict) or not result.get("ok") or not result.get("params_best"):
         return result
+    # GPU: el camino torch ya hizo la prueba por torch (instantánea); no repetir la
+    # versión por runtime Python (O(params)×4 → minutos/GBs con redes grandes).
+    if "model_collapsed" in result:
+        return result
     probe = _probe_model_collapse(mxai_text, result["params_best"])
     if probe is None:
         return result
@@ -1530,6 +1965,8 @@ def _submit_training_job(
         return {"ok": False, "error": f"training_text inválido: {exc}"}
 
     prediction_kind = _get_prediction_kind(mxai_text, training_text)
+    _diag(f"job: prediction_kind={prediction_kind!r} → "
+          f"{'GPU (red densa)' if prediction_kind == 'network_call' else 'CPU (camino genérico/stdlib)'}")
     epochs_override = _apply_epoch_cap(training, epochs_override)
     spec = _build_spec_with_epochs(training, epochs_override)
 
@@ -1547,6 +1984,10 @@ def _submit_training_job(
             if cancel_event.is_set():
                 raise _TrainingCancelled()
             job["epochs"].append(entry)
+
+        def cancel_check() -> None:
+            if cancel_event.is_set():
+                raise _TrainingCancelled()
 
         # Watchdog: enforce the wall-clock budget on the async path (same as sync).
         # Disabled when the budget is <=0 (downloadable Studio): the job runs to
@@ -1582,7 +2023,8 @@ def _submit_training_job(
                     else _run_playground_dense_training
                 )
                 result = _net_trainer(
-                    mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb, seed=seed,
+                    mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
+                    seed=seed, cancel_check=cancel_check,
                 )
                 if cancel_event.is_set():
                     job["status"] = "timeout" if job.get("_timed_out") else "cancelled"
@@ -1618,6 +2060,18 @@ def _submit_training_job(
         finally:
             if watchdog is not None:
                 watchdog.cancel()
+            # Release GPU VRAM back to the OS so Colab/nvidia-smi reflect the stop immediately.
+            try:
+                import torch as _torch
+                if _torch.cuda.is_available():
+                    import gc as _gc
+                    _gc.collect()
+                    _torch.cuda.empty_cache()
+                    _free_gb = _torch.cuda.memory_reserved() / 1e9
+                    _diag(f"worker {job_id} terminó (status={job['status']}); "
+                          f"VRAM reservada tras limpiar: {_free_gb:.2f} GB")
+            except Exception:  # noqa: BLE001
+                pass
 
     job["cancel_event"] = cancel_event
     threading.Thread(target=_run, daemon=True).start()
@@ -1643,12 +2097,16 @@ def _get_job_status(job_id: str) -> dict[str, Any]:
 def _cancel_job(job_id: str) -> dict[str, Any]:
     job = _training_jobs.get(job_id)
     if job is None:
+        # Visible en la consola/celda de Colab: prueba que el POST llegó pero el job
+        # no está (id equivocado / registro distinto). Útil para diagnosticar Stop.
+        _diag(f"cancel: job {job_id!r} NO encontrado")
         return {"ok": False, "error": f"job {job_id!r} no encontrado"}
     if "cancel_event" in job:
         job["cancel_event"].set()
     # Only force-set if the worker hasn't already finished
     if job["status"] == "running":
         job["status"] = "cancelled"
+    _diag(f"cancel: job {job_id} → cancel_event.set(), status={job['status']}")
     return {"ok": True, "job_id": job_id, "status": job["status"]}
 
 
@@ -2006,8 +2464,25 @@ _UNSUPPORTED_OPS = {
 }
 
 
+_FORCE_DENSE_HINTS = (
+    "densa pura", "densas puras", "red densa pura", "dense pura", "pure dense",
+    "solo dense", "solo densa", "solo densas", "solo capas dense", "only dense",
+    "only dense layers", "solo capas densas", "puramente densa",
+)
+
+
+def _prompt_forces_dense(prompt: str) -> bool:
+    """True cuando el prompt pide EXPLÍCITAMENTE una red densa pura ("SOLO capas Dense",
+    "red densa pura"). Anula los hints débiles de composite (p.ej. "profunda"/"deep", que
+    el usuario usa para "muchas capas", no para una arquitectura compleja)."""
+    text = prompt.lower()
+    return any(h in text for h in _FORCE_DENSE_HINTS)
+
+
 def _prompt_wants_composite(prompt: str) -> bool:
     text = prompt.lower()
+    if _prompt_forces_dense(prompt):
+        return False
     return any(h in text for h in _COMPOSITE_HINTS)
 
 
@@ -3763,8 +4238,11 @@ _INDEX_HTML = """<!doctype html>
           byId('trainBtn').disabled = false;
           byId('trainPanel').classList.remove('hidden');
           const fallbackMsg = data.coherent_fallback_warning ? ` ⚠ ${data.coherent_fallback_warning}` : '';
-          byId('syntheticStatus').textContent = `Dataset sintético generado: ${data.rows} filas, seed=${data.seed}, mode=${data.mode}. Fingerprint: ${data.fingerprint}. Columnas: ${data.columns?.join(', ')}.${fallbackMsg}`;
-          byId('syntheticStatus').className = data.coherent_fallback_count ? 'callout warn' : 'callout ok';
+          // M12: el backend recorta las filas según el perfil de límites y lo avisa.
+          const cappedMsg = data.rows_capped_warning ? ` ⚠ ${data.rows_capped_warning}` : '';
+          const signalMsg = data.signal_warning ? ` ⚠ ${data.signal_warning}` : '';
+          byId('syntheticStatus').textContent = `Dataset sintético generado: ${data.rows} filas, seed=${data.seed}, mode=${data.mode}. Fingerprint: ${data.fingerprint}. Columnas: ${data.columns?.join(', ')}.${fallbackMsg}${cappedMsg}${signalMsg}`;
+          byId('syntheticStatus').className = (data.coherent_fallback_count || data.rows_capped_warning || data.signal_warning) ? 'callout warn' : 'callout ok';
           byId('syntheticStatus').style.display = '';
         } else {
           byId('syntheticStatus').textContent = 'Error generando dataset: ' + (data.error || 'error desconocido');
@@ -3966,7 +4444,7 @@ _INDEX_HTML = """<!doctype html>
     function handleCsvFile(event) {
       const file = event.target.files[0];
       if (!file) return;
-      if (file.size > 1000000) { alert('Fichero CSV supera el límite de 1 MB'); return; }
+      if (file.size > 50000000) { alert('Fichero CSV supera el límite de 50 MB'); return; }
       const reader = new FileReader();
       reader.onload = (e) => { byId('csvPaste').value = e.target.result; byId('trainBtn').disabled = true; byId('csvValidStatus').textContent = 'CSV cargado. Pulsa Validar CSV para verificarlo.'; byId('csvValidStatus').className = 'callout warn'; };
       reader.readAsText(file);
@@ -4505,12 +4983,13 @@ _INDEX_HTML = """<!doctype html>
           <div class="callout warn">${escapeHtml(training.message || 'Carga un .mxtrain para ver dataset, loss, parametros y trazas P4.')}</div>
         `}
         <div class="train-section" style="margin-top:20px;border-top:1px solid var(--line);padding-top:16px;">
-          <h2 style="margin:0 0 10px;">Entrenar desde el playground <span style="font-size:11px;font-weight:400;color:var(--muted);">P9 — límites: 1 MB CSV · 5000 filas · 200 epochs · 30s</span></h2>
+          <h2 style="margin:0 0 10px;">Entrenar desde el playground <span style="font-size:11px;font-weight:400;color:var(--muted);">límites configurables por perfil (M12); el backend gobierna y avisa si recorta</span></h2>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
             <button id="generateTrainingBtn" class="secondary" onclick="generateTraining()">Generar entrenamiento</button>
             <button id="generateDatasetBtn" class="secondary" onclick="generateSyntheticDataset()" title="Genera un dataset sintético reproducible desde el esquema del modelo (P12)">Generar dataset sintético</button>
             <span style="font-size:11px;color:var(--muted);">Filas:</span>
-            <input id="syntheticRows" type="number" min="2" max="5000" value="200" style="width:60px;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;">
+            <input id="syntheticRows" type="number" min="2" value="200" list="rowPresets" title="Sin tope en el frontend: lo gobierna el perfil de límites del backend (M12). Presets sugeridos hasta 1.000.000" style="width:84px;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;">
+            <datalist id="rowPresets"><option value="200"><option value="1000"><option value="5000"><option value="20000"><option value="50000"><option value="100000"><option value="250000"><option value="500000"><option value="1000000"></datalist>
             <span style="font-size:11px;color:var(--muted);">Seed:</span>
             <input id="syntheticSeed" type="number" min="0" value="42" style="width:60px;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;">
             <select id="syntheticMode" style="font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;">
@@ -4528,7 +5007,7 @@ _INDEX_HTML = """<!doctype html>
             <div style="margin:6px 0;display:flex;gap:8px;align-items:center;">
               <button id="validateCsvBtn" class="secondary" onclick="validateCsv()">Validar CSV</button>
               <span style="font-size:12px;color:var(--muted);">Épocas override (opcional):</span>
-              <input id="epochsOverride" type="number" min="1" max="200" placeholder="auto" style="width:70px;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;">
+              <input id="epochsOverride" type="number" min="1" placeholder="auto" title="Sin tope en el frontend: lo gobierna el perfil de límites del backend (M12)" style="width:70px;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;">
               <button id="trainBtn" class="primary" onclick="runTraining()" disabled>Entrenar</button>
               <button id="stopTrainBtn" class="secondary hidden" onclick="cancelTraining()">Detener</button>
             </div>

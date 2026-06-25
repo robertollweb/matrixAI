@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import random
-import warnings
 from typing import Any
 
 from matrixai.ir.schema import MatrixAIProgram, VectorSpec
@@ -93,16 +92,13 @@ class SyntheticDataGenerator:
 
         regression_range = self._regression_range(target_type) if is_regression else (-1.0, 1.0)
 
-        self.coherent_fallback_count = 0
-        # Pre-initialize network parameters once so all coherent rows share the same
-        # mapping: consistent but non-trivial feature→label correlations for NETWORK models.
-        _coherent_params = None
-        if self.mode == "coherent":
-            try:
-                from matrixai.parameters.store import build_initial_parameter_set  # noqa: PLC0415
-                _coherent_params = build_initial_parameter_set(self.program).runtime_parameters()
-            except Exception:  # noqa: BLE001
-                _coherent_params = None
+        # Opción A (GLOBAL, decisión del autor 2026-06-24): la generación de dataset
+        # NUNCA instancia ni ejecuta la red para etiquetar. Una red sin entrenar es un
+        # etiquetador arbitrario y, en redes grandes, construirla/ejecutarla cuelga. Las
+        # etiquetas CON señal vienen de `domain_rules` (reglas del LLM, deterministas, sin
+        # red); sin reglas, etiquetas aleatorias (el rebalanceo posterior puede darles una
+        # correlación monótona, también sin red). Se retiró el etiquetado por runtime/torch.
+        self.coherent_fallback_count = 0  # se conserva (=0) por compatibilidad de la API
 
         generated_rows: list[dict[str, Any]] = []
         for _ in range(self.rows):
@@ -141,90 +137,27 @@ class SyntheticDataGenerator:
                     row_dict[target_name] = self.rng.choice(target_labels)
 
             elif self.mode == "coherent":
-                if is_probability:
-                    # NETWORK models don't produce meaningful outputs without trained params;
-                    # generate balanced 0.0/1.0 labels for BCE training.
-                    row_dict[target_name] = float(self.rng.randint(0, 1))
-
-                elif is_regression:
-                    fell_back = False
-                    try:
-                        from matrixai.runtime.runtime import MatrixAIRuntime
-                        result = MatrixAIRuntime().run(self.program, {input_vector_name: row_dict})
-                        target_val = result["state"].get(target_name)
-                        if isinstance(target_val, (int, float)):
-                            row_dict[target_name] = round(float(target_val), 6)
-                        else:
-                            lo, hi = regression_range
-                            row_dict[target_name] = round(self.rng.uniform(lo, hi), 4)
-                            fell_back = True
-                    except Exception:
-                        lo, hi = regression_range
-                        row_dict[target_name] = round(self.rng.uniform(lo, hi), 4)
-                        fell_back = True
-                    if fell_back:
-                        self.coherent_fallback_count += 1
-                elif self.domain_rules is not None:
+                # Opción A global: nadie ejecuta la red. Con reglas de dominio del LLM se
+                # etiqueta de forma determinista (señal real); sin reglas, aleatorio.
+                if self.domain_rules is not None:
                     # M8 v2: deterministic domain-rule labelling (plausible signal).
                     # Rules are pre-normalized to [0,1]; row_dict is still normalized
                     # here (domain-scale conversion happens later).
                     row_dict[target_name] = self.domain_rules.label_for(row_dict)
                     self.domain_rules_used += 1
+                elif is_probability:
+                    row_dict[target_name] = float(self.rng.randint(0, 1))
+                elif is_regression:
+                    lo, hi = regression_range
+                    row_dict[target_name] = round(self.rng.uniform(lo, hi), 4)
                 else:
-                    from matrixai.runtime.runtime import MatrixAIRuntime
-                    fell_back = False
-                    try:
-                        runtime = MatrixAIRuntime()
-                        result = runtime.run(self.program, {input_vector_name: row_dict},
-                                             parameters=_coherent_params)
-
-                        target_val = result["state"].get(target_name)
-                        if isinstance(target_val, dict) and "label" in target_val:
-                            label = target_val["label"]
-                        elif isinstance(target_val, str):
-                            label = target_val
-                        elif isinstance(target_val, dict) and "probabilities" in target_val:
-                            label = max(target_val["probabilities"].items(), key=lambda x: x[1])[0]
-                        elif isinstance(target_val, (list, tuple)) and len(target_val) == len(target_labels):
-                            # ProbabilityMap output from NETWORK models: argmax gives predicted class
-                            idx = int(max(range(len(target_val)), key=lambda i: float(target_val[i])))
-                            label = target_labels[idx]
-                        else:
-                            activated_labels = [
-                                act["call"] for act in result["actions"]
-                                if act.get("activated") and act.get("call") in target_labels
-                            ]
-                            if activated_labels:
-                                label = activated_labels[0]
-                            else:
-                                label = self.rng.choice(target_labels)
-                                fell_back = True
-
-                        if label not in target_labels:
-                            label = self.rng.choice(target_labels)
-                            fell_back = True
-
-                        row_dict[target_name] = label
-                    except Exception:
-                        row_dict[target_name] = self.rng.choice(target_labels)
-                        fell_back = True
-
-                    if fell_back:
-                        self.coherent_fallback_count += 1
+                    # Etiqueta aleatoria; el rebalanceo posterior (sin red) puede darle
+                    # una correlación monótona feature→clase si la distribución se sesga.
+                    row_dict[target_name] = self.rng.choice(target_labels)
             else:
                 raise ValueError(f"Unsupported mode: {self.mode}")
 
             generated_rows.append(row_dict)
-
-        if self.mode == "coherent" and self.coherent_fallback_count > 0:
-            fallback_label = "values" if is_regression else "labels"
-            warnings.warn(
-                f"SyntheticDataGenerator: {self.coherent_fallback_count}/{self.rows} rows fell back to "
-                f"random {fallback_label} in coherent mode (runtime did not produce a valid output). "
-                f"The dataset is marked as mode='coherent' but those rows are effectively random.",
-                UserWarning,
-                stacklevel=2,
-            )
 
         # Rebalance classification labels when the distribution is too skewed.
         # Threshold: any class with < (rows / n_classes) * 0.4 rows triggers rebalance.

@@ -284,3 +284,68 @@ class TestResultStructure:
     def test_error_on_whitespace_prompt(self):
         with pytest.raises(CompositeNetworkGeneratorError):
             gen.generate("   ")
+
+
+# ---------------------------------------------------------------------------
+# M17 — ancho/profundidad del prompt en el generador composite (paridad con denso)
+# ---------------------------------------------------------------------------
+
+def _emitted_dense(mxai_text: str) -> list[int]:
+    """Anchos de TODAS las `LAYER Dense` emitidas en el .mxai (top-level + dentro de
+    bloques), en orden. La última es la capa de salida."""
+    import re
+    return [int(m) for m in re.findall(r"LAYER Dense units=(\d+)", mxai_text)]
+
+
+def _emitted_hidden_dense(mxai_text: str) -> list[int]:
+    """Anchos de las Dense OCULTAS realmente emitidas (excluye la de salida)."""
+    dense = _emitted_dense(mxai_text)
+    return dense[:-1] if dense else []
+
+
+class TestM17PromptWidthDepth:
+    def test_width_from_prompt_honored(self):
+        result = gen.generate(
+            "clasifica con red residual de 512 unidades el riesgo por edad, presion, "
+            "glucosa, peso, altura, ritmo",
+            labels=["BAJO", "ALTO"], force_residual=True,
+        )
+        assert result.is_composite
+        # el ancho pedido se respeta en TODAS las Dense ocultas EMITIDAS (incl. la del bloque)
+        hidden = _emitted_hidden_dense(result.mxai_text)
+        assert hidden, "no se emitieron capas Dense ocultas"
+        assert all(w == 512 for w in hidden)
+
+    def test_depth_from_prompt_honored_counts_emitted_layers(self):
+        """La profundidad pedida = nº de Dense OCULTAS realmente emitidas en el .mxai
+        (la Dense interna del bloque residual cuenta como una capa, no como extra)."""
+        result = gen.generate(
+            "clasifica con red residual de 4 capas ocultas de 128 unidades por edad, "
+            "presion, glucosa, peso, altura, ritmo",
+            labels=["BAJO", "ALTO"], force_residual=True,
+        )
+        assert len(result.blocks) >= 1  # es realmente residual
+        hidden = _emitted_hidden_dense(result.mxai_text)
+        assert len(hidden) == 4, f"esperadas 4 Dense ocultas, emitidas {len(hidden)}: {hidden}"
+        assert all(w == 128 for w in hidden)
+
+    def test_depth_honored_dense_path(self):
+        """En el camino denso (sin bloque) la profundidad emitida también es exacta."""
+        result = gen.generate(
+            "clasifica con 3 capas ocultas de 64 unidades por edad, presion, glucosa",
+            labels=["BAJO", "ALTO"], force_dense=True,
+        )
+        assert len(result.blocks) == 0
+        hidden = _emitted_hidden_dense(result.mxai_text)
+        assert len(hidden) == 3
+        assert all(w == 64 for w in hidden)
+
+    def test_no_explicit_width_uses_default(self):
+        """Sin ancho/profundidad explícitos, las capas coinciden con el default por input_dim
+        (mismo `_default_hidden_layers` que usa el denso) — comportamiento intacto."""
+        from matrixai.training.dense_generator import _default_hidden_layers
+        result = gen.generate(
+            "clasifica el riesgo por edad, presion, glucosa, peso, altura, ritmo",
+            labels=["BAJO", "ALTO"], force_residual=True,
+        )
+        assert result.hidden_layers == _default_hidden_layers(result.input_dim)
