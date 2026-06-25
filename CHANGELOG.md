@@ -7,6 +7,46 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.1.1] — 2026-06-25
+
+Release de correcciones tras validación GPU real (Colab + RTX 2000 Ada). El camino denso
+ahora usa la GPU de verdad de extremo a extremo; varios bugs de generación desde prompt y
+de cancelación/serialización quedaron resueltos.
+
+### Fixed
+
+- **Generación de modelo desde prompt (red densa)** — prompts en lenguaje natural con
+  rangos y cabeceras (`vibracion_axial [0-50]`, `FEATURES NUMÉRICAS (24), …:`) ya no meten
+  prosa como campos (24 campos limpios); la profundidad se detecta con "Dense" en medio
+  (`12 capas Dense ocultas` → 12 capas, antes 4 por defecto); las etiquetas salen de
+  `ProbabilityMap[...]`/`Label[...]` (antes `class_a/b/c`); y "red densa pura" / "SOLO
+  capas Dense" fuerza red densa en vez de enrutar a composite por la palabra "profunda".
+- **Stop / cancelación** — el entrenamiento torch para entre lotes y **libera la VRAM al
+  instante** (antes la traza de la excepción retenía los tensores GPU; la GPU se quedaba
+  ocupada tras Stop). Cubre dense y composite.
+- **GPU infrautilizada** — en CUDA el trainer denso ignora el `BATCH size=8` autogenerado y
+  usa un batch grande para llenar la GPU (tunable por `MATRIXAI_GPU_BATCH`, default 16384).
+- **"Se queda pensando" al acabar** — la prueba de colapso (M7) corre por torch/GPU en vez
+  de 4 forwards en Python (O(params)); el resultado de entrenamiento ya no arrastra los
+  pesos completos (se leen aparte para guardar/exportar), evitando respuestas enormes.
+
+### Added
+
+- **`MATRIXAI_GPU_BATCH`** — tamaño de batch por defecto en CUDA (16384). Bájalo si una red
+  muy grande da OOM en una GPU pequeña.
+
+### Changed
+
+- **Generación de dataset sintético: nunca ejecuta el modelo para etiquetar** — los valores
+  salen de los rangos (LLM/"Sugerir rangos") y las etiquetas de reglas de dominio del LLM o,
+  si no hay, aleatorias. Se retiró el etiquetado por runtime/torch de la red sin entrenar
+  (colgaba con redes grandes). Aplica a web, playground API y CLI.
+- **Límites de filas configurables por perfil en toda la superficie** — frontend sin tope
+  artificial; el CLI `generate-dataset` respeta `MATRIXAI_LIMITS_PROFILE`/`MATRIXAI_MAX_ROWS`;
+  aviso cuando el perfil recorta las filas pedidas.
+
+---
+
 ## [1.1.0] — 2026-06-18
 
 ### Added
