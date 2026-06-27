@@ -1362,6 +1362,9 @@ def _run_playground_composite_training(
         lr = training.optimizer.learning_rate if training.optimizer else 0.01
         epochs = epochs_override if epochs_override is not None else (training.run.epochs if training.run else 50)
         patience = training.run.early_stop_patience if training.run else None
+        batch_size: int | None = (
+            training.dataset.batch.size if (training.dataset and training.dataset.batch) else None
+        )
         labels = _labels_from_spec(training)
 
         # Load examples as (input_dict, target): composite_forward needs named fields
@@ -1407,7 +1410,8 @@ def _run_playground_composite_training(
             tr = train_composite_network_torch(
                 net, ps, examples, loss_fn, lr=lr, epochs=epochs,
                 early_stop=(patience, "validation_loss") if patience else None,
-                device=device, seed=seed, epoch_callback=_torch_cb, cancel_check=cancel_check,
+                device=device, seed=seed, batch_size=batch_size,
+                epoch_callback=_torch_cb, cancel_check=cancel_check,
             )
             best_ps = tr["best_params"]
             best_epoch = tr["best_epoch"]

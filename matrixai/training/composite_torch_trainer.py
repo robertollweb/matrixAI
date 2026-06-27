@@ -4,10 +4,10 @@
 """GPU-C2 — torch training loop for composite_network (P19).
 
 Mirrors the dense torch trainer (GPU-C1) for composite architectures: embeddings,
-concat, residual blocks, LayerNorm, Dropout. The composite torch module processes one
-sample at a time (`forward_with_dict`), so training is per-sample SGD (like the stdlib
-composite trainer) — correct on CPU and CUDA. Batched composite forward (for full GPU
-throughput) is a future optimisation; the dense path (C1) is already batched.
+concat, residual blocks, LayerNorm, Dropout. Training uses the same batched forward
+as evaluation (module.forward_batch) — one kernel per layer per batch, same as the
+dense path. Batch sizing follows effective_batch_size: CUDA uses 16384 (or
+MATRIXAI_GPU_BATCH) by default, CPU respects the spec or 2048.
 
 Determinista (stdlib) = suelo; este camino torch = techo de velocidad con GPU.
 """
@@ -21,7 +21,7 @@ from matrixai.forward.composite_torch import (
     composite_network_to_torch_module,
     torch_module_to_composite_parameter_set,
 )
-from matrixai.training.dense_torch_trainer import _loss_on_probabilities
+from matrixai.training.dense_torch_trainer import _loss_on_probabilities, effective_batch_size
 
 
 class CompositeTorchTrainError(ValueError):
@@ -39,15 +39,21 @@ def train_composite_network_torch(
     early_stop: tuple[int, str] | None = None,
     device: str = "cpu",
     seed: int = 42,
+    batch_size: int | None = None,
     epoch_callback: Callable[[dict[str, Any]], None] | None = None,
     cancel_check: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
-    """Train a composite_network via torch autograd (per-sample SGD).
+    """Train a composite_network via torch autograd with batched forward.
+
+    Uses module.forward_batch() (one kernel per layer per batch) — same path as
+    evaluation but WITH gradient tracking. Batch sizing mirrors the dense trainer:
+    CUDA uses max(MATRIXAI_GPU_BATCH|16384, spec), CPU respects spec or 2048.
 
     examples: list of (input_dict {field: value}, target list). Embedding-source
     fields must carry the integer index. Returns the same shape as the dense torch
-    trainer: {best_params, epochs, best_val_loss, best_epoch, train_loss, backend, device}.
-    cancel_check: called periodically; raise to abort (mismo contrato que el denso, M18).
+    trainer: {best_params, epochs, best_val_loss, best_epoch, train_loss, backend,
+    device, effective_batch_size}.
+    cancel_check: called after each batch; raise to abort (mismo contrato que el denso).
     """
     if not torch_available():
         raise CompositeTorchTrainError("PyTorch is not installed — GPU/torch training requires torch")
@@ -64,17 +70,21 @@ def train_composite_network_torch(
     split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
     train_ex, val_ex = examples[:split], (examples[split:] or examples[:split])
 
+    bs = effective_batch_size(device, batch_size, len(train_ex))
     optimizer = torch.optim.SGD(module.parameters(), lr=lr)
-
-    def _sample_loss(inp: dict[str, Any], tgt: list[float]) -> Any:
-        out = module.forward_with_dict(inp)                      # (out,)
-        target = torch.tensor([tgt], dtype=torch.float32, device=device)  # (1, out)
-        return _loss_on_probabilities(out.unsqueeze(0), target, loss_fn, torch)
 
     # M15 — mejor estado como tensores torch (clon barato); la conversión cara a
     # ParameterSet se hace una sola vez al final, no en cada época que mejora.
     def _snapshot() -> list[Any]:
         return [p.detach().clone() for p in module.parameters()]
+
+    def _batch_loss(batch: list[tuple[dict[str, Any], list[float]]], training: bool) -> Any:
+        """Forward + loss sobre un lote completo. Un kernel por capa en vez de uno por muestra."""
+        inputs = [x for x, _ in batch]
+        targets = torch.tensor([y for _, y in batch], dtype=torch.float32, device=device)
+        module.train(training)
+        out = module.forward_batch(inputs)  # (batch, out) — con gradientes si training=True
+        return _loss_on_probabilities(out, targets, loss_fn, torch)
 
     best_val_loss = float("inf")
     best_epoch = 1
@@ -83,36 +93,38 @@ def train_composite_network_torch(
     no_improve = 0
     patience = early_stop[0] if early_stop else None
     train_loss_val = 0.0
-    order = list(range(len(train_ex)))
 
     try:
         for epoch in range(1, epochs + 1):
-            module.train(True)
             rng = torch.Generator().manual_seed(seed + epoch)
             perm = torch.randperm(len(train_ex), generator=rng).tolist()
             epoch_loss = 0.0
-            for _i, j in enumerate(perm):
-                inp, tgt = train_ex[j]
+            n_batches = 0
+            for start in range(0, len(train_ex), bs):
+                batch = [train_ex[perm[i]] for i in range(start, min(start + bs, len(train_ex)))]
                 optimizer.zero_grad()
-                loss = _sample_loss(inp, tgt)
+                loss = _batch_loss(batch, training=True)
                 loss.backward()
                 optimizer.step()
-                epoch_loss += float(loss.detach())
-                # M18: cancelación intra-época (cada 64 muestras; el backward domina,
-                # el coste del check es ínfimo) para que Stop no espere a fin de época.
-                if cancel_check is not None and (_i & 63) == 0:
+                epoch_loss += float(loss.detach()) * len(batch)
+                n_batches += 1
+                if cancel_check is not None:
                     cancel_check()
             train_loss_val = epoch_loss / max(1, len(train_ex))
 
+            # Validación batched bajo no_grad
             module.eval()
+            val_loss_sum = 0.0
             with torch.no_grad():
-                v = sum(float(_sample_loss(inp, tgt).detach()) for inp, tgt in val_ex)
-                val_loss = v / max(1, len(val_ex))
+                for vstart in range(0, len(val_ex), bs):
+                    vbatch = val_ex[vstart: vstart + bs]
+                    val_loss_sum += float(_batch_loss(vbatch, training=False).detach()) * len(vbatch)
+            val_loss = val_loss_sum / max(1, len(val_ex))
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 best_epoch = epoch
-                best_state = _snapshot()           # clon de tensores (barato)
+                best_state = _snapshot()
                 no_improve = 0
             else:
                 no_improve += 1
@@ -139,6 +151,7 @@ def train_composite_network_torch(
             "train_loss": train_loss_val,
             "backend": "torch",
             "device": device,
+            "effective_batch_size": bs,
         }
     finally:
         # M18: liberar la VRAM en este frame (retorno normal y cancelación). La traza de

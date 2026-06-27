@@ -149,3 +149,30 @@ def test_early_stop_respected():
                                         lr=0.05, epochs=300, early_stop=(5, "validation_loss"),
                                         device="cpu", seed=1)
     assert len(res["epochs"]) < 300
+
+
+def test_batched_training_effective_batch_size_in_result():
+    """Batched trainer devuelve effective_batch_size y aprende igual que antes."""
+    from matrixai.training.composite_torch_trainer import train_composite_network_torch
+    net, ps = _setup(EMB_MXAI)
+    ex = _emb_examples()
+    res = train_composite_network_torch(net, ps, ex, "cross_entropy",
+                                        lr=0.05, epochs=60, device="cpu", seed=1,
+                                        batch_size=32)
+    assert "effective_batch_size" in res
+    assert res["effective_batch_size"] == 32  # CPU respeta spec
+    assert res["best_val_loss"] < res["epochs"][0]["val_loss"]
+
+
+def test_batched_cancel_check_called():
+    """cancel_check se llama al menos una vez por epoch (una vez por batch)."""
+    from matrixai.training.composite_torch_trainer import train_composite_network_torch
+    net, ps = _setup(RESIDUAL_MXAI)
+    rng = random.Random(0)
+    ex = [({"a": rng.random(), "b": rng.random(), "c": rng.random()},
+           [1.0, 0.0] if rng.random() > 0.5 else [0.0, 1.0]) for _ in range(60)]
+    calls = []
+    train_composite_network_torch(net, ps, ex, "cross_entropy",
+                                  lr=0.05, epochs=3, device="cpu", seed=1,
+                                  cancel_check=lambda: calls.append(1))
+    assert len(calls) >= 3  # al menos un call por epoch
