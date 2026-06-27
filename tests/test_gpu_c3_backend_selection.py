@@ -132,6 +132,12 @@ def test_composite_torch_path_through_studio(monkeypatch):
     assert r["backend"] == ("cuda" if torch.cuda.is_available() else "cpu")
     assert r["network_kind"] == "composite_network"
     assert r["params_best"] is not None
+    expected_batch = 32 if torch.cuda.is_available() else 8
+    assert r["effective_batch_size"] == expected_batch
+    assert isinstance(r["peak_vram_gb"], float)
+    backend_report = r["training_trace"]["backend_report"]
+    assert backend_report["effective_batch_size"] == r["effective_batch_size"]
+    assert backend_report["peak_vram_gb"] == r["peak_vram_gb"]
 
 
 def test_composite_default_backend_is_stdlib(monkeypatch):

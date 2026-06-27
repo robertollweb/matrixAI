@@ -1396,6 +1396,9 @@ def _run_playground_composite_training(
             net, type_result, model_hash_str=mhash, seed=seed, with_values=not use_torch,
         )
 
+        effective_batch_size: int | None = None
+        peak_vram_gb: float | None = None
+
         if use_torch:
             # GPU-C3: torch backend (CUDA when available). Evaluation/result identical.
             from matrixai.training.composite_torch_trainer import train_composite_network_torch
@@ -1417,6 +1420,10 @@ def _run_playground_composite_training(
             best_epoch = tr["best_epoch"]
             best_val_loss = tr["best_val_loss"]
             final_train_loss = tr["train_loss"]
+            effective_batch_size = tr.get("effective_batch_size")
+            peak_vram_gb = tr.get("peak_vram_gb")
+            _diag(f"entrenamiento composite OK en {device}: batch spec={batch_size} -> efectivo={effective_batch_size} "
+                  f"(ejemplos={len(examples)}, VRAM pico={peak_vram_gb} GB)")
             backend_label = device  # "cuda" | "cpu"
         else:
             best_ps = ps
@@ -1495,11 +1502,19 @@ def _run_playground_composite_training(
             "backend": backend_label,
             "evaluation_backend": composite_eval_backend,
             "evaluation_warning": composite_eval_warning,
+            "effective_batch_size": effective_batch_size,
+            "peak_vram_gb": peak_vram_gb,
             "epochs": epoch_trace,
             "params_best": best_ps.to_dict(),
             "metrics": {"epochs": epoch_trace},
-            "training_trace": {"backend_report": {"target": backend_label}, "task_kind":
-                               "regression" if is_reg else "classification"},
+            "training_trace": {
+                "backend_report": {
+                    "target": backend_label,
+                    "effective_batch_size": effective_batch_size,
+                    "peak_vram_gb": peak_vram_gb,
+                },
+                "task_kind": "regression" if is_reg else "classification",
+            },
             "evaluation_report": evaluation_report,
             "network_kind": "composite_network",
         }

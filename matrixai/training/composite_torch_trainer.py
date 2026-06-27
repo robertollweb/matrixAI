@@ -70,6 +70,22 @@ def train_composite_network_torch(
     split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
     train_ex, val_ex = examples[:split], (examples[split:] or examples[:split])
 
+    input_keys = list(examples[0][0].keys())
+
+    def _materialize(rows: list[tuple[dict[str, Any], list[float]]]) -> tuple[dict[str, Any], Any]:
+        named: dict[str, Any] = {}
+        for name in input_keys:
+            col = []
+            for row, _ in rows:
+                value = row[name]
+                col.append([float(value)] if isinstance(value, (int, float)) else [float(v) for v in value])
+            named[name] = torch.tensor(col, dtype=torch.float32, device=device)
+        targets = torch.tensor([target for _, target in rows], dtype=torch.float32, device=device)
+        return named, targets
+
+    train_named, train_targets = _materialize(train_ex)
+    val_named, val_targets = _materialize(val_ex)
+
     bs = effective_batch_size(device, batch_size, len(train_ex))
     optimizer = torch.optim.SGD(module.parameters(), lr=lr)
 
@@ -78,13 +94,22 @@ def train_composite_network_torch(
     def _snapshot() -> list[Any]:
         return [p.detach().clone() for p in module.parameters()]
 
-    def _batch_loss(batch: list[tuple[dict[str, Any], list[float]]], training: bool) -> Any:
-        """Forward + loss sobre un lote completo. Un kernel por capa en vez de uno por muestra."""
-        inputs = [x for x, _ in batch]
-        targets = torch.tensor([y for _, y in batch], dtype=torch.float32, device=device)
+    def _slice_named(named: dict[str, Any], index: Any) -> dict[str, Any]:
+        return {name: tensor[index] for name, tensor in named.items()}
+
+    def _batch_loss(named: dict[str, Any], targets: Any, index: Any, training: bool) -> Any:
+        """Forward + loss sobre tensores ya cargados en el device."""
         module.train(training)
-        out = module.forward_batch(inputs)  # (batch, out) — con gradientes si training=True
-        return _loss_on_probabilities(out, targets, loss_fn, torch)
+        batch_named = _slice_named(named, index)
+        batch_targets = targets[index]
+        out = module.forward_named_batch(batch_named, input_keys)
+        return _loss_on_probabilities(out, batch_targets, loss_fn, torch)
+
+    if str(device).startswith("cuda"):
+        try:
+            torch.cuda.reset_peak_memory_stats(device)
+        except Exception:  # noqa: BLE001
+            pass
 
     best_val_loss = float("inf")
     best_epoch = 1
@@ -97,17 +122,15 @@ def train_composite_network_torch(
     try:
         for epoch in range(1, epochs + 1):
             rng = torch.Generator().manual_seed(seed + epoch)
-            perm = torch.randperm(len(train_ex), generator=rng).tolist()
+            perm = torch.randperm(len(train_ex), generator=rng).to(train_targets.device)
             epoch_loss = 0.0
-            n_batches = 0
             for start in range(0, len(train_ex), bs):
-                batch = [train_ex[perm[i]] for i in range(start, min(start + bs, len(train_ex)))]
+                idx = perm[start: start + bs]
                 optimizer.zero_grad()
-                loss = _batch_loss(batch, training=True)
+                loss = _batch_loss(train_named, train_targets, idx, training=True)
                 loss.backward()
                 optimizer.step()
-                epoch_loss += float(loss.detach()) * len(batch)
-                n_batches += 1
+                epoch_loss += float(loss.detach()) * int(idx.numel())
                 if cancel_check is not None:
                     cancel_check()
             train_loss_val = epoch_loss / max(1, len(train_ex))
@@ -117,8 +140,9 @@ def train_composite_network_torch(
             val_loss_sum = 0.0
             with torch.no_grad():
                 for vstart in range(0, len(val_ex), bs):
-                    vbatch = val_ex[vstart: vstart + bs]
-                    val_loss_sum += float(_batch_loss(vbatch, training=False).detach()) * len(vbatch)
+                    vend = min(vstart + bs, len(val_ex))
+                    vslice = slice(vstart, vend)
+                    val_loss_sum += float(_batch_loss(val_named, val_targets, vslice, training=False).detach()) * (vend - vstart)
             val_loss = val_loss_sum / max(1, len(val_ex))
 
             if val_loss < best_val_loss:
@@ -143,6 +167,13 @@ def train_composite_network_torch(
                 p.copy_(s)
         best_params = torch_module_to_composite_parameter_set(network, module, parameter_set)
 
+        peak_vram_gb = 0.0
+        if str(device).startswith("cuda"):
+            try:
+                peak_vram_gb = torch.cuda.max_memory_allocated(device) / 1e9
+            except Exception:  # noqa: BLE001
+                pass
+
         return {
             "best_params": best_params,
             "epochs": epoch_trace,
@@ -152,13 +183,14 @@ def train_composite_network_torch(
             "backend": "torch",
             "device": device,
             "effective_batch_size": bs,
+            "peak_vram_gb": round(peak_vram_gb, 2),
         }
     finally:
         # M18: liberar la VRAM en este frame (retorno normal y cancelación). La traza de
         # la excepción de cancel retiene estas locales aguas arriba; borrarlas aquí permite
         # recuperar la memoria de inmediato al pulsar Stop (idéntico al trainer denso).
         try:
-            del module, optimizer, best_state
+            del module, optimizer, best_state, train_named, train_targets, val_named, val_targets
         except Exception:  # noqa: BLE001
             pass
         if str(device).startswith("cuda"):

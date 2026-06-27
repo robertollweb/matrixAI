@@ -412,6 +412,21 @@ class _CompositeNetworkModule:
                 col.append([float(v)] if isinstance(v, (int, float)) else [float(x) for x in v])
             named[name] = torch.tensor(col, dtype=torch.float32, device=device)  # (n, width)
 
+        return self.forward_named_batch(named, keys)
+
+    def forward_named_batch(self, named_inputs: dict[str, Any], keys: list[str] | None = None) -> Any:
+        """Batched forward from already-materialized input tensors.
+
+        Training can preload the full dataset on the target device once and pass
+        indexed tensor views here. This keeps the expensive Python dict/list ->
+        tensor conversion out of the epoch loop while preserving forward_batch
+        semantics for evaluation and compatibility.
+        """
+        import torch
+
+        keys = list(keys or named_inputs.keys())
+        named: dict[str, Any] = dict(named_inputs)
+
         # 2. Embedding lookups (batched): idx (n,) → (n, dim)
         for emb_name, source in self._embed_specs:
             idx = named[source].long().squeeze(-1)

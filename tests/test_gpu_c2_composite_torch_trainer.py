@@ -161,7 +161,28 @@ def test_batched_training_effective_batch_size_in_result():
                                         batch_size=32)
     assert "effective_batch_size" in res
     assert res["effective_batch_size"] == 32  # CPU respeta spec
+    assert "peak_vram_gb" in res
+    assert isinstance(res["peak_vram_gb"], float)
     assert res["best_val_loss"] < res["epochs"][0]["val_loss"]
+
+
+def test_batched_training_uses_preloaded_named_tensors(monkeypatch):
+    """El trainer no debe reconstruir dicts -> tensores via forward_batch en cada batch."""
+    from matrixai.forward import composite_torch
+    from matrixai.training.composite_torch_trainer import train_composite_network_torch
+
+    def _fail_forward_batch(self, batch):
+        raise AssertionError("training should use forward_named_batch")
+
+    monkeypatch.setattr(composite_torch._CompositeNetworkModule, "forward_batch", _fail_forward_batch)
+    net, ps = _setup(RESIDUAL_MXAI)
+    rng = random.Random(0)
+    ex = [({"a": rng.random(), "b": rng.random(), "c": rng.random()},
+           [1.0, 0.0] if rng.random() > 0.5 else [0.0, 1.0]) for _ in range(40)]
+    res = train_composite_network_torch(net, ps, ex, "cross_entropy",
+                                        lr=0.05, epochs=2, device="cpu", seed=1,
+                                        batch_size=16)
+    assert res["effective_batch_size"] == 16
 
 
 def test_batched_cancel_check_called():
