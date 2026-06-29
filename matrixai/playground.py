@@ -334,11 +334,16 @@ _MAX_JOBS = 20
 
 
 def _diag(msg: str) -> None:
-    """Log de diagnóstico: a stdout (puede perderse en Colab si sale de un hilo de fondo
-    de una celda terminada) Y a un fichero recuperable con `!tail`. En Colab el fichero
-    cae en /content/matrixai_diag.log (o MATRIXAI_DIAG_LOG). Best-effort: nunca falla."""
+    """Log de diagnóstico gateado por MATRIXAI_DEBUG.
+
+    - Stdout: solo cuando MATRIXAI_DEBUG=1 (evita ruido en usos de librería).
+    - Fichero: siempre (silencioso; útil para debug post-hoc con `!tail` en Colab).
+    En Colab el fichero cae en /content/matrixai_diag.log (o MATRIXAI_DIAG_LOG).
+    Best-effort: nunca falla.
+    """
     line = f"[matrixai] {msg}"
-    print(line, flush=True)
+    if os.environ.get("MATRIXAI_DEBUG"):
+        print(line, flush=True)
     try:
         import time as _t
         path = os.environ.get("MATRIXAI_DIAG_LOG") or (
