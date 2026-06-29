@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import os
+import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -10,6 +14,7 @@ from matrixai.playground import (
     DEFAULT_INPUT,
     DEFAULT_PROMPT,
     _INDEX_HTML,
+    _diag,
     _example_payload,
     analyze_playground_request,
 )
@@ -207,6 +212,37 @@ class MatrixAIPlaygroundTest(unittest.TestCase):
         self.assertIn("dataset_template_text", _INDEX_HTML)
         self.assertNotIn("byId('runOut').innerHTML = ''", _INDEX_HTML)
         self.assertNotIn("join('\n')", _INDEX_HTML)
+
+    def test_diag_stdout_requires_debug_one_but_always_logs_to_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "matrixai_diag.log"
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"MATRIXAI_DIAG_LOG": str(log_path)},
+                clear=False,
+            ):
+                os.environ.pop("MATRIXAI_DEBUG", None)
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    _diag("silent")
+                self.assertEqual(stdout.getvalue(), "")
+
+                os.environ["MATRIXAI_DEBUG"] = "0"
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    _diag("debug-zero")
+                self.assertEqual(stdout.getvalue(), "")
+
+                os.environ["MATRIXAI_DEBUG"] = "1"
+                stdout = io.StringIO()
+                with contextlib.redirect_stdout(stdout):
+                    _diag("debug-one")
+                self.assertIn("[matrixai] debug-one", stdout.getvalue())
+
+                text = log_path.read_text(encoding="utf-8")
+                self.assertIn("[matrixai] silent", text)
+                self.assertIn("[matrixai] debug-zero", text)
+                self.assertIn("[matrixai] debug-one", text)
 
 
 class P8PlaygroundPipelineTest(unittest.TestCase):

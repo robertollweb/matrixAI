@@ -342,7 +342,7 @@ def _diag(msg: str) -> None:
     Best-effort: nunca falla.
     """
     line = f"[matrixai] {msg}"
-    if os.environ.get("MATRIXAI_DEBUG"):
+    if os.environ.get("MATRIXAI_DEBUG") == "1":
         print(line, flush=True)
     try:
         import time as _t
