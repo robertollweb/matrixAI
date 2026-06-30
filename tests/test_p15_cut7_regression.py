@@ -350,10 +350,15 @@ class TestAllArchetypesEquivalence(unittest.TestCase):
 
 @unittest.skipUnless(_onnx_available() and _ort_available(), "onnx/onnxruntime not installed")
 class TestAllArchetypesEdgeBundle(unittest.TestCase):
-    """Regression: EdgeBundler produces correct 6-file bundles for all archetypes."""
+    """Regression: EdgeBundler produces correct bundles for all archetypes.
+
+    Flat-VECTOR models also carry inference_spec.json (EXPORT C1); SEQUENCE
+    models are out of scope for the spec and keep the base 6-file bundle.
+    """
 
     _EXPECTED_FILES = {"model.mxai", "params.best.json", "model.onnx",
                        "model_manifest.json", "export_manifest.json", "README.md"}
+    _EXPECTED_FILES_WITH_SPEC = _EXPECTED_FILES | {"inference_spec.json"}
 
     def _make_bundle(self, path):
         from matrixai.export import create_edge_bundle
@@ -373,20 +378,28 @@ class TestAllArchetypesEdgeBundle(unittest.TestCase):
             return result
 
     def test_email_agent_bundle_files(self):
+        # 3-class softmax, no declared labels → spec skipped, base bundle
         result = self._make_bundle(_EMAIL_MXAI)
         self.assertEqual(set(result.files), self._EXPECTED_FILES)
+        self.assertIsNotNone(result.inference_spec_skipped_reason)
 
     def test_fall_risk_bundle_files(self):
+        # single sigmoid score (regression), no labels needed → usable spec
         result = self._make_bundle(_FALL_RISK_MXAI)
-        self.assertEqual(set(result.files), self._EXPECTED_FILES)
+        self.assertEqual(set(result.files), self._EXPECTED_FILES_WITH_SPEC)
+        self.assertIsNone(result.inference_spec_skipped_reason)
 
     def test_transformer_vector_bundle_files(self):
+        # 2-class softmax, no declared labels → spec skipped, base bundle
         result = self._make_bundle(_TRANSFORMER_VEC_MXAI)
         self.assertEqual(set(result.files), self._EXPECTED_FILES)
+        self.assertIsNotNone(result.inference_spec_skipped_reason)
 
     def test_transformer_sequence_bundle_files(self):
+        # SEQUENCE input is out of scope for inference_spec.json → base bundle
         result = self._make_bundle(_TRANSFORMER_SEQ_MXAI)
         self.assertEqual(set(result.files), self._EXPECTED_FILES)
+        self.assertIsNotNone(result.inference_spec_skipped_reason)
 
     def test_all_bundles_equivalence_passed(self):
         for path in (_EMAIL_MXAI, _FALL_RISK_MXAI, _TRANSFORMER_VEC_MXAI, _TRANSFORMER_SEQ_MXAI):

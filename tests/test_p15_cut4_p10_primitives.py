@@ -350,7 +350,7 @@ class TestUnsupportedPrimitive(unittest.TestCase):
 
 @unittest.skipUnless(_onnx_available() and _ort_available(), "onnx/onnxruntime not installed")
 class TestTransformerEdgeBundle(unittest.TestCase):
-    def test_bundle_created_with_6_files(self):
+    def test_bundle_created_with_expected_files(self):
         from matrixai.export import create_edge_bundle
         prog, ps = _make_transformer()
         with tempfile.TemporaryDirectory() as td:
@@ -364,9 +364,12 @@ class TestTransformerEdgeBundle(unittest.TestCase):
                 outdir=str(bundle_dir),
                 validate=True,
             )
+            # This transformer is a 2-class softmax with no declared labels, so the
+            # inference_spec is (correctly) skipped: base P15 bundle, 6 files.
             expected = {"README.md", "export_manifest.json", "model.mxai",
                         "model.onnx", "model_manifest.json", "params.best.json"}
             self.assertEqual(set(result.files), expected)
+            self.assertIsNotNone(result.inference_spec_skipped_reason)
 
     def test_bundle_equivalence_passed(self):
         from matrixai.export import create_edge_bundle

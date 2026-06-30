@@ -32,8 +32,11 @@ _BASE = Path(__file__).parent.parent
 _EMAIL_MXAI = _BASE / "examples" / "email-agent.mxai"
 _FALL_RISK_MXAI = _BASE / "examples" / "fall-risk.mxai"
 
+# Base bundle (P15). A flat-VECTOR model that yields a usable spec also carries
+# inference_spec.json (EXPORT C1); unlabelled classification (email-agent) does not.
 _BUNDLE_FILES = {"README.md", "export_manifest.json", "model.mxai",
                  "model.onnx", "model_manifest.json", "params.best.json"}
+_BUNDLE_FILES_WITH_SPEC = _BUNDLE_FILES | {"inference_spec.json"}
 _MODEL_MANIFEST_KEYS = {
     "project", "model_hash", "parameter_schema_hash", "parameter_set_id",
     "vectors", "functions", "backend_contract", "created_at",
@@ -196,7 +199,8 @@ class TestEmailAgentBundle(unittest.TestCase):
     def test_result_to_dict_keys(self):
         d = self.result.to_dict()
         expected = {"bundle_dir", "files", "model_hash", "parameter_set_id",
-                    "equivalence_passed", "export", "equivalence_check"}
+                    "equivalence_passed", "export", "equivalence_check",
+                    "inference_spec_skipped_reason"}
         self.assertEqual(set(d.keys()), expected)
 
 
@@ -224,7 +228,7 @@ class TestFallRiskBundle(unittest.TestCase):
         shutil.rmtree(self.td, ignore_errors=True)
 
     def test_expected_files(self):
-        self.assertEqual(set(self.result.files), _BUNDLE_FILES)
+        self.assertEqual(set(self.result.files), _BUNDLE_FILES_WITH_SPEC)
 
     def test_model_manifest_project(self):
         data = json.loads((self.bundle_dir / "model_manifest.json").read_text())

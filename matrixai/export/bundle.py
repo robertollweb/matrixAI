@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,7 @@ from matrixai.ir import MatrixAIProgram
 from matrixai.export.onnx_exporter import validate_export_parameter_set
 from matrixai.parameters.store import ParameterSet, program_hash
 from matrixai.export.onnx_exporter import OnnxExporter, OnnxExportResult, OnnxExportError
+from matrixai.export.inference_spec import build_inference_spec, InferenceSpecError
 from matrixai.export.equivalence import (
     OnnxEquivalenceResult,
     OnnxEquivalenceValidator,
@@ -39,10 +41,18 @@ class EdgeBundleResult:
     parameter_set_id: str
     export_result: OnnxExportResult
     equivalence_result: OnnxEquivalenceResult | None = None
+    # Why the bundle has no inference_spec.json (SEQUENCE/multi-input, unlabelled
+    # classification, ...). None means the spec was produced. The bundle stays valid
+    # either way; this makes the omission observable instead of silent.
+    inference_spec_skipped_reason: str | None = None
 
     @property
     def equivalence_passed(self) -> bool:
         return self.equivalence_result is not None and self.equivalence_result.passed
+
+    @property
+    def has_inference_spec(self) -> bool:
+        return self.inference_spec_skipped_reason is None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -52,6 +62,7 @@ class EdgeBundleResult:
             "parameter_set_id": self.parameter_set_id,
             "equivalence_passed": self.equivalence_passed,
             "export": self.export_result.to_dict(),
+            "inference_spec_skipped_reason": self.inference_spec_skipped_reason,
         }
         if self.equivalence_result is not None:
             d["equivalence_check"] = self.equivalence_result.to_dict()
@@ -74,6 +85,11 @@ class EdgeBundler:
         rtol: float = _DEFAULT_RTOL,
         n_samples: int = _DEFAULT_N_SAMPLES,
         force: bool = False,
+        field_ranges: dict[str, tuple[float, float]] | None = None,
+        field_categories: dict[str, list[str]] | None = None,
+        field_types: dict[str, str] | None = None,
+        labels: list[str] | None = None,
+        example_input: dict[str, Any] | None = None,
     ) -> EdgeBundleResult:
         outdir = Path(outdir)
         if outdir.exists() and not force:
@@ -131,6 +147,37 @@ class EdgeBundler:
                 encoding="utf-8",
             )
 
+            # 4b. inference_spec.json — the "tokenizer": how a raw record becomes the
+            # normalized float32 vector the ONNX graph expects. Without it the bundle
+            # is not self-usable (see EXPORT_MODELO_DESCARGABLE_CONTRACT C1).
+            # Best-effort: models that cannot produce a usable spec (SEQUENCE,
+            # multi-input, unlabelled classification) keep producing the rest of the
+            # bundle as before; they just don't get an inference_spec (nor, later,
+            # predict.py). The reason is surfaced on the result and as a warning so the
+            # omission is observable instead of silent (the Studio turns it into a
+            # user-facing message in C4).
+            spec_skipped_reason: str | None = None
+            try:
+                inference_spec = build_inference_spec(
+                    program, parameter_set, export_result,
+                    field_ranges=field_ranges,
+                    field_categories=field_categories,
+                    field_types=field_types,
+                    labels=labels,
+                    example_input=example_input,
+                )
+                (work / "inference_spec.json").write_text(
+                    json.dumps(inference_spec, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            except InferenceSpecError as exc:
+                spec_skipped_reason = str(exc)
+                warnings.warn(
+                    f"inference_spec.json omitted from bundle: {spec_skipped_reason} "
+                    "The bundle is still valid but is not self-usable for prediction.",
+                    stacklevel=2,
+                )
+
             # 5. export_manifest.json
             if eq_result is not None:
                 write_export_manifest(export_result, eq_result, work / "export_manifest.json")
@@ -157,6 +204,7 @@ class EdgeBundler:
             parameter_set_id=parameter_set.parameter_set_id,
             export_result=export_result,
             equivalence_result=eq_result,
+            inference_spec_skipped_reason=spec_skipped_reason,
         )
 
 
@@ -169,10 +217,20 @@ def create_edge_bundle(
     *,
     validate: bool = True,
     force: bool = False,
+    field_ranges: dict[str, tuple[float, float]] | None = None,
+    field_categories: dict[str, list[str]] | None = None,
+    field_types: dict[str, str] | None = None,
+    labels: list[str] | None = None,
+    example_input: dict[str, Any] | None = None,
 ) -> EdgeBundleResult:
     return EdgeBundler().bundle(
         program, parameter_set, mxai_path, params_path, outdir,
         validate=validate, force=force,
+        field_ranges=field_ranges,
+        field_categories=field_categories,
+        field_types=field_types,
+        labels=labels,
+        example_input=example_input,
     )
 
 
