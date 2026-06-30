@@ -32,11 +32,13 @@ _BASE = Path(__file__).parent.parent
 _EMAIL_MXAI = _BASE / "examples" / "email-agent.mxai"
 _FALL_RISK_MXAI = _BASE / "examples" / "fall-risk.mxai"
 
-# Base bundle (P15). A flat-VECTOR model that yields a usable spec also carries
-# inference_spec.json (EXPORT C1); unlabelled classification (email-agent) does not.
+# Base bundle (P15). A flat-VECTOR model that yields a usable spec also carries the
+# self-usable prediction artifacts (EXPORT C1+C2); unlabelled classification does not.
 _BUNDLE_FILES = {"README.md", "export_manifest.json", "model.mxai",
                  "model.onnx", "model_manifest.json", "params.best.json"}
-_BUNDLE_FILES_WITH_SPEC = _BUNDLE_FILES | {"inference_spec.json"}
+_BUNDLE_FILES_WITH_SPEC = _BUNDLE_FILES | {
+    "inference_spec.json", "predict.py", "requirements.txt",
+    "example_input.json", "expected_output.json"}
 _MODEL_MANIFEST_KEYS = {
     "project", "model_hash", "parameter_schema_hash", "parameter_set_id",
     "vectors", "functions", "backend_contract", "created_at",

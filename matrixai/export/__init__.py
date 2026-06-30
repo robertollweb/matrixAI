@@ -19,6 +19,7 @@ from matrixai.export.bundle import (
 from matrixai.export.inference_spec import (
     InferenceSpecError,
     build_inference_spec,
+    build_example_input,
 )
 from matrixai.export.wasm_exporter import (
     WasmExportError,
@@ -44,6 +45,7 @@ __all__ = [
     "create_edge_bundle",
     "InferenceSpecError",
     "build_inference_spec",
+    "build_example_input",
     "WasmExportError",
     "WasmExportResult",
     "WasmExporter",

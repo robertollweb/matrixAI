@@ -358,7 +358,9 @@ class TestAllArchetypesEdgeBundle(unittest.TestCase):
 
     _EXPECTED_FILES = {"model.mxai", "params.best.json", "model.onnx",
                        "model_manifest.json", "export_manifest.json", "README.md"}
-    _EXPECTED_FILES_WITH_SPEC = _EXPECTED_FILES | {"inference_spec.json"}
+    _EXPECTED_FILES_WITH_SPEC = _EXPECTED_FILES | {
+        "inference_spec.json", "predict.py", "requirements.txt",
+        "example_input.json", "expected_output.json"}
 
     def _make_bundle(self, path):
         from matrixai.export import create_edge_bundle

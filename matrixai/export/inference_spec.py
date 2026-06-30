@@ -137,6 +137,28 @@ def build_inference_spec(
 # Helpers
 # ---------------------------------------------------------------------------
 
+def build_example_input(spec: dict[str, Any]) -> dict[str, Any]:
+    """A minimal, safe RAW example record compatible with the spec.
+
+    Used to seed example_input.json / expected_output.json. Never contains real
+    dataset rows: midpoints for scalars, first category for one-hot/embedding.
+    """
+    example: dict[str, Any] = {}
+    for field, entry in spec.get("fields", {}).items():
+        enc = entry["encoding"]
+        if enc == "scalar":
+            lo, hi = entry["range"]
+            mid = (float(lo) + float(hi)) / 2.0
+            example[field] = int(round(mid)) if entry.get("type") == "integer" else mid
+        elif enc == "scalar01":
+            example[field] = False if entry.get("type") == "boolean" else 0.5
+        elif enc == "one_hot":
+            example[field] = entry["values"][0]["raw"]
+        elif enc == "embedding_index":
+            example[field] = entry["vocab"][0] if "vocab" in entry else 0
+    return example
+
+
 def _guard_single_vector(program: MatrixAIProgram) -> None:
     if getattr(program, "sequences", None):
         raise InferenceSpecError(

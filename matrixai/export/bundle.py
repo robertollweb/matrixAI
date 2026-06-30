@@ -17,7 +17,15 @@ from matrixai.ir import MatrixAIProgram
 from matrixai.export.onnx_exporter import validate_export_parameter_set
 from matrixai.parameters.store import ParameterSet, program_hash
 from matrixai.export.onnx_exporter import OnnxExporter, OnnxExportResult, OnnxExportError
-from matrixai.export.inference_spec import build_inference_spec, InferenceSpecError
+from matrixai.export.inference_spec import (
+    build_inference_spec,
+    build_example_input,
+    InferenceSpecError,
+)
+
+# The standalone predict.py shipped inside every usable bundle (copied verbatim).
+_PREDICT_TEMPLATE = str(Path(__file__).resolve().parent / "predict_template.py")
+_REQUIREMENTS = "numpy>=1.24\nonnxruntime>=1.16\n"
 from matrixai.export.equivalence import (
     OnnxEquivalenceResult,
     OnnxEquivalenceValidator,
@@ -171,12 +179,38 @@ class EdgeBundler:
                     encoding="utf-8",
                 )
             except InferenceSpecError as exc:
+                inference_spec = None
                 spec_skipped_reason = str(exc)
                 warnings.warn(
                     f"inference_spec.json omitted from bundle: {spec_skipped_reason} "
                     "The bundle is still valid but is not self-usable for prediction.",
                     stacklevel=2,
                 )
+
+            # 4c. Self-usable prediction artifacts (EXPORT C2): the standalone
+            # predict.py wrapper, its requirements, a safe raw example and the
+            # expected output of running it. Only when a usable spec exists.
+            example_record: dict[str, Any] | None = None
+            if inference_spec is not None:
+                # A usable bundle is only shipped fully formed: predict.py is smoke-tested
+                # at packaging time and expected_output.json is its baseline. If we cannot
+                # run it (no onnxruntime), we refuse to stamp the bundle as usable rather
+                # than emit it half-built with a README that references a missing file.
+                if not ort_available():
+                    raise EdgeBundleError(
+                        "Model yields a usable inference_spec, but onnxruntime is not "
+                        "installed, so predict.py cannot be smoke-tested and "
+                        "expected_output.json cannot be generated. Install it "
+                        "(pip install 'matrixai-core[export]') to produce a self-usable bundle."
+                    )
+                shutil.copy2(_PREDICT_TEMPLATE, str(work / "predict.py"))
+                (work / "requirements.txt").write_text(_REQUIREMENTS, encoding="utf-8")
+                example_record = example_input or build_example_input(inference_spec)
+                (work / "example_input.json").write_text(
+                    json.dumps(example_record, indent=2, ensure_ascii=False), encoding="utf-8")
+                expected = _run_prediction(work, example_record)
+                (work / "expected_output.json").write_text(
+                    json.dumps(expected, indent=2, ensure_ascii=False), encoding="utf-8")
 
             # 5. export_manifest.json
             if eq_result is not None:
@@ -186,7 +220,9 @@ class EdgeBundler:
 
             # 6. README.md
             (work / "README.md").write_text(
-                _build_readme(program, export_result, eq_result),
+                _build_readme(program, export_result, eq_result,
+                              inference_spec=inference_spec,
+                              example_input=example_record),
                 encoding="utf-8",
             )
 
@@ -232,6 +268,28 @@ def create_edge_bundle(
         labels=labels,
         example_input=example_input,
     )
+
+
+# ---------------------------------------------------------------------------
+# Prediction artifacts (C2)
+# ---------------------------------------------------------------------------
+
+def _run_prediction(bundle_work: Path, record: dict[str, Any]) -> Any | None:
+    """Run the bundled predict.py on the example to produce expected_output.json.
+
+    Best-effort smoke test executed at packaging time: it exercises the very code
+    the consumer will run. Returns None if onnxruntime is unavailable.
+    """
+    if not ort_available():
+        return None
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_matrixai_bundled_predict", str(bundle_work / "predict.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    model = module.MatrixAIModel(str(bundle_work / "inference_spec.json"))
+    return model.predict(record)
 
 
 # ---------------------------------------------------------------------------
@@ -294,10 +352,48 @@ def _write_export_manifest_no_eq(export_result: OnnxExportResult, path: Path) ->
     path.write_text(json.dumps(data, indent=2, ensure_ascii=True), encoding="utf-8")
 
 
+def _readme_quickstart(inference_spec: dict[str, Any], example_input: dict[str, Any] | None) -> str:
+    out = inference_spec.get("output", {})
+    kind = out.get("kind", "")
+    labels = out.get("labels") or []
+    if kind == "classification" or kind == "binary_classification":
+        out_desc = f"a probability per class ({', '.join(labels)})"
+    elif kind == "regression":
+        out_desc = "a single numeric value"
+    else:
+        out_desc = "a raw output vector"
+    example_json = json.dumps(example_input or {}, ensure_ascii=False)
+    return f"""
+## Quick start
+
+This model is self-usable: feed **raw, human-readable values** and get back {out_desc}.
+Normalization and category encoding are handled for you by `predict.py`.
+
+```bash
+python -m venv .venv
+. .venv/bin/activate            # Windows: .venv\\Scripts\\activate
+pip install -r requirements.txt
+python predict.py --input example_input.json
+```
+
+That should reproduce `expected_output.json`. From your own code:
+
+```python
+from predict import MatrixAIModel
+
+model = MatrixAIModel()                 # loads inference_spec.json next to predict.py
+print(model.predict({example_json}))
+```
+"""
+
+
 def _build_readme(
     program: MatrixAIProgram,
     export_result: OnnxExportResult,
     eq_result: OnnxEquivalenceResult | None,
+    *,
+    inference_spec: dict[str, Any] | None = None,
+    example_input: dict[str, Any] | None = None,
 ) -> str:
     project = program.project
     out_name = export_result.output_name
@@ -340,11 +436,23 @@ def _build_readme(
             f"{', '.join(export_result.skipped_functions)}\n"
         )
 
+    quickstart = ""
+    usable_files = ""
+    if inference_spec is not None:
+        quickstart = _readme_quickstart(inference_spec, example_input)
+        usable_files = (
+            "| `inference_spec.json` | How a raw record maps to the model input (the \"tokenizer\") |\n"
+            "| `predict.py` | Standalone wrapper: raw values in, labelled prediction out |\n"
+            "| `requirements.txt` | Minimal deps to run predict.py (numpy + onnxruntime) |\n"
+            "| `example_input.json` | A ready-to-run raw example |\n"
+            "| `expected_output.json` | The output predict.py should produce for that example |\n"
+        )
+
     return f"""# {project} Edge Bundle
 
 MatrixAI model exported for edge/production inference.
 Actions remain `simulate_only`. This bundle only provides predictions.
-
+{quickstart}
 ## Files
 
 | File | Description |
@@ -354,7 +462,7 @@ Actions remain `simulate_only`. This bundle only provides predictions.
 | `model.onnx` | ONNX model, opset {export_result.opset_version} |
 | `model_manifest.json` | Model metadata, hashes and backend contract |
 | `export_manifest.json` | Export metadata, tolerance and equivalence check |
-| `README.md` | This file |
+{usable_files}| `README.md` | This file |
 
 ## Model info
 
@@ -364,7 +472,10 @@ Actions remain `simulate_only`. This bundle only provides predictions.
 - Input: {input_desc}
 - Output: `{out_name}` shape `{out_shape}`
 {eq_line}{skipped}
-## Running inference with onnxruntime
+## Advanced: raw onnxruntime access
+
+For most uses prefer `predict.py` above (it handles normalization and labels).
+The raw ONNX graph expects an already-normalized float32 vector:
 
 ```python
 import onnxruntime as ort
