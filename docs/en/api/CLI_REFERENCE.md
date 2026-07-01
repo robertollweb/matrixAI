@@ -627,16 +627,50 @@ matrixai export-onnx <mxai_file> --params <json> -o <output.onnx> [--validate] [
 Create a self-contained edge bundle: `model.onnx` + manifests + README.
 
 ```
-matrixai export-bundle <mxai_file> --params <json> --outdir <dir> [--no-validate] [--force] [--json]
+matrixai export-bundle <mxai_file> --params <json> --outdir <dir> \
+  [--inference-metadata <json>] [--no-validate] [--force] [--json]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--params` | required | ParameterSet JSON |
 | `--outdir` | required | Output directory |
+| `--inference-metadata` | — | JSON sidecar with normalization metadata; makes the bundle self-usable (adds `predict.py`, `inference_spec.json`, `requirements.txt`, `example_input.json`, `expected_output.json`) |
 | `--no-validate` | — | Skip equivalence check (not recommended for production) |
 | `--force` | — | Overwrite existing bundle directory |
 | `--json` | — | Print bundle result as JSON |
+
+**Self-usable bundle.** With `--inference-metadata` the bundle ships a standalone
+`predict.py` (only `numpy` + `onnxruntime`) that takes **raw** values and returns a
+labelled prediction — normalization and category encoding are applied for you. Labels
+also flow automatically from the model's `ProbabilityMap[...]`. The command prints
+`Self-usable: yes/no` (and `inference_spec_skipped_reason` with `--json`).
+
+The sidecar is strictly validated — a malformed key aborts with `Bundle error`
+instead of silently producing a bundle that normalizes wrong:
+
+```json
+{
+  "field_ranges":     {"age": [0, 120], "bmi": [10, 70]},
+  "field_categories": {"color": ["red", "green", "blue"]},
+  "field_types":      {"age": "integer", "active": "boolean"},
+  "labels":           ["LOW", "HIGH"],
+  "example_input":    {"age": 60, "bmi": 40, "color": "red"}
+}
+```
+
+`field_ranges` values must be `[min, max]` finite numbers with `min < max`;
+`field_categories` values must be non-empty lists of strings; `field_types` must be
+one of `number` / `integer` / `boolean`.
+
+**Using your downloaded model:**
+
+```bash
+cd my_bundle
+python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python predict.py --input example_input.json   # should reproduce expected_output.json
+```
 
 ---
 

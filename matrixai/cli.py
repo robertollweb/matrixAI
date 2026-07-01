@@ -9,6 +9,7 @@ import dataclasses
 import datetime
 import hashlib
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -525,6 +526,15 @@ def main() -> int:
         help="Skip equivalence check (not recommended for production bundles)",
     )
     export_bundle_parser.add_argument("--force", action="store_true", help="Overwrite existing bundle directory")
+    export_bundle_parser.add_argument(
+        "--inference-metadata",
+        help=(
+            "JSON sidecar with normalization metadata so the bundle is self-usable "
+            "(predict.py + inference_spec.json). Keys: field_ranges {col:[lo,hi]}, "
+            "field_categories {col:[values]}, field_types {col:number|integer|boolean}, "
+            "labels [..], example_input {..}. Labels also flow from the .mxai ProbabilityMap."
+        ),
+    )
     export_bundle_parser.add_argument("--json", action="store_true", help="Print bundle result as JSON")
 
     export_wasm_parser = subparsers.add_parser(
@@ -2100,8 +2110,89 @@ def _cmd_export_onnx(args) -> int:
     return 0
 
 
+_VALID_FIELD_TYPES = ("number", "integer", "boolean")
+
+
+def _load_inference_metadata(path: str) -> dict:
+    """Read + STRICTLY validate the --inference-metadata sidecar.
+
+    Any present known key must be fully well-formed or a ValueError is raised.
+    Silent coercion is dangerous here: a dropped range, a category string turned
+    into a list of characters, or an unknown type would normalize the input wrong
+    and yield a bundle that looks self-usable but predicts garbage.
+    """
+    with open(path, encoding="utf-8") as fh:
+        raw = json.load(fh)
+    if not isinstance(raw, dict):
+        raise ValueError("inference-metadata must be a JSON object")
+
+    kwargs: dict = {}
+
+    if "field_ranges" in raw:
+        ranges = raw["field_ranges"]
+        if not isinstance(ranges, dict):
+            raise ValueError("field_ranges must be an object of {field: [min, max]}")
+        out_ranges: dict[str, tuple[float, float]] = {}
+        for key, pair in ranges.items():
+            if not (isinstance(pair, (list, tuple)) and len(pair) == 2):
+                raise ValueError(f"field_ranges[{key!r}] must be a [min, max] pair")
+            try:
+                lo, hi = float(pair[0]), float(pair[1])
+            except (TypeError, ValueError):
+                raise ValueError(f"field_ranges[{key!r}] bounds must be numbers")
+            if not (math.isfinite(lo) and math.isfinite(hi)):
+                raise ValueError(f"field_ranges[{key!r}] bounds must be finite")
+            if not lo < hi:
+                raise ValueError(f"field_ranges[{key!r}] requires min < max, got [{lo}, {hi}]")
+            out_ranges[str(key)] = (lo, hi)
+        kwargs["field_ranges"] = out_ranges
+
+    if "field_categories" in raw:
+        cats = raw["field_categories"]
+        if not isinstance(cats, dict):
+            raise ValueError("field_categories must be an object of {field: [values]}")
+        out_cats: dict[str, list[str]] = {}
+        for key, values in cats.items():
+            if not isinstance(values, list) or not values:
+                raise ValueError(f"field_categories[{key!r}] must be a non-empty list of strings")
+            if not all(isinstance(x, str) for x in values):
+                raise ValueError(f"field_categories[{key!r}] values must be strings")
+            out_cats[str(key)] = list(values)
+        kwargs["field_categories"] = out_cats
+
+    if "field_types" in raw:
+        types = raw["field_types"]
+        if not isinstance(types, dict):
+            raise ValueError("field_types must be an object of {field: type}")
+        out_types: dict[str, str] = {}
+        for key, value in types.items():
+            if value not in _VALID_FIELD_TYPES:
+                raise ValueError(
+                    f"field_types[{key!r}] must be one of {list(_VALID_FIELD_TYPES)}, got {value!r}"
+                )
+            out_types[str(key)] = value
+        kwargs["field_types"] = out_types
+
+    if "labels" in raw:
+        labels = raw["labels"]
+        if not isinstance(labels, list) or not all(isinstance(x, str) for x in labels):
+            raise ValueError("labels must be a list of strings")
+        kwargs["labels"] = list(labels)
+
+    if "example_input" in raw:
+        example = raw["example_input"]
+        if not isinstance(example, dict):
+            raise ValueError("example_input must be an object of {field: value}")
+        kwargs["example_input"] = dict(example)
+
+    return kwargs
+
+
 def _cmd_export_bundle(args) -> int:
     try:
+        meta_kwargs: dict = {}
+        if getattr(args, "inference_metadata", None):
+            meta_kwargs = _load_inference_metadata(args.inference_metadata)
         program = parse_file(args.file)
         validation_code = _print_validation(program, quiet=True)
         if validation_code != 0:
@@ -2120,12 +2211,17 @@ def _cmd_export_bundle(args) -> int:
             outdir=args.outdir,
             validate=not args.no_validate,
             force=args.force,
+            **meta_kwargs,
         )
-    except EdgeBundleError as exc:
+    except EdgeBundleError as exc:  # subclass of ValueError — must precede it
         print(f"Bundle error: {exc}", file=sys.stderr)
         return 1
-    except OnnxExportError as exc:
+    except OnnxExportError as exc:  # subclass of ValueError — must precede it
         print(f"Export error: {exc}", file=sys.stderr)
+        return 1
+    except (ValueError, json.JSONDecodeError) as exc:
+        # malformed --inference-metadata sidecar (or another value error)
+        print(f"Bundle error: {exc}", file=sys.stderr)
         return 1
     except OSError as exc:
         print(f"Bundle error: {exc}", file=sys.stderr)
@@ -2142,6 +2238,10 @@ def _cmd_export_bundle(args) -> int:
                 f"Equivalence {status}: "
                 f"max_abs_diff={result.equivalence_result.max_abs_diff:.2e}"
             )
+        if result.inference_spec_skipped_reason is None:
+            print("Self-usable: yes (predict.py + inference_spec.json included)")
+        else:
+            print(f"Self-usable: no — {result.inference_spec_skipped_reason}")
     return 0
 
 

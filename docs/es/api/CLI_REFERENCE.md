@@ -630,16 +630,50 @@ matrixai export-onnx <fichero_mxai> --params <json> -o <salida.onnx> [--validate
 Crear un bundle de edge autocontenido: `model.onnx` + manifiestos + README.
 
 ```
-matrixai export-bundle <fichero_mxai> --params <json> --outdir <dir> [--no-validate] [--force] [--json]
+matrixai export-bundle <fichero_mxai> --params <json> --outdir <dir> \
+  [--inference-metadata <json>] [--no-validate] [--force] [--json]
 ```
 
 | Opción | Por defecto | Descripción |
 |--------|-------------|-------------|
 | `--params` | requerido | ParameterSet JSON |
 | `--outdir` | requerido | Directorio de salida |
+| `--inference-metadata` | — | Sidecar JSON con la metadata de normalización; hace el bundle auto-usable (añade `predict.py`, `inference_spec.json`, `requirements.txt`, `example_input.json`, `expected_output.json`) |
 | `--no-validate` | — | Omitir la comprobación de equivalencia (no recomendado en producción) |
 | `--force` | — | Sobreescribir el directorio del bundle si existe |
 | `--json` | — | Imprimir el resultado del bundle como JSON |
+
+**Bundle auto-usable.** Con `--inference-metadata` el bundle incluye un `predict.py`
+standalone (solo `numpy` + `onnxruntime`) que recibe valores **crudos** y devuelve una
+predicción etiquetada — la normalización y la codificación de categorías se aplican por
+ti. Los labels también fluyen del `ProbabilityMap[...]` del modelo. El comando imprime
+`Self-usable: yes/no` (e `inference_spec_skipped_reason` con `--json`).
+
+El sidecar se valida de forma estricta — una clave malformada aborta con `Bundle error`
+en vez de producir en silencio un bundle que normaliza mal:
+
+```json
+{
+  "field_ranges":     {"edad": [0, 120], "imc": [10, 70]},
+  "field_categories": {"color": ["red", "green", "blue"]},
+  "field_types":      {"edad": "integer", "activo": "boolean"},
+  "labels":           ["BAJO", "ALTO"],
+  "example_input":    {"edad": 60, "imc": 40, "color": "red"}
+}
+```
+
+Los valores de `field_ranges` deben ser `[min, max]` numéricos finitos con `min < max`;
+los de `field_categories`, listas de strings no vacías; `field_types` solo admite
+`number` / `integer` / `boolean`.
+
+**Usar tu modelo descargado:**
+
+```bash
+cd mi_bundle
+python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python predict.py --input example_input.json   # debe reproducir expected_output.json
+```
 
 ---
 
