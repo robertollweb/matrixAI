@@ -78,6 +78,19 @@ _FIELD_ENTRY_RE = re.compile(
 )
 
 
+def strip_field_specs(prompt: str) -> str:
+    """Remove explicit ``name: <Type>[...]`` declarations, leaving a ``;`` separator.
+
+    Lets a legacy bare-name extractor (dense_generator._extract_fields) see ONLY the
+    untyped fields, instead of mangling typed declarations into garbage names like
+    ``segmento_categorical`` / ``scalar``. Used by C2's typed+bare field merge.
+
+    Replaced with a comma (not ';'): the legacy extractor splits on ',' but STOPS its
+    capture at ';', so a ',' keeps the surrounding bare fields visible.
+    """
+    return _FIELD_ENTRY_RE.sub(", ", prompt or "")
+
+
 def parse_field_specs(prompt: str) -> FieldSpecParse:
     """Parse the EXPLICIT field-type declarations from ``prompt``.
 

@@ -2629,6 +2629,10 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 result["semantic_text"] = ""
                 result["pipeline_stages"] = _dense_pipeline_stages(result, generator_name=gen_source)
                 result["llm_schema_used"] = llm_used
+                # GEN C2: categoricals the generator materialized as one-hot from the
+                # prompt ({campo: [valores humanos]}). Source of truth for the Studio
+                # (no schema editor needed) and the export's field_categories.
+                result["field_categories"] = dict(getattr(gen, "field_categories", {}) or {})
                 # M8-B1: record who chose the architecture + the LLM's rationale,
                 # for auditability. The deterministic sanitizer (A1) still governs.
                 _emitted_embeddings = bool(getattr(gen, "embeddings", []))

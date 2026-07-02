@@ -11,6 +11,13 @@ from typing import Any
 
 from matrixai.ir.schema import DenseLayerSpec, NetworkSpec
 from matrixai import limits as _limits
+from matrixai.generation import parse_field_specs, strip_field_specs
+from matrixai.training.categorical import expand_categoricals
+
+# GEN C2: a declared categorical with at most this many values becomes one-hot
+# columns here (dense model); above it, it should be an embedding (composite path).
+# Keeps one-hot column counts sane; aligns the old composite `vocab > 5`.
+_ONEHOT_MAX = 12
 
 
 class DenseNetworkGeneratorError(ValueError):
@@ -34,6 +41,11 @@ class DenseNetworkGenerationResult:
     dataset_template_text: str
     assumptions: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # GEN C2: categoricals declared in the prompt that were materialized as one-hot
+    # ({campo: [valores humanos ordenados]}). The canonical human input stays the
+    # original field; the .mxai/training_text carry the expanded columns. Empty when
+    # no categorical was declared. Source of truth for the export's field_categories.
+    field_categories: dict[str, list[str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -154,7 +166,27 @@ class DenseNetworkGenerator:
 
         task = self._detect_task(clean, labels)
         resolved_labels = list(labels or self._extract_labels(clean) or _default_labels(task))
-        resolved_fields = list(input_fields or self._extract_fields(clean) or _default_fields())
+        # GEN C2: explicit field-type declarations (Categorical/Boolean/Scalar[range]).
+        # parse_field_specs gives CLEAN names for typed fields — the legacy _extract_fields
+        # would mangle "segmento: Categorical[...]" into "segmento_categorical".
+        parsed = parse_field_specs(prompt)
+        specs_by_name = parsed.by_name()
+        typed_names = [f.name for f in parsed.fields]
+        # Bare (untyped) fields: extract from the prompt with the typed declarations
+        # STRIPPED, so the legacy extractor sees only untyped names and can't mangle
+        # "segmento: Categorical[...]" into garbage. (Fixes the mixed-prompt merge.)
+        bare_clean = " ".join(strip_field_specs(prompt).split())
+        bare_names = [n for n in (self._extract_fields(bare_clean) or [])
+                      if n not in specs_by_name]
+        # Invariant 1 (contract): a type declared EXPLICITLY in the prompt always wins.
+        # So the prompt's typed fields are ALWAYS present, even when a caller (LLM path)
+        # passes its own input_fields — otherwise an explicit Categorical could vanish.
+        resolved_fields: list[str] = []
+        for n in (list(input_fields) if input_fields else []) + typed_names + bare_names:
+            if n not in resolved_fields:
+                resolved_fields.append(n)
+        if not resolved_fields:
+            resolved_fields = list(self._extract_fields(clean) or _default_fields())
         input_dim = len(resolved_fields)
         resolved_name = network_name or self._extract_name(clean) or _default_network_name(task)
         resolved_entity = input_name or self._extract_entity(clean) or "Input"
@@ -178,11 +210,33 @@ class DenseNetworkGenerator:
             out_name, ds_target_type, loss_type,
             epochs=epochs, early_stop=early_stop,
         )
-        header = resolved_fields + [out_name]
+
+        # GEN C2: materialize declared low-cardinality categoricals as one-hot. Reuse
+        # expand_categoricals, which rewrites the .mxai VECTOR and the training_text
+        # FROM COLUMNS together, so training/inference use the expanded columns while
+        # the human canonical input stays the original field. High-cardinality
+        # categoricals (> _ONEHOT_MAX) are left for the embedding/composite path.
+        field_categories: dict[str, list[str]] = {}
+        categoricals = {
+            name: list(specs_by_name[name].values or [])
+            for name in resolved_fields
+            if name in specs_by_name and specs_by_name[name].kind == "categorical"
+            and 2 <= len(specs_by_name[name].values or []) <= _ONEHOT_MAX
+        }
+        template_fields = resolved_fields
+        if categoricals:
+            expansion = expand_categoricals(mxai_text, training_text, categoricals)
+            mxai_text = expansion.mxai_text
+            training_text = expansion.training_text
+            field_categories = {c: list(v) for c, v in categoricals.items()}
+            template_fields = _expanded_field_order(resolved_fields, expansion.groups)
+            input_dim = len(template_fields)
+
+        header = template_fields + [out_name]
         # Binary target type is Probability (numeric) — dummy must be float, not a label string.
         # Multiclass target type is Label — dummy is the first label string.
         dummy_target = resolved_labels[0] if task == "multiclass" else "0.0"
-        dummy_values = ["0.0"] * len(resolved_fields) + [dummy_target]
+        dummy_values = ["0.0"] * len(template_fields) + [dummy_target]
         dataset_template_text = ",".join(header) + "\n" + ",".join(dummy_values) + "\n"
 
         depth_note = f"depth from prompt ({len(resolved_hidden)} layers)" if self._DEPTH_RE.search(_norm(clean)) else "default depth"
@@ -194,6 +248,7 @@ class DenseNetworkGenerator:
             "Architecture is a heuristic — tune for production",
         ]
         warnings: list[str] = list(sanitizer_notes)
+        warnings.extend(parsed.warnings)  # GEN C2: rango inválido, categórica <2, etc.
         if task == "multiclass" and len(resolved_labels) < 2:
             warnings.append("multiclass task requires at least 2 labels — using defaults")
 
@@ -213,6 +268,7 @@ class DenseNetworkGenerator:
             dataset_template_text=dataset_template_text,
             assumptions=assumptions,
             warnings=warnings,
+            field_categories=field_categories,
         )
 
     def _extract_hidden_layers(self, prompt: str, input_dim: int) -> list[tuple[int, str]]:
@@ -413,6 +469,15 @@ def _default_labels(task: str) -> list[str]:
 
 def _default_fields() -> list[str]:
     return ["feature_1", "feature_2", "feature_3", "feature_4"]
+
+
+def _expanded_field_order(fields: list[str], groups: dict[str, list[str]]) -> list[str]:
+    """Field order after one-hot expansion: each categorical field replaced, in
+    place, by its ordered one-hot columns (from ExpansionResult.groups)."""
+    out: list[str] = []
+    for f in fields:
+        out.extend(groups[f] if f in groups else [f])
+    return out
 
 
 def _default_network_name(task: str) -> str:
