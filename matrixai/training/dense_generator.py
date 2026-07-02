@@ -174,9 +174,10 @@ class DenseNetworkGenerator:
             raise DenseNetworkGeneratorError("DenseNetworkGenerator requires a non-empty prompt")
 
         # GEN C4: task/label resolution shared with the composite generator (invariant
-        # 5) — an explicit 2-label ProbabilityMap[a,b]/Label[a,b] bracket always means
-        # 2-class softmax, never the 1-unit sigmoid (see resolve_task_and_labels).
-        task, resolved_labels = resolve_task_and_labels(self, clean, labels)
+        # 5) — an explicit ProbabilityMap[...]/Label[...] bracket wins over caller
+        # labels and task keywords; 2 declared labels mean 2-class softmax, never
+        # the 1-unit sigmoid (see resolve_task_and_labels).
+        task, resolved_labels, label_warnings = resolve_task_and_labels(self, clean, labels)
         # GEN C1/C2/C3: honor explicit field-type declarations from the prompt (shared
         # with the composite generator so both use the SAME policy — invariant 5).
         resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings = \
@@ -244,6 +245,7 @@ class DenseNetworkGenerator:
         ]
         warnings: list[str] = list(sanitizer_notes)
         warnings.extend(spec_warnings)  # GEN C1/C3: rango inválido, categórica <2, etc.
+        warnings.extend(label_warnings)  # GEN C4: labels= ignorados / bracket recortado
         if task == "multiclass" and len(resolved_labels) < 2:
             warnings.append("multiclass task requires at least 2 labels — using defaults")
 
@@ -332,22 +334,23 @@ class DenseNetworkGenerator:
     def _extract_bracket_labels(self, prompt: str) -> list[str]:
         """Labels declared EXPLICITLY via `ProbabilityMap[...]`/`Label[...]` in the
         prompt — the most reliable source (avoids capturing prose like "(6 clases)").
-        GEN C4: exactly 2 such labels always mean 2-class softmax, never the 1-unit
-        sigmoid, because the prompt is declaring the output type directly."""
+        GEN C4: such a bracket is a declared OUTPUT TYPE, so it forces the softmax
+        classification path and wins over caller labels (resolve_task_and_labels).
+        Returns the FULL declared list, uncapped: the max_labels limit is the
+        caller's job, because truncating an explicitly declared output must warn
+        (resolve_task_and_labels), never happen silently."""
         mb = re.search(r"(?:ProbabilityMap|Label)\s*\[\s*(?P<labels>[^\]]+)\]", prompt, re.IGNORECASE)
         if not mb:
             return []
         parts = [p for p in re.split(r",|;", mb.group("labels")) if p.strip()]
         bracket = [_identifier(p) for p in parts if _identifier(p)]
-        if len(bracket) < 2:
-            return []
-        m_labels = _limits.get_limit("max_labels")
-        return bracket if m_labels is None else bracket[:m_labels]
+        return bracket if len(bracket) >= 2 else []
 
     def _extract_labels(self, prompt: str) -> list[str]:
         bracket = self._extract_bracket_labels(prompt)
         if bracket:
-            return bracket
+            m_labels = _limits.get_limit("max_labels")
+            return bracket if m_labels is None else bracket[:m_labels]
         m = self._LABEL_RE.search(prompt)
         if not m:
             return []
@@ -493,23 +496,46 @@ def _expanded_field_order(fields: list[str], groups: dict[str, list[str]]) -> li
 
 def resolve_task_and_labels(dg, prompt, labels):
     """Task + label resolution shared by the dense AND composite generators
-    (invariant 5: same policy in both paths).
+    (invariant 5: same policy in both paths). Returns (task, labels, warnings).
 
-    GEN C4: an explicit `ProbabilityMap[a, b]`/`Label[a, b]` bracket in the prompt
-    with EXACTLY 2 labels always wins (invariant 1) and forces task="multiclass" —
-    the 2-class softmax + cross_entropy + Label[...] target path — regardless of
-    what a caller passed or what task keywords matched. Reusing "multiclass" for
-    n=2 is deliberate: `_output_config`/`_dataset_target_type` already handle any
-    label count generically, so no separate "labeled binary" task is needed.
-    Without such an explicit bracket, task detection is unchanged (retrocompat):
-    a bare "clasificación binaria" prompt still gets the 1-unit sigmoid.
+    GEN C4 (+audit): an explicit `ProbabilityMap[...]`/`Label[...]` bracket in the
+    prompt with >=2 labels is a DECLARED OUTPUT TYPE and always wins (invariant 1):
+    - over caller/LLM ``labels`` (they are ignored, with a warning if they differ);
+    - over task keyword detection ("predecir precio ... ProbabilityMap[A,B,C]" is
+      a classifier, not a regressor — before the audit the extracted labels were
+      silently dropped and the output stayed linear/mse);
+    - with EXACTLY 2 labels this means 2-class softmax + cross_entropy +
+      Label[...] target, never the 1-unit sigmoid. Reusing "multiclass" for n=2
+      is deliberate: `_output_config`/`_dataset_target_type` already handle any
+      label count generically, so no separate "labeled binary" task is needed.
+    The max_labels limit still applies to a declared bracket, but with an explicit
+    warning — never a silent truncation of an output the user spelled out.
+
+    Without such a bracket, resolution is unchanged (retrocompat): caller labels,
+    then prose labels, then task keywords; a bare "clasificación binaria" prompt
+    still gets the 1-unit sigmoid.
     """
+    warnings: list[str] = []
+    bracket = dg._extract_bracket_labels(prompt)
+    if len(bracket) >= 2:
+        m_labels = _limits.get_limit("max_labels")
+        if m_labels is not None and len(bracket) > m_labels:
+            warnings.append(
+                f"El prompt declara {len(bracket)} labels explícitos pero el límite "
+                f"max_labels={m_labels} los recorta a {bracket[:m_labels]} "
+                f"(sube MATRIXAI_MAX_LABELS o el perfil de límites para conservarlos)."
+            )
+            bracket = bracket[:m_labels]
+        if len(bracket) >= 2:
+            if labels is not None and [_identifier(str(l)) for l in labels] != bracket:
+                warnings.append(
+                    f"labels={list(labels)} ignorados: el prompt declara explícitamente "
+                    f"ProbabilityMap/Label{bracket} y el prompt gana (invariante 1)."
+                )
+            return "multiclass", bracket, warnings
     task = dg._detect_task(prompt, labels)
-    bracket_labels = dg._extract_bracket_labels(prompt)
-    if labels is None and len(bracket_labels) == 2:
-        task = "multiclass"
     resolved_labels = list(labels or dg._extract_labels(prompt) or _default_labels(task))
-    return task, resolved_labels
+    return task, resolved_labels, warnings
 
 
 def resolve_prompt_fields(dg, prompt, input_fields):

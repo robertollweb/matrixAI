@@ -139,6 +139,104 @@ SALIDA: resultado: ProbabilityMap[PERMANECE, ABANDONA]
 """
 
 
+class AuditPromptBracketWinsOverCallerLabelsTest(unittest.TestCase):
+    """C4 audit [ALTA]: caller/LLM ``labels=`` must NOT override an explicit
+    ProbabilityMap[...]/Label[...] bracket in the prompt (invariant 1). Before the
+    fix, labels=['x','y'] turned ProbabilityMap[NO,SI] into a sigmoid with x/y."""
+
+    def test_two_caller_labels_do_not_make_it_sigmoid(self):
+        r = DenseNetworkGenerator().generate(
+            "modelo\nSALIDA: y: ProbabilityMap[NO, SI]", labels=["x", "y"]
+        )
+        self.assertEqual(r.output_activation, "softmax")
+        self.assertEqual(r.output_units, 2)
+        self.assertEqual(r.labels, ["no", "si"])
+        self.assertTrue(any("invariante 1" in w for w in r.warnings), r.warnings)
+
+    def test_three_caller_labels_do_not_widen_the_output(self):
+        r = DenseNetworkGenerator().generate(
+            "modelo\nSALIDA: y: ProbabilityMap[NO, SI]", labels=["x", "y", "z"]
+        )
+        self.assertEqual(r.output_units, 2)
+        self.assertEqual(r.labels, ["no", "si"])
+
+    def test_matching_caller_labels_produce_no_spurious_warning(self):
+        # the Studio/LLM echoing the same labels (any case) is not a conflict
+        r = DenseNetworkGenerator().generate(
+            "modelo\nSALIDA: y: ProbabilityMap[NO, SI]", labels=["NO", "SI"]
+        )
+        self.assertEqual(r.labels, ["no", "si"])
+        self.assertEqual(r.warnings, [])
+
+    def test_composite_same_precedence(self):
+        r = CompositeNetworkGenerator().generate(
+            "con bloques residuales\nFEATURES:\n  precio: Scalar en [0, 1000]\n"
+            "SALIDA: y: ProbabilityMap[NO, SI]",
+            labels=["x", "y"], force_residual=True,
+        )
+        self.assertEqual(r.output_activation, "softmax")
+        self.assertEqual(r.output_units, 2)
+        self.assertEqual(r.labels, ["no", "si"])
+        self.assertTrue(any("invariante 1" in w for w in r.warnings), r.warnings)
+
+
+class AuditBracketForcesClassificationTaskTest(unittest.TestCase):
+    """C4 audit [ALTA/MEDIA]: an explicit bracket with >=2 labels forces the
+    classification path even with NO classification keyword — before the fix,
+    'modelo ... ProbabilityMap[A,B,C]' extracted the labels but still emitted
+    linear/Scalar/mse (regression default), an incoherent result."""
+
+    def test_bracket_without_any_task_keyword(self):
+        r = DenseNetworkGenerator().generate("modelo\nSALIDA: y: ProbabilityMap[A, B, C]")
+        self.assertEqual(r.output_activation, "softmax")
+        self.assertEqual(r.output_units, 3)
+        self.assertEqual(r.loss_type, "cross_entropy")
+        self.assertEqual(r.labels, ["a", "b", "c"])
+
+    def test_bracket_beats_regression_keywords(self):
+        r = DenseNetworkGenerator().generate(
+            "predecir precio de la vivienda\nSALIDA: y: ProbabilityMap[A, B, C]"
+        )
+        self.assertEqual(r.output_activation, "softmax")
+        self.assertEqual(r.output_units, 3)
+        self.assertEqual(r.output_type, "ProbabilityMap[a, b, c]")
+
+    def test_label_bracket_also_forces_classification(self):
+        r = DenseNetworkGenerator().generate("modelo\nSALIDA: y: Label[A, B, C]")
+        self.assertEqual(r.output_activation, "softmax")
+        self.assertEqual(r.output_units, 3)
+
+    def test_regression_without_bracket_unchanged(self):
+        r = DenseNetworkGenerator().generate(
+            "predecir precio de la vivienda con superficie, habitaciones"
+        )
+        self.assertEqual(r.output_activation, "linear")
+        self.assertEqual(r.output_type, "Scalar")
+        self.assertEqual(r.loss_type, "mse")
+
+
+class AuditMaxLabelsCapWarnsTest(unittest.TestCase):
+    """C4 audit [MEDIA/BAJA]: the max_labels limit still applies to a declared
+    bracket, but with an explicit warning — never a silent truncation."""
+
+    def setUp(self):
+        import os
+        os.environ["MATRIXAI_MAX_LABELS"] = "2"
+        self.addCleanup(os.environ.pop, "MATRIXAI_MAX_LABELS", None)
+
+    def test_capped_bracket_emits_warning(self):
+        r = DenseNetworkGenerator().generate("clasificar\nSALIDA: y: ProbabilityMap[A, B, C]")
+        self.assertEqual(r.output_units, 2)
+        self.assertEqual(r.labels, ["a", "b"])
+        self.assertTrue(any("max_labels=2" in w and "recorta" in w for w in r.warnings),
+                        r.warnings)
+
+    def test_bracket_within_cap_no_warning(self):
+        r = DenseNetworkGenerator().generate("clasificar\nSALIDA: y: ProbabilityMap[A, B]")
+        self.assertEqual(r.labels, ["a", "b"])
+        self.assertEqual(r.warnings, [])
+
+
 class DispatchSurfacesC4Test(unittest.TestCase):
     def test_analyze_playground_request_generates_two_class_softmax(self):
         from matrixai.playground import analyze_playground_request

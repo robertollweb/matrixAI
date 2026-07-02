@@ -105,7 +105,7 @@ class CompositeNetworkGenerator:
 
         _dg = DenseNetworkGenerator()
         # GEN C4: same task/label policy as the dense generator (invariant 5).
-        task, resolved_labels = resolve_task_and_labels(_dg, clean, labels)
+        task, resolved_labels, label_warnings = resolve_task_and_labels(_dg, clean, labels)
         # GEN C1/C2/C3: honor explicit field-type declarations from the prompt, SAME
         # policy as the dense generator (invariant 5): clean typed names, prompt wins.
         resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings = \
@@ -207,6 +207,7 @@ class CompositeNetworkGenerator:
             "Architecture is a heuristic — tune for production",
         ]
         warnings: list[str] = list(spec_warnings)  # GEN C1/C3: rango inválido, etc.
+        warnings.extend(label_warnings)  # GEN C4: labels= ignorados / bracket recortado
         if task == "multiclass" and len(resolved_labels) < 2:
             warnings.append("multiclass task requires at least 2 labels — using defaults")
         # Only keep vocab for categoricals that actually became embeddings.
