@@ -13,12 +13,12 @@ from typing import Any
 from matrixai.training.dense_generator import (
     DenseNetworkGenerator,
     resolve_prompt_fields,
+    resolve_task_and_labels,
     _any,
     _build_training_text,
     extract_epochs_from_prompt,
     extract_early_stop_from_prompt,
     _default_fields,
-    _default_labels,
     _default_network_name,
     _identifier,
     _norm,
@@ -104,8 +104,8 @@ class CompositeNetworkGenerator:
             )
 
         _dg = DenseNetworkGenerator()
-        task = _dg._detect_task(clean, labels)
-        resolved_labels = list(labels or _dg._extract_labels(clean) or _default_labels(task))
+        # GEN C4: same task/label policy as the dense generator (invariant 5).
+        task, resolved_labels = resolve_task_and_labels(_dg, clean, labels)
         # GEN C1/C2/C3: honor explicit field-type declarations from the prompt, SAME
         # policy as the dense generator (invariant 5): clean typed names, prompt wins.
         resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings = \

@@ -173,8 +173,10 @@ class DenseNetworkGenerator:
         if not clean:
             raise DenseNetworkGeneratorError("DenseNetworkGenerator requires a non-empty prompt")
 
-        task = self._detect_task(clean, labels)
-        resolved_labels = list(labels or self._extract_labels(clean) or _default_labels(task))
+        # GEN C4: task/label resolution shared with the composite generator (invariant
+        # 5) — an explicit 2-label ProbabilityMap[a,b]/Label[a,b] bracket always means
+        # 2-class softmax, never the 1-unit sigmoid (see resolve_task_and_labels).
+        task, resolved_labels = resolve_task_and_labels(self, clean, labels)
         # GEN C1/C2/C3: honor explicit field-type declarations from the prompt (shared
         # with the composite generator so both use the SAME policy — invariant 5).
         resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings = \
@@ -306,7 +308,12 @@ class DenseNetworkGenerator:
         if _any(text, self._STRONG_CLASSIFICATION_KEYWORDS):
             if labels is not None:
                 return "binary" if len(labels) == 2 else "multiclass"
-            if _any(text, ["binario", "binary", "dos clases", "two classes"]):
+            # GEN C4 fix: "binari" (stem) catches both "binario" and the
+            # feminine-agreement "binaria" ("clasificación binaria"), which the
+            # exact word "binario" was silently missing — that miss used to fall
+            # through to "multiclass" with 3 fake default labels for the
+            # contract's own retrocompat example ("clasificación binaria" a secas).
+            if _any(text, ["binari", "binary", "dos clases", "two classes"]):
                 return "binary"
             return "multiclass"
         if _any(text, self._REGRESSION_KEYWORDS):
@@ -322,16 +329,25 @@ class DenseNetworkGenerator:
             return "multiclass"
         return "regression"
 
-    def _extract_labels(self, prompt: str) -> list[str]:
-        # Prioridad: etiquetas EXPLÍCITAS en ProbabilityMap[...] / Label[...] (lo más
-        # fiable; evita capturar prosa como "(6 clases)" o "categorias a partir de...").
+    def _extract_bracket_labels(self, prompt: str) -> list[str]:
+        """Labels declared EXPLICITLY via `ProbabilityMap[...]`/`Label[...]` in the
+        prompt — the most reliable source (avoids capturing prose like "(6 clases)").
+        GEN C4: exactly 2 such labels always mean 2-class softmax, never the 1-unit
+        sigmoid, because the prompt is declaring the output type directly."""
         mb = re.search(r"(?:ProbabilityMap|Label)\s*\[\s*(?P<labels>[^\]]+)\]", prompt, re.IGNORECASE)
-        if mb:
-            parts = [p for p in re.split(r",|;", mb.group("labels")) if p.strip()]
-            bracket = [_identifier(p) for p in parts if _identifier(p)]
-            if len(bracket) >= 2:
-                m_labels = _limits.get_limit("max_labels")
-                return bracket if m_labels is None else bracket[:m_labels]
+        if not mb:
+            return []
+        parts = [p for p in re.split(r",|;", mb.group("labels")) if p.strip()]
+        bracket = [_identifier(p) for p in parts if _identifier(p)]
+        if len(bracket) < 2:
+            return []
+        m_labels = _limits.get_limit("max_labels")
+        return bracket if m_labels is None else bracket[:m_labels]
+
+    def _extract_labels(self, prompt: str) -> list[str]:
+        bracket = self._extract_bracket_labels(prompt)
+        if bracket:
+            return bracket
         m = self._LABEL_RE.search(prompt)
         if not m:
             return []
@@ -473,6 +489,27 @@ def _expanded_field_order(fields: list[str], groups: dict[str, list[str]]) -> li
     for f in fields:
         out.extend(groups[f] if f in groups else [f])
     return out
+
+
+def resolve_task_and_labels(dg, prompt, labels):
+    """Task + label resolution shared by the dense AND composite generators
+    (invariant 5: same policy in both paths).
+
+    GEN C4: an explicit `ProbabilityMap[a, b]`/`Label[a, b]` bracket in the prompt
+    with EXACTLY 2 labels always wins (invariant 1) and forces task="multiclass" —
+    the 2-class softmax + cross_entropy + Label[...] target path — regardless of
+    what a caller passed or what task keywords matched. Reusing "multiclass" for
+    n=2 is deliberate: `_output_config`/`_dataset_target_type` already handle any
+    label count generically, so no separate "labeled binary" task is needed.
+    Without such an explicit bracket, task detection is unchanged (retrocompat):
+    a bare "clasificación binaria" prompt still gets the 1-unit sigmoid.
+    """
+    task = dg._detect_task(prompt, labels)
+    bracket_labels = dg._extract_bracket_labels(prompt)
+    if labels is None and len(bracket_labels) == 2:
+        task = "multiclass"
+    resolved_labels = list(labels or dg._extract_labels(prompt) or _default_labels(task))
+    return task, resolved_labels
 
 
 def resolve_prompt_fields(dg, prompt, input_fields):
