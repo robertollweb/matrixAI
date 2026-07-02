@@ -69,11 +69,11 @@ _TYPE_ALIASES = {
 _FIELD_ENTRY_RE = re.compile(
     r"(?:^|[\n,;:])"                       # field boundary
     r"(?P<name>[^\n,;:]+?)"                # full name up to ':' (accents/spaces/hyphens ok)
-    r"\s*:\s*"
+    r"[ \t]*:[ \t]*"                       # ':' — horizontal whitespace only (line-bound)
     r"(?P<type>categorical|categorica|categórica|category|boolean|booleano|bool|"
     r"scalar|numeric|number|float|integer|int)\b"
-    r"(?:\s+(?:en|in|de))?\s*"
-    r"(?:\[(?P<args>[^\]]*)\])?",
+    r"(?:[ \t]+(?:en|in|de))?[ \t]*"       # optional "en/in/de" — same line only
+    r"(?:\[(?P<args>[^\]]*)\])?",           # optional "[...]" — same line only
     re.IGNORECASE | re.MULTILINE,
 )
 

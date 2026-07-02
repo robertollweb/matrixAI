@@ -46,6 +46,15 @@ class DenseNetworkGenerationResult:
     # original field; the .mxai/training_text carry the expanded columns. Empty when
     # no categorical was declared. Source of truth for the export's field_categories.
     field_categories: dict[str, list[str]] = field(default_factory=dict)
+    # GEN C3: scalar ranges declared in the prompt ({campo: [min, max]}). NOT written
+    # into the .mxai VECTOR type (training data is normalized to [0,1]; a raw range
+    # there would make the training verifier reject every normalized row). This is
+    # metadata only — the canonical source for the Studio/export's field_ranges.
+    field_ranges: dict[str, tuple[float, float]] = field(default_factory=dict)
+    # GEN C3: declared semantic types ({campo: "boolean"|"integer"}) for fields whose
+    # .mxai type stays a bare Scalar (same reasoning as field_ranges). Canonical source
+    # for the Studio/export's field_types.
+    field_types: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -223,6 +232,24 @@ class DenseNetworkGenerator:
             if name in specs_by_name and specs_by_name[name].kind == "categorical"
             and 2 <= len(specs_by_name[name].values or []) <= _ONEHOT_MAX
         }
+        # GEN C3: Boolean + scalar range declarations. Metadata only (see field_ranges/
+        # field_types docstrings above) — never written into the .mxai VECTOR type.
+        field_ranges: dict[str, tuple[float, float]] = {
+            name: specs_by_name[name].range
+            for name in resolved_fields
+            if name in specs_by_name and specs_by_name[name].kind == "scalar"
+            and specs_by_name[name].range is not None
+        }
+        field_types: dict[str, str] = {}
+        for name in resolved_fields:
+            spec = specs_by_name.get(name)
+            if spec is None:
+                continue
+            if spec.kind == "boolean":
+                field_types[name] = "boolean"
+            elif spec.kind == "scalar" and spec.integer:
+                field_types[name] = "integer"
+
         template_fields = resolved_fields
         if categoricals:
             expansion = expand_categoricals(mxai_text, training_text, categoricals)
@@ -269,6 +296,8 @@ class DenseNetworkGenerator:
             assumptions=assumptions,
             warnings=warnings,
             field_categories=field_categories,
+            field_ranges=field_ranges,
+            field_types=field_types,
         )
 
     def _extract_hidden_layers(self, prompt: str, input_dim: int) -> list[tuple[int, str]]:

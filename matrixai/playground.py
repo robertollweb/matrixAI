@@ -2633,6 +2633,11 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 # prompt ({campo: [valores humanos]}). Source of truth for the Studio
                 # (no schema editor needed) and the export's field_categories.
                 result["field_categories"] = dict(getattr(gen, "field_categories", {}) or {})
+                # GEN C3: scalar ranges + boolean/integer types declared in the prompt.
+                # Metadata only (never written into the .mxai VECTOR type — training
+                # data is normalized to [0,1]). Source of truth for the Studio/export.
+                result["field_ranges"] = dict(getattr(gen, "field_ranges", {}) or {})
+                result["field_types"] = dict(getattr(gen, "field_types", {}) or {})
                 # M8-B1: record who chose the architecture + the LLM's rationale,
                 # for auditability. The deterministic sanitizer (A1) still governs.
                 _emitted_embeddings = bool(getattr(gen, "embeddings", []))
