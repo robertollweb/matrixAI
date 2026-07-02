@@ -110,6 +110,15 @@ class ScalarEncodingTest(_ModelHarness):
         for falsy in (False, 0, "no", "false"):
             self.assertEqual(m.predict({"b": falsy})["values"][0], 0.0)
 
+    def test_integer_scalar_rejects_non_integer(self):
+        # GEN C3 finding: a scalar with type "integer" must reject a fractional value
+        # instead of silently normalizing it (3.7 in [0,10] -> 0.37).
+        m = self._model(_spec(["cod"], {"cod": {"encoding": "scalar", "range": [0, 10],
+                                                 "type": "integer"}}))
+        self.assertAlmostEqual(m.predict({"cod": 3})["values"][0], 0.3, places=6)
+        with self.assertRaises(pt.MatrixAIModelError):
+            m.predict({"cod": 3.7})
+
     def test_non_numeric_scalar_raises(self):
         m = self._model(_spec(["x"], {"x": {"encoding": "scalar01"}}))
         with self.assertRaises(pt.MatrixAIModelError):

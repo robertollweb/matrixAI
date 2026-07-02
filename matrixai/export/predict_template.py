@@ -112,8 +112,11 @@ class MatrixAIModel:
 
     def _encode_scalar(self, field, entry, record, vector, meta) -> None:
         value = self._require(field, record)
-        if entry.get("type") == "boolean":
+        field_type = entry.get("type")
+        if field_type == "boolean":
             number = _parse_bool(field, value)
+        elif field_type == "integer":
+            number = float(_parse_int(field, value))  # reject non-integers (3.7 -> error)
         else:
             number = _parse_number(field, value)
         if entry["encoding"] == "scalar":
@@ -216,7 +219,7 @@ def _parse_number(field: str, value: Any) -> float:
 def _parse_int(field: str, value: Any) -> int:
     number = _parse_number(field, value)
     if not float(number).is_integer():
-        raise MatrixAIModelError(f"Field {field!r}: expected an integer index, got {value!r}.")
+        raise MatrixAIModelError(f"Field {field!r}: expected an integer, got {value!r}.")
     return int(number)
 
 

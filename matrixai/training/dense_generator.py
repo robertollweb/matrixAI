@@ -175,27 +175,10 @@ class DenseNetworkGenerator:
 
         task = self._detect_task(clean, labels)
         resolved_labels = list(labels or self._extract_labels(clean) or _default_labels(task))
-        # GEN C2: explicit field-type declarations (Categorical/Boolean/Scalar[range]).
-        # parse_field_specs gives CLEAN names for typed fields — the legacy _extract_fields
-        # would mangle "segmento: Categorical[...]" into "segmento_categorical".
-        parsed = parse_field_specs(prompt)
-        specs_by_name = parsed.by_name()
-        typed_names = [f.name for f in parsed.fields]
-        # Bare (untyped) fields: extract from the prompt with the typed declarations
-        # STRIPPED, so the legacy extractor sees only untyped names and can't mangle
-        # "segmento: Categorical[...]" into garbage. (Fixes the mixed-prompt merge.)
-        bare_clean = " ".join(strip_field_specs(prompt).split())
-        bare_names = [n for n in (self._extract_fields(bare_clean) or [])
-                      if n not in specs_by_name]
-        # Invariant 1 (contract): a type declared EXPLICITLY in the prompt always wins.
-        # So the prompt's typed fields are ALWAYS present, even when a caller (LLM path)
-        # passes its own input_fields — otherwise an explicit Categorical could vanish.
-        resolved_fields: list[str] = []
-        for n in (list(input_fields) if input_fields else []) + typed_names + bare_names:
-            if n not in resolved_fields:
-                resolved_fields.append(n)
-        if not resolved_fields:
-            resolved_fields = list(self._extract_fields(clean) or _default_fields())
+        # GEN C1/C2/C3: honor explicit field-type declarations from the prompt (shared
+        # with the composite generator so both use the SAME policy — invariant 5).
+        resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings = \
+            resolve_prompt_fields(self, prompt, input_fields)
         input_dim = len(resolved_fields)
         resolved_name = network_name or self._extract_name(clean) or _default_network_name(task)
         resolved_entity = input_name or self._extract_entity(clean) or "Input"
@@ -225,6 +208,7 @@ class DenseNetworkGenerator:
         # FROM COLUMNS together, so training/inference use the expanded columns while
         # the human canonical input stays the original field. High-cardinality
         # categoricals (> _ONEHOT_MAX) are left for the embedding/composite path.
+        # field_ranges/field_types already resolved by resolve_prompt_fields (C3).
         field_categories: dict[str, list[str]] = {}
         categoricals = {
             name: list(specs_by_name[name].values or [])
@@ -232,24 +216,6 @@ class DenseNetworkGenerator:
             if name in specs_by_name and specs_by_name[name].kind == "categorical"
             and 2 <= len(specs_by_name[name].values or []) <= _ONEHOT_MAX
         }
-        # GEN C3: Boolean + scalar range declarations. Metadata only (see field_ranges/
-        # field_types docstrings above) — never written into the .mxai VECTOR type.
-        field_ranges: dict[str, tuple[float, float]] = {
-            name: specs_by_name[name].range
-            for name in resolved_fields
-            if name in specs_by_name and specs_by_name[name].kind == "scalar"
-            and specs_by_name[name].range is not None
-        }
-        field_types: dict[str, str] = {}
-        for name in resolved_fields:
-            spec = specs_by_name.get(name)
-            if spec is None:
-                continue
-            if spec.kind == "boolean":
-                field_types[name] = "boolean"
-            elif spec.kind == "scalar" and spec.integer:
-                field_types[name] = "integer"
-
         template_fields = resolved_fields
         if categoricals:
             expansion = expand_categoricals(mxai_text, training_text, categoricals)
@@ -275,7 +241,7 @@ class DenseNetworkGenerator:
             "Architecture is a heuristic — tune for production",
         ]
         warnings: list[str] = list(sanitizer_notes)
-        warnings.extend(parsed.warnings)  # GEN C2: rango inválido, categórica <2, etc.
+        warnings.extend(spec_warnings)  # GEN C1/C3: rango inválido, categórica <2, etc.
         if task == "multiclass" and len(resolved_labels) < 2:
             warnings.append("multiclass task requires at least 2 labels — using defaults")
 
@@ -507,6 +473,48 @@ def _expanded_field_order(fields: list[str], groups: dict[str, list[str]]) -> li
     for f in fields:
         out.extend(groups[f] if f in groups else [f])
     return out
+
+
+def resolve_prompt_fields(dg, prompt, input_fields):
+    """Field resolution + C3 metadata shared by the dense AND composite generators.
+
+    Honors the prompt's explicit type declarations (invariants 1 & 5): the typed
+    fields always survive (even when a caller passes input_fields), clean names come
+    from parse_field_specs (not the mangling _extract_fields), and bare untyped
+    fields are added from the prompt with the typed declarations stripped.
+
+    Returns ``(resolved_fields, specs_by_name, field_ranges, field_types, warnings)``.
+    field_ranges/field_types are METADATA only (never written into the .mxai VECTOR;
+    training data is [0,1]-normalized — see GENERACION_TIPOS_PROMPT_CONTRACT.md C3).
+    """
+    parsed = parse_field_specs(prompt)
+    specs_by_name = parsed.by_name()
+    typed_names = [f.name for f in parsed.fields]
+    bare_clean = " ".join(strip_field_specs(prompt).split())
+    bare_names = [n for n in (dg._extract_fields(bare_clean) or []) if n not in specs_by_name]
+    resolved_fields: list[str] = []
+    for n in (list(input_fields) if input_fields else []) + typed_names + bare_names:
+        if n not in resolved_fields:
+            resolved_fields.append(n)
+    if not resolved_fields:
+        resolved_fields = list(dg._extract_fields(" ".join(prompt.split())) or _default_fields())
+
+    field_ranges: dict[str, tuple[float, float]] = {
+        name: specs_by_name[name].range
+        for name in resolved_fields
+        if name in specs_by_name and specs_by_name[name].kind == "scalar"
+        and specs_by_name[name].range is not None
+    }
+    field_types: dict[str, str] = {}
+    for name in resolved_fields:
+        spec = specs_by_name.get(name)
+        if spec is None:
+            continue
+        if spec.kind == "boolean":
+            field_types[name] = "boolean"
+        elif spec.kind == "scalar" and spec.integer:
+            field_types[name] = "integer"
+    return resolved_fields, specs_by_name, field_ranges, field_types, list(parsed.warnings)
 
 
 def _default_network_name(task: str) -> str:

@@ -12,6 +12,7 @@ from typing import Any
 
 from matrixai.training.dense_generator import (
     DenseNetworkGenerator,
+    resolve_prompt_fields,
     _any,
     _build_training_text,
     extract_epochs_from_prompt,
@@ -53,6 +54,13 @@ class CompositeNetworkGenerationResult:
     is_sequence: bool
     assumptions: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # GEN C2/C3: explicit prompt types, same as the dense generator (invariant 5).
+    # Categoricals here are materialized as native EMBEDDING (field_categories carries
+    # their human vocab for the export); scalar ranges / boolean|integer types stay
+    # metadata-only (never in the .mxai VECTOR).
+    field_categories: dict[str, list[str]] = field(default_factory=dict)
+    field_ranges: dict[str, tuple[float, float]] = field(default_factory=dict)
+    field_types: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -98,7 +106,10 @@ class CompositeNetworkGenerator:
         _dg = DenseNetworkGenerator()
         task = _dg._detect_task(clean, labels)
         resolved_labels = list(labels or _dg._extract_labels(clean) or _default_labels(task))
-        resolved_fields = list(input_fields or _dg._extract_fields(clean) or _default_fields())
+        # GEN C1/C2/C3: honor explicit field-type declarations from the prompt, SAME
+        # policy as the dense generator (invariant 5): clean typed names, prompt wins.
+        resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings = \
+            resolve_prompt_fields(_dg, prompt, input_fields)
         input_dim = len(resolved_fields)
         resolved_name = network_name or _dg._extract_name(clean) or _default_network_name(task)
         resolved_entity = input_name or _dg._extract_entity(clean) or "Input"
@@ -116,12 +127,23 @@ class CompositeNetworkGenerator:
         wants_residual = not force_dense and (force_residual or (has_complex_kw and input_dim >= 6))
 
         cat_fields_dict: dict[str, int] = {}
+        field_categories: dict[str, list[str]] = {}
         if not force_dense:
+            # GEN C2 (invariant 1): categoricals DECLARED in the prompt win → native
+            # EMBEDDING (vocab = number of values); persist the human vocab so the
+            # export gives `vocab: [...]` instead of a bare vocab_size.
+            for name in resolved_fields:
+                spec = specs_by_name.get(name)
+                if spec is not None and spec.kind == "categorical" and spec.values:
+                    cat_fields_dict[name] = len(spec.values)
+                    field_categories[name] = list(spec.values)
+            # LLM-declared categoricals (do not override the prompt).
             if categorical_fields is not None:
-                cat_fields_dict = {
-                    f: v for f, v in categorical_fields.items() if v > 5
-                }
-            else:
+                for f, v in categorical_fields.items():
+                    if f not in cat_fields_dict and v > 5:
+                        cat_fields_dict[f] = v
+            # Heuristic auto-detect only when there was NO explicit source (prompt/LLM).
+            elif not field_categories:
                 for f in resolved_fields:
                     if any(kw in f.lower() for kw in self._CAT_KEYWORDS):
                         cat_fields_dict[f] = self._DEFAULT_AUTO_VOCAB
@@ -184,9 +206,11 @@ class CompositeNetworkGenerator:
             f"loss={loss_type}, output_activation={output_activation}",
             "Architecture is a heuristic — tune for production",
         ]
-        warnings: list[str] = []
+        warnings: list[str] = list(spec_warnings)  # GEN C1/C3: rango inválido, etc.
         if task == "multiclass" and len(resolved_labels) < 2:
             warnings.append("multiclass task requires at least 2 labels — using defaults")
+        # Only keep vocab for categoricals that actually became embeddings.
+        field_categories = {f: v for f, v in field_categories.items() if f in cat_fields_dict}
 
         return CompositeNetworkGenerationResult(
             prompt=clean,
@@ -208,6 +232,9 @@ class CompositeNetworkGenerator:
             is_sequence=is_sequence,
             assumptions=assumptions,
             warnings=warnings,
+            field_categories=field_categories,
+            field_ranges=field_ranges,
+            field_types=field_types,
         )
 
 
