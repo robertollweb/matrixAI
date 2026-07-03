@@ -2682,23 +2682,32 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 )
                 result["architecture_decision"] = {
                     "kind": arch_kind,
-                    "source": ("llm" if llm_architecture
+                    # GEN C5 audit: "prompt_types" = routed composite because the
+                    # PROMPT declared a high-cardinality categorical (no LLM, no
+                    # residual hints) — before, this showed up as "default".
+                    "source": ("llm" if (llm_architecture or llm_categoricals)
                                else "prompt_hints" if _prompt_wants_composite(prompt)
+                               else "prompt_types" if _prompt_highcard
                                else "default"),
                     "rationale": llm_rationale or "",
                 }
                 if llm_rationale:
                     gen_warnings.append(f"Arquitectura ({result['architecture_decision']['kind']}, "
                                         f"propuesta por el LLM): {llm_rationale}")
-                # M2 v2 C5: surface the native embeddings the LLM proposed (audit).
+                # M2 v2 C5 / GEN C5 audit: surface the native embeddings WITH their
+                # real origin — an embedding from a prompt-declared Categorical[...]
+                # must not be attributed to the LLM (it fires with use_llm=False).
                 if _emitted_embeddings:
+                    _gen_cats = getattr(gen, "field_categories", {}) or {}
                     _emb_fields = ", ".join(
-                        f"{e['field']} (vocab {e['vocab']}, dim {e['dim']})"
+                        f"{e['field']} (vocab {e['vocab']}, dim {e['dim']}, "
+                        + ("declarada en el prompt" if e["field"] in _gen_cats
+                           else "propuesta por el LLM" if e["field"] in llm_categoricals
+                           else "auto-detectada por heurística") + ")"
                         for e in gen.embeddings
                     )
                     gen_warnings.append(
-                        "Categóricas con EMBEDDING nativo (propuestas por el LLM): "
-                        + _emb_fields + "."
+                        "Categóricas con EMBEDDING nativo: " + _emb_fields + "."
                     )
                 notes = list(gen_warnings)
                 # M8-A1: the generator's own warnings include the architecture

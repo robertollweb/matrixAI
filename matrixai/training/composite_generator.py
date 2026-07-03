@@ -15,6 +15,7 @@ from matrixai.training.dense_generator import (
     resolve_prompt_fields,
     resolve_task_and_labels,
     _ONEHOT_MAX,
+    _VALID_FIELD_NAME_RE,
     _any,
     _build_training_text,
     extract_epochs_from_prompt,
@@ -32,6 +33,43 @@ from matrixai.training.dense_generator import (
 
 class CompositeNetworkGeneratorError(ValueError):
     pass
+
+
+def _normalize_categorical_fields(raw: dict, warnings: list[str]) -> dict[str, int]:
+    """GEN C5 (audit): normalize caller/LLM ``categorical_fields`` BEFORE any use —
+    nothing raw may reach the .mxai builders. Names: valid identifier, or
+    `_identifier()`-normalized with warning (dropped if nothing usable remains,
+    e.g. "123"). Vocab: an integral number >= 2 (int / 30.0 / "30" all accepted);
+    None / 13.7 / "abc" are dropped with a warning instead of raising TypeError
+    or emitting an unparseable `VOCAB 13.7`."""
+    normalized: dict[str, int] = {}
+    for raw_name, raw_vocab in (raw or {}).items():
+        name = str(raw_name)
+        if not _VALID_FIELD_NAME_RE.fullmatch(name):
+            fixed = _identifier(name)
+            if not fixed:
+                warnings.append(
+                    f"categorical_fields: nombre inválido {name!r} descartado "
+                    "(no queda un identificador utilizable)."
+                )
+                continue
+            warnings.append(
+                f"categorical_fields: nombre inválido {name!r} normalizado a "
+                f"'{fixed}' (el nombre crudo rompería el .mxai)."
+            )
+            name = fixed
+        try:
+            vocab = float(raw_vocab)
+        except (TypeError, ValueError):
+            vocab = float("nan")
+        if not (vocab == vocab and vocab.is_integer() and vocab >= 2):
+            warnings.append(
+                f"categorical_fields[{name!r}]: vocab inválido {raw_vocab!r} "
+                "descartado (se requiere un entero >= 2)."
+            )
+            continue
+        normalized[name] = int(vocab)
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -111,6 +149,60 @@ class CompositeNetworkGenerator:
         # policy as the dense generator (invariant 5): clean typed names, prompt wins.
         resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings = \
             resolve_prompt_fields(_dg, prompt, input_fields)
+
+        cat_fields_dict: dict[str, int] = {}
+        field_categories: dict[str, list[str]] = {}
+        if not force_dense:
+            # GEN C2 (invariant 1): categoricals DECLARED in the prompt win → native
+            # EMBEDDING (vocab = number of values); persist the human vocab so the
+            # export gives `vocab: [...]` instead of a bare vocab_size.
+            for name in resolved_fields:
+                spec = specs_by_name.get(name)
+                if spec is not None and spec.kind == "categorical" and spec.values:
+                    cat_fields_dict[name] = len(spec.values)
+                    field_categories[name] = list(spec.values)
+            # GEN C5 (+audit): LLM/caller categorical_fields is NORMALIZED (names and
+            # vocabs — nothing raw reaches the .mxai builders) and VALIDATED:
+            # - a field the prompt typed as NON-categorical (Scalar/Boolean/Integer)
+            #   never becomes an embedding because the LLM said so — the prompt wins
+            #   (invariante 1), with a warning;
+            # - vocab <= _ONEHOT_MAX is one-hot territory, and a bare count cannot
+            #   one-hot (no values) -> dropped with a warning pointing at the
+            #   Categorical[valores...] prompt syntax. Aligns the old `> 5` with C2;
+            # - an ACCEPTED categorical missing from the resolved fields is appended:
+            #   an EMBEDDING referencing a column outside the VECTOR emits
+            #   unparseable .mxai (the field must exist in VECTOR + dataset). This
+            #   runs BEFORE input_dim so the appended column counts everywhere.
+            if categorical_fields is not None:
+                normalized = _normalize_categorical_fields(categorical_fields, spec_warnings)
+                for f, v in normalized.items():
+                    if f in cat_fields_dict:
+                        continue  # the prompt already declared it (with values)
+                    spec = specs_by_name.get(f)
+                    if spec is not None and spec.kind != "categorical":
+                        spec_warnings.append(
+                            f"categorical_fields[{f!r}] (LLM) ignorado: el prompt "
+                            f"declara '{f}' como {spec.kind} y el prompt gana "
+                            "(invariante 1)."
+                        )
+                        continue
+                    if v > _ONEHOT_MAX:
+                        cat_fields_dict[f] = v
+                        if f not in resolved_fields:
+                            resolved_fields.append(f)
+                    else:
+                        spec_warnings.append(
+                            f"categorical_fields[{f!r}] (vocab {v} ≤ {_ONEHOT_MAX}) "
+                            "ignorado: es territorio one-hot y un recuento no da los "
+                            "valores; decláralo en el prompt como Categorical[...] "
+                            "para one-hot con valores humanos."
+                        )
+            # Heuristic auto-detect only when there was NO explicit source (prompt/LLM).
+            elif not field_categories:
+                for f in resolved_fields:
+                    if any(kw in f.lower() for kw in self._CAT_KEYWORDS):
+                        cat_fields_dict[f] = self._DEFAULT_AUTO_VOCAB
+
         input_dim = len(resolved_fields)
         resolved_name = network_name or _dg._extract_name(clean) or _default_network_name(task)
         resolved_entity = input_name or _dg._extract_entity(clean) or "Input"
@@ -126,52 +218,6 @@ class CompositeNetworkGenerator:
         is_sequence = not force_dense and _any(text, self._SEQUENCE_KEYWORDS)
         has_complex_kw = _any(text, self._COMPLEX_KEYWORDS)
         wants_residual = not force_dense and (force_residual or (has_complex_kw and input_dim >= 6))
-
-        cat_fields_dict: dict[str, int] = {}
-        field_categories: dict[str, list[str]] = {}
-        if not force_dense:
-            # GEN C2 (invariant 1): categoricals DECLARED in the prompt win → native
-            # EMBEDDING (vocab = number of values); persist the human vocab so the
-            # export gives `vocab: [...]` instead of a bare vocab_size.
-            for name in resolved_fields:
-                spec = specs_by_name.get(name)
-                if spec is not None and spec.kind == "categorical" and spec.values:
-                    cat_fields_dict[name] = len(spec.values)
-                    field_categories[name] = list(spec.values)
-            # GEN C5: LLM/caller-declared categoricals are VALIDATED against the
-            # prompt's explicit types before being honored:
-            # - a field the prompt typed as NON-categorical (Scalar/Boolean/Integer)
-            #   never becomes an embedding because the LLM said so — the prompt wins
-            #   (invariante 1), with a warning;
-            # - vocab <= _ONEHOT_MAX is one-hot territory, and a bare count cannot
-            #   one-hot (no values) -> dropped with a warning pointing at the
-            #   Categorical[valores...] prompt syntax. Aligns the old `> 5` with C2.
-            if categorical_fields is not None:
-                for f, v in categorical_fields.items():
-                    if f in cat_fields_dict:
-                        continue  # the prompt already declared it (with values)
-                    spec = specs_by_name.get(f)
-                    if spec is not None and spec.kind != "categorical":
-                        spec_warnings.append(
-                            f"categorical_fields[{f!r}] (LLM) ignorado: el prompt "
-                            f"declara '{f}' como {spec.kind} y el prompt gana "
-                            "(invariante 1)."
-                        )
-                        continue
-                    if v > _ONEHOT_MAX:
-                        cat_fields_dict[f] = v
-                    else:
-                        spec_warnings.append(
-                            f"categorical_fields[{f!r}] (vocab {v} ≤ {_ONEHOT_MAX}) "
-                            "ignorado: es territorio one-hot y un recuento no da los "
-                            "valores; decláralo en el prompt como Categorical[...] "
-                            "para one-hot con valores humanos."
-                        )
-            # Heuristic auto-detect only when there was NO explicit source (prompt/LLM).
-            elif not field_categories:
-                for f in resolved_fields:
-                    if any(kw in f.lower() for kw in self._CAT_KEYWORDS):
-                        cat_fields_dict[f] = self._DEFAULT_AUTO_VOCAB
 
         is_composite = bool(cat_fields_dict or wants_residual or is_sequence)
 

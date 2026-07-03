@@ -161,6 +161,76 @@ class HighCardPromptCategoricalRoutingTest(unittest.TestCase):
         self.assertTrue(any("composite" in w and "modelo" in w for w in r.warnings), r.warnings)
 
 
+class AuditCategoricalFieldsNormalizedTest(unittest.TestCase):
+    """C5 audit [MEDIA]: categorical_fields como API directa se normaliza del todo —
+    claves y vocabs pasan por _normalize_categorical_fields y toda categórica
+    aceptada existe en el VECTOR/dataset. Antes: EMBEDDING huérfano (columna fuera
+    del VECTOR), .mxai inválido con 'bad field', TypeError con vocab None/'30',
+    `VOCAB 13.7` inválido."""
+
+    def test_orphan_categorical_is_appended_to_vector_and_dataset(self):
+        r = CompositeNetworkGenerator().generate(
+            "clasificar", input_fields=["edad"], categorical_fields={"zona": 30}
+        )
+        prog = parse_text(r.mxai_text)
+        self.assertEqual(prog.vectors[0].fields, ["edad", "zona"])
+        self.assertEqual(r.input_dim, 2)
+        header = r.dataset_template_text.splitlines()[0].split(",")
+        self.assertIn("zona", header)
+        self.assertEqual({e["field"]: e["vocab"] for e in r.embeddings}, {"zona": 30})
+
+    def test_invalid_key_name_normalized_and_mxai_parses(self):
+        r = CompositeNetworkGenerator().generate(
+            "clasificar", input_fields=["edad"], categorical_fields={"bad field": 30}
+        )
+        self.assertIn("bad_field", parse_text(r.mxai_text).vectors[0].fields)
+        self.assertTrue(any("bad field" in w and "normalizado" in w for w in r.warnings))
+
+    def test_unrecoverable_key_dropped_with_warning(self):
+        r = CompositeNetworkGenerator().generate(
+            "clasificar", input_fields=["edad", "saldo"], categorical_fields={"123": 30}
+        )
+        self.assertEqual(r.embeddings, [])
+        self.assertTrue(any("descartado" in w for w in r.warnings), r.warnings)
+
+    def test_invalid_vocab_values_dropped_not_raised(self):
+        # "30" coerces cleanly (accepted); 13.7 / None / "abc" drop with warning
+        # instead of TypeError or an unparseable `VOCAB 13.7`.
+        r = CompositeNetworkGenerator().generate(
+            "clasificar", input_fields=["edad"],
+            categorical_fields={"zona": "30", "mala": 13.7, "peor": None, "texto": "abc"},
+        )
+        self.assertEqual({e["field"]: e["vocab"] for e in r.embeddings}, {"zona": 30})
+        parse_text(r.mxai_text)  # must stay parseable
+        dropped = [w for w in r.warnings if "vocab inválido" in w]
+        self.assertEqual(len(dropped), 3, r.warnings)
+
+
+class AuditEmbeddingTraceabilityTest(unittest.TestCase):
+    """C5 audit [BAJA]: el origen reportado de cada embedding es el REAL — una
+    Categorical[...] del prompt con use_llm=False no se atribuye al LLM, y
+    architecture_decision.source distingue el ruteo por tipos del prompt."""
+
+    def _dispatch_highcard(self):
+        from matrixai.playground import analyze_playground_request
+        return analyze_playground_request(
+            {"mode": "prompt", "prompt": _HIGHCARD_PROMPT, "use_llm": False}
+        )
+
+    def test_prompt_embedding_not_attributed_to_llm(self):
+        res = self._dispatch_highcard()
+        emb_warns = [w for st in res["pipeline_stages"]
+                     for w in st.get("warnings", []) if "EMBEDDING nativo" in w]
+        self.assertTrue(emb_warns, "expected the embedding warning")
+        self.assertIn("declarada en el prompt", emb_warns[0])
+        self.assertNotIn("LLM", emb_warns[0])
+
+    def test_architecture_source_is_prompt_types(self):
+        res = self._dispatch_highcard()
+        self.assertEqual(res["architecture_decision"]["source"], "prompt_types")
+        self.assertEqual(res["architecture_decision"]["kind"], "composite")
+
+
 class DeterministicParityTest(unittest.TestCase):
     """(d) sin LLM, el determinista honra los mismos tipos: un eco del LLM con la
     misma información no cambia la metadata resultante."""
