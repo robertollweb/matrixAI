@@ -699,5 +699,53 @@ END
         self.assertEqual(payload["errors"], ["Parameter W1 expected shape [3, 8], got [1, 1]"])
 
 
+class ManifestValueCapTest(unittest.TestCase):
+    """El manifest describe el contrato (name/shape/initializer); NO es un
+    contenedor de pesos. Materializar cada valor en Python puro es O(params):
+    una 16x16384 (~4B params) tardaba ~1h de CPU y >16 GB de RAM en generar
+    un manifest que ninguna UI renderiza — el 'Server error' de Colab al
+    generar el prompt gigante. Por encima del cap, la entrada lleva
+    initial_value_omitted (metadata) y el initial_parameters() del compilado
+    diferenciable la salta limpiamente (ya ignoraba entradas sin valor)."""
+
+    def _manifest_for(self, width: int) -> list[dict]:
+        from matrixai.training.dense_generator import DenseNetworkGenerator
+        gen = DenseNetworkGenerator().generate(
+            f"red densa pura de 2 capas y {width} unidades para detectar fraude\n"
+            "FEATURES: a, b, c, d"
+        )
+        report = BackendContractAnalyzer().analyze(parse_text(gen.mxai_text))
+        return report.to_dict()["parameter_manifest"]
+
+    def test_small_tensors_keep_full_values(self) -> None:
+        manifest = self._manifest_for(64)  # 64x64 = 4096 << cap
+        with_shape = [m for m in manifest if m.get("shape")]
+        self.assertTrue(with_shape)
+        for entry in with_shape:
+            self.assertIn("initial_value", entry)
+            self.assertNotIn("initial_value_omitted", entry)
+
+    def test_large_tensors_are_metadata_only(self) -> None:
+        import math as _math
+        import time
+        t0 = time.time()
+        manifest = self._manifest_for(4096)  # 4096x4096 = 16.7M > cap
+        elapsed = time.time() - t0
+        big = [m for m in manifest
+               if m.get("shape") and _math.prod(m["shape"]) > 65_536]
+        self.assertTrue(big)
+        for entry in big:
+            self.assertNotIn("initial_value", entry)
+            omitted = entry["initial_value_omitted"]
+            self.assertEqual(omitted["elements"], _math.prod(entry["shape"]))
+            self.assertIn("initializer", entry)  # la metadata sigue completa
+            self.assertIn("shape", entry)
+        # los sesgos (4096 elementos) siguen bajo el cap, con valores
+        biases = [m for m in manifest if m.get("role") == "bias" and m.get("shape")]
+        self.assertTrue(all("initial_value" in b for b in biases))
+        # y sin materializar los 33M de pesos esto es subsegundo (antes ~30s)
+        self.assertLess(elapsed, 5.0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -213,6 +213,19 @@ class TrainableParameter:
             data["shape"] = list(self.shape)
         return data
 
+    # Cap for materializing `initial_value` in the manifest. The manifest is a
+    # CONTRACT DESCRIPTION (name/shape/initializer), not a weights container:
+    # generating every value in pure Python is O(params) CPU and RAM — a
+    # 16x16384 net (~4B params) took ~1h of CPU and >16 GB just to build a
+    # manifest nobody renders (the playground card and the Studio only use the
+    # metadata columns). 65_536 = one 256x256 layer, so every default-tapered
+    # net (max width 256) keeps full values and stays byte-identical; only
+    # explicitly big prompt-built nets get metadata-only entries. The compiled
+    # differentiable-python `initial_parameters()` already skips entries
+    # without `initial_value` (and embedding billions of literals in generated
+    # source was never viable anyway).
+    MANIFEST_MAX_ELEMENTS = 65_536
+
     def to_manifest_dict(self) -> dict[str, Any]:
         data = self.to_dict()
         data["dtype"] = "float32"
@@ -220,7 +233,17 @@ class TrainableParameter:
         data["trainable"] = True
         data["path"] = self.path or self.name
         if self.shape is not None:
-            data["initial_value"] = self.initial_value
+            elements = math.prod(self.shape)
+            if elements <= self.MANIFEST_MAX_ELEMENTS:
+                data["initial_value"] = self.initial_value
+            else:
+                data["initial_value_omitted"] = {
+                    "elements": elements,
+                    "reason": (
+                        f"tensor exceeds the manifest cap ({self.MANIFEST_MAX_ELEMENTS} "
+                        "elements); initialize from 'initializer' + 'shape'"
+                    ),
+                }
         return data
 
     @property
