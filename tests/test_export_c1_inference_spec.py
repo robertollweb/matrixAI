@@ -124,6 +124,23 @@ class ScalarEncodingTest(unittest.TestCase):
         )
         self.assertEqual(spec["fields"]["t"]["range"], [30, 45])
 
+    def test_unknown_field_range_raises(self):
+        vec = _vector(["edad"])
+        with self.assertRaises(InferenceSpecError):
+            build_inference_spec(
+                _program(vec), _ps(), _export_result(input_shape=[-1, 1]),
+                field_ranges={"fantasma": (0.0, 1.0)},
+            )
+
+    def test_boolean_field_cannot_have_scalar_range(self):
+        vec = _vector(["activo"])
+        with self.assertRaises(InferenceSpecError):
+            build_inference_spec(
+                _program(vec), _ps(), _export_result(input_shape=[-1, 1]),
+                field_ranges={"activo": (18.0, 95.0)},
+                field_types={"activo": "boolean"},
+            )
+
 
 class OneHotEncodingTest(unittest.TestCase):
     def setUp(self):
@@ -165,6 +182,15 @@ class OneHotEncodingTest(unittest.TestCase):
             self.assertNotIn(col, spec["fields"])
         # the plain scalar is still there
         self.assertIn("edad", spec["fields"])
+
+    def test_range_for_one_hot_group_raises(self):
+        with self.assertRaises(InferenceSpecError):
+            build_inference_spec(
+                _program(self.vec), _ps(),
+                _export_result(input_shape=[-1, len(self.vec.fields)]),
+                field_categories={"especialidad": self.values},
+                field_ranges={"especialidad": (0.0, 1.0)},
+            )
 
 
 class EmbeddingEncodingTest(unittest.TestCase):
@@ -286,6 +312,13 @@ class FieldTypesTest(unittest.TestCase):
                                     _export_result(input_shape=[-1, 1]),
                                     field_types={"f": "number"})
         self.assertEqual(spec["fields"]["f"]["type"], "number")
+
+    def test_unknown_field_type_raises(self):
+        vec = _vector(["edad"])
+        with self.assertRaises(InferenceSpecError):
+            build_inference_spec(_program(vec), _ps(),
+                                 _export_result(input_shape=[-1, 1]),
+                                 field_types={"fantasma": "boolean"})
 
 
 class EmbeddingVocabFromMxaiTest(unittest.TestCase):

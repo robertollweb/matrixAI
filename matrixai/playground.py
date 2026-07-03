@@ -508,10 +508,21 @@ def _generate_synthetic_dataset(
         mxai_text, training_text, excluded_ids = exclude_identifiers(
             mxai_text, training_text, field_identifiers,
         )
+        # GEN C6: a categorical already materialized as an EMBEDDING (its column
+        # is an embedding source — an Integer index in the VECTOR) must NOT be
+        # one-hot expanded: the model consumes ONE index column, and expanding it
+        # would corrupt the dataset (15 one-hot columns for a 1-column input).
+        # Its human vocab still travels (echoed below) for inference/export.
+        _pre = parse_text(mxai_text)
+        _emb_sources: set[str] = {
+            e.source for n in _pre.networks for e in getattr(n, "embeddings", [])
+        }
+        _expandable = {c: v for c, v in (field_categories or {}).items()
+                       if c not in _emb_sources}
         # S2-C2: expand declared categoricals to one-hot BEFORE parsing, so the
         # whole pipeline (program, generator, returned model) sees the expanded
         # VECTOR/columns. With no categoricals this is a no-op.
-        expansion = expand_categoricals(mxai_text, training_text, field_categories)
+        expansion = expand_categoricals(mxai_text, training_text, _expandable)
         mxai_text = expansion.mxai_text
         training_text = expansion.training_text
         one_hot_members = set(expansion.members.keys())
@@ -520,12 +531,36 @@ def _generate_synthetic_dataset(
         program = parse_text(mxai_text)
         training = parse_training_text(training_text)
 
+        # GEN C6: a model whose categoricals were expanded AT GENERATION TIME
+        # (C2: prompt-declared one-hot) arrives with the expanded columns already
+        # in the VECTOR and field_categories as metadata — expand_categoricals is
+        # a no-op then (the raw column no longer exists). Reconstruct the one-hot
+        # groups from the metadata so the sampler still emits exactly one 1 per
+        # group (instead of independent random scalars) and the echoed
+        # field_categories/one_hot_groups don't silently drop the metadata.
+        one_hot_groups = dict(expansion.groups)
+        if field_categories:
+            from matrixai.training.categorical import _build_group_names  # noqa: PLC0415
+            _cols = set(training.dataset.input.columns)
+            for _cat, _values in field_categories.items():
+                if _cat in one_hot_groups or _cat in _cols or not _values:
+                    continue
+                _members = _build_group_names(_cat, list(_values))
+                if _members and all(m in _cols for m in _members):
+                    one_hot_groups[_cat] = _members
+                    one_hot_members.update(_members)
+
         # M6: precedence user > LLM > default. The LLM only fills the gaps the
         # user left open; if the override covers every input column it is never
         # called (no wasted latency on regenerate-with-edited-ranges).
-        # S2-C2: one-hot members are 0/1, never ranged/typed.
+        # S2-C2 / GEN C6: one-hot members are 0/1, never ranged/typed.
+        # Embedding sources are integer lookup indices (e.g. 0..14), not domain
+        # scalars; LLM/user ranges must never normalize or re-sample them.
         input_columns = list(training.dataset.input.columns)
-        rangeable = [c for c in input_columns if c not in one_hot_members]
+        rangeable = [
+            c for c in input_columns
+            if c not in one_hot_members and c not in _emb_sources
+        ]
         user_ranges = {
             col: rng for col, rng in (field_ranges_override or {}).items()
             if col in rangeable
@@ -585,7 +620,7 @@ def _generate_synthetic_dataset(
             # back at the boundary using the field_ranges returned below.
             domain_scale=True,
             field_types=types or None,
-            one_hot_groups=expansion.groups or None,
+            one_hot_groups=one_hot_groups or None,
             domain_rules=domain_rules,
         )
         adapter = generator.generate()
@@ -613,7 +648,7 @@ def _generate_synthetic_dataset(
                 field_ranges=field_ranges if field_ranges else None,
                 domain_scale=True,
                 field_types=types or None,
-                one_hot_groups=expansion.groups or None,
+                one_hot_groups=one_hot_groups or None,
                 domain_rules=None,
             )
             adapter = generator.generate()
@@ -651,12 +686,15 @@ def _generate_synthetic_dataset(
             "field_ranges": {k: [v[0], v[1]] for k, v in field_ranges.items()},
             # S2: declared types actually applied to this dataset
             "field_types": types,
-            # S2-C2: categoricals that were expanded to one-hot. The client must
-            # use the returned (expanded) model for train/save and render a
-            # single selector per category at inference time.
+            # S2-C2: categoricals that were expanded to one-hot — here or at
+            # generation time (GEN C6: pre-expanded models keep their metadata) —
+            # plus EMBEDDING categoricals (their human vocab must keep travelling
+            # to train/save/export, invariante 4). The client must use the
+            # returned (expanded) model for train/save and render a single
+            # selector per category at inference time.
             "field_categories": {col: list(vals) for col, vals in (field_categories or {}).items()
-                                 if col in expansion.groups},
-            "one_hot_groups": {col: list(members) for col, members in expansion.groups.items()},
+                                 if col in one_hot_groups or col in _emb_sources},
+            "one_hot_groups": {col: list(members) for col, members in one_hot_groups.items()},
             # S2-C4: identifier columns dropped from the model (no predictive signal)
             "excluded_identifiers": excluded_ids,
         }
@@ -2672,12 +2710,15 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 # M8-B1: record who chose the architecture + the LLM's rationale,
                 # for auditability. The deterministic sanitizer (A1) still governs.
                 _emitted_embeddings = bool(getattr(gen, "embeddings", []))
-                _is_residual = (
-                    llm_architecture == "residual" or _prompt_wants_composite(prompt)
-                )
+                # GEN C6: label the architecture ACTUALLY generated, not the routing
+                # intent. Routing may send a prompt to the composite generator and
+                # still get a plain dense network back (e.g. every proposed
+                # categorical was rejected by validation) — showing "composite
+                # (embeddings)" for an all-Scalar dense model was the Colab debt.
+                _emitted_blocks = bool(getattr(gen, "blocks", []))
                 arch_kind = (
-                    "residual" if _is_residual
-                    else "composite" if want_composite  # M2 v2 C5: embedding-only composite
+                    "residual" if _emitted_blocks
+                    else "composite" if (getattr(gen, "is_composite", False) or _emitted_embeddings)
                     else "dense"
                 )
                 result["architecture_decision"] = {

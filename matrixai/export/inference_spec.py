@@ -76,18 +76,49 @@ def build_inference_spec(
     # 1. One-hot groups: a categorical whose expanded columns live in input_order.
     #    Reuse the exact training-time column naming so raw->column is authoritative,
     #    never reconstructed by heuristics in the consumer.
+    #    GEN C6 (invariante 6): the metadata must MATCH the model — a group that is
+    #    partial, missing, or left as a raw scalar used to be swallowed silently
+    #    (its columns fell back to scalar01, or some categories became unreachable),
+    #    producing a bundle that contradicts what the consumer was told. Fail the
+    #    spec loudly instead (the bundle machinery surfaces the reason).
     for group, values in field_categories.items():
-        col_names = _build_group_names(group, list(values))
-        pairs = [
-            {"raw": raw, "column": col}
-            for raw, col in zip(values, col_names)
-            if col in order_set
-        ]
-        if len(pairs) >= 2:
-            entry: dict[str, Any] = {"encoding": "one_hot", "values": pairs}
-            _annotate_type(entry, _resolve_field_type(group, field_types, vector))
-            fields[group] = entry
-            consumed.update(p["column"] for p in pairs)
+        if group in embeddings:
+            continue  # embedding-encoded categorical: handled (and checked) below
+        values = list(values)
+        if len(values) < 2:
+            raise InferenceSpecError(
+                f"field_categories for {group!r} declares {len(values)} value(s); a "
+                "categorical needs at least 2. The metadata is malformed."
+            )
+        col_names = _build_group_names(group, values)
+        present = [col for col in col_names if col in order_set]
+        if not present:
+            if group in order_set:
+                raise InferenceSpecError(
+                    f"field_categories declares {len(values)} categories for {group!r} "
+                    "but the model kept it as a plain scalar column (neither one-hot "
+                    "columns nor an embedding). Metadata and model contradict each "
+                    "other; re-generate the dataset/model with these categories or "
+                    "drop the category metadata."
+                )
+            raise InferenceSpecError(
+                f"field_categories references {group!r} but the model has neither that "
+                f"column nor its one-hot columns ({col_names[0]}, …). This metadata "
+                "does not belong to this model."
+            )
+        if len(present) != len(col_names):
+            missing = [c for c in col_names if c not in order_set]
+            raise InferenceSpecError(
+                f"field_categories for {group!r} declares {len(col_names)} one-hot "
+                f"columns but the model is missing {missing}. Vocabulary and model "
+                "disagree — some categories would be unreachable. Re-generate the "
+                "dataset/model with the same category values."
+            )
+        pairs = [{"raw": raw, "column": col} for raw, col in zip(values, col_names)]
+        entry: dict[str, Any] = {"encoding": "one_hot", "values": pairs}
+        _annotate_type(entry, _resolve_field_type(group, field_types, vector))
+        fields[group] = entry
+        consumed.update(p["column"] for p in pairs)
 
     # 2. Remaining columns: embedding index, scalar with range, or scalar01.
     for col in input_order:
@@ -96,7 +127,16 @@ def build_inference_spec(
         if col in embeddings:
             entry = {"encoding": "embedding_index", "column": col}
             # Human vocab from the Studio metadata, else from the .mxai type args.
-            human_vocab = field_categories.get(col) or _program_vocab(vector, col)
+            declared = field_categories.get(col)
+            if declared is not None and len(declared) != int(embeddings[col]):
+                # GEN C6 (invariante 6): a vocab that disagrees with the embedding
+                # table size would index out of range (or leave rows unreachable).
+                raise InferenceSpecError(
+                    f"field_categories for {col!r} has {len(declared)} values but the "
+                    f"embedding table has {int(embeddings[col])} rows. Metadata and "
+                    "model disagree; re-generate/re-train with the same vocabulary."
+                )
+            human_vocab = declared or _program_vocab(vector, col)
             if human_vocab:
                 entry["vocab"] = list(human_vocab)
             else:
@@ -105,12 +145,20 @@ def build_inference_spec(
             fields[col] = entry
             continue
         rng = field_ranges.get(col) or _program_range(vector, col)
+        type_name = _resolve_field_type(col, field_types, vector)
         if rng is not None:
+            if type_name == "boolean":
+                raise InferenceSpecError(
+                    f"field_ranges for {col!r} contradicts boolean type metadata. "
+                    "Booleans are encoded as 0/1 flags, not normalized over a scalar range."
+                )
             entry = {"encoding": "scalar", "range": [_num(rng[0]), _num(rng[1])]}
         else:
             entry = {"encoding": "scalar01"}
-        _annotate_type(entry, _resolve_field_type(col, field_types, vector))
+        _annotate_type(entry, type_name)
         fields[col] = entry
+
+    _validate_explicit_metadata(fields, field_ranges, field_types)
 
     spec: dict[str, Any] = {
         "spec_version": SPEC_VERSION,
@@ -136,6 +184,56 @@ def build_inference_spec(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _validate_explicit_metadata(
+    fields: dict[str, Any],
+    field_ranges: dict[str, tuple[float, float]],
+    field_types: dict[str, str],
+) -> None:
+    """GEN C6 invariant 6: explicit metadata must describe this model.
+
+    Categories already fail while their encodings are built. Ranges and semantic
+    types need the same hard boundary: unknown metadata, ranges on categorical
+    encodings, or boolean+range combinations would make predict.py normalize the
+    wrong raw value while pretending the bundle is self-usable.
+    """
+    for name in field_ranges:
+        entry = fields.get(name)
+        if entry is None:
+            raise InferenceSpecError(
+                f"field_ranges references {name!r} but the model has no such raw "
+                "input field. This metadata does not belong to this model."
+            )
+        if entry.get("encoding") != "scalar":
+            raise InferenceSpecError(
+                f"field_ranges for {name!r} targets a {entry.get('encoding')!r} "
+                "field. Only scalar input fields can have numeric ranges."
+            )
+        if entry.get("type") == "boolean":
+            raise InferenceSpecError(
+                f"field_ranges for {name!r} contradicts boolean type metadata. "
+                "Booleans are encoded as 0/1 flags, not normalized over a scalar range."
+            )
+
+    for name, type_name in field_types.items():
+        entry = fields.get(name)
+        if entry is None:
+            raise InferenceSpecError(
+                f"field_types references {name!r} but the model has no such raw "
+                "input field. This metadata does not belong to this model."
+            )
+        if entry.get("encoding") not in {"scalar", "scalar01"}:
+            raise InferenceSpecError(
+                f"field_types[{name!r}]={type_name!r} targets a "
+                f"{entry.get('encoding')!r} field. Semantic number/integer/boolean "
+                "types only apply to scalar input fields."
+            )
+        if type_name == "boolean" and entry.get("encoding") == "scalar":
+            raise InferenceSpecError(
+                f"field_types[{name!r}]='boolean' contradicts a scalar range. "
+                "Booleans are encoded as 0/1 flags, not normalized over a range."
+            )
+
 
 def build_example_input(spec: dict[str, Any]) -> dict[str, Any]:
     """A minimal, safe RAW example record compatible with the spec.
