@@ -30,6 +30,7 @@ from matrixai.tooling import diagnose_runtime_compiler, graph_program
 from matrixai.training.dataset_manifest import DatasetManifest, verify_dataset_manifest
 from matrixai.training.generator import TrainingPromptGenerator
 from matrixai.training.parser import parse_training_text
+from matrixai.training.dense_generator import _ONEHOT_MAX
 from matrixai.training.dense_trainer import DenseSupervisedEvaluator, DenseSupervisedTrainer
 from matrixai.training.trainer import GenericSupervisedEvaluator, GenericSupervisedTrainer, SupervisedEvaluator, SupervisedTrainer
 from matrixai.training.verifier import TrainingVerifier
@@ -2302,10 +2303,13 @@ _DENSE_SCHEMA_SYSTEM = (
     "choose 'residual' ONLY for genuinely deep/complex non-linear problems. NEVER put "
     "a narrow ReLU layer right before the output.\n"
     "LAYERS: comma-separated hidden layer sizes (2-12 integers; honour any architecture the user explicitly requests, e.g. 64, 64, 64, 32)\n"
-    "CATEGORICALS: comma-separated 'field:vocab' for high-cardinality categorical "
-    "features that have NO natural order (e.g. product_id:5000, diagnosis_code:1200). "
-    "vocab is the approximate number of distinct values. Omit the line when there are "
-    "no such features; do NOT list ordered/numeric features here.\n"
+    "CATEGORICALS: comma-separated 'field:vocab' for HIGH-cardinality categorical "
+    f"features (more than {_ONEHOT_MAX} distinct values) that have NO natural order "
+    "(e.g. product_id:5000, diagnosis_code:1200). vocab is the approximate number of "
+    "distinct values. Omit the line when there are no such features; do NOT list "
+    "ordered/numeric features here, nor fields the user already declared with an "
+    "explicit type (Categorical[...], Boolean, Scalar[...]) — those are honored "
+    "from the prompt directly.\n"
     "RATIONALE: one short sentence justifying the architecture choice\n\n"
     "Use precise domain vocabulary. No explanations beyond the RATIONALE line."
 )
@@ -2557,6 +2561,22 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
 
             # M2-C3: robustness notices (the downloadable Studio gets unknown prompts)
             gen_warnings: list[str] = []
+            # GEN C5: the LLM threshold is aligned with _ONEHOT_MAX. A low-vocab
+            # proposal is one-hot territory (a bare count has no values to one-hot),
+            # so it must not drag the prompt to the composite path — filter it here
+            # (routing) with a visible warning; the generator applies the same
+            # policy for direct callers (invariant 5).
+            _low_vocab = {f: v for f, v in llm_categoricals.items() if v <= _ONEHOT_MAX}
+            if _low_vocab:
+                llm_categoricals = {f: v for f, v in llm_categoricals.items()
+                                    if v > _ONEHOT_MAX}
+                gen_warnings.append(
+                    "Categóricas propuestas por el LLM ignoradas (vocab ≤ "
+                    f"{_ONEHOT_MAX}, territorio one-hot): "
+                    + ", ".join(f"{f} ({v})" for f, v in _low_vocab.items())
+                    + ". Decláralas en el prompt como Categorical[valores...] para "
+                    "one-hot con valores humanos."
+                )
             is_seq = _prompt_is_sequence(prompt)
             if is_seq:
                 gen_warnings.append(
@@ -2568,13 +2588,24 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 gen_warnings.append(
                     "Operaciones no soportadas (se omiten): " + ", ".join(unsupported) + "."
                 )
+            # GEN C5 (diferido de C2): a PROMPT-declared categorical beyond one-hot
+            # territory (> _ONEHOT_MAX values) needs the embedding path — the dense
+            # generator would leave it scalar. Route it to the composite generator,
+            # which materializes it as EMBEDDING with the human vocab persisted.
+            from matrixai.generation import parse_field_specs  # noqa: PLC0415
+            _prompt_highcard = any(
+                f.kind == "categorical" and f.values and len(f.values) > _ONEHOT_MAX
+                for f in parse_field_specs(prompt).fields
+            )
             # Composite when the prompt hints at it OR the LLM (M8-B1) proposes
-            # 'residual' OR the LLM (M2 v2 C5) declares categoricals for EMBEDDING;
+            # 'residual' OR the LLM (M2 v2 C5) declares categoricals for EMBEDDING
+            # OR the prompt declares a high-cardinality categorical (GEN C5);
             # never for sequence prompts (flat-CSV pipeline, v1).
             want_composite = (
                 _prompt_wants_composite(prompt)
                 or llm_architecture == "residual"
                 or bool(llm_categoricals)
+                or _prompt_highcard
             ) and not is_seq
             try:
                 if want_composite:
@@ -2582,7 +2613,7 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                         CompositeNetworkGenerator,
                     )
                     # M2 v2 C5: LLM-declared high-cardinality categoricals become native
-                    # EMBEDDING blocks (the generator emits EMBEDDING+CONCAT for vocab>5).
+                    # EMBEDDING blocks (EMBEDDING+CONCAT for vocab > _ONEHOT_MAX, GEN C5).
                     # Small/ordered features stay scalar; one-hot remains the editor path.
                     # force_residual ensures a residual block when the prompt asks for one.
                     comp_kwargs = {

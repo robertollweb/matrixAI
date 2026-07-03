@@ -219,6 +219,19 @@ class DenseNetworkGenerator:
             if name in specs_by_name and specs_by_name[name].kind == "categorical"
             and 2 <= len(specs_by_name[name].values or []) <= _ONEHOT_MAX
         }
+        # GEN C5: a declared categorical beyond one-hot territory needs the embedding
+        # (composite) path — the playground dispatch routes it there. A DIRECT dense
+        # call leaves it scalar; say so loudly instead of dropping the declaration
+        # in silence (spec_warnings feeds result.warnings below).
+        for name in resolved_fields:
+            spec = specs_by_name.get(name)
+            if (spec is not None and spec.kind == "categorical" and spec.values
+                    and len(spec.values) > _ONEHOT_MAX):
+                spec_warnings.append(
+                    f"'{name}': Categorical de {len(spec.values)} valores "
+                    f"(> {_ONEHOT_MAX}) requiere el path composite (embedding); "
+                    "el generador denso la deja como escalar."
+                )
         template_fields = resolved_fields
         if categoricals:
             expansion = expand_categoricals(mxai_text, training_text, categoricals)
@@ -546,17 +559,40 @@ def resolve_prompt_fields(dg, prompt, input_fields):
     from parse_field_specs (not the mangling _extract_fields), and bare untyped
     fields are added from the prompt with the typed declarations stripped.
 
+    GEN C5: caller/LLM ``input_fields`` are sanitized here — a name that is not a
+    valid identifier ("customer age") would be written verbatim into the .mxai
+    VECTOR and crash the parser downstream, so it is normalized with `_identifier`
+    (or dropped if nothing survives), with a warning. Valid names pass verbatim.
+
     Returns ``(resolved_fields, specs_by_name, field_ranges, field_types, warnings)``.
     field_ranges/field_types are METADATA only (never written into the .mxai VECTOR;
     training data is [0,1]-normalized — see GENERACION_TIPOS_PROMPT_CONTRACT.md C3).
     """
     parsed = parse_field_specs(prompt)
     specs_by_name = parsed.by_name()
+    warnings = list(parsed.warnings)
     typed_names = [f.name for f in parsed.fields]
     bare_clean = " ".join(strip_field_specs(prompt).split())
     bare_names = [n for n in (dg._extract_fields(bare_clean) or []) if n not in specs_by_name]
+    caller_fields: list[str] = []
+    for raw in (input_fields or []):
+        name = str(raw)
+        if not _VALID_FIELD_NAME_RE.fullmatch(name):
+            fixed = _identifier(name)
+            if not fixed:
+                warnings.append(
+                    f"input_fields: nombre inválido {name!r} descartado "
+                    "(no queda un identificador utilizable)."
+                )
+                continue
+            warnings.append(
+                f"input_fields: nombre inválido {name!r} normalizado a '{fixed}' "
+                "(el nombre crudo rompería el .mxai)."
+            )
+            name = fixed
+        caller_fields.append(name)
     resolved_fields: list[str] = []
-    for n in (list(input_fields) if input_fields else []) + typed_names + bare_names:
+    for n in caller_fields + typed_names + bare_names:
         if n not in resolved_fields:
             resolved_fields.append(n)
     if not resolved_fields:
@@ -577,7 +613,7 @@ def resolve_prompt_fields(dg, prompt, input_fields):
             field_types[name] = "boolean"
         elif spec.kind == "scalar" and spec.integer:
             field_types[name] = "integer"
-    return resolved_fields, specs_by_name, field_ranges, field_types, list(parsed.warnings)
+    return resolved_fields, specs_by_name, field_ranges, field_types, warnings
 
 
 def _default_network_name(task: str) -> str:
@@ -685,6 +721,11 @@ def _build_training_text(
 def _norm(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value)
     return normalized.encode("ascii", "ignore").decode("ascii")
+
+
+# GEN C5: what the .mxai parser accepts as a VECTOR field name. Anything else
+# written verbatim into the VECTOR block raises MatrixAIParseError downstream.
+_VALID_FIELD_NAME_RE = re.compile(r"[A-Za-z_]\w*")
 
 
 def _identifier(value: str) -> str:

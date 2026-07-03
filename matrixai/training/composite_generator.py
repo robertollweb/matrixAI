@@ -14,6 +14,7 @@ from matrixai.training.dense_generator import (
     DenseNetworkGenerator,
     resolve_prompt_fields,
     resolve_task_and_labels,
+    _ONEHOT_MAX,
     _any,
     _build_training_text,
     extract_epochs_from_prompt,
@@ -137,11 +138,35 @@ class CompositeNetworkGenerator:
                 if spec is not None and spec.kind == "categorical" and spec.values:
                     cat_fields_dict[name] = len(spec.values)
                     field_categories[name] = list(spec.values)
-            # LLM-declared categoricals (do not override the prompt).
+            # GEN C5: LLM/caller-declared categoricals are VALIDATED against the
+            # prompt's explicit types before being honored:
+            # - a field the prompt typed as NON-categorical (Scalar/Boolean/Integer)
+            #   never becomes an embedding because the LLM said so — the prompt wins
+            #   (invariante 1), with a warning;
+            # - vocab <= _ONEHOT_MAX is one-hot territory, and a bare count cannot
+            #   one-hot (no values) -> dropped with a warning pointing at the
+            #   Categorical[valores...] prompt syntax. Aligns the old `> 5` with C2.
             if categorical_fields is not None:
                 for f, v in categorical_fields.items():
-                    if f not in cat_fields_dict and v > 5:
+                    if f in cat_fields_dict:
+                        continue  # the prompt already declared it (with values)
+                    spec = specs_by_name.get(f)
+                    if spec is not None and spec.kind != "categorical":
+                        spec_warnings.append(
+                            f"categorical_fields[{f!r}] (LLM) ignorado: el prompt "
+                            f"declara '{f}' como {spec.kind} y el prompt gana "
+                            "(invariante 1)."
+                        )
+                        continue
+                    if v > _ONEHOT_MAX:
                         cat_fields_dict[f] = v
+                    else:
+                        spec_warnings.append(
+                            f"categorical_fields[{f!r}] (vocab {v} ≤ {_ONEHOT_MAX}) "
+                            "ignorado: es territorio one-hot y un recuento no da los "
+                            "valores; decláralo en el prompt como Categorical[...] "
+                            "para one-hot con valores humanos."
+                        )
             # Heuristic auto-detect only when there was NO explicit source (prompt/LLM).
             elif not field_categories:
                 for f in resolved_fields:

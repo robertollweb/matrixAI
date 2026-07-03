@@ -227,9 +227,11 @@ class EmbeddingRoundTripTest(_RoundTripBase):
         from matrixai.types import check_composite_network_types
         from matrixai.training.composite_generator import CompositeNetworkGenerator
 
+        # GEN C5: vocab must exceed _ONEHOT_MAX (12) for a caller-declared
+        # categorical to become an embedding (below it is one-hot territory).
         gen = CompositeNetworkGenerator().generate(
             "Clasificar bajo medio alto con bloques residuales",
-            categorical_fields={"categoria": 12}, force_residual=True,
+            categorical_fields={"categoria": 16}, force_residual=True,
             input_fields=["categoria", "precio"],
         )
         mxai = gen.mxai_text
@@ -262,7 +264,7 @@ class EmbeddingRoundTripTest(_RoundTripBase):
         return v
 
     def test_roundtrip_human_vocab(self):
-        vocab = [f"c{i}" for i in range(12)]
+        vocab = [f"c{i}" for i in range(16)]
         model = self._build_model(human_vocab=vocab)
         raw = {"categoria": "c5", "precio": 500}
         v_studio = self._v_studio(vocab.index("c5"), 500)
