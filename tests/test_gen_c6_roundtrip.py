@@ -335,6 +335,89 @@ class EmbeddingDatasetRangeIsolationTest(unittest.TestCase):
         self.assertTrue(all(v.is_integer() and 0 <= v <= 14 for v in vals), vals)
 
 
+class BooleanRangeIsolationTest(unittest.TestCase):
+    """GEN C6 audit: boolean columns are 0/1 flags — never rangeable.
+
+    A user/LLM range on a prompt-declared Boolean poisoned the echoed
+    field_ranges: training normalization squashed the flag (1 → 0.01 with
+    [0,100]) and the export rejected the spec (invariante 6) — the C6 promise
+    broke exactly when the LLM was active. Booleans keep their type annotation
+    and stay out of the range machinery entirely.
+    """
+
+    PROMPT = (
+        "clasificacion binaria de abandono\nFEATURES:\n"
+        "  edad: Scalar en [18, 95]\n"
+        "  tiene_hipoteca: Boolean\n"
+    )
+
+    def _generated(self):
+        res = analyze_playground_request(
+            {"mode": "prompt", "prompt": self.PROMPT, "use_llm": False})
+        self.assertTrue(res.get("ok"), res.get("error"))
+        return res
+
+    def test_llm_ranges_do_not_include_booleans(self):
+        import csv as csvmod
+        import io
+        from unittest.mock import patch
+        res = self._generated()
+        seen: list[str] = []
+
+        def fake_ranges(fields, context=""):
+            seen.extend(fields)
+            return {f: (0.0, 100.0) for f in fields}
+
+        with patch("matrixai.playground._detect_llm_mode",
+                   return_value={"active": True, "model": "x", "provider": "test"}), \
+             patch("matrixai.playground._llm_field_ranges", side_effect=fake_ranges):
+            ds = _generate_synthetic_dataset(
+                res["mxai"], res["training_text"], 20, 7, "random", use_llm=True,
+                field_ranges_override=res["field_ranges"],
+                field_types=res["field_types"],
+                field_categories=res["field_categories"],
+            )
+        self.assertTrue(ds.get("ok"), ds.get("error"))
+        self.assertNotIn("tiene_hipoteca", seen)
+        self.assertNotIn("tiene_hipoteca", ds["field_ranges"])
+        # the type annotation still travels (it is metadata, not a range)
+        self.assertEqual(ds["field_types"], {"tiene_hipoteca": "boolean"})
+        rows = list(csvmod.DictReader(io.StringIO(ds["csv_text"])))
+        self.assertTrue(all(r["tiene_hipoteca"] in {"0", "0.0", "1", "1.0"} for r in rows))
+        # end-to-end: the echoed metadata still yields a usable spec (before the
+        # fix, the boolean range made the export drop it with invariante 6)
+        if _onnx_available():
+            from matrixai.export import create_edge_bundle
+            prog = parse_text(res["mxai"])
+            ps = build_initial_parameter_set(prog)
+            td = Path(tempfile.mkdtemp())
+            self.addCleanup(shutil.rmtree, str(td), True)
+            (td / "m.mxai").write_text(res["mxai"], encoding="utf-8")
+            write_parameter_set(str(td / "p.json"), ps)
+            r = create_edge_bundle(
+                prog, ps, mxai_path=str(td / "m.mxai"), params_path=str(td / "p.json"),
+                outdir=str(td / "b"), validate=False,
+                field_ranges={k: tuple(v) for k, v in ds["field_ranges"].items()},
+                field_types=ds["field_types"],
+                field_categories=ds["field_categories"],
+            )
+            self.assertIsNone(r.inference_spec_skipped_reason)
+
+    def test_user_range_for_boolean_is_ignored(self):
+        res = self._generated()
+        fr = dict(res["field_ranges"])
+        fr["tiene_hipoteca"] = (0.0, 100.0)
+        ds = _generate_synthetic_dataset(
+            res["mxai"], res["training_text"], 20, 7, "random",
+            field_ranges_override=fr,
+            field_types=res["field_types"],
+            field_categories=res["field_categories"],
+        )
+        self.assertTrue(ds.get("ok"), ds.get("error"))
+        self.assertNotIn("tiene_hipoteca", ds["field_ranges"])
+        self.assertIn("edad", ds["field_ranges"])
+
+
 class ArchKindReflectsEmittedNetworkTest(unittest.TestCase):
     """GEN C6 (deuda de Colab): architecture_decision.kind refleja la red
     REALMENTE emitida, no la intención de ruteo — un ruteo composite que acaba

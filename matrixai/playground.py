@@ -557,10 +557,20 @@ def _generate_synthetic_dataset(
         # Embedding sources are integer lookup indices (e.g. 0..14), not domain
         # scalars; LLM/user ranges must never normalize or re-sample them.
         input_columns = list(training.dataset.input.columns)
-        rangeable = [
+        # S2 / GEN C6: declared types only apply to real input columns (not
+        # one-hot members, not embedding lookup indices).
+        typeable = [
             c for c in input_columns
             if c not in one_hot_members and c not in _emb_sources
         ]
+        types = {col: t for col, t in (field_types or {}).items() if col in typeable}
+        # GEN C6 audit: a boolean is a 0/1 flag, like a one-hot member — it must
+        # never carry a domain range. A user/LLM range here would poison the
+        # echoed field_ranges: training normalization squashes the flag (1 →
+        # 0.01 with [0,100]) and the export rejects the spec (invariante 6).
+        # Booleans DO stay type-annotated and remain domain-rule candidates
+        # (they are 0/1 in both domain and normalized space).
+        rangeable = [c for c in typeable if types.get(c) != "boolean"]
         user_ranges = {
             col: rng for col, rng in (field_ranges_override or {}).items()
             if col in rangeable
@@ -575,9 +585,6 @@ def _generate_synthetic_dataset(
             field_ranges = {col: rng for col, rng in llm_ranges.items() if col in gaps}
             llm_ranges_used = bool(field_ranges)
         field_ranges.update(user_ranges)
-
-        # S2: declared types only apply to real (non one-hot) input columns
-        types = {col: t for col, t in (field_types or {}).items() if col in rangeable}
 
         # M8 v2: LLM as domain simulator — propose feature→class threshold rules ONCE,
         # normalize to [0,1], and let the generator label rows deterministically with
@@ -595,8 +602,11 @@ def _generate_synthetic_dataset(
                 and _detect_llm_mode().get("active", False)):
             project = re.search(r"^\s*PROJECT\s+(\S+)", mxai_text, re.MULTILINE)
             context = project.group(1) if project else ""
-            dr = _llm_domain_rules(context, rangeable, dr_labels)
-            if dr is not None and not dr.validate(rangeable, dr_labels):
+            # GEN C6 audit: candidates are the TYPEABLE columns (booleans stay in
+            # even though they are not rangeable — a rule on a 0/1 flag is valid
+            # and needs no range normalization).
+            dr = _llm_domain_rules(context, typeable, dr_labels)
+            if dr is not None and not dr.validate(typeable, dr_labels):
                 domain_rules = dr.normalized(field_ranges)  # eval in [0,1] space
                 domain_rules_text = dr.to_text()             # domain scale, for audit
 
