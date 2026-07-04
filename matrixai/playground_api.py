@@ -68,10 +68,6 @@ from matrixai.playground import (
     # Misc utilities
     _safe_float as safe_float,
 )
-# PESOS_GRANDES C1 — resource estimation lives outside playground.py (it is a
-# generic helper over any parsed program, not a playground-request handler) but
-# is re-exported here so downstream products keep a single stable import surface.
-from matrixai.resources import estimate_model_resources
 
 __all__ = [
     "analyze_playground_request",
@@ -103,5 +99,4 @@ __all__ = [
     "resolve_llm_config_path",
     "detect_llm_mode",
     "safe_float",
-    "estimate_model_resources",
 ]

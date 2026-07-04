@@ -159,5 +159,56 @@ class GiantPromptColabCoherenceTest(unittest.TestCase):
         self.assertAlmostEqual(est.binary_disk_gib, 15.0, delta=0.1)
 
 
+class ScalarParameterAuditTest(unittest.TestCase):
+    """Auditoría (MEDIA): un tensor entrenable ESCALAR tiene shape=[] en el
+    manifest (no ausencia de shape) — p.ej. el bias de sigmoid_linear/
+    linear_regression (fall-risk.typed.mxai: b1, shape=[]). `if not shape`
+    confundía `[]` (escalar real, 1 parámetro) con `shape is None` (sin
+    información) y descontaba cada escalar entrenable del param_count."""
+
+    def test_scalar_bias_counts_as_one_parameter(self) -> None:
+        from pathlib import Path
+        from matrixai.parser import parse_file
+
+        root = Path(__file__).resolve().parents[1]
+        program = parse_file(root / "examples" / "fall-risk.typed.mxai")
+        est = estimate_model_resources(program)
+        # manifest verificado: W1 shape=[5] (5 params) + b1 shape=[] (1 param escalar)
+        self.assertEqual(est.param_count, 6)
+
+
+class RealBatchFromTrainingTextTest(unittest.TestCase):
+    """Auditoría (ALTA): la VRAM se estimaba con el batch por defecto del
+    dispositivo si no se pasaba `batch` explícito, aunque el `.mxtrain` real
+    declarase un BATCH size distinto — invisible para la estimación."""
+
+    def test_batch_declared_in_training_text_is_honored(self) -> None:
+        gen = DenseNetworkGenerator().generate(
+            "clasificar\nFEATURES:\n  a: Scalar\n  b: Scalar\nSALIDA: y: ProbabilityMap[NO, SI]"
+        )
+        # el generador emite "BATCH size=8" por defecto (no rows/batch explícitos)
+        self.assertIn("BATCH size=8", gen.training_text)
+        program = parse_text(gen.mxai_text)
+        est_with_training = estimate_model_resources(
+            program, training_text=gen.training_text, device="cpu"
+        )
+        est_without = estimate_model_resources(program, device="cpu")
+        self.assertEqual(est_with_training.effective_batch, 8)
+        # sin el .mxtrain, cae al default del dispositivo (2048 en CPU) — muy
+        # distinto del BATCH real declarado, y por tanto una VRAM distinta.
+        self.assertEqual(est_without.effective_batch, 2048)
+        self.assertNotEqual(est_with_training.vram_train_gib, est_without.vram_train_gib)
+
+    def test_explicit_batch_wins_over_training_text(self) -> None:
+        gen = DenseNetworkGenerator().generate(
+            "clasificar\nFEATURES:\n  a: Scalar\n  b: Scalar\nSALIDA: y: ProbabilityMap[NO, SI]"
+        )
+        program = parse_text(gen.mxai_text)
+        est = estimate_model_resources(
+            program, training_text=gen.training_text, batch=128, device="cpu"
+        )
+        self.assertEqual(est.effective_batch, 128)
+
+
 if __name__ == "__main__":
     unittest.main()

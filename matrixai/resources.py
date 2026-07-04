@@ -88,6 +88,13 @@ def _manifest_shapes_and_widths(program: Any) -> tuple[list[list[int]], list[int
     Vía `BackendContractAnalyzer`: el manifest ya existe para cualquier programa
     (dense_network, composite_network, o el mundo LAYER/FUNCTION de P1-P11) y es
     O(#tensores) — nunca materializa los `initial_value` (ver fix 9502f56).
+
+    Auditoría: un tensor entrenable ESCALAR tiene `shape=[]` en el manifest (no
+    ausencia de shape) — p.ej. el bias de `sigmoid_linear`/`linear_regression`
+    (ver `test_training_contract.py`, `b1` con `shape=[]`). `shape is None` (la
+    clave "shape" ni aparece) es lo único que significa "sin información de
+    shape, no contar". Confundir `[]` con `None` (`if not shape`) descontaba
+    cada escalar entrenable del `param_count`.
     """
     from matrixai.compiler.backend_contract import BackendContractAnalyzer
 
@@ -96,11 +103,11 @@ def _manifest_shapes_and_widths(program: Any) -> tuple[list[list[int]], list[int
     shapes: list[list[int]] = []
     widths: list[int] = []
     for entry in manifest:
-        shape = entry.get("shape") or []
-        if not shape:
+        shape = entry.get("shape")
+        if shape is None:
             continue
         shapes.append(list(shape))
-        if entry.get("role") == "bias":
+        if entry.get("role") == "bias" and shape:
             widths.append(int(shape[0]))
     return shapes, widths
 
@@ -113,6 +120,27 @@ def _param_count(shapes: list[list[int]]) -> int:
             prod *= int(d)
         total += prod
     return total
+
+
+def _batch_from_training_text(training_text: str) -> int | None:
+    """El BATCH size REAL declarado en el `.mxtrain`, si lo hay.
+
+    Auditoría: la tarjeta del Studio solo pasaba `rows`, nunca el batch — un
+    `.mxtrain` con `BATCH size=65536` explícito quedaba invisible para la
+    estimación de VRAM (que entonces usaba el default del dispositivo, pudiendo
+    subestimarla y no disparar el aviso). Reusa el parser del core (una sola
+    fuente de verdad del BATCH declarado, no una regex duplicada en el frontend).
+    """
+    if not training_text:
+        return None
+    try:
+        from matrixai.training.parser import parse_training_text
+        spec = parse_training_text(training_text)
+    except Exception:  # noqa: BLE001
+        return None
+    if spec.dataset and spec.dataset.batch:
+        return spec.dataset.batch.size
+    return None
 
 
 def _resolve_effective_batch(device: str, batch: int | None, rows: int) -> int:
@@ -129,6 +157,7 @@ def estimate_model_resources(
     *,
     rows: int = 0,
     batch: int | None = None,
+    training_text: str | None = None,
     device: str = "cpu",
 ) -> ResourceEstimate:
     """Estimación de recursos ANTES de entrenar (PESOS_GRANDES C1).
@@ -136,7 +165,10 @@ def estimate_model_resources(
     `program` es un `MatrixAIProgram` ya parseado (el `.mxai` generado). `rows` es
     el tamaño del dataset (0 si aún no se conoce — la estimación de VRAM usa el
     batch por defecto del dispositivo en ese caso); `batch` es un tamaño de lote
-    explícito si el usuario ya lo fijó; `device` es "cpu" o "cuda" (o "cuda:N").
+    explícito si el usuario ya lo fijó (gana sobre lo declarado en `.mxtrain`);
+    `training_text` es el `.mxtrain` generado — si `batch` no se pasa, se deriva
+    de su `BATCH size=...` real (auditoría: antes se ignoraba y un BATCH grande
+    explícito podía subestimar la VRAM); `device` es "cpu" o "cuda" (o "cuda:N").
 
     Nota de alcance (corte C1, decisión al implementar): el borrador del contrato
     proponía además aceptar `shapes` crudas y un parámetro `epochs`. `epochs` no
@@ -153,6 +185,8 @@ def estimate_model_resources(
     weights_bytes = param_count * BYTES_PER_FLOAT32
     weights_gib = weights_bytes / _GIB
 
+    if batch is None and training_text:
+        batch = _batch_from_training_text(training_text)
     eff_batch = _resolve_effective_batch(device, batch, rows)
 
     # VRAM de entrenamiento: pesos + gradientes (SGD sin momentum — verificado en
