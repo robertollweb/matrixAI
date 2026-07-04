@@ -180,6 +180,7 @@ def torch_device_info() -> dict[str, Any]:
     cuda_available = bool(torch.cuda.is_available())
     cuda_version: str | None = None
     device_name: str | None = None
+    total_memory_gib: float | None = None
     if cuda_available:
         devices.append("cuda")
         cuda_version = getattr(torch.version, "cuda", None)
@@ -187,6 +188,10 @@ def torch_device_info() -> dict[str, Any]:
             device_name = torch.cuda.get_device_name(0)
         except Exception:  # noqa: BLE001
             device_name = None
+        try:
+            total_memory_gib = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+        except Exception:  # noqa: BLE001
+            total_memory_gib = None
     mps_available = bool(
         hasattr(torch, "backends")
         and hasattr(torch.backends, "mps")
@@ -202,6 +207,9 @@ def torch_device_info() -> dict[str, Any]:
         "cuda_version": cuda_version,
         "device_name": device_name,
         "mps_available": mps_available,
+        # PESOS_GRANDES C1: capacidad real de VRAM para comparar contra la
+        # estimación de estimate_model_resources() antes de entrenar.
+        "total_memory_gib": total_memory_gib,
     }
 
 
