@@ -26,6 +26,30 @@ def program_hash(program: MatrixAIProgram) -> str:
     return "mxai_" + _digest(program.to_dict())
 
 
+# PESOS_GRANDES C3: cuando el trainer NO materializa (modelo grande, por encima
+# de `resources.torch_native_min_params()`), el job lleva este MARCADOR en
+# `params_best` en vez del dict de valores. Los tensores entrenados viven como
+# `best_state_dict` en la memoria del job (nunca serializados); el marcador es
+# pequeño y JSON-safe. `ParameterSet.from_dict` lo detecta y falla con un error
+# CLARO (no un KeyError críptico) — así CUALQUIER consumidor que espere valores
+# (infer/export/save del Studio, probe M7) recibe el mismo mensaje accionable,
+# sin duplicar el guard en cada sitio.
+TORCH_STATE_WEIGHTS_FORMAT = "torch_state"
+
+
+def build_torch_state_marker(param_count: int) -> dict[str, Any]:
+    """El marcador que va en `params_best` para un modelo grande no materializado."""
+    return {
+        "weights_format": TORCH_STATE_WEIGHTS_FORMAT,
+        "param_count": int(param_count),
+        "materialized": False,
+    }
+
+
+def is_torch_state_marker(data: Any) -> bool:
+    return isinstance(data, dict) and data.get("weights_format") == TORCH_STATE_WEIGHTS_FORMAT
+
+
 def parameter_schema_hash(parameter_manifest: list[dict[str, Any]]) -> str:
     schema = []
     for parameter in parameter_manifest:
@@ -63,6 +87,18 @@ class ParameterSet:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ParameterSet:
+        # PESOS_GRANDES C3: un marcador de pesos torch NO materializados no lleva
+        # valores — sus tensores viven en memoria del job (best_state_dict). Fallar
+        # con un mensaje accionable en vez de un KeyError["parameter_set_id"].
+        if is_torch_state_marker(data):
+            raise ValueError(
+                f"params_best es un marcador de pesos torch sin materializar "
+                f"({data.get('param_count')} params): el modelo supera el umbral "
+                "MATRIXAI_TORCH_NATIVE_MIN_PARAMS y sus pesos viven como tensores en "
+                "memoria del job, no como listas JSON. La persistencia/carga en formato "
+                "binario llega en PESOS_GRANDES C4; no se puede reconstruir una "
+                "ParameterSet desde el marcador."
+            )
         return cls(
             parameter_set_id=str(data["parameter_set_id"]),
             model_hash=str(data["model_hash"]),

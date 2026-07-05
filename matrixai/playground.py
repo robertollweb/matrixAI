@@ -22,7 +22,11 @@ from urllib.parse import urlparse, parse_qs
 
 from matrixai.agents import AuditorAgent, IterationLimitReached, ChatCompletionsLLMProposalProvider, PromptSupervisor, RefinementAgent, SafetyAgent, VerifierAgent
 from matrixai.compiler import BackendContractAnalyzer, PythonBackendCompiler
-from matrixai.parameters.store import ParameterSet
+from matrixai.parameters.store import (
+    ParameterSet,
+    build_torch_state_marker,
+    is_torch_state_marker,
+)
 from matrixai.parser import parse_text
 from matrixai.runtime import MatrixAIRuntime
 from matrixai.sandbox import SandboxPolicy
@@ -1190,30 +1194,28 @@ def _dense_torch_train_result(
             early_stop=(patience, "validation_loss") if patience else None,
             device=device, seed=seed, batch_size=batch_size,
             epoch_callback=_torch_cb, cancel_check=cancel_check,
-            # PESOS_GRANDES frontera C2/C3: C2 dio al trainer la CAPACIDAD de no
-            # materializar (best_state_dict en vez de best_params) por encima del
-            # umbral, pero el resultado del job de aquí abajo sigue asumiendo
-            # best_params.to_dict() (params_best). Sin este materialize=True, un
-            # modelo >umbral entrenaría por torch/GPU, reventaría al montar el
-            # resultado ('NoneType' object has no attribute 'to_dict') y CAERÍA A
-            # STDLIB/CPU en silencio — justo la "GPU parada" que este contrato
-            # combate. Forzar la materialización aquí mantiene el flujo idéntico a
-            # siempre; QUITAR esta línea es exactamente el trabajo de C3 (cablear
-            # best_state_dict en el job y no llamar to_dict() cuando venga None).
-            materialize=True,
+            # PESOS_GRANDES C3: `materialize` sin fijar → el trainer decide por
+            # umbral (`torch_native_min_params`). Por debajo materializa (igual que
+            # siempre, `best_params`); por encima devuelve `best_state_dict`
+            # (tensores CPU) y `best_params=None` — sin el `.tolist()` O(params)
+            # que colgaba al acabar. Este resultado propaga los tensores/marcador
+            # hacia abajo (eval/probe usan `state_dict`; `params_best` = marcador).
         )
         # Visible en Colab: batch del spec (autogenerado = 8) vs el efectivo en GPU.
         _diag(f"entrenamiento OK en {device}: batch spec={batch_size} → efectivo={tr.get('batch_size')} "
               f"(ejemplos={len(examples)}, VRAM pico={tr.get('peak_vram_gb')} GB)")
-        best_ps = tr["best_params"]
+        best_ps = tr["best_params"]                    # None si no se materializó (grande)
+        best_state_dict = tr.get("best_state_dict")    # None si se materializó (pequeño)
         # M14 — evaluación BATCHED en torch/GPU (no fila a fila en CPU). Reusa los
         # `examples` ya cargados; sin re-leer el CSV. Con datasets grandes + redes
         # anchas evita que el run se cuelgue evaluando en CPU tras entrenar en GPU.
+        # C3: si el modelo es grande, evalúa desde los tensores (`state_dict`), no
+        # desde una ParameterSet materializada.
         evaluation_warning: str | None = None
         try:
             dense_result = evaluate_dense_network_torch(
                 net, best_ps, examples, loss_fn, labels=labels or None, device=device,
-                cancel_check=cancel_check,
+                cancel_check=cancel_check, state_dict=best_state_dict,
             )
             evaluation_report = _eval_report_from_dense_result(dense_result, labels)
             evaluation_backend = device
@@ -1228,10 +1230,14 @@ def _dense_torch_train_result(
     # Python de `_probe_model_collapse` (O(params)×4 → minutos y GBs de RAM con redes
     # grandes; era el "se queda pensando" al acabar). Se adjunta aquí para que
     # `_attach_collapse_check` detecte que ya está probado y NO repita la versión lenta.
+    # C3: para un modelo grande el probe usa los tensores (`state_dict`), no la
+    # ParameterSet (que ya no existe materializada).
     _collapse = None
     try:
         from matrixai.training.dense_torch_trainer import probe_collapse_torch
-        _collapse = probe_collapse_torch(net, best_ps, len(vector.fields), device=device)
+        _collapse = probe_collapse_torch(
+            net, best_ps, len(vector.fields), device=device, state_dict=best_state_dict,
+        )
     except Exception:  # noqa: BLE001
         _collapse = None
 
@@ -1257,7 +1263,18 @@ def _dense_torch_train_result(
         "evaluation_warning": evaluation_warning,
         "effective_batch_size": tr.get("batch_size"),
         "epochs": epoch_trace,
-        "params_best": best_ps.to_dict(),
+        # C3: modelo pequeño → dict de valores (igual que siempre); modelo grande →
+        # MARCADOR (sin valores), y los tensores viajan en `best_state_dict` (en
+        # memoria del job; C4 los persiste). `from_dict` sobre el marcador falla
+        # con error claro — protege infer/export/save que esperan valores.
+        "params_best": (
+            best_ps.to_dict() if best_ps is not None
+            else build_torch_state_marker(tr.get("param_count", 0))
+        ),
+        # C3: tensores CPU del modelo grande (None para pequeños). NUNCA se
+        # serializa al frontend — `_get_job_status` lo quita del payload.
+        "best_state_dict": best_state_dict,
+        "materialized": tr.get("materialized", True),
         "metrics": {"epochs": epoch_trace},
         "training_trace": {"backend_report": {"target": device},
                            "task_kind": "regression" if is_reg else "classification"},
@@ -1946,6 +1963,13 @@ def _probe_model_collapse(mxai_text: str, params_best: dict[str, Any]) -> dict[s
     """
     import random  # noqa: PLC0415
 
+    # C3: un modelo grande llega como MARCADOR (sin valores) — este probe por
+    # runtime Python no puede ejecutarlo (y no debe: el camino torch ya lo probó
+    # con `state_dict` durante el entrenamiento y dejó `model_collapsed` en el
+    # resultado). Devolver None de forma limpia, no intentar `from_dict(marcador)`.
+    if is_torch_state_marker(params_best):
+        return None
+
     try:
         program = parse_text(mxai_text)
         networks = getattr(program, "networks", []) or []
@@ -2175,6 +2199,12 @@ def _get_job_status(job_id: str) -> dict[str, Any]:
     }
     if job["status"] == "done" and job.get("result"):
         result.update(job["result"])
+        # C3: los tensores del modelo grande viven SOLO en la memoria del job
+        # (`job["result"]["best_state_dict"]`, que save/export leen directamente).
+        # Nunca deben salir en el status: no son JSON-serializables (reventaría
+        # `_send_json`) y el frontend no los usa. `result` es una copia superficial
+        # nueva, así que quitarlos aquí no toca el job.
+        result.pop("best_state_dict", None)
     return result
 
 
