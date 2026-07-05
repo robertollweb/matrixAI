@@ -336,6 +336,13 @@ class _TrainingCancelled(Exception):
 
 _training_jobs: dict[str, dict[str, Any]] = {}
 _MAX_JOBS = 20
+# PESOS_GRANDES C3: cuántos jobs retienen sus tensores `best_state_dict` en RAM a
+# la vez. Un modelo de 4B son ~15 GiB de tensores CPU; con `_MAX_JOBS=20` jobs
+# grandes podrían acumular cientos de GiB. Solo los N más recientes conservan sus
+# pesos vivos (para save/export/infer de C4-C5); los anteriores los liberan y su
+# resultado marca `weights_evicted` (el marcador en params_best sigue, así que los
+# consumidores dan un error claro, no un crash). N=2 permite train→retrain.
+_LARGE_STATE_RETENTION = int(os.environ.get("MATRIXAI_LARGE_STATE_RETENTION", "2") or "2")
 
 
 def _diag(msg: str) -> None:
@@ -2042,6 +2049,47 @@ def _attach_collapse_check(result: Any, mxai_text: str) -> Any:
     return result
 
 
+# C3: campos internos de un resultado de entrenamiento que NUNCA deben salir por
+# HTTP — `best_state_dict` son tensores torch (no JSON-serializables; los pesos del
+# modelo grande viven en la memoria del job y los lee save/export directamente).
+_NON_PUBLIC_TRAINING_KEYS = ("best_state_dict",)
+
+
+def _public_training_result(result: Any) -> Any:
+    """Vista serializable de un resultado de entrenamiento: sin claves internas.
+
+    Regla ÚNICA de saneado (no duplicar en cada boundary): copia superficial sin
+    `best_state_dict`. La usan TANTO el status async (`_get_job_status`) como el
+    `/api/train` síncrono — sin ella, un modelo grande (con tensores en el result)
+    revienta `json.dumps` con 'Object of type Tensor is not JSON serializable'."""
+    if not isinstance(result, dict):
+        return result
+    if not any(k in result for k in _NON_PUBLIC_TRAINING_KEYS):
+        return result
+    return {k: v for k, v in result.items() if k not in _NON_PUBLIC_TRAINING_KEYS}
+
+
+def _evict_old_large_states() -> None:
+    """PESOS_GRANDES C3: liberar los tensores `best_state_dict` de los jobs grandes
+    más antiguos, conservando solo los `_LARGE_STATE_RETENTION` más recientes.
+
+    Evita que varios jobs grandes (state_dict de muchos GiB cada uno) retengan la
+    RAM del proceso indefinidamente. Los pesos se ponen a None y el resultado marca
+    `weights_evicted=True`; el MARCADOR de `params_best` permanece, así que save/
+    export/infer siguen dando un error claro (nunca un crash) para esos modelos.
+    Idempotente y barato (recorre el registro de jobs, no toca tensores salvo
+    para soltar la referencia)."""
+    holders = [
+        jid for jid, job in _training_jobs.items()
+        if isinstance(job.get("result"), dict)
+        and job["result"].get("best_state_dict") is not None
+    ]
+    for jid in holders[:-_LARGE_STATE_RETENTION] if _LARGE_STATE_RETENTION > 0 else holders:
+        res = _training_jobs[jid]["result"]
+        res["best_state_dict"] = None
+        res["weights_evicted"] = True
+
+
 def _submit_training_job(
     mxai_text: str,
     training_text: str,
@@ -2168,6 +2216,12 @@ def _submit_training_job(
         finally:
             if watchdog is not None:
                 watchdog.cancel()
+            # PESOS_GRANDES C3: acotar la RAM retenida por tensores de jobs grandes
+            # (solo los _LARGE_STATE_RETENTION más recientes conservan best_state_dict).
+            try:
+                _evict_old_large_states()
+            except Exception:  # noqa: BLE001
+                pass
             # Release GPU VRAM back to the OS so Colab/nvidia-smi reflect the stop immediately.
             try:
                 import torch as _torch
@@ -2198,13 +2252,12 @@ def _get_job_status(job_id: str) -> dict[str, Any]:
         "error": job.get("error"),
     }
     if job["status"] == "done" and job.get("result"):
-        result.update(job["result"])
         # C3: los tensores del modelo grande viven SOLO en la memoria del job
         # (`job["result"]["best_state_dict"]`, que save/export leen directamente).
-        # Nunca deben salir en el status: no son JSON-serializables (reventaría
-        # `_send_json`) y el frontend no los usa. `result` es una copia superficial
-        # nueva, así que quitarlos aquí no toca el job.
-        result.pop("best_state_dict", None)
+        # `_public_training_result` los quita del payload (no serializables; el
+        # frontend no los usa) sin tocar el job. Misma regla que el `/api/train`
+        # síncrono.
+        result.update(_public_training_result(job["result"]))
     return result
 
 
@@ -3840,7 +3893,11 @@ def _handler_class(guard: Any = None):
                     str(payload.get("csv_text") or ""),
                     epochs_override,
                 )
-                self._send_json(result, status=200 if result.get("ok") else 422)
+                # C3: el entrenamiento síncrono de un modelo grande devuelve
+                # tensores (best_state_dict) en el result; saneado antes de
+                # serializar, igual que el status async (misma regla, un helper).
+                self._send_json(_public_training_result(result),
+                                status=200 if result.get("ok") else 422)
             elif self.path == "/api/run-with-params":
                 result = _playground_run_with_params(
                     str(payload.get("mxai_text") or ""),
@@ -4572,20 +4629,31 @@ _INDEX_HTML = """<!doctype html>
 
     function renderArtifactDownloads(data) {
       const items = [];
-      if (data.params_best) items.push(['params.best.json', JSON.stringify(data.params_best, null, 2)]);
+      // PESOS_GRANDES C3: un modelo grande deja un MARCADOR en params_best (sin
+      // pesos; los tensores viven en memoria del servidor). NO ofrecerlo como
+      // params.best.json — no son pesos usables. Se explica aparte más abajo.
+      const pbIsMarker = data.params_best && data.params_best.weights_format === 'torch_state';
+      if (data.params_best && !pbIsMarker) items.push(['params.best.json', JSON.stringify(data.params_best, null, 2)]);
       if (data.metrics) items.push(['metrics.json', JSON.stringify(data.metrics, null, 2)]);
       if (data.training_trace) items.push(['training_trace.json', JSON.stringify(data.training_trace, null, 2)]);
       if (data.evaluation_report) items.push(['evaluation_report.json', JSON.stringify(data.evaluation_report, null, 2)]);
+      const markerNote = pbIsMarker
+        ? `<p class="hint" style="margin-top:8px">Modelo grande (${(data.params_best.param_count||0).toLocaleString()} parámetros): los pesos entrenados son tensores en memoria del servidor, no un JSON descargable. La descarga en formato binario llega en un corte posterior (PESOS_GRANDES C4).</p>`
+        : '';
       byId('artifactsPanel').innerHTML = '<div class="train-section"><h3>Artefactos descargables</h3>' +
         items.map(([name, content]) => {
           const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
           return `<a class="download-btn" href="${url}" download="${name}">↓ ${name}</a>`;
-        }).join('') + '</div>';
+        }).join('') + markerNote + '</div>';
       byId('artifactsPanel').classList.remove('hidden');
     }
 
     async function runPrediction() {
       if (!trainState.paramsBest) { alert('Entrena primero para obtener parámetros.'); return; }
+      if (trainState.paramsBest.weights_format === 'torch_state') {
+        alert('Modelo grande: sus pesos son tensores en memoria del servidor y la inferencia desde el playground técnico aún no está soportada (llega en PESOS_GRANDES C5).');
+        return;
+      }
       const mxai = trainState.mxaiText || byId('mxai').value.trim();
       const inputJson = byId('predInput').value.trim() || byId('input').value.trim();
       byId('predBtn').disabled = true;

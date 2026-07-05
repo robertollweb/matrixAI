@@ -181,5 +181,85 @@ class JobStatusStripsTensorsTest(unittest.TestCase):
         json.dumps(st)                                    # status entero es JSON-safe
 
 
+@unittest.skipUnless(_HAS_TORCH, "torch not installed")
+class SyncTrainEndpointResultTest(unittest.TestCase):
+    """Auditoría C3 (ALTA): el `/api/train` SÍNCRONO (`_run_playground_training`)
+    también devuelve tensores para un modelo grande — hay que sanearlos igual
+    que el status async, o `json.dumps` revienta ('Object of type Tensor is not
+    JSON serializable'). `_public_training_result` es la regla común."""
+
+    def _train_sync(self, threshold: str):
+        from matrixai.playground import _run_playground_training
+        with patch.dict("os.environ", {
+            "MATRIXAI_TRAIN_BACKEND": "torch",
+            "MATRIXAI_TORCH_NATIVE_MIN_PARAMS": threshold,
+        }):
+            return _run_playground_training(MXAI, TRAIN, _csv(), epochs_override=3)
+
+    def test_public_result_is_json_safe_for_large_model(self) -> None:
+        from matrixai.playground import _public_training_result
+        from matrixai.parameters.store import is_torch_state_marker
+        res = self._train_sync("1")  # grande → best_state_dict con tensores
+        self.assertIsNotNone(res.get("best_state_dict"))
+        pub = _public_training_result(res)
+        self.assertNotIn("best_state_dict", pub)          # tensores fuera
+        self.assertTrue(is_torch_state_marker(pub["params_best"]))
+        json.dumps(pub)                                   # ya no revienta
+        # el result ORIGINAL conserva los tensores (save/export los necesitan)
+        self.assertIsNotNone(res["best_state_dict"])
+
+    def test_public_result_strips_the_none_state_key_for_small_model(self) -> None:
+        from matrixai.playground import _public_training_result
+        res = self._train_sync("1000000")   # pequeño → best_state_dict=None
+        pub = _public_training_result(res)
+        self.assertNotIn("best_state_dict", pub)   # la clave (None) también se quita
+        self.assertIn("parameters", pub["params_best"])  # dict de valores real intacto
+        json.dumps(pub)
+
+    def test_public_result_noop_when_no_internal_keys(self) -> None:
+        from matrixai.playground import _public_training_result
+        plain = {"ok": True, "params_best": {"parameter_set_id": "x"}}
+        # sin claves internas presentes → devuelve el MISMO objeto (sin copia inútil)
+        self.assertIs(_public_training_result(plain), plain)
+
+
+@unittest.skipUnless(_HAS_TORCH, "torch not installed")
+class LargeStateEvictionTest(unittest.TestCase):
+    """Auditoría C3 (riesgo operativo): varios jobs grandes retendrían GiB de
+    tensores en RAM. Solo los `_LARGE_STATE_RETENTION` más recientes conservan
+    `best_state_dict`; los anteriores lo liberan y marcan `weights_evicted`."""
+
+    def test_only_recent_large_states_are_retained(self) -> None:
+        import matrixai.playground as pg
+        from matrixai.playground import _submit_training_job, _get_job_status
+
+        with patch.object(pg, "_LARGE_STATE_RETENTION", 1), \
+             patch.dict("os.environ", {
+                 "MATRIXAI_TRAIN_BACKEND": "torch",
+                 "MATRIXAI_TORCH_NATIVE_MIN_PARAMS": "1",
+             }):
+            ids = []
+            for _ in range(3):
+                job = _submit_training_job(MXAI, TRAIN, _csv(), epochs_override=2)
+                jid = job["job_id"]
+                for _ in range(240):
+                    if _get_job_status(jid)["status"] != "running":
+                        break
+                    time.sleep(0.05)
+                ids.append(jid)
+
+            # con retención=1, solo el ÚLTIMO job conserva sus tensores
+            states = [pg._training_jobs[j]["result"].get("best_state_dict") for j in ids]
+            self.assertIsNone(states[0])
+            self.assertIsNone(states[1])
+            self.assertIsNotNone(states[2])
+            # los liberados marcan weights_evicted; el marcador sigue en params_best
+            self.assertTrue(pg._training_jobs[ids[0]]["result"].get("weights_evicted"))
+            from matrixai.parameters.store import is_torch_state_marker
+            self.assertTrue(
+                is_torch_state_marker(pg._training_jobs[ids[0]]["result"]["params_best"])
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
