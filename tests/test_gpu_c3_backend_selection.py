@@ -123,6 +123,30 @@ def test_dense_torch_path_through_studio(monkeypatch):
 
 
 @pytest.mark.skipif(not _HAS_TORCH, reason="torch not installed")
+def test_dense_torch_path_above_threshold_does_not_fall_back_to_stdlib(monkeypatch):
+    """PESOS_GRANDES audit C2 (frontera C2/C3): el trainer C2 tiene la CAPACIDAD
+    de devolver best_state_dict (best_params=None) por encima del umbral, pero el
+    resultado del job aún asume best_params.to_dict(). `_dense_torch_train_result`
+    fuerza materialize=True hasta que C3 cablee best_state_dict; sin ello un modelo
+    >umbral entrenaría por torch, reventaría al montar el resultado y CAERÍA A
+    STDLIB en silencio (la "GPU parada" que este contrato combate).
+
+    Se reproduce bajando el umbral a 1 (cualquier red cruza), no entrenando una
+    red real de 50M+ params en la suite — el camino de código es el mismo."""
+    import torch
+    from matrixai.playground import _run_playground_dense_training
+    monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", "torch")
+    monkeypatch.setenv("MATRIXAI_TORCH_NATIVE_MIN_PARAMS", "1")
+    r = _run_playground_dense_training(DENSE_MXAI, DENSE_TRAIN, _csv(), epochs_override=5)
+    assert r["ok"], r.get("error")
+    # el síntoma del bug era backend == "stdlib" (fallback tras el crash de to_dict)
+    assert r["backend"] == ("cuda" if torch.cuda.is_available() else "cpu")
+    assert r["params_best"] is not None
+    # y params_best debe ser un dict usable (lo que to_dict produce), no None
+    assert isinstance(r["params_best"], dict)
+
+
+@pytest.mark.skipif(not _HAS_TORCH, reason="torch not installed")
 def test_composite_torch_path_through_studio(monkeypatch):
     from matrixai.playground import _run_playground_composite_training
     monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", "torch")

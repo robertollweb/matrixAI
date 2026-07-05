@@ -1190,6 +1190,17 @@ def _dense_torch_train_result(
             early_stop=(patience, "validation_loss") if patience else None,
             device=device, seed=seed, batch_size=batch_size,
             epoch_callback=_torch_cb, cancel_check=cancel_check,
+            # PESOS_GRANDES frontera C2/C3: C2 dio al trainer la CAPACIDAD de no
+            # materializar (best_state_dict en vez de best_params) por encima del
+            # umbral, pero el resultado del job de aquí abajo sigue asumiendo
+            # best_params.to_dict() (params_best). Sin este materialize=True, un
+            # modelo >umbral entrenaría por torch/GPU, reventaría al montar el
+            # resultado ('NoneType' object has no attribute 'to_dict') y CAERÍA A
+            # STDLIB/CPU en silencio — justo la "GPU parada" que este contrato
+            # combate. Forzar la materialización aquí mantiene el flujo idéntico a
+            # siempre; QUITAR esta línea es exactamente el trabajo de C3 (cablear
+            # best_state_dict en el job y no llamar to_dict() cuando venga None).
+            materialize=True,
         )
         # Visible en Colab: batch del spec (autogenerado = 8) vs el efectivo en GPU.
         _diag(f"entrenamiento OK en {device}: batch spec={batch_size} → efectivo={tr.get('batch_size')} "
