@@ -21,8 +21,11 @@ from matrixai.parameters.store import ParameterSet
 from matrixai.parameters.tensor_bridge import torch_available, enable_tf32_if_cuda
 from matrixai.forward.dense_torch import (
     dense_network_to_torch_module,
+    dense_network_to_torch_module_from_state,
+    dense_module_to_state_dict,
     torch_module_to_parameter_set,
 )
+from matrixai.resources import torch_native_min_params
 
 _EPS = 1e-9
 
@@ -83,13 +86,31 @@ def train_dense_network_torch(
     batch_size: int | None = None,
     epoch_callback: Callable[[dict[str, Any]], None] | None = None,
     cancel_check: Callable[[], None] | None = None,
+    materialize: bool | None = None,
 ) -> dict[str, Any]:
     """Train a dense_network via torch autograd.
 
     examples: list of (input_vector, target) as produced by `_examples_to_xy`.
-    Returns: {best_params (ParameterSet), epochs (trace), best_val_loss, best_epoch,
-    backend, device, train_loss}.
+    Returns: {best_params (ParameterSet | None), best_state_dict (dict[str, Tensor]
+    | None — CPU), epochs (trace), best_val_loss, best_epoch, backend, device,
+    train_loss, materialized (bool)}.
     cancel_check: called after each batch; raise _TrainingCancelled-compatible exception to abort.
+
+    PESOS_GRANDES C2: por defecto (`materialize=None`), el propio trainer decide
+    según `torch_native_min_params()` — por debajo del umbral, comportamiento
+    IDÉNTICO a siempre (`best_params` con valores, `best_state_dict=None`); por
+    encima, la conversión O(#params) a listas Python se SALTA: `best_params=None`
+    y `best_state_dict` lleva los tensores CPU (`dense_module_to_state_dict`,
+    copia vectorizada, no iteración Python). `materialize` explícito fuerza una
+    rama u otra (tests; o un caller que ya sabe qué formato quiere).
+
+    Nota de alcance (C2): esta función y `evaluate_dense_network_torch`/
+    `probe_collapse_torch` YA soportan el camino sin materializar, testeado en
+    aislamiento. Conectarlo al job/resultado vivo del Studio (`params_best` en
+    el dict del job, hoy siempre un `ParameterSet.to_dict()`) es C3 ("el job
+    lleva tensores, no dicts") — hasta que C3 cierre, el caller de producción
+    (`playground._dense_torch_train_result`) sigue sin pasar `materialize=False`
+    y por tanto entrena exactamente igual que hoy para cualquier tamaño.
     """
     if not torch_available():
         raise DenseTorchTrainError("PyTorch is not installed — GPU/torch training requires torch")
@@ -177,11 +198,24 @@ def train_dense_network_torch(
             if patience is not None and no_improve >= patience:
                 break
 
-        # Restaurar el mejor estado y convertir a ParameterSet una sola vez (M15).
+        # Restaurar el mejor estado (clon barato en device, sin conversión).
         with torch.no_grad():
             for p, s in zip(module.parameters(), best_state):
                 p.copy_(s)
-        best_params = torch_module_to_parameter_set(network, module, parameter_set)
+
+        # PESOS_GRANDES C2: decidir DESPUÉS de entrenar, con el módulo real ya
+        # en memoria — param_count es una suma de .numel() (torch, O(#tensores),
+        # instantáneo), nunca una iteración Python sobre valores.
+        param_count = sum(p.numel() for p in module.parameters())
+        should_materialize = materialize if materialize is not None else (
+            param_count < torch_native_min_params()
+        )
+        if should_materialize:
+            best_params = torch_module_to_parameter_set(network, module, parameter_set)
+            best_state_dict = None
+        else:
+            best_params = None
+            best_state_dict = dense_module_to_state_dict(network, module)
 
         peak_vram_gb = 0.0
         if str(device).startswith("cuda"):
@@ -192,6 +226,9 @@ def train_dense_network_torch(
 
         return {
             "best_params": best_params,
+            "best_state_dict": best_state_dict,
+            "materialized": should_materialize,
+            "param_count": param_count,
             "epochs": epoch_trace,
             "best_val_loss": best_val_loss,
             "best_epoch": best_epoch,
@@ -223,13 +260,14 @@ def train_dense_network_torch(
 
 def evaluate_dense_network_torch(
     network: Any,
-    parameter_set: ParameterSet,
+    parameter_set: ParameterSet | None,
     examples: list[tuple[list[float], list[float]]],
     loss_fn: str,
     *,
     labels: list[str] | None = None,
     device: str = "cpu",
     cancel_check: Callable[[], None] | None = None,
+    state_dict: dict[str, Any] | None = None,
 ) -> Any:
     """GPU-C6/M14 — evaluación de un dense_network con forward BATCHED en torch/GPU.
 
@@ -237,6 +275,12 @@ def evaluate_dense_network_torch(
     pero el forward corre en un solo batch sobre `device` en vez de fila a fila en
     Python. Con datasets grandes + redes anchas esto pasa de minutos/horas a ms y evita
     que un entrenamiento por GPU se quede colgado evaluando en CPU.
+
+    PESOS_GRANDES C2: acepta el MÓDULO ya entrenado directamente vía `state_dict`
+    (`dense_module_to_state_dict`/`train_dense_network_torch(...).best_state_dict`)
+    — sin pasar por una `ParameterSet` con valores (round-trip lista→torch que
+    era inútil incluso en modelos pequeños). Si se da `state_dict`, `parameter_set`
+    se ignora (puede ser `None`); si no, se usa `parameter_set` como hasta ahora.
     """
     from matrixai.training.dense_evaluator import result_from_predictions
 
@@ -246,9 +290,15 @@ def evaluate_dense_network_torch(
 
     if not examples:
         raise ValueError("examples must be non-empty")
+    if state_dict is None and parameter_set is None:
+        raise DenseTorchTrainError("evaluate_dense_network_torch requires parameter_set or state_dict")
 
     enable_tf32_if_cuda(device)  # M15(c)
-    module = dense_network_to_torch_module(network, parameter_set)
+    module = (
+        dense_network_to_torch_module_from_state(network, state_dict, device)
+        if state_dict is not None
+        else dense_network_to_torch_module(network, parameter_set)
+    )
     module._torch_module.to(device)
     module.eval()
 
@@ -286,19 +336,26 @@ def evaluate_dense_network_torch(
 
 def probe_collapse_torch(
     network: Any,
-    parameter_set: ParameterSet,
+    parameter_set: ParameterSet | None,
     input_dim: int,
     *,
     device: str = "cpu",
     tol: float = 1e-4,
+    state_dict: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """M7 en torch/GPU — prueba de colapso (predictor constante) por el módulo torch.
 
     4 probes (ceros, unos, 2 aleatorios sembrados) en un solo batch sobre `device`;
     True si la salida es ~constante. Reemplaza el `_probe_model_collapse` por runtime
     Python (O(params) × 4 forwards → minutos y GBs de RAM con redes grandes); aquí es
-    instantáneo. Best-effort: None si torch no está o falla."""
+    instantáneo. Best-effort: None si torch no está o falla.
+
+    PESOS_GRANDES C2: acepta `state_dict` (tensores CPU del entrenamiento) como
+    alternativa a `parameter_set` — mismo patrón que `evaluate_dense_network_torch`,
+    sin depender de una `ParameterSet` con valores materializados."""
     if not torch_available() or input_dim <= 0:
+        return None
+    if state_dict is None and parameter_set is None:
         return None
     import torch  # noqa: PLC0415
     import random  # noqa: PLC0415
@@ -309,7 +366,11 @@ def probe_collapse_torch(
         [round(rng.random(), 6) for _ in range(input_dim)],
         [round(rng.random(), 6) for _ in range(input_dim)],
     ]
-    module = dense_network_to_torch_module(network, parameter_set)
+    module = (
+        dense_network_to_torch_module_from_state(network, state_dict, device)
+        if state_dict is not None
+        else dense_network_to_torch_module(network, parameter_set)
+    )
     module._torch_module.to(device)
     module.eval()
     try:

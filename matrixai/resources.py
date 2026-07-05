@@ -17,11 +17,35 @@ salida de cada capa (una bias por capa densa) para la estimación de activacione
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any
 
 _GIB = 1024 ** 3
 BYTES_PER_FLOAT32 = 4
+
+# PESOS_GRANDES decisión 1: umbral que fija el DEFAULT del formato de
+# persistencia (json por debajo, binario por encima — C4) y, desde C2, si el
+# trainer torch materializa la ParameterSet-con-valores o devuelve un
+# state_dict de tensores. Configurable (la "máquina del usuario decide"),
+# nunca hardcodeado dos veces.
+DEFAULT_TORCH_NATIVE_MIN_PARAMS = 50_000_000
+_TORCH_NATIVE_MIN_PARAMS_ENV = "MATRIXAI_TORCH_NATIVE_MIN_PARAMS"
+
+
+def torch_native_min_params() -> int:
+    """Umbral de parámetros (env `MATRIXAI_TORCH_NATIVE_MIN_PARAMS`, default 50M).
+
+    Un valor inválido o <=0 cae al default (nunca desactiva el umbral por accidente
+    con un typo — mismo espíritu que los overrides de `matrixai.limits`)."""
+    raw = os.environ.get(_TORCH_NATIVE_MIN_PARAMS_ENV)
+    if raw is None:
+        return DEFAULT_TORCH_NATIVE_MIN_PARAMS
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_TORCH_NATIVE_MIN_PARAMS
+    return value if value > 0 else DEFAULT_TORCH_NATIVE_MIN_PARAMS
 
 # Tasas MEDIDAS 2026-07-03 (ver "Diagnóstico" en 48_PESOS_GRANDES_CONTRATO.md):
 # listas Python (tolist()) y json.dumps sobre listas de floats, en esta máquina

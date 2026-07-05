@@ -78,31 +78,73 @@ def dense_torch_forward(module: Any, input_vector: list[float]) -> list[float]:
         return output.tolist()
 
 
-def torch_module_to_parameter_set(
-    network: Any,
-    module: Any,
-    template: ParameterSet,
-) -> ParameterSet:
-    """Extract weights from a DenseNetworkModule back into a ParameterSet."""
-    import torch
-    new_params: dict[str, Any] = {}
-    for key, param in template.parameters.items():
-        new_params[key] = dict(param)
-
+def dense_module_to_state_dict(network: Any, module: Any) -> dict[str, Any]:
+    """PESOS_GRANDES C2 — pesos entrenados como tensores CPU, NUNCA como listas
+    Python. Claves iguales a las de la `ParameterSet` (`{network}.W{i}`/`b{i}`)
+    para que `dense_network_to_torch_module_from_state` y
+    `materialize_parameter_set` puedan consumirlas sin volver a tocar el módulo
+    torch. `.detach().cpu().clone()` es una copia de tensor (vectorizada, C a
+    C) — cero iteración Python sobre valores individuales."""
+    state: dict[str, Any] = {}
     for i, linear in enumerate(module.linears):
         layer = network.layers[i]
+        state[f"{network.name}.W{layer.index}"] = linear.weight.detach().cpu().clone()
+        state[f"{network.name}.b{layer.index}"] = linear.bias.detach().cpu().clone()
+    return state
+
+
+def dense_network_to_torch_module_from_state(
+    network: Any,
+    state: dict[str, Any],
+    device: str = "cpu",
+) -> Any:
+    """PESOS_GRANDES C2 — reconstruye el módulo directamente desde tensores
+    entrenados (`dense_module_to_state_dict`), SIN pasar por una `ParameterSet`
+    con valores. Las dimensiones salen del propio tensor (`W.shape`), no de un
+    `template` — el state_dict ya es la fuente de verdad de la arquitectura
+    entrenada. Usado por `evaluate_dense_network_torch`/`probe_collapse_torch`
+    cuando el trainer no materializó (modelo grande, ver `estimate_model_resources`)."""
+    if not torch_available():
+        raise DenseTorchError("PyTorch is not installed — requires torch")
+    import torch
+    import torch.nn as nn
+
+    linears = nn.ModuleList()
+    activations: list[str] = []
+    for layer in network.layers:
         w_key = f"{network.name}.W{layer.index}"
         b_key = f"{network.name}.b{layer.index}"
+        if w_key not in state or b_key not in state:
+            raise DenseTorchError(f"Missing tensor {w_key!r}/{b_key!r} in state")
+        W, b = state[w_key], state[b_key]
+        out_features, in_features = int(W.shape[0]), int(W.shape[1])
+        linear = nn.Linear(in_features, out_features)
         with torch.no_grad():
-            new_params[w_key] = {
-                **template.parameters[w_key],
-                "values": linear.weight.detach().tolist(),
-            }
-            new_params[b_key] = {
-                **template.parameters[b_key],
-                "values": linear.bias.detach().tolist(),
-            }
+            linear.weight.copy_(W.to(device))
+            linear.bias.copy_(b.to(device))
+        linears.append(linear)
+        activations.append(layer.activation)
 
+    module = _DenseNetworkModule(linears, activations)
+    module._torch_module.to(device)
+    return module
+
+
+def materialize_parameter_set(
+    network: Any,
+    state: dict[str, Any],
+    template: ParameterSet,
+) -> ParameterSet:
+    """PESOS_GRANDES C2 — la ÚNICA puerta al `tolist()` (O(#params) en Python).
+
+    Llamarla es una decisión explícita del caller (C4: el usuario eligió
+    `weights_format=json`), nunca un paso automático del trainer/eval/probe.
+    `state` son tensores CPU (`dense_module_to_state_dict`); el resultado es
+    una `ParameterSet` completa, idéntica en forma a la que producía
+    `torch_module_to_parameter_set` (que ahora reusa esta función)."""
+    new_params: dict[str, Any] = {key: dict(param) for key, param in template.parameters.items()}
+    for key, tensor in state.items():
+        new_params[key] = {**template.parameters[key], "values": tensor.tolist()}
     return ParameterSet(
         parameter_set_id=template.parameter_set_id,
         model_hash=template.model_hash,
@@ -111,6 +153,20 @@ def torch_module_to_parameter_set(
         parameters=new_params,
         metrics=template.metrics,
     )
+
+
+def torch_module_to_parameter_set(
+    network: Any,
+    module: Any,
+    template: ParameterSet,
+) -> ParameterSet:
+    """Extract weights from a DenseNetworkModule back into a ParameterSet.
+
+    PESOS_GRANDES C2: reusa `dense_module_to_state_dict` + `materialize_parameter_set`
+    (mismo resultado que antes — cero cambio de comportamiento para callers
+    existentes; el `tolist()` sigue pasando por una única función explícita)."""
+    state = dense_module_to_state_dict(network, module)
+    return materialize_parameter_set(network, state, template)
 
 
 # ---------------------------------------------------------------------------
