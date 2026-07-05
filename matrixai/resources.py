@@ -144,6 +144,23 @@ def _batch_from_training_text(training_text: str) -> int | None:
 
 
 def _resolve_effective_batch(device: str, batch: int | None, rows: int) -> int:
+    """Batch efectivo, con la MISMA regla que aplicará el entrenamiento real.
+
+    Límite conocido (no bloqueante, señalado en la auditoría C1 2026-07-03):
+    en CUDA, `effective_batch_size` IGNORA un batch pequeño del `.mxtrain`
+    (`BATCH size=8` autogenerado) y sube al default de GPU — pero solo cuando
+    conoce `rows` (necesita `n_train` para capar). Si se llama a
+    `estimate_model_resources` con `training_text` pero SIN `rows` en CUDA,
+    este helper cae a la rama de abajo y devuelve el batch del `.mxtrain` TAL
+    CUAL (p.ej. 8), subestimando el batch — y por tanto la VRAM — que el
+    entrenamiento real usaría (16384 por defecto). La tarjeta del Studio
+    siempre pasa `rows` (el tamaño del CSV generado/subido), así que el flujo
+    de producto no lo sufre; un caller directo (CLI, script, futuro C2-C6) que
+    omita `rows` en CUDA debe saber que la estimación es más optimista de lo
+    real. Corregir esto requeriría un `n_train` "desconocido pero grande" o
+    aplicar la regla de CUDA sin cap — se deja así a propósito hasta que haya
+    un caso de uso real que lo necesite.
+    """
     if rows and rows > 0:
         from matrixai.training.dense_torch_trainer import effective_batch_size
         return effective_batch_size(device, batch, rows)

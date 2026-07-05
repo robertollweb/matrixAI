@@ -209,6 +209,36 @@ class RealBatchFromTrainingTextTest(unittest.TestCase):
         )
         self.assertEqual(est.effective_batch, 128)
 
+    def test_known_limitation_cuda_without_rows_does_not_upsize_small_batch(self) -> None:
+        """Límite conocido, NO bloqueante (apunte del autor tras la auditoría C1):
+        en CUDA, `effective_batch_size` solo IGNORA un BATCH pequeño del
+        `.mxtrain` (y sube al default de GPU) cuando conoce `rows` (necesita
+        `n_train` para capar). Sin `rows`, el estimador usa el batch del
+        `.mxtrain` TAL CUAL — más pequeño que el que usaría el entrenamiento
+        real en CUDA, así que la VRAM sale más optimista de lo real. La
+        tarjeta del Studio SIEMPRE pasa `rows` (test
+        `test_rows_and_batch_influence_effective_batch` en
+        studio-backend, y ambos call sites en CreatePage.tsx), así que el
+        flujo de producto no lo sufre; esto documenta el caso de un caller
+        directo (CLI/script) que lo omita."""
+        gen = DenseNetworkGenerator().generate(
+            "clasificar\nFEATURES:\n  a: Scalar\n  b: Scalar\nSALIDA: y: ProbabilityMap[NO, SI]"
+        )
+        self.assertIn("BATCH size=8", gen.training_text)
+        program = parse_text(gen.mxai_text)
+
+        sin_rows = estimate_model_resources(
+            program, training_text=gen.training_text, device="cuda"
+        )
+        con_rows = estimate_model_resources(
+            program, training_text=gen.training_text, rows=100_000, device="cuda"
+        )
+        # sin rows: el batch del .mxtrain (8) pasa tal cual, sin el override de CUDA
+        self.assertEqual(sin_rows.effective_batch, 8)
+        # con rows: effective_batch_size ignora el BATCH pequeño y sube al default GPU
+        self.assertEqual(con_rows.effective_batch, 16384)
+        self.assertLess(sin_rows.vram_train_gib, con_rows.vram_train_gib)
+
 
 if __name__ == "__main__":
     unittest.main()
