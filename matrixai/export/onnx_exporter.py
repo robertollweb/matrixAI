@@ -66,6 +66,29 @@ class OnnxExporter:
 
         output_path = Path(output_path)
 
+        # PESOS_GRANDES C6: ONNX guarda los pesos EN LÍNEA en el protobuf — por
+        # encima de ~2 GiB, protobuf rechaza serializar el mensaje (falla a
+        # mitad de export con un ValueError críptico, o peor, produce un
+        # fichero incompleto). "external data" (pesos en un fichero aparte)
+        # queda fuera de alcance de este contrato. Frenar AQUÍ, antes de
+        # construir el grafo, da un error claro y accionable en vez de un
+        # crash de protobuf. `estimate_model_resources` calcula el tamaño
+        # desde el manifest (shapes), sin materializar ni un solo valor —
+        # O(#tensores), instantáneo incluso para un modelo de miles de millones
+        # de parámetros.
+        from matrixai.resources import estimate_model_resources, ONNX_PROTOBUF_LIMIT_GIB
+        estimate = estimate_model_resources(program)
+        if estimate.weights_gib > ONNX_PROTOBUF_LIMIT_GIB:
+            raise OnnxExportError(
+                f"Este modelo tiene ~{estimate.weights_gib:.2f} GiB de pesos "
+                f"({estimate.param_count:,} parámetros) — supera el límite de "
+                f"~{ONNX_PROTOBUF_LIMIT_GIB:.1f} GiB de un fichero ONNX (el "
+                "formato guarda los pesos en línea en el protobuf; por encima "
+                "de ese tamaño necesitaría 'external data', fuera de alcance "
+                "hoy). Exporta como bundle, o guarda el modelo en formato "
+                "json/binario en vez de ONNX."
+            )
+
         # Guardrail: ParameterSet must belong to this program (hash)
         expected_hash = program_hash(program)
         if parameter_set.model_hash != expected_hash:

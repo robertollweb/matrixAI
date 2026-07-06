@@ -47,6 +47,17 @@ def torch_native_min_params() -> int:
         return DEFAULT_TORCH_NATIVE_MIN_PARAMS
     return value if value > 0 else DEFAULT_TORCH_NATIVE_MIN_PARAMS
 
+
+# PESOS_GRANDES C6: a diferencia de `torch_native_min_params` (una decisión de
+# producto, ajustable), este es un límite FÍSICO del formato protobuf que usa
+# ONNX (guarda los pesos EN LÍNEA en el mensaje; protobuf rechaza serializar
+# mensajes >2 GiB) — no es una política, así que no tiene override por env.
+# Un valor algo por debajo de los 2 GiB reales de protobuf (2**31-1 bytes) deja
+# margen para el resto del grafo (nodos, nombres, metadata), pequeño frente al
+# peso de los tensores en un modelo grande.
+ONNX_PROTOBUF_LIMIT_GIB = 1.9
+
+
 # Tasas MEDIDAS 2026-07-03 (ver "Diagnóstico" en 48_PESOS_GRANDES_CONTRATO.md):
 # listas Python (tolist()) y json.dumps sobre listas de floats, en esta máquina
 # (≈ CPU de Colab). Constantes nombradas, no mágicas.
