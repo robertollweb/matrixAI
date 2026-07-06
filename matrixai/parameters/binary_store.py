@@ -1,0 +1,198 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Roberto Llamosas Conde
+
+"""PESOS_GRANDES C4 — formato binario propio `.mxw` para pesos entrenados.
+
+Decisión 4 del contrato (`48_PESOS_GRANDES_CONTRATO.md`): NO usamos `torch.save`
+(pickle — cargar un fichero ajeno puede ejecutar código arbitrario, mal encaje
+con la filosofía de firma/verificación de P21/P22). `.mxw` es un formato propio:
+
+    [4 bytes]  magic "MXW1"
+    [8 bytes]  longitud de la cabecera (uint64 little-endian)
+    [N bytes]  cabecera JSON: {version, model_hash, parameter_schema_hash,
+               tensors: [{path, shape, dtype, offset, nbytes}, ...],
+               content_hash (sha256 del cuerpo), total_bytes}
+    [...]      cuerpo: blobs raw float32 little-endian, uno por tensor, en el
+               orden de `tensors`, sin separadores (los offsets ya lo dan todo)
+
+Escribible/verificable con stdlib puro (`struct`, `json`, `hashlib`) — la
+cabecera y el hash se pueden inspeccionar sin numpy ni torch. Cargar los
+VALORES para entrenar/inferir sí requiere numpy/torch (`frombuffer`), como el
+resto del core cuando hay tensores de por medio.
+
+Escritura atómica (invariante 3): se escribe a `<path>.tmp` y se hace
+`os.replace` al final — un proceso que muere a mitad nunca deja un `.mxw` a
+medias donde estaba el bueno.
+
+Nada de esto itera valores en Python: `tensor.numpy().tobytes()` y
+`hashlib.update()` son operaciones vectorizadas (C), no bucles sobre floats —
+mismo espíritu que el resto de PESOS_GRANDES (nunca O(#params) en Python puro).
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import struct
+from pathlib import Path
+from typing import Any
+
+_MAGIC = b"MXW1"
+_FORMAT_VERSION = 1
+_CHUNK_BYTES = 8 * 1024 * 1024  # 8 MiB — streaming copy header->file, no todo en RAM
+
+
+class MxwError(ValueError):
+    """Fichero `.mxw` ausente, con magic inválido, truncado o con el hash de
+    contenido alterado (tamper) — siempre un error explícito, nunca pesos
+    silenciosamente incorrectos."""
+
+
+def write_mxw(
+    path: str | Path,
+    state: dict[str, Any],
+    *,
+    model_hash: str,
+    parameter_schema_hash: str,
+) -> dict[str, Any]:
+    """Escribe `state` (dict `{path: tensor}`, p.ej. de
+    `dense_module_to_state_dict`) como `.mxw` en `path`, atómicamente.
+
+    Devuelve la cabecera escrita (metadata) — el caller la persiste en el
+    snapshot JSON del modelo (para validar sin releer el `.mxw` entero).
+    """
+    path = Path(path)
+    tmp_path = path.with_name(path.name + ".tmp")
+    body_tmp = path.with_name(path.name + ".body.tmp")
+
+    tensors_meta: list[dict[str, Any]] = []
+    offset = 0
+    hasher = hashlib.sha256()
+
+    try:
+        # Cuerpo primero: necesitamos offsets y el hash de contenido ANTES de
+        # poder escribir la cabecera (que va delante en el fichero final).
+        with open(body_tmp, "wb") as body:
+            for name, tensor in state.items():
+                arr = tensor.detach()
+                if arr.device.type != "cpu":
+                    arr = arr.cpu()
+                if str(arr.dtype) != "torch.float32":
+                    arr = arr.float()
+                arr = arr.contiguous()
+                raw = arr.numpy().tobytes()
+                body.write(raw)
+                hasher.update(raw)
+                tensors_meta.append({
+                    "path": name,
+                    "shape": list(arr.shape),
+                    "dtype": "float32",
+                    "offset": offset,
+                    "nbytes": len(raw),
+                })
+                offset += len(raw)
+
+        header = {
+            "version": _FORMAT_VERSION,
+            "model_hash": model_hash,
+            "parameter_schema_hash": parameter_schema_hash,
+            "tensors": tensors_meta,
+            "content_hash": hasher.hexdigest(),
+            "total_bytes": offset,
+        }
+        header_bytes = json.dumps(header).encode("utf-8")
+
+        with open(tmp_path, "wb") as out, open(body_tmp, "rb") as body:
+            out.write(_MAGIC)
+            out.write(struct.pack("<Q", len(header_bytes)))
+            out.write(header_bytes)
+            while True:
+                chunk = body.read(_CHUNK_BYTES)
+                if not chunk:
+                    break
+                out.write(chunk)
+
+        os.replace(tmp_path, path)  # atómico en el mismo filesystem
+        return header
+    finally:
+        for p in (tmp_path, body_tmp):
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:  # pragma: no cover - best-effort cleanup
+                pass
+
+
+def _read_header(f: Any, path: Path) -> tuple[dict[str, Any], int]:
+    magic = f.read(4)
+    if magic != _MAGIC:
+        raise MxwError(f"{path}: no es un fichero .mxw válido (magic incorrecto)")
+    len_bytes = f.read(8)
+    if len(len_bytes) != 8:
+        raise MxwError(f"{path}: fichero truncado (falta la longitud de cabecera)")
+    (header_len,) = struct.unpack("<Q", len_bytes)
+    raw_header = f.read(header_len)
+    if len(raw_header) != header_len:
+        raise MxwError(f"{path}: fichero truncado (cabecera incompleta)")
+    try:
+        header = json.loads(raw_header.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise MxwError(f"{path}: cabecera .mxw corrupta ({exc})") from exc
+    body_start = 4 + 8 + header_len
+    return header, body_start
+
+
+def read_mxw_header(path: str | Path) -> dict[str, Any]:
+    """Lee SOLO la cabecera (metadata) — barato, sin traer los blobs a RAM.
+    Útil para listar/validar un modelo sin cargar sus pesos."""
+    path = Path(path)
+    if not path.exists():
+        raise MxwError(f"{path}: fichero .mxw no encontrado")
+    with open(path, "rb") as f:
+        header, _ = _read_header(f, path)
+    return header
+
+
+def read_mxw(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
+    """Lee un `.mxw` completo → `dict[str, torch.Tensor]` (CPU, float32).
+
+    Con `verify=True` (default) recalcula el hash de contenido y lo compara
+    contra la cabecera — un sidecar corrupto o manipulado falla con
+    `MxwError` explícito en vez de servir pesos incorrectos en silencio.
+    """
+    import numpy as np
+    import torch
+
+    path = Path(path)
+    if not path.exists():
+        raise MxwError(f"{path}: fichero .mxw no encontrado")
+    with open(path, "rb") as f:
+        header, _ = _read_header(f, path)
+        body = f.read()
+
+    expected_bytes = header.get("total_bytes")
+    if expected_bytes is not None and len(body) != expected_bytes:
+        raise MxwError(
+            f"{path}: tamaño del cuerpo no coincide con la cabecera "
+            f"({len(body)} bytes leídos, {expected_bytes} esperados) — "
+            "fichero truncado o corrupto."
+        )
+    if verify:
+        actual_hash = hashlib.sha256(body).hexdigest()
+        expected_hash = header.get("content_hash")
+        if actual_hash != expected_hash:
+            raise MxwError(
+                f"{path}: el hash de contenido no coincide (esperado "
+                f"{expected_hash}, calculado {actual_hash}) — el fichero .mxw "
+                "ha sido modificado o está corrompido."
+            )
+
+    result: dict[str, Any] = {}
+    for meta in header.get("tensors", []):
+        chunk = body[meta["offset"]: meta["offset"] + meta["nbytes"]]
+        if len(chunk) != meta["nbytes"]:
+            raise MxwError(
+                f"{path}: tensor {meta['path']!r} truncado en el cuerpo del fichero"
+            )
+        arr = np.frombuffer(chunk, dtype=np.float32).reshape(meta["shape"])
+        result[meta["path"]] = torch.from_numpy(arr.copy())  # copy: tensor propio, no alias de `body`
+    return result

@@ -130,6 +130,32 @@ def dense_network_to_torch_module_from_state(
     return module
 
 
+def build_parameter_template_for_state(program: Any) -> tuple[Any, ParameterSet]:
+    """PESOS_GRANDES C4 — reconstruye `(network, template)` para un programa
+    dense_network ya parseado, listos para `materialize_parameter_set` o para
+    sacar `model_hash`/`parameter_schema_hash` al escribir un `.mxw`.
+
+    Reusa el mismo camino que el trainer (`check_network_types` +
+    `build_network_parameter_set(..., with_values=False)`) para no duplicar la
+    lógica de resolución de shapes en cada caller (Studio save-as-json,
+    save-as-binary, y en C5 el load). `with_values=False` es una plantilla de
+    estructura — el seed no genera valores, así que un valor fijo (0) es
+    correcto: los VALORES reales siempre vienen de `state` (los tensores
+    entrenados), nunca de esta plantilla."""
+    from matrixai.types import check_network_types
+    from matrixai.parameters.network_params import build_network_parameter_set
+    from matrixai.parameters.store import program_hash
+
+    net = program.networks[0]
+    vector_map = {v.name: v for v in program.vectors}
+    type_result = check_network_types(net, vector_map)
+    resolved_layers = type_result.resolved_layers if type_result.resolved_layers else net.layers
+    template = build_network_parameter_set(
+        net, resolved_layers, program_hash(program), seed=0, with_values=False,
+    )
+    return net, template
+
+
 def materialize_parameter_set(
     network: Any,
     state: dict[str, Any],
