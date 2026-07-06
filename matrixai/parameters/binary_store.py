@@ -188,11 +188,53 @@ def read_mxw(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
 
     result: dict[str, Any] = {}
     for meta in header.get("tensors", []):
-        chunk = body[meta["offset"]: meta["offset"] + meta["nbytes"]]
-        if len(chunk) != meta["nbytes"]:
+        name = meta.get("path")
+        # PESOS_GRANDES C4 audit (reauditoría Opus, BAJA): la cabecera NO está
+        # cubierta por `content_hash` (solo el cuerpo lo está), así que una
+        # cabecera con `shape`/`offset`/`nbytes` incoherentes puede pasar los
+        # chequeos de arriba y luego reventar en `frombuffer`/`reshape` con un
+        # `ValueError` pelado (no `MxwError`) que se escaparía del
+        # `except MxwError` de los callers → 500 en vez del error explícito que
+        # promete el módulo. Se valida la coherencia interna y se envuelve
+        # cualquier fallo de rehidratación en `MxwError`.
+        try:
+            offset = int(meta["offset"])
+            nbytes = int(meta["nbytes"])
+            shape = [int(d) for d in meta["shape"]]
+        except (KeyError, TypeError, ValueError) as exc:
             raise MxwError(
-                f"{path}: tensor {meta['path']!r} truncado en el cuerpo del fichero"
+                f"{path}: metadata de tensor {name!r} inválida en la cabecera ({exc})"
+            ) from exc
+        if offset < 0 or nbytes < 0 or offset + nbytes > len(body):
+            raise MxwError(
+                f"{path}: tensor {name!r} apunta fuera del cuerpo del fichero "
+                f"(offset={offset}, nbytes={nbytes}, cuerpo={len(body)} bytes) — cabecera corrupta."
             )
-        arr = np.frombuffer(chunk, dtype=np.float32).reshape(meta["shape"])
-        result[meta["path"]] = torch.from_numpy(arr.copy())  # copy: tensor propio, no alias de `body`
+        if nbytes % 4 != 0:
+            raise MxwError(
+                f"{path}: tensor {name!r} con nbytes={nbytes} no es múltiplo de 4 "
+                "(float32) — cabecera corrupta."
+            )
+        expected_elems = 1
+        for d in shape:
+            if d < 0:
+                raise MxwError(f"{path}: tensor {name!r} con dimensión negativa {d} en shape")
+            expected_elems *= d
+        if expected_elems * 4 != nbytes:
+            raise MxwError(
+                f"{path}: tensor {name!r} incoherente — shape {shape} implica "
+                f"{expected_elems * 4} bytes pero la cabecera declara nbytes={nbytes}."
+            )
+        chunk = body[offset: offset + nbytes]
+        if len(chunk) != nbytes:
+            raise MxwError(
+                f"{path}: tensor {name!r} truncado en el cuerpo del fichero"
+            )
+        try:
+            arr = np.frombuffer(chunk, dtype=np.float32).reshape(shape)
+            result[name] = torch.from_numpy(arr.copy())  # copy: tensor propio, no alias de `body`
+        except (ValueError, TypeError) as exc:
+            raise MxwError(
+                f"{path}: no se pudo rehidratar el tensor {name!r} ({exc}) — cabecera corrupta."
+            ) from exc
     return result

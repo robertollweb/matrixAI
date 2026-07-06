@@ -118,6 +118,56 @@ class TamperDetectionTest(unittest.TestCase):
         with self.assertRaises(MxwError):
             read_mxw_header("/nonexistent/path/x.mxw")
 
+    @staticmethod
+    def _rewrite_header(path: Path, mutate) -> None:
+        """Reescribe SOLO la cabecera del .mxw (deja el cuerpo, y por tanto su
+        `content_hash`, intacto) aplicando `mutate(header_dict)`. Sirve para
+        forjar cabeceras incoherentes que superan el hash de contenido."""
+        import json
+        import struct
+        raw = path.read_bytes()
+        (hlen,) = struct.unpack("<Q", raw[4:12])
+        header = json.loads(raw[12:12 + hlen].decode("utf-8"))
+        body = raw[12 + hlen:]
+        mutate(header)
+        new_hb = json.dumps(header).encode("utf-8")
+        path.write_bytes(b"MXW1" + struct.pack("<Q", len(new_hb)) + new_hb + body)
+
+    def test_inconsistent_shape_vs_nbytes_raises_mxw_error(self) -> None:
+        """Reauditoría Opus (BAJA): una cabecera cuyo `shape` no cuadra con
+        `nbytes` (aunque el `content_hash` del cuerpo sea correcto) debe fallar
+        con `MxwError` explícito, no con un `ValueError` de `reshape` que se
+        escaparía del `except MxwError` de los callers."""
+        import torch
+        from matrixai.parameters.binary_store import write_mxw, read_mxw, MxwError
+        tmp = Path(tempfile.mkdtemp())
+        path = tmp / "m.mxw"
+        write_mxw(path, {"W": torch.randn(2, 2)}, model_hash="mh", parameter_schema_hash="sh")
+        # 16 bytes reales (2x2 float32); declaramos shape [3] (12 bytes) -> incoherente
+        self._rewrite_header(path, lambda h: h["tensors"][0].__setitem__("shape", [3]))
+        with self.assertRaises(MxwError):
+            read_mxw(path, verify=False)  # verify=False: aislamos el chequeo de cabecera
+
+    def test_nbytes_not_multiple_of_four_raises_mxw_error(self) -> None:
+        import torch
+        from matrixai.parameters.binary_store import write_mxw, read_mxw, MxwError
+        tmp = Path(tempfile.mkdtemp())
+        path = tmp / "m.mxw"
+        write_mxw(path, {"W": torch.randn(2, 2)}, model_hash="mh", parameter_schema_hash="sh")
+        self._rewrite_header(path, lambda h: h["tensors"][0].__setitem__("nbytes", 6))
+        with self.assertRaises(MxwError):
+            read_mxw(path, verify=False)
+
+    def test_offset_out_of_body_raises_mxw_error(self) -> None:
+        import torch
+        from matrixai.parameters.binary_store import write_mxw, read_mxw, MxwError
+        tmp = Path(tempfile.mkdtemp())
+        path = tmp / "m.mxw"
+        write_mxw(path, {"W": torch.randn(2, 2)}, model_hash="mh", parameter_schema_hash="sh")
+        self._rewrite_header(path, lambda h: h["tensors"][0].__setitem__("offset", 9999))
+        with self.assertRaises(MxwError):
+            read_mxw(path, verify=False)
+
 
 @unittest.skipUnless(_HAS_TORCH, "torch not installed")
 class AtomicWriteTest(unittest.TestCase):
