@@ -87,6 +87,7 @@ def train_dense_network_torch(
     epoch_callback: Callable[[dict[str, Any]], None] | None = None,
     cancel_check: Callable[[], None] | None = None,
     materialize: bool | None = None,
+    initial_state_dict: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Train a dense_network via torch autograd.
 
@@ -95,6 +96,16 @@ def train_dense_network_torch(
     | None — CPU), epochs (trace), best_val_loss, best_epoch, backend, device,
     train_loss, materialized (bool)}.
     cancel_check: called after each batch; raise _TrainingCancelled-compatible exception to abort.
+
+    PESOS_GRANDES C5: `initial_state_dict` (tensores CPU, mismas claves que
+    `dense_module_to_state_dict`/`.mxw`) reanuda el entrenamiento desde esos
+    pesos en vez de la inicialización nativa de `nn.Linear` — mismo patrón que
+    ya usa `evaluate_dense_network_torch`/`probe_collapse_torch` para
+    reconstruir el módulo desde tensores (`dense_network_to_torch_module_from_
+    state`), nunca desde una `ParameterSet` con valores (ningún `.tolist()` de
+    por medio, ni para modelos grandes ni pequeños). Si se omite, se
+    inicializa desde `parameter_set` como siempre (plantilla vacía → init
+    nativo, o valores → los de siempre).
 
     PESOS_GRANDES C2: por defecto (`materialize=None`), el propio trainer decide
     según `torch_native_min_params()` — por debajo del umbral, comportamiento
@@ -119,9 +130,13 @@ def train_dense_network_torch(
     if not examples:
         raise DenseTorchTrainError("no training examples")
 
-    torch.manual_seed(seed)
+    torch.manual_seed(seed)  # sigue haciendo falta: siembra también el shuffle de cada época (randperm)
     enable_tf32_if_cuda(device)  # M15(c): tensor cores en A100/Ada (~5-8x matmul fp32)
-    module = dense_network_to_torch_module(network, parameter_set)
+    module = (
+        dense_network_to_torch_module_from_state(network, initial_state_dict, device)
+        if initial_state_dict is not None
+        else dense_network_to_torch_module(network, parameter_set)
+    )
     module._torch_module.to(device)
 
     # 80/20 split (mirrors the stdlib dense trainer)

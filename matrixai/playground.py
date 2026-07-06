@@ -1148,10 +1148,14 @@ def _dense_torch_train_result(
     seed: int,
     epoch_callback: Any,
     cancel_check: Any = None,
+    initial_state_dict: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """GPU-C3 — train a dense_network with the torch trainer and build the SAME
     result shape as the stdlib path (so snapshot/infer/export/M3 metrics are
-    unaffected). Evaluation uses evaluate_dense_network_torch (batched, chunked)."""
+    unaffected). Evaluation uses evaluate_dense_network_torch (batched, chunked).
+
+    PESOS_GRANDES C5: `initial_state_dict` (tensores CPU de un modelo guardado)
+    reanuda el entrenamiento desde esos pesos — ver `train_dense_network_torch`."""
     from matrixai.types import check_network_types
     from matrixai.parameters.network_params import build_network_parameter_set
     from matrixai.parameters.store import program_hash
@@ -1225,6 +1229,9 @@ def _dense_torch_train_result(
             # (tensores CPU) y `best_params=None` — sin el `.tolist()` O(params)
             # que colgaba al acabar. Este resultado propaga los tensores/marcador
             # hacia abajo (eval/probe usan `state_dict`; `params_best` = marcador).
+            # PESOS_GRANDES C5: si hay `initial_state_dict` (reentrenar un modelo
+            # guardado), el trainer arranca desde esos pesos en vez de inicializar.
+            initial_state_dict=initial_state_dict,
         )
         # Visible en Colab: batch del spec (autogenerado = 8) vs el efectivo en GPU.
         _diag(f"entrenamiento OK en {device}: batch spec={batch_size} → efectivo={tr.get('batch_size')} "
@@ -1326,8 +1333,14 @@ def _run_playground_dense_training(
     epoch_callback: Any = None,
     seed: int = 42,
     cancel_check: Any = None,
+    initial_state_dict: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Synchronous training for NETWORK (dense) models using DenseSupervisedTrainer."""
+    """Synchronous training for NETWORK (dense) models using DenseSupervisedTrainer.
+
+    PESOS_GRANDES C5: `initial_state_dict` solo se honra en el camino torch
+    (reanudar entrenamiento desde tensores guardados); el fallback stdlib lo
+    ignora — reentrenar un modelo grande sin torch disponible entrena desde
+    cero como siempre (nunca fue el camino de un modelo grande real)."""
     try:
         training = parse_training_text(training_text)
     except Exception as exc:  # noqa: BLE001
@@ -1356,7 +1369,8 @@ def _run_playground_dense_training(
     if use_torch:
         try:
             return _dense_torch_train_result(mxai_text, training, spec, csv_text,
-                                             device, seed, epoch_callback, cancel_check)
+                                             device, seed, epoch_callback, cancel_check,
+                                             initial_state_dict=initial_state_dict)
         except _TrainingCancelled:
             raise
         except Exception as exc:  # noqa: BLE001  — never let GPU break training: fall back
@@ -2115,12 +2129,17 @@ def _submit_training_job(
     epochs_override: int | None = None,
     field_ranges: dict[str, tuple[float, float]] | None = None,
     seed: int = 42,
+    initial_state_dict: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Start async training job. Returns {ok, job_id} immediately.
 
     M8-A3: `seed` drives parameter initialization; a different seed is the
     actionable retry for a collapsed (dying-ReLU) model.
-    """
+
+    PESOS_GRANDES C5: `initial_state_dict` (tensores CPU de un modelo grande
+    ya guardado) reanuda el entrenamiento desde esos pesos en vez de
+    inicializar — solo se honra en el camino `dense_network` (no composite,
+    fuera de alcance de PESOS_GRANDES)."""
     # Enforce 1 concurrent run (contract P9 §Límites operativos)
     if any(j["status"] == "running" for j in _training_jobs.values()):
         return {"ok": False, "error": "Ya hay un entrenamiento en curso. Espera a que termine o pulsa Detener."}
@@ -2191,15 +2210,18 @@ def _submit_training_job(
                     job["error"] = result.get("error")
             elif prediction_kind == "network_call":
                 # M2-C2: composite (P19) networks use the composite trainer
-                _net_trainer = (
-                    _run_playground_composite_training
-                    if _network_is_composite(mxai_text)
-                    else _run_playground_dense_training
-                )
-                result = _net_trainer(
-                    mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
-                    seed=seed, cancel_check=cancel_check,
-                )
+                if _network_is_composite(mxai_text):
+                    result = _run_playground_composite_training(
+                        mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
+                        seed=seed, cancel_check=cancel_check,
+                    )
+                else:
+                    # PESOS_GRANDES C5: reanudar desde `initial_state_dict` solo
+                    # aplica al camino dense (no composite).
+                    result = _run_playground_dense_training(
+                        mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
+                        seed=seed, cancel_check=cancel_check, initial_state_dict=initial_state_dict,
+                    )
                 if cancel_event.is_set():
                     job["status"] = "timeout" if job.get("_timed_out") else "cancelled"
                     return
