@@ -22,6 +22,41 @@ _SUPPORTED_KINDS = frozenset({"softmax_linear", "sigmoid_linear", "layer_call"})
 _OPSET_VERSION = 17
 
 
+def onnx_size_limit_error(program: Any) -> str | None:
+    """PESOS_GRANDES C6 — mensaje de error si los pesos estimados del programa
+    NO caben en un fichero ONNX (protobuf rechaza serializar mensajes >2 GiB;
+    ONNX guarda los pesos EN LÍNEA). `None` si caben — o si el propio
+    estimador falla (fail-open, invariante 6: la estimación es orientativa y
+    nunca debe convertir un export válido en un error por un fallo SUYO; sin
+    el chequeo, un modelo realmente grande fallará igualmente más adelante,
+    solo que con el error críptico de protobuf).
+
+    Compartido por `OnnxExporter.export` (lanza `OnnxExportError`) y por el
+    Studio (`_studio_export` lo consulta ANTES de materializar los pesos — un
+    modelo de varios GiB no debe pagar minutos de `.tolist()` para morir
+    aquí igualmente). El mensaje NO sugiere bundle/wasm como alternativa:
+    ambos empaquetan un ONNX interno (`bundle.py`/`wasm_exporter.py` llaman a
+    `OnnxExporter().export`), así que comparten exactamente este límite.
+    """
+    try:
+        from matrixai.resources import estimate_model_resources, ONNX_PROTOBUF_LIMIT_GIB
+        estimate = estimate_model_resources(program)
+    except Exception:  # noqa: BLE001 — fail-open: el guardrail nunca rompe un export válido
+        return None
+    if estimate.weights_gib <= ONNX_PROTOBUF_LIMIT_GIB:
+        return None
+    return (
+        f"Este modelo tiene ~{estimate.weights_gib:.2f} GiB de pesos "
+        f"({estimate.param_count:,} parámetros) — supera el límite de "
+        f"~{ONNX_PROTOBUF_LIMIT_GIB:.1f} GiB de un fichero ONNX (el formato "
+        "guarda los pesos en línea en el protobuf, y por encima de ese tamaño "
+        "necesitaría 'external data', fuera de alcance hoy). Los formatos "
+        "wasm y bundle empaquetan un ONNX interno, así que comparten este "
+        "límite. El modelo sigue siendo usable dentro del Studio: guárdalo "
+        "(binario o json) para inferir y reentrenar con él."
+    )
+
+
 @dataclass(frozen=True)
 class OnnxExportResult:
     output_path: str
@@ -69,25 +104,14 @@ class OnnxExporter:
         # PESOS_GRANDES C6: ONNX guarda los pesos EN LÍNEA en el protobuf — por
         # encima de ~2 GiB, protobuf rechaza serializar el mensaje (falla a
         # mitad de export con un ValueError críptico, o peor, produce un
-        # fichero incompleto). "external data" (pesos en un fichero aparte)
-        # queda fuera de alcance de este contrato. Frenar AQUÍ, antes de
-        # construir el grafo, da un error claro y accionable en vez de un
-        # crash de protobuf. `estimate_model_resources` calcula el tamaño
-        # desde el manifest (shapes), sin materializar ni un solo valor —
-        # O(#tensores), instantáneo incluso para un modelo de miles de millones
-        # de parámetros.
-        from matrixai.resources import estimate_model_resources, ONNX_PROTOBUF_LIMIT_GIB
-        estimate = estimate_model_resources(program)
-        if estimate.weights_gib > ONNX_PROTOBUF_LIMIT_GIB:
-            raise OnnxExportError(
-                f"Este modelo tiene ~{estimate.weights_gib:.2f} GiB de pesos "
-                f"({estimate.param_count:,} parámetros) — supera el límite de "
-                f"~{ONNX_PROTOBUF_LIMIT_GIB:.1f} GiB de un fichero ONNX (el "
-                "formato guarda los pesos en línea en el protobuf; por encima "
-                "de ese tamaño necesitaría 'external data', fuera de alcance "
-                "hoy). Exporta como bundle, o guarda el modelo en formato "
-                "json/binario en vez de ONNX."
-            )
+        # fichero incompleto). Frenar AQUÍ, antes de construir el grafo, da un
+        # error claro y accionable. El chequeo (estimación desde el manifest,
+        # O(#tensores), sin materializar valores) vive en
+        # `onnx_size_limit_error` — compartido con el Studio, que lo consulta
+        # aún antes (sin pagar la materialización de los pesos).
+        size_error = onnx_size_limit_error(program)
+        if size_error is not None:
+            raise OnnxExportError(size_error)
 
         # Guardrail: ParameterSet must belong to this program (hash)
         expected_hash = program_hash(program)

@@ -1,7 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Roberto Llamosas Conde
 
-from matrixai.export.onnx_exporter import OnnxExportError, OnnxExportResult, OnnxExporter, export_onnx
+from matrixai.export.onnx_exporter import (
+    OnnxExportError,
+    OnnxExportResult,
+    OnnxExporter,
+    export_onnx,
+    onnx_size_limit_error,
+)
 from matrixai.export.equivalence import (
     OnnxEquivalenceError,
     OnnxEquivalenceResult,
@@ -33,6 +39,7 @@ __all__ = [
     "OnnxExportResult",
     "OnnxExporter",
     "export_onnx",
+    "onnx_size_limit_error",
     "OnnxEquivalenceError",
     "OnnxEquivalenceResult",
     "OnnxEquivalenceValidator",

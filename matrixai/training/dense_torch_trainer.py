@@ -167,6 +167,22 @@ def train_dense_network_torch(
     best_val_loss = float("inf")
     best_epoch = 1
     best_state = _snapshot()
+    # PESOS_GRANDES C5 audit (MEDIA): al REANUDAR, los pesos de partida son un
+    # candidato real a "mejor estado" (a diferencia del init aleatorio, que
+    # nunca vale la pena conservar) — se evalúan como línea base "época 0".
+    # Sin esto, `best_val_loss` arranca en inf y la época 1 siempre "gana"
+    # aunque haya EMPEORADO los pesos (lr alto, dataset malo, pocas épocas):
+    # el resultado devolvía pesos destruidos como best y el auto-guardado del
+    # Studio machacaba el snapshot bueno con ellos. Con la línea base, si
+    # ninguna época mejora el punto de partida, se devuelven los pesos de
+    # partida intactos (`best_epoch=0`) — "reentrenar no pierde los pesos
+    # previos". Solo para warm-start: el camino de init fresco no cambia.
+    if initial_state_dict is not None:
+        module.eval()
+        with torch.no_grad():
+            init_out = module(val_x)
+            best_val_loss = float(_loss_on_probabilities(init_out, val_y, loss_fn, torch).detach())
+        best_epoch = 0
     epoch_trace: list[dict[str, Any]] = []
     no_improve = 0
     patience = early_stop[0] if early_stop else None

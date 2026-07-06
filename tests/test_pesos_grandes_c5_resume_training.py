@@ -121,6 +121,73 @@ def test_resuming_from_a_trained_state_beats_fresh_init_after_one_epoch():
     assert warm["best_val_loss"] < converged["best_val_loss"] * 3
 
 
+def test_resume_that_never_improves_returns_the_starting_weights():
+    """PESOS_GRANDES C5 audit (MEDIA): con lr=0 NINGUNA época puede mejorar la
+    línea base (val_loss idéntico, y el criterio es estrictamente `<`) — el
+    trainer debe devolver los pesos de PARTIDA como best (`best_epoch=0`), no
+    los de la época 1. Sin la línea base, `best_val_loss` arrancaba en inf y
+    la época 1 siempre 'ganaba': un reentrenamiento que EMPEORA devolvía
+    pesos peores que los guardados y el auto-guardado los machacaba."""
+    import torch
+    from matrixai.training.dense_torch_trainer import train_dense_network_torch
+    net, ps = _setup()
+    state = {
+        "Net.W1": torch.full((8, 2), 0.25),
+        "Net.b1": torch.full((8,), 0.1),
+        "Net.W2": torch.full((2, 8), -0.5),
+        "Net.b2": torch.full((2,), 0.05),
+    }
+    res = train_dense_network_torch(
+        net, ps, _signal_examples(), "cross_entropy",
+        lr=0.0, epochs=3, device="cpu", seed=1,
+        initial_state_dict={k: v.clone() for k, v in state.items()},
+    )
+    assert res["best_epoch"] == 0
+    best = res["best_params"]
+    for key, expected in state.items():
+        got = torch.tensor(best.parameters[key]["values"])
+        assert torch.allclose(got, expected), key
+
+
+def test_destructive_resume_does_not_return_worse_weights_than_start():
+    """Escenario reproducido en la auditoría: modelo convergido + resume con
+    lr destructivo → los pesos devueltos nunca deben ser peores (en val) que
+    el punto de partida. La línea base época-0 lo garantiza por construcción:
+    best_val_loss = min(baseline, épocas)."""
+    import torch
+    from matrixai.training.dense_torch_trainer import train_dense_network_torch
+    net, ps = _setup()
+    ex = _signal_examples()
+    # Estado PARCIALMENTE entrenado (5 épocas): a diferencia de uno convergido
+    # (gradiente ~0, ni lr=1000 lo mueve), aquí los gradientes siguen vivos y
+    # un lr enorme dispara los pesos de verdad (val_loss 0.70 → 2-12).
+    partial = train_dense_network_torch(net, ps, ex, "cross_entropy", lr=0.5,
+                                        epochs=5, device="cpu", seed=1,
+                                        materialize=False)
+    trained_state = partial["best_state_dict"]
+
+    destroyed = train_dense_network_torch(
+        net, ps, ex, "cross_entropy", lr=100.0, epochs=3, device="cpu",
+        seed=2, initial_state_dict={k: v.clone() for k, v in trained_state.items()},
+        materialize=False,
+    )
+    assert destroyed["best_epoch"] == 0
+    assert destroyed["best_val_loss"] <= partial["best_val_loss"] + 1e-6
+    for key in trained_state:
+        assert torch.allclose(destroyed["best_state_dict"][key], trained_state[key]), key
+
+
+def test_fresh_training_keeps_epoch_ge_1_semantics():
+    """Retro-compat: SIN initial_state_dict no hay línea base — el init
+    aleatorio nunca es un candidato a best (comportamiento idéntico a antes:
+    best_epoch >= 1 siempre)."""
+    from matrixai.training.dense_torch_trainer import train_dense_network_torch
+    net, ps = _setup()
+    res = train_dense_network_torch(net, ps, _signal_examples(), "cross_entropy",
+                                    lr=0.0, epochs=2, device="cpu", seed=1)
+    assert res["best_epoch"] >= 1
+
+
 def test_initial_state_dict_shapes_come_from_the_tensors_not_the_template():
     """Un `parameter_set` (plantilla) con shapes DISTINTAS a las del
     `initial_state_dict` no debe importar — igual que
