@@ -342,7 +342,25 @@ _MAX_JOBS = 20
 # pesos vivos (para save/export/infer de C4-C5); los anteriores los liberan y su
 # resultado marca `weights_evicted` (el marcador en params_best sigue, así que los
 # consumidores dan un error claro, no un crash). N=2 permite train→retrain.
-_LARGE_STATE_RETENTION = int(os.environ.get("MATRIXAI_LARGE_STATE_RETENTION", "2") or "2")
+_DEFAULT_LARGE_STATE_RETENTION = 2
+
+
+def _resolve_large_state_retention() -> int:
+    """Retención (env `MATRIXAI_LARGE_STATE_RETENTION`, default 2). Un valor no
+    numérico o negativo cae al default — NUNCA revienta el import del módulo por
+    un `int("abc")` (mismo patrón robusto que `resources.torch_native_min_params`;
+    un typo en una env var no debe brickear el arranque del playground)."""
+    raw = os.environ.get("MATRIXAI_LARGE_STATE_RETENTION")
+    if raw is None:
+        return _DEFAULT_LARGE_STATE_RETENTION
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_LARGE_STATE_RETENTION
+    return value if value >= 0 else _DEFAULT_LARGE_STATE_RETENTION
+
+
+_LARGE_STATE_RETENTION = _resolve_large_state_retention()
 
 
 def _diag(msg: str) -> None:

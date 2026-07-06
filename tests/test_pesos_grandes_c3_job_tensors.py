@@ -13,7 +13,10 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import random
+import subprocess
+import sys
 import time
 import unittest
 from importlib import util
@@ -221,6 +224,39 @@ class SyncTrainEndpointResultTest(unittest.TestCase):
         plain = {"ok": True, "params_best": {"parameter_set_id": "x"}}
         # sin claves internas presentes → devuelve el MISMO objeto (sin copia inútil)
         self.assertIs(_public_training_result(plain), plain)
+
+
+class LargeStateRetentionEnvTest(unittest.TestCase):
+    """El override de retención no debe romper el import del playground si hay
+    un typo en la variable de entorno."""
+
+    def test_invalid_retention_env_does_not_break_import(self) -> None:
+        env = dict(os.environ)
+        env["MATRIXAI_LARGE_STATE_RETENTION"] = "abc"
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import matrixai.playground as pg; print(pg._LARGE_STATE_RETENTION)",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=20,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "2")
+
+    def test_retention_env_parser_falls_back_for_invalid_values(self) -> None:
+        import matrixai.playground as pg
+
+        with patch.dict("os.environ", {"MATRIXAI_LARGE_STATE_RETENTION": "abc"}):
+            self.assertEqual(pg._resolve_large_state_retention(), 2)
+        with patch.dict("os.environ", {"MATRIXAI_LARGE_STATE_RETENTION": "-1"}):
+            self.assertEqual(pg._resolve_large_state_retention(), 2)
+        with patch.dict("os.environ", {"MATRIXAI_LARGE_STATE_RETENTION": "0"}):
+            self.assertEqual(pg._resolve_large_state_retention(), 0)
 
 
 @unittest.skipUnless(_HAS_TORCH, "torch not installed")
