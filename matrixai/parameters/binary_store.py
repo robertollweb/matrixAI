@@ -200,7 +200,7 @@ def validate_mxw_tensor_meta(meta: dict[str, Any], path: Any = "") -> tuple[str,
 
 
 def stream_mxw_tensor(f: Any, body_start: int, meta: dict[str, Any], out: Any,
-                      chunk_bytes: int = _CHUNK_BYTES) -> int:
+                      chunk_bytes: int = _CHUNK_BYTES, hasher: Any | None = None) -> int:
     """Copia los bytes de UN tensor del `.mxw` (fichero abierto `f`, con el
     cuerpo empezando en `body_start`) a `out` (file-like binario) por chunks,
     sin traer el tensor entero a RAM. Devuelve los bytes copiados.
@@ -208,7 +208,11 @@ def stream_mxw_tensor(f: Any, body_start: int, meta: dict[str, Any], out: Any,
     PESOS_GRANDES C7 auditoría: el corazón del export external-data por
     streaming — `f` puede ser el `.mxw` de 15 GiB y `out` un entry de un zip
     o el `.onnx.data`; en ningún momento hay más de `chunk_bytes` en memoria
-    (a diferencia de `read_mxw`, que trae el cuerpo entero + copias)."""
+    (a diferencia de `read_mxw`, que trae el cuerpo entero + copias).
+
+    `hasher`, si se pasa, recibe exactamente los bytes copiados. Esto permite
+    validar `content_hash` en caminos streaming sin releer ni materializar el
+    cuerpo del `.mxw`."""
     name, offset, nbytes, _shape = validate_mxw_tensor_meta(meta)
     f.seek(body_start + offset)
     remaining = nbytes
@@ -216,6 +220,8 @@ def stream_mxw_tensor(f: Any, body_start: int, meta: dict[str, Any], out: Any,
         buf = f.read(min(chunk_bytes, remaining))
         if not buf:
             raise MxwError(f"tensor {name!r} truncado en el cuerpo del fichero .mxw")
+        if hasher is not None:
+            hasher.update(buf)
         out.write(buf)
         remaining -= len(buf)
     return nbytes

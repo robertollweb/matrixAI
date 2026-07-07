@@ -147,6 +147,7 @@ class TestStreamingExternalExport(unittest.TestCase):
 @unittest.skipUnless(_HAS_TORCH, "torch not installed")
 class TestStreamMxwTensor(unittest.TestCase):
     def test_stream_matches_raw_bytes(self):
+        import hashlib
         import torch
         from matrixai.parameters.binary_store import (
             write_mxw, read_mxw_header_and_body_start, stream_mxw_tensor,
@@ -160,9 +161,11 @@ class TestStreamMxwTensor(unittest.TestCase):
             header, body_start = read_mxw_header_and_body_start(mxw)
             meta = header["tensors"][0]
             out = _io.BytesIO()
+            hasher = hashlib.sha256()
             with open(mxw, "rb") as f:
-                n = stream_mxw_tensor(f, body_start, meta, out, chunk_bytes=7)
+                n = stream_mxw_tensor(f, body_start, meta, out, chunk_bytes=7, hasher=hasher)
             import numpy as np
             arr = np.frombuffer(out.getvalue(), dtype=np.float32)
             self.assertEqual(n, 48)  # 12 float32
             self.assertTrue(np.array_equal(arr, np.arange(12, dtype=np.float32)))
+            self.assertEqual(hasher.hexdigest(), header["content_hash"])
