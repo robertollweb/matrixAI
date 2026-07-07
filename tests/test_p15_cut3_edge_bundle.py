@@ -202,7 +202,7 @@ class TestEmailAgentBundle(unittest.TestCase):
         d = self.result.to_dict()
         expected = {"bundle_dir", "files", "model_hash", "parameter_set_id",
                     "equivalence_passed", "export", "equivalence_check",
-                    "inference_spec_skipped_reason"}
+                    "inference_spec_skipped_reason", "equivalence_skipped_reason"}
         self.assertEqual(set(d.keys()), expected)
 
 

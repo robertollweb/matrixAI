@@ -23,21 +23,19 @@ _OPSET_VERSION = 17
 
 
 def onnx_size_limit_error(program: Any) -> str | None:
-    """PESOS_GRANDES C6 — mensaje de error si los pesos estimados del programa
-    NO caben en un fichero ONNX (protobuf rechaza serializar mensajes >2 GiB;
-    ONNX guarda los pesos EN LÍNEA). `None` si caben — o si el propio
-    estimador falla (fail-open, invariante 6: la estimación es orientativa y
-    nunca debe convertir un export válido en un error por un fallo SUYO; sin
-    el chequeo, un modelo realmente grande fallará igualmente más adelante,
-    solo que con el error críptico de protobuf).
+    """PESOS_GRANDES C6→C7b — mensaje si los pesos estimados del programa NO
+    caben en un ÚNICO fichero ONNX in-memory (protobuf rechaza serializar
+    mensajes >2 GiB; ONNX guarda los pesos EN LÍNEA por defecto). `None` si
+    caben — o si el propio estimador falla (fail-open, invariante 6: la
+    estimación es orientativa y nunca debe convertir un export válido en un
+    error por un fallo SUYO).
 
-    Compartido por `OnnxExporter.export` (lanza `OnnxExportError`) y por el
-    Studio (`_studio_export` lo consulta ANTES de materializar los pesos — un
-    modelo de varios GiB no debe pagar minutos de `.tolist()` para morir
-    aquí igualmente). El mensaje NO sugiere bundle/wasm como alternativa:
-    ambos empaquetan un ONNX interno (`bundle.py`/`wasm_exporter.py` llaman a
-    `OnnxExporter().export`), así que comparten exactamente este límite.
-    """
+    C6 usaba esto para BLOQUEAR el export; C7b lo resuelve de verdad con
+    "external data" (`OnnxExporter.export`/`EdgeBundler.bundle` guardan los
+    pesos en un `.onnx.data` aparte en vez de fallar) — así que el valor NO
+    nulo ya NO significa "imposible", significa "usar external data". El
+    único sitio que TODAVÍA lo trata como bloqueo duro es `WasmExporter.export`
+    (un navegador no puede cargar un `.data` de varios GiB aparte del `.wasm`)."""
     try:
         from matrixai.resources import estimate_model_resources, ONNX_PROTOBUF_LIMIT_GIB
         estimate = estimate_model_resources(program)
@@ -48,12 +46,10 @@ def onnx_size_limit_error(program: Any) -> str | None:
     return (
         f"Este modelo tiene ~{estimate.weights_gib:.2f} GiB de pesos "
         f"({estimate.param_count:,} parámetros) — supera el límite de "
-        f"~{ONNX_PROTOBUF_LIMIT_GIB:.1f} GiB de un fichero ONNX (el formato "
-        "guarda los pesos en línea en el protobuf, y por encima de ese tamaño "
-        "necesitaría 'external data', fuera de alcance hoy). Los formatos "
-        "wasm y bundle empaquetan un ONNX interno, así que comparten este "
-        "límite. El modelo sigue siendo usable dentro del Studio: guárdalo "
-        "(binario o json) para inferir y reentrenar con él."
+        f"~{ONNX_PROTOBUF_LIMIT_GIB:.1f} GiB de un fichero ONNX cargado en el "
+        "navegador (WASM). Exporta como ONNX o bundle en su lugar: ambos usan "
+        "'external data' (un fichero .onnx.data aparte) automáticamente para "
+        "modelos de este tamaño."
     )
 
 
@@ -71,6 +67,10 @@ class OnnxExportResult:
     exported_functions: list[str]
     skipped_functions: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
+    # PESOS_GRANDES C7b: True si los pesos se guardaron en un fichero externo
+    # (`<output_path>.data`, protobuf external-data) por superar el límite de
+    # protobuf — el caller debe empaquetar/entregar AMBOS ficheros.
+    external_data: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +86,7 @@ class OnnxExportResult:
             "exported_functions": self.exported_functions,
             "skipped_functions": self.skipped_functions,
             "labels": self.labels,
+            "external_data": self.external_data,
         }
 
 
@@ -93,52 +94,113 @@ class OnnxExporter:
     def export(
         self,
         program: MatrixAIProgram,
-        parameter_set: ParameterSet,
+        parameter_set: ParameterSet | None,
         output_path: str | Path,
+        *,
+        state_dict: dict[str, Any] | None = None,
+        model_hash: str | None = None,
+        parameter_schema_hash: str | None = None,
     ) -> OnnxExportResult:
+        """`parameter_set` es el camino de siempre (dict clásico, valores ya en
+        listas Python). PESOS_GRANDES C7b: `state_dict` (tensores torch crudos,
+        MISMO patrón que evaluate/probe/train en C2/C5) es la alternativa para
+        un modelo grande guardado en `.mxw` — construye los initializers vía
+        `tensor.numpy()` (vectorizado, C, nunca `.tolist()`). Si se da
+        `state_dict`, `parameter_set` se ignora (puede ser `None`) y
+        `model_hash`/`parameter_schema_hash` son obligatorios (el caller ya los
+        validó contra la cabecera del `.mxw` — aquí se revalida contra el
+        hash del programa, igual que el camino de `parameter_set`). Solo
+        soporta `dense_network` — el único tipo de red que PESOS_GRANDES trata
+        como "grande" (composite/layer_call entrenan y guardan distinto)."""
         onnx, numpy_helper, helper, TensorProto = _import_onnx()
         np = _import_numpy()
 
         output_path = Path(output_path)
 
-        # PESOS_GRANDES C6: ONNX guarda los pesos EN LÍNEA en el protobuf — por
-        # encima de ~2 GiB, protobuf rechaza serializar el mensaje (falla a
-        # mitad de export con un ValueError críptico, o peor, produce un
-        # fichero incompleto). Frenar AQUÍ, antes de construir el grafo, da un
-        # error claro y accionable. El chequeo (estimación desde el manifest,
-        # O(#tensores), sin materializar valores) vive en
-        # `onnx_size_limit_error` — compartido con el Studio, que lo consulta
-        # aún antes (sin pagar la materialización de los pesos).
-        size_error = onnx_size_limit_error(program)
-        if size_error is not None:
-            raise OnnxExportError(size_error)
+        # PESOS_GRANDES C6→C7b: ONNX guarda los pesos EN LÍNEA en el protobuf
+        # — por encima de ~2 GiB, protobuf rechaza serializar el mensaje
+        # (crash a mitad de export, o un fichero incompleto). Antes (C6) esto
+        # BLOQUEABA el export; C7b lo resuelve de verdad con "external data"
+        # (pesos en un `.onnx.data` aparte, formato estándar que onnxruntime
+        # ya sabe leer) — el proto en memoria sigue pequeño (solo el grafo),
+        # así que ni el checker ni `onnx.save` tocan el límite de 2GB.
+        # `onnx_size_limit_error` (fail-open si el estimador falla) decide
+        # cuál de las dos rutas de guardado usar más abajo.
+        use_external_data = onnx_size_limit_error(program) is not None
 
-        # Guardrail: ParameterSet must belong to this program (hash)
-        expected_hash = program_hash(program)
-        if parameter_set.model_hash != expected_hash:
-            raise OnnxExportError(
-                f"ParameterSet model_hash {parameter_set.model_hash!r} does not match "
-                f"program hash {expected_hash!r} for {program.project!r}. "
-                "Export refused: ParameterSet was not trained on this .mxai."
-            )
+        using_state_dict = state_dict is not None
+        if using_state_dict:
+            if model_hash is None or parameter_schema_hash is None:
+                raise OnnxExportError(
+                    "export con state_dict requiere model_hash y parameter_schema_hash"
+                )
+            expected_hash = program_hash(program)
+            if model_hash != expected_hash:
+                raise OnnxExportError(
+                    f"state_dict model_hash {model_hash!r} does not match "
+                    f"program hash {expected_hash!r} for {program.project!r}. "
+                    "Export refused: state_dict was not trained on this .mxai."
+                )
+            result_model_hash = model_hash
+            result_parameter_schema_hash = parameter_schema_hash
+            # PESOS_GRANDES C3 ya usa "torch_state" como literal para "pesos en
+            # tensores, no en una ParameterSet con valores" — mismo nombre aquí.
+            result_parameter_set_id = "torch_state"
+        else:
+            # Guardrail: ParameterSet must belong to this program (hash)
+            expected_hash = program_hash(program)
+            if parameter_set.model_hash != expected_hash:
+                raise OnnxExportError(
+                    f"ParameterSet model_hash {parameter_set.model_hash!r} does not match "
+                    f"program hash {expected_hash!r} for {program.project!r}. "
+                    "Export refused: ParameterSet was not trained on this .mxai."
+                )
 
-        # Guardrail: ParameterSet shapes and schema must be consistent.
-        val = validate_export_parameter_set(program, parameter_set)
-        if not val.ok:
-            raise OnnxExportError(
-                f"ParameterSet validation failed for {program.project!r}: "
-                f"{'; '.join(val.errors)}"
-            )
+            # Guardrail: ParameterSet shapes and schema must be consistent.
+            val = validate_export_parameter_set(program, parameter_set)
+            if not val.ok:
+                raise OnnxExportError(
+                    f"ParameterSet validation failed for {program.project!r}: "
+                    f"{'; '.join(val.errors)}"
+                )
+            result_model_hash = parameter_set.model_hash
+            result_parameter_schema_hash = parameter_set.parameter_schema_hash
+            result_parameter_set_id = parameter_set.parameter_set_id
 
         # Classify functions by kind
-        layer_call_fns = [f for f in program.functions if f.semantic.kind == "layer_call"]
-        simple_fns = [f for f in program.functions
-                      if f.semantic.kind in ("softmax_linear", "sigmoid_linear")]
-        skipped = [f.name for f in program.functions if f.semantic.kind not in _SUPPORTED_KINDS]
+        layer_call_fns = [] if using_state_dict else [
+            f for f in program.functions if f.semantic.kind == "layer_call"
+        ]
+        simple_fns = [] if using_state_dict else [
+            f for f in program.functions
+            if f.semantic.kind in ("softmax_linear", "sigmoid_linear")
+        ]
+        skipped = [] if using_state_dict else [
+            f.name for f in program.functions if f.semantic.kind not in _SUPPORTED_KINDS
+        ]
         dense_nets = [n for n in program.networks if getattr(n, "kind", "") == "dense_network"]
-        composite_nets = [n for n in program.networks if getattr(n, "kind", "") == "composite_network"]
+        composite_nets = [] if using_state_dict else [
+            n for n in program.networks if getattr(n, "kind", "") == "composite_network"
+        ]
 
-        if layer_call_fns:
+        if using_state_dict:
+            if not dense_nets:
+                raise OnnxExportError(
+                    f"state_dict export solo soporta dense_network en {program.project!r} "
+                    "(el único tipo de red que PESOS_GRANDES guarda en .mxw)"
+                )
+            network = dense_nets[0]
+            if not program.vectors:
+                raise OnnxExportError(f"No VECTOR input for dense network {network.name!r}")
+            input_dim = program.vectors[0].size
+            nodes, initializers, x_info, y_info, out_shape = _build_dense_network_pipeline_from_state(
+                network, program, state_dict, np, numpy_helper, helper, TensorProto
+            )
+            exported_names = [network.name]
+            labels = []
+            kind = "dense_network"
+            skipped = [n.name for n in dense_nets[1:]]
+        elif layer_call_fns:
             # Input size for result: from VECTOR or SEQUENCE spec
             if program.vectors:
                 input_dim = program.vectors[0].size
@@ -222,24 +284,49 @@ class OnnxExporter:
 
         # Embed MatrixAI metadata as model properties (all hashes must be validatable)
         _set_meta(model, "matrixai_project", program.project)
-        _set_meta(model, "matrixai_model_hash", parameter_set.model_hash)
-        _set_meta(model, "matrixai_parameter_set_id", parameter_set.parameter_set_id)
-        _set_meta(model, "matrixai_parameter_schema_hash", parameter_set.parameter_schema_hash)
+        _set_meta(model, "matrixai_model_hash", result_model_hash)
+        _set_meta(model, "matrixai_parameter_set_id", result_parameter_set_id)
+        _set_meta(model, "matrixai_parameter_schema_hash", result_parameter_schema_hash)
         _set_meta(model, "matrixai_kind", kind)
         if labels:
             _set_meta(model, "matrixai_labels", ",".join(labels))
 
-        onnx.checker.check_model(model)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        onnx.save(model, str(output_path))
+        if use_external_data:
+            # PESOS_GRANDES C7b: pesos en un fichero aparte (`<nombre>.data`,
+            # protobuf external-data estándar — onnxruntime lo resuelve él
+            # solo por su ruta relativa). El proto en memoria (`model`) sigue
+            # siendo solo el grafo — pequeño — así que `onnx.save_model` no
+            # toca el límite de 2GB al serializarlo. `check_model` se llama
+            # con la RUTA (str), no con el proto en memoria: comprobar un
+            # proto con >2GB de datos en memoria (`check_model(model)`)
+            # volvería a chocar con el mismo límite de protobuf que estamos
+            # evitando — pasar la ruta deja que el checker de onnx resuelva
+            # los datos externos por streaming, no todos en RAM a la vez.
+            # size_threshold=0: TODO tensor va al fichero externo, sin importar
+            # su tamaño — simple y uniforme (nunca "¿por qué este bias tan
+            # pequeño se quedó embebido?"), y hace el resultado predecible y
+            # verificable en tests con modelos mini (donde ninguna capa pesa
+            # más que un umbral por defecto realista).
+            onnx.save_model(
+                model, str(output_path),
+                save_as_external_data=True,
+                all_tensors_to_one_file=True,
+                location=f"{output_path.name}.data",
+                size_threshold=0,
+            )
+            onnx.checker.check_model(str(output_path))
+        else:
+            onnx.checker.check_model(model)
+            onnx.save(model, str(output_path))
 
         in_shape = [-1, input_dim]
         return OnnxExportResult(
             output_path=str(output_path),
             opset_version=_OPSET_VERSION,
-            model_hash=parameter_set.model_hash,
-            parameter_set_id=parameter_set.parameter_set_id,
-            parameter_schema_hash=parameter_set.parameter_schema_hash,
+            model_hash=result_model_hash,
+            parameter_set_id=result_parameter_set_id,
+            parameter_schema_hash=result_parameter_schema_hash,
             input_name=x_info.name,
             input_shape=in_shape,
             output_name=y_info.name,
@@ -247,6 +334,7 @@ class OnnxExporter:
             exported_functions=exported_names,
             skipped_functions=skipped,
             labels=labels,
+            external_data=use_external_data,
         )
 
 
@@ -269,10 +357,17 @@ def validate_export_parameter_set(program, parameter_set):
 
 def export_onnx(
     program: MatrixAIProgram,
-    parameter_set: ParameterSet,
+    parameter_set: ParameterSet | None,
     output_path: str | Path,
+    *,
+    state_dict: dict[str, Any] | None = None,
+    model_hash: str | None = None,
+    parameter_schema_hash: str | None = None,
 ) -> OnnxExportResult:
-    return OnnxExporter().export(program, parameter_set, output_path)
+    return OnnxExporter().export(
+        program, parameter_set, output_path,
+        state_dict=state_dict, model_hash=model_hash, parameter_schema_hash=parameter_schema_hash,
+    )
 
 
 def onnx_available() -> bool:
@@ -584,6 +679,59 @@ def _build_dense_network_pipeline(network, program, parameter_set, np, numpy_hel
             nodes.append(helper.make_node("Softmax", inputs=[pre_act], outputs=[post_act], axis=1))
         else:  # linear / identity
             nodes.append(helper.make_node("Identity", inputs=[pre_act], outputs=[post_act]))
+
+        current = post_act
+        current_shape = [-1, layer.units]
+
+    y_info = helper.make_tensor_value_info(current, TensorProto.FLOAT, current_shape)
+    return nodes, initializers, x_info, y_info, current_shape
+
+
+def _build_dense_network_pipeline_from_state(network, program, state, np, numpy_helper, helper, TensorProto):
+    """PESOS_GRANDES C7b — como `_build_dense_network_pipeline` pero desde
+    tensores torch crudos (`state: dict[str, Tensor]`, mismas claves
+    `{network.name}.W{i}`/`.b{i}` que `.mxw`/`dense_module_to_state_dict`) en
+    vez de `parameter_set.parameters[key]["values"]` (listas Python). La
+    conversión a numpy es vectorizada (C) — nunca un `.tolist()` de por medio,
+    el mismo espíritu que el resto de PESOS_GRANDES."""
+    vec = program.vectors[0]
+    net = network.name
+    nodes = []
+    initializers = []
+    current = vec.name
+    current_shape = [-1, vec.size]
+
+    x_info = helper.make_tensor_value_info(vec.name, TensorProto.FLOAT, current_shape)
+
+    for layer in network.layers:
+        i = layer.index  # 1-based
+        w_key = f"{net}.W{i}"
+        b_key = f"{net}.b{i}"
+        if w_key not in state:
+            raise OnnxExportError(f"Dense-network tensor {w_key!r} not found in state_dict")
+        if b_key not in state:
+            raise OnnxExportError(f"Dense-network tensor {b_key!r} not found in state_dict")
+
+        W = state[w_key].detach().cpu().contiguous().numpy().astype(np.float32, copy=False)
+        b = state[b_key].detach().cpu().contiguous().numpy().astype(np.float32, copy=False)
+
+        w_name = f"{net}_W{i}"
+        b_name = f"{net}_b{i}"
+        pre_act = f"{net}_pre{i}"
+        post_act = f"{net}_out{i}"
+
+        initializers.append(numpy_helper.from_array(W, name=w_name))
+        initializers.append(numpy_helper.from_array(b, name=b_name))
+
+        nodes.append(helper.make_node(
+            "Gemm",
+            inputs=[current, w_name, b_name],
+            outputs=[pre_act],
+            transB=1,
+            alpha=1.0,
+            beta=1.0,
+        ))
+        nodes.append(_emit_dense_activation(layer.activation, pre_act, post_act, helper))
 
         current = post_act
         current_shape = [-1, layer.units]

@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Roberto Llamosas Conde
 
-"""PESOS_GRANDES C6 — ONNX guarda los pesos en línea en el protobuf; por
-encima de ~2 GiB, protobuf rechaza serializar el mensaje. `OnnxExporter.export`
-frena ANTES de construir el grafo con un `OnnxExportError` claro y accionable,
-en vez de dejar que protobuf falle a mitad de export con un error críptico (o
-peor, produzca un fichero corrupto). El chequeo usa `estimate_model_resources`
+"""PESOS_GRANDES C6→C7b — ONNX guarda los pesos en línea en el protobuf; por
+encima de ~2 GiB, protobuf rechaza serializar el mensaje. C6 bloqueaba el
+export con un error claro; C7b lo resuelve de verdad con "external data" (los
+pesos van a un `.onnx.data` aparte, formato estándar que onnxruntime ya sabe
+leer) — solo WASM (un navegador no puede cargar un `.data` de varios GiB
+aparte) mantiene el bloqueo de C6. El chequeo usa `estimate_model_resources`
 (manifest, O(#tensores)) — nunca hace falta un modelo real de 2 GiB para
 probarlo: se parchea la estimación.
 """
@@ -33,104 +34,92 @@ def _make_program_and_params():
     return prog, ps
 
 
+def _oversized_estimate(param_count=600_000_000, weights_gib=3.0):
+    from matrixai.resources import ResourceEstimate
+    return ResourceEstimate(
+        param_count=param_count, weights_gib=weights_gib,
+        vram_train_gib=0.0, effective_batch=1, json_ram_gib=0.0,
+        json_disk_gib=0.0, json_time_seconds=0.0, binary_ram_gib=0.0,
+        binary_disk_gib=0.0, binary_time_seconds=0.0,
+    )
+
+
 @unittest.skipUnless(_onnx_available(), "onnx not installed")
 class TestOnnxSizeLimit(unittest.TestCase):
-    def test_export_blocked_when_estimate_exceeds_limit(self):
-        from matrixai.export import OnnxExportError, OnnxExporter
-        from matrixai.resources import ResourceEstimate, ONNX_PROTOBUF_LIMIT_GIB
+    def test_oversized_export_uses_external_data_instead_of_blocking(self):
+        """C7b: un modelo por encima del límite YA NO bloquea el export de
+        onnx — usa external-data (`.onnx` pequeño + `.onnx.data` con los
+        pesos, formato estándar de la industria)."""
+        from matrixai.export import OnnxExporter
         prog, ps = _make_program_and_params()
-        oversized = ResourceEstimate(
-            param_count=600_000_000, weights_gib=ONNX_PROTOBUF_LIMIT_GIB + 0.5,
-            vram_train_gib=0.0, effective_batch=1, json_ram_gib=0.0,
-            json_disk_gib=0.0, json_time_seconds=0.0, binary_ram_gib=0.0,
-            binary_disk_gib=0.0, binary_time_seconds=0.0,
-        )
-        with patch("matrixai.resources.estimate_model_resources", return_value=oversized):
-            with tempfile.NamedTemporaryFile(suffix=".onnx") as f:
-                with self.assertRaises(OnnxExportError) as ctx:
-                    OnnxExporter().export(prog, ps, f.name)
-        msg = str(ctx.exception)
-        self.assertIn("GiB", msg)
-        self.assertIn("600,000,000", msg)
-        # Auditoría C6: el mensaje NO debe sugerir bundle/wasm como salida —
-        # ambos empaquetan un ONNX interno y comparten exactamente este límite.
-        self.assertNotIn("Exporta como bundle", msg)
-        self.assertIn("comparten este límite", msg)
+        with patch("matrixai.resources.estimate_model_resources", return_value=_oversized_estimate()):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "model.onnx"
+                result = OnnxExporter().export(prog, ps, out)
+                self.assertTrue(result.external_data)
+                self.assertTrue(out.exists())
+                data_file = Path(tmp) / "model.onnx.data"
+                self.assertTrue(data_file.exists(), "esperaba un model.onnx.data externo")
+                self.assertGreater(data_file.stat().st_size, 0)
 
     def test_export_proceeds_when_estimate_is_under_limit(self):
         """Un modelo real y pequeño (email-agent.mxai) no se ve afectado —
-        el guardrail no cambia nada para lo que ya cabía en ONNX."""
+        el guardrail no cambia nada para lo que ya cabía en ONNX: sin
+        external-data, comportamiento byte-idéntico a antes de C6/C7b."""
         from matrixai.export import OnnxExporter
         prog, ps = _make_program_and_params()
-        with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
-            out = f.name
-        result = OnnxExporter().export(prog, ps, out)
-        self.assertIsNotNone(result)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "model.onnx"
+            result = OnnxExporter().export(prog, ps, out)
+            self.assertFalse(result.external_data)
+            self.assertFalse((Path(tmp) / "model.onnx.data").exists())
 
-    def test_limit_message_gives_the_actual_estimated_size(self):
-        from matrixai.export import OnnxExportError, OnnxExporter
-        from matrixai.resources import ResourceEstimate
-        prog, ps = _make_program_and_params()
-        oversized = ResourceEstimate(
-            param_count=1_200_000_000, weights_gib=4.4,
-            vram_train_gib=0.0, effective_batch=1, json_ram_gib=0.0,
-            json_disk_gib=0.0, json_time_seconds=0.0, binary_ram_gib=0.0,
-            binary_disk_gib=0.0, binary_time_seconds=0.0,
-        )
-        with patch("matrixai.resources.estimate_model_resources", return_value=oversized):
-            with tempfile.NamedTemporaryFile(suffix=".onnx") as f:
-                with self.assertRaises(OnnxExportError) as ctx:
-                    OnnxExporter().export(prog, ps, f.name)
-        msg = str(ctx.exception)
-        self.assertIn("4.4", msg)
-        self.assertIn("1,200,000,000", msg)
-
-    def test_estimator_failure_fails_open_and_export_proceeds(self):
-        """Auditoría C6 (BAJA): si el ESTIMADOR falla (programa exótico), el
-        guardrail no debe convertir un export válido en un error — y menos con
-        una excepción sin tipo que se escaparía del `except OnnxExportError`
-        de los callers (500 en el Studio). Fail-open: sin estimación, sin
-        chequeo — un modelo realmente grande fallará más adelante igual, solo
-        que con el error de protobuf (comportamiento pre-C6)."""
+    def test_estimator_failure_fails_open_no_external_data(self):
+        """Auditoría C6 (BAJA), sigue aplicando en C7b: si el ESTIMADOR falla
+        (programa exótico), el guardrail no debe convertir un export válido
+        en un error — y menos con una excepción sin tipo que se escaparía del
+        `except OnnxExportError` de los callers (500 en el Studio). Fail-open:
+        sin estimación, sin external-data — comportamiento normal."""
         from matrixai.export import OnnxExporter
         prog, ps = _make_program_and_params()
         with patch("matrixai.resources.estimate_model_resources",
                    side_effect=RuntimeError("estimador roto")):
-            with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
-                out = f.name
-            result = OnnxExporter().export(prog, ps, out)
-        self.assertIsNotNone(result)
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "model.onnx"
+                result = OnnxExporter().export(prog, ps, out)
+        self.assertFalse(result.external_data)
 
-    def test_bundle_and_wasm_share_the_limit_with_clear_error(self):
-        """Auditoría C6: bundle y wasm empaquetan un ONNX interno
-        (`OnnxExporter().export` dentro de `bundle.py`/`wasm_exporter.py`) —
-        un modelo por encima del límite debe fallar en AMBOS con el mismo
-        mensaje claro (envuelto en su tipo de error), nunca un crash críptico
-        de protobuf a mitad de empaquetado."""
-        import tempfile as _tf
-        from pathlib import Path
-        from matrixai.export import (
-            create_edge_bundle, EdgeBundleError, export_wasm, WasmExportError,
-        )
-        from matrixai.resources import ResourceEstimate
+    def test_wasm_still_blocks_oversized_models_with_clear_error(self):
+        """WASM es el ÚNICO formato que sigue bloqueando: un navegador no
+        puede cargar un `.onnx.data` de varios GiB aparte del `.wasm`."""
+        from matrixai.export import export_wasm, WasmExportError
         prog, ps = _make_program_and_params()
-        oversized = ResourceEstimate(
-            param_count=600_000_000, weights_gib=3.0,
-            vram_train_gib=0.0, effective_batch=1, json_ram_gib=0.0,
-            json_disk_gib=0.0, json_time_seconds=0.0, binary_ram_gib=0.0,
-            binary_disk_gib=0.0, binary_time_seconds=0.0,
-        )
-        with patch("matrixai.resources.estimate_model_resources", return_value=oversized):
-            with _tf.TemporaryDirectory() as tmp:
+        with patch("matrixai.resources.estimate_model_resources", return_value=_oversized_estimate()):
+            with tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(WasmExportError) as ctx:
+                    export_wasm(prog, ps, Path(tmp) / "wasm", validate=False)
+        msg = str(ctx.exception)
+        self.assertIn("GiB", msg)
+        self.assertIn("600,000,000", msg)
+        # C7b: el mensaje ya no dice que onnx/bundle comparten el límite de
+        # wasm — ya NO lo comparten (usan external-data automáticamente).
+        self.assertIn("external", msg.lower())
+
+    def test_bundle_no_longer_blocked_uses_external_data(self):
+        """C7b: bundle (que empaqueta un ONNX interno) tampoco bloquea ya un
+        modelo grande — el zip lleva model.onnx + model.onnx.data."""
+        from matrixai.export import create_edge_bundle
+        prog, ps = _make_program_and_params()
+        with patch("matrixai.resources.estimate_model_resources", return_value=_oversized_estimate()):
+            with tempfile.TemporaryDirectory() as tmp:
                 import json as _json
                 mxai_path = Path(tmp) / "m.mxai"
                 mxai_path.write_text(_EMAIL_MXAI.read_text(encoding="utf-8"), encoding="utf-8")
                 params_path = Path(tmp) / "params.best.json"
                 params_path.write_text(_json.dumps(ps.to_dict()), encoding="utf-8")
-                with self.assertRaises(EdgeBundleError) as ctx_b:
-                    create_edge_bundle(prog, ps, mxai_path, params_path,
-                                       Path(tmp) / "bundle", validate=False)
-                self.assertIn("GiB", str(ctx_b.exception))
-                with self.assertRaises(WasmExportError) as ctx_w:
-                    export_wasm(prog, ps, Path(tmp) / "wasm", validate=False)
-                self.assertIn("GiB", str(ctx_w.exception))
+                result = create_edge_bundle(
+                    prog, ps, mxai_path, params_path, Path(tmp) / "bundle",
+                    validate=False,
+                )
+        self.assertTrue(result.export_result.external_data)
+        self.assertIn("model.onnx.data", result.files)

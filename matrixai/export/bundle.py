@@ -53,6 +53,11 @@ class EdgeBundleResult:
     # classification, ...). None means the spec was produced. The bundle stays valid
     # either way; this makes the omission observable instead of silent.
     inference_spec_skipped_reason: str | None = None
+    # PESOS_GRANDES C7b: por qué la equivalencia ONNX==referencia NO se
+    # verificó (modelo grande vía `state_dict` — verificarla exigiría
+    # materializar tensores a listas Python, el `.tolist()` que este export
+    # evita). `None` significa que SÍ se verificó (comportamiento de siempre).
+    equivalence_skipped_reason: str | None = None
 
     @property
     def equivalence_passed(self) -> bool:
@@ -71,6 +76,7 @@ class EdgeBundleResult:
             "equivalence_passed": self.equivalence_passed,
             "export": self.export_result.to_dict(),
             "inference_spec_skipped_reason": self.inference_spec_skipped_reason,
+            "equivalence_skipped_reason": self.equivalence_skipped_reason,
         }
         if self.equivalence_result is not None:
             d["equivalence_check"] = self.equivalence_result.to_dict()
@@ -83,11 +89,14 @@ class EdgeBundler:
     def bundle(
         self,
         program: MatrixAIProgram,
-        parameter_set: ParameterSet,
+        parameter_set: ParameterSet | None,
         mxai_path: str | Path,
-        params_path: str | Path,
+        params_path: str | Path | None,
         outdir: str | Path,
         *,
+        state_dict: dict[str, Any] | None = None,
+        model_hash: str | None = None,
+        parameter_schema_hash: str | None = None,
         validate: bool = True,
         atol: float = _DEFAULT_ATOL,
         rtol: float = _DEFAULT_RTOL,
@@ -99,6 +108,19 @@ class EdgeBundler:
         labels: list[str] | None = None,
         example_input: dict[str, Any] | None = None,
     ) -> EdgeBundleResult:
+        """PESOS_GRANDES C7b: `state_dict` (tensores torch crudos de un modelo
+        grande guardado en `.mxw`) es la alternativa a un `parameter_set` con
+        valores. Cuando se da, `parameter_set` sigue siendo obligatorio para
+        `_build_model_manifest`/`build_inference_spec` (metadata: hash/shape/
+        schema, nunca `.values`) — puede ser una PLANTILLA sin valores
+        (`values=None`, el mismo objeto que ya construye
+        `build_parameter_template_for_state`). `params_path=None` omite
+        `params.best.json` del zip (escribirlo exigiría el JSON completo, el
+        mismo `.tolist()` que este camino evita); la validación de
+        equivalencia (que sí necesita una REFERENCIA con valores reales) se
+        salta con motivo registrado.
+        """
+        using_state_dict = state_dict is not None
         outdir = Path(outdir)
         if outdir.exists() and not force:
             raise EdgeBundleError(
@@ -106,12 +128,18 @@ class EdgeBundler:
                 "Pass force=True to overwrite."
             )
 
-        # Validate ParameterSet shapes/schema before touching disk
-        val = validate_export_parameter_set(program, parameter_set)
-        if not val.ok:
-            raise EdgeBundleError(
-                f"ParameterSet validation failed: {'; '.join(val.errors)}"
-            )
+        # Validate ParameterSet shapes/schema before touching disk. Se salta
+        # con state_dict: el validador genérico (`validate_parameter_set`)
+        # exige VALORES reales (no solo shapes) incluso para una plantilla —
+        # `OnnxExporter.export` ya valida `model_hash` y la presencia de cada
+        # tensor esperado por su cuenta para el camino state_dict, así que
+        # esto no es un hueco, es la MISMA validación en el sitio correcto.
+        if not using_state_dict:
+            val = validate_export_parameter_set(program, parameter_set)
+            if not val.ok:
+                raise EdgeBundleError(
+                    f"ParameterSet validation failed: {'; '.join(val.errors)}"
+                )
 
         # Build in a temp dir; rename to outdir only when everything succeeds.
         tmp_parent = outdir.parent
@@ -119,20 +147,42 @@ class EdgeBundler:
         with tempfile.TemporaryDirectory(dir=tmp_parent, prefix=".bundle_tmp_") as _tmp:
             work = Path(_tmp)
 
-            # 1. Copy .mxai and params
+            # 1. Copy .mxai and params (params.best.json se omite para un
+            # grande vía state_dict — ver docstring).
             shutil.copy2(str(mxai_path), str(work / "model.mxai"))
-            shutil.copy2(str(params_path), str(work / "params.best.json"))
+            if params_path is not None:
+                shutil.copy2(str(params_path), str(work / "params.best.json"))
 
             # 2. Export ONNX
             onnx_dest = work / "model.onnx"
             try:
-                export_result = OnnxExporter().export(program, parameter_set, onnx_dest)
+                export_result = OnnxExporter().export(
+                    program, parameter_set, onnx_dest,
+                    state_dict=state_dict, model_hash=model_hash,
+                    parameter_schema_hash=parameter_schema_hash,
+                )
             except OnnxExportError as exc:
                 raise EdgeBundleError(f"ONNX export failed: {exc}") from exc
 
             # 3. Equivalence validation
             eq_result: OnnxEquivalenceResult | None = None
-            if validate:
+            eq_skipped_reason: str | None = None
+            if validate and using_state_dict:
+                # PESOS_GRANDES C7b: verificar equivalencia exige correr un
+                # forward de REFERENCIA con valores reales (`parameter_set`
+                # con `.values`) — para un state_dict grande eso es
+                # exactamente el `.tolist()` que este camino evita. Se salta
+                # con el motivo registrado (mismo patrón que
+                # `inference_spec_skipped_reason`), nunca en silencio.
+                eq_skipped_reason = (
+                    "Equivalencia no verificada: el modelo es grande (pesos en "
+                    ".mxw binario) y verificarla exigiría materializar los "
+                    "tensores a listas Python — el mismo .tolist() que este "
+                    "export evita. El ONNX se generó directamente desde los "
+                    "mismos tensores entrenados; validado por separado en el "
+                    "cierre duro del contrato."
+                )
+            elif validate:
                 if not ort_available():
                     raise EdgeBundleError(
                         "Equivalence validation requires 'onnxruntime'. "
@@ -236,21 +286,29 @@ class EdgeBundler:
         return EdgeBundleResult(
             bundle_dir=str(outdir),
             files=files,
-            model_hash=parameter_set.model_hash,
-            parameter_set_id=parameter_set.parameter_set_id,
+            # `export_result` (no `parameter_set`) es la fuente de verdad: para
+            # el camino state_dict, `parameter_set_id` es "torch_state" ahí,
+            # mientras que la plantilla pasada como `parameter_set` podría
+            # llevar otro id de plantilla — evita la discrepancia.
+            model_hash=export_result.model_hash,
+            parameter_set_id=export_result.parameter_set_id,
             export_result=export_result,
             equivalence_result=eq_result,
             inference_spec_skipped_reason=spec_skipped_reason,
+            equivalence_skipped_reason=eq_skipped_reason,
         )
 
 
 def create_edge_bundle(
     program: MatrixAIProgram,
-    parameter_set: ParameterSet,
+    parameter_set: ParameterSet | None,
     mxai_path: str | Path,
-    params_path: str | Path,
+    params_path: str | Path | None,
     outdir: str | Path,
     *,
+    state_dict: dict[str, Any] | None = None,
+    model_hash: str | None = None,
+    parameter_schema_hash: str | None = None,
     validate: bool = True,
     force: bool = False,
     field_ranges: dict[str, tuple[float, float]] | None = None,
@@ -261,6 +319,7 @@ def create_edge_bundle(
 ) -> EdgeBundleResult:
     return EdgeBundler().bundle(
         program, parameter_set, mxai_path, params_path, outdir,
+        state_dict=state_dict, model_hash=model_hash, parameter_schema_hash=parameter_schema_hash,
         validate=validate, force=force,
         field_ranges=field_ranges,
         field_categories=field_categories,

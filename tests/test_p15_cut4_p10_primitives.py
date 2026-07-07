@@ -115,6 +115,7 @@ class TestTransformerOnnxExport(unittest.TestCase):
             "output_path", "opset_version", "model_hash", "parameter_set_id",
             "parameter_schema_hash", "input_name", "input_shape", "output_name",
             "output_shape", "exported_functions", "skipped_functions", "labels",
+            "external_data",
         }
         self.assertEqual(set(d.keys()), expected)
 

@@ -24,6 +24,7 @@ from matrixai.export.onnx_exporter import (
     OnnxExportResult,
     OnnxExportError,
     validate_export_parameter_set,
+    onnx_size_limit_error,
 )
 from matrixai.export.equivalence import (
     OnnxEquivalenceResult,
@@ -97,6 +98,15 @@ class WasmExporter:
         n_samples: int = _DEFAULT_N_SAMPLES,
         force: bool = False,
     ) -> WasmExportResult:
+        # PESOS_GRANDES C7b: `OnnxExporter.export` ya NO bloquea un modelo
+        # grande (usa external-data, un .onnx.data aparte) — pero un
+        # navegador SÍ sigue sin poder cargar varios GiB en un fichero aparte
+        # del .wasm, así que WASM (a diferencia de onnx/bundle) mantiene el
+        # bloqueo explícito de C6, aquí, antes de tocar disco.
+        size_error = onnx_size_limit_error(program)
+        if size_error is not None:
+            raise WasmExportError(size_error)
+
         output_dir = Path(output_dir)
         if output_dir.exists() and not force:
             raise WasmExportError(
