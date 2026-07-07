@@ -69,11 +69,15 @@ def dense_network_to_torch_module(network: Any, parameter_set: ParameterSet) -> 
     return _DenseNetworkModule(linears, activations)
 
 
-def dense_torch_forward(module: Any, input_vector: list[float]) -> list[float]:
-    """Run a forward pass through a DenseNetworkModule. Returns a Python list."""
+def dense_torch_forward(module: Any, input_vector: list[float], device: str = "cpu") -> list[float]:
+    """Run a forward pass through a DenseNetworkModule. Returns a Python list.
+
+    PESOS_GRANDES C7a: `device` (default "cpu", retro-compat) debe coincidir
+    con el dispositivo del módulo — si `module` vive en CUDA y el input se
+    crea en CPU, el forward revienta por mismatch de dispositivo."""
     import torch
     with torch.no_grad():
-        x = torch.tensor(input_vector, dtype=torch.float32)
+        x = torch.tensor(input_vector, dtype=torch.float32, device=device)
         output = module(x)
         return output.tolist()
 
