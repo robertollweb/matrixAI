@@ -152,6 +152,75 @@ def read_mxw_header(path: str | Path) -> dict[str, Any]:
     return header
 
 
+def read_mxw_header_and_body_start(path: str | Path) -> tuple[dict[str, Any], int]:
+    """Como `read_mxw_header` pero devuelve también el offset (bytes) donde
+    empieza el cuerpo — necesario para `stream_mxw_tensor` (leer un tensor
+    concreto sin traer el cuerpo entero a RAM). PESOS_GRANDES C7 auditoría:
+    la base del export ONNX external-data por STREAMING (un modelo de 15 GiB
+    no cabe en RAM ni debe copiarse dos veces)."""
+    path = Path(path)
+    if not path.exists():
+        raise MxwError(f"{path}: fichero .mxw no encontrado")
+    with open(path, "rb") as f:
+        return _read_header(f, path)
+
+
+def validate_mxw_tensor_meta(meta: dict[str, Any], path: Any = "") -> tuple[str, int, int, list[int]]:
+    """Valida la coherencia interna de la metadata de UN tensor de la cabecera
+    (`shape`/`offset`/`nbytes`, mismos chequeos que hace `read_mxw` antes de
+    rehidratar) y devuelve `(name, offset, nbytes, shape)`. La cabecera NO está
+    cubierta por `content_hash`, así que un `.mxw` manipulado a mano podría
+    traer metadata incoherente — este chequeo la ataja con `MxwError` explícito
+    tanto en el camino que materializa (`read_mxw`) como en el que solo
+    streamea bytes (`stream_mxw_tensor`)."""
+    name = meta.get("path")
+    try:
+        offset = int(meta["offset"])
+        nbytes = int(meta["nbytes"])
+        shape = [int(d) for d in meta["shape"]]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise MxwError(f"{path}: metadata de tensor {name!r} inválida en la cabecera ({exc})") from exc
+    if offset < 0 or nbytes < 0:
+        raise MxwError(f"{path}: tensor {name!r} con offset/nbytes negativos ({offset}/{nbytes})")
+    if nbytes % 4 != 0:
+        raise MxwError(
+            f"{path}: tensor {name!r} con nbytes={nbytes} no es múltiplo de 4 (float32) — cabecera corrupta."
+        )
+    expected_elems = 1
+    for d in shape:
+        if d < 0:
+            raise MxwError(f"{path}: tensor {name!r} con dimensión negativa {d} en shape")
+        expected_elems *= d
+    if expected_elems * 4 != nbytes:
+        raise MxwError(
+            f"{path}: tensor {name!r} incoherente — shape {shape} implica "
+            f"{expected_elems * 4} bytes pero la cabecera declara nbytes={nbytes}."
+        )
+    return name, offset, nbytes, shape
+
+
+def stream_mxw_tensor(f: Any, body_start: int, meta: dict[str, Any], out: Any,
+                      chunk_bytes: int = _CHUNK_BYTES) -> int:
+    """Copia los bytes de UN tensor del `.mxw` (fichero abierto `f`, con el
+    cuerpo empezando en `body_start`) a `out` (file-like binario) por chunks,
+    sin traer el tensor entero a RAM. Devuelve los bytes copiados.
+
+    PESOS_GRANDES C7 auditoría: el corazón del export external-data por
+    streaming — `f` puede ser el `.mxw` de 15 GiB y `out` un entry de un zip
+    o el `.onnx.data`; en ningún momento hay más de `chunk_bytes` en memoria
+    (a diferencia de `read_mxw`, que trae el cuerpo entero + copias)."""
+    name, offset, nbytes, _shape = validate_mxw_tensor_meta(meta)
+    f.seek(body_start + offset)
+    remaining = nbytes
+    while remaining:
+        buf = f.read(min(chunk_bytes, remaining))
+        if not buf:
+            raise MxwError(f"tensor {name!r} truncado en el cuerpo del fichero .mxw")
+        out.write(buf)
+        remaining -= len(buf)
+    return nbytes
+
+
 def read_mxw(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
     """Lee un `.mxw` completo → `dict[str, torch.Tensor]` (CPU, float32).
 
@@ -188,42 +257,18 @@ def read_mxw(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
 
     result: dict[str, Any] = {}
     for meta in header.get("tensors", []):
-        name = meta.get("path")
         # PESOS_GRANDES C4 audit (reauditoría Opus, BAJA): la cabecera NO está
-        # cubierta por `content_hash` (solo el cuerpo lo está), así que una
-        # cabecera con `shape`/`offset`/`nbytes` incoherentes puede pasar los
-        # chequeos de arriba y luego reventar en `frombuffer`/`reshape` con un
-        # `ValueError` pelado (no `MxwError`) que se escaparía del
-        # `except MxwError` de los callers → 500 en vez del error explícito que
-        # promete el módulo. Se valida la coherencia interna y se envuelve
-        # cualquier fallo de rehidratación en `MxwError`.
-        try:
-            offset = int(meta["offset"])
-            nbytes = int(meta["nbytes"])
-            shape = [int(d) for d in meta["shape"]]
-        except (KeyError, TypeError, ValueError) as exc:
-            raise MxwError(
-                f"{path}: metadata de tensor {name!r} inválida en la cabecera ({exc})"
-            ) from exc
-        if offset < 0 or nbytes < 0 or offset + nbytes > len(body):
+        # cubierta por `content_hash`, así que una cabecera con
+        # `shape`/`offset`/`nbytes` incoherentes puede pasar los chequeos de
+        # arriba y luego reventar en `frombuffer`/`reshape` con un `ValueError`
+        # pelado que se escaparía del `except MxwError` de los callers → 500.
+        # `validate_mxw_tensor_meta` la ataja con `MxwError` explícito (misma
+        # validación que usa el camino de streaming, C7 auditoría).
+        name, offset, nbytes, shape = validate_mxw_tensor_meta(meta, path)
+        if offset + nbytes > len(body):
             raise MxwError(
                 f"{path}: tensor {name!r} apunta fuera del cuerpo del fichero "
                 f"(offset={offset}, nbytes={nbytes}, cuerpo={len(body)} bytes) — cabecera corrupta."
-            )
-        if nbytes % 4 != 0:
-            raise MxwError(
-                f"{path}: tensor {name!r} con nbytes={nbytes} no es múltiplo de 4 "
-                "(float32) — cabecera corrupta."
-            )
-        expected_elems = 1
-        for d in shape:
-            if d < 0:
-                raise MxwError(f"{path}: tensor {name!r} con dimensión negativa {d} en shape")
-            expected_elems *= d
-        if expected_elems * 4 != nbytes:
-            raise MxwError(
-                f"{path}: tensor {name!r} incoherente — shape {shape} implica "
-                f"{expected_elems * 4} bytes pero la cabecera declara nbytes={nbytes}."
             )
         chunk = body[offset: offset + nbytes]
         if len(chunk) != nbytes:

@@ -6,6 +6,7 @@ from matrixai.export.onnx_exporter import (
     OnnxExportResult,
     OnnxExporter,
     export_onnx,
+    export_dense_onnx_graph_external,
     onnx_size_limit_error,
 )
 from matrixai.export.equivalence import (
@@ -39,6 +40,7 @@ __all__ = [
     "OnnxExportResult",
     "OnnxExporter",
     "export_onnx",
+    "export_dense_onnx_graph_external",
     "onnx_size_limit_error",
     "OnnxEquivalenceError",
     "OnnxEquivalenceResult",

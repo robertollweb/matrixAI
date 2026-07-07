@@ -58,6 +58,12 @@ class EdgeBundleResult:
     # materializar tensores a listas Python, el `.tolist()` que este export
     # evita). `None` significa que SÍ se verificó (comportamiento de siempre).
     equivalence_skipped_reason: str | None = None
+    # PESOS_GRANDES C7 auditoría: en el modo STREAMING (mxw_path), el bundle NO
+    # escribe `model.onnx.data` — el caller (Studio) lo streamea desde el `.mxw`
+    # directo al zip final. Aquí van los tensores del `.mxw` en el orden EXACTO
+    # en que deben concatenarse en el `.data` (offsets del grafo). `None` en el
+    # modo normal/state_dict (el `.onnx.data` ya está en `bundle_dir`).
+    external_data_layout: list[dict] | None = None
 
     @property
     def equivalence_passed(self) -> bool:
@@ -95,6 +101,8 @@ class EdgeBundler:
         outdir: str | Path,
         *,
         state_dict: dict[str, Any] | None = None,
+        mxw_path: str | Path | None = None,
+        mxw_header: dict[str, Any] | None = None,
         model_hash: str | None = None,
         parameter_schema_hash: str | None = None,
         validate: bool = True,
@@ -121,6 +129,11 @@ class EdgeBundler:
         salta con motivo registrado.
         """
         using_state_dict = state_dict is not None
+        # PESOS_GRANDES C7 auditoría: modo STREAMING — los pesos NUNCA se traen
+        # a RAM; el grafo ONNX se construye desde la cabecera del `.mxw` y el
+        # `model.onnx.data` lo streamea el caller (Studio) directo al zip.
+        using_mxw_streaming = mxw_path is not None
+        external_data_layout: list[dict] | None = None
         outdir = Path(outdir)
         if outdir.exists() and not force:
             raise EdgeBundleError(
@@ -129,12 +142,13 @@ class EdgeBundler:
             )
 
         # Validate ParameterSet shapes/schema before touching disk. Se salta
-        # con state_dict: el validador genérico (`validate_parameter_set`)
-        # exige VALORES reales (no solo shapes) incluso para una plantilla —
-        # `OnnxExporter.export` ya valida `model_hash` y la presencia de cada
-        # tensor esperado por su cuenta para el camino state_dict, así que
-        # esto no es un hueco, es la MISMA validación en el sitio correcto.
-        if not using_state_dict:
+        # con state_dict/streaming: el validador genérico (`validate_parameter_
+        # set`) exige VALORES reales (no solo shapes) incluso para una
+        # plantilla — `OnnxExporter.export`/`export_dense_onnx_graph_external`
+        # ya validan `model_hash` y la presencia de cada tensor esperado por su
+        # cuenta, así que esto no es un hueco, es la MISMA validación en el
+        # sitio correcto.
+        if not using_state_dict and not using_mxw_streaming:
             val = validate_export_parameter_set(program, parameter_set)
             if not val.ok:
                 raise EdgeBundleError(
@@ -156,18 +170,29 @@ class EdgeBundler:
             # 2. Export ONNX
             onnx_dest = work / "model.onnx"
             try:
-                export_result = OnnxExporter().export(
-                    program, parameter_set, onnx_dest,
-                    state_dict=state_dict, model_hash=model_hash,
-                    parameter_schema_hash=parameter_schema_hash,
-                )
+                if using_mxw_streaming:
+                    # PESOS_GRANDES C7 auditoría: solo el GRAFO se escribe aquí
+                    # (`model.onnx`, initializers EXTERNAL); el `model.onnx.data`
+                    # lo streamea el caller desde el `.mxw`. `ordered_metas` da el
+                    # orden de concatenación que casa con los offsets del grafo.
+                    from matrixai.export.onnx_exporter import export_dense_onnx_graph_external
+                    export_result, external_data_layout = export_dense_onnx_graph_external(
+                        program, mxw_header, onnx_dest,
+                        model_hash=model_hash, parameter_schema_hash=parameter_schema_hash,
+                    )
+                else:
+                    export_result = OnnxExporter().export(
+                        program, parameter_set, onnx_dest,
+                        state_dict=state_dict, model_hash=model_hash,
+                        parameter_schema_hash=parameter_schema_hash,
+                    )
             except OnnxExportError as exc:
                 raise EdgeBundleError(f"ONNX export failed: {exc}") from exc
 
             # 3. Equivalence validation
             eq_result: OnnxEquivalenceResult | None = None
             eq_skipped_reason: str | None = None
-            if validate and using_state_dict:
+            if validate and (using_state_dict or using_mxw_streaming):
                 # PESOS_GRANDES C7b: verificar equivalencia exige correr un
                 # forward de REFERENCIA con valores reales (`parameter_set`
                 # con `.values`) — para un state_dict grande eso es
@@ -241,26 +266,40 @@ class EdgeBundler:
             # predict.py wrapper, its requirements, a safe raw example and the
             # expected output of running it. Only when a usable spec exists.
             example_record: dict[str, Any] | None = None
+            smoke_test_skipped = False
             if inference_spec is not None:
-                # A usable bundle is only shipped fully formed: predict.py is smoke-tested
-                # at packaging time and expected_output.json is its baseline. If we cannot
-                # run it (no onnxruntime), we refuse to stamp the bundle as usable rather
-                # than emit it half-built with a README that references a missing file.
-                if not ort_available():
-                    raise EdgeBundleError(
-                        "Model yields a usable inference_spec, but onnxruntime is not "
-                        "installed, so predict.py cannot be smoke-tested and "
-                        "expected_output.json cannot be generated. Install it "
-                        "(pip install 'matrixai-core[export]') to produce a self-usable bundle."
-                    )
                 shutil.copy2(_PREDICT_TEMPLATE, str(work / "predict.py"))
                 (work / "requirements.txt").write_text(_REQUIREMENTS, encoding="utf-8")
                 example_record = example_input or build_example_input(inference_spec)
                 (work / "example_input.json").write_text(
                     json.dumps(example_record, indent=2, ensure_ascii=False), encoding="utf-8")
-                expected = _run_prediction(work, example_record)
-                (work / "expected_output.json").write_text(
-                    json.dumps(expected, indent=2, ensure_ascii=False), encoding="utf-8")
+                if using_mxw_streaming:
+                    # PESOS_GRANDES C7 auditoría: NO se ejecuta el smoke-test
+                    # (`_run_prediction`) para un modelo grande — el
+                    # `model.onnx.data` ni siquiera está presente aquí (lo
+                    # streamea el caller directo al zip), y cargar un ONNX de
+                    # GiBs en onnxruntime + un forward CPU dentro del POST de
+                    # export es exactamente el coste que este corte evita. El
+                    # bundle es self-usable igual (predict.py + inference_spec +
+                    # example_input); solo omite el `expected_output.json` de
+                    # referencia (que el usuario puede regenerar con `python
+                    # predict.py example_input.json`).
+                    smoke_test_skipped = True
+                else:
+                    # A usable bundle is only shipped fully formed: predict.py is smoke-tested
+                    # at packaging time and expected_output.json is its baseline. If we cannot
+                    # run it (no onnxruntime), we refuse to stamp the bundle as usable rather
+                    # than emit it half-built with a README that references a missing file.
+                    if not ort_available():
+                        raise EdgeBundleError(
+                            "Model yields a usable inference_spec, but onnxruntime is not "
+                            "installed, so predict.py cannot be smoke-tested and "
+                            "expected_output.json cannot be generated. Install it "
+                            "(pip install 'matrixai-core[export]') to produce a self-usable bundle."
+                        )
+                    expected = _run_prediction(work, example_record)
+                    (work / "expected_output.json").write_text(
+                        json.dumps(expected, indent=2, ensure_ascii=False), encoding="utf-8")
 
             # 5. export_manifest.json
             if eq_result is not None:
@@ -268,20 +307,31 @@ class EdgeBundler:
             else:
                 _write_export_manifest_no_eq(export_result, work / "export_manifest.json")
 
-            # 6. README.md
+            # 6. README.md — refleja los ficheros REALES del bundle (BAJA C7
+            # auditoría): con external-data lista `model.onnx.data`; sin
+            # `params.best.json` cuando se omitió (grande); sin
+            # `expected_output.json` si el smoke-test se saltó.
             (work / "README.md").write_text(
                 _build_readme(program, export_result, eq_result,
                               inference_spec=inference_spec,
-                              example_input=example_record),
+                              example_input=example_record,
+                              has_params_json=params_path is not None,
+                              external_data=export_result.external_data,
+                              smoke_test_skipped=smoke_test_skipped),
                 encoding="utf-8",
             )
 
+            # PESOS_GRANDES C7 auditoría: en streaming el `.onnx.data` NO está
+            # en `work` (lo escribe el caller directo al zip) — se excluye de
+            # `files` para que el listado sea honesto (el caller lo añade).
             # Atomic promotion: remove stale outdir then rename temp into place
             if outdir.exists():
                 shutil.rmtree(str(outdir))
             shutil.copytree(str(work), str(outdir))
 
         files = sorted(str(p.relative_to(outdir)) for p in outdir.iterdir() if p.is_file())
+        if using_mxw_streaming:
+            files = sorted(set(files) | {"model.onnx.data"})
 
         return EdgeBundleResult(
             bundle_dir=str(outdir),
@@ -296,6 +346,7 @@ class EdgeBundler:
             equivalence_result=eq_result,
             inference_spec_skipped_reason=spec_skipped_reason,
             equivalence_skipped_reason=eq_skipped_reason,
+            external_data_layout=external_data_layout,
         )
 
 
@@ -307,6 +358,8 @@ def create_edge_bundle(
     outdir: str | Path,
     *,
     state_dict: dict[str, Any] | None = None,
+    mxw_path: str | Path | None = None,
+    mxw_header: dict[str, Any] | None = None,
     model_hash: str | None = None,
     parameter_schema_hash: str | None = None,
     validate: bool = True,
@@ -319,7 +372,8 @@ def create_edge_bundle(
 ) -> EdgeBundleResult:
     return EdgeBundler().bundle(
         program, parameter_set, mxai_path, params_path, outdir,
-        state_dict=state_dict, model_hash=model_hash, parameter_schema_hash=parameter_schema_hash,
+        state_dict=state_dict, mxw_path=mxw_path, mxw_header=mxw_header,
+        model_hash=model_hash, parameter_schema_hash=parameter_schema_hash,
         validate=validate, force=force,
         field_ranges=field_ranges,
         field_categories=field_categories,
@@ -411,7 +465,8 @@ def _write_export_manifest_no_eq(export_result: OnnxExportResult, path: Path) ->
     path.write_text(json.dumps(data, indent=2, ensure_ascii=True), encoding="utf-8")
 
 
-def _readme_quickstart(inference_spec: dict[str, Any], example_input: dict[str, Any] | None) -> str:
+def _readme_quickstart(inference_spec: dict[str, Any], example_input: dict[str, Any] | None,
+                       smoke_test_skipped: bool = False) -> str:
     out = inference_spec.get("output", {})
     kind = out.get("kind", "")
     labels = out.get("labels") or []
@@ -422,6 +477,15 @@ def _readme_quickstart(inference_spec: dict[str, Any], example_input: dict[str, 
     else:
         out_desc = "a raw output vector"
     example_json = json.dumps(example_input or {}, ensure_ascii=False)
+    # PESOS_GRANDES C7 auditoría: para un modelo grande no se generó
+    # `expected_output.json` (el smoke-test se saltó) — el README no promete
+    # reproducirlo; en su lugar explica cómo generarlo.
+    reproduce = (
+        "That produces the prediction; there is no bundled `expected_output.json` for "
+        "this (large) model — running the command above once writes your own baseline."
+        if smoke_test_skipped else
+        "That should reproduce `expected_output.json`."
+    )
     return f"""
 ## Quick start
 
@@ -435,7 +499,7 @@ pip install -r requirements.txt
 python predict.py --input example_input.json
 ```
 
-That should reproduce `expected_output.json`. From your own code:
+{reproduce} From your own code:
 
 ```python
 from predict import MatrixAIModel
@@ -453,6 +517,9 @@ def _build_readme(
     *,
     inference_spec: dict[str, Any] | None = None,
     example_input: dict[str, Any] | None = None,
+    has_params_json: bool = True,
+    external_data: bool = False,
+    smoke_test_skipped: bool = False,
 ) -> str:
     project = program.project
     out_name = export_result.output_name
@@ -498,14 +565,29 @@ def _build_readme(
     quickstart = ""
     usable_files = ""
     if inference_spec is not None:
-        quickstart = _readme_quickstart(inference_spec, example_input)
+        quickstart = _readme_quickstart(inference_spec, example_input, smoke_test_skipped)
         usable_files = (
             "| `inference_spec.json` | How a raw record maps to the model input (the \"tokenizer\") |\n"
             "| `predict.py` | Standalone wrapper: raw values in, labelled prediction out |\n"
             "| `requirements.txt` | Minimal deps to run predict.py (numpy + onnxruntime) |\n"
             "| `example_input.json` | A ready-to-run raw example |\n"
-            "| `expected_output.json` | The output predict.py should produce for that example |\n"
         )
+        # PESOS_GRANDES C7 auditoría (BAJA): el README lista los ficheros
+        # REALES — `expected_output.json` solo si el smoke-test corrió (para un
+        # grande se salta, ver docstring del bundle).
+        if not smoke_test_skipped:
+            usable_files += (
+                "| `expected_output.json` | The output predict.py should produce for that example |\n"
+            )
+
+    # BAJA C7: `params.best.json` solo se lista si de verdad va en el zip
+    # (se omite para un modelo grande — el ONNX lleva los pesos); con
+    # external-data, además hay un `model.onnx.data` que hay que listar.
+    params_row = "| `params.best.json` | Trained parameter weights |\n" if has_params_json else ""
+    onnx_data_row = (
+        "| `model.onnx.data` | ONNX external weights (loaded automatically next to model.onnx) |\n"
+        if external_data else ""
+    )
 
     return f"""# {project} Edge Bundle
 
@@ -517,9 +599,8 @@ Actions remain `simulate_only`. This bundle only provides predictions.
 | File | Description |
 |------|-------------|
 | `model.mxai` | MatrixAI model definition (source of truth) |
-| `params.best.json` | Trained parameter weights |
-| `model.onnx` | ONNX model, opset {export_result.opset_version} |
-| `model_manifest.json` | Model metadata, hashes and backend contract |
+{params_row}| `model.onnx` | ONNX model, opset {export_result.opset_version} |
+{onnx_data_row}| `model_manifest.json` | Model metadata, hashes and backend contract |
 | `export_manifest.json` | Export metadata, tolerance and equivalence check |
 {usable_files}| `README.md` | This file |
 

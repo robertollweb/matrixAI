@@ -740,6 +740,150 @@ def _build_dense_network_pipeline_from_state(network, program, state, np, numpy_
     return nodes, initializers, x_info, y_info, current_shape
 
 
+_EXTERNAL_DATA_FILE = "model.onnx.data"
+
+
+def _external_initializer(name, dims, offset, nbytes, TensorProto):
+    """PESOS_GRANDES C7 auditoría — un initializer ONNX cuyos bytes viven en un
+    fichero EXTERNO (`model.onnx.data`, offset/length dados) en vez de en línea
+    en el proto. El caller escribe ese fichero por streaming desde el `.mxw`, así
+    que el proto en memoria nunca contiene los pesos (ni `numpy_helper.from_array`
+    los copia a `raw_data`)."""
+    t = TensorProto()
+    t.name = name
+    t.data_type = TensorProto.FLOAT
+    t.dims.extend([int(d) for d in dims])
+    t.data_location = TensorProto.EXTERNAL
+    for key, value in (("location", _EXTERNAL_DATA_FILE), ("offset", str(int(offset))),
+                       ("length", str(int(nbytes)))):
+        entry = t.external_data.add()
+        entry.key = key
+        entry.value = value
+    return t
+
+
+def _build_dense_network_pipeline_external(network, program, mxw_header, helper, TensorProto):
+    """PESOS_GRANDES C7 auditoría — como `_build_dense_network_pipeline_from_state`
+    pero SIN traer los tensores a RAM: los initializers son EXTERNAL (apuntan a
+    `model.onnx.data`) y se devuelve `ordered_metas` (los tensores del `.mxw` en
+    el orden EXACTO en que deben concatenarse en el `.data` para que los offsets
+    del grafo cuadren). El caller streamea esos bytes desde el `.mxw`.
+
+    Devuelve `(nodes, initializers, x_info, y_info, out_shape, ordered_metas)`."""
+    from matrixai.parameters.binary_store import validate_mxw_tensor_meta
+    metas_by_path = {m.get("path"): m for m in mxw_header.get("tensors", [])}
+
+    vec = program.vectors[0]
+    net = network.name
+    nodes: list = []
+    initializers: list = []
+    ordered_metas: list = []
+    running_offset = 0
+    current = vec.name
+    current_shape = [-1, vec.size]
+
+    x_info = helper.make_tensor_value_info(vec.name, TensorProto.FLOAT, current_shape)
+
+    for layer in network.layers:
+        i = layer.index  # 1-based
+        for key, onnx_name in ((f"{net}.W{i}", f"{net}_W{i}"), (f"{net}.b{i}", f"{net}_b{i}")):
+            meta = metas_by_path.get(key)
+            if meta is None:
+                raise OnnxExportError(f"Dense-network tensor {key!r} not found in .mxw header")
+            _name, _offset, nbytes, shape = validate_mxw_tensor_meta(meta)
+            initializers.append(_external_initializer(onnx_name, shape, running_offset, nbytes, TensorProto))
+            ordered_metas.append(meta)
+            running_offset += nbytes
+
+        pre_act = f"{net}_pre{i}"
+        post_act = f"{net}_out{i}"
+        nodes.append(helper.make_node(
+            "Gemm", inputs=[current, f"{net}_W{i}", f"{net}_b{i}"], outputs=[pre_act],
+            transB=1, alpha=1.0, beta=1.0,
+        ))
+        nodes.append(_emit_dense_activation(layer.activation, pre_act, post_act, helper))
+        current = post_act
+        current_shape = [-1, layer.units]
+
+    y_info = helper.make_tensor_value_info(current, TensorProto.FLOAT, current_shape)
+    return nodes, initializers, x_info, y_info, current_shape, ordered_metas
+
+
+def export_dense_onnx_graph_external(program, mxw_header, output_path, *,
+                                     model_hash, parameter_schema_hash):
+    """PESOS_GRANDES C7 auditoría — export ONNX external-data por STREAMING.
+
+    Escribe SOLO el grafo (`model.onnx`, con initializers EXTERNAL que apuntan a
+    `model.onnx.data`) — NO escribe el `.data`; el caller lo streamea desde el
+    `.mxw` con `binary_store.stream_mxw_tensor` en el orden de `ordered_metas`.
+    Así un modelo de 15 GiB nunca pasa por RAM: `read_mxw` (cuerpo entero +
+    copias) y `numpy_helper.from_array` (copia a `raw_data`) quedan fuera del
+    camino. Solo soporta `dense_network` (lo único que PESOS_GRANDES guarda en
+    `.mxw`). Devuelve `(OnnxExportResult, ordered_metas)`."""
+    _onnx, _numpy_helper, helper, TensorProto = _import_onnx()
+    output_path = Path(output_path)
+
+    expected_hash = program_hash(program)
+    if model_hash != expected_hash:
+        raise OnnxExportError(
+            f".mxw model_hash {model_hash!r} does not match program hash "
+            f"{expected_hash!r} for {program.project!r}. Export refused."
+        )
+    dense_nets = [n for n in program.networks if getattr(n, "kind", "") == "dense_network"]
+    if not dense_nets:
+        raise OnnxExportError(
+            f"export external-data solo soporta dense_network en {program.project!r}"
+        )
+    if not program.vectors:
+        raise OnnxExportError(f"No VECTOR input for dense network in {program.project!r}")
+    network = dense_nets[0]
+    input_dim = program.vectors[0].size
+
+    nodes, initializers, x_info, y_info, out_shape, ordered_metas = (
+        _build_dense_network_pipeline_external(network, program, mxw_header, helper, TensorProto)
+    )
+
+    graph = helper.make_graph(
+        nodes, name=f"{program.project}_graph",
+        inputs=[x_info], outputs=[y_info], initializer=initializers,
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", _OPSET_VERSION)])
+    model.doc_string = f"MatrixAI export of {program.project!r} ({network.name}, dense_network)"
+    model.ir_version = 10
+    _set_meta(model, "matrixai_project", program.project)
+    _set_meta(model, "matrixai_model_hash", model_hash)
+    _set_meta(model, "matrixai_parameter_set_id", "torch_state")
+    _set_meta(model, "matrixai_parameter_schema_hash", parameter_schema_hash)
+    _set_meta(model, "matrixai_kind", "dense_network")
+
+    # NOTA: `onnx.checker.check_model` NO se llama aquí — con initializers
+    # EXTERNAL intenta abrir `model.onnx.data` para validar los tensores, y ese
+    # fichero AÚN no existe (el caller lo streamea DESPUÉS, quizá directo a un
+    # zip). Cargarlo solo para el checker traería los 15 GiB a RAM, justo lo
+    # que este camino evita. El grafo se construye con la misma lógica
+    # determinista y testeada que `_build_dense_network_pipeline`; la validación
+    # real es el round-trip con onnxruntime (tests C7 auditoría).
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(model.SerializeToString())
+
+    result = OnnxExportResult(
+        output_path=str(output_path),
+        opset_version=_OPSET_VERSION,
+        model_hash=model_hash,
+        parameter_set_id="torch_state",
+        parameter_schema_hash=parameter_schema_hash,
+        input_name=x_info.name,
+        input_shape=[-1, input_dim],
+        output_name=y_info.name,
+        output_shape=out_shape,
+        exported_functions=[network.name],
+        skipped_functions=[n.name for n in dense_nets[1:]],
+        labels=[],
+        external_data=True,
+    )
+    return result, ordered_metas
+
+
 def _emit_dense_activation(act, pre_act, post_act, helper):
     """Emit the ONNX activation node for a Dense/Activation layer. Softmax over the
     last axis (composite tensors are [batch, dim], so axis=1)."""
