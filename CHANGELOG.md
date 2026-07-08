@@ -7,6 +7,65 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.2.0] — 2026-07-08
+
+Feature release: self-usable model export bundles, typed prompt fields, and
+first-class support for large models (billions of parameters) across the whole
+train → save → infer → export cycle. Validated end-to-end on real hardware with
+a 2.95B-parameter dense model (A100 80 GB).
+
+### Added
+
+- **Self-usable export bundles (HuggingFace-style)** — the edge bundle is now a
+  complete, standalone package: `model.onnx`, `predict.py`, `inference_spec.json`,
+  `requirements.txt`, an example input and its expected output. `predict.py`
+  accepts **raw human values** (e.g. `"TORNO"`, `edad=54`) and applies the same
+  normalization / one-hot encoding the model was trained with, so predictions
+  match the source environment exactly — no MatrixAI installation required, only
+  `onnxruntime`. CLI: `matrixai export-bundle --inference-metadata`.
+- **Typed prompt fields** — declare feature types directly in the prompt
+  (`FEATURES: edad: Scalar en [18, 95]`, `Integer[1, 10]`, `Boolean`,
+  `Categorical[...]`, output `ProbabilityMap[NO, SI]`). Declared types and ranges
+  are honoured end-to-end: deterministic generator, LLM proposals (validated
+  against the prompt types — a proposal cannot override them), synthetic data,
+  training and export metadata. Categorical fields expand to one-hot; an explicit
+  two-label `ProbabilityMap` produces a 2-class softmax head.
+- **Large models: binary weights format `.mxw`** — JSON header + raw float32
+  blobs, SHA-256 content hash with tamper detection, atomic writes. Weights format
+  is user-selectable (`json` | `binary`); binary is the default above 50M
+  parameters (`MATRIXAI_TORCH_NATIVE_MIN_PARAMS`).
+- **Large models: resource estimator** — params / VRAM / RAM / disk / time are
+  estimated per weights format *before* training or saving
+  (`estimate_model_resources`), from the parameter manifest in O(#tensors).
+- **Large models: torch end-to-end** — above the threshold, training keeps the
+  weights as tensors (never converted to Python lists), evaluation and the
+  collapse probe run in torch (GPU when available), inference on a saved model
+  does a single torch forward from the `.mxw`, and training can **resume** from
+  saved binary weights.
+- **Large models: ONNX external-data export** — above the ~2 GiB protobuf limit
+  the exporter switches to the standard external-data layout (`model.onnx` +
+  `model.onnx.data`) instead of failing. Tensor blobs are **streamed** straight
+  from the `.mxw` into an uncompressed ZIP (constant memory, content hash
+  re-verified while copying), and large exports are delivered as a **streamed
+  download** instead of inline base64. WASM export remains limited to models that
+  fit in the browser.
+
+### Fixed
+
+- Generating a very large model from a prompt no longer takes ~1 hour: the
+  backend-contract manifest reports metadata instead of materializing every
+  initial weight above 65k elements per tensor (4B params: ~1h → <1s).
+- Streamed ZIP entries over 4 GiB no longer fail with `File size too large, try
+  using force_zip64` (ZIP64 headers are always written for the weights entry).
+- A `Boolean` prompt field can no longer receive a numeric range from an LLM
+  proposal.
+- Resuming training with a learning rate that never improves returns the
+  starting weights instead of the worst epoch.
+- Export with both a live training job and a saved model present no longer
+  fails with "save the model first" for large models.
+
+---
+
 ## [1.1.1] — 2026-06-25
 
 Release de correcciones tras validación GPU real (Colab + RTX 2000 Ada). El camino denso

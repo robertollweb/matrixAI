@@ -33,8 +33,16 @@ matrixai --help
 ## Key features
 
 - **Prompt → model**: `matrixai prompt "..."` generates a runnable `.mxai` program
+- **Typed prompt fields**: declare feature types and ranges in the prompt itself
+  (`edad: Scalar en [18, 95]`, `Integer[1, 10]`, `Boolean`, `Categorical[...]` → one-hot,
+  `ProbabilityMap[NO, SI]` output) — honoured end-to-end by the generator, the LLM
+  proposal, the synthetic data and the export metadata
 - **Auditable graph**: computation graph with named nodes, explicit types and audit trail
 - **Supervised training**: classification, risk scoring and regression with `.mxtrain` specs
+- **Large models (billions of parameters)**: binary `.mxw` weights format with tamper
+  detection, pre-training resource estimator (VRAM/RAM/disk/time), torch/GPU end-to-end
+  (train, evaluate, infer, resume) and streamed ONNX external-data export — validated
+  with a 2.95B-parameter dense model on an A100
 - **Model registry**: versioned, signed, verifiable — `matrixai registry push/pull/verify`
 - **Real actions**: `.mxact` contracts with HMAC-signed traces, dry-run and rollback
 - **Continual learning**: `.mxcontinual` policies with drift detection and automatic versioning
@@ -42,6 +50,9 @@ matrixai --help
 - **ONNX / WASM export**: edge deployment bundles and browser-ready WASM packages — for
   dense **and composite** networks (residual blocks, LayerNorm, embeddings, concat), with
   output equivalence validated against the reference forward pass
+- **Self-usable model bundles**: the exported bundle ships `model.onnx` + `predict.py` +
+  `inference_spec.json` — it predicts from **raw human values** (same normalization and
+  one-hot encoding as training) with no MatrixAI installation, only `onnxruntime`
 - **Studio**: browser-based model development environment — a separate product at [matrixaistudio.org](https://matrixaistudio.org), built on this core
 
 ---
@@ -213,7 +224,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 3606 passed, 16 skipped
+# 3686 passed, 17 skipped
 ```
 
 ---
