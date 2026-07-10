@@ -709,6 +709,24 @@ class BackendContractAnalyzer:
                     "(TRANSFORMER_BLOQUE C2+); marked unsupported until then"
                 ),
             )
+        # Audit round 2 (2026-07-10): same fail-closed for ANY SEQUENCE-input
+        # composite even WITHOUT a transformer block — it typechecks fine
+        # shape-wise, but the stdlib forward has no per-position embedding path
+        # yet, so composite_forward breaks at runtime after the ParameterSet was
+        # happily built. Blocked until TRANSFORMER_BLOQUE C2 ships the forward.
+        if getattr(type_result, "input_is_sequence", False):
+            return BackendNodeReport(
+                node=network.name,
+                node_type="composite_network",
+                supported=False,
+                differentiable=False,
+                kind="composite_network",
+                reason=(
+                    "composite network consumes a SEQUENCE input — the sequence "
+                    "forward path is not implemented yet (TRANSFORMER_BLOQUE C2+); "
+                    "marked unsupported until then"
+                ),
+            )
         output_shape: tuple[int, ...] | None = None
         for layer in reversed(getattr(type_result, "resolved_layers", [])):
             if layer.layer_type == "Dense":
@@ -736,9 +754,12 @@ class BackendContractAnalyzer:
         self, network: Any, type_result: Any
     ) -> list[TrainableParameter]:
         from matrixai.parameters.network_params import composite_network_parameter_manifest
-        # Audit finding ALTA-3: mirrors _analyze_composite_network's fail-closed —
-        # no trainable-parameter manifest until the block's own lowering exists.
+        # Audit finding ALTA-3 + round 2: mirrors _analyze_composite_network's
+        # fail-closed — no trainable-parameter manifest until the block's own
+        # lowering exists, nor for ANY SEQUENCE-input composite until C2.
         if getattr(network, "transformer_blocks", []):
+            return []
+        if getattr(type_result, "input_is_sequence", False):
             return []
         if not type_result.ok:
             return []
@@ -785,6 +806,21 @@ class BackendContractAnalyzer:
                 "reason": (
                     "forward and parameter lowering not implemented yet "
                     "(TRANSFORMER_BLOQUE C2+)"
+                ),
+            })
+            return entries
+
+        # Audit round 2: SEQUENCE-input composite without a transformer block —
+        # same pending status (the sequence forward doesn't exist until C2).
+        if getattr(type_result, "input_is_sequence", False):
+            entries.append({
+                "layer": f"{network.name}.sequence_input",
+                "network": network.name,
+                "layer_type": "SequenceInput",
+                "source": network.input,
+                "differentiable": False,
+                "reason": (
+                    "sequence forward path not implemented yet (TRANSFORMER_BLOQUE C2+)"
                 ),
             })
             return entries

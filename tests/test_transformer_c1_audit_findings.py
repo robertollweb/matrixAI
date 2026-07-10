@@ -294,3 +294,254 @@ END
         prog = parse_text(src)
         res = check_composite_network_types(prog.networks[0], {}, _sequences(prog))
         assert res.ok, res.errors
+
+
+# ---------------------------------------------------------------------------
+# Auditoría 2ª ronda (2026-07-10): la máquina de fases explícita
+# (ids → embedded → transformed → pooled) cierra las rutas equivalentes que
+# el gating por rank dejaba abiertas, y el backend falla cerrado para
+# CUALQUIER composite con INPUT SEQUENCE hasta que C2 implemente su forward.
+# ---------------------------------------------------------------------------
+
+class TestRonda2ReshapeFingiendoStreamEmbebido:
+    """[ALTA] Reshape [L]→[16,4] sobre los ids crudos fabricaba un rank-2 que
+    el bloque aceptaba como stream embebido (sin EMBEDDING, DIM falso, sin POOL)."""
+
+    def test_reshape_on_raw_ids_rejected(self):
+        src = """
+PROJECT R2A
+SEQUENCE Texto
+  length = 64
+  vocab_size = 30000
+END
+NETWORK N
+  INPUT Texto
+  LAYER Reshape target=[16,4]
+  BLOCK enc TRANSFORMER
+    LAYERS 1
+    HEADS 4
+  END
+  LAYER Dense units=2 activation=softmax
+  OUTPUT clase: ProbabilityMap[a,b]
+END
+"""
+        prog = parse_text(src)
+        res = check_composite_network_types(prog.networks[0], {}, _sequences(prog))
+        assert not res.ok
+        msg = "; ".join(res.errors)
+        assert "raw token ids" in msg and "EMBEDDING" in msg
+
+    def test_any_layer_on_raw_ids_rejected(self):
+        """Ninguna capa puede tocar los ids crudos — LayerNorm tampoco.
+        (Una red solo-Dense ni siquiera es composite: parsea como dense_network
+        y el checker denso ya rechaza el INPUT no-VECTOR por su propia vía.)"""
+        src = """
+PROJECT R2Ab
+SEQUENCE Texto
+  length = 64
+  vocab_size = 30000
+END
+NETWORK N
+  INPUT Texto
+  LAYER LayerNorm
+  LAYER Dense units=2 activation=softmax
+  OUTPUT clase: ProbabilityMap[a,b]
+END
+"""
+        prog = parse_text(src)
+        res = check_composite_network_types(prog.networks[0], {}, _sequences(prog))
+        assert not res.ok
+        assert any("raw token ids" in e for e in res.errors)
+
+
+class TestRonda2BloqueTrasPool:
+    """[ALTA] POOL antes del bloque + Reshape que reconstruye rank-2: el bloque
+    aceptaba [64,2] como stream, con DIM cambiado de 128 a 2 y sin POOL posterior."""
+
+    def test_pool_then_reshape_then_block_rejected(self):
+        src = """
+PROJECT R2B
+SEQUENCE Texto
+  length = 64
+  vocab_size = 30000
+END
+NETWORK N
+  INPUT Texto
+  EMBEDDING tok FROM Texto DIM 128
+  POOL mean
+  LAYER Reshape target=[64,2]
+  BLOCK enc TRANSFORMER
+    LAYERS 1
+    HEADS 2
+  END
+  LAYER Dense units=2 activation=softmax
+  OUTPUT clase: ProbabilityMap[a,b]
+END
+"""
+        prog = parse_text(src)
+        res = check_composite_network_types(prog.networks[0], {}, _sequences(prog))
+        assert not res.ok
+        msg = "; ".join(res.errors)
+        assert "between the EMBEDDING and the POOL" in msg
+
+    def test_block_expects_exact_embedded_shape(self):
+        """Defensa adicional: el bloque exige EXACTAMENTE [L, embedding.dim] —
+        un CONCAT que pisara el stream en fase embedded también fallaría."""
+        src = """
+PROJECT R2Bb
+SEQUENCE Texto
+  length = 64
+  vocab_size = 30000
+END
+NETWORK N
+  INPUT Texto
+  EMBEDDING tok FROM Texto DIM 128
+  CONCAT [tok] -> pisado
+  BLOCK enc TRANSFORMER
+    LAYERS 1
+  END
+  POOL mean
+  LAYER Dense units=2 activation=softmax
+  OUTPUT clase: ProbabilityMap[a,b]
+END
+"""
+        prog = parse_text(src)
+        res = check_composite_network_types(prog.networks[0], {}, _sequences(prog))
+        assert not res.ok
+        assert any("expects the embedded stream" in e for e in res.errors)
+
+
+class TestRonda2SequenceInputFallaCerradoEnBackend:
+    """[ALTA] Un composite con INPUT SEQUENCE pero SIN transformer typechequea
+    bien (shapes coherentes) pero su forward stdlib no existe hasta C2 — el
+    backend debe marcarlo no soportado en vez de dejar construir el ParameterSet
+    y reventar dentro de composite_forward."""
+
+    _SRC = """
+PROJECT R2C
+SEQUENCE Texto
+  length = 64
+  vocab_size = 30000
+END
+NETWORK N
+  INPUT Texto
+  EMBEDDING tok FROM Texto DIM 2
+  POOL mean
+  LAYER Dense units=2 activation=softmax
+  OUTPUT clase: ProbabilityMap[a,b]
+END
+
+GRAPH
+  Texto -> N
+END
+"""
+
+    def test_backend_fails_closed_without_transformer(self):
+        prog = parse_text(self._SRC)
+        report = BackendContractAnalyzer().analyze(prog)
+        assert report.ok is False
+        node = next(n for n in report.nodes if n.node == "N")
+        assert node.supported is False
+        assert node.differentiable is False
+        assert "SEQUENCE input" in node.reason
+        assert report.trainable_parameters == []
+
+    def test_layer_manifest_reports_pending_sequence_input(self):
+        prog = parse_text(self._SRC)
+        report = BackendContractAnalyzer().analyze(prog)
+        pending = [e for e in report.layer_manifest if e.get("layer_type") == "SequenceInput"]
+        assert len(pending) == 1
+        assert pending[0]["differentiable"] is False
+
+    def test_parameter_manifest_raises_for_sequence_input(self):
+        from matrixai.parameters.network_params import composite_network_parameter_manifest
+        import pytest as _pytest
+        prog = parse_text(self._SRC)
+        net = prog.networks[0]
+        res = check_composite_network_types(net, {}, _sequences(prog))
+        assert res.ok  # el typecheck en sí es correcto — el bloqueo es del backend
+        with _pytest.raises(NotImplementedError, match="SEQUENCE input"):
+            composite_network_parameter_manifest(net.name, net, res)
+
+    def test_tabular_composite_backend_still_supported(self):
+        """No regresión: el composite tabular clásico sigue soportado."""
+        src = """
+PROJECT R2Cb
+VECTOR Product[2]
+  category_id: Integer[0, 100]
+  price: Scalar
+END
+NETWORK Net
+  INPUT Product
+  EMBEDDING cat FROM category_id VOCAB 100 DIM 8
+  CONCAT [cat, price] -> features
+  LAYER Dense units=2 activation=softmax
+  OUTPUT label: ProbabilityMap[a, b]
+END
+
+GRAPH
+  Product -> Net
+END
+"""
+        prog = parse_text(src)
+        report = BackendContractAnalyzer().analyze(prog)
+        assert report.ok is True
+        node = next(n for n in report.nodes if n.node == "Net")
+        assert node.supported is True
+        assert len(report.trainable_parameters) > 0
+
+
+class TestRonda2FaseNoInferidaDelRank:
+    def test_final_pool_check_uses_phase_not_rank(self):
+        """Reshape que aplana tras el bloque: UN error de gating (no dos) — la
+        comprobación final consulta la fase y no re-dispara sobre el rank."""
+        src = """
+PROJECT R2D
+SEQUENCE Texto
+  length = 64
+  vocab_size = 30000
+END
+NETWORK N
+  INPUT Texto
+  EMBEDDING tok FROM Texto DIM 128
+  BLOCK enc TRANSFORMER
+    LAYERS 1
+  END
+  LAYER Reshape target=[8192]
+  LAYER Dense units=2 activation=softmax
+  OUTPUT clase: ProbabilityMap[a,b]
+END
+"""
+        prog = parse_text(src)
+        res = check_composite_network_types(prog.networks[0], {}, _sequences(prog))
+        assert not res.ok
+        gating = [e for e in res.errors if "Reshape" in e]
+        missing_pool = [e for e in res.errors if "missing POOL" in e]
+        assert len(gating) == 1
+        assert missing_pool == []  # fase "invalid" suprime la cascada
+
+    def test_happy_path_still_ok(self):
+        """La ruta canónica del contrato sigue pasando tras la máquina de fases."""
+        src = """
+PROJECT R2E
+SEQUENCE Texto
+  length = 64
+  vocab_size = 30000
+END
+NETWORK N
+  INPUT Texto
+  EMBEDDING tok FROM Texto DIM 128
+  BLOCK enc TRANSFORMER
+    LAYERS 4
+    HEADS 4
+  END
+  POOL mean
+  LAYER Dense units=64 activation=relu
+  LAYER Dense units=2 activation=softmax
+  OUTPUT clase: ProbabilityMap[a,b]
+END
+"""
+        prog = parse_text(src)
+        res = check_composite_network_types(prog.networks[0], {}, _sequences(prog))
+        assert res.ok, res.errors
+        assert res.input_is_sequence is True

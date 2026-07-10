@@ -206,6 +206,16 @@ def composite_network_parameter_manifest(
             f"(TRANSFORMER_BLOQUE C2+); building one now would silently omit the "
             f"block's own weights"
         )
+    # Audit round 2 (2026-07-10): a SEQUENCE-input composite WITHOUT a transformer
+    # also fails closed — its manifest builds shape-consistent entries, but the
+    # stdlib forward has no per-position embedding path until C2, so a ParameterSet
+    # built here would only blow up later inside composite_forward.
+    if getattr(type_result, "input_is_sequence", False):
+        raise NotImplementedError(
+            f"composite_network_parameter_manifest: NETWORK {network_name} consumes a "
+            f"SEQUENCE input — the sequence forward path is not implemented yet "
+            f"(TRANSFORMER_BLOQUE C2+)"
+        )
 
     manifest: list[dict[str, Any]] = []
 

@@ -463,6 +463,12 @@ class NetworkTypeResult:
     # the SEQUENCE (never the raw 0 sentinel) — manifest builders must use this,
     # not network.embeddings, whenever an inherited embedding may be present.
     resolved_embeddings: list[Any] = field(default_factory=list)
+    # Audit round 2 (2026-07-10): True when the network's INPUT is a SEQUENCE.
+    # Until TRANSFORMER_BLOQUE C2 ships the sequence forward, the backend must
+    # fail closed on ANY such network (with or without a transformer block) —
+    # a SEQUENCE-input net without a block typechecks fine shape-wise but its
+    # stdlib forward breaks at runtime on the per-position embedding.
+    input_is_sequence: bool = False
 
     @property
     def ok(self) -> bool:
@@ -837,21 +843,38 @@ def check_composite_network_types(
     resolved_top_layers: list[CompositeLayerSpec] = []
     resolved_blocks: list[BlockSpec] = []
     resolved_transformer_blocks: list[Any] = []
-    # True while current_shape is the [L, dim] stream of the SEQUENCE path
-    # (set by the EMBEDDING FROM the input sequence, cleared by POOL). Rank-2
-    # shapes produced by Reshape (P19) never set it — legacy behavior intact.
-    # Audit finding ALTA-1/ALTA-2 (2026-07-10): while seq_stream is active, ONLY
-    # LayerNorm/Dropout/Activation (shape-preserving) may see the stream — ANY
-    # other layer (Reshape included) must be rejected, whether it appears BEFORE
-    # the block (would silently change the inherited L/dim, ALTA-1) or AFTER it
-    # (would leave the stream without going through the mandatory POOL, ALTA-2).
-    # This is a stricter replacement for the old Dense-only check.
-    seq_stream = seq_embedding is not None
+    # Audit round 2 (2026-07-10): EXPLICIT flow phases for the SEQUENCE path.
+    # Round 1 inferred the state from the rank of current_shape and equivalent
+    # bypasses slipped through: a Reshape [L]→[16,4] on the raw ids faked an
+    # embedded stream the block accepted, and POOL-then-Reshape rebuilt a rank-2
+    # tensor after leaving the sequence. Phases (never inferred from shape):
+    #   None           tabular network — classic P19 rules, no gating at all
+    #   "ids"          raw token ids [L]: NO layer may touch them (EMBEDDING first)
+    #   "embedded"     [L, dim] produced by the input-SEQUENCE EMBEDDING
+    #   "transformed"  [L, dim] out of the BLOCK TRANSFORMER (awaiting POOL)
+    #   "pooled"       [dim] after POOL mean|cls — classic rules apply again
+    #   "invalid"      a gating error already fired; suppress cascade errors
+    # The block only enters from "embedded" with shape EXACTLY [L, embedding.dim];
+    # only POOL mean|cls leaves "embedded"/"transformed".
+    if input_seq is None:
+        seq_phase: str | None = None
+    elif seq_embedding is not None:
+        seq_phase = "embedded"
+    else:
+        seq_phase = "ids"
 
     for _, kind, spec in body_items:
         if kind == "layer":
             in_shape = list(current_shape)
-            if seq_stream and len(in_shape) == 2 and spec.layer_type not in (
+            in_phase = seq_phase
+            if in_phase == "ids":
+                errors.append(
+                    f"NETWORK {network.name}: LAYER {spec.layer_type} cannot be applied "
+                    f"to the raw token ids {in_shape} of SEQUENCE '{input_seq.name}' — "
+                    f"declare an 'EMBEDDING <name> FROM {input_seq.name} DIM d' first"
+                )
+                seq_phase = "invalid"
+            elif in_phase in ("embedded", "transformed") and spec.layer_type not in (
                 "Pool", "LayerNorm", "Dropout", "Activation"
             ):
                 errors.append(
@@ -859,12 +882,14 @@ def check_composite_network_types(
                     f"to the sequence stream {in_shape} — add 'POOL mean' or 'POOL cls' "
                     f"first (only LayerNorm/Dropout/Activation may appear before POOL)"
                 )
+                seq_phase = "invalid"
             out_shape, layer_errors = _infer_composite_layer_shape(
-                spec, in_shape, network.name, seq_stream=seq_stream
+                spec, in_shape, network.name,
+                seq_stream=in_phase in ("embedded", "transformed"),
             )
             errors.extend(layer_errors)
-            if seq_stream and len(in_shape) == 2 and len(out_shape) != 2:
-                seq_stream = False  # POOL (or a rejected layer whose shape isn't rank-2) left the sequence
+            if in_phase in ("embedded", "transformed") and spec.layer_type == "Pool":
+                seq_phase = "pooled" if spec.pool_kind in ("mean", "cls") else "invalid"
             resolved_top_layers.append(_dc.replace(
                 spec,
                 input_shape=in_shape,
@@ -882,10 +907,32 @@ def check_composite_network_types(
                 )
                 resolved_transformer_blocks.append(_dc.replace(tb, input_shape=in_shape))
                 continue
-            if len(in_shape) != 2:
+            if seq_phase != "embedded":
+                # Phase gate (audit round 2): the block ONLY consumes the embedded
+                # stream — the shape's rank proves nothing (Reshape can fake it).
+                if seq_phase == "ids":
+                    errors.append(
+                        f"{ctx} requires an 'EMBEDDING <name> FROM {input_seq.name} DIM d' "
+                        f"before the block (the block consumes [L, dim], got {in_shape})"
+                    )
+                elif seq_phase == "pooled":
+                    errors.append(
+                        f"{ctx} must come between the EMBEDDING and the POOL — "
+                        f"the stream was already pooled to {in_shape}"
+                    )
+                elif seq_phase == "transformed":
+                    errors.append(
+                        f"{ctx} cannot follow another BLOCK TRANSFORMER "
+                        f"(v1: only one per network)"
+                    )
+                # seq_phase == "invalid": a gating error already fired — no cascade.
+                resolved_transformer_blocks.append(_dc.replace(tb, input_shape=in_shape))
+                continue
+            expected_shape = [input_seq.length, seq_embedding.dim]
+            if in_shape != expected_shape:
                 errors.append(
-                    f"{ctx} requires an 'EMBEDDING <name> FROM {input_seq.name} DIM d' "
-                    f"before the block (the block consumes [L, dim], got {in_shape})"
+                    f"{ctx} expects the embedded stream {expected_shape} from "
+                    f"EMBEDDING '{seq_embedding.name}', got {in_shape}"
                 )
                 resolved_transformer_blocks.append(_dc.replace(tb, input_shape=in_shape))
                 continue
@@ -906,6 +953,7 @@ def check_composite_network_types(
             )
             resolved_transformer_blocks.append(resolved_tb)
             current_shape = [seq_len, dim]
+            seq_phase = "transformed"
         else:
             block = spec
             block_input_shape = list(current_shape)
@@ -949,9 +997,12 @@ def check_composite_network_types(
                 output_shape=list(block_current),
             ))
 
-    # POOL is mandatory between the transformer block and OUTPUT (decisión 4):
-    # if the stream is still [L, dim] after the whole body, no POOL appeared.
-    if resolved_transformer_blocks and len(current_shape) == 2:
+    # POOL is mandatory between the transformer block and OUTPUT (decisión 4).
+    # Audit round 2: consult the PHASE, not len(current_shape) — a Reshape could
+    # flatten the stream to rank 1 without ever pooling and the old rank check
+    # was blind to it (that Reshape now errors in the loop and sets "invalid",
+    # which suppresses this second error for the same mistake).
+    if resolved_transformer_blocks and seq_phase == "transformed":
         errors.append(
             f"NETWORK {network.name}: missing POOL after BLOCK TRANSFORMER — "
             f"add 'POOL mean' or 'POOL cls' to reduce {current_shape} to "
@@ -963,7 +1014,10 @@ def check_composite_network_types(
         declared_output_type = parse_type_spec(network.output_type_str)
     except ValueError as exc:
         errors.append(f"NETWORK {network.name}: invalid output type '{network.output_type_str}': {exc}")
-        return NetworkTypeResult(errors=errors, named_shapes=named_shapes)
+        return NetworkTypeResult(
+            errors=errors, named_shapes=named_shapes,
+            input_is_sequence=input_seq is not None,
+        )
 
     # Find final Dense layer for output type validation
     final_dense = None
@@ -998,6 +1052,7 @@ def check_composite_network_types(
         resolved_blocks=resolved_blocks,
         resolved_transformer_blocks=resolved_transformer_blocks,
         resolved_embeddings=resolved_embeddings,
+        input_is_sequence=input_seq is not None,
     )
 
 
