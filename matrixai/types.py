@@ -457,6 +457,8 @@ class NetworkTypeResult:
     # P19 extras (empty for P18 dense_network results)
     named_shapes: dict[str, list[int]] = field(default_factory=dict)
     resolved_blocks: list[Any] = field(default_factory=list)
+    # TRANSFORMER C1 (resolved_dim/resolved_ff/shapes filled by the checker)
+    resolved_transformer_blocks: list[Any] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -482,10 +484,14 @@ _ACTIVATION_OUTPUT_TYPE: dict[str, str] = {
 _NON_PROB_FINAL_ACTIVATIONS = frozenset({"relu", "tanh"})
 
 
-def check_network_types(network: Any, vectors_by_name: dict[str, Any]) -> NetworkTypeResult:
+def check_network_types(
+    network: Any,
+    vectors_by_name: dict[str, Any],
+    sequences_by_name: dict[str, Any] | None = None,
+) -> NetworkTypeResult:
     """Shape inference and type checking for a NetworkSpec. Dispatches by network.kind."""
     if getattr(network, "kind", "dense_network") == "composite_network":
-        return check_composite_network_types(network, vectors_by_name)
+        return check_composite_network_types(network, vectors_by_name, sequences_by_name)
     from matrixai.ir.schema import DenseLayerSpec
 
     errors: list[str] = []
@@ -597,13 +603,29 @@ def check_network_types(network: Any, vectors_by_name: dict[str, Any]) -> Networ
 
 
 def _infer_composite_layer_shape(
-    layer: Any, in_shape: list[int], net_name: str
+    layer: Any, in_shape: list[int], net_name: str, seq_stream: bool = False
 ) -> tuple[list[int], list[str]]:
-    """Return (output_shape, errors) for a single CompositeLayerSpec."""
+    """Return (output_shape, errors) for a single CompositeLayerSpec.
+
+    seq_stream=True marks a [L, dim] stream coming from the SEQUENCE/transformer
+    path (TRANSFORMER C1), where POOL reduces positions; rank-2 shapes produced
+    by Reshape (P19) are NOT sequence streams and keep the legacy behavior.
+    """
     errors: list[str] = []
     if layer.layer_type == "Dense":
         return [layer.units], errors
-    elif layer.layer_type in ("LayerNorm", "Dropout", "Activation", "Pool"):
+    elif layer.layer_type == "Pool":
+        if seq_stream and len(in_shape) == 2:
+            # Sequence stream [L, dim] (TRANSFORMER C1): pooling reduces positions.
+            # Rank-2 shapes from Reshape (P19) keep the identity behavior below.
+            if layer.pool_kind not in ("mean", "cls"):
+                errors.append(
+                    f"NETWORK {net_name}: POOL {layer.pool_kind} over a sequence "
+                    f"stream {in_shape} is not supported (v1) — use POOL mean or POOL cls"
+                )
+            return [in_shape[1]], errors
+        return list(in_shape), errors
+    elif layer.layer_type in ("LayerNorm", "Dropout", "Activation"):
         return list(in_shape), errors
     elif layer.layer_type == "Reshape":
         target = list(layer.target_shape)
@@ -668,31 +690,95 @@ def _validate_composite_output_type(
 
 
 def check_composite_network_types(
-    network: Any, vectors_by_name: dict[str, Any]
+    network: Any,
+    vectors_by_name: dict[str, Any],
+    sequences_by_name: dict[str, Any] | None = None,
 ) -> NetworkTypeResult:
-    """Shape inference and type checking for a composite_network (P19)."""
+    """Shape inference and type checking for a composite_network (P19 + TRANSFORMER C1).
+
+    INPUT may be a VECTOR (tabular, as always) or a SEQUENCE (token ids [L],
+    TRANSFORMER_BLOQUE C1). With a SEQUENCE input the expected stage shapes are
+    [L] → EMBEDDING [L, dim] → BLOCK TRANSFORMER [L, dim] → POOL → [dim] → Dense.
+    """
     import dataclasses as _dc
     from matrixai.ir.schema import CompositeLayerSpec, BlockSpec
 
     errors: list[str] = []
     warnings: list[str] = []
+    sequences_by_name = sequences_by_name or {}
+
+    transformer_blocks = list(getattr(network, "transformer_blocks", []))
 
     vector = vectors_by_name.get(network.input)
-    if vector is None:
+    input_seq = sequences_by_name.get(network.input)
+    if vector is None and input_seq is None:
+        if sequences_by_name or transformer_blocks:
+            return NetworkTypeResult(
+                errors=[
+                    f"NETWORK {network.name}: INPUT '{network.input}' is not a declared "
+                    f"VECTOR or SEQUENCE"
+                ]
+            )
         return NetworkTypeResult(
             errors=[f"NETWORK {network.name}: INPUT '{network.input}' is not a declared VECTOR"]
         )
 
     # named_shapes: tensor name → shape list
     named_shapes: dict[str, list[int]] = {}
-    for fname in getattr(vector, "fields", []):
-        named_shapes[fname] = [1]
+    if vector is not None:
+        for fname in getattr(vector, "fields", []):
+            named_shapes[fname] = [1]
+        current_shape: list[int] = [vector.size]
+    else:
+        # SEQUENCE input: token ids, one position per element
+        named_shapes[input_seq.name] = [input_seq.length]
+        current_shape = [input_seq.length]
 
-    current_shape: list[int] = [vector.size]
+    # v1 scope: max one transformer block, not mixed with classic BLOCKs
+    if len(transformer_blocks) > 1:
+        errors.append(
+            f"NETWORK {network.name}: only one BLOCK TRANSFORMER per network is "
+            f"supported (v1), found {len(transformer_blocks)}: "
+            f"{', '.join(tb.name for tb in transformer_blocks)}"
+        )
+    if transformer_blocks and network.blocks:
+        errors.append(
+            f"NETWORK {network.name}: BLOCK TRANSFORMER cannot be mixed with a "
+            f"classic BLOCK in the same network (v1)"
+        )
 
-    # Process embeddings (define named shapes, don't change current_shape)
+    # Process embeddings (define named shapes, don't change current_shape —
+    # except an embedding over the input SEQUENCE, which becomes the stream)
+    seq_embedding = None  # the embedding that feeds a transformer block, if any
     for emb in network.embeddings:
-        named_shapes[emb.name] = [emb.dim]
+        source_seq = sequences_by_name.get(emb.source)
+        if source_seq is not None:
+            # Sequence embedding: per-position lookup → [L, dim]; VOCAB inherited.
+            if emb.vocab != 0 and emb.vocab != source_seq.vocab_size:
+                errors.append(
+                    f"NETWORK {network.name}: EMBEDDING '{emb.name}' declares VOCAB "
+                    f"{emb.vocab} but SEQUENCE '{emb.source}' declares vocab_size "
+                    f"{source_seq.vocab_size} — omit VOCAB to inherit it from the SEQUENCE"
+                )
+            named_shapes[emb.name] = [source_seq.length, emb.dim]
+            if input_seq is not None and emb.source == input_seq.name:
+                if seq_embedding is None:
+                    seq_embedding = emb
+                    current_shape = [source_seq.length, emb.dim]
+                else:
+                    errors.append(
+                        f"NETWORK {network.name}: only one EMBEDDING FROM the input "
+                        f"SEQUENCE '{input_seq.name}' is supported (v1); found "
+                        f"'{seq_embedding.name}' and '{emb.name}'"
+                    )
+        else:
+            if emb.vocab == 0:
+                errors.append(
+                    f"NETWORK {network.name}: EMBEDDING '{emb.name}' FROM '{emb.source}' "
+                    f"requires VOCAB — only an EMBEDDING FROM a declared SEQUENCE may "
+                    f"omit it (inherited)"
+                )
+            named_shapes[emb.name] = [emb.dim]
 
     # Process concats (update named_shapes and current_shape)
     for concat in network.concats:
@@ -719,22 +805,74 @@ def check_composite_network_types(
     for block in network.blocks:
         pos = getattr(block, "position", 0)
         body_items.append((pos * 2 + 1, "block", block))
+    for tblock in transformer_blocks:
+        body_items.append((tblock.position * 2 + 1, "tblock", tblock))
     body_items.sort(key=lambda x: x[0])
 
     resolved_top_layers: list[CompositeLayerSpec] = []
     resolved_blocks: list[BlockSpec] = []
+    resolved_transformer_blocks: list[Any] = []
+    # True while current_shape is the [L, dim] stream of the SEQUENCE path
+    # (set by the EMBEDDING FROM the input sequence, cleared by POOL). Rank-2
+    # shapes produced by Reshape (P19) never set it — legacy behavior intact.
+    seq_stream = seq_embedding is not None
 
     for _, kind, spec in body_items:
         if kind == "layer":
             in_shape = list(current_shape)
-            out_shape, layer_errors = _infer_composite_layer_shape(spec, in_shape, network.name)
+            if spec.layer_type == "Dense" and seq_stream and len(in_shape) == 2:
+                errors.append(
+                    f"NETWORK {network.name}: LAYER Dense receives a sequence stream "
+                    f"{in_shape} — add 'POOL mean' or 'POOL cls' between the "
+                    f"BLOCK TRANSFORMER and the first LAYER Dense"
+                )
+            out_shape, layer_errors = _infer_composite_layer_shape(
+                spec, in_shape, network.name, seq_stream=seq_stream
+            )
             errors.extend(layer_errors)
+            if seq_stream and len(in_shape) == 2 and len(out_shape) != 2:
+                seq_stream = False  # POOL (or Dense after the error) left the sequence
             resolved_top_layers.append(_dc.replace(
                 spec,
                 input_shape=in_shape,
                 output_shape=out_shape,
             ))
             current_shape = out_shape
+        elif kind == "tblock":
+            tb = spec
+            ctx = f"NETWORK {network.name}: BLOCK '{tb.name}' TRANSFORMER"
+            in_shape = list(current_shape)
+            if input_seq is None:
+                errors.append(
+                    f"{ctx} requires INPUT to be a SEQUENCE, but INPUT "
+                    f"'{network.input}' is a VECTOR"
+                )
+                resolved_transformer_blocks.append(_dc.replace(tb, input_shape=in_shape))
+                continue
+            if len(in_shape) != 2:
+                errors.append(
+                    f"{ctx} requires an 'EMBEDDING <name> FROM {input_seq.name} DIM d' "
+                    f"before the block (the block consumes [L, dim], got {in_shape})"
+                )
+                resolved_transformer_blocks.append(_dc.replace(tb, input_shape=in_shape))
+                continue
+            seq_len, dim = in_shape
+            if dim % tb.heads != 0:
+                divisors = [str(h) for h in range(1, dim + 1) if dim % h == 0]
+                errors.append(
+                    f"{ctx}: HEADS {tb.heads} does not divide DIM {dim} — "
+                    f"valid HEADS values for DIM {dim}: {', '.join(divisors)}"
+                )
+            resolved_ff = tb.ff if tb.ff > 0 else 4 * dim
+            resolved_tb = _dc.replace(
+                tb,
+                input_shape=[seq_len, dim],
+                output_shape=[seq_len, dim],
+                resolved_dim=dim,
+                resolved_ff=resolved_ff,
+            )
+            resolved_transformer_blocks.append(resolved_tb)
+            current_shape = [seq_len, dim]
         else:
             block = spec
             block_input_shape = list(current_shape)
@@ -778,6 +916,15 @@ def check_composite_network_types(
                 output_shape=list(block_current),
             ))
 
+    # POOL is mandatory between the transformer block and OUTPUT (decisión 4):
+    # if the stream is still [L, dim] after the whole body, no POOL appeared.
+    if resolved_transformer_blocks and len(current_shape) == 2:
+        errors.append(
+            f"NETWORK {network.name}: missing POOL after BLOCK TRANSFORMER — "
+            f"add 'POOL mean' or 'POOL cls' to reduce {current_shape} to "
+            f"[{current_shape[1]}] before OUTPUT"
+        )
+
     # Validate output type
     try:
         declared_output_type = parse_type_spec(network.output_type_str)
@@ -816,6 +963,7 @@ def check_composite_network_types(
         resolved_layers=resolved_top_layers,
         named_shapes=named_shapes,
         resolved_blocks=resolved_blocks,
+        resolved_transformer_blocks=resolved_transformer_blocks,
     )
 
 
@@ -865,13 +1013,19 @@ class _ProgramTypeChecker:
                 self._register_action(action)
 
         vectors_by_name = {v.name: v for v in self.program.vectors}
+        sequences_by_name = {s.name: s for s in getattr(self.program, "sequences", [])}
         for network in getattr(self.program, "networks", []):
-            self._register_network(network, vectors_by_name)
+            self._register_network(network, vectors_by_name, sequences_by_name)
 
         return TypeCheckResult(self.errors, self.warnings, self.symbols)
 
-    def _register_network(self, network: Any, vectors_by_name: dict[str, Any]) -> None:
-        result = check_network_types(network, vectors_by_name)
+    def _register_network(
+        self,
+        network: Any,
+        vectors_by_name: dict[str, Any],
+        sequences_by_name: dict[str, Any] | None = None,
+    ) -> None:
+        result = check_network_types(network, vectors_by_name, sequences_by_name)
         self.errors.extend(result.errors)
         self.warnings.extend(result.warnings)
         if result.output_type is not None:

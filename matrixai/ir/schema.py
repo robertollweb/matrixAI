@@ -143,7 +143,7 @@ class DenseLayerSpec:
 class EmbeddingSpec:
     name: str
     source: str
-    vocab: int
+    vocab: int    # 0 = inherit from the source SEQUENCE (typecheck resolves/validates)
     dim: int
 
 
@@ -178,6 +178,33 @@ class BlockSpec:
     position: int = 0         # textual position: how many top_layers precede this block
 
 
+_TRANSFORMER_ACTIVATIONS = frozenset({"gelu", "relu"})
+_TRANSFORMER_POS_KINDS = frozenset({"sinusoidal", "learned"})
+
+
+@dataclass(frozen=True)
+class TransformerBlockSpec:
+    """BLOCK <name> TRANSFORMER inside a composite network (TRANSFORMER_BLOQUE C1).
+
+    dim is NEVER declared here: it is inherited from the DIM of the EMBEDDING
+    that feeds the block; length/vocab come from the SEQUENCE. ff == 0 means
+    "use the default 4*dim" — both are resolved by the composite typecheck
+    into resolved_dim / resolved_ff.
+    """
+    name: str
+    layers: int                    # required, >= 1
+    heads: int = 4                 # must divide the inherited dim
+    ff: int = 0                    # 0 → 4*dim (resolved at typecheck)
+    dropout: float = 0.0           # [0, 1); train-only, identity in eval (P19 semantics)
+    activation: str = "gelu"       # gelu | relu (FFN)
+    pos: str = "sinusoidal"        # sinusoidal (not trainable) | learned (table [L, dim])
+    position: int = 0              # textual position: how many top_layers precede this block
+    input_shape: list[int] = field(default_factory=list)    # [L, dim] (typecheck)
+    output_shape: list[int] = field(default_factory=list)   # [L, dim] (typecheck)
+    resolved_dim: int = 0          # inherited from the feeding EMBEDDING (typecheck)
+    resolved_ff: int = 0           # ff or 4*dim (typecheck)
+
+
 @dataclass(frozen=True)
 class NetworkSpec:
     name: str
@@ -191,6 +218,8 @@ class NetworkSpec:
     concats: list[ConcatSpec] = field(default_factory=list)
     blocks: list[BlockSpec] = field(default_factory=list)
     top_layers: list[CompositeLayerSpec] = field(default_factory=list)
+    # TRANSFORMER_BLOQUE C1 (max one per network in v1; typecheck enforces)
+    transformer_blocks: list[TransformerBlockSpec] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -304,6 +333,23 @@ class MatrixAIProgram:
             ]
         if network.blocks:
             d["blocks"] = [self._block_to_dict(network.name, b) for b in network.blocks]
+        if network.transformer_blocks:
+            d["transformer_blocks"] = [
+                {
+                    "name": tb.name,
+                    "layers": tb.layers,
+                    "heads": tb.heads,
+                    "ff": tb.ff,
+                    "dropout": tb.dropout,
+                    "activation": tb.activation,
+                    "pos": tb.pos,
+                    "input_shape": list(tb.input_shape),
+                    "output_shape": list(tb.output_shape),
+                    "resolved_dim": tb.resolved_dim,
+                    "resolved_ff": tb.resolved_ff,
+                }
+                for tb in network.transformer_blocks
+            ]
         if network.top_layers:
             d["layers"] = [
                 self._composite_layer_to_dict(network.name, layer)

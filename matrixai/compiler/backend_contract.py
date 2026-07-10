@@ -419,7 +419,7 @@ class BackendContractAnalyzer:
                 net = network_map[node_name]
                 if getattr(net, "kind", "dense_network") == "composite_network":
                     from matrixai.types import check_composite_network_types
-                    type_result = check_composite_network_types(net, vector_map)
+                    type_result = check_composite_network_types(net, vector_map, sequence_map)
                     nodes.append(self._analyze_composite_network(net, type_result))
                     trainable_parameters.extend(
                         self._composite_network_trainable_parameters(net, type_result)

@@ -30,9 +30,12 @@ from matrixai.ir.schema import (
     DenseLayerSpec,
     EmbeddingSpec,
     NetworkSpec,
+    TransformerBlockSpec,
     _COMPOSITE_ACTIVATIONS,
     _DENSE_ACTIVATIONS,
     _POOL_KINDS,
+    _TRANSFORMER_ACTIVATIONS,
+    _TRANSFORMER_POS_KINDS,
 )
 from matrixai.types import parse_type_spec
 
@@ -82,6 +85,13 @@ _EMBEDDING_RE = re.compile(
     r"^EMBEDDING\s+(?P<name>[A-Za-z_]\w*)\s+FROM\s+(?P<source>[A-Za-z_]\w*)"
     r"\s+VOCAB\s+(?P<vocab>\d+)\s+DIM\s+(?P<dim>\d+)$"
 )
+# TRANSFORMER_BLOQUE C1: EMBEDDING without VOCAB — only valid FROM a SEQUENCE
+# (VOCAB is inherited from the sequence; typecheck validates the source kind).
+_EMBEDDING_SEQ_RE = re.compile(
+    r"^EMBEDDING\s+(?P<name>[A-Za-z_]\w*)\s+FROM\s+(?P<source>[A-Za-z_]\w*)"
+    r"\s+DIM\s+(?P<dim>\d+)$"
+)
+_TRANSFORMER_HDR_RE = re.compile(r"^BLOCK\s+(?P<name>[A-Za-z_]\w*)\s+TRANSFORMER$")
 _CONCAT_RE = re.compile(
     r"^CONCAT\s+\[(?P<sources>[^\]]+)\]\s*->\s*(?P<name>[A-Za-z_]\w*)$"
 )
@@ -873,6 +883,88 @@ def _parse_block(block_name: str, lines: list[str], net_name: str) -> BlockSpec:
     return BlockSpec(name=block_name, layers=comp_layers, residual_from=residual_from)
 
 
+_TRANSFORMER_KEYS = ("LAYERS", "HEADS", "FF", "DROPOUT", "ACTIVATION", "POS")
+
+
+def _parse_transformer_block(
+    block_name: str, lines: list[str], net_name: str
+) -> TransformerBlockSpec:
+    """Parse the key-value body of a BLOCK <name> TRANSFORMER ... END.
+
+    dim/length/vocab are NOT declared here (inherited from EMBEDDING/SEQUENCE);
+    HEADS-divides-dim and FF=4*dim resolution happen at typecheck, where the
+    inherited dim is known.
+    """
+    ctx = f"NETWORK {net_name} BLOCK {block_name} TRANSFORMER"
+    seen: dict[str, str] = {}
+
+    for line in lines:
+        parts = line.split(maxsplit=1)
+        key = parts[0]
+        if key not in _TRANSFORMER_KEYS:
+            raise MatrixAIParseError(
+                f"{ctx}: unknown key '{key}' — valid keys: {', '.join(_TRANSFORMER_KEYS)}"
+            )
+        if len(parts) != 2:
+            raise MatrixAIParseError(f"{ctx}: {key} requires a value")
+        if key in seen:
+            raise MatrixAIParseError(f"{ctx}: duplicate key '{key}'")
+        seen[key] = parts[1].strip()
+
+    if "LAYERS" not in seen:
+        raise MatrixAIParseError(f"{ctx}: LAYERS is required (number of encoder layers, >= 1)")
+
+    def _int_value(key: str, default: int) -> int:
+        raw = seen.get(key)
+        if raw is None:
+            return default
+        try:
+            value = int(raw)
+        except ValueError:
+            raise MatrixAIParseError(f"{ctx}: {key} must be an integer, got '{raw}'") from None
+        if value < 1:
+            raise MatrixAIParseError(f"{ctx}: {key} must be >= 1, got {value}")
+        return value
+
+    layers = _int_value("LAYERS", 0)
+    heads = _int_value("HEADS", 4)
+    ff = _int_value("FF", 0)  # 0 = default 4*dim, resolved at typecheck
+
+    dropout = 0.0
+    if "DROPOUT" in seen:
+        try:
+            dropout = float(seen["DROPOUT"])
+        except ValueError:
+            raise MatrixAIParseError(
+                f"{ctx}: DROPOUT must be a number in [0, 1), got '{seen['DROPOUT']}'"
+            ) from None
+        if not (0.0 <= dropout < 1.0):
+            raise MatrixAIParseError(f"{ctx}: DROPOUT must be in [0, 1), got {dropout}")
+
+    activation = seen.get("ACTIVATION", "gelu").lower()
+    if activation not in _TRANSFORMER_ACTIVATIONS:
+        raise MatrixAIParseError(
+            f"{ctx}: ACTIVATION must be one of {sorted(_TRANSFORMER_ACTIVATIONS)}, "
+            f"got '{seen['ACTIVATION']}'"
+        )
+
+    pos = seen.get("POS", "sinusoidal").lower()
+    if pos not in _TRANSFORMER_POS_KINDS:
+        raise MatrixAIParseError(
+            f"{ctx}: POS must be one of {sorted(_TRANSFORMER_POS_KINDS)}, got '{seen['POS']}'"
+        )
+
+    return TransformerBlockSpec(
+        name=block_name,
+        layers=layers,
+        heads=heads,
+        ff=ff,
+        dropout=dropout,
+        activation=activation,
+        pos=pos,
+    )
+
+
 def _parse_network(block: list[str]) -> NetworkSpec:
     match = _NETWORK_HDR_RE.match(block[0])
     if not match:
@@ -885,6 +977,7 @@ def _parse_network(block: list[str]) -> NetworkSpec:
     embeddings: list[EmbeddingSpec] = []
     concats: list[ConcatSpec] = []
     blocks: list[BlockSpec] = []
+    transformer_blocks: list[TransformerBlockSpec] = []
     all_top_layers: list[CompositeLayerSpec] = []  # all top-level layers (Dense or P19)
     is_composite = False
     input_count = 0
@@ -928,6 +1021,32 @@ def _parse_network(block: list[str]) -> NetworkSpec:
             i += 1
             continue
 
+        # TRANSFORMER_BLOQUE C1: EMBEDDING without VOCAB (inherit from SEQUENCE).
+        # vocab=0 is the "inherit" sentinel; typecheck resolves it against the
+        # source SEQUENCE and rejects tabular sources (those still require VOCAB).
+        m = _EMBEDDING_SEQ_RE.match(line)
+        if m:
+            dim = int(m.group("dim"))
+            emb_name = m.group("name")
+            if dim <= 0:
+                raise MatrixAIParseError(
+                    f"NETWORK {name} EMBEDDING {emb_name}: DIM must be > 0, got {dim}"
+                )
+            embeddings.append(EmbeddingSpec(name=emb_name, source=m.group("source"), vocab=0, dim=dim))
+            is_composite = True
+            i += 1
+            continue
+
+        m = _TRANSFORMER_HDR_RE.match(line)
+        if m:
+            from dataclasses import replace as _dc_replace
+            tb_name = m.group("name")
+            tb_lines, i = _collect_block_body(body, i + 1, name)
+            parsed_tb = _parse_transformer_block(tb_name, tb_lines, name)
+            transformer_blocks.append(_dc_replace(parsed_tb, position=len(all_top_layers)))
+            is_composite = True
+            continue
+
         m = _CONCAT_RE.match(line)
         if m:
             sources = [s.strip() for s in m.group("sources").split(",") if s.strip()]
@@ -969,7 +1088,7 @@ def _parse_network(block: list[str]) -> NetworkSpec:
 
     if input_name is None:
         raise MatrixAIParseError(f"NETWORK {name} is missing INPUT")
-    has_content = all_top_layers or blocks or embeddings
+    has_content = all_top_layers or blocks or embeddings or transformer_blocks
     if not has_content:
         raise MatrixAIParseError(f"NETWORK {name} must have at least one LAYER or block")
     if output_name is None or output_type_str is None:
@@ -987,6 +1106,7 @@ def _parse_network(block: list[str]) -> NetworkSpec:
             concats=concats,
             blocks=blocks,
             top_layers=all_top_layers,
+            transformer_blocks=transformer_blocks,
         )
     # P18 dense_network: convert CompositeLayerSpec back to DenseLayerSpec
     dense_layers = [

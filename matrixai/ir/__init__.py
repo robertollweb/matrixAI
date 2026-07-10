@@ -34,6 +34,7 @@ from matrixai.ir.schema import (
     NetworkSpec,
     ParameterSpec,
     SequenceSpec,
+    TransformerBlockSpec,
     VectorSpec,
     VerificationRule,
 )
@@ -84,6 +85,7 @@ __all__ = [
     "TypeSpec",
     "VarNode",
     "SequenceSpec",
+    "TransformerBlockSpec",
     "VectorSpec",
     "VerificationRule",
     "WeightedSumNode",
