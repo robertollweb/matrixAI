@@ -981,6 +981,11 @@ def _parse_network(block: list[str]) -> NetworkSpec:
     all_top_layers: list[CompositeLayerSpec] = []  # all top-level layers (Dense or P19)
     is_composite = False
     input_count = 0
+    # Audit finding MEDIA (2026-07-10): `position` (count of preceding top_layers)
+    # cannot order an EMBEDDING against a BLOCK TRANSFORMER when no top_layer sits
+    # between them (both would read 0). This global counter, incremented once per
+    # EMBEDDING/transformer block in textual order, gives them a comparable value.
+    seq_order = 0
 
     body = block[1:-1]
     i = 0
@@ -1016,7 +1021,10 @@ def _parse_network(block: list[str]) -> NetworkSpec:
                 raise MatrixAIParseError(
                     f"NETWORK {name} EMBEDDING {emb_name}: DIM must be > 0, got {dim}"
                 )
-            embeddings.append(EmbeddingSpec(name=emb_name, source=m.group("source"), vocab=vocab, dim=dim))
+            seq_order += 1
+            embeddings.append(EmbeddingSpec(
+                name=emb_name, source=m.group("source"), vocab=vocab, dim=dim, parse_order=seq_order
+            ))
             is_composite = True
             i += 1
             continue
@@ -1032,7 +1040,10 @@ def _parse_network(block: list[str]) -> NetworkSpec:
                 raise MatrixAIParseError(
                     f"NETWORK {name} EMBEDDING {emb_name}: DIM must be > 0, got {dim}"
                 )
-            embeddings.append(EmbeddingSpec(name=emb_name, source=m.group("source"), vocab=0, dim=dim))
+            seq_order += 1
+            embeddings.append(EmbeddingSpec(
+                name=emb_name, source=m.group("source"), vocab=0, dim=dim, parse_order=seq_order
+            ))
             is_composite = True
             i += 1
             continue
@@ -1043,7 +1054,10 @@ def _parse_network(block: list[str]) -> NetworkSpec:
             tb_name = m.group("name")
             tb_lines, i = _collect_block_body(body, i + 1, name)
             parsed_tb = _parse_transformer_block(tb_name, tb_lines, name)
-            transformer_blocks.append(_dc_replace(parsed_tb, position=len(all_top_layers)))
+            seq_order += 1
+            transformer_blocks.append(_dc_replace(
+                parsed_tb, position=len(all_top_layers), parse_order=seq_order
+            ))
             is_composite = True
             continue
 

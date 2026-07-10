@@ -193,10 +193,27 @@ def composite_network_parameter_manifest(
     type_result: NetworkTypeResult from check_composite_network_types
                  (provides resolved_layers and resolved_blocks with shapes)
     """
+    # Audit finding ALTA-3 (2026-07-10): fail closed, loudly, rather than silently
+    # building a manifest that omits the block's own weights (attention/FFN/norm
+    # lowering doesn't exist until TRANSFORMER_BLOQUE C2+). No caller should reach
+    # this today (backend_contract.py gates it, playground.py fails earlier on the
+    # SEQUENCE-typed INPUT not being a VECTOR) — this is defense in depth so a
+    # future caller can't silently build an incomplete ParameterSet.
+    if getattr(network, "transformer_blocks", []):
+        raise NotImplementedError(
+            f"composite_network_parameter_manifest: NETWORK {network_name} contains a "
+            f"BLOCK TRANSFORMER — its parameter manifest is not implemented yet "
+            f"(TRANSFORMER_BLOQUE C2+); building one now would silently omit the "
+            f"block's own weights"
+        )
+
     manifest: list[dict[str, Any]] = []
 
-    # Embedding tables
-    for emb in getattr(network, "embeddings", []):
+    # Embedding tables — vocab resolved against the SEQUENCE when inherited
+    # (never the raw 0 sentinel; ALTA-3). Falls back to network.embeddings for
+    # callers passing a type_result without resolved_embeddings.
+    embeddings = getattr(type_result, "resolved_embeddings", None) or getattr(network, "embeddings", [])
+    for emb in embeddings:
         manifest.append({
             "function": network_name,
             "name": f"{emb.name}.table",

@@ -459,6 +459,10 @@ class NetworkTypeResult:
     resolved_blocks: list[Any] = field(default_factory=list)
     # TRANSFORMER C1 (resolved_dim/resolved_ff/shapes filled by the checker)
     resolved_transformer_blocks: list[Any] = field(default_factory=list)
+    # Audit finding ALTA-3 (2026-07-10): embeddings with vocab resolved against
+    # the SEQUENCE (never the raw 0 sentinel) — manifest builders must use this,
+    # not network.embeddings, whenever an inherited embedding may be present.
+    resolved_embeddings: list[Any] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -750,6 +754,12 @@ def check_composite_network_types(
     # Process embeddings (define named shapes, don't change current_shape —
     # except an embedding over the input SEQUENCE, which becomes the stream)
     seq_embedding = None  # the embedding that feeds a transformer block, if any
+    # Audit finding ALTA-3 (2026-07-10): downstream manifest builders used to read
+    # emb.vocab straight off the IR, which is 0 for an inherited embedding — that
+    # sentinel leaked into parameter manifests as a literal shape=[0, dim]. Here we
+    # resolve it once against the SEQUENCE and expose the resolved copy so nothing
+    # downstream ever sees the raw sentinel.
+    resolved_embeddings: list[Any] = []
     for emb in network.embeddings:
         source_seq = sequences_by_name.get(emb.source)
         if source_seq is not None:
@@ -760,6 +770,7 @@ def check_composite_network_types(
                     f"{emb.vocab} but SEQUENCE '{emb.source}' declares vocab_size "
                     f"{source_seq.vocab_size} — omit VOCAB to inherit it from the SEQUENCE"
                 )
+            resolved_embeddings.append(_dc.replace(emb, vocab=source_seq.vocab_size))
             named_shapes[emb.name] = [source_seq.length, emb.dim]
             if input_seq is not None and emb.source == input_seq.name:
                 if seq_embedding is None:
@@ -778,7 +789,21 @@ def check_composite_network_types(
                     f"requires VOCAB — only an EMBEDDING FROM a declared SEQUENCE may "
                     f"omit it (inherited)"
                 )
+            resolved_embeddings.append(emb)
             named_shapes[emb.name] = [emb.dim]
+
+    # Audit finding MEDIA (2026-07-10): the EMBEDDING feeding a transformer block
+    # must appear textually BEFORE it — position (top_layers count) can't tell
+    # this apart when nothing else sits in between, so parse_order (a global
+    # parse-time counter) is used instead.
+    if seq_embedding is not None:
+        for tb in transformer_blocks:
+            if seq_embedding.parse_order > tb.parse_order:
+                errors.append(
+                    f"NETWORK {network.name}: BLOCK '{tb.name}' TRANSFORMER requires "
+                    f"the EMBEDDING '{seq_embedding.name}' to be declared BEFORE the "
+                    f"block (found it declared AFTER)"
+                )
 
     # Process concats (update named_shapes and current_shape)
     for concat in network.concats:
@@ -815,23 +840,31 @@ def check_composite_network_types(
     # True while current_shape is the [L, dim] stream of the SEQUENCE path
     # (set by the EMBEDDING FROM the input sequence, cleared by POOL). Rank-2
     # shapes produced by Reshape (P19) never set it — legacy behavior intact.
+    # Audit finding ALTA-1/ALTA-2 (2026-07-10): while seq_stream is active, ONLY
+    # LayerNorm/Dropout/Activation (shape-preserving) may see the stream — ANY
+    # other layer (Reshape included) must be rejected, whether it appears BEFORE
+    # the block (would silently change the inherited L/dim, ALTA-1) or AFTER it
+    # (would leave the stream without going through the mandatory POOL, ALTA-2).
+    # This is a stricter replacement for the old Dense-only check.
     seq_stream = seq_embedding is not None
 
     for _, kind, spec in body_items:
         if kind == "layer":
             in_shape = list(current_shape)
-            if spec.layer_type == "Dense" and seq_stream and len(in_shape) == 2:
+            if seq_stream and len(in_shape) == 2 and spec.layer_type not in (
+                "Pool", "LayerNorm", "Dropout", "Activation"
+            ):
                 errors.append(
-                    f"NETWORK {network.name}: LAYER Dense receives a sequence stream "
-                    f"{in_shape} — add 'POOL mean' or 'POOL cls' between the "
-                    f"BLOCK TRANSFORMER and the first LAYER Dense"
+                    f"NETWORK {network.name}: LAYER {spec.layer_type} cannot be applied "
+                    f"to the sequence stream {in_shape} — add 'POOL mean' or 'POOL cls' "
+                    f"first (only LayerNorm/Dropout/Activation may appear before POOL)"
                 )
             out_shape, layer_errors = _infer_composite_layer_shape(
                 spec, in_shape, network.name, seq_stream=seq_stream
             )
             errors.extend(layer_errors)
             if seq_stream and len(in_shape) == 2 and len(out_shape) != 2:
-                seq_stream = False  # POOL (or Dense after the error) left the sequence
+                seq_stream = False  # POOL (or a rejected layer whose shape isn't rank-2) left the sequence
             resolved_top_layers.append(_dc.replace(
                 spec,
                 input_shape=in_shape,
@@ -964,6 +997,7 @@ def check_composite_network_types(
         named_shapes=named_shapes,
         resolved_blocks=resolved_blocks,
         resolved_transformer_blocks=resolved_transformer_blocks,
+        resolved_embeddings=resolved_embeddings,
     )
 
 

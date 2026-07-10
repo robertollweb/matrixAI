@@ -514,7 +514,10 @@ class BackendContractAnalyzer:
         for net in network_map.values():
             if getattr(net, "kind", "dense_network") == "composite_network":
                 from matrixai.types import check_composite_network_types
-                type_result = check_composite_network_types(net, vector_map)
+                # Audit finding ALTA-3 (2026-07-10): this call was missing sequence_map,
+                # so a SEQUENCE-input network re-typechecked here without knowing its
+                # input was ever a valid SEQUENCE — always failing INPUT resolution.
+                type_result = check_composite_network_types(net, vector_map, sequence_map)
                 layer_manifest.extend(self._build_composite_network_layer_manifest(net, type_result))
             else:
                 layer_manifest.extend(self._build_network_layer_manifest(net, vector_map))
@@ -687,6 +690,25 @@ class BackendContractAnalyzer:
         )
 
     def _analyze_composite_network(self, network: Any, type_result: Any) -> BackendNodeReport:
+        # Audit finding ALTA-3 (2026-07-10): a network with a BLOCK TRANSFORMER was
+        # unconditionally reported supported=True/differentiable=True — but the
+        # block's forward/parameter lowering doesn't exist yet (TRANSFORMER_BLOQUE
+        # C2+). Fail closed until then instead of claiming a fully differentiable
+        # subgraph that CLI/estimators/ParameterSet construction would then build
+        # incompletely (missing the block's own weights).
+        if getattr(network, "transformer_blocks", []):
+            return BackendNodeReport(
+                node=network.name,
+                node_type="composite_network",
+                supported=False,
+                differentiable=False,
+                kind="composite_network",
+                reason=(
+                    "composite network contains a BLOCK TRANSFORMER — forward and "
+                    "parameter lowering for it are not implemented yet "
+                    "(TRANSFORMER_BLOQUE C2+); marked unsupported until then"
+                ),
+            )
         output_shape: tuple[int, ...] | None = None
         for layer in reversed(getattr(type_result, "resolved_layers", [])):
             if layer.layer_type == "Dense":
@@ -714,6 +736,10 @@ class BackendContractAnalyzer:
         self, network: Any, type_result: Any
     ) -> list[TrainableParameter]:
         from matrixai.parameters.network_params import composite_network_parameter_manifest
+        # Audit finding ALTA-3: mirrors _analyze_composite_network's fail-closed —
+        # no trainable-parameter manifest until the block's own lowering exists.
+        if getattr(network, "transformer_blocks", []):
+            return []
         if not type_result.ok:
             return []
         manifest = composite_network_parameter_manifest(network.name, network, type_result)
@@ -744,8 +770,29 @@ class BackendContractAnalyzer:
     ) -> list[dict[str, Any]]:
         entries: list[dict[str, Any]] = []
 
-        # Embedding entries
-        for emb in getattr(network, "embeddings", []):
+        # Audit finding ALTA-3 (2026-07-10): a network with a BLOCK TRANSFORMER has
+        # no parameter lowering yet — showing only the embedding (with its vocab
+        # now correctly resolved, never the raw 0 sentinel) would still misrepresent
+        # the architecture as fully described. Report the block explicitly as
+        # pending instead of silently omitting it or leaking a shape=[0, dim] entry.
+        for tb in getattr(network, "transformer_blocks", []):
+            entries.append({
+                "layer": f"{network.name}.{tb.name}",
+                "network": network.name,
+                "layer_type": "TransformerBlock",
+                "block_name": tb.name,
+                "differentiable": False,
+                "reason": (
+                    "forward and parameter lowering not implemented yet "
+                    "(TRANSFORMER_BLOQUE C2+)"
+                ),
+            })
+            return entries
+
+        # Embedding entries — vocab resolved (never the raw inherit-from-SEQUENCE
+        # sentinel 0; ALTA-3): use type_result.resolved_embeddings when available.
+        embeddings = getattr(type_result, "resolved_embeddings", None) or getattr(network, "embeddings", [])
+        for emb in embeddings:
             entries.append({
                 "layer": f"{network.name}.embedding.{emb.name}",
                 "network": network.name,

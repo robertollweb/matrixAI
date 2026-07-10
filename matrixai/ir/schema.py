@@ -145,6 +145,12 @@ class EmbeddingSpec:
     source: str
     vocab: int    # 0 = inherit from the source SEQUENCE (typecheck resolves/validates)
     dim: int
+    # Audit finding MEDIA (2026-07-10): global monotonic parse-time counter,
+    # shared with TransformerBlockSpec.parse_order, used ONLY to detect an
+    # EMBEDDING declared textually AFTER the BLOCK TRANSFORMER that consumes
+    # it — unlike `position` (count of preceding top_layers), this also orders
+    # two non-top_layer items relative to each other even with none between them.
+    parse_order: int = 0
 
 
 @dataclass(frozen=True)
@@ -199,6 +205,7 @@ class TransformerBlockSpec:
     activation: str = "gelu"       # gelu | relu (FFN)
     pos: str = "sinusoidal"        # sinusoidal (not trainable) | learned (table [L, dim])
     position: int = 0              # textual position: how many top_layers precede this block
+    parse_order: int = 0           # global parse-time counter (see EmbeddingSpec.parse_order)
     input_shape: list[int] = field(default_factory=list)    # [L, dim] (typecheck)
     output_shape: list[int] = field(default_factory=list)   # [L, dim] (typecheck)
     resolved_dim: int = 0          # inherited from the feeding EMBEDDING (typecheck)
@@ -343,6 +350,12 @@ class MatrixAIProgram:
                     "dropout": tb.dropout,
                     "activation": tb.activation,
                     "pos": tb.pos,
+                    # Audit finding ALTA (2026-07-10): without `position` here, two
+                    # semantically different orderings (e.g. LayerNorm→Transformer→Pool
+                    # vs Transformer→LayerNorm→Pool) serialized to the SAME dict and
+                    # collided on program_hash. position = how many top_layers precede
+                    # the block textually — differs whenever the ordering differs.
+                    "position": tb.position,
                     "input_shape": list(tb.input_shape),
                     "output_shape": list(tb.output_shape),
                     "resolved_dim": tb.resolved_dim,
