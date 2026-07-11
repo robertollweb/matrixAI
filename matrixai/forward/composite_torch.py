@@ -22,6 +22,8 @@ def composite_network_to_torch_module(
     network: Any,
     parameter_set: ParameterSet,
     type_result: Any = None,
+    output_name: str = "",
+    expected_model_hash: str | None = None,
 ) -> Any:
     """Build a torch.nn.Module from a composite NetworkSpec and load weights.
 
@@ -33,6 +35,9 @@ def composite_network_to_torch_module(
     necesita el type_result RESUELTO (dims heredadas, orden del cuerpo), que
     esta API histórica no recibía. Pásalo como type_result=; sin él, el error
     lo pide explícitamente (nunca se construye un módulo sin el bloque).
+    output_name y expected_model_hash se propagan al builder transformer para
+    validar respectivamente el schema completo y, cuando el caller lo conoce,
+    la identidad estricta del modelo.
     """
     if not torch_available():
         raise CompositeTorchError(
@@ -44,7 +49,11 @@ def composite_network_to_torch_module(
                 transformer_network_to_torch_module,
             )
             return transformer_network_to_torch_module(
-                network, type_result, parameter_set
+                network,
+                type_result,
+                parameter_set,
+                output_name=output_name,
+                expected_model_hash=expected_model_hash,
             )
         raise CompositeTorchError(
             f"composite_network_to_torch_module: NETWORK {network.name} contains a "

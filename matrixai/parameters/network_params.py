@@ -560,9 +560,11 @@ def validate_composite_network_parameter_set(
 ) -> ParameterCompatibilityResult:
     """Validate a ParameterSet against the composite network's expected manifest.
 
-    allow_missing_values=True (auditoría C3): acepta entradas con values=None —
-    la plantilla de estructura de with_values=False (M15(f)) — validando paths,
-    hash y shapes de metadata pero omitiendo SOLO la shape del valor ausente.
+    allow_missing_values=True (auditoría C3): acepta la plantilla de estructura
+    de with_values=False (M15(f)), donde TODOS los values son None, validando
+    paths, hash y shapes de metadata. Un set mixto (algunos valores presentes y
+    otros ausentes) se rechaza: no es una plantilla M15(f) y cargarlo inicializaría
+    pesos aleatorios silenciosamente dentro de un snapshot aparentemente materializado.
     """
     manifest = composite_network_parameter_manifest(network.name, network, type_result)
     schema_digest = composite_network_parameter_schema_hash(
@@ -570,6 +572,7 @@ def validate_composite_network_parameter_set(
     )
     errors: list[str] = []
     warnings: list[str] = []
+    value_presence: list[tuple[str, bool]] = []
 
     if parameter_set.model_hash != model_hash_str:
         errors.append(
@@ -595,11 +598,22 @@ def validate_composite_network_parameter_set(
                 f"got {param.get('shape', [])}"
             )
         values = param.get("values")
+        value_presence.append((path, values is not None))
         if values is None and allow_missing_values:
             continue  # plantilla M15(f): estructura validada, valor por init nativo
         err = _validate_value_shape(path, values, expected_shape)
         if err:
             errors.append(err)
+
+    if allow_missing_values:
+        missing_values = [path for path, present in value_presence if not present]
+        present_values = [path for path, present in value_presence if present]
+        if missing_values and present_values:
+            errors.append(
+                "ParameterSet mixes materialized values with values=None: "
+                f"{missing_values[0]} is missing while {present_values[0]} is present; "
+                "use either a fully materialized set or a complete with_values=False template"
+            )
 
     expected_paths = {e["path"] for e in manifest}
     for key in sorted(set(actual) - expected_paths):

@@ -69,14 +69,16 @@ END
 """
 
 
-def _build(src: str, seed: int = 7):
+def _build(src: str, seed: int = 7, output_name: str = ""):
     prog = parse_text(src)
     net = prog.networks[0]
     res = check_composite_network_types(
         net, {v.name: v for v in prog.vectors}, {s.name: s for s in prog.sequences}
     )
     assert res.ok, res.errors
-    ps = build_composite_network_parameter_set(net, res, "mxai_c3test", seed=seed)
+    ps = build_composite_network_parameter_set(
+        net, res, "mxai_c3test", seed=seed, output_name=output_name
+    )
     return prog, net, res, ps
 
 
@@ -474,3 +476,36 @@ class TestAuditoriaC3:
         module = transformer_network_to_torch_module(net, res, template)
         out = transformer_torch_forward_batch(module, [IDS])
         assert len(out[0]) == 2
+
+    def test_partially_missing_values_rejected(self):
+        """Reauditoría: values=None solo representa la plantilla COMPLETA
+        M15(f); mezclar pesos reales y ausentes no puede inicializar al azar en silencio."""
+        _, net, res, ps = _build(_mxai())
+        ps.parameters["N.enc.layer_0.attention.Wq"]["values"] = None
+        with pytest.raises(TransformerTorchError, match="mixes materialized values"):
+            transformer_network_to_torch_module(net, res, ps)
+
+    def test_common_builder_propagates_output_name(self):
+        """La entrada común debe aceptar todo set válido del builder
+        especializado, incluido el output_name que forma parte del schema hash."""
+        from matrixai.forward.composite_torch import composite_network_to_torch_module
+        _, net, res, ps = _build(_mxai(), output_name="clase")
+        module = composite_network_to_torch_module(
+            net, ps, type_result=res, output_name="clase"
+        )
+        out = transformer_torch_forward_batch(module, [IDS])
+        assert len(out[0]) == 2
+
+    def test_expected_model_hash_strict_mode(self):
+        """Sin expected_model_hash se permite transferencia por schema; cuando
+        el caller lo aporta por la entrada común, una identidad distinta debe
+        propagarse al builder especializado y fallar cerrada."""
+        from matrixai.forward.composite_torch import composite_network_to_torch_module
+        _, net, res, ps = _build(_mxai())
+        with pytest.raises(TransformerTorchError, match="model_hash mismatch"):
+            composite_network_to_torch_module(
+                net,
+                ps,
+                type_result=res,
+                expected_model_hash="another-model",
+            )

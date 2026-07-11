@@ -47,6 +47,7 @@ def transformer_network_to_torch_module(
     parameter_set: Any,
     dtype: Any = None,
     output_name: str = "",
+    expected_model_hash: str | None = None,
 ) -> Any:
     """Build the torch nn.Module for a composite network with a BLOCK TRANSFORMER.
 
@@ -60,10 +61,13 @@ def transformer_network_to_torch_module(
     Auditoría C3 [ALTA]: el ParameterSet se valida ÍNTEGRO contra el manifest
     ANTES de construir — parameter_schema_hash (un set de HEADS=1 en una red
     HEADS=2 tiene shapes idénticas y solo el hash lo distingue), paths en ambos
-    sentidos, shapes de metadata y shape REAL de los valores (values=None,
-    plantilla with_values=False, valida estructura y omite solo la del valor).
+    sentidos, shapes de metadata y shape REAL de los valores. La plantilla
+    with_values=False se acepta solo cuando TODOS los values son None; un set
+    parcialmente materializado falla para no mezclar pesos reales y aleatorios.
     output_name participa en el hash de esquema — debe ser el mismo con el que
-    se construyó el set.
+    se construyó el set. expected_model_hash activa además la validación
+    estricta de identidad del modelo. None conserva el caso deliberado de
+    transferencia entre modelos con la misma arquitectura/schema.
     """
     if not torch_available():
         raise TransformerTorchError(
@@ -90,14 +94,20 @@ def transformer_network_to_torch_module(
             f"found {len(seq_embeddings)}"
         )
     # Validación íntegra pre-construcción (reusa la base de network_params;
-    # el model_hash del propio set se pasa como esperado — aquí no hay programa
-    # con el que compararlo, eso es responsabilidad del caller que lo cargó).
+    # Sin expected_model_hash no hay programa con el que validar identidad: se
+    # permite transferencia compatible por schema. Los callers de carga estricta
+    # deben pasar el program_hash esperado.
     from matrixai.parameters.network_params import (
         validate_composite_network_parameter_set,
     )
     compat = validate_composite_network_parameter_set(
         network, type_result, parameter_set,
-        getattr(parameter_set, "model_hash", ""), output_name,
+        (
+            expected_model_hash
+            if expected_model_hash is not None
+            else getattr(parameter_set, "model_hash", "")
+        ),
+        output_name,
         allow_missing_values=True,  # plantilla with_values=False (M15(f))
     )
     if not compat.ok:
