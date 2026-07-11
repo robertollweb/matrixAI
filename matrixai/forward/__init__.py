@@ -26,6 +26,16 @@ from matrixai.forward.composite_torch import (
     composite_torch_forward,
     torch_module_to_composite_parameter_set,
 )
+from matrixai.forward.transformer_forward import (
+    TransformerForwardError,
+    TransformerForwardTrace,
+    transformer_network_forward,
+)
+from matrixai.forward.transformer_torch import (
+    TransformerTorchError,
+    transformer_network_to_torch_module,
+    transformer_torch_forward_batch,
+)
 
 __all__ = [
     "DenseForwardError",
@@ -45,4 +55,10 @@ __all__ = [
     "composite_network_to_torch_module",
     "composite_torch_forward",
     "torch_module_to_composite_parameter_set",
+    "TransformerForwardError",
+    "TransformerForwardTrace",
+    "transformer_network_forward",
+    "TransformerTorchError",
+    "transformer_network_to_torch_module",
+    "transformer_torch_forward_batch",
 ]
