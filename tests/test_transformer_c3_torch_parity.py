@@ -394,3 +394,83 @@ class TestGuardsTorch:
         a = transformer_torch_forward_batch(module, [[1, 2, 3, 0, 0, 0]], masks=[MASK3])
         b = transformer_torch_forward_batch(module, [[1, 2, 3, 9, 7, 5]], masks=[MASK3])
         assert a == b
+
+
+# ---------------------------------------------------------------------------
+# Auditoría C3 (2026-07-11): validación íntegra pre-construcción, try/finally,
+# delegación real del builder común
+# ---------------------------------------------------------------------------
+
+class TestAuditoriaC3:
+    def test_schema_hash_mismatch_rejected(self):
+        """[ALTA] Un ParameterSet de HEADS=1 tiene shapes IDÉNTICAS a HEADS=2 —
+        solo el parameter_schema_hash los distingue; aceptarlo era corrupción
+        semántica silenciosa."""
+        _, net2, res2, _ = _build(_mxai(heads=2))
+        _, _, _, ps1 = _build(_mxai(heads=1))
+        with pytest.raises(TransformerTorchError, match="parameter_schema_hash mismatch"):
+            transformer_network_to_torch_module(net2, res2, ps1)
+
+    def test_malformed_values_rejected_at_build(self):
+        """[ALTA] Wq [9,8] (fila extra) fallaba TARDE con RuntimeError interno
+        de reshape — ahora falla en construcción con el error contractual."""
+        _, net, res, ps = _build(_mxai())
+        key = "N.enc.layer_0.attention.Wq"
+        ps.parameters[key]["values"] = ps.parameters[key]["values"] + [[0.0] * 8]
+        with pytest.raises(TransformerTorchError, match="incompatible"):
+            transformer_network_to_torch_module(net, res, ps)
+
+    def test_unexpected_parameter_rejected(self):
+        _, net, res, ps = _build(_mxai())
+        ps.parameters["N.enc.layer_9.attention.Wq"] = {
+            "values": [[0.0] * 8] * 8, "shape": [8, 8],
+        }
+        with pytest.raises(TransformerTorchError, match="unexpected parameter"):
+            transformer_network_to_torch_module(net, res, ps)
+
+    def test_metadata_shape_mismatch_rejected(self):
+        _, net, res, ps = _build(_mxai())
+        ps.parameters["N.enc.layer_0.ffn.b1"]["shape"] = [17]
+        with pytest.raises(TransformerTorchError, match="expected shape"):
+            transformer_network_to_torch_module(net, res, ps)
+
+    def test_mode_restored_after_exception(self):
+        """[MEDIA] Sin try/finally, una llamada eval con entrada inválida
+        dejaba el módulo permanentemente en eval (dropout desactivado)."""
+        _, net, res, ps = _build(_mxai(dropout=0.5))
+        module = transformer_network_to_torch_module(net, res, ps)
+        module.train()
+        with pytest.raises(TransformerTorchError):
+            transformer_torch_forward_batch(module, [[1, 2, 3]])  # L inválida
+        assert module.training is True
+
+    def test_composite_builder_delegates_with_type_result(self):
+        """[MEDIA] Delegación REAL: la entrada común construye el módulo
+        transformer cuando recibe el type_result."""
+        from matrixai.forward.composite_torch import composite_network_to_torch_module
+        _, net, res, ps = _build(_mxai())
+        module = composite_network_to_torch_module(net, ps, type_result=res)
+        out = transformer_torch_forward_batch(module, [IDS])
+        std = transformer_network_forward(net, res, ps, IDS)
+        # float32 (dtype de producto de la entrada común)
+        assert max(abs(a - b) for a, b in zip(std.output, out[0])) < ATOL_F32
+
+    def test_composite_builder_without_type_result_asks_for_it(self):
+        from matrixai.forward.composite_torch import (
+            CompositeTorchError,
+            composite_network_to_torch_module,
+        )
+        _, net, res, ps = _build(_mxai())
+        with pytest.raises(CompositeTorchError, match="pass type_result"):
+            composite_network_to_torch_module(net, ps)
+
+    def test_template_without_values_still_builds(self):
+        """allow_missing_values: la plantilla M15(f) valida estructura y
+        omite solo la shape del valor ausente."""
+        _, net, res, _ = _build(_mxai())
+        template = build_composite_network_parameter_set(
+            net, res, "mxai_c3test", seed=7, with_values=False
+        )
+        module = transformer_network_to_torch_module(net, res, template)
+        out = transformer_torch_forward_batch(module, [IDS])
+        assert len(out[0]) == 2

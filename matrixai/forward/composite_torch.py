@@ -21,25 +21,36 @@ class CompositeTorchError(ValueError):
 def composite_network_to_torch_module(
     network: Any,
     parameter_set: ParameterSet,
+    type_result: Any = None,
 ) -> Any:
     """Build a torch.nn.Module from a composite NetworkSpec and load weights.
 
     Raises CompositeTorchError if torch is not installed or a required
     parameter is missing from parameter_set.
+
+    Auditoría C3 [MEDIA]: para redes con BLOCK TRANSFORMER esta entrada común
+    DELEGA en el builder especializado (transformer_torch) — pero ese builder
+    necesita el type_result RESUELTO (dims heredadas, orden del cuerpo), que
+    esta API histórica no recibía. Pásalo como type_result=; sin él, el error
+    lo pide explícitamente (nunca se construye un módulo sin el bloque).
     """
     if not torch_available():
         raise CompositeTorchError(
             "PyTorch is not installed — C9 torch materialisation requires torch"
         )
-    # TRANSFORMER C2/C3: this builder does not know the transformer block —
-    # building the module anyway would silently DROP it. The block has its own
-    # module since C3 (transformer_torch.transformer_network_to_torch_module);
-    # the TRAINER wiring lands in C4.
     if getattr(network, "transformer_blocks", []):
+        if type_result is not None:
+            from matrixai.forward.transformer_torch import (
+                transformer_network_to_torch_module,
+            )
+            return transformer_network_to_torch_module(
+                network, type_result, parameter_set
+            )
         raise CompositeTorchError(
             f"composite_network_to_torch_module: NETWORK {network.name} contains a "
-            f"BLOCK TRANSFORMER — use transformer_network_to_torch_module (C3); "
-            f"the trainer wiring lands in TRANSFORMER_BLOQUE C4"
+            f"BLOCK TRANSFORMER — pass type_result= (from "
+            f"check_composite_network_types) to delegate to the transformer module, "
+            f"or call transformer_network_to_torch_module directly"
         )
     import torch
     import torch.nn as nn
@@ -102,11 +113,16 @@ def composite_torch_forward(
         module.train()
     else:
         module.eval()
-    with torch.no_grad():
-        result = module.forward_with_dict(input_data)
-    if training != module_mode:
-        module.train(module_mode)
-    return result.tolist()
+    # Mismo patrón que la auditoría C3 [MEDIA] señaló en el wrapper del
+    # transformer: sin try/finally, una excepción del forward dejaba el módulo
+    # atascado en el modo temporal.
+    try:
+        with torch.no_grad():
+            result = module.forward_with_dict(input_data)
+        return result.tolist()
+    finally:
+        if training != module_mode:
+            module.train(module_mode)
 
 
 def composite_torch_forward_batch(
@@ -128,11 +144,13 @@ def composite_torch_forward_batch(
         module.train()
     else:
         module.eval()
-    with torch.no_grad():
-        result = module.forward_batch(batch)
-    if training != module_mode:
-        module.train(module_mode)
-    return result.detach().cpu().tolist()
+    try:
+        with torch.no_grad():
+            result = module.forward_batch(batch)
+        return result.detach().cpu().tolist()
+    finally:
+        if training != module_mode:
+            module.train(module_mode)
 
 
 def torch_module_to_composite_parameter_set(

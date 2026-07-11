@@ -556,8 +556,14 @@ def validate_composite_network_parameter_set(
     parameter_set: ParameterSet,
     model_hash_str: str,
     output_name: str = "",
+    allow_missing_values: bool = False,
 ) -> ParameterCompatibilityResult:
-    """Validate a ParameterSet against the composite network's expected manifest."""
+    """Validate a ParameterSet against the composite network's expected manifest.
+
+    allow_missing_values=True (auditoría C3): acepta entradas con values=None —
+    la plantilla de estructura de with_values=False (M15(f)) — validando paths,
+    hash y shapes de metadata pero omitiendo SOLO la shape del valor ausente.
+    """
     manifest = composite_network_parameter_manifest(network.name, network, type_result)
     schema_digest = composite_network_parameter_schema_hash(
         network.name, network, type_result, output_name
@@ -588,7 +594,10 @@ def validate_composite_network_parameter_set(
                 f"Parameter {path} expected shape {expected_shape}, "
                 f"got {param.get('shape', [])}"
             )
-        err = _validate_value_shape(path, param.get("values"), expected_shape)
+        values = param.get("values")
+        if values is None and allow_missing_values:
+            continue  # plantilla M15(f): estructura validada, valor por init nativo
+        err = _validate_value_shape(path, values, expected_shape)
         if err:
             errors.append(err)
 

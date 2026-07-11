@@ -46,6 +46,7 @@ def transformer_network_to_torch_module(
     type_result: Any,
     parameter_set: Any,
     dtype: Any = None,
+    output_name: str = "",
 ) -> Any:
     """Build the torch nn.Module for a composite network with a BLOCK TRANSFORMER.
 
@@ -55,6 +56,14 @@ def transformer_network_to_torch_module(
     tests de paridad estricta pasan torch.float64 para cargar los valores
     Python SIN el redondeo float32 (module.double() a posteriori no lo
     recupera: convierte valores ya truncados).
+
+    Auditoría C3 [ALTA]: el ParameterSet se valida ÍNTEGRO contra el manifest
+    ANTES de construir — parameter_schema_hash (un set de HEADS=1 en una red
+    HEADS=2 tiene shapes idénticas y solo el hash lo distingue), paths en ambos
+    sentidos, shapes de metadata y shape REAL de los valores (values=None,
+    plantilla with_values=False, valida estructura y omite solo la del valor).
+    output_name participa en el hash de esquema — debe ser el mismo con el que
+    se construyó el set.
     """
     if not torch_available():
         raise TransformerTorchError(
@@ -80,6 +89,22 @@ def transformer_network_to_torch_module(
             f"expected exactly one EMBEDDING FROM the input SEQUENCE, "
             f"found {len(seq_embeddings)}"
         )
+    # Validación íntegra pre-construcción (reusa la base de network_params;
+    # el model_hash del propio set se pasa como esperado — aquí no hay programa
+    # con el que compararlo, eso es responsabilidad del caller que lo cargó).
+    from matrixai.parameters.network_params import (
+        validate_composite_network_parameter_set,
+    )
+    compat = validate_composite_network_parameter_set(
+        network, type_result, parameter_set,
+        getattr(parameter_set, "model_hash", ""), output_name,
+        allow_missing_values=True,  # plantilla with_values=False (M15(f))
+    )
+    if not compat.ok:
+        raise TransformerTorchError(
+            "ParameterSet incompatible with this network: "
+            + "; ".join(compat.errors[:4])
+        )
     return _TransformerNetworkModule(network, type_result, parameter_set, dtype)
 
 
@@ -97,11 +122,16 @@ def transformer_torch_forward_batch(
         return []
     module_mode = module.training
     module.train() if training else module.eval()
-    with torch.no_grad():
-        result = module.forward_batch(token_ids, masks=masks, pad_id=pad_id)
-    if training != module_mode:
-        module.train(module_mode)
-    return result.detach().cpu().tolist()
+    # Auditoría C3 [MEDIA]: try/finally — una entrada inválida (longitud,
+    # vocab, máscara) no debe dejar el módulo atascado en el modo temporal
+    # (p.ej. eval permanente desactivando dropout en un train posterior).
+    try:
+        with torch.no_grad():
+            result = module.forward_batch(token_ids, masks=masks, pad_id=pad_id)
+        return result.detach().cpu().tolist()
+    finally:
+        if training != module_mode:
+            module.train(module_mode)
 
 
 def _build_torch_modules() -> tuple[Any, Any]:
@@ -173,15 +203,19 @@ def _build_torch_modules() -> tuple[Any, Any]:
             self.net_name = network.name
 
             params = parameter_set.parameters
+            # Auditoría C3 [ALTA]: cargas DIFERIDAS con copy_ (no reemplazo de
+            # .data): copy_ exige shape idéntica (defensa en profundidad tras la
+            # validación del manifest) y conserva dtype/device del módulo. El
+            # módulo se convierte a load_dtype ANTES de copiar para no truncar
+            # float64 a float32.
+            pending_loads: list[tuple[Any, str]] = []
 
             def _load(module_tensor: Any, path: str) -> None:
                 entry = params.get(path)
                 if entry is None:
                     raise TransformerTorchError(f"Missing parameter {path!r}")
-                values = entry.get("values")
-                if values is not None:
-                    with torch.no_grad():
-                        module_tensor.data = torch.tensor(values, dtype=load_dtype)
+                if entry.get("values") is not None:
+                    pending_loads.append((module_tensor, path))
 
             # Embedding por posición
             self.embedding = nn.Embedding(self.vocab, self.dim)
@@ -299,10 +333,23 @@ def _build_torch_modules() -> tuple[Any, Any]:
                     "the network body never pooled the stream "
                     "(typecheck should require POOL)"
                 )
-            # Con dtype explícito: convierte también lo que quedó en float32
-            # (inits nativos de values=None) para no mezclar dtypes.
+            # Conversión de dtype ANTES de las cargas (copy_ conserva el dtype
+            # destino; si convirtiéramos después, float64 quedaría truncado) —
+            # también unifica los inits nativos de values=None.
             if dtype is not None:
                 self.to(dtype)
+            with torch.no_grad():
+                for tensor, path in pending_loads:
+                    source = torch.tensor(
+                        params[path]["values"], dtype=tensor.dtype
+                    )
+                    if source.shape != tensor.shape:
+                        raise TransformerTorchError(
+                            f"parameter {path!r} values shape "
+                            f"{list(source.shape)} != module tensor shape "
+                            f"{list(tensor.shape)}"
+                        )
+                    tensor.copy_(source)
 
         def forward_batch(
             self,
