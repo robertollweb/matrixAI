@@ -175,19 +175,22 @@ class BackendNodeReport:
     kind: str = ""
     output_shape: tuple[int, ...] | None = None
     type_constraints: dict[str, Any] = field(default_factory=dict)
-    # Re-auditoría C2 (2026-07-10): separa el soporte MATEMÁTICO (supported:
-    # el backend conoce el lowering y es diferenciable — lo que verifica el
-    # DifferentiabilityVerifier) del soporte de EJECUCIÓN (execution_supported:
-    # hay trainer/forward de producto cableado — lo que gatea report.ok).
-    # None = igual que supported (todos los nodos legacy, sin cambio de
-    # comportamiento). Hoy solo el transformer los separa: matemática lista
-    # (C2), ejecución pendiente (C4).
-    execution_supported: bool | None = None
+    # Re-auditoría C2 ronda 3 (2026-07-11): `supported` CONSERVA su significado
+    # histórico (ejecutable — lo que gatean unsupported_nodes/report.ok/summary
+    # y lo que un consumidor externo puede interpretar como "puedo entrenar").
+    # `lowering_supported` marca aparte la matemática C2 (lowering completo y
+    # diferenciable — lo que consulta el DifferentiabilityVerifier). None =
+    # igual que supported (todos los nodos legacy, sin cambio). Hoy solo el
+    # transformer los separa: lowering listo (C2), ejecución pendiente (C4).
+    # (La 1ª versión del split invertía los papeles — supported=True con
+    # execution_supported=False — y producía un JSON incoherente:
+    # unsupported_nodes conteniendo "supported": true.)
+    lowering_supported: bool | None = None
 
     @property
-    def executable(self) -> bool:
-        if self.execution_supported is not None:
-            return self.execution_supported
+    def lowering_ok(self) -> bool:
+        if self.lowering_supported is not None:
+            return self.lowering_supported
         return self.supported
 
     def to_dict(self) -> dict[str, Any]:
@@ -197,8 +200,8 @@ class BackendNodeReport:
             "supported": self.supported,
             "differentiable": self.differentiable,
         }
-        if self.execution_supported is not None:
-            data["execution_supported"] = self.execution_supported
+        if self.lowering_supported is not None:
+            data["lowering_supported"] = self.lowering_supported
         if self.kind:
             data["kind"] = self.kind
         if self.output_shape is not None:
@@ -305,9 +308,7 @@ class BackendContractReport:
 
     @property
     def unsupported_nodes(self) -> list[BackendNodeReport]:
-        # Re-auditoría C2: gatea por EJECUCIÓN — un nodo con matemática lista
-        # pero sin trainer (transformer hasta C4) sigue bloqueando report.ok.
-        return [node for node in self.nodes if not node.executable]
+        return [node for node in self.nodes if not node.supported]
 
     @property
     def differentiable_nodes(self) -> list[BackendNodeReport]:
@@ -708,13 +709,12 @@ class BackendContractAnalyzer:
         )
 
     def _analyze_composite_network(self, network: Any, type_result: Any) -> BackendNodeReport:
-        # TRANSFORMER C2 (2026-07-10) + re-auditoría: the block's parameter
-        # lowering and the stdlib reference forward now EXIST. Split semantics
-        # (recomendación del auditor): supported=True + differentiable=True (la
-        # matemática/lowering están listas — el DifferentiabilityVerifier queda
-        # VERDE, criterio literal de C2) pero execution_supported=False (no hay
-        # trainer hasta C4 — report.ok sigue fallando cerrado vía
-        # unsupported_nodes, que gatea por ejecución).
+        # TRANSFORMER C2 + re-auditoría ronda 3: supported=False (significado
+        # histórico: NO ejecutable — sin trainer hasta C4; coherente en
+        # unsupported_nodes, summary y para consumidores externos) pero
+        # lowering_supported=True + differentiable=True (la matemática C2 está
+        # completa — el DifferentiabilityVerifier consulta el lowering y queda
+        # VERDE sin abrir la ejecución).
         if getattr(network, "transformer_blocks", []):
             # Re-auditoría [ALTA]: un typecheck sucio (p.ej. HEADS∤DIM) NO puede
             # anunciar differentiable=True — reporta el error real.
@@ -734,9 +734,9 @@ class BackendContractAnalyzer:
             return BackendNodeReport(
                 node=network.name,
                 node_type="composite_network",
-                supported=True,
+                supported=False,
                 differentiable=True,
-                execution_supported=False,
+                lowering_supported=True,
                 kind="composite_network",
                 output_shape=output_shape,
                 reason=(

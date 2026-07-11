@@ -22,6 +22,7 @@ from matrixai.parameters.network_params import (
     build_composite_network_parameter_set,
     composite_network_parameter_manifest,
     composite_network_parameter_schema_hash,
+    manifest_scalar_count,
     transformer_block_param_count,
 )
 from matrixai.parser.parser import parse_text
@@ -390,10 +391,9 @@ class TestDeterminismo:
 
 class TestBackendTrasC2:
     def test_differentiability_verifier_is_green(self):
-        """Re-auditoría C2: split supported (matemática, lo que mira el
-        verificador) / execution_supported (ejecución, lo que gatea report.ok)
-        — el verificador queda VERDE (criterio literal del contrato) sin abrir
-        el entrenamiento antes de C4."""
+        """Ronda 3: lowering_supported alimenta el verificador matemático;
+        supported conserva el significado histórico de ejecución. El verifier
+        queda VERDE sin abrir entrenamiento antes de C4."""
         from matrixai.training import parse_training_text
         from matrixai.training.differentiability import DifferentiabilityVerifier
         prog = parse_text(_mxai())
@@ -429,18 +429,27 @@ END
         # VERDE: la matemática/lowering están completas (criterio C2)
         assert result.ok, result.errors
 
-    def test_node_split_math_supported_execution_closed(self):
+    def test_node_split_lowering_ready_execution_closed(self):
         """La matemática está soportada (verifier verde) pero la EJECUCIÓN no
         (report.ok False) — nada puede entrenar el bloque hasta C4."""
         prog = parse_text(_mxai())
         report = BackendContractAnalyzer().analyze(prog)
         node = next(n for n in report.nodes if n.node == "N")
         assert node.differentiable is True
-        assert node.supported is True            # matemática/lowering
-        assert node.execution_supported is False  # sin trainer hasta C4
-        assert node.executable is False
-        assert report.ok is False                 # el gate de ejecución manda
+        assert node.supported is False             # sin trainer hasta C4
+        assert node.lowering_supported is True     # matemática/lowering C2
+        assert node.lowering_ok is True
+        assert report.ok is False
+        assert node in report.unsupported_nodes
         assert "TRANSFORMER_BLOQUE C4" in node.reason
+
+        # Contrato público coherente: unsupported_nodes nunca contiene un
+        # payload que a la vez diga supported=true, y el resumen lo marca blocked.
+        payload = report.to_dict()
+        blocked = next(n for n in payload["unsupported_nodes"] if n["node"] == "N")
+        assert blocked["supported"] is False
+        assert blocked["lowering_supported"] is True
+        assert "N (composite_network [composite_network]): blocked" in report.summary()
 
     def test_parameter_set_builds_and_validates(self):
         from matrixai.parameters.network_params import (
@@ -530,7 +539,23 @@ class TestReAuditoriaC2:
         key = "N.enc.layer_0.attention.Wq"
         bad = [row + [999999.0] for row in ps.parameters[key]["values"]]
         ps.parameters[key]["values"] = bad
-        with pytest.raises(TransformerForwardError, match="malformed parameter matrix"):
+        with pytest.raises(TransformerForwardError, match="malformed transformer ParameterSet"):
+            transformer_network_forward(net, res, ps, IDS)
+
+    def test_weight_matrix_with_extra_row_rejected(self):
+        """Variante de ronda 3: una fila extra tiene ancho correcto, pero Wq
+        produciría una componente adicional que el split de cabezas ignoraba."""
+        _, net, res, ps = _build(_mxai())
+        key = "N.enc.layer_0.attention.Wq"
+        ps.parameters[key]["values"].append([999999.0] * 8)
+        with pytest.raises(TransformerForwardError, match="expected values shape"):
+            transformer_network_forward(net, res, ps, IDS)
+
+    def test_bias_with_extra_value_rejected(self):
+        """Los zip de FFN también truncarían biases con elementos sobrantes."""
+        _, net, res, ps = _build(_mxai())
+        ps.parameters["N.enc.layer_0.ffn.b1"]["values"].append(999999.0)
+        with pytest.raises(TransformerForwardError, match="expected values shape"):
             transformer_network_forward(net, res, ps, IDS)
 
     # Mejoras: pool kind en el hash de esquema + cap de tamaño
@@ -542,13 +567,33 @@ class TestReAuditoriaC2:
         assert h_mean != h_cls
 
     def test_reference_forward_size_cap(self):
-        from matrixai.forward.transformer_forward import REFERENCE_FORWARD_MAX_PARAMS
-        # dim=128, ff=512, layers=8 → 8·(4·128² + 2·128·512 + 512 + 640) ≈ 1.6M > cap
-        src = _mxai(length=6, vocab=11, dim=128, layers=8, heads=2, ff=512)
-        _, net, res, _ = _build(src)
-        ps_small = _build(_mxai())[3]  # cualquier ps: el cap corta antes de leer params
+        # Embedding dominante: el bloque solo tiene ~600 params, pero vocab·dim
+        # ya supera 1M. La primera versión del cap contaba solo el bloque.
+        src = _mxai(length=6, vocab=200_000, dim=8, layers=1, heads=2, ff=16)
+        prog = parse_text(src)
+        net = prog.networks[0]
+        res = check_composite_network_types(
+            net, {}, {s.name: s for s in prog.sequences}
+        )
+        manifest = composite_network_parameter_manifest(net.name, net, res)
+        assert manifest_scalar_count(manifest) > 1_000_000
+
+        # Metadata-only sigue permitido para el futuro camino torch.
+        ps_meta = build_composite_network_parameter_set(
+            net, res, "mxai_large", seed=7, with_values=False
+        )
         with pytest.raises(TransformerForwardError, match="mini test shapes"):
-            transformer_network_forward(net, res, ps_small, IDS)
+            transformer_network_forward(net, res, ps_meta, IDS)
+
+    def test_parameter_builder_caps_before_materializing_values(self):
+        src = _mxai(length=6, vocab=200_000, dim=8, layers=1, heads=2, ff=16)
+        prog = parse_text(src)
+        net = prog.networks[0]
+        res = check_composite_network_types(
+            net, {}, {s.name: s for s in prog.sequences}
+        )
+        with pytest.raises(ValueError, match="with_values=False"):
+            build_composite_network_parameter_set(net, res, "mxai_large", seed=7)
 
 
 class TestGuardsDelForward:

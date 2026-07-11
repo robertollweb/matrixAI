@@ -316,6 +316,26 @@ def _append_transformer_block_params(
         _entry(f"{lp}.norm2.bias", "beta", [dim], "zeros")
 
 
+# Re-auditoría C2 ronda 3: cap del camino stdlib de REFERENCIA para redes
+# transformer (invariante 6: nada O(params) en Python puro en producto). Se
+# aplica sobre el TOTAL del manifest (embedding + bloque + cabeza — la 1ª
+# versión solo contaba el bloque y un embedding de 2M pasaba) y en el BUILDER
+# antes de materializar valores (la 1ª versión dejaba materializar y el forward
+# rechazaba tarde). El camino torch usa with_values=False y no se capa.
+REFERENCE_STDLIB_MAX_PARAMS = 1_000_000
+
+
+def manifest_scalar_count(manifest: list[dict[str, Any]]) -> int:
+    """Total de ESCALARES de un manifest de parámetros (suma de productos de shapes)."""
+    total = 0
+    for entry in manifest:
+        n = 1
+        for d in entry["shape"]:
+            n *= d
+        total += n
+    return total
+
+
 def transformer_block_param_count(
     layers: int,
     dim: int,
@@ -474,6 +494,19 @@ def build_composite_network_parameter_set(
     valores), evitando el coste O(params) de materializar listas. Espejo de M15(a) del denso.
     El camino stdlib y el export siguen usando `with_values=True` (necesitan los valores)."""
     manifest = composite_network_parameter_manifest(network.name, network, type_result)
+    # Re-auditoría C2 ronda 3: el guard debe ejecutarse ANTES de generar una
+    # sola lista de valores. Contar solo el bloque en transformer_forward era
+    # insuficiente (la embedding o la cabeza pueden dominar el tamaño) y, además,
+    # llegaba demasiado tarde: el ParameterSet ya se había materializado.
+    if with_values and getattr(network, "transformer_blocks", []):
+        total_params = manifest_scalar_count(manifest)
+        if total_params > REFERENCE_STDLIB_MAX_PARAMS:
+            raise ValueError(
+                f"build_composite_network_parameter_set: NETWORK {network.name} has "
+                f"{total_params:,} parameters (> {REFERENCE_STDLIB_MAX_PARAMS:,}) — "
+                f"pure-Python values are only available for mini reference shapes; "
+                f"use with_values=False and the torch path (TRANSFORMER_BLOQUE C4)"
+            )
     schema_digest = composite_network_parameter_schema_hash(
         network.name, network, type_result, output_name
     )

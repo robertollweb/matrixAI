@@ -156,16 +156,17 @@ END
 """
 
     def test_report_fails_closed(self):
-        # C2 + re-auditoría actualizan el estado: split supported (matemática,
-        # True — lowering completo y auditable) / execution_supported (False —
-        # sin trainer hasta C4). Lo INVARIANTE de este hallazgo: report.ok
-        # falla cerrado y ningún trainer recoge la red.
+        # C2 + re-auditoría ronda 3: `supported` conserva el significado
+        # histórico de ejecución (False hasta C4) y `lowering_supported` expone
+        # aparte la matemática C2. report.ok falla cerrado y ningún consumidor
+        # externo ve un "supported=True" engañoso.
         prog = parse_text(self._SRC)
         report = BackendContractAnalyzer().analyze(prog)
         assert report.ok is False
         node = next(n for n in report.nodes if n.node == "N")
-        assert node.supported is True             # matemática (C2)
-        assert node.execution_supported is False  # ejecución cerrada hasta C4
+        assert node.supported is False             # ejecución cerrada hasta C4
+        assert node.lowering_supported is True     # matemática/lowering C2
+        assert node.lowering_ok is True
         assert node.differentiable is True
         assert "TRANSFORMER_BLOQUE C4" in node.reason
 

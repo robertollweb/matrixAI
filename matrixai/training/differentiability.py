@@ -92,7 +92,12 @@ class DifferentiabilityVerifier:
                     if node_report is None:
                         errors.append(f"Differentiability path contains unknown node: {node}")
                         continue
-                    if not node_report.supported:
+                    # Re-auditoría C2 ronda 3: este verificador comprueba la
+                    # MATEMÁTICA del camino (lowering diferenciable), no la
+                    # ejecutabilidad — un nodo con lowering listo pero sin
+                    # trainer (transformer hasta C4) no lo bloquea; la
+                    # ejecución la gatea report.ok vía node.supported.
+                    if not getattr(node_report, "lowering_ok", node_report.supported):
                         errors.append(
                             f"Differentiability path for {matched_key} is blocked by unsupported node {node}: {node_report.reason}"
                         )

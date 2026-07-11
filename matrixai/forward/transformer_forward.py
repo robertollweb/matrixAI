@@ -34,6 +34,7 @@ from matrixai.forward.composite_forward import (
     _forward_composite_layer,
     _gelu,
 )
+from matrixai.parameters.network_params import REFERENCE_STDLIB_MAX_PARAMS
 
 
 class TransformerForwardError(CompositeForwardError):
@@ -43,7 +44,9 @@ class TransformerForwardError(CompositeForwardError):
 # Re-auditoría C2 (mejora): este forward es una REFERENCIA para shapes mini de
 # test (invariante 6: nada O(params) en Python puro en el camino de producto).
 # El cap lo hace exigible: por encima, el error redirige al camino torch (C4).
-REFERENCE_FORWARD_MAX_PARAMS = 1_000_000
+# Alias público conservado para compatibilidad con los tests/consumidores C2;
+# la fuente única del límite vive junto al builder de ParameterSet.
+REFERENCE_FORWARD_MAX_PARAMS = REFERENCE_STDLIB_MAX_PARAMS
 
 
 @dataclass
@@ -117,6 +120,60 @@ def _matvec(w: list[list[float]], x: list[float]) -> list[float]:
     return [sum(w[j][k] * x[k] for k in range(n)) for j in range(len(w))]
 
 
+def _validate_reference_parameter_values(
+    parameter_set: Any,
+    manifest: list[dict[str, Any]],
+) -> None:
+    """Valida paths, metadata y shape REAL de todos los valores antes del forward.
+
+    La comprobación local de columnas en ``_matvec`` no puede detectar filas de
+    más (Wq/Wo/W1/W2) ni vectores de bias/norm con elementos sobrantes: varias
+    operaciones posteriores usan slices/zip y los truncarían silenciosamente.
+    El manifest resuelto es la autoridad única para todas esas dimensiones.
+    """
+    from matrixai.parameters.network_params import _validate_value_shape
+
+    actual = getattr(parameter_set, "parameters", None)
+    if not isinstance(actual, Mapping):
+        raise TransformerForwardError(
+            "transformer_network_forward requires a ParameterSet-like object "
+            "with a 'parameters' mapping"
+        )
+
+    errors: list[str] = []
+    expected_paths = {entry["path"] for entry in manifest}
+    for entry in manifest:
+        path = entry["path"]
+        expected_shape = list(entry["shape"])
+        param = actual.get(path)
+        if param is None:
+            errors.append(f"missing parameter {path!r}")
+            continue
+        if not isinstance(param, Mapping):
+            errors.append(f"{path}: parameter entry must be a mapping")
+            continue
+        raw_shape = param.get("shape", [])
+        if not isinstance(raw_shape, (list, tuple)):
+            errors.append(f"{path}: metadata shape must be a list or tuple")
+            continue
+        metadata_shape = list(raw_shape)
+        if metadata_shape != expected_shape:
+            errors.append(
+                f"{path}: metadata shape {metadata_shape} != expected {expected_shape}"
+            )
+        value_error = _validate_value_shape(path, param.get("values"), expected_shape)
+        if value_error:
+            errors.append(value_error)
+
+    unexpected = sorted(set(actual) - expected_paths)
+    if unexpected:
+        errors.append(f"unexpected parameter paths: {unexpected[:3]}")
+    if errors:
+        raise TransformerForwardError(
+            "malformed transformer ParameterSet: " + "; ".join(errors[:3])
+        )
+
+
 def _softmax(row: list[float]) -> list[float]:
     m = max(row)
     if m == float("-inf"):
@@ -188,17 +245,23 @@ def transformer_network_forward(
     tb = tblocks[0]
     seq_len, dim = tb.input_shape
 
-    # Cap de referencia (mini shapes de test): el camino de producto es torch (C4)
-    from matrixai.parameters.network_params import transformer_block_param_count
-    block_params = transformer_block_param_count(
-        tb.layers, dim, tb.resolved_ff, seq_len, tb.pos
+    # Cap de referencia sobre el TOTAL (embedding + bloque + cabeza), no solo
+    # sobre el bloque. El mismo límite se aplica en el builder ANTES de
+    # materializar valores; aquí es defensa en profundidad para ParameterSets
+    # cargados/proporcionados por el caller.
+    from matrixai.parameters.network_params import (
+        composite_network_parameter_manifest,
+        manifest_scalar_count,
     )
-    if block_params > REFERENCE_FORWARD_MAX_PARAMS:
+    manifest = composite_network_parameter_manifest(network.name, network, type_result)
+    total_params = manifest_scalar_count(manifest)
+    if total_params > REFERENCE_FORWARD_MAX_PARAMS:
         raise TransformerForwardError(
             f"transformer_network_forward is a REFERENCE for mini test shapes: the "
-            f"block has {block_params:,} parameters (> {REFERENCE_FORWARD_MAX_PARAMS:,}) "
+            f"network has {total_params:,} parameters (> {REFERENCE_FORWARD_MAX_PARAMS:,}) "
             f"— use the torch path (TRANSFORMER_BLOQUE C4)"
         )
+    _validate_reference_parameter_values(parameter_set, manifest)
     if len(token_ids) != seq_len:
         raise TransformerForwardError(
             f"expected {seq_len} token ids (SEQUENCE length), got {len(token_ids)}"
