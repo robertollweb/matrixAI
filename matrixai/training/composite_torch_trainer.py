@@ -42,6 +42,10 @@ def train_composite_network_torch(
     batch_size: int | None = None,
     epoch_callback: Callable[[dict[str, Any]], None] | None = None,
     cancel_check: Callable[[], None] | None = None,
+    type_result: Any = None,
+    optimizer: str | None = None,
+    pad_id: int | None = None,
+    materialize: bool | None = None,
 ) -> dict[str, Any]:
     """Train a composite_network via torch autograd with batched forward.
 
@@ -54,6 +58,18 @@ def train_composite_network_torch(
     trainer: {best_params, epochs, best_val_loss, best_epoch, train_loss, backend,
     device, effective_batch_size}.
     cancel_check: called after each batch; raise to abort (mismo contrato que el denso).
+
+    TRANSFORMER C4: para redes con BLOCK TRANSFORMER, pasar `type_result`
+    (check_composite_network_types) — el módulo se construye vía la entrada
+    común, que delega en el builder del transformer. Las muestras llevan UNA
+    clave (la SEQUENCE) con la lista [L] de token ids; `pad_id` deriva la
+    máscara de padding (None = todo real, filas pre-tokenizadas a L fija).
+    `optimizer`: "sgd" | "adam" — default adam si hay transformer (los
+    transformers reales no convergen bien con SGD plano, aviso de P11), sgd si
+    no (comportamiento previo intacto). `materialize` sigue la puerta
+    PESOS_GRANDES del trainer denso: None = materializar solo por debajo de
+    torch_native_min_params(); por encima devuelve best_state_dict (tensores
+    CPU, claves del ParameterSet) y best_params=None.
     """
     if not torch_available():
         raise CompositeTorchTrainError("PyTorch is not installed — GPU/torch training requires torch")
@@ -62,24 +78,49 @@ def train_composite_network_torch(
     if not examples:
         raise CompositeTorchTrainError("no training examples")
 
+    is_transformer = bool(getattr(network, "transformer_blocks", []))
+    if is_transformer and type_result is None:
+        raise CompositeTorchTrainError(
+            f"NETWORK {network.name} contains a BLOCK TRANSFORMER — pass "
+            f"type_result= (from check_composite_network_types) to train it"
+        )
+
     torch.manual_seed(seed)
     enable_tf32_if_cuda(device)  # M15(c): tensor cores en A100/Ada
-    module = composite_network_to_torch_module(network, parameter_set)
+    module = composite_network_to_torch_module(network, parameter_set, type_result)
     module.to(device)
 
     split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
     train_ex, val_ex = examples[:split], (examples[split:] or examples[:split])
 
     input_keys = list(examples[0][0].keys())
+    if is_transformer:
+        if len(input_keys) != 1:
+            raise CompositeTorchTrainError(
+                f"transformer training expects exactly one input key (the "
+                f"SEQUENCE), got {input_keys}"
+            )
+        seq_key = input_keys[0]
 
     def _materialize(rows: list[tuple[dict[str, Any], list[float]]]) -> tuple[dict[str, Any], Any]:
         named: dict[str, Any] = {}
-        for name in input_keys:
-            col = []
-            for row, _ in rows:
-                value = row[name]
-                col.append([float(value)] if isinstance(value, (int, float)) else [float(v) for v in value])
-            named[name] = torch.tensor(col, dtype=torch.float32, device=device)
+        if is_transformer:
+            ids = torch.tensor(
+                [[int(v) for v in row[seq_key]] for row, _ in rows],
+                dtype=torch.long, device=device,
+            )
+            named[seq_key] = ids
+            named["__mask__"] = (
+                ids != pad_id if pad_id is not None
+                else torch.ones_like(ids, dtype=torch.bool)
+            )
+        else:
+            for name in input_keys:
+                col = []
+                for row, _ in rows:
+                    value = row[name]
+                    col.append([float(value)] if isinstance(value, (int, float)) else [float(v) for v in value])
+                named[name] = torch.tensor(col, dtype=torch.float32, device=device)
         targets = torch.tensor([target for _, target in rows], dtype=torch.float32, device=device)
         return named, targets
 
@@ -87,7 +128,15 @@ def train_composite_network_torch(
     val_named, val_targets = _materialize(val_ex)
 
     bs = effective_batch_size(device, batch_size, len(train_ex))
-    optimizer = torch.optim.SGD(module.parameters(), lr=lr)
+    opt_name = optimizer or ("adam" if is_transformer else "sgd")
+    if opt_name == "adam":
+        optim = torch.optim.Adam(module.parameters(), lr=lr)
+    elif opt_name == "sgd":
+        optim = torch.optim.SGD(module.parameters(), lr=lr)
+    else:
+        raise CompositeTorchTrainError(
+            f"unsupported optimizer {opt_name!r} — supported: sgd, adam"
+        )
 
     # M15 — mejor estado como tensores torch (clon barato); la conversión cara a
     # ParameterSet se hace una sola vez al final, no en cada época que mejora.
@@ -102,7 +151,12 @@ def train_composite_network_torch(
         module.train(training)
         batch_named = _slice_named(named, index)
         batch_targets = targets[index]
-        out = module.forward_named_batch(batch_named, input_keys)
+        if is_transformer:
+            out = module.forward_batch(
+                batch_named[seq_key], masks=batch_named["__mask__"]
+            )
+        else:
+            out = module.forward_named_batch(batch_named, input_keys)
         return _loss_on_probabilities(out, batch_targets, loss_fn, torch)
 
     if str(device).startswith("cuda"):
@@ -126,10 +180,10 @@ def train_composite_network_torch(
             epoch_loss = 0.0
             for start in range(0, len(train_ex), bs):
                 idx = perm[start: start + bs]
-                optimizer.zero_grad()
+                optim.zero_grad()
                 loss = _batch_loss(train_named, train_targets, idx, training=True)
                 loss.backward()
-                optimizer.step()
+                optim.step()
                 epoch_loss += float(loss.detach()) * int(idx.numel())
                 if cancel_check is not None:
                     cancel_check()
@@ -165,7 +219,31 @@ def train_composite_network_torch(
         with torch.no_grad():
             for p, s in zip(module.parameters(), best_state):
                 p.copy_(s)
-        best_params = torch_module_to_composite_parameter_set(network, module, parameter_set)
+        # TRANSFORMER C4 — puerta PESOS_GRANDES (espejo del trainer denso):
+        # param_count con .numel() (O(#tensores)); por encima del umbral NO se
+        # materializan listas Python — el resultado lleva best_state_dict
+        # (tensores CPU, claves del ParameterSet) y best_params=None.
+        from matrixai.resources import torch_native_min_params
+        param_count = sum(p.numel() for p in module.parameters())
+        should_materialize = materialize if materialize is not None else (
+            param_count < torch_native_min_params()
+        )
+        best_state_dict = None
+        if should_materialize:
+            best_params = torch_module_to_composite_parameter_set(network, module, parameter_set)
+        else:
+            best_params = None
+            if is_transformer:
+                from matrixai.forward.composite_torch import (
+                    transformer_module_to_state_dict,
+                )
+                best_state_dict = transformer_module_to_state_dict(module)
+            else:
+                raise CompositeTorchTrainError(
+                    f"composite network {network.name} exceeds "
+                    f"torch_native_min_params() but has no state_dict path — "
+                    f"only transformer networks support it (C4)"
+                )
 
         peak_vram_gb = 0.0
         if str(device).startswith("cuda"):
@@ -176,6 +254,9 @@ def train_composite_network_torch(
 
         return {
             "best_params": best_params,
+            "best_state_dict": best_state_dict,
+            "param_count": param_count,
+            "optimizer": opt_name,
             "epochs": epoch_trace,
             "best_val_loss": best_val_loss,
             "best_epoch": best_epoch,
@@ -190,7 +271,7 @@ def train_composite_network_torch(
         # la excepción de cancel retiene estas locales aguas arriba; borrarlas aquí permite
         # recuperar la memoria de inmediato al pulsar Stop (idéntico al trainer denso).
         try:
-            del module, optimizer, best_state, train_named, train_targets, val_named, val_targets
+            del module, optim, best_state, train_named, train_targets, val_named, val_targets
         except Exception:  # noqa: BLE001
             pass
         if str(device).startswith("cuda"):
@@ -211,6 +292,8 @@ def evaluate_composite_network_torch(
     labels: list[str] | None = None,
     device: str = "cpu",
     cancel_check: Callable[[], None] | None = None,
+    type_result: Any = None,
+    pad_id: int | None = None,
 ) -> Any:
     """GPU-C6/M14+M15(e) — evaluación de un composite_network con forward BATCHED en torch/GPU.
 
@@ -231,16 +314,34 @@ def evaluate_composite_network_torch(
     if not examples:
         raise ValueError("examples must be non-empty")
 
+    is_transformer = bool(getattr(network, "transformer_blocks", []))
+    if is_transformer and type_result is None:
+        raise CompositeTorchTrainError(
+            f"NETWORK {network.name} contains a BLOCK TRANSFORMER — pass "
+            f"type_result= (from check_composite_network_types) to evaluate it"
+        )
+
     enable_tf32_if_cuda(device)  # M15(c)
-    module = composite_network_to_torch_module(network, parameter_set)
+    module = composite_network_to_torch_module(network, parameter_set, type_result)
     module.to(device)
 
     _EVAL_CHUNK = 4096
     predictions: list[Any] = []
     try:
+        if is_transformer:
+            from matrixai.forward.transformer_torch import (
+                transformer_torch_forward_batch,
+            )
+            seq_key = next(iter(examples[0][0].keys()))
         for start in range(0, len(examples), _EVAL_CHUNK):
             chunk = examples[start : start + _EVAL_CHUNK]
-            predictions.extend(composite_torch_forward_batch(module, [x for x, _ in chunk], False))
+            if is_transformer:
+                rows = [[int(v) for v in x[seq_key]] for x, _ in chunk]
+                predictions.extend(
+                    transformer_torch_forward_batch(module, rows, pad_id=pad_id)
+                )
+            else:
+                predictions.extend(composite_torch_forward_batch(module, [x for x, _ in chunk], False))
             if cancel_check is not None:
                 cancel_check()
         targets = [t for _, t in examples]

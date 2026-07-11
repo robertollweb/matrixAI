@@ -730,20 +730,25 @@ class BackendContractAnalyzer:
                         + "; ".join(type_result.errors[:3])
                     ),
                 )
+            # TRANSFORMER C4: el trainer torch existe (train/evaluate composite
+            # con el bloque, Adam, extracción de pesos con puerta PESOS_GRANDES)
+            # — la ejecución queda soportada y report.ok deja de bloquear. Los
+            # caminos aún pendientes fallan cerrado por su cuenta: export ONNX
+            # (C5) y forward stdlib de producto (nunca, invariante 6 — el
+            # composite_forward lanza y redirige a la referencia).
             output_shape = self._composite_output_shape(type_result)
             return BackendNodeReport(
                 node=network.name,
                 node_type="composite_network",
-                supported=False,
+                supported=True,
                 differentiable=True,
                 lowering_supported=True,
                 kind="composite_network",
                 output_shape=output_shape,
                 reason=(
-                    "composite network contains a BLOCK TRANSFORMER — parameter "
-                    "manifest and stdlib reference forward available (C2); the "
-                    "training path lands in TRANSFORMER_BLOQUE C4, execution "
-                    "unsupported until then"
+                    "composite network with BLOCK TRANSFORMER — manifest (C2), "
+                    "torch module (C3) and torch trainer (C4) available; ONNX "
+                    "export lands in TRANSFORMER_BLOQUE C5"
                 ),
             )
         # Audit round 2 (2026-07-10): a SEQUENCE-input composite WITHOUT a

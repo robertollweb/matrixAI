@@ -220,8 +220,14 @@ class TrainingVerifier:
                 elif metric.type not in _classification_metric_types:
                     errors.append(f"METRIC type not supported: {metric.type}")
 
-        if training.optimizer.type != "sgd":
-            errors.append(f"OPTIMIZER type not supported by P4 MVP: {training.optimizer.type}")
+        # TRANSFORMER C4: adam entra en la gramática (scheduler NO — decisión 5
+        # del contrato 51; los transformers reales no convergen bien con SGD
+        # plano). sgd sigue siendo el default de las redes no-transformer.
+        if training.optimizer.type not in ("sgd", "adam"):
+            errors.append(
+                f"OPTIMIZER type not supported: {training.optimizer.type} "
+                f"(supported: sgd, adam)"
+            )
         if training.optimizer.learning_rate <= 0:
             errors.append("OPTIMIZER LEARNING_RATE must be greater than 0")
         if training.run is not None and training.run.epochs <= 0:

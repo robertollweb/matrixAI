@@ -219,11 +219,17 @@ def _build_torch_modules() -> tuple[Any, Any]:
             # módulo se convierte a load_dtype ANTES de copiar para no truncar
             # float64 a float32.
             pending_loads: list[tuple[Any, str]] = []
+            # TRANSFORMER C4: registro path→tensor de TODOS los parámetros
+            # cargables (con o sin values) — es la base de la extracción de
+            # pesos entrenados (torch_module_to_composite_parameter_set) y del
+            # state_dict PESOS_GRANDES, con las MISMAS claves del ParameterSet.
+            self.path_tensors: dict[str, Any] = {}
 
             def _load(module_tensor: Any, path: str) -> None:
                 entry = params.get(path)
                 if entry is None:
                     raise TransformerTorchError(f"Missing parameter {path!r}")
+                self.path_tensors[path] = module_tensor
                 if entry.get("values") is not None:
                     pending_loads.append((module_tensor, path))
 

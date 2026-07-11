@@ -170,6 +170,32 @@ def torch_module_to_composite_parameter_set(
     """Extract weights from a _CompositeNetworkModule back into a ParameterSet."""
     new_params: dict[str, Any] = {k: dict(v) for k, v in template.parameters.items()}
 
+    # TRANSFORMER C4: el módulo transformer registra path→tensor con las MISMAS
+    # claves del ParameterSet — la extracción es directa y cubre embedding,
+    # pos.table (learned), las 12 matrices/vectores por capa y la cabeza.
+    if getattr(network, "transformer_blocks", []):
+        path_tensors = getattr(module, "path_tensors", None)
+        if path_tensors is None:
+            raise CompositeTorchError(
+                "torch_module_to_composite_parameter_set: module has no "
+                "path_tensors registry — build it with "
+                "transformer_network_to_torch_module"
+            )
+        for path, tensor in path_tensors.items():
+            if path in new_params:
+                new_params[path] = {
+                    **template.parameters[path],
+                    "values": tensor.detach().cpu().tolist(),
+                }
+        return ParameterSet(
+            parameter_set_id=template.parameter_set_id,
+            model_hash=template.model_hash,
+            parameter_schema_hash=template.parameter_schema_hash,
+            source="torch",
+            parameters=new_params,
+            metrics=template.metrics,
+        )
+
     for emb in getattr(network, "embeddings", []):
         table_key = f"{network.name}.{emb.name}.table"
         if table_key in new_params:
@@ -198,6 +224,23 @@ def torch_module_to_composite_parameter_set(
         parameters=new_params,
         metrics=template.metrics,
     )
+
+
+def transformer_module_to_state_dict(module: Any) -> dict[str, Any]:
+    """PESOS_GRANDES para el transformer (C4) — pesos entrenados como tensores
+    CPU, NUNCA listas Python, con las MISMAS claves del ParameterSet (espejo de
+    dense_module_to_state_dict). Para modelos por encima de
+    torch_native_min_params() el trainer devuelve esto en vez de materializar."""
+    path_tensors = getattr(module, "path_tensors", None)
+    if path_tensors is None:
+        raise CompositeTorchError(
+            "transformer_module_to_state_dict requires a module with a "
+            "path_tensors registry (transformer_network_to_torch_module)"
+        )
+    return {
+        path: tensor.detach().cpu().clone()
+        for path, tensor in path_tensors.items()
+    }
 
 
 # ---------------------------------------------------------------------------

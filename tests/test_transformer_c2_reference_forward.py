@@ -429,27 +429,23 @@ END
         # VERDE: la matemática/lowering están completas (criterio C2)
         assert result.ok, result.errors
 
-    def test_node_split_lowering_ready_execution_closed(self):
-        """La matemática está soportada (verifier verde) pero la EJECUCIÓN no
-        (report.ok False) — nada puede entrenar el bloque hasta C4."""
+    def test_node_supported_after_c4_trainer(self):
+        """(Hasta C4 este test fijaba supported=False/report.ok=False — el
+        trainer torch de C4 abre la ejecución. El contrato público sigue
+        coherente: el nodo ya NO aparece en unsupported_nodes y el resumen lo
+        marca ok; los caminos pendientes —ONNX C5, stdlib producto— fallan
+        cerrado por su cuenta.)"""
         prog = parse_text(_mxai())
         report = BackendContractAnalyzer().analyze(prog)
         node = next(n for n in report.nodes if n.node == "N")
         assert node.differentiable is True
-        assert node.supported is False             # sin trainer hasta C4
+        assert node.supported is True              # trainer torch (C4)
         assert node.lowering_supported is True     # matemática/lowering C2
         assert node.lowering_ok is True
-        assert report.ok is False
-        assert node in report.unsupported_nodes
-        assert "TRANSFORMER_BLOQUE C4" in node.reason
-
-        # Contrato público coherente: unsupported_nodes nunca contiene un
-        # payload que a la vez diga supported=true, y el resumen lo marca blocked.
-        payload = report.to_dict()
-        blocked = next(n for n in payload["unsupported_nodes"] if n["node"] == "N")
-        assert blocked["supported"] is False
-        assert blocked["lowering_supported"] is True
-        assert "N (composite_network [composite_network]): blocked" in report.summary()
+        assert report.ok is True
+        assert node not in report.unsupported_nodes
+        assert "TRANSFORMER_BLOQUE C5" in node.reason
+        assert "N (composite_network [composite_network]): ok" in report.summary()
 
     def test_parameter_set_builds_and_validates(self):
         from matrixai.parameters.network_params import (

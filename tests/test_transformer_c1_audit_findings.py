@@ -155,20 +155,22 @@ GRAPH
 END
 """
 
-    def test_report_fails_closed(self):
-        # C2 + re-auditoría ronda 3: `supported` conserva el significado
-        # histórico de ejecución (False hasta C4) y `lowering_supported` expone
-        # aparte la matemática C2. report.ok falla cerrado y ningún consumidor
-        # externo ve un "supported=True" engañoso.
+    def test_backend_reports_supported_after_c4(self):
+        # Historia del hallazgo: ALTA-3 exigía fail-closed MIENTRAS no hubiera
+        # trainer. C2 dejó supported=False + lowering_supported=True; C4 entrega
+        # el trainer torch (train/evaluate + Adam + extracción de pesos) y la
+        # ejecución queda soportada — el invariante vivo es que los caminos aún
+        # pendientes (export ONNX C5, forward stdlib de producto) siguen
+        # fallando cerrado por su cuenta.
         prog = parse_text(self._SRC)
         report = BackendContractAnalyzer().analyze(prog)
-        assert report.ok is False
+        assert report.ok is True
         node = next(n for n in report.nodes if n.node == "N")
-        assert node.supported is False             # ejecución cerrada hasta C4
-        assert node.lowering_supported is True     # matemática/lowering C2
+        assert node.supported is True
+        assert node.lowering_supported is True
         assert node.lowering_ok is True
         assert node.differentiable is True
-        assert "TRANSFORMER_BLOQUE C4" in node.reason
+        assert "TRANSFORMER_BLOQUE C5" in node.reason
 
     def test_trainable_parameters_now_exposed_by_c2(self):
         # (Antes de C2 este test afirmaba lista vacía; C2 entrega el manifest,
