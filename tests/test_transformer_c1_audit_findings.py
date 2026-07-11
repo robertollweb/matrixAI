@@ -156,18 +156,29 @@ END
 """
 
     def test_report_fails_closed(self):
+        # C2 actualiza el estado: el lowering existe (differentiable=True, params
+        # auditables) pero el ENTRENAMIENTO no llega hasta C4 — supported sigue
+        # False para que report.ok falle cerrado y ningún trainer lo recoja.
         prog = parse_text(self._SRC)
         report = BackendContractAnalyzer().analyze(prog)
         assert report.ok is False
         node = next(n for n in report.nodes if n.node == "N")
         assert node.supported is False
-        assert node.differentiable is False
-        assert "TRANSFORMER_BLOQUE C2" in node.reason
+        assert node.differentiable is True   # C2: lowering completo y auditable
+        assert "TRANSFORMER_BLOQUE C4" in node.reason
 
-    def test_no_trainable_parameters_exposed(self):
+    def test_trainable_parameters_now_exposed_by_c2(self):
+        # (Antes de C2 este test afirmaba lista vacía; C2 entrega el manifest,
+        # así que los parámetros del bloque se REPORTAN — lowering auditable.)
+        from matrixai.parameters.network_params import transformer_block_param_count
         prog = parse_text(self._SRC)
         report = BackendContractAnalyzer().analyze(prog)
-        assert report.trainable_parameters == []
+        block_params = [p for p in report.trainable_parameters if ".enc." in p.path]
+        total = sum(
+            (p.shape[0] * p.shape[1] if len(p.shape) == 2 else p.shape[0])
+            for p in block_params
+        )
+        assert total == transformer_block_param_count(4, 128, 4 * 128)
 
     def test_layer_manifest_does_not_leak_vocab_zero(self):
         prog = parse_text(self._SRC)
@@ -179,12 +190,17 @@ END
                 if shape:
                     assert shape[0] != 0, f"vocab=0 sentinel leaked into manifest: {entry}"
 
-    def test_layer_manifest_reports_pending_transformer_block(self):
+    def test_layer_manifest_reports_real_transformer_block(self):
+        # (Antes de C2 la entrada era un placeholder "pending"; ahora es la
+        # entrada real con el lowering completo.)
         prog = parse_text(self._SRC)
         report = BackendContractAnalyzer().analyze(prog)
         block_entries = [e for e in report.layer_manifest if e.get("block_name") == "enc"]
         assert len(block_entries) == 1
-        assert block_entries[0]["differentiable"] is False
+        entry = block_entries[0]
+        assert entry["differentiable"] is True
+        assert entry["layers"] == 4 and entry["heads"] == 4
+        assert len(entry["parameters"]) == 4 * 12  # 12 params por encoder layer
 
     def test_second_typecheck_call_site_receives_sequence_map(self):
         """Antes del fix, la construcción de layer_manifest usaba un

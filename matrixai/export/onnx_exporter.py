@@ -251,6 +251,15 @@ class OnnxExporter:
             # M2 v2 — composite_network (P19 blocks/residual/LayerNorm/Dropout/embeddings)
             # produced by CompositeNetworkGenerator. Lower the composite forward to ONNX.
             network = composite_nets[0]
+            # TRANSFORMER C2 (auditoría): the composite ONNX lowering does not know
+            # the transformer block — exporting anyway would emit a model WITHOUT
+            # the block (or crash on vectors[0]). The ONNX lowering lands in C5.
+            if getattr(network, "transformer_blocks", []):
+                raise OnnxExportError(
+                    f"composite network {network.name!r} contains a BLOCK TRANSFORMER — "
+                    f"its ONNX lowering lands in TRANSFORMER_BLOQUE C5; exporting now "
+                    f"would silently omit the block"
+                )
             if not program.vectors:
                 raise OnnxExportError(f"No VECTOR input for composite network {network.name!r}")
             input_dim = program.vectors[0].size
@@ -348,7 +357,12 @@ def validate_export_parameter_set(program, parameter_set):
         from matrixai.parameters.network_params import validate_composite_network_parameter_set
         net = composite[0]
         vector_map = {v.name: v for v in program.vectors}
-        type_result = check_composite_network_types(net, vector_map)
+        # TRANSFORMER C2 (auditoría): same class of bug as C1's ALTA-3 — this
+        # typecheck call was missing sequence_map, so a SEQUENCE-input network
+        # failed here with a misleading "INPUT is not a declared VECTOR" instead
+        # of its real validation result.
+        sequence_map = {s.name: s for s in getattr(program, "sequences", [])}
+        type_result = check_composite_network_types(net, vector_map, sequence_map)
         return validate_composite_network_parameter_set(
             net, type_result, parameter_set, program_hash(program)
         )

@@ -31,6 +31,15 @@ def composite_network_to_torch_module(
         raise CompositeTorchError(
             "PyTorch is not installed — C9 torch materialisation requires torch"
         )
+    # TRANSFORMER C2 (auditoría): this builder does not know the transformer
+    # block yet — building the module anyway would silently DROP the block
+    # (a fail-open worse than an error). The torch path lands in C4.
+    if getattr(network, "transformer_blocks", []):
+        raise CompositeTorchError(
+            f"composite_network_to_torch_module: NETWORK {network.name} contains a "
+            f"BLOCK TRANSFORMER — the torch module for it lands in TRANSFORMER_BLOQUE "
+            f"C4; building the module now would silently omit the block"
+        )
     import torch
     import torch.nn as nn
 

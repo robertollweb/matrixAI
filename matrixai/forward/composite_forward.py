@@ -55,6 +55,15 @@ def composite_forward_trace(
     seed: int = 42,
 ) -> CompositeForwardTrace:
     """Run a composite network forward pass and return full intermediate trace."""
+    # TRANSFORMER C2 (auditoría): this forward iterates top_layers/blocks only —
+    # it would silently SKIP a transformer block. The sequence path has its own
+    # reference forward (transformer_forward.transformer_network_forward).
+    if getattr(network, "transformer_blocks", []):
+        raise CompositeForwardError(
+            f"composite_forward: NETWORK {network.name} contains a BLOCK TRANSFORMER "
+            f"— use transformer_network_forward (reference, C2); the product forward "
+            f"lands in TRANSFORMER_BLOQUE C4"
+        )
     named_tensors: dict[str, list[float]] = {}
     layer_traces: dict[str, dict[str, Any]] = {}
     dropout_masks: dict[str, list[float]] = {}

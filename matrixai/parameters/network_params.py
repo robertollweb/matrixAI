@@ -187,34 +187,34 @@ def composite_network_parameter_manifest(
     network: Any,
     type_result: Any,
 ) -> list[dict[str, Any]]:
-    """Build parameter manifest for a composite_network (P19).
+    """Build parameter manifest for a composite_network (P19 + TRANSFORMER C2).
 
     network: NetworkSpec (provides embeddings with vocab/dim/name)
     type_result: NetworkTypeResult from check_composite_network_types
-                 (provides resolved_layers and resolved_blocks with shapes)
+                 (provides resolved_layers/resolved_blocks/resolved_transformer_blocks
+                 with shapes, and resolved_embeddings with inherited vocab)
     """
-    # Audit finding ALTA-3 (2026-07-10): fail closed, loudly, rather than silently
-    # building a manifest that omits the block's own weights (attention/FFN/norm
-    # lowering doesn't exist until TRANSFORMER_BLOQUE C2+). No caller should reach
-    # this today (backend_contract.py gates it, playground.py fails earlier on the
-    # SEQUENCE-typed INPUT not being a VECTOR) — this is defense in depth so a
-    # future caller can't silently build an incomplete ParameterSet.
-    if getattr(network, "transformer_blocks", []):
-        raise NotImplementedError(
-            f"composite_network_parameter_manifest: NETWORK {network_name} contains a "
-            f"BLOCK TRANSFORMER — its parameter manifest is not implemented yet "
-            f"(TRANSFORMER_BLOQUE C2+); building one now would silently omit the "
-            f"block's own weights"
+    transformer_blocks = list(getattr(type_result, "resolved_transformer_blocks", []))
+    # TRANSFORMER C2: the block manifest needs the RESOLVED specs (dim/ff filled
+    # by the typecheck). A network with blocks but an unresolved/failed
+    # type_result must fail loudly, not build a manifest with dim=0 shapes.
+    if getattr(network, "transformer_blocks", []) and (
+        not transformer_blocks or any(tb.resolved_dim <= 0 for tb in transformer_blocks)
+    ):
+        raise ValueError(
+            f"composite_network_parameter_manifest: NETWORK {network_name} has a "
+            f"BLOCK TRANSFORMER but the type_result does not carry resolved blocks — "
+            f"pass the result of a clean check_composite_network_types run"
         )
     # Audit round 2 (2026-07-10): a SEQUENCE-input composite WITHOUT a transformer
-    # also fails closed — its manifest builds shape-consistent entries, but the
-    # stdlib forward has no per-position embedding path until C2, so a ParameterSet
-    # built here would only blow up later inside composite_forward.
-    if getattr(type_result, "input_is_sequence", False):
+    # block has no defined forward in any contract (the C2 reference forward covers
+    # the transformer path) — keep failing closed rather than building a
+    # ParameterSet that would blow up inside a forward that doesn't exist.
+    if getattr(type_result, "input_is_sequence", False) and not transformer_blocks:
         raise NotImplementedError(
             f"composite_network_parameter_manifest: NETWORK {network_name} consumes a "
-            f"SEQUENCE input — the sequence forward path is not implemented yet "
-            f"(TRANSFORMER_BLOQUE C2+)"
+            f"SEQUENCE input without a BLOCK TRANSFORMER — that path has no defined "
+            f"forward (TRANSFORMER_BLOQUE covers only the transformer path)"
         )
 
     manifest: list[dict[str, Any]] = []
@@ -234,18 +234,23 @@ def composite_network_parameter_manifest(
             "initializer": "xavier_normal",
         })
 
-    # Interleave top_layers and blocks by textual position (same key as C2)
+    # Interleave top_layers, classic blocks and transformer blocks by textual
+    # position (same sort key the typecheck uses)
     body_items: list[tuple[int, str, Any]] = []
     for layer in getattr(type_result, "resolved_layers", []):
         body_items.append((layer.index * 2, "layer", layer))
     for block in getattr(type_result, "resolved_blocks", []):
         pos = getattr(block, "position", 0)
         body_items.append((pos * 2 + 1, "block", block))
+    for tb in transformer_blocks:
+        body_items.append((tb.position * 2 + 1, "tblock", tb))
     body_items.sort(key=lambda x: x[0])
 
     for _, kind, spec in body_items:
         if kind == "layer":
             _append_composite_layer_params(manifest, network_name, network_name, spec)
+        elif kind == "tblock":
+            _append_transformer_block_params(manifest, network_name, spec)
         else:
             block = spec
             block_prefix = f"{network_name}.{block.name}"
@@ -253,6 +258,82 @@ def composite_network_parameter_manifest(
                 _append_composite_layer_params(manifest, network_name, block_prefix, layer)
 
     return manifest
+
+
+def _append_transformer_block_params(
+    manifest: list[dict[str, Any]],
+    function_name: str,
+    tb: Any,
+) -> None:
+    """Hierarchical parameter manifest of a BLOCK TRANSFORMER (TRANSFORMER C2).
+
+    Paths follow the contract exactly (attention has NO biases — only the four
+    projection matrices):
+      <net>.<block>.pos.table                    [L, dim]   (only POS learned)
+      <net>.<block>.layer_<i>.attention.Wq/Wk/Wv/Wo  [dim, dim]
+      <net>.<block>.layer_<i>.ffn.W1 [ff, dim]  b1 [ff]
+      <net>.<block>.layer_<i>.ffn.W2 [dim, ff]  b2 [dim]
+      <net>.<block>.layer_<i>.norm1.gain/bias    [dim]
+      <net>.<block>.layer_<i>.norm2.gain/bias    [dim]
+    tb must be a RESOLVED TransformerBlockSpec (resolved_dim/resolved_ff filled).
+    """
+    prefix = f"{function_name}.{tb.name}"
+    dim = tb.resolved_dim
+    ff = tb.resolved_ff
+    seq_len = tb.input_shape[0] if tb.input_shape else 0
+
+    def _entry(name: str, role: str, shape: list[int], initializer: str) -> None:
+        manifest.append({
+            "function": function_name,
+            "name": f"{tb.name}.{name}",
+            "path": f"{prefix}.{name}",
+            "role": role,
+            "shape": shape,
+            "dtype": "float32",
+            "initializer": initializer,
+        })
+
+    if tb.pos == "learned":
+        _entry("pos.table", "positional_table", [seq_len, dim], "xavier_normal")
+
+    ffn_w1_init = _INITIALIZER_FOR_ACTIVATION.get(tb.activation, "xavier_normal")
+    for i in range(tb.layers):
+        lp = f"layer_{i}"
+        for w in ("Wq", "Wk", "Wv", "Wo"):
+            _entry(f"{lp}.attention.{w}", "weights", [dim, dim], "xavier_normal")
+        _entry(f"{lp}.ffn.W1", "weights", [ff, dim], ffn_w1_init)
+        _entry(f"{lp}.ffn.b1", "bias", [ff], "zeros")
+        _entry(f"{lp}.ffn.W2", "weights", [dim, ff], "xavier_normal")
+        _entry(f"{lp}.ffn.b2", "bias", [dim], "zeros")
+        _entry(f"{lp}.norm1.gain", "gamma", [dim], "ones")
+        _entry(f"{lp}.norm1.bias", "beta", [dim], "zeros")
+        _entry(f"{lp}.norm2.gain", "gamma", [dim], "ones")
+        _entry(f"{lp}.norm2.bias", "beta", [dim], "zeros")
+
+
+def transformer_block_param_count(
+    layers: int,
+    dim: int,
+    ff: int,
+    length: int = 0,
+    pos: str = "sinusoidal",
+) -> int:
+    """Closed-form parameter count of a BLOCK TRANSFORMER (TRANSFORMER C2).
+
+    Per encoder layer:
+      attention  4·dim²                (Wq/Wk/Wv/Wo, no biases — contract paths)
+      ffn        ff·dim + ff           (W1 + b1)
+                 + dim·ff + dim        (W2 + b2)
+      norms      2·dim + 2·dim         (norm1 + norm2, gain+bias each)
+      = 4·dim² + 2·dim·ff + ff + 5·dim
+    Plus L·dim once if POS learned (sinusoidal is deterministic, 0 params).
+    The embedding table (vocab·dim) belongs to the EMBEDDING, not the block.
+    """
+    per_layer = 4 * dim * dim + 2 * dim * ff + ff + 5 * dim
+    total = layers * per_layer
+    if pos == "learned":
+        total += length * dim
+    return total
 
 
 def _append_composite_layer_params(
@@ -325,7 +406,26 @@ def _composite_architecture_summary(network: Any, type_result: Any) -> dict[str,
         }
         for b in getattr(type_result, "resolved_blocks", [])
     ]
-    return {"embeddings": emb_summary, "blocks": block_summary}
+    # TRANSFORMER C2: structural identity of the block (heads changes the math
+    # without changing any parameter shape — it MUST alter the schema hash).
+    transformer_summary = [
+        {
+            "name": tb.name,
+            "layers": tb.layers,
+            "heads": tb.heads,
+            "dim": tb.resolved_dim,
+            "ff": tb.resolved_ff,
+            "dropout": tb.dropout,
+            "activation": tb.activation,
+            "pos": tb.pos,
+            "position": tb.position,
+        }
+        for tb in getattr(type_result, "resolved_transformer_blocks", [])
+    ]
+    summary: dict[str, Any] = {"embeddings": emb_summary, "blocks": block_summary}
+    if transformer_summary:
+        summary["transformer_blocks"] = transformer_summary
+    return summary
 
 
 def composite_network_parameter_schema_hash(

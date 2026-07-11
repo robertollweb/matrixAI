@@ -690,30 +690,31 @@ class BackendContractAnalyzer:
         )
 
     def _analyze_composite_network(self, network: Any, type_result: Any) -> BackendNodeReport:
-        # Audit finding ALTA-3 (2026-07-10): a network with a BLOCK TRANSFORMER was
-        # unconditionally reported supported=True/differentiable=True — but the
-        # block's forward/parameter lowering doesn't exist yet (TRANSFORMER_BLOQUE
-        # C2+). Fail closed until then instead of claiming a fully differentiable
-        # subgraph that CLI/estimators/ParameterSet construction would then build
-        # incompletely (missing the block's own weights).
+        # TRANSFORMER C2 (2026-07-10): the block's parameter lowering and the
+        # stdlib reference forward now EXIST (differentiable=True — the lowering
+        # is a differentiable subgraph and its manifest is complete/auditable),
+        # but the TRAINING path (stdlib backprop never per invariant 6; torch is
+        # C4) does not. supported stays False so report.ok fails closed and no
+        # trainer picks the network up half-wired (auditoría C1, fail-open).
         if getattr(network, "transformer_blocks", []):
+            output_shape = self._composite_output_shape(type_result)
             return BackendNodeReport(
                 node=network.name,
                 node_type="composite_network",
                 supported=False,
-                differentiable=False,
+                differentiable=True,
                 kind="composite_network",
+                output_shape=output_shape,
                 reason=(
-                    "composite network contains a BLOCK TRANSFORMER — forward and "
-                    "parameter lowering for it are not implemented yet "
-                    "(TRANSFORMER_BLOQUE C2+); marked unsupported until then"
+                    "composite network contains a BLOCK TRANSFORMER — parameter "
+                    "manifest and stdlib reference forward available (C2); the "
+                    "training path lands in TRANSFORMER_BLOQUE C4, unsupported "
+                    "for execution until then"
                 ),
             )
-        # Audit round 2 (2026-07-10): same fail-closed for ANY SEQUENCE-input
-        # composite even WITHOUT a transformer block — it typechecks fine
-        # shape-wise, but the stdlib forward has no per-position embedding path
-        # yet, so composite_forward breaks at runtime after the ParameterSet was
-        # happily built. Blocked until TRANSFORMER_BLOQUE C2 ships the forward.
+        # Audit round 2 (2026-07-10): a SEQUENCE-input composite WITHOUT a
+        # transformer block has no defined forward in any contract (C2 covers
+        # only the transformer path) — keep failing fully closed.
         if getattr(type_result, "input_is_sequence", False):
             return BackendNodeReport(
                 node=network.name,
@@ -722,11 +723,25 @@ class BackendContractAnalyzer:
                 differentiable=False,
                 kind="composite_network",
                 reason=(
-                    "composite network consumes a SEQUENCE input — the sequence "
-                    "forward path is not implemented yet (TRANSFORMER_BLOQUE C2+); "
-                    "marked unsupported until then"
+                    "composite network consumes a SEQUENCE input without a BLOCK "
+                    "TRANSFORMER — that path has no defined forward "
+                    "(TRANSFORMER_BLOQUE covers only the transformer path); "
+                    "marked unsupported"
                 ),
             )
+        output_shape = self._composite_output_shape(type_result)
+        return BackendNodeReport(
+            node=network.name,
+            node_type="composite_network",
+            supported=True,
+            differentiable=True,
+            kind="composite_network",
+            output_shape=output_shape,
+            reason="composite network is a fully differentiable parameterized subgraph",
+        )
+
+    @staticmethod
+    def _composite_output_shape(type_result: Any) -> tuple[int, ...] | None:
         output_shape: tuple[int, ...] | None = None
         for layer in reversed(getattr(type_result, "resolved_layers", [])):
             if layer.layer_type == "Dense":
@@ -740,26 +755,19 @@ class BackendContractAnalyzer:
                         break
                 if output_shape is not None:
                     break
-        return BackendNodeReport(
-            node=network.name,
-            node_type="composite_network",
-            supported=True,
-            differentiable=True,
-            kind="composite_network",
-            output_shape=output_shape,
-            reason="composite network is a fully differentiable parameterized subgraph",
-        )
+        return output_shape
 
     def _composite_network_trainable_parameters(
         self, network: Any, type_result: Any
     ) -> list[TrainableParameter]:
         from matrixai.parameters.network_params import composite_network_parameter_manifest
-        # Audit finding ALTA-3 + round 2: mirrors _analyze_composite_network's
-        # fail-closed — no trainable-parameter manifest until the block's own
-        # lowering exists, nor for ANY SEQUENCE-input composite until C2.
-        if getattr(network, "transformer_blocks", []):
-            return []
-        if getattr(type_result, "input_is_sequence", False):
+        # TRANSFORMER C2: the block's manifest now exists — its parameters are
+        # reported (auditable lowering, invariante 3). A SEQUENCE-input composite
+        # WITHOUT a transformer stays fully blocked (audit round 2: no defined
+        # forward for that path in any contract).
+        if getattr(type_result, "input_is_sequence", False) and not getattr(
+            network, "transformer_blocks", []
+        ):
             return []
         if not type_result.ok:
             return []
@@ -791,28 +799,11 @@ class BackendContractAnalyzer:
     ) -> list[dict[str, Any]]:
         entries: list[dict[str, Any]] = []
 
-        # Audit finding ALTA-3 (2026-07-10): a network with a BLOCK TRANSFORMER has
-        # no parameter lowering yet — showing only the embedding (with its vocab
-        # now correctly resolved, never the raw 0 sentinel) would still misrepresent
-        # the architecture as fully described. Report the block explicitly as
-        # pending instead of silently omitting it or leaking a shape=[0, dim] entry.
-        for tb in getattr(network, "transformer_blocks", []):
-            entries.append({
-                "layer": f"{network.name}.{tb.name}",
-                "network": network.name,
-                "layer_type": "TransformerBlock",
-                "block_name": tb.name,
-                "differentiable": False,
-                "reason": (
-                    "forward and parameter lowering not implemented yet "
-                    "(TRANSFORMER_BLOQUE C2+)"
-                ),
-            })
-            return entries
-
         # Audit round 2: SEQUENCE-input composite without a transformer block —
-        # same pending status (the sequence forward doesn't exist until C2).
-        if getattr(type_result, "input_is_sequence", False):
+        # pending status (no defined forward for that path in any contract).
+        if getattr(type_result, "input_is_sequence", False) and not getattr(
+            network, "transformer_blocks", []
+        ):
             entries.append({
                 "layer": f"{network.name}.sequence_input",
                 "network": network.name,
@@ -820,10 +811,54 @@ class BackendContractAnalyzer:
                 "source": network.input,
                 "differentiable": False,
                 "reason": (
-                    "sequence forward path not implemented yet (TRANSFORMER_BLOQUE C2+)"
+                    "sequence forward path without BLOCK TRANSFORMER has no "
+                    "defined forward (TRANSFORMER_BLOQUE covers only the "
+                    "transformer path)"
                 ),
             })
             return entries
+
+        # TRANSFORMER C2: real block entry with its full parameter lowering
+        # (auditable, invariante 3) — replaces the C1 "pending" placeholder.
+        for tb in getattr(type_result, "resolved_transformer_blocks", []):
+            from matrixai.parameters.network_params import (
+                _append_transformer_block_params,
+                transformer_block_param_count,
+            )
+            block_prefix = f"{network.name}.{tb.name}"
+            block_manifest: list[dict[str, Any]] = []
+            _append_transformer_block_params(block_manifest, network.name, tb)
+            seq_len = tb.input_shape[0] if tb.input_shape else 0
+            entries.append({
+                "layer": block_prefix,
+                "network": network.name,
+                "layer_type": "TransformerBlock",
+                "block_name": tb.name,
+                "layers": tb.layers,
+                "heads": tb.heads,
+                "dim": tb.resolved_dim,
+                "ff": tb.resolved_ff,
+                "dropout": tb.dropout,
+                "activation": tb.activation,
+                "pos": tb.pos,
+                "input_shape": list(tb.input_shape),
+                "output_shape": list(tb.output_shape),
+                "differentiable": True,
+                "trainable_param_count": transformer_block_param_count(
+                    tb.layers, tb.resolved_dim, tb.resolved_ff, seq_len, tb.pos
+                ),
+                "parameters": [
+                    {
+                        "path": m["path"],
+                        "name": m["name"],
+                        "shape": m["shape"],
+                        "dtype": m["dtype"],
+                        "initializer": m["initializer"],
+                        "trainable": True,
+                    }
+                    for m in block_manifest
+                ],
+            })
 
         # Embedding entries — vocab resolved (never the raw inherit-from-SEQUENCE
         # sentinel 0; ALTA-3): use type_result.resolved_embeddings when available.
