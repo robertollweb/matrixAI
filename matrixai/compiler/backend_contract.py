@@ -175,6 +175,20 @@ class BackendNodeReport:
     kind: str = ""
     output_shape: tuple[int, ...] | None = None
     type_constraints: dict[str, Any] = field(default_factory=dict)
+    # Re-auditoría C2 (2026-07-10): separa el soporte MATEMÁTICO (supported:
+    # el backend conoce el lowering y es diferenciable — lo que verifica el
+    # DifferentiabilityVerifier) del soporte de EJECUCIÓN (execution_supported:
+    # hay trainer/forward de producto cableado — lo que gatea report.ok).
+    # None = igual que supported (todos los nodos legacy, sin cambio de
+    # comportamiento). Hoy solo el transformer los separa: matemática lista
+    # (C2), ejecución pendiente (C4).
+    execution_supported: bool | None = None
+
+    @property
+    def executable(self) -> bool:
+        if self.execution_supported is not None:
+            return self.execution_supported
+        return self.supported
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -183,6 +197,8 @@ class BackendNodeReport:
             "supported": self.supported,
             "differentiable": self.differentiable,
         }
+        if self.execution_supported is not None:
+            data["execution_supported"] = self.execution_supported
         if self.kind:
             data["kind"] = self.kind
         if self.output_shape is not None:
@@ -289,7 +305,9 @@ class BackendContractReport:
 
     @property
     def unsupported_nodes(self) -> list[BackendNodeReport]:
-        return [node for node in self.nodes if not node.supported]
+        # Re-auditoría C2: gatea por EJECUCIÓN — un nodo con matemática lista
+        # pero sin trainer (transformer hasta C4) sigue bloqueando report.ok.
+        return [node for node in self.nodes if not node.executable]
 
     @property
     def differentiable_nodes(self) -> list[BackendNodeReport]:
@@ -690,26 +708,42 @@ class BackendContractAnalyzer:
         )
 
     def _analyze_composite_network(self, network: Any, type_result: Any) -> BackendNodeReport:
-        # TRANSFORMER C2 (2026-07-10): the block's parameter lowering and the
-        # stdlib reference forward now EXIST (differentiable=True — the lowering
-        # is a differentiable subgraph and its manifest is complete/auditable),
-        # but the TRAINING path (stdlib backprop never per invariant 6; torch is
-        # C4) does not. supported stays False so report.ok fails closed and no
-        # trainer picks the network up half-wired (auditoría C1, fail-open).
+        # TRANSFORMER C2 (2026-07-10) + re-auditoría: the block's parameter
+        # lowering and the stdlib reference forward now EXIST. Split semantics
+        # (recomendación del auditor): supported=True + differentiable=True (la
+        # matemática/lowering están listas — el DifferentiabilityVerifier queda
+        # VERDE, criterio literal de C2) pero execution_supported=False (no hay
+        # trainer hasta C4 — report.ok sigue fallando cerrado vía
+        # unsupported_nodes, que gatea por ejecución).
         if getattr(network, "transformer_blocks", []):
+            # Re-auditoría [ALTA]: un typecheck sucio (p.ej. HEADS∤DIM) NO puede
+            # anunciar differentiable=True — reporta el error real.
+            if not type_result.ok:
+                return BackendNodeReport(
+                    node=network.name,
+                    node_type="composite_network",
+                    supported=False,
+                    differentiable=False,
+                    kind="composite_network",
+                    reason=(
+                        "composite network failed typecheck: "
+                        + "; ".join(type_result.errors[:3])
+                    ),
+                )
             output_shape = self._composite_output_shape(type_result)
             return BackendNodeReport(
                 node=network.name,
                 node_type="composite_network",
-                supported=False,
+                supported=True,
                 differentiable=True,
+                execution_supported=False,
                 kind="composite_network",
                 output_shape=output_shape,
                 reason=(
                     "composite network contains a BLOCK TRANSFORMER — parameter "
                     "manifest and stdlib reference forward available (C2); the "
-                    "training path lands in TRANSFORMER_BLOQUE C4, unsupported "
-                    "for execution until then"
+                    "training path lands in TRANSFORMER_BLOQUE C4, execution "
+                    "unsupported until then"
                 ),
             )
         # Audit round 2 (2026-07-10): a SEQUENCE-input composite WITHOUT a
@@ -818,6 +852,18 @@ class BackendContractAnalyzer:
             })
             return entries
 
+        # Re-auditoría C2 [ALTA]: con typecheck sucio no se publican entradas
+        # del bloque como si la arquitectura fuera válida.
+        if getattr(network, "transformer_blocks", []) and not type_result.ok:
+            entries.append({
+                "layer": f"{network.name}.transformer",
+                "network": network.name,
+                "layer_type": "TransformerBlock",
+                "differentiable": False,
+                "reason": "typecheck failed: " + "; ".join(type_result.errors[:3]),
+            })
+            return entries
+
         # TRANSFORMER C2: real block entry with its full parameter lowering
         # (auditable, invariante 3) — replaces the C1 "pending" placeholder.
         for tb in getattr(type_result, "resolved_transformer_blocks", []):
@@ -844,7 +890,11 @@ class BackendContractAnalyzer:
                 "input_shape": list(tb.input_shape),
                 "output_shape": list(tb.output_shape),
                 "differentiable": True,
-                "trainable_param_count": transformer_block_param_count(
+                # Re-auditoría C2 [MEDIA]: en TODO el layer_manifest,
+                # trainable_param_count = número de TENSORES entrenables (Dense=2,
+                # LayerNorm=2, Embedding=1) — la cifra de ESCALARES va aparte.
+                "trainable_param_count": len(block_manifest),
+                "param_count": transformer_block_param_count(
                     tb.layers, tb.resolved_dim, tb.resolved_ff, seq_len, tb.pos
                 ),
                 "parameters": [

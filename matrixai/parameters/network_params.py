@@ -195,16 +195,21 @@ def composite_network_parameter_manifest(
                  with shapes, and resolved_embeddings with inherited vocab)
     """
     transformer_blocks = list(getattr(type_result, "resolved_transformer_blocks", []))
-    # TRANSFORMER C2: the block manifest needs the RESOLVED specs (dim/ff filled
-    # by the typecheck). A network with blocks but an unresolved/failed
-    # type_result must fail loudly, not build a manifest with dim=0 shapes.
+    # TRANSFORMER C2 + re-auditoría [ALTA]: the block manifest needs a CLEAN
+    # typecheck, not merely resolved dims — HEADS-no-divisor leaves resolved_dim
+    # set and the old check happily built/validated a ParameterSet for an
+    # invalid architecture (the forward rejected it, but the artifacts had
+    # already been accepted as coherent).
     if getattr(network, "transformer_blocks", []) and (
-        not transformer_blocks or any(tb.resolved_dim <= 0 for tb in transformer_blocks)
+        not getattr(type_result, "ok", False)
+        or not transformer_blocks
+        or any(tb.resolved_dim <= 0 for tb in transformer_blocks)
     ):
         raise ValueError(
             f"composite_network_parameter_manifest: NETWORK {network_name} has a "
-            f"BLOCK TRANSFORMER but the type_result does not carry resolved blocks — "
-            f"pass the result of a clean check_composite_network_types run"
+            f"BLOCK TRANSFORMER but the type_result is not a CLEAN resolved check "
+            f"(errors: {list(getattr(type_result, 'errors', []))[:2]}) — pass the "
+            f"result of a passing check_composite_network_types run"
         )
     # Audit round 2 (2026-07-10): a SEQUENCE-input composite WITHOUT a transformer
     # block has no defined forward in any contract (the C2 reference forward covers
@@ -425,6 +430,14 @@ def _composite_architecture_summary(network: Any, type_result: Any) -> dict[str,
     summary: dict[str, Any] = {"embeddings": emb_summary, "blocks": block_summary}
     if transformer_summary:
         summary["transformer_blocks"] = transformer_summary
+        # Re-auditoría C2 (mejora): POOL mean|cls cambia la matemática sin
+        # cambiar shapes — debe alterar el hash de esquema. Clave añadida SOLO
+        # en redes transformer para no tocar ni un hash tabular existente.
+        summary["stream_pool_kinds"] = [
+            layer.pool_kind
+            for layer in getattr(type_result, "resolved_layers", [])
+            if layer.layer_type == "Pool"
+        ]
     return summary
 
 

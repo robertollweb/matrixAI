@@ -40,6 +40,12 @@ class TransformerForwardError(CompositeForwardError):
     pass
 
 
+# Re-auditoría C2 (mejora): este forward es una REFERENCIA para shapes mini de
+# test (invariante 6: nada O(params) en Python puro en el camino de producto).
+# El cap lo hace exigible: por encima, el error redirige al camino torch (C4).
+REFERENCE_FORWARD_MAX_PARAMS = 1_000_000
+
+
 @dataclass
 class TransformerForwardTrace:
     """Salida + etapas intermedias del forward de referencia (para tests C2/C3)."""
@@ -96,8 +102,19 @@ def sinusoidal_positional_table(length: int, dim: int) -> list[list[float]]:
 
 
 def _matvec(w: list[list[float]], x: list[float]) -> list[float]:
-    """y = W @ x con W [out][in] — misma convención que Dense composite."""
-    return [sum(w[j][k] * x[k] for k in range(len(x))) for j in range(len(w))]
+    """y = W @ x con W [out][in] — misma convención que Dense composite.
+
+    ESTRICTA (re-auditoría C2): cada fila debe medir exactamente len(x) — antes
+    una matriz malformada (columnas de más/de menos) se multiplicaba en
+    silencio ignorando las columnas sobrantes."""
+    n = len(x)
+    for j, row in enumerate(w):
+        if len(row) != n:
+            raise TransformerForwardError(
+                f"matvec: weight row {j} has {len(row)} columns, input has {n} — "
+                f"malformed parameter matrix"
+            )
+    return [sum(w[j][k] * x[k] for k in range(n)) for j in range(len(w))]
 
 
 def _softmax(row: list[float]) -> list[float]:
@@ -170,6 +187,18 @@ def transformer_network_forward(
         )
     tb = tblocks[0]
     seq_len, dim = tb.input_shape
+
+    # Cap de referencia (mini shapes de test): el camino de producto es torch (C4)
+    from matrixai.parameters.network_params import transformer_block_param_count
+    block_params = transformer_block_param_count(
+        tb.layers, dim, tb.resolved_ff, seq_len, tb.pos
+    )
+    if block_params > REFERENCE_FORWARD_MAX_PARAMS:
+        raise TransformerForwardError(
+            f"transformer_network_forward is a REFERENCE for mini test shapes: the "
+            f"block has {block_params:,} parameters (> {REFERENCE_FORWARD_MAX_PARAMS:,}) "
+            f"— use the torch path (TRANSFORMER_BLOQUE C4)"
+        )
     if len(token_ids) != seq_len:
         raise TransformerForwardError(
             f"expected {seq_len} token ids (SEQUENCE length), got {len(token_ids)}"
@@ -323,6 +352,18 @@ def transformer_network_forward(
             # Stream [L][dim] (antes del POOL): solo capas que preservan shape
             if layer.layer_type == "Pool":
                 if layer.pool_kind == "cls":
+                    # Re-auditoría C2 [ALTA]: la fila 0 se construye desde el
+                    # embedding de la posición 0 (query/residual/FFN la mantienen
+                    # viva aunque esté excluida como CLAVE de atención) — si la
+                    # posición 0 es padding, cls filtraría su contenido a la
+                    # salida y violaría el invariante 1c.
+                    if not mask[0]:
+                        raise TransformerForwardError(
+                            "POOL cls requires position 0 to be a REAL token "
+                            "(mask[0] must be True): the CLS row is built from "
+                            "position 0's embedding, so padding there would leak "
+                            "into the output (invariante 1c)"
+                        )
                     pooled = list(current_rows[0])
                 elif layer.pool_kind == "mean":  # enmascarado: solo posiciones reales
                     real = [t for t in range(seq_len) if mask[t]]

@@ -156,15 +156,17 @@ END
 """
 
     def test_report_fails_closed(self):
-        # C2 actualiza el estado: el lowering existe (differentiable=True, params
-        # auditables) pero el ENTRENAMIENTO no llega hasta C4 — supported sigue
-        # False para que report.ok falle cerrado y ningún trainer lo recoja.
+        # C2 + re-auditoría actualizan el estado: split supported (matemática,
+        # True — lowering completo y auditable) / execution_supported (False —
+        # sin trainer hasta C4). Lo INVARIANTE de este hallazgo: report.ok
+        # falla cerrado y ningún trainer recoge la red.
         prog = parse_text(self._SRC)
         report = BackendContractAnalyzer().analyze(prog)
         assert report.ok is False
         node = next(n for n in report.nodes if n.node == "N")
-        assert node.supported is False
-        assert node.differentiable is True   # C2: lowering completo y auditable
+        assert node.supported is True             # matemática (C2)
+        assert node.execution_supported is False  # ejecución cerrada hasta C4
+        assert node.differentiable is True
         assert "TRANSFORMER_BLOQUE C4" in node.reason
 
     def test_trainable_parameters_now_exposed_by_c2(self):

@@ -389,11 +389,11 @@ class TestDeterminismo:
 # ---------------------------------------------------------------------------
 
 class TestBackendTrasC2:
-    def test_differentiability_verifier_traces_all_block_params(self):
-        """Desviación documentada del 'en verde' literal: el verificador TRAZA
-        todos los paths del bloque (parameter_paths completo, ningún parámetro
-        desconocido); sus únicos errores son la puerta deliberada supported=False
-        (el entrenamiento llega en C4 — fail-closed de la auditoría C1)."""
+    def test_differentiability_verifier_is_green(self):
+        """Re-auditoría C2: split supported (matemática, lo que mira el
+        verificador) / execution_supported (ejecución, lo que gatea report.ok)
+        — el verificador queda VERDE (criterio literal del contrato) sin abrir
+        el entrenamiento antes de C4."""
         from matrixai.training import parse_training_text
         from matrixai.training.differentiability import DifferentiabilityVerifier
         prog = parse_text(_mxai())
@@ -426,17 +426,21 @@ END
         result = DifferentiabilityVerifier().verify(training, prog, report)
         # Traza los 29 parámetros (1 embedding + 24 del bloque + 4 de la cabeza)
         assert len(result.parameter_paths) == 29
-        # Y TODOS sus errores son la puerta deliberada, no paths perdidos
-        assert result.errors
-        assert all("TRANSFORMER_BLOQUE C4" in e for e in result.errors)
+        # VERDE: la matemática/lowering están completas (criterio C2)
+        assert result.ok, result.errors
 
-    def test_node_differentiable_but_unsupported_until_c4(self):
+    def test_node_split_math_supported_execution_closed(self):
+        """La matemática está soportada (verifier verde) pero la EJECUCIÓN no
+        (report.ok False) — nada puede entrenar el bloque hasta C4."""
         prog = parse_text(_mxai())
         report = BackendContractAnalyzer().analyze(prog)
         node = next(n for n in report.nodes if n.node == "N")
         assert node.differentiable is True
-        assert node.supported is False
-        assert report.ok is False
+        assert node.supported is True            # matemática/lowering
+        assert node.execution_supported is False  # sin trainer hasta C4
+        assert node.executable is False
+        assert report.ok is False                 # el gate de ejecución manda
+        assert "TRANSFORMER_BLOQUE C4" in node.reason
 
     def test_parameter_set_builds_and_validates(self):
         from matrixai.parameters.network_params import (
@@ -447,6 +451,104 @@ END
             net, res, ps, "mxai_c2test"
         )
         assert result.ok, result.errors
+
+
+class TestReAuditoriaC2:
+    """Regresiones de la re-auditoría de Roberto sobre C2 (2026-07-10)."""
+
+    def _dirty(self):
+        """DIM=8, HEADS=3 → typecheck sucio pero con resolved_dim=8 puesto."""
+        prog = parse_text(_mxai(heads=3))
+        net = prog.networks[0]
+        res = check_composite_network_types(
+            net, {}, {s.name: s for s in prog.sequences}
+        )
+        assert not res.ok
+        assert res.resolved_transformer_blocks[0].resolved_dim == 8
+        return prog, net, res
+
+    # [ALTA] POOL cls con padding en posición 0
+    def test_cls_with_masked_position_0_rejected(self):
+        _, net, res, ps = _build(_mxai(pool="cls"))
+        mask = [False, True, True, True, False, False]
+        with pytest.raises(TransformerForwardError, match="POOL cls requires position 0"):
+            transformer_network_forward(net, res, ps, [0, 2, 3, 4, 0, 0], mask=mask)
+
+    def test_cls_with_pad_id_at_position_0_rejected(self):
+        _, net, res, ps = _build(_mxai(pool="cls"))
+        with pytest.raises(TransformerForwardError, match="POOL cls requires position 0"):
+            transformer_network_forward(net, res, ps, [0, 2, 3, 4, 0, 0], pad_id=0)
+
+    def test_cls_with_real_position_0_still_ok(self):
+        _, net, res, ps = _build(_mxai(pool="cls"))
+        tr = transformer_network_forward(
+            net, res, ps, [1, 2, 3, 0, 0, 0],
+            mask=[True, True, True, False, False, False],
+        )
+        assert len(tr.output) == 2
+
+    # [ALTA] artefactos con typecheck sucio
+    def test_manifest_rejects_dirty_typecheck(self):
+        _, net, res = self._dirty()
+        with pytest.raises(ValueError, match="CLEAN"):
+            composite_network_parameter_manifest(net.name, net, res)
+
+    def test_parameter_set_build_rejects_dirty_typecheck(self):
+        _, net, res = self._dirty()
+        with pytest.raises(ValueError, match="CLEAN"):
+            build_composite_network_parameter_set(net, res, "mxai_dirty", seed=7)
+
+    def test_backend_reports_real_typecheck_error_not_differentiable(self):
+        prog, net, res = self._dirty()
+        report = BackendContractAnalyzer().analyze(prog)
+        node = next(n for n in report.nodes if n.node == "N")
+        assert node.supported is False
+        assert node.differentiable is False
+        assert "does not divide DIM" in node.reason
+        assert report.trainable_parameters == []
+        # y el layer manifest tampoco publica el lowering como válido
+        block_entries = [
+            e for e in report.layer_manifest if e.get("layer_type") == "TransformerBlock"
+        ]
+        assert len(block_entries) == 1
+        assert block_entries[0]["differentiable"] is False
+        assert "typecheck failed" in block_entries[0]["reason"]
+
+    # [MEDIA] unidad de trainable_param_count restaurada
+    def test_trainable_param_count_is_tensor_count(self):
+        prog = parse_text(_mxai())
+        report = BackendContractAnalyzer().analyze(prog)
+        entry = next(
+            e for e in report.layer_manifest if e.get("layer_type") == "TransformerBlock"
+        )
+        assert entry["trainable_param_count"] == len(entry["parameters"]) == 2 * 12
+        assert entry["param_count"] == transformer_block_param_count(2, 8, 16)
+
+    # [BAJA] matvec estricta
+    def test_malformed_weight_matrix_rejected(self):
+        _, net, res, ps = _build(_mxai())
+        key = "N.enc.layer_0.attention.Wq"
+        bad = [row + [999999.0] for row in ps.parameters[key]["values"]]
+        ps.parameters[key]["values"] = bad
+        with pytest.raises(TransformerForwardError, match="malformed parameter matrix"):
+            transformer_network_forward(net, res, ps, IDS)
+
+    # Mejoras: pool kind en el hash de esquema + cap de tamaño
+    def test_pool_kind_changes_schema_hash(self):
+        _, net_m, res_m, _ = _build(_mxai(pool="mean"))
+        _, net_c, res_c, _ = _build(_mxai(pool="cls"))
+        h_mean = composite_network_parameter_schema_hash(net_m.name, net_m, res_m)
+        h_cls = composite_network_parameter_schema_hash(net_c.name, net_c, res_c)
+        assert h_mean != h_cls
+
+    def test_reference_forward_size_cap(self):
+        from matrixai.forward.transformer_forward import REFERENCE_FORWARD_MAX_PARAMS
+        # dim=128, ff=512, layers=8 → 8·(4·128² + 2·128·512 + 512 + 640) ≈ 1.6M > cap
+        src = _mxai(length=6, vocab=11, dim=128, layers=8, heads=2, ff=512)
+        _, net, res, _ = _build(src)
+        ps_small = _build(_mxai())[3]  # cualquier ps: el cap corta antes de leer params
+        with pytest.raises(TransformerForwardError, match="mini test shapes"):
+            transformer_network_forward(net, res, ps_small, IDS)
 
 
 class TestGuardsDelForward:
