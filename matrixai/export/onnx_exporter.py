@@ -251,21 +251,21 @@ class OnnxExporter:
             # M2 v2 — composite_network (P19 blocks/residual/LayerNorm/Dropout/embeddings)
             # produced by CompositeNetworkGenerator. Lower the composite forward to ONNX.
             network = composite_nets[0]
-            # TRANSFORMER C2 (auditoría): the composite ONNX lowering does not know
-            # the transformer block — exporting anyway would emit a model WITHOUT
-            # the block (or crash on vectors[0]). The ONNX lowering lands in C5.
+            # TRANSFORMER C5: lowering propio del bloque (ids + máscara).
             if getattr(network, "transformer_blocks", []):
-                raise OnnxExportError(
-                    f"composite network {network.name!r} contains a BLOCK TRANSFORMER — "
-                    f"its ONNX lowering lands in TRANSFORMER_BLOQUE C5; exporting now "
-                    f"would silently omit the block"
+                nodes, initializers, x_info, y_info, out_shape = _build_transformer_network_pipeline(
+                    network, program, parameter_set, np, numpy_helper, helper, TensorProto
                 )
-            if not program.vectors:
-                raise OnnxExportError(f"No VECTOR input for composite network {network.name!r}")
-            input_dim = program.vectors[0].size
-            nodes, initializers, x_info, y_info, out_shape = _build_composite_network_pipeline(
-                network, program, parameter_set, np, numpy_helper, helper, TensorProto
-            )
+                input_dim = next(
+                    s.length for s in program.sequences if s.name == network.input
+                )
+            else:
+                if not program.vectors:
+                    raise OnnxExportError(f"No VECTOR input for composite network {network.name!r}")
+                input_dim = program.vectors[0].size
+                nodes, initializers, x_info, y_info, out_shape = _build_composite_network_pipeline(
+                    network, program, parameter_set, np, numpy_helper, helper, TensorProto
+                )
             exported_names = [network.name]
             labels = []
             kind = "composite_network"
@@ -280,7 +280,9 @@ class OnnxExporter:
         graph = helper.make_graph(
             nodes,
             name=f"{program.project}_graph",
-            inputs=[x_info],
+            # TRANSFORMER C5: el pipeline del bloque devuelve DOS entradas
+            # (token ids + máscara); el resto sigue devolviendo una sola.
+            inputs=x_info if isinstance(x_info, list) else [x_info],
             outputs=[y_info],
             initializer=initializers,
         )
@@ -330,13 +332,14 @@ class OnnxExporter:
             onnx.save(model, str(output_path))
 
         in_shape = [-1, input_dim]
+        primary_input = x_info[0] if isinstance(x_info, list) else x_info
         return OnnxExportResult(
             output_path=str(output_path),
             opset_version=_OPSET_VERSION,
             model_hash=result_model_hash,
             parameter_set_id=result_parameter_set_id,
             parameter_schema_hash=result_parameter_schema_hash,
-            input_name=x_info.name,
+            input_name=primary_input.name,
             input_shape=in_shape,
             output_name=y_info.name,
             output_shape=out_shape,
@@ -980,6 +983,260 @@ def _build_composite_layer_onnx_nodes(layer, prefix, tag, current, current_dim,
         f"Unsupported composite layer type {lt!r} in {prefix!r}. "
         f"Supported: Dense, LayerNorm, Dropout, Activation, Pool, Reshape"
     )
+
+
+def _build_transformer_network_pipeline(network, program, parameter_set, np, numpy_helper, helper, TensorProto):
+    """TRANSFORMER C5 — lowering ONNX de una red composite con BLOCK TRANSFORMER.
+
+    Entradas del grafo: `<sequence>` int64 [-1, L] (token ids) y
+    `<sequence>_mask` float32 [-1, L] (1.0 real / 0.0 padding). Replica 1:1 la
+    matemática del stdlib C2 / torch C3: scores [B,H,L,L]/√dh con sesgo aditivo
+    de máscara -1e9 sobre las CLAVES, softmax, residual+LayerNormalization
+    (eps 1e-5), FFN con GELU exacta por Erf (la aproximación tanh del mundo
+    LAYER rompería la equivalencia con erf de stdlib/torch), POOL mean
+    ENMASCARADO (suma·mask / cuenta) | cls (posición 0 — la spec documenta que
+    debe ser real), y cabeza densa reutilizando el lowering composite (Gemm).
+    """
+    from matrixai.forward.transformer_forward import sinusoidal_positional_table
+    from matrixai.types import check_composite_network_types
+
+    vector_map = {v.name: v for v in program.vectors}
+    sequence_map = {s.name: s for s in program.sequences}
+    tr = check_composite_network_types(network, vector_map, sequence_map)
+    if not tr.ok:
+        raise OnnxExportError(
+            "transformer network failed typecheck: " + "; ".join(tr.errors[:3])
+        )
+    tb = tr.resolved_transformer_blocks[0]
+    seq_len, dim = tb.input_shape
+    heads = tb.heads
+    dh = dim // heads
+    emb = next(e for e in tr.resolved_embeddings if e.source == network.input)
+    tag = network.name
+
+    nodes: list = []
+    initializers: list = []
+    ids_name = network.input
+    mask_name = f"{network.input}_mask"
+    x_infos = [
+        helper.make_tensor_value_info(ids_name, TensorProto.INT64, [-1, seq_len]),
+        helper.make_tensor_value_info(mask_name, TensorProto.FLOAT, [-1, seq_len]),
+    ]
+
+    def _init(name: str, arr) -> str:
+        initializers.append(numpy_helper.from_array(arr, name=name))
+        return name
+
+    def _param(path: str):
+        entry = parameter_set.parameters.get(path)
+        if entry is None or entry.get("values") is None:
+            raise OnnxExportError(
+                f"Composite parameter {path!r} not found/materialized in ParameterSet"
+            )
+        return np.array(entry["values"], dtype=np.float32)
+
+    def _gelu_erf(x_in: str, out: str, pfx: str) -> None:
+        """GELU exacta: 0.5·x·(1+Erf(x/√2)) — la MISMA de stdlib C2 y F.gelu."""
+        inv_sqrt2 = _init(f"{pfx}_invs2", np.array(1.0 / math.sqrt(2.0), dtype=np.float32))
+        half = _init(f"{pfx}_half", np.array(0.5, dtype=np.float32))
+        one = _init(f"{pfx}_one", np.array(1.0, dtype=np.float32))
+        scaled = f"{pfx}_scaled"
+        erf = f"{pfx}_erf"
+        one_plus = f"{pfx}_onep"
+        half_x = f"{pfx}_halfx"
+        nodes.append(helper.make_node("Mul", [x_in, inv_sqrt2], [scaled]))
+        nodes.append(helper.make_node("Erf", [scaled], [erf]))
+        nodes.append(helper.make_node("Add", [one, erf], [one_plus]))
+        nodes.append(helper.make_node("Mul", [x_in, half], [half_x]))
+        nodes.append(helper.make_node("Mul", [half_x, one_plus], [out]))
+
+    def _layer_norm3(x_in: str, out: str, gain_path: str, bias_path: str, pfx: str) -> None:
+        g = _init(f"{pfx}_gain", _param(gain_path))
+        b = _init(f"{pfx}_bias", _param(bias_path))
+        nodes.append(helper.make_node(
+            "LayerNormalization", [x_in, g, b], [out], axis=-1, epsilon=1e-5,
+        ))
+
+    # 1. Embedding por posición: Gather(table, ids) → [B, L, dim]
+    table = _init(f"{tag}_tok_table", _param(f"{tag}.{emb.name}.table"))
+    emb_out = f"{tag}_emb"
+    nodes.append(helper.make_node("Gather", [table, ids_name], [emb_out], axis=0))
+
+    # 2. Posicional (misma tabla P10 del stdlib — única fuente de la fórmula)
+    if tb.pos == "learned":
+        pos_arr = _param(f"{tag}.{tb.name}.pos.table")
+    else:
+        pos_arr = np.array(sinusoidal_positional_table(seq_len, dim), dtype=np.float32)
+    pos = _init(f"{tag}_pos_table", pos_arr)
+    current = f"{tag}_emb_pos"
+    nodes.append(helper.make_node("Add", [emb_out, pos], [current]))
+
+    # 3. Sesgo aditivo de máscara [B,1,1,L]: (mask−1)·1e9 → 0.0 real / −1e9 pad
+    one_s = _init(f"{tag}_mk_one", np.array(1.0, dtype=np.float32))
+    big_s = _init(f"{tag}_mk_big", np.array(1e9, dtype=np.float32))
+    mk_m1 = f"{tag}_mk_m1"
+    mk_2d = f"{tag}_mk_2d"
+    mask_bias = f"{tag}_mask_bias"
+    nodes.append(helper.make_node("Sub", [mask_name, one_s], [mk_m1]))
+    nodes.append(helper.make_node("Mul", [mk_m1, big_s], [mk_2d]))
+    mk_axes = _init(f"{tag}_mk_axes", np.array([1, 2], dtype=np.int64))
+    nodes.append(helper.make_node("Unsqueeze", [mk_2d, mk_axes], [mask_bias]))
+
+    # Shapes constantes para split/merge de cabezas (0 = copia la dim de entrada)
+    shape_bhld = _init(f"{tag}_shape_split", np.array([0, seq_len, heads, dh], dtype=np.int64))
+    shape_bld = _init(f"{tag}_shape_merge", np.array([0, seq_len, dim], dtype=np.int64))
+    inv_sqrt_dh = _init(f"{tag}_inv_sqrt_dh", np.array(1.0 / math.sqrt(dh), dtype=np.float32))
+
+    def _encoder(x_in: str) -> str:
+        cur = x_in
+        block_tag = f"{tag}_{tb.name}"
+        pfx_store = f"{tag}.{tb.name}"
+        for i in range(tb.layers):
+            t = f"{block_tag}_l{i}"
+            p = f"{pfx_store}.layer_{i}"
+            # Proyecciones sin bias: MatMul(x, W.T) == y = W @ x por posición
+            wq = _init(f"{t}_WqT", _param(f"{p}.attention.Wq").T.copy())
+            wk = _init(f"{t}_WkT", _param(f"{p}.attention.Wk").T.copy())
+            wv = _init(f"{t}_WvT", _param(f"{p}.attention.Wv").T.copy())
+            wo = _init(f"{t}_WoT", _param(f"{p}.attention.Wo").T.copy())
+            q3, k3, v3 = f"{t}_q3", f"{t}_k3", f"{t}_v3"
+            nodes.append(helper.make_node("MatMul", [cur, wq], [q3]))
+            nodes.append(helper.make_node("MatMul", [cur, wk], [k3]))
+            nodes.append(helper.make_node("MatMul", [cur, wv], [v3]))
+            # Split en cabezas: [B,L,dim] → [B,L,H,dh] → [B,H,L,dh]
+            q4, k4, v4 = f"{t}_q4", f"{t}_k4", f"{t}_v4"
+            for src, dst in ((q3, q4), (k3, k4), (v3, v4)):
+                rs = f"{dst}_rs"
+                nodes.append(helper.make_node("Reshape", [src, shape_bhld], [rs]))
+                nodes.append(helper.make_node("Transpose", [rs], [dst], perm=[0, 2, 1, 3]))
+            # scores [B,H,L,L] = q·kᵀ/√dh + sesgo de máscara (claves)
+            kt = f"{t}_kT"
+            nodes.append(helper.make_node("Transpose", [k4], [kt], perm=[0, 1, 3, 2]))
+            raw = f"{t}_scores_raw"
+            nodes.append(helper.make_node("MatMul", [q4, kt], [raw]))
+            scaled = f"{t}_scores_scaled"
+            nodes.append(helper.make_node("Mul", [raw, inv_sqrt_dh], [scaled]))
+            masked = f"{t}_scores_masked"
+            nodes.append(helper.make_node("Add", [scaled, mask_bias], [masked]))
+            attnw = f"{t}_attnw"
+            nodes.append(helper.make_node("Softmax", [masked], [attnw], axis=-1))
+            # Contexto y merge de cabezas
+            ctx4 = f"{t}_ctx4"
+            nodes.append(helper.make_node("MatMul", [attnw, v4], [ctx4]))
+            ctx_t = f"{t}_ctx_t"
+            nodes.append(helper.make_node("Transpose", [ctx4], [ctx_t], perm=[0, 2, 1, 3]))
+            ctx3 = f"{t}_ctx3"
+            nodes.append(helper.make_node("Reshape", [ctx_t, shape_bld], [ctx3]))
+            attn_out = f"{t}_attn_out"
+            nodes.append(helper.make_node("MatMul", [ctx3, wo], [attn_out]))
+            # Residual + LN1  (dropout = identidad en inferencia)
+            add1 = f"{t}_add1"
+            nodes.append(helper.make_node("Add", [cur, attn_out], [add1]))
+            ln1 = f"{t}_ln1"
+            _layer_norm3(add1, ln1, f"{p}.norm1.gain", f"{p}.norm1.bias", f"{t}_n1")
+            # FFN
+            w1 = _init(f"{t}_W1T", _param(f"{p}.ffn.W1").T.copy())
+            b1 = _init(f"{t}_b1", _param(f"{p}.ffn.b1"))
+            w2 = _init(f"{t}_W2T", _param(f"{p}.ffn.W2").T.copy())
+            b2 = _init(f"{t}_b2", _param(f"{p}.ffn.b2"))
+            h1 = f"{t}_h1"
+            nodes.append(helper.make_node("MatMul", [ln1, w1], [h1]))
+            h1b = f"{t}_h1b"
+            nodes.append(helper.make_node("Add", [h1, b1], [h1b]))
+            act = f"{t}_act"
+            if tb.activation == "gelu":
+                _gelu_erf(h1b, act, f"{t}_gelu")
+            else:
+                nodes.append(helper.make_node("Relu", [h1b], [act]))
+            h2 = f"{t}_h2"
+            nodes.append(helper.make_node("MatMul", [act, w2], [h2]))
+            h2b = f"{t}_h2b"
+            nodes.append(helper.make_node("Add", [h2, b2], [h2b]))
+            add2 = f"{t}_add2"
+            nodes.append(helper.make_node("Add", [ln1, h2b], [add2]))
+            ln2 = f"{t}_ln2"
+            _layer_norm3(add2, ln2, f"{p}.norm2.gain", f"{p}.norm2.bias", f"{t}_n2")
+            cur = ln2
+        return cur
+
+    # 4. Cuerpo en el MISMO orden intercalado del typecheck/stdlib/torch
+    body_items = [
+        (layer.index * 2, "layer", layer)
+        for layer in getattr(tr, "resolved_layers", [])
+    ]
+    body_items.append((tb.position * 2 + 1, "tblock", tb))
+    body_items.sort(key=lambda it: it[0])
+
+    in_stream = True
+    current_dim = dim
+    for _, kindk, spec in body_items:
+        if kindk == "tblock":
+            current = _encoder(current)
+            continue
+        if in_stream:
+            lname = f"{tag}_stream_L{spec.index}"
+            if spec.layer_type == "Pool":
+                if spec.pool_kind == "cls":
+                    idx0 = _init(f"{tag}_cls_idx", np.array(0, dtype=np.int64))
+                    pooled = f"{tag}_pooled"
+                    nodes.append(helper.make_node(
+                        "Gather", [current, idx0], [pooled], axis=1))
+                else:  # mean ENMASCARADO: solo posiciones reales
+                    m_axes2 = _init(f"{tag}_pool_axes2", np.array([2], dtype=np.int64))
+                    mask3 = f"{tag}_mask3"
+                    nodes.append(helper.make_node("Unsqueeze", [mask_name, m_axes2], [mask3]))
+                    xm = f"{tag}_xmasked"
+                    nodes.append(helper.make_node("Mul", [current, mask3], [xm]))
+                    ax1 = _init(f"{tag}_pool_ax1", np.array([1], dtype=np.int64))
+                    summed = f"{tag}_summed"
+                    nodes.append(helper.make_node(
+                        "ReduceSum", [xm, ax1], [summed], keepdims=0))
+                    cnt = f"{tag}_mask_cnt"
+                    nodes.append(helper.make_node(
+                        "ReduceSum", [mask_name, ax1], [cnt], keepdims=1))
+                    pooled = f"{tag}_pooled"
+                    nodes.append(helper.make_node("Div", [summed, cnt], [pooled]))
+                current = pooled
+                in_stream = False
+            elif spec.layer_type == "LayerNorm":
+                out = f"{lname}_ln"
+                _layer_norm3(
+                    current, out,
+                    f"{tag}.L{spec.index}.gamma", f"{tag}.L{spec.index}.beta",
+                    lname,
+                )
+                current = out
+            elif spec.layer_type == "Activation":
+                kind_a = getattr(spec, "activation_kind", "relu")
+                out = f"{lname}_act"
+                if kind_a == "gelu":
+                    _gelu_erf(current, out, f"{lname}_gelu")
+                else:
+                    nodes.append(_emit_dense_activation(kind_a, current, out, helper))
+                current = out
+            elif spec.layer_type == "Dropout":
+                pass  # identidad en inferencia
+            else:
+                raise OnnxExportError(
+                    f"LAYER {spec.layer_type} cannot run on the sequence stream "
+                    f"(typecheck should have rejected this)"
+                )
+        else:
+            n, inits, current, current_dim = _build_composite_layer_onnx_nodes(
+                spec, network.name, tag, current, current_dim,
+                parameter_set, np, numpy_helper, helper,
+            )
+            nodes.extend(n)
+            initializers.extend(inits)
+
+    if in_stream:
+        raise OnnxExportError(
+            "the network body never pooled the stream (typecheck should require POOL)"
+        )
+
+    out_shape = [-1, current_dim]
+    y_info = helper.make_tensor_value_info(current, TensorProto.FLOAT, out_shape)
+    return nodes, initializers, x_infos, y_info, out_shape
 
 
 def _build_composite_network_pipeline(network, program, parameter_set, np, numpy_helper, helper, TensorProto):

@@ -78,7 +78,55 @@ class OnnxEquivalenceValidator:
         # Composite networks (P19) use the stdlib composite_forward as reference.
         composite_nets = [n for n in program.networks if getattr(n, "kind", "") == "composite_network"]
 
-        if composite_nets:
+        if composite_nets and getattr(composite_nets[0], "transformer_blocks", []):
+            # TRANSFORMER C5: referencia = forward stdlib de C2; entradas = ids
+            # aleatorios [L] + mascaras aleatorias con >=1 posicion real (la
+            # mitad de las muestras sin padding, la otra mitad con sufijo
+            # enmascarado — cubre ambas ramas del grafo).
+            from matrixai.forward.transformer_forward import transformer_network_forward
+            from matrixai.types import check_composite_network_types
+
+            network = composite_nets[0]
+            sequence_map = {s.name: s for s in program.sequences}
+            vector_map = {v.name: v for v in program.vectors}
+            type_result = check_composite_network_types(network, vector_map, sequence_map)
+            if not type_result.ok:
+                raise OnnxEquivalenceError(
+                    "transformer network failed typecheck: "
+                    + "; ".join(type_result.errors[:3])
+                )
+            seq = sequence_map[network.input]
+            for k in range(n_samples):
+                ids = [int(v) for v in rng.integers(0, seq.vocab_size, size=seq.length)]
+                if k % 2 == 0:
+                    mask = [True] * seq.length
+                else:
+                    n_real = int(rng.integers(1, seq.length + 1))
+                    mask = [True] * n_real + [False] * (seq.length - n_real)
+                ref_out = transformer_network_forward(
+                    network, type_result, parameter_set, ids, mask=mask,
+                ).output
+                ort_out = sess.run(None, {
+                    network.input: np.array([ids], dtype=np.int64),
+                    f"{network.input}_mask": np.array(
+                        [[1.0 if m else 0.0 for m in mask]], dtype=np.float32
+                    ),
+                })[0][0].tolist()
+                if len(ref_out) != len(ort_out):
+                    raise OnnxEquivalenceError(
+                        f"Output length mismatch: transformer_forward={len(ref_out)}, "
+                        f"ort={len(ort_out)}"
+                    )
+                n_out = len(ref_out)
+                for a, b in zip(ref_out, ort_out):
+                    a_f, b_f = float(a), float(b)
+                    abs_diff = abs(a_f - b_f)
+                    rel_diff = abs_diff / max(abs(b_f), 1e-10)
+                    max_abs = max(max_abs, abs_diff)
+                    max_rel = max(max_rel, rel_diff)
+                    if abs_diff > atol + rtol * abs(b_f):
+                        all_close = False
+        elif composite_nets:
             network = composite_nets[0]
             if not program.vectors:
                 raise OnnxEquivalenceError(f"No VECTOR input for composite network {network.name!r}")

@@ -783,14 +783,15 @@ class BackendContractAnalyzer:
                 lowering_supported=True,
                 training_supported=True,
                 forward_supported=False,
-                export_supported=False,
+                # TRANSFORMER C5: el lowering ONNX del bloque existe (ids +
+                # máscara, equivalencia validada contra stdlib/torch).
+                export_supported=True,
                 kind="composite_network",
                 output_shape=output_shape,
                 reason=(
-                    "composite network with BLOCK TRANSFORMER — training available "
-                    "(manifest C2, torch module C3, torch trainer C4); program-level "
-                    "forward runner has no NETWORK branch and ONNX export lands in "
-                    "TRANSFORMER_BLOQUE C5"
+                    "composite network with BLOCK TRANSFORMER — training (C4) and "
+                    "ONNX export (C5) available; the program-level forward runner "
+                    "has no NETWORK branch (pre-existing for all network kinds)"
                 ),
             )
         # Audit round 2 (2026-07-10): a SEQUENCE-input composite WITHOUT a

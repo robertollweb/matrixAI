@@ -55,6 +55,14 @@ def build_inference_spec(
     ``example_input`` (a raw record), if given, is validated against the resolved
     fields so a malformed example fails at export time rather than for the consumer.
     """
+    # TRANSFORMER C5: entrada SEQUENCE (token ids). El contrato B elevará esta
+    # spec a texto crudo con el tokenizador embebido; en C5 el consumidor pasa
+    # la lista [L] de enteros directamente.
+    sequences = list(getattr(program, "sequences", []) or [])
+    if sequences:
+        return _build_sequence_inference_spec(
+            program, export_result, labels=labels, example_input=example_input,
+        )
     _guard_single_vector(program)
     vector = program.vectors[0]
     input_order = list(vector.fields)
@@ -255,6 +263,69 @@ def build_example_input(spec: dict[str, Any]) -> dict[str, Any]:
         elif enc == "embedding_index":
             example[field] = entry["vocab"][0] if "vocab" in entry else 0
     return example
+
+
+def _build_sequence_inference_spec(
+    program: MatrixAIProgram,
+    export_result: "OnnxExportResult",
+    *,
+    labels: list[str] | None = None,
+    example_input: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """TRANSFORMER C5 — spec de inferencia para entrada SEQUENCE.
+
+    input: {"encoding": "token_ids", "length": L, "vocab_size": V} (literal del
+    contrato 51 §C5). El grafo ONNX expone ademas una segunda entrada
+    `<sequence>_mask` (1.0 real / 0.0 padding); mask_input la documenta y el
+    consumidor puede pasar todo-unos si no hay padding. POOL cls exige que la
+    posicion 0 sea real (invariante 1c) — anotado en la spec.
+    """
+    if len(program.sequences) > 1:
+        raise InferenceSpecError(
+            f"Model has {len(program.sequences)} SEQUENCE inputs; the transformer "
+            "bundle supports exactly one."
+        )
+    seq = program.sequences[0]
+    net = program.networks[0] if program.networks else None
+    if net is None or not getattr(net, "transformer_blocks", []):
+        raise InferenceSpecError(
+            "SEQUENCE input without a BLOCK TRANSFORMER network has no defined "
+            "inference path (TRANSFORMER_BLOQUE covers only the transformer)."
+        )
+
+    if example_input is not None:
+        value = example_input.get(seq.name)
+        if not isinstance(value, list) or len(value) != seq.length:
+            raise InferenceSpecError(
+                f"example_input[{seq.name!r}] must be a list of {seq.length} token ids"
+            )
+        bad = [v for v in value if not isinstance(v, int) or v < 0 or v >= seq.vocab_size]
+        if bad:
+            raise InferenceSpecError(
+                f"example_input[{seq.name!r}] contains ids outside [0, {seq.vocab_size}): {bad[:3]}"
+            )
+
+    pool_kinds = [
+        layer.pool_kind for layer in getattr(net, "top_layers", [])
+        if layer.layer_type == "Pool"
+    ]
+    spec: dict[str, Any] = {
+        "input": {
+            seq.name: {
+                "encoding": "token_ids",
+                "length": seq.length,
+                "vocab_size": seq.vocab_size,
+            }
+        },
+        "input_order": [seq.name],
+        "onnx_input": export_result.input_name,
+        "mask_input": f"{export_result.input_name}_mask",
+        "mask_semantics": "1.0 = real token, 0.0 = padding; all-ones if no padding",
+        "output": _build_output(program, export_result, labels),
+    }
+    if "cls" in pool_kinds:
+        spec["notes"] = "POOL cls: position 0 must be a real token (mask[0] = 1.0)"
+    return spec
 
 
 def _guard_single_vector(program: MatrixAIProgram) -> None:

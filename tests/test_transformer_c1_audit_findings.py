@@ -168,7 +168,7 @@ END
         assert node.supported is False        # agregado conservador
         assert node.training_ok is True       # trainer torch (C4)
         assert node.forward_ok is False       # runner sin rama NETWORK
-        assert node.export_ok is False        # ONNX en C5
+        assert node.export_ok is True         # lowering ONNX (C5)
         assert node.lowering_ok is True
         assert node.differentiable is True
         assert report.ok is False

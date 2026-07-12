@@ -647,11 +647,14 @@ class TestConsumidoresFallanCerrado:
         with pytest.raises(CompositeTorchError, match="BLOCK TRANSFORMER"):
             composite_network_to_torch_module(net, ps)
 
-    def test_onnx_export_rejects_transformer(self):
+    def test_onnx_export_now_supported_by_c5(self):
+        """(Hasta C5 este test fijaba el guard fail-closed del export; C5
+        entrega el lowering ONNX del bloque — el export produce un modelo
+        válido. La equivalencia completa vive en test_transformer_c5.)"""
         pytest.importorskip("onnx")
         import tempfile
         from pathlib import Path
-        from matrixai.export.onnx_exporter import OnnxExportError, export_onnx
+        from matrixai.export.onnx_exporter import export_onnx
         from matrixai.parameters.store import program_hash
         prog = parse_text(_mxai())
         net = prog.networks[0]
@@ -660,8 +663,9 @@ class TestConsumidoresFallanCerrado:
         )
         ps = build_composite_network_parameter_set(net, res, program_hash(prog), seed=7)
         with tempfile.TemporaryDirectory() as td:
-            with pytest.raises(OnnxExportError, match="BLOCK TRANSFORMER"):
-                export_onnx(prog, ps, Path(td) / "out.onnx")
+            result = export_onnx(prog, ps, Path(td) / "out.onnx")
+            assert Path(result.output_path).exists()
+            assert result.input_name == "N" or result.input_name == "Texto"
 
     def test_export_validator_sees_sequence_map(self):
         """validate_export_parameter_set llamaba al typecheck sin sequence_map
