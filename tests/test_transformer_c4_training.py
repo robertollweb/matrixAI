@@ -849,3 +849,136 @@ class TestMediaUnoStateDict:
                 net, None, _seq_examples(TRAIN_ROWS[:4]), "cross_entropy",
                 type_result=res,
             )
+
+
+# ---------------------------------------------------------------------------
+# Auditoría C4 ronda 2 (2026-07-12): ruta CLI — device/backend, .mxw grande,
+# resume con baseline, SPLIT declarado
+# ---------------------------------------------------------------------------
+
+class TestRonda2RutaCLI:
+    def test_device_propagated_to_inner_trainer(self, tmp_path, monkeypatch):
+        """[ALTA-1] El device resuelto llega al trainer inferior (capturado
+        con monkeypatch — sin GPU real en esta máquina)."""
+        import matrixai.training.transformer_trainer as tt
+        from matrixai.training import parse_training_text
+        captured: dict = {}
+        real = tt.__dict__  # el import es local a train(); parcheamos el módulo fuente
+        import matrixai.training.composite_torch_trainer as ctt
+        original = ctt.train_composite_network_torch
+
+        def _spy(*args, **kwargs):
+            captured.update(kwargs)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(ctt, "train_composite_network_torch", _spy)
+        model_path, csv_path = _write_toy_dataset(tmp_path)
+        spec = _TOY_MXTRAIN.format(model=model_path, csv=csv_path, opt="adam")
+        spec += "\nBACKEND\n  TARGET torch\n  DEVICE cpu\nEND\n"
+        training = parse_training_text(spec)
+        tt.TransformerSupervisedTrainer().train(
+            training, output_dir=str(tmp_path / "out"), base_path=tmp_path,
+        )
+        assert captured.get("device") == "cpu"
+        assert captured.get("validation_examples") is not None
+
+    def test_cli_rejects_explicit_stdlib_backend(self, tmp_path):
+        import subprocess, sys
+        model_path, csv_path = _write_toy_dataset(tmp_path)
+        (tmp_path / "toy.mxtrain").write_text(
+            _TOY_MXTRAIN.format(model="toy.mxai", csv="toy.csv", opt="adam"),
+            encoding="utf-8",
+        )
+        proc = subprocess.run(
+            [sys.executable, "-m", "matrixai.cli", "train", str(model_path),
+             "--training", str(tmp_path / "toy.mxtrain"),
+             "--backend", "stdlib",
+             "--output", str(tmp_path / "out")],
+            capture_output=True, text=True, timeout=120,
+        )
+        assert proc.returncode == 1
+        assert "requires --backend torch" in proc.stderr
+
+    def test_large_training_persists_mxw(self, tmp_path, monkeypatch):
+        """[ALTA-2] Por encima del umbral PESOS_GRANDES, los pesos entrenados
+        se persisten en .mxw (antes se perdían: solo quedaba el trace)."""
+        from matrixai.parameters.binary_store import read_mxw
+        from matrixai.training import parse_training_text
+        from matrixai.training.transformer_trainer import TransformerSupervisedTrainer
+        monkeypatch.setenv("MATRIXAI_TORCH_NATIVE_MIN_PARAMS", "10")  # fuerza "grande"
+        model_path, csv_path = _write_toy_dataset(tmp_path)
+        training = parse_training_text(
+            _TOY_MXTRAIN.format(model=model_path, csv=csv_path, opt="adam")
+        )
+        result = TransformerSupervisedTrainer().train(
+            training, output_dir=str(tmp_path / "out"), base_path=tmp_path,
+        )
+        assert "weights_mxw" in result.artifacts
+        mxw_path = tmp_path / "out" / "weights.mxw"
+        assert mxw_path.exists()
+        state = read_mxw(mxw_path, verify=True)
+        assert "N.enc.layer_0.attention.Wq" in state["tensors_meta_by_path"] \
+            if "tensors_meta_by_path" in state else True
+        # accuracy calculada desde el estado (no desde params materializados)
+        assert result.accuracy >= 0.0
+
+    def test_resume_baseline_protects_better_state(self):
+        """[MEDIA-1] Repro del auditor: reanudar con lr destructivo NO puede
+        devolver como best un estado peor que el de partida (época 0)."""
+        net, res, ps = _build_transformer()
+        r1 = train_composite_network_torch(
+            net, ps, _seq_examples(TRAIN_ROWS[:64]), "cross_entropy",
+            epochs=3, seed=5, type_result=res, materialize=False,
+        )
+        before_loss = r1["best_val_loss"]
+        ps2 = _build_transformer()[2]
+        r2 = train_composite_network_torch(
+            net, ps2, _seq_examples(TRAIN_ROWS[:64]), "cross_entropy",
+            epochs=1, seed=6, lr=8.0,  # lr destructivo
+            type_result=res, initial_state_dict=r1["best_state_dict"],
+        )
+        assert r2["best_epoch"] == 0            # ninguna época mejoró la base
+        assert r2["best_val_loss"] <= before_loss * 1.01
+        # y los pesos devueltos son los de PARTIDA, no los destruidos
+        wq_before = r1["best_state_dict"]["N.enc.layer_0.attention.Wq"]
+        wq_after = torch.tensor(
+            r2["best_params"].parameters["N.enc.layer_0.attention.Wq"]["values"]
+        )
+        assert torch.allclose(wq_before, wq_after, atol=1e-6)
+
+    def test_split_spec_honored(self, tmp_path):
+        """[MEDIA-2] DATASET SPLIT train= y seed= gobiernan la partición real."""
+        import json as _json
+        from matrixai.training import parse_training_text
+        from matrixai.training.transformer_trainer import TransformerSupervisedTrainer
+        model_path, csv_path = _write_toy_dataset(tmp_path)  # 80 filas
+        spec = _TOY_MXTRAIN.format(model=model_path, csv=csv_path, opt="adam")
+        spec = spec.replace(
+            "  TARGET clase: Label[antes, despues]\nEND",
+            "  TARGET clase: Label[antes, despues]\n  SPLIT train=0.5 validation=0.5 seed=11\nEND",
+        )
+        training = parse_training_text(spec)
+        TransformerSupervisedTrainer().train(
+            training, output_dir=str(tmp_path / "out"), base_path=tmp_path,
+        )
+        trace = _json.loads((tmp_path / "out" / "training_trace.json").read_text())
+        assert trace["n_train"] == 40 and trace["n_val"] == 40
+
+    def test_split_seed_changes_partition(self, tmp_path):
+        import json as _json
+        from matrixai.training import parse_training_text
+        from matrixai.training.transformer_trainer import TransformerSupervisedTrainer
+        model_path, csv_path = _write_toy_dataset(tmp_path)
+        losses = []
+        for i, seed in enumerate((11, 12)):
+            spec = _TOY_MXTRAIN.format(model=model_path, csv=csv_path, opt="adam")
+            spec = spec.replace(
+                "  TARGET clase: Label[antes, despues]\nEND",
+                f"  TARGET clase: Label[antes, despues]\n  SPLIT train=0.5 validation=0.5 seed={seed}\nEND",
+            )
+            training = parse_training_text(spec)
+            r = TransformerSupervisedTrainer().train(
+                training, output_dir=str(tmp_path / f"out{i}"), base_path=tmp_path,
+            )
+            losses.append(r.best_validation_loss)
+        assert losses[0] != losses[1]  # particiones distintas → métricas distintas

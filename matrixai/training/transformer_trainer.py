@@ -103,6 +103,10 @@ class TransformerSupervisedTrainer:
             training.dataset.batch.size
             if (training.dataset and training.dataset.batch) else None
         )
+        # Auditoría C4 ronda 2 [ALTA-1]: propagar el device RESUELTO (el CLI ya
+        # mezcló --device con el BACKEND del .mxtrain) — antes el trainer
+        # inferior usaba su default "cpu" aunque el usuario pidiera cuda.
+        device = training.backend.device if training.backend else "cpu"
         labels = _labels_from_spec(training)
 
         data_path = _resolve_path(training.dataset.source, base)
@@ -116,6 +120,22 @@ class TransformerSupervisedTrainer:
         examples = [({seq.name: [int(v) for v in x]}, y) for x, y in xy]
         if not examples:
             raise ValueError("Dataset produced no valid examples")
+
+        # Auditoría C4 ronda 2 [MEDIA-2]: honrar el DATASET SPLIT declarado
+        # (ratio + seed de barajado — misma semántica que _split_examples del
+        # trainer stdlib) y pasar las particiones EXPLÍCITAS al trainer.
+        import random as _random
+        split_spec = training.dataset.split if training.dataset else None
+        indices = list(range(len(examples)))
+        if split_spec and split_spec.seed is not None:
+            _random.Random(split_spec.seed).shuffle(indices)
+        train_ratio = split_spec.train if split_spec else 0.8
+        n_train = max(1, min(len(examples) - 1, int(len(examples) * train_ratio))) \
+            if len(examples) > 1 else len(examples)
+        train_idx = set(indices[:n_train])
+        train_examples = [ex for i, ex in enumerate(examples) if i in train_idx]
+        val_examples = [ex for i, ex in enumerate(examples) if i not in train_idx] \
+            or train_examples[:1]
 
         mhash = program_hash(program)
         # with_values=False: init nativo torch (M15(f)) — el camino del bloque
@@ -137,23 +157,25 @@ class TransformerSupervisedTrainer:
                 epoch_callback(row)
 
         tr = train_composite_network_torch(
-            net, ps, examples, loss_fn,
+            net, ps, train_examples, loss_fn,
             lr=lr, epochs=epochs,
             early_stop=(patience, "validation_loss") if patience else None,
             seed=seed, batch_size=batch_size,
             epoch_callback=_cb,
             type_result=type_result,
             optimizer=opt_type,
+            device=device,
+            validation_examples=val_examples,
         )
         best_ps = tr["best_params"]
+        best_state = tr["best_state_dict"]
 
         accuracy = 0.0
-        split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
-        val_ex = examples[split:] or examples[:split]
-        if best_ps is not None and val_ex:
+        if val_examples:
             eval_result = evaluate_composite_network_torch(
-                net, best_ps, val_ex, loss_fn,
+                net, best_ps, val_examples, loss_fn,
                 labels=labels or None, type_result=type_result,
+                device=device, state_dict=best_state,
             )
             accuracy = (
                 max(0.0, min(1.0, eval_result.r2))
@@ -166,6 +188,19 @@ class TransformerSupervisedTrainer:
             ps_path = out / "parameter_set.json"
             write_parameter_set(ps_path, best_ps)
             artifacts["parameter_set"] = str(ps_path)
+        elif best_state is not None:
+            # Auditoría C4 ronda 2 [ALTA-2]: un entrenamiento por encima del
+            # umbral PESOS_GRANDES devolvía best_params=None y el adapter no
+            # persistía NADA — los pesos entrenados se perdían. Se guardan en
+            # el formato binario PESOS_GRANDES (.mxw, atómico, con hashes).
+            from matrixai.parameters.binary_store import write_mxw
+            mxw_path = out / "weights.mxw"
+            write_mxw(
+                mxw_path, best_state,
+                model_hash=mhash,
+                parameter_schema_hash=ps.parameter_schema_hash,
+            )
+            artifacts["weights_mxw"] = str(mxw_path)
 
         trace_path = out / "training_trace.json"
         trace_path.write_text(
@@ -180,6 +215,8 @@ class TransformerSupervisedTrainer:
                 "backend": tr["backend"],
                 "device": tr["device"],
                 "materialized": best_ps is not None,
+                "n_train": tr["n_train"],
+                "n_val": tr["n_val"],
             }, indent=2),
             encoding="utf-8",
         )

@@ -48,6 +48,7 @@ def train_composite_network_torch(
     materialize: bool | None = None,
     output_name: str = "",
     initial_state_dict: dict[str, Any] | None = None,
+    validation_examples: list[tuple[dict[str, Any], list[float]]] | None = None,
 ) -> dict[str, Any]:
     """Train a composite_network via torch autograd with batched forward.
 
@@ -106,8 +107,16 @@ def train_composite_network_torch(
         _load_state_into_module(module, initial_state_dict)
     module.to(device)
 
-    split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
-    train_ex, val_ex = examples[:split], (examples[split:] or examples[:split])
+    # Auditoría C4 ronda 2 [MEDIA-2]: particiones EXPLÍCITAS del caller (el
+    # adapter CLI aplica el DATASET SPLIT declarado) — con validation_examples,
+    # `examples` es TODO train y no se re-parte por posición.
+    if validation_examples is not None:
+        if not validation_examples:
+            raise CompositeTorchTrainError("validation_examples must be non-empty")
+        train_ex, val_ex = examples, validation_examples
+    else:
+        split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
+        train_ex, val_ex = examples[:split], (examples[split:] or examples[:split])
 
     input_keys = list(examples[0][0].keys())
     if is_transformer:
@@ -184,6 +193,24 @@ def train_composite_network_torch(
     best_val_loss = float("inf")
     best_epoch = 1
     best_state = _snapshot()
+    # Auditoría C4 ronda 2 [MEDIA-1] — línea base de época 0 al REANUDAR
+    # (espejo del trainer denso): sin ella, best_val_loss arranca en inf y la
+    # época 1 siempre "gana" aunque haya EMPEORADO los pesos de partida (lr
+    # alto, pocas épocas). Con la base, si ninguna época mejora el punto de
+    # partida se devuelven los pesos iniciales intactos (best_epoch=0) —
+    # reanudar no pierde el estado previo. Solo warm-start: init fresco intacto.
+    if initial_state_dict is not None:
+        module.eval()
+        with torch.no_grad():
+            baseline_sum = 0.0
+            for vstart in range(0, len(val_ex), bs):
+                vend = min(vstart + bs, len(val_ex))
+                vslice = slice(vstart, vend)
+                baseline_sum += float(
+                    _batch_loss(val_named, val_targets, vslice, training=False).detach()
+                ) * (vend - vstart)
+        best_val_loss = baseline_sum / max(1, len(val_ex))
+        best_epoch = 0
     epoch_trace: list[dict[str, Any]] = []
     no_improve = 0
     patience = early_stop[0] if early_stop else None
@@ -273,6 +300,8 @@ def train_composite_network_torch(
             "best_state_dict": best_state_dict,
             "param_count": param_count,
             "optimizer": opt_name,
+            "n_train": len(train_ex),
+            "n_val": len(val_ex),
             "epochs": epoch_trace,
             "best_val_loss": best_val_loss,
             "best_epoch": best_epoch,

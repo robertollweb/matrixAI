@@ -1721,6 +1721,17 @@ def _cmd_train(args) -> int:
         _prog = parse_file(args.file)
         _nets = getattr(_prog, "networks", [])
         if _nets and getattr(_nets[0], "transformer_blocks", []):
+            # Auditoría C4 ronda 2 [ALTA-1]: torch es EL backend del bloque —
+            # un --backend stdlib EXPLÍCITO se rechaza (no se ignora en
+            # silencio); sin flag, el default resuelto se acepta porque el
+            # trainer del transformer es torch de todos modos.
+            if args.backend == "stdlib":
+                print(
+                    "Training error: BLOCK TRANSFORMER requires --backend torch "
+                    "(the stdlib backend has no transformer trainer — invariante 6)",
+                    file=sys.stderr,
+                )
+                return 1
             from matrixai.training.transformer_trainer import TransformerSupervisedTrainer
             trainer: Any = TransformerSupervisedTrainer()
         elif resolved.target == "torch":
