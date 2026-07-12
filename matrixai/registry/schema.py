@@ -31,7 +31,10 @@ class RegistryEntry:
     interpretability_level: str      # "full" | "reduced" | "very_reduced"
     training_trace_hash: str = ""    # sha256:... stored to enable re-verification
     evaluation_report_hash: str = "" # sha256:... required for push
-    params_content_hash: str = ""   # sha256:... of full params.json bytes; enables file-level tamper detection
+    params_content_hash: str = ""   # sha256:... of full params.json bytes, or of the
+                                     # weights.mxw body (TRANSFORMER C6 / PESOS_GRANDES,
+                                     # covers weights above the materialization threshold);
+                                     # enables file-level tamper detection
     blockers: list[str] = field(default_factory=list)  # non-empty → propagated as errors by BackendContractAnalyzer
 
     def to_manifest(self) -> dict[str, Any]:

@@ -69,6 +69,11 @@ class VerifierAgent:
 
     def _declared_nodes(self, program: MatrixAIProgram) -> set[str]:
         nodes = {vector.name for vector in program.vectors}
+        # TRANSFORMER C6: SEQUENCE es un input de GRAPH tan válido como VECTOR
+        # (BLOCK TRANSFORMER, contrato 51) — faltaba desde C1 y solo lo
+        # detectó el cierre duro (mx export-bundle sobre un .mxai real con
+        # GRAPH Texto -> N, antes rechazado como "undeclared node").
+        nodes.update(sequence.name for sequence in getattr(program, "sequences", []))
         nodes.update(function.name for function in program.functions)
         nodes.update(distribution.name for distribution in program.distributions)
         nodes.update(action.name for action in program.actions)

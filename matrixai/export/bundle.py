@@ -21,6 +21,7 @@ from matrixai.export.inference_spec import (
     build_inference_spec,
     build_example_input,
     InferenceSpecError,
+    _matrixai_version,
 )
 
 # The standalone predict.py shipped inside every usable bundle (copied verbatim).
@@ -411,6 +412,7 @@ def _run_prediction(bundle_work: Path, record: dict[str, Any]) -> Any | None:
 
 def _build_model_manifest(program: MatrixAIProgram, parameter_set: ParameterSet) -> dict:
     from matrixai.compiler import BackendContractAnalyzer
+    from matrixai.parameters.network_params import transformer_block_export_metadata
     report = BackendContractAnalyzer().analyze(program)
     inputs: list[dict] = []
     for v in program.vectors:
@@ -419,8 +421,9 @@ def _build_model_manifest(program: MatrixAIProgram, parameter_set: ParameterSet)
     for s in program.sequences:
         inputs.append({"kind": "sequence", "name": s.name, "length": s.length,
                        "vocab_size": s.vocab_size, "dtype": "int64"})
-    return {
+    manifest: dict[str, Any] = {
         "project": program.project,
+        "matrixai_version": _matrixai_version(),
         "model_hash": parameter_set.model_hash,
         "parameter_schema_hash": parameter_set.parameter_schema_hash,
         "parameter_set_id": parameter_set.parameter_set_id,
@@ -449,6 +452,13 @@ def _build_model_manifest(program: MatrixAIProgram, parameter_set: ParameterSet)
         },
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    transformer_entry = next(
+        (e for e in report.layer_manifest if e.get("layer_type") == "TransformerBlock"),
+        None,
+    )
+    if transformer_entry is not None and "layers" in transformer_entry:
+        manifest["transformer_block"] = transformer_block_export_metadata(transformer_entry)
+    return manifest
 
 
 def _write_export_manifest_no_eq(export_result: OnnxExportResult, path: Path) -> None:

@@ -152,6 +152,29 @@ def read_mxw_header(path: str | Path) -> dict[str, Any]:
     return header
 
 
+def mxw_body_content_hash(path: str | Path) -> str:
+    """Recalcula el `content_hash` del CUERPO de un `.mxw` en streaming
+    (chunks de `_CHUNK_BYTES`), sin traer el fichero entero a RAM de una vez
+    — a diferencia de `read_mxw(verify=True)`, que hace `body = f.read()`
+    completo. TRANSFORMER C6 / registro P21: `ModelRegistry.verify()` necesita
+    re-derivar el hash desde los bytes reales (detectar tamper de verdad, no
+    solo comparar la cabecera consigo misma) sin romper el presupuesto de
+    memoria que PESOS_GRANDES protege en el resto del pipeline."""
+    path = Path(path)
+    if not path.exists():
+        raise MxwError(f"{path}: fichero .mxw no encontrado")
+    hasher = hashlib.sha256()
+    with open(path, "rb") as f:
+        _header, body_start = _read_header(f, path)
+        f.seek(body_start)
+        while True:
+            chunk = f.read(_CHUNK_BYTES)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 def read_mxw_header_and_body_start(path: str | Path) -> tuple[dict[str, Any], int]:
     """Como `read_mxw_header` pero devuelve también el offset (bytes) donde
     empieza el cuerpo — necesario para `stream_mxw_tensor` (leer un tensor

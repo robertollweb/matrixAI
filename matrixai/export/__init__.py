@@ -9,6 +9,7 @@ from matrixai.export.onnx_exporter import (
     export_onnx_graph_external,
     export_dense_onnx_graph_external,
     onnx_size_limit_error,
+    validate_export_parameter_set,
 )
 from matrixai.export.equivalence import (
     OnnxEquivalenceError,
@@ -44,6 +45,7 @@ __all__ = [
     "export_onnx_graph_external",
     "export_dense_onnx_graph_external",
     "onnx_size_limit_error",
+    "validate_export_parameter_set",
     "OnnxEquivalenceError",
     "OnnxEquivalenceResult",
     "OnnxEquivalenceValidator",

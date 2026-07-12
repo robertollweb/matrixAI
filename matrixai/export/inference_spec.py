@@ -317,6 +317,20 @@ def _build_sequence_inference_spec(
         if layer.layer_type == "Pool"
     ]
     pool_kind = pool_kinds[0] if pool_kinds else None
+
+    # TRANSFORMER C6: metadata de auditoría del bloque (§"C6 — Auditoría del
+    # bloque"). layer_manifest ya trae la arquitectura resuelta calculada por
+    # el mismo camino que exporta a ONNX (single source of truth) — un
+    # typecheck sucio aquí sería un bug en un caller previo (export ya lo
+    # habría rechazado), así que un KeyError es el fallo correcto.
+    from matrixai.compiler import BackendContractAnalyzer
+    from matrixai.parameters.network_params import transformer_block_export_metadata
+    block_entry = next(
+        e for e in BackendContractAnalyzer().analyze(program).layer_manifest
+        if e.get("layer_type") == "TransformerBlock" and e.get("network") == net.name
+    )
+    transformer_block = transformer_block_export_metadata(block_entry)
+
     spec: dict[str, Any] = {
         "spec_version": SPEC_VERSION,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -344,6 +358,7 @@ def _build_sequence_inference_spec(
         "mask_shape": list(export_result.input_shape),
         "mask_semantics": "1.0 = real token, 0.0 = padding; all-ones if no padding",
         "pool_kind": pool_kind,
+        "transformer_block": transformer_block,
         "output": _build_output(program, export_result, labels),
     }
     if "cls" in pool_kinds:

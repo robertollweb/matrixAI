@@ -45,6 +45,7 @@ from matrixai.export import (
     export_onnx,
     export_wasm,
     ort_available,
+    validate_export_parameter_set,
     validate_onnx_equivalence,
     write_export_manifest,
 )
@@ -2049,7 +2050,12 @@ def _cmd_export_onnx(args) -> int:
                 print(f"Export error: model {args.file} did not pass validation", file=sys.stderr)
             return validation_code
         parameter_set = load_parameter_set(args.params)
-        parameter_validation = validate_parameter_set(program, parameter_set)
+        # TRANSFORMER C6: validate_parameter_set (generic, dense/function-only)
+        # rejects any composite ParameterSet whose differentiable_python
+        # forward is deliberately unsupported — true by design for a
+        # transformer block (invariante 6, torch-only). validate_export_parameter_set
+        # dispatches composite networks to their dedicated validator instead.
+        parameter_validation = validate_export_parameter_set(program, parameter_set)
         if not parameter_validation.ok:
             for error in parameter_validation.errors:
                 print(f"Parameter error: {error}", file=sys.stderr)
@@ -2218,7 +2224,10 @@ def _cmd_export_bundle(args) -> int:
             print(f"Export error: model {args.file} did not pass validation", file=sys.stderr)
             return validation_code
         parameter_set = load_parameter_set(args.params)
-        parameter_validation = validate_parameter_set(program, parameter_set)
+        # TRANSFORMER C6: see export-onnx above — composite networks (including
+        # the transformer block) need the dedicated dispatcher, not the
+        # generic dense/function-only validator.
+        parameter_validation = validate_export_parameter_set(program, parameter_set)
         if not parameter_validation.ok:
             for error in parameter_validation.errors:
                 print(f"Parameter error: {error}", file=sys.stderr)
@@ -2272,7 +2281,8 @@ def _cmd_export_wasm(args) -> int:
             print(f"Export error: model {args.file} did not pass validation", file=sys.stderr)
             return validation_code
         parameter_set = load_parameter_set(args.params)
-        parameter_validation = validate_parameter_set(program, parameter_set)
+        # TRANSFORMER C6: see export-onnx above.
+        parameter_validation = validate_export_parameter_set(program, parameter_set)
         if not parameter_validation.ok:
             for error in parameter_validation.errors:
                 print(f"Parameter error: {error}", file=sys.stderr)

@@ -361,6 +361,46 @@ def transformer_block_param_count(
     return total
 
 
+# TRANSFORMER_BLOQUE_CONTRACT C6: versión de la fórmula de lowering del bloque
+# (arquitectura §"Gramática"/"Invariantes"). Se sube solo si esa matemática
+# cambia de forma incompatible — nunca por cambios de metadata o de export.
+TRANSFORMER_BLOCK_VERSION = "matrixai.transformer_block.v1"
+
+
+def transformer_block_export_metadata(entry: dict[str, Any]) -> dict[str, Any]:
+    """Metadata pública de auditoría de un BLOCK TRANSFORMER (TRANSFORMER C6).
+
+    `entry` es la entrada `layer_type == "TransformerBlock"` que
+    `BackendContractAnalyzer` ya construye en `layer_manifest`
+    (`compiler/backend_contract.py::_build_composite_network_layer_manifest`)
+    — única fuente de verdad para arquitectura y param_count, reempaquetada
+    aquí con los nombres de la lista del borrador (49_borrador...md, menos
+    optimizador/scheduler, que viven en .mxtrain/evaluation_report). No
+    recalcula nada O(params): reusa `entry["param_count"]` (fórmula cerrada)
+    y `entry["parameters"]` (shapes/paths, sin valores).
+
+    "backend" es siempre "torch": es el único backend que entrena/ejecuta un
+    bloque transformer en producción (invariante 6 — el stdlib es solo
+    referencia de test, capado por REFERENCE_STDLIB_MAX_PARAMS).
+    """
+    return {
+        "block_version": TRANSFORMER_BLOCK_VERSION,
+        "layers": entry["layers"],
+        "heads": entry["heads"],
+        "embedding_dim": entry["dim"],
+        "feed_forward_dim": entry["ff"],
+        "dropout": entry["dropout"],
+        "activation": entry["activation"],
+        "positional_encoding": entry["pos"],
+        "initialization": sorted({p["initializer"] for p in entry["parameters"]}),
+        "param_count_total": entry["param_count"],
+        "param_count_trainable": manifest_scalar_count(
+            [p for p in entry["parameters"] if p.get("trainable")]
+        ),
+        "backend": "torch",
+    }
+
+
 def _append_composite_layer_params(
     manifest: list[dict[str, Any]],
     function_name: str,

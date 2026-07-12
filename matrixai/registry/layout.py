@@ -15,6 +15,7 @@ ENTRY_FILES: dict[str, str] = {
     "manifest":           "manifest.json",
     "model":              "model.mxai",
     "params":             "params.json",
+    "weights_mxw":        "weights.mxw",
     "training_trace":     "training_trace.json",
     "evaluation_report":  "evaluation_report.json",
     "signature":          "signature.json",
