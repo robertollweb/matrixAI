@@ -186,11 +186,41 @@ class BackendNodeReport:
     # execution_supported=False — y producía un JSON incoherente:
     # unsupported_nodes conteniendo "supported": true.)
     lowering_supported: bool | None = None
+    # Auditoría C4 [ALTA-3]: capacidades SEPARADAS por flujo (recomendación del
+    # auditor). El flip global supported=True de C4 abría rutas que NO ejecutan
+    # el nodo (TorchForwardRunner omite NETWORKs en silencio). `supported`
+    # vuelve al agregado conservador (True solo si TODO funciona); cada flujo
+    # consulta SU capacidad: TrainingVerifier → training_ok, TorchForwardRunner
+    # → forward_ok, exporters → export_ok. None = igual que supported (nodos
+    # legacy intactos). Transformer tras C4: training=True (trainer torch),
+    # forward=False (el runner de programa no tiene rama NETWORK), export=False
+    # (ONNX en C5) → supported=False.
+    training_supported: bool | None = None
+    forward_supported: bool | None = None
+    export_supported: bool | None = None
 
     @property
     def lowering_ok(self) -> bool:
         if self.lowering_supported is not None:
             return self.lowering_supported
+        return self.supported
+
+    @property
+    def training_ok(self) -> bool:
+        if self.training_supported is not None:
+            return self.training_supported
+        return self.supported
+
+    @property
+    def forward_ok(self) -> bool:
+        if self.forward_supported is not None:
+            return self.forward_supported
+        return self.supported
+
+    @property
+    def export_ok(self) -> bool:
+        if self.export_supported is not None:
+            return self.export_supported
         return self.supported
 
     def to_dict(self) -> dict[str, Any]:
@@ -202,6 +232,13 @@ class BackendNodeReport:
         }
         if self.lowering_supported is not None:
             data["lowering_supported"] = self.lowering_supported
+        for cap_name, cap in (
+            ("training_supported", self.training_supported),
+            ("forward_supported", self.forward_supported),
+            ("export_supported", self.export_supported),
+        ):
+            if cap is not None:
+                data[cap_name] = cap
         if self.kind:
             data["kind"] = self.kind
         if self.output_shape is not None:
@@ -730,25 +767,30 @@ class BackendContractAnalyzer:
                         + "; ".join(type_result.errors[:3])
                     ),
                 )
-            # TRANSFORMER C4: el trainer torch existe (train/evaluate composite
-            # con el bloque, Adam, extracción de pesos con puerta PESOS_GRANDES)
-            # — la ejecución queda soportada y report.ok deja de bloquear. Los
-            # caminos aún pendientes fallan cerrado por su cuenta: export ONNX
-            # (C5) y forward stdlib de producto (nunca, invariante 6 — el
-            # composite_forward lanza y redirige a la referencia).
+            # TRANSFORMER C4 + auditoría [ALTA-3]: capacidades separadas. El
+            # trainer torch existe → training_supported=True (TrainingVerifier
+            # deja pasar el flujo de entrenamiento); el runner de programa
+            # (TorchForwardRunner) NO tiene rama NETWORK → forward=False; el
+            # export ONNX llega en C5 → export=False. `supported` (agregado
+            # global) queda False: el flip anterior a True abría el runner, que
+            # devolvía éxito OMITIENDO la red en silencio.
             output_shape = self._composite_output_shape(type_result)
             return BackendNodeReport(
                 node=network.name,
                 node_type="composite_network",
-                supported=True,
+                supported=False,
                 differentiable=True,
                 lowering_supported=True,
+                training_supported=True,
+                forward_supported=False,
+                export_supported=False,
                 kind="composite_network",
                 output_shape=output_shape,
                 reason=(
-                    "composite network with BLOCK TRANSFORMER — manifest (C2), "
-                    "torch module (C3) and torch trainer (C4) available; ONNX "
-                    "export lands in TRANSFORMER_BLOQUE C5"
+                    "composite network with BLOCK TRANSFORMER — training available "
+                    "(manifest C2, torch module C3, torch trainer C4); program-level "
+                    "forward runner has no NETWORK branch and ONNX export lands in "
+                    "TRANSFORMER_BLOQUE C5"
                 ),
             )
         # Audit round 2 (2026-07-10): a SEQUENCE-input composite WITHOUT a

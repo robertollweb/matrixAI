@@ -66,7 +66,20 @@ class TorchSupervisedTrainer(SupervisedTrainer):
             raise ValueError(str(exc)) from exc
         weights = initial_tensors["W1"].detach().clone().to(device).requires_grad_(True)
         bias = initial_tensors["b1"].detach().clone().to(device).requires_grad_(True)
-        optimizer = torch.optim.SGD([weights, bias], lr=training.optimizer.learning_rate)
+        # Auditoría C4 [ALTA-1]: honrar el TYPE declarado — antes se instanciaba
+        # SGD incondicionalmente y un .mxtrain con adam entrenaba con sgd en
+        # silencio (declared adam / actual sgd). Tipo desconocido → error, nunca
+        # sustitución silenciosa (el verifier ya lo rechaza; defensa en capa).
+        opt_type = training.optimizer.type
+        if opt_type == "adam":
+            optimizer = torch.optim.Adam([weights, bias], lr=training.optimizer.learning_rate)
+        elif opt_type == "sgd":
+            optimizer = torch.optim.SGD([weights, bias], lr=training.optimizer.learning_rate)
+        else:
+            raise ValueError(
+                f"OPTIMIZER TYPE {opt_type!r} is not implemented by the torch "
+                f"backend (supported: sgd, adam)"
+            )
 
         examples = adapter.examples()
         train_examples, validation_examples = self._split_examples(examples, training)

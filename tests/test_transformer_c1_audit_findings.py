@@ -155,22 +155,23 @@ GRAPH
 END
 """
 
-    def test_backend_reports_supported_after_c4(self):
-        # Historia del hallazgo: ALTA-3 exigía fail-closed MIENTRAS no hubiera
-        # trainer. C2 dejó supported=False + lowering_supported=True; C4 entrega
-        # el trainer torch (train/evaluate + Adam + extracción de pesos) y la
-        # ejecución queda soportada — el invariante vivo es que los caminos aún
-        # pendientes (export ONNX C5, forward stdlib de producto) siguen
-        # fallando cerrado por su cuenta.
+    def test_backend_capabilities_after_c4_audit(self):
+        # Historia del hallazgo: ALTA-3 (C1) exigía fail-closed sin trainer;
+        # C4 flipó supported=True y la auditoría C4 [ALTA-3] demostró que eso
+        # abría TorchForwardRunner (sin rama NETWORK → omitía la red en
+        # silencio). Estado final: capacidades SEPARADAS — training sí (C4),
+        # forward/export no; supported (agregado) vuelve a False y report.ok
+        # bloquea las rutas que NO ejecutan el nodo.
         prog = parse_text(self._SRC)
         report = BackendContractAnalyzer().analyze(prog)
-        assert report.ok is True
         node = next(n for n in report.nodes if n.node == "N")
-        assert node.supported is True
-        assert node.lowering_supported is True
+        assert node.supported is False        # agregado conservador
+        assert node.training_ok is True       # trainer torch (C4)
+        assert node.forward_ok is False       # runner sin rama NETWORK
+        assert node.export_ok is False        # ONNX en C5
         assert node.lowering_ok is True
         assert node.differentiable is True
-        assert "TRANSFORMER_BLOQUE C5" in node.reason
+        assert report.ok is False
 
     def test_trainable_parameters_now_exposed_by_c2(self):
         # (Antes de C2 este test afirmaba lista vacía; C2 entrega el manifest,

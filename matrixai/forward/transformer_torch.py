@@ -451,6 +451,61 @@ def _TransformerNetworkModule(
     return cls(network, type_result, parameter_set, dtype)
 
 
+def _load_state_into_module(module: Any, state_dict: dict[str, Any]) -> None:
+    """Carga un state_dict PESOS_GRANDES (claves del ParameterSet → tensores)
+    en el registro path_tensors del módulo, validando paths y shapes."""
+    import torch
+    path_tensors = getattr(module, "path_tensors", None)
+    if path_tensors is None:
+        raise TransformerTorchError(
+            "state_dict loading requires a module with a path_tensors registry"
+        )
+    expected = set(path_tensors)
+    got = set(state_dict)
+    if expected != got:
+        missing = sorted(expected - got)[:3]
+        extra = sorted(got - expected)[:3]
+        raise TransformerTorchError(
+            f"state_dict paths do not match the network manifest — "
+            f"missing: {missing}, unexpected: {extra}"
+        )
+    with torch.no_grad():
+        for path, tensor in path_tensors.items():
+            source = torch.as_tensor(state_dict[path], dtype=tensor.dtype)
+            if source.shape != tensor.shape:
+                raise TransformerTorchError(
+                    f"state_dict tensor {path!r} shape {list(source.shape)} != "
+                    f"module tensor shape {list(tensor.shape)}"
+                )
+            tensor.copy_(source)
+
+
+def transformer_network_to_torch_module_from_state(
+    network: Any,
+    type_result: Any,
+    state_dict: dict[str, Any],
+    output_name: str = "",
+    dtype: Any = None,
+) -> Any:
+    """Auditoría C4 [MEDIA-1] — reconstruir el módulo desde un best_state_dict
+    PESOS_GRANDES (espejo de dense_network_to_torch_module_from_state): sin él,
+    el resultado no-materializado del trainer no podía recargarse ni evaluarse.
+    Construye la estructura con la plantilla with_values=False y carga los
+    tensores del estado validando paths y shapes contra el manifest."""
+    from matrixai.parameters.network_params import (
+        build_composite_network_parameter_set,
+    )
+    template = build_composite_network_parameter_set(
+        network, type_result, model_hash_str="", with_values=False,
+        output_name=output_name,
+    )
+    module = transformer_network_to_torch_module(
+        network, type_result, template, dtype=dtype, output_name=output_name,
+    )
+    _load_state_into_module(module, state_dict)
+    return module
+
+
 def transformer_encoder_layer_class() -> Any:
     """La clase de capa del encoder (para los tests de paridad externa C3 —
     el producto SIEMPRE entra por transformer_network_to_torch_module)."""

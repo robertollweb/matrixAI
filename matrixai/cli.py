@@ -1714,11 +1714,19 @@ def _cmd_train(args) -> int:
             print(f"Training error: {device_error}", file=sys.stderr)
             return 1
         training = dataclasses.replace(training, backend=resolved)
-        if resolved.target == "torch":
-            trainer: Any = TorchSupervisedTrainer()
+        # Auditoría C4 [ALTA-2]: un programa con BLOCK TRANSFORMER entrena por
+        # su trainer dedicado (torch es SU backend, invariante 6) sea cual sea
+        # el backend pedido — antes el CLI seleccionaba trainers que exigen un
+        # VECTOR y la SEQUENCE moría antes de llegar al trainer de C4.
+        _prog = parse_file(args.file)
+        _nets = getattr(_prog, "networks", [])
+        if _nets and getattr(_nets[0], "transformer_blocks", []):
+            from matrixai.training.transformer_trainer import TransformerSupervisedTrainer
+            trainer: Any = TransformerSupervisedTrainer()
+        elif resolved.target == "torch":
+            trainer = TorchSupervisedTrainer()
         else:
-            _prog = parse_file(args.file)
-            trainer = DenseSupervisedTrainer() if getattr(_prog, "networks", []) else SupervisedTrainer()
+            trainer = DenseSupervisedTrainer() if _nets else SupervisedTrainer()
         result = trainer.train(
             training,
             output_dir=args.output,

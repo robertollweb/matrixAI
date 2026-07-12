@@ -90,9 +90,19 @@ class TrainingVerifier:
         if program is not None:
             errors.extend(self._verify_program_contract(training, program))
             backend_report = BackendContractAnalyzer().analyze(program)
-            if not backend_report.ok:
-                blocked = ", ".join(node.node for node in backend_report.unsupported_nodes)
-                errors.append(f"MODEL is not portable to differentiable backend: {blocked}")
+            # Auditoría C4 [ALTA-3]: este verificador gatea el flujo de
+            # ENTRENAMIENTO — consulta la capacidad training_ok, no el agregado
+            # global supported (un transformer entrena vía torch aunque el
+            # forward runner de programa o el export sigan cerrados). Para los
+            # nodos legacy training_ok == supported: comportamiento idéntico.
+            training_blocked = [
+                node.node for node in backend_report.nodes if not node.training_ok
+            ]
+            if training_blocked:
+                errors.append(
+                    "MODEL is not portable to differentiable backend: "
+                    + ", ".join(training_blocked)
+                )
             trainable_parameters = [parameter.to_dict() for parameter in backend_report.trainable_parameters]
             errors.extend(self._verify_updates(training, trainable_parameters))
             differentiability_report = DifferentiabilityVerifier().verify(training, program, backend_report)
@@ -125,11 +135,24 @@ class TrainingVerifier:
     def _verify_program_contract(self, training: TrainingSpec, program: MatrixAIProgram) -> list[str]:
         errors: list[str] = []
         vector = next((item for item in program.vectors if item.name == training.dataset.input.vector), None)
-        if vector is None:
-            errors.append(f"INPUT vector not found in MODEL: {training.dataset.input.vector}")
-        elif training.dataset.input.columns != vector.fields:
+        sequence = next(
+            (item for item in program.sequences if item.name == training.dataset.input.vector),
+            None,
+        )
+        if vector is None and sequence is None:
+            errors.append(
+                f"INPUT vector not found in MODEL: {training.dataset.input.vector}"
+            )
+        elif vector is not None and training.dataset.input.columns != vector.fields:
             errors.append(
                 f"INPUT columns for {vector.name} must match VECTOR fields {vector.fields}, got {training.dataset.input.columns}"
+            )
+        elif sequence is not None and len(training.dataset.input.columns) != sequence.length:
+            # Auditoría C4 [ALTA-2]: el DATASET puede alimentar una SEQUENCE
+            # (token-ids pre-tokenizados, una columna por posición).
+            errors.append(
+                f"INPUT columns for SEQUENCE {sequence.name} must be one per "
+                f"position ({sequence.length}), got {len(training.dataset.input.columns)}"
             )
 
         prediction_function = self._prediction_function(program, training.loss.prediction)

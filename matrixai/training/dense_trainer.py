@@ -102,6 +102,14 @@ class DenseSupervisedTrainer:
         net = program.networks[0]
         loss_fn = training.loss.type if training.loss else "mse"
         lr = training.optimizer.learning_rate if training.optimizer else 0.01
+        # Auditoría C4 [ALTA-1]: este trainer stdlib SOLO implementa sgd — un
+        # TYPE distinto falla cerrado, nunca se sustituye en silencio.
+        opt_type = training.optimizer.type if training.optimizer else "sgd"
+        if opt_type != "sgd":
+            raise ValueError(
+                f"OPTIMIZER TYPE {opt_type!r} is not implemented by the stdlib "
+                f"dense trainer (sgd only) — use --backend torch"
+            )
         epochs = training.run.epochs if training.run else 50
         # Early stopping: the only metric this trainer computes is validation_loss,
         # so any declared metric maps to it. best_ps already implements save_best.

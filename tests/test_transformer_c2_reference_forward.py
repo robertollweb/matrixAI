@@ -429,23 +429,27 @@ END
         # VERDE: la matemática/lowering están completas (criterio C2)
         assert result.ok, result.errors
 
-    def test_node_supported_after_c4_trainer(self):
-        """(Hasta C4 este test fijaba supported=False/report.ok=False — el
-        trainer torch de C4 abre la ejecución. El contrato público sigue
-        coherente: el nodo ya NO aparece en unsupported_nodes y el resumen lo
-        marca ok; los caminos pendientes —ONNX C5, stdlib producto— fallan
-        cerrado por su cuenta.)"""
+    def test_node_capabilities_after_c4_audit(self):
+        """(El flip supported=True de C4 fue REVERTIDO por la auditoría C4
+        [ALTA-3]: abría TorchForwardRunner sin rama NETWORK. Capacidades
+        separadas: training sí, forward/export no; el contrato público queda
+        coherente — el nodo aparece bloqueado en unsupported_nodes/summary y
+        el flujo de ENTRENAMIENTO gatea aparte por training_ok.)"""
         prog = parse_text(_mxai())
         report = BackendContractAnalyzer().analyze(prog)
         node = next(n for n in report.nodes if n.node == "N")
         assert node.differentiable is True
-        assert node.supported is True              # trainer torch (C4)
-        assert node.lowering_supported is True     # matemática/lowering C2
+        assert node.supported is False
+        assert node.training_ok is True
+        assert node.forward_ok is False
         assert node.lowering_ok is True
-        assert report.ok is True
-        assert node not in report.unsupported_nodes
-        assert "TRANSFORMER_BLOQUE C5" in node.reason
-        assert "N (composite_network [composite_network]): ok" in report.summary()
+        assert report.ok is False
+        assert node in report.unsupported_nodes
+        payload = report.to_dict()
+        blocked = next(n for n in payload["unsupported_nodes"] if n["node"] == "N")
+        assert blocked["supported"] is False
+        assert blocked["training_supported"] is True
+        assert "N (composite_network [composite_network]): blocked" in report.summary()
 
     def test_parameter_set_builds_and_validates(self):
         from matrixai.parameters.network_params import (

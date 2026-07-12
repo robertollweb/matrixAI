@@ -1180,6 +1180,8 @@ def _dense_torch_train_result(
 
     loss_fn = training.loss.type if training.loss else "mse"
     lr = training.optimizer.learning_rate if training.optimizer else 0.01
+    # Auditoría C4 [ALTA-1]: propagar el TYPE al trainer real o fallar cerrado.
+    dense_opt_type = training.optimizer.type if training.optimizer else "sgd"
     epochs = spec.run.epochs if spec.run else (training.run.epochs if training.run else 50)
     patience = spec.run.early_stop_patience if spec.run else None
     # Honor explicit BATCH size from the training spec (overrides the trainer default).
@@ -1223,6 +1225,7 @@ def _dense_torch_train_result(
             early_stop=(patience, "validation_loss") if patience else None,
             device=device, seed=seed, batch_size=batch_size,
             epoch_callback=_torch_cb, cancel_check=cancel_check,
+            optimizer=dense_opt_type,
             # PESOS_GRANDES C3: `materialize` sin fijar → el trainer decide por
             # umbral (`torch_native_min_params`). Por debajo materializa (igual que
             # siempre, `best_params`); por encima devuelve `best_state_dict`
@@ -1481,6 +1484,10 @@ def _run_playground_composite_training(
 
         loss_fn = training.loss.type if training.loss else "mse"
         lr = training.optimizer.learning_rate if training.optimizer else 0.01
+        # Auditoría C4 [ALTA-1]: el TYPE declarado debe llegar al trainer real
+        # o fallar — antes se ignoraba y un .mxtrain con adam entrenaba con
+        # sgd en silencio (declared adam / actual sgd).
+        opt_type = training.optimizer.type if training.optimizer else "sgd"
         epochs = epochs_override if epochs_override is not None else (training.run.epochs if training.run else 50)
         patience = training.run.early_stop_patience if training.run else None
         batch_size: int | None = (
@@ -1536,6 +1543,7 @@ def _run_playground_composite_training(
                 early_stop=(patience, "validation_loss") if patience else None,
                 device=device, seed=seed, batch_size=batch_size,
                 epoch_callback=_torch_cb, cancel_check=cancel_check,
+                optimizer=opt_type,
             )
             best_ps = tr["best_params"]
             best_epoch = tr["best_epoch"]
@@ -1547,6 +1555,17 @@ def _run_playground_composite_training(
                   f"(ejemplos={len(examples)}, VRAM pico={peak_vram_gb} GB)")
             backend_label = device  # "cuda" | "cpu"
         else:
+            # Auditoría C4 [ALTA-1]: el trainer stdlib composite SOLO implementa
+            # sgd — cualquier otro TYPE falla cerrado, nunca se sustituye.
+            if opt_type != "sgd":
+                return {
+                    "ok": False,
+                    "error": (
+                        f"OPTIMIZER {opt_type} requiere el backend torch "
+                        f"(no está instalado); el trainer stdlib composite "
+                        f"solo implementa sgd"
+                    ),
+                }
             best_ps = ps
             best_val_loss = float("inf")
             best_epoch = 1

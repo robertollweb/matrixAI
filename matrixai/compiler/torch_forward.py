@@ -32,8 +32,20 @@ class TorchForwardRunner:
     ) -> dict[str, Any]:
         self._validate_config()
         report = BackendContractAnalyzer(target="torch").analyze(program)
-        if not report.ok:
-            issues = [node.node for node in report.unsupported_nodes] + list(report.parameter_errors)
+        # Auditoría C4 [ALTA-3]: este runner ejecuta el mundo LAYER/FUNCTION y
+        # no tiene rama para NETWORKs — gatea por la capacidad forward_ok de
+        # cada nodo además del agregado (para nodos legacy forward_ok ==
+        # supported: idéntico). Sin esto, un programa con una red cuyo
+        # entrenamiento sí está soportado devolvería "éxito" OMITIENDO la red
+        # y su salida en silencio.
+        forward_blocked = [node.node for node in report.nodes if not node.forward_ok]
+        if not report.ok or forward_blocked:
+            issues = sorted(
+                set(
+                    [node.node for node in report.unsupported_nodes]
+                    + forward_blocked
+                )
+            ) + list(report.parameter_errors)
             raise TorchForwardError(
                 f"Program {program.project} is not portable to torch forward: {', '.join(issues)}"
             )

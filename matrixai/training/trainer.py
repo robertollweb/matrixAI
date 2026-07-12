@@ -47,6 +47,13 @@ class SupervisedTrainer:
         model_path = Path(report.model_path)
         dataset_path = Path(report.dataset_path)
         program = parse_file(model_path)
+        # Auditoría C4 [ALTA-1]: el trainer stdlib SOLO implementa sgd — un
+        # TYPE distinto falla cerrado, nunca se sustituye en silencio.
+        if training.optimizer.type != "sgd":
+            raise ValueError(
+                f"OPTIMIZER TYPE {training.optimizer.type!r} is not implemented "
+                f"by the stdlib backend (sgd only) — use --backend torch"
+            )
         vector = self._training_vector(program, training)
         classifier = self._classifier(program, training)
         objective = self._objective(training, classifier)

@@ -46,6 +46,8 @@ def train_composite_network_torch(
     optimizer: str | None = None,
     pad_id: int | None = None,
     materialize: bool | None = None,
+    output_name: str = "",
+    initial_state_dict: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Train a composite_network via torch autograd with batched forward.
 
@@ -87,7 +89,21 @@ def train_composite_network_torch(
 
     torch.manual_seed(seed)
     enable_tf32_if_cuda(device)  # M15(c): tensor cores en A100/Ada
-    module = composite_network_to_torch_module(network, parameter_set, type_result)
+    # output_name participa en el hash de esquema (residual-2 de la re-auditoría
+    # C3): debe llegar hasta el builder o un set construido con output_name
+    # fallaría aquí con un mismatch engañoso.
+    module = composite_network_to_torch_module(
+        network, parameter_set, type_result, output_name
+    )
+    # Auditoría C4 [MEDIA-1]: reanudar desde un best_state_dict PESOS_GRANDES
+    # (espejo del initial_state_dict del trainer denso).
+    if initial_state_dict is not None:
+        if not is_transformer:
+            raise CompositeTorchTrainError(
+                "initial_state_dict is only supported for transformer networks (C4)"
+            )
+        from matrixai.forward.transformer_torch import _load_state_into_module
+        _load_state_into_module(module, initial_state_dict)
     module.to(device)
 
     split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
@@ -285,7 +301,7 @@ def train_composite_network_torch(
 
 def evaluate_composite_network_torch(
     network: Any,
-    parameter_set: ParameterSet,
+    parameter_set: ParameterSet | None,
     examples: list[tuple[dict[str, Any], list[float]]],
     loss_fn: str,
     *,
@@ -294,6 +310,8 @@ def evaluate_composite_network_torch(
     cancel_check: Callable[[], None] | None = None,
     type_result: Any = None,
     pad_id: int | None = None,
+    output_name: str = "",
+    state_dict: dict[str, Any] | None = None,
 ) -> Any:
     """GPU-C6/M14+M15(e) — evaluación de un composite_network con forward BATCHED en torch/GPU.
 
@@ -322,7 +340,28 @@ def evaluate_composite_network_torch(
         )
 
     enable_tf32_if_cuda(device)  # M15(c)
-    module = composite_network_to_torch_module(network, parameter_set, type_result)
+    # Auditoría C4 [MEDIA-1]: evaluar directamente desde un best_state_dict
+    # PESOS_GRANDES (best_params=None) — espejo del evaluador denso. Con
+    # state_dict, parameter_set puede ser None.
+    if state_dict is not None:
+        if not is_transformer:
+            raise CompositeTorchTrainError(
+                "state_dict evaluation is only supported for transformer networks (C4)"
+            )
+        from matrixai.forward.transformer_torch import (
+            transformer_network_to_torch_module_from_state,
+        )
+        module = transformer_network_to_torch_module_from_state(
+            network, type_result, state_dict, output_name=output_name,
+        )
+    elif parameter_set is None:
+        raise CompositeTorchTrainError(
+            "evaluate requires a parameter_set or a state_dict"
+        )
+    else:
+        module = composite_network_to_torch_module(
+            network, parameter_set, type_result, output_name
+        )
     module.to(device)
 
     _EVAL_CHUNK = 4096

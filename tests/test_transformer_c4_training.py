@@ -310,7 +310,9 @@ END
 class TestExtraccionPesos:
     def test_best_params_validate_and_reload(self):
         """Los pesos entrenados validan contra el manifest y el módulo
-        reconstruido desde ellos predice EXACTAMENTE igual."""
+        reconstruido desde ellos predice EXACTAMENTE igual (observación de la
+        auditoría C4: la 1ª versión de este test no comparaba de verdad las
+        predicciones antes/después de extraer)."""
         net, res, ps = _build_transformer()
         result = train_composite_network_torch(
             net, ps, _seq_examples(TRAIN_ROWS[:128]), "cross_entropy",
@@ -320,18 +322,30 @@ class TestExtraccionPesos:
         compat = validate_composite_network_parameter_set(net, res, best, "toy")
         assert compat.ok, compat.errors
         assert best.source == "torch"
-        # Round-trip: módulo reconstruido == mismas predicciones
+        # Round-trip REAL: predicciones del módulo reconstruido desde los pesos
+        # extraídos == evaluación oficial sobre los mismos pesos, por valor.
         from matrixai.forward.transformer_torch import (
             transformer_network_to_torch_module,
             transformer_torch_forward_batch,
         )
-        module = transformer_network_to_torch_module(net, res, best)
-        out = transformer_torch_forward_batch(module, [r for r, _ in TRAIN_ROWS[:4]])
+        rows = [r for r, _ in TRAIN_ROWS[:8]]
+        module_a = transformer_network_to_torch_module(net, res, best)
+        preds_a = transformer_torch_forward_batch(module_a, rows)
+        # Segundo módulo reconstruido de cero desde el MISMO ParameterSet
+        module_b = transformer_network_to_torch_module(net, res, best)
+        preds_b = transformer_torch_forward_batch(module_b, rows)
+        assert preds_a == preds_b
+        # y coherente con el evaluador oficial (mismas probabilidades → misma
+        # clase ganadora por fila)
         ev = evaluate_composite_network_torch(
-            net, best, _seq_examples(TRAIN_ROWS[:4]), "cross_entropy",
+            net, best, _seq_examples(TRAIN_ROWS[:8]), "cross_entropy",
             labels=["antes", "despues"], type_result=res,
         )
-        assert len(out) == 4 and ev is not None
+        manual_acc = sum(
+            1 for (row, target), pred in zip(TRAIN_ROWS[:8], preds_a)
+            if (pred[0] >= pred[1]) == (target[0] == 1.0)
+        ) / 8
+        assert abs(ev.accuracy - manual_acc) < 1e-9
 
     def test_pesos_grandes_gate_state_dict(self):
         """materialize=False (simula superar torch_native_min_params): NO se
@@ -461,13 +475,15 @@ class TestGuardsEntrenamiento:
                 net, ps, _seq_examples(TRAIN_ROWS[:8]), "cross_entropy",
             )
 
-    def test_pad_id_masks_training_and_evaluation(self):
-        """pad_id en trainer+evaluador: filas con padding entrenan y evalúan
-        con la misma semántica de máscara del forward (invariante 1c). El
-        entrenamiento con pad_id produce EXACTAMENTE los mismos pesos si el
-        contenido de las posiciones enmascaradas es irrelevante — verificable
-        vía la evaluación: dos test-sets que difieren SOLO en contenido de
-        padding puntúan idéntico con los pesos entrenados."""
+    def test_padding_content_irrelevant_after_training(self):
+        """Observación de la auditoría C4: la 1ª versión no variaba de verdad
+        el contenido enmascarado. Ahora sí: con los pesos entrenados, dos
+        entradas que difieren SOLO en el contenido de posiciones de padding
+        (máscara EXPLÍCITA idéntica) producen predicciones idénticas."""
+        from matrixai.forward.transformer_torch import (
+            transformer_network_to_torch_module,
+            transformer_torch_forward_batch,
+        )
         net, res, ps = _build_transformer()
         rows = [
             ({"Texto": [1, 2, 3, 7, 9, 0, 0, 0, 0, 0, 0, 0]}, [1.0, 0.0]),
@@ -478,8 +494,358 @@ class TestGuardsEntrenamiento:
             type_result=res, pad_id=0,
         )
         best = result["best_params"]
-        ev_a = evaluate_composite_network_torch(
-            net, best, rows[:2], "cross_entropy",
-            labels=["antes", "despues"], type_result=res, pad_id=0,
+        module = transformer_network_to_torch_module(net, res, best)
+        mask = [True] * 5 + [False] * 7
+        base = [1, 2, 3, 7, 9, 0, 0, 0, 0, 0, 0, 0]
+        altered = [1, 2, 3, 7, 9, 5, 8, 2, 6, 1, 4, 3]  # solo cambia lo enmascarado
+        pred_base = transformer_torch_forward_batch(module, [base], masks=[mask])
+        pred_alt = transformer_torch_forward_batch(module, [altered], masks=[mask])
+        assert pred_base == pred_alt
+
+
+class TestOutputNamePropagado:
+    """Continuación del residual-2 de la re-auditoría C3 detectada en C4: el
+    trainer y el evaluador (escritos tras el fix de la entrada común) no
+    propagaban output_name — un set construido con output_name habría muerto
+    con un 'parameter_schema_hash mismatch' engañoso al entrenar."""
+
+    def test_trainer_and_evaluate_propagate_output_name(self):
+        prog = parse_text(_TOY_MXAI)
+        net = prog.networks[0]
+        res = check_composite_network_types(
+            net, {}, {s.name: s for s in prog.sequences}
         )
-        assert ev_a is not None and result["epochs"]
+        ps = build_composite_network_parameter_set(
+            net, res, "toy", seed=5, output_name="clase"
+        )
+        result = train_composite_network_torch(
+            net, ps, _seq_examples(TRAIN_ROWS[:32]), "cross_entropy",
+            epochs=1, seed=5, type_result=res, output_name="clase",
+        )
+        ev = evaluate_composite_network_torch(
+            net, result["best_params"], _seq_examples(TRAIN_ROWS[:8]),
+            "cross_entropy", labels=["antes", "despues"],
+            type_result=res, output_name="clase",
+        )
+        assert result["epochs"] and ev is not None
+
+    def test_trainer_without_output_name_rejects_mismatched_set(self):
+        """El mismatch sigue siendo un error real cuando el caller NO propaga."""
+        prog = parse_text(_TOY_MXAI)
+        net = prog.networks[0]
+        res = check_composite_network_types(
+            net, {}, {s.name: s for s in prog.sequences}
+        )
+        ps = build_composite_network_parameter_set(
+            net, res, "toy", seed=5, output_name="clase"
+        )
+        from matrixai.forward.transformer_torch import TransformerTorchError
+        with pytest.raises(TransformerTorchError, match="parameter_schema_hash"):
+            train_composite_network_torch(
+                net, ps, _seq_examples(TRAIN_ROWS[:8]), "cross_entropy",
+                epochs=1, seed=5, type_result=res,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Auditoría C4 (2026-07-12): 3 ALTA + 2 MEDIA
+# ---------------------------------------------------------------------------
+
+_TOY_MXTRAIN = """
+MODEL {model}
+
+DATASET D
+  SOURCE csv("{csv}")
+  INPUT Texto FROM COLUMNS [t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11]
+  TARGET clase: Label[antes, despues]
+END
+
+LOSS L
+  TYPE cross_entropy
+  PREDICTION clase
+  TARGET clase
+END
+
+OPTIMIZER O
+  TYPE {opt}
+  LEARNING_RATE 0.01
+  UPDATE N.*
+END
+
+RUN
+  EPOCHS 3
+END
+"""
+
+_TOY_MXAI_GRAPH = _TOY_MXAI + """
+GRAPH
+  Texto -> N
+END
+"""
+
+
+def _write_toy_dataset(tmp_path):
+    import csv as _csv
+    rows = _toy_rows(80, seed=99)
+    csv_path = tmp_path / "toy.csv"
+    with csv_path.open("w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow([f"t{i}" for i in range(L_SEQ)] + ["clase"])
+        for row, target in rows:
+            w.writerow(row + ["antes" if target[0] == 1.0 else "despues"])
+    model_path = tmp_path / "toy.mxai"
+    model_path.write_text(_TOY_MXAI_GRAPH, encoding="utf-8")
+    return model_path, csv_path
+
+
+class TestAltaUnoOptimizadorReal:
+    """[ALTA-1] El TYPE declarado debe ser el optimizador EJECUTADO, o error."""
+
+    def test_cli_route_declares_and_executes_adam(self, tmp_path):
+        from matrixai.training.transformer_trainer import TransformerSupervisedTrainer
+        from matrixai.training import parse_training_text
+        import json as _json
+        model_path, csv_path = _write_toy_dataset(tmp_path)
+        training = parse_training_text(
+            _TOY_MXTRAIN.format(model=model_path, csv=csv_path, opt="adam")
+        )
+        result = TransformerSupervisedTrainer().train(
+            training, output_dir=str(tmp_path / "out"), base_path=tmp_path,
+        )
+        trace = _json.loads((tmp_path / "out" / "training_trace.json").read_text())
+        assert trace["optimizer"] == "adam"  # declarado == ejecutado
+
+    def test_stdlib_dense_trainer_rejects_adam(self, tmp_path):
+        """El trainer stdlib denso (ruta CLI sin torch) solo implementa sgd —
+        falla cerrado en vez de entrenar con sgd declarando adam."""
+        import csv as _csv
+        from matrixai.training import parse_training_text
+        from matrixai.training.dense_trainer import DenseSupervisedTrainer
+        model = tmp_path / "dense.mxai"
+        model.write_text(_TOY_DENSE_MXAI, encoding="utf-8")
+        csv_path = tmp_path / "d.csv"
+        with csv_path.open("w", newline="") as f:
+            w = _csv.writer(f)
+            w.writerow([f"c{i}" for i in range(VOCAB)] + ["clase"])
+            for row, target in _toy_rows(8, seed=1):
+                counts = [0] * VOCAB
+                for t in row:
+                    counts[t] += 1
+                w.writerow(counts + ["antes" if target[0] == 1.0 else "despues"])
+        cols = ", ".join(f"c{i}" for i in range(VOCAB))
+        training = parse_training_text(f"""
+MODEL {model}
+
+DATASET D
+  SOURCE csv("{csv_path}")
+  INPUT Counts FROM COLUMNS [{cols}]
+  TARGET clase: Label[antes, despues]
+END
+
+LOSS L
+  TYPE cross_entropy
+  PREDICTION clase
+  TARGET clase
+END
+
+OPTIMIZER O
+  TYPE adam
+  LEARNING_RATE 0.01
+  UPDATE D.*
+END
+
+RUN
+  EPOCHS 1
+END
+""")
+        with pytest.raises(ValueError, match="sgd only"):
+            DenseSupervisedTrainer().train(
+                training, output_dir=str(tmp_path / "out"), base_path=tmp_path,
+            )
+
+    def test_dense_torch_trainer_honors_adam(self):
+        from matrixai.training.dense_torch_trainer import train_dense_network_torch
+        dprog = parse_text(_TOY_DENSE_MXAI)
+        dnet = dprog.networks[0]
+        dtr = check_network_types(dnet, {v.name: v for v in dprog.vectors})
+        dps = build_network_parameter_set(
+            dnet, dtr.resolved_layers or dnet.layers, "toyd", seed=5
+        )
+        r_adam = train_dense_network_torch(
+            dnet, dps, _bow_examples(TRAIN_ROWS[:32]), "cross_entropy",
+            epochs=2, seed=5, optimizer="adam",
+        )
+        dps2 = build_network_parameter_set(
+            dnet, dtr.resolved_layers or dnet.layers, "toyd", seed=5
+        )
+        r_sgd = train_dense_network_torch(
+            dnet, dps2, _bow_examples(TRAIN_ROWS[:32]), "cross_entropy",
+            epochs=2, seed=5, optimizer="sgd",
+        )
+        # Con lr idéntica, adam y sgd producen trayectorias distintas
+        assert r_adam["train_loss"] != r_sgd["train_loss"]
+        with pytest.raises(ValueError, match="unsupported optimizer"):
+            train_dense_network_torch(
+                dnet, dps, _bow_examples(TRAIN_ROWS[:8]), "cross_entropy",
+                epochs=1, optimizer="rmsprop",
+            )
+
+
+class TestAltaDosRutaCLI:
+    """[ALTA-2] Ruta .mxtrain/CLI funcional para BLOCK TRANSFORMER."""
+
+    def test_cli_trainer_end_to_end(self, tmp_path):
+        from matrixai.training.transformer_trainer import TransformerSupervisedTrainer
+        from matrixai.training import parse_training_text
+        model_path, csv_path = _write_toy_dataset(tmp_path)
+        training = parse_training_text(
+            _TOY_MXTRAIN.format(model=model_path, csv=csv_path, opt="adam")
+        )
+        result = TransformerSupervisedTrainer().train(
+            training, output_dir=str(tmp_path / "out"), base_path=tmp_path,
+        )
+        assert result.best_epoch >= 1
+        assert (tmp_path / "out" / "parameter_set.json").exists()
+        assert (tmp_path / "out" / "training_trace.json").exists()
+
+    def test_verifier_accepts_sequence_dataset_input(self, tmp_path):
+        from matrixai.training import parse_training_text
+        from matrixai.training.verifier import TrainingVerifier
+        model_path, csv_path = _write_toy_dataset(tmp_path)
+        training = parse_training_text(
+            _TOY_MXTRAIN.format(model=model_path, csv=csv_path, opt="adam")
+        )
+        report = TrainingVerifier().verify(training, base_path=tmp_path)
+        assert report.ok, report.errors
+
+    def test_verifier_rejects_wrong_column_count(self, tmp_path):
+        from matrixai.training import parse_training_text
+        from matrixai.training.verifier import TrainingVerifier
+        model_path, csv_path = _write_toy_dataset(tmp_path)
+        bad = _TOY_MXTRAIN.format(model=model_path, csv=csv_path, opt="adam").replace(
+            "[t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11]", "[t0, t1, t2]"
+        )
+        training = parse_training_text(bad)
+        report = TrainingVerifier().verify(training, base_path=tmp_path)
+        assert any("one per" in e and "position" in e for e in report.errors)
+
+    def test_cli_dispatch_selects_transformer_trainer(self, tmp_path):
+        """El comando `train` real selecciona el trainer del transformer."""
+        import subprocess, sys, json as _json
+        model_path, csv_path = _write_toy_dataset(tmp_path)
+        (tmp_path / "toy.mxtrain").write_text(
+            _TOY_MXTRAIN.format(model="toy.mxai", csv="toy.csv", opt="adam"),
+            encoding="utf-8",
+        )
+        proc = subprocess.run(
+            [sys.executable, "-m", "matrixai.cli", "train", str(model_path),
+             "--training", str(tmp_path / "toy.mxtrain"),
+             "--output", str(tmp_path / "out"), "--json"],
+            capture_output=True, text=True, timeout=300,
+        )
+        assert proc.returncode == 0, proc.stderr
+        payload = _json.loads(proc.stdout)
+        assert payload["best_epoch"] >= 1
+        trace = _json.loads((tmp_path / "out" / "training_trace.json").read_text())
+        assert trace["optimizer"] == "adam"
+
+
+class TestAltaTresCapacidades:
+    """[ALTA-3] Capacidades separadas: entrenar sí, forward runner NO omite."""
+
+    def test_torch_forward_runner_rejects_transformer_program(self):
+        pytest.importorskip("torch")
+        from matrixai.compiler.torch_forward import TorchForwardError, TorchForwardRunner
+        prog = parse_text(_TOY_MXAI_GRAPH)
+        with pytest.raises(TorchForwardError, match="not portable"):
+            TorchForwardRunner().run(prog, {"Texto": [1] * 12})
+
+    def test_training_verifier_passes_with_training_capability(self, tmp_path):
+        """report.ok es False (forward/export cerrados) pero el flujo de
+        ENTRENAMIENTO pasa: gatea por training_ok."""
+        from matrixai.compiler.backend_contract import BackendContractAnalyzer
+        from matrixai.training import parse_training_text
+        from matrixai.training.verifier import TrainingVerifier
+        prog = parse_text(_TOY_MXAI_GRAPH)
+        report = BackendContractAnalyzer().analyze(prog)
+        assert report.ok is False
+        model_path, csv_path = _write_toy_dataset(tmp_path)
+        training = parse_training_text(
+            _TOY_MXTRAIN.format(model=model_path, csv=csv_path, opt="adam")
+        )
+        vreport = TrainingVerifier().verify(training, base_path=tmp_path)
+        assert vreport.ok, vreport.errors
+
+
+class TestMediaUnoStateDict:
+    """[MEDIA-1] El resultado PESOS_GRANDES se recarga y evalúa."""
+
+    def test_state_dict_reload_and_evaluate(self):
+        from matrixai.forward.transformer_torch import (
+            transformer_network_to_torch_module_from_state,
+            transformer_torch_forward_batch,
+        )
+        net, res, ps = _build_transformer()
+        r = train_composite_network_torch(
+            net, ps, _seq_examples(TRAIN_ROWS[:64]), "cross_entropy",
+            epochs=2, seed=5, type_result=res, materialize=False,
+        )
+        assert r["best_params"] is None
+        sd = r["best_state_dict"]
+        # Reconstrucción desde el estado + forward
+        module = transformer_network_to_torch_module_from_state(net, res, sd)
+        preds = transformer_torch_forward_batch(module, [r_ for r_, _ in TRAIN_ROWS[:4]])
+        assert len(preds) == 4
+        # Evaluación oficial directamente desde el estado (parameter_set=None)
+        ev = evaluate_composite_network_torch(
+            net, None, _seq_examples(TRAIN_ROWS[:16]), "cross_entropy",
+            labels=["antes", "despues"], type_result=res, state_dict=sd,
+        )
+        # Misma semilla materializada → mismas métricas
+        ps2 = _build_transformer()[2]
+        r_mat = train_composite_network_torch(
+            net, ps2, _seq_examples(TRAIN_ROWS[:64]), "cross_entropy",
+            epochs=2, seed=5, type_result=res, materialize=True,
+        )
+        ev_mat = evaluate_composite_network_torch(
+            net, r_mat["best_params"], _seq_examples(TRAIN_ROWS[:16]),
+            "cross_entropy", labels=["antes", "despues"], type_result=res,
+        )
+        assert abs(ev.accuracy - ev_mat.accuracy) < 1e-9
+
+    def test_resume_from_state_dict(self):
+        net, res, ps = _build_transformer()
+        r1 = train_composite_network_torch(
+            net, ps, _seq_examples(TRAIN_ROWS[:64]), "cross_entropy",
+            epochs=2, seed=5, type_result=res, materialize=False,
+        )
+        ps2 = _build_transformer()[2]
+        r2 = train_composite_network_torch(
+            net, ps2, _seq_examples(TRAIN_ROWS[:64]), "cross_entropy",
+            epochs=2, seed=6, type_result=res,
+            initial_state_dict=r1["best_state_dict"],
+        )
+        assert r2["epochs"] and r2["best_params"] is not None
+
+    def test_state_dict_path_mismatch_rejected(self):
+        from matrixai.forward.transformer_torch import (
+            TransformerTorchError,
+            transformer_network_to_torch_module_from_state,
+        )
+        net, res, ps = _build_transformer()
+        r = train_composite_network_torch(
+            net, ps, _seq_examples(TRAIN_ROWS[:32]), "cross_entropy",
+            epochs=1, seed=5, type_result=res, materialize=False,
+        )
+        sd = dict(r["best_state_dict"])
+        sd.pop("N.enc.layer_0.attention.Wq")
+        with pytest.raises(TransformerTorchError, match="do not match"):
+            transformer_network_to_torch_module_from_state(net, res, sd)
+
+    def test_evaluate_without_params_or_state_rejected(self):
+        net, res, _ = _build_transformer()
+        with pytest.raises(CompositeTorchTrainError, match="parameter_set or a state_dict"):
+            evaluate_composite_network_torch(
+                net, None, _seq_examples(TRAIN_ROWS[:4]), "cross_entropy",
+                type_result=res,
+            )

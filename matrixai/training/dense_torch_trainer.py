@@ -88,6 +88,7 @@ def train_dense_network_torch(
     cancel_check: Callable[[], None] | None = None,
     materialize: bool | None = None,
     initial_state_dict: dict[str, Any] | None = None,
+    optimizer: str | None = None,
 ) -> dict[str, Any]:
     """Train a dense_network via torch autograd.
 
@@ -151,7 +152,18 @@ def train_dense_network_torch(
     train_x, train_y = _to_tensors(train_ex)
     val_x, val_y = _to_tensors(val_ex) if val_ex else (train_x, train_y)
 
-    optimizer = torch.optim.SGD(module.parameters(), lr=lr)
+    # Auditoría C4 [ALTA-1]: honrar el optimizador declarado; desconocido →
+    # error, nunca sustitución silenciosa. Default sgd (comportamiento previo).
+    opt_name = optimizer or "sgd"
+    if opt_name == "adam":
+        optim_ = torch.optim.Adam(module.parameters(), lr=lr)
+    elif opt_name == "sgd":
+        optim_ = torch.optim.SGD(module.parameters(), lr=lr)
+    else:
+        raise ValueError(
+            f"unsupported optimizer {opt_name!r} — supported: sgd, adam"
+        )
+    optimizer = optim_
     # Batch efectivo (M15/M12): en CUDA ignora el `BATCH size=8` autogenerado y usa un
     # batch grande (MATRIXAI_GPU_BATCH|16384) para llenar la GPU; en CPU respeta el spec.
     # Lógica pura y testeable en `effective_batch_size`. Si una red enorme da OOM en una
