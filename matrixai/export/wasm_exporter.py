@@ -154,7 +154,15 @@ class WasmExporter:
                     )
 
             # 3. wasm_manifest.json
-            _write_wasm_manifest(onnx_result, eq_result, work / "wasm_manifest.json", atol, rtol)
+            _mask_input = (
+                f"{onnx_result.input_name}_mask"
+                if any(getattr(n, "transformer_blocks", []) for n in program.networks)
+                else None
+            )
+            _write_wasm_manifest(
+                onnx_result, eq_result, work / "wasm_manifest.json", atol, rtol,
+                mask_input=_mask_input,
+            )
 
             # 4. predict.js
             (work / "predict.js").write_text(
@@ -208,6 +216,8 @@ def _write_wasm_manifest(
     path: Path,
     atol: float,
     rtol: float,
+    *,
+    mask_input: str | None = None,
 ) -> None:
     data = {
         "model_hash": onnx_result.model_hash,
@@ -219,6 +229,9 @@ def _write_wasm_manifest(
         "onnx_opset": onnx_result.opset_version,
         "input_name": onnx_result.input_name,
         "input_shape": onnx_result.input_shape,
+        # Auditoría C6 [ALTA-3]: segunda entrada OBLIGATORIA del grafo
+        # transformer (None para el resto de modelos).
+        "mask_input": mask_input,
         "output_name": onnx_result.output_name,
         "output_shape": onnx_result.output_shape,
         "exported_functions": onnx_result.exported_functions,
@@ -249,6 +262,37 @@ def _build_predict_js(program: MatrixAIProgram, onnx_result: OnnxExportResult) -
     input_arg = "inputIds" if use_int64 else "inputData"
     shape_str = f"[1, {in_shape[-1]}]"
     out_shape_str = str(out_shape).replace("-1", "N")
+
+    # Auditoría C6 [ALTA-3]: el grafo del BLOCK TRANSFORMER (C5) tiene DOS
+    # entradas obligatorias — ids + <input>_mask (1.0 real / 0.0 padding). El
+    # predict.js de una sola entrada pasaba la equivalencia del bundle (el
+    # validador python alimenta ambas) pero moría en el navegador con
+    # "Required inputs missing". El transformer P11 legacy (una entrada int64)
+    # conserva el JS clásico.
+    has_mask = any(getattr(n, "transformer_blocks", []) for n in program.networks)
+    if has_mask:
+        mask_name = f"{input_name}_mask"
+        return f"""// MatrixAI WASM inference — ONNX Runtime Web
+// Requires: <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@{ORT_WEB_MIN_VERSION}/dist/ort.min.js"></script>
+// Project: {program.project}
+// Input:  '{input_name}' {shape_str} — {input_comment}
+//         '{mask_name}' {shape_str} — float32, 1.0 = real token / 0.0 = padding
+// Output: '{output_name}' {out_shape_str}
+
+async function predict(inputIds, maskData) {{
+  const session = await ort.InferenceSession.create('./model.onnx');
+  const inputTensor = new ort.Tensor({js_dtype}, {js_arr_type}, {shape_str});
+  const mask = maskData ?? inputIds.map(() => 1.0);  // all-ones if no padding
+  const maskTensor = new ort.Tensor('float32', Float32Array.from(mask), {shape_str});
+  const feeds = {{ '{input_name}': inputTensor, '{mask_name}': maskTensor }};
+  const results = await session.run(feeds);
+  return Array.from(results['{output_name}'].data);
+}}
+
+// Integrity check
+const MODEL_HASH = '{onnx_result.model_hash}';
+const PARAMETER_SET_ID = '{onnx_result.parameter_set_id}';
+"""
 
     return f"""// MatrixAI WASM inference — ONNX Runtime Web
 // Requires: <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@{ORT_WEB_MIN_VERSION}/dist/ort.min.js"></script>

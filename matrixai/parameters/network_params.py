@@ -401,6 +401,29 @@ def transformer_block_export_metadata(entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def transformer_block_export_metadata_for_program(program: Any) -> dict[str, Any] | None:
+    """Punto de entrada único de la metadata del bloque (auditoría C6 [MEDIA-3]).
+
+    Analiza el programa (BackendContractAnalyzer, O(#tensores)) y devuelve la
+    metadata pública del primer BLOCK TRANSFORMER, o ``None`` si el programa
+    no tiene bloque o su entrada del layer_manifest no está resuelta
+    (typecheck sucio: la entrada existe pero sin ``layers``). Lo consumen el
+    export ONNX (embebido en ``custom_metadata_map``), el model_manifest del
+    bundle y el inference_spec — misma fuente, mismos valores en los tres.
+    """
+    from matrixai.compiler import BackendContractAnalyzer  # import local: evita ciclo
+
+    if not any(getattr(n, "transformer_blocks", []) for n in getattr(program, "networks", [])):
+        return None
+    report = BackendContractAnalyzer().analyze(program)
+    entry = next(
+        (e for e in report.layer_manifest
+         if e.get("layer_type") == "TransformerBlock" and "layers" in e),
+        None,
+    )
+    return transformer_block_export_metadata(entry) if entry is not None else None
+
+
 def _append_composite_layer_params(
     manifest: list[dict[str, Any]],
     function_name: str,

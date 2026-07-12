@@ -1788,11 +1788,28 @@ def _cmd_evaluate(args) -> int:
         training = dataclasses.replace(training, backend=resolved)
         parameter_set = load_parameter_set(args.params)
 
-        if resolved.target == "torch":
+        # Auditoría C6 [ALTA-1/2]: espejo del dispatch de `train` — un programa
+        # con BLOCK TRANSFORMER evalúa por su evaluador dedicado (torch es SU
+        # backend). Antes, el default stdlib caía en el evaluador denso, que no
+        # lee SEQUENCEs y escribía un evaluation_report VACÍO (rows=0) en
+        # verde — el fichero que `mx registry push` consume.
+        _prog_eval = parse_file(args.file)
+        _nets_eval = getattr(_prog_eval, "networks", [])
+        if _nets_eval and getattr(_nets_eval[0], "transformer_blocks", []):
+            if args.backend == "stdlib":
+                print(
+                    "Evaluation error: BLOCK TRANSFORMER requires --backend torch "
+                    "(the stdlib backend has no transformer evaluator — invariante 6)",
+                    file=sys.stderr,
+                )
+                return 1
+            from matrixai.training.transformer_trainer import TransformerSupervisedEvaluator
+            evaluator: Any = TransformerSupervisedEvaluator()
+        elif resolved.target == "torch":
             from matrixai.training.torch_evaluator import TorchSupervisedEvaluator
-            evaluator: Any = TorchSupervisedEvaluator()
+            evaluator = TorchSupervisedEvaluator()
         else:
-            program = parse_file(args.file)
+            program = _prog_eval
             if getattr(program, "networks", []):
                 evaluator = DenseSupervisedEvaluator()
             else:
@@ -1874,7 +1891,11 @@ def _cmd_validate_parameters(args) -> int:
     try:
         program = parse_file(args.file)
         parameter_set = load_parameter_set(args.params)
-        report = validate_parameter_set(program, parameter_set)
+        # Auditoría C6 [MEDIA-1]: mismo dispatch que los comandos de export —
+        # el validador genérico solo conoce programas dense/function y
+        # rechazaba un ParameterSet composite/transformer VÁLIDO con "not
+        # portable" + un hash mismatch calculado contra el manifest denso.
+        report = validate_export_parameter_set(program, parameter_set)
     except OSError as exc:
         print(f"Parameter validation error: {exc}", file=sys.stderr)
         return 2

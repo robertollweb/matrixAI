@@ -32,6 +32,84 @@ from matrixai.training.spec import TrainingRunResult, TrainingSpec
 from matrixai.training.verifier import TrainingVerifier
 
 
+def _resolve_transformer_dataset(
+    training: TrainingSpec,
+    base: Path,
+    *,
+    model_path: Path | None = None,
+    data_path: str | None = None,
+) -> dict[str, Any]:
+    """Carga compartida train/evaluate (auditoría C6 [ALTA-1]): programa +
+    typecheck CON sequence_map + ejemplos ``{sequence: [L] ids}`` desde el CSV.
+
+    Antes de esto el evaluador CLI no existía y `mx evaluate` caía en el
+    evaluador denso, que no sabe leer una SEQUENCE y producía un
+    evaluation_report VACÍO (rows=0, accuracy=0.0) en verde — justo el
+    fichero que `mx registry push` exige, así que un transformer podía
+    registrarse en P21 con métricas mentirosas.
+    """
+    from matrixai.types import check_composite_network_types
+
+    if model_path is None:
+        model_path = _resolve_path(training.model, base)
+        if model_path is None:
+            raise FileNotFoundError(f"Model file not found: {training.model}")
+    program = parse_file(model_path)
+    if not program.networks:
+        raise ValueError(f"No NETWORK blocks found in {training.model}")
+    net = program.networks[0]
+    if not getattr(net, "transformer_blocks", []):
+        raise ValueError(
+            f"NETWORK {net.name} has no BLOCK TRANSFORMER — use the dense/"
+            f"stdlib trainers"
+        )
+
+    vector_map = {v.name: v for v in program.vectors}
+    sequence_map = {s.name: s for s in program.sequences}
+    type_result = check_composite_network_types(net, vector_map, sequence_map)
+    if not type_result.ok:
+        raise ValueError("; ".join(type_result.errors))
+    seq = sequence_map.get(net.input)
+    if seq is None:
+        raise ValueError(f"INPUT {net.input!r} is not a declared SEQUENCE")
+
+    # Columnas del DATASET INPUT = una por posición de la SEQUENCE
+    columns = list(training.dataset.input.columns)
+    if len(columns) != seq.length:
+        raise ValueError(
+            f"DATASET INPUT declares {len(columns)} columns but SEQUENCE "
+            f"{seq.name!r} has length {seq.length} — one column per position "
+            f"(t0..t{seq.length - 1})"
+        )
+
+    loss_fn = training.loss.type if training.loss else "cross_entropy"
+    labels = _labels_from_spec(training)
+
+    source = data_path if data_path else training.dataset.source
+    resolved_data = _resolve_path(source, base)
+    if resolved_data is None:
+        raise FileNotFoundError(f"Dataset not found: {source}")
+    adapter = CSVDataAdapter(
+        resolved_data, seq.name, columns,
+        training.dataset.target.name, labels if labels else None,
+    )
+    xy = _examples_to_xy(adapter.examples(), loss_fn, labels)
+    examples = [({seq.name: [int(v) for v in x]}, y) for x, y in xy]
+    if not examples:
+        raise ValueError(f"Dataset produced no valid examples: {resolved_data}")
+
+    return {
+        "program": program,
+        "net": net,
+        "type_result": type_result,
+        "seq": seq,
+        "examples": examples,
+        "labels": labels,
+        "loss_fn": loss_fn,
+        "resolved_data": resolved_data,
+    }
+
+
 class TransformerSupervisedTrainer:
     """Train a composite network with BLOCK TRANSFORMER from a .mxtrain spec."""
 
@@ -49,7 +127,6 @@ class TransformerSupervisedTrainer:
             evaluate_composite_network_torch,
             train_composite_network_torch,
         )
-        from matrixai.types import check_composite_network_types
 
         if not torch_available():
             raise ValueError(
@@ -66,35 +143,17 @@ class TransformerSupervisedTrainer:
         if not report.ok:
             raise ValueError("; ".join(report.errors))
 
-        program = parse_file(Path(report.model_path))
-        if not program.networks:
-            raise ValueError(f"No NETWORK blocks found in {training.model}")
-        net = program.networks[0]
-        if not getattr(net, "transformer_blocks", []):
-            raise ValueError(
-                f"NETWORK {net.name} has no BLOCK TRANSFORMER — use the dense/"
-                f"stdlib trainers"
-            )
+        loaded = _resolve_transformer_dataset(
+            training, base, model_path=Path(report.model_path),
+        )
+        program = loaded["program"]
+        net = loaded["net"]
+        type_result = loaded["type_result"]
+        seq = loaded["seq"]
+        examples = loaded["examples"]
+        labels = loaded["labels"]
+        loss_fn = loaded["loss_fn"]
 
-        vector_map = {v.name: v for v in program.vectors}
-        sequence_map = {s.name: s for s in program.sequences}
-        type_result = check_composite_network_types(net, vector_map, sequence_map)
-        if not type_result.ok:
-            raise ValueError("; ".join(type_result.errors))
-        seq = sequence_map.get(net.input)
-        if seq is None:
-            raise ValueError(f"INPUT {net.input!r} is not a declared SEQUENCE")
-
-        # Columnas del DATASET INPUT = una por posición de la SEQUENCE
-        columns = list(training.dataset.input.columns)
-        if len(columns) != seq.length:
-            raise ValueError(
-                f"DATASET INPUT declares {len(columns)} columns but SEQUENCE "
-                f"{seq.name!r} has length {seq.length} — one column per position "
-                f"(t0..t{seq.length - 1})"
-            )
-
-        loss_fn = training.loss.type if training.loss else "cross_entropy"
         lr = training.optimizer.learning_rate if training.optimizer else 0.01
         opt_type = training.optimizer.type if training.optimizer else "adam"
         epochs = training.run.epochs if training.run else 50
@@ -107,19 +166,6 @@ class TransformerSupervisedTrainer:
         # mezcló --device con el BACKEND del .mxtrain) — antes el trainer
         # inferior usaba su default "cpu" aunque el usuario pidiera cuda.
         device = training.backend.device if training.backend else "cpu"
-        labels = _labels_from_spec(training)
-
-        data_path = _resolve_path(training.dataset.source, base)
-        if data_path is None:
-            raise FileNotFoundError(f"Dataset not found: {training.dataset.source}")
-        adapter = CSVDataAdapter(
-            data_path, seq.name, columns,
-            training.dataset.target.name, labels if labels else None,
-        )
-        xy = _examples_to_xy(adapter.examples(), loss_fn, labels)
-        examples = [({seq.name: [int(v) for v in x]}, y) for x, y in xy]
-        if not examples:
-            raise ValueError("Dataset produced no valid examples")
 
         # Auditoría C4 ronda 2 [MEDIA-2]: honrar el DATASET SPLIT declarado
         # (ratio + seed de barajado — misma semántica que _split_examples del
@@ -231,4 +277,92 @@ class TransformerSupervisedTrainer:
             final_validation_loss=tr["best_val_loss"],
             accuracy=accuracy,
             artifacts=artifacts,
+        )
+
+
+class TransformerSupervisedEvaluator:
+    """Evaluate a trained transformer ParameterSet on a supervised CSV dataset.
+
+    Auditoría C6 [ALTA-1/2]: `mx evaluate` no tenía rama transformer — el
+    default (stdlib) caía en el evaluador denso, que no lee SEQUENCEs y
+    escribía un evaluation_report VACÍO en verde; `--backend torch` moría en
+    el validador genérico de ParameterSet. Este evaluador cierra el ciclo
+    CLI del registro P21 (train → evaluate → registry push) con las MISMAS
+    métricas que el resto (reusa `result_from_predictions` vía
+    `evaluate_composite_network_torch`) y el mismo formato de report.
+    """
+
+    def evaluate(
+        self,
+        training: TrainingSpec,
+        parameter_set: Any,
+        data_path: str | None = None,
+        base_path: Path | None = None,
+    ) -> Any:
+        from matrixai.parameters.tensor_bridge import torch_available
+        from matrixai.training.composite_torch_trainer import (
+            evaluate_composite_network_torch,
+        )
+        from matrixai.training.data import dataset_fingerprint
+        from matrixai.training.spec import EvaluationResult
+
+        if not torch_available():
+            raise ValueError(
+                "BLOCK TRANSFORMER evaluation requires torch (the block's "
+                "product backend — invariante 6)"
+            )
+
+        base = base_path or Path(".")
+        loaded = _resolve_transformer_dataset(training, base, data_path=data_path)
+        net = loaded["net"]
+        type_result = loaded["type_result"]
+        examples = loaded["examples"]
+        labels = loaded["labels"]
+        loss_fn = loaded["loss_fn"]
+        resolved_data = loaded["resolved_data"]
+        device = training.backend.device if training.backend else "cpu"
+
+        result = evaluate_composite_network_torch(
+            net, parameter_set, examples, loss_fn,
+            labels=labels or None, type_result=type_result, device=device,
+        )
+
+        per_label: dict[str, dict[str, float]] = {}
+        if labels and result.precision:
+            for lbl in labels:
+                per_label[lbl] = {
+                    "precision": result.precision.get(lbl, 0.0),
+                    "recall": result.recall.get(lbl, 0.0),
+                    "f1": result.f1.get(lbl, 0.0),
+                }
+        macro_p = (
+            sum(result.precision.values()) / len(result.precision)
+            if result.precision else 0.0
+        )
+        macro_r = (
+            sum(result.recall.values()) / len(result.recall)
+            if result.recall else 0.0
+        )
+
+        return EvaluationResult(
+            model=training.model,
+            model_hash=program_hash(loaded["program"]),
+            parameter_schema_hash=parameter_set.parameter_schema_hash,
+            parameter_set_id=parameter_set.parameter_set_id,
+            dataset=str(resolved_data),
+            dataset_fingerprint=dataset_fingerprint(resolved_data),
+            dataset_schema={},
+            rows=result.rows,
+            loss=result.loss,
+            accuracy=result.accuracy,
+            labels=list(labels or []),
+            confusion_matrix=result.confusion_matrix,
+            per_label=per_label,
+            macro_precision=macro_p,
+            macro_recall=macro_r,
+            macro_f1=result.macro_f1,
+            backend={"target": "torch", "device": device},
+            mae=result.mae,
+            rmse=result.rmse,
+            r2=result.r2,
         )

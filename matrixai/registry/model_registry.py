@@ -252,12 +252,15 @@ class ModelRegistry:
         # registro P21 hash must cover those weights too, not fall back to
         # the null placeholder.
         mxw_path = run_dir / "weights.mxw"
+        weights_model_hash = ""
         if params_path:
             ps_raw = json.loads(params_path.read_text())
             parameter_set_id = str(ps_raw.get("parameter_set_id", f"{name}_{version}_ps"))
             parameter_schema_hash = str(ps_raw.get("parameter_schema_hash", "sha256:" + "0" * 64))
             ps_metrics: dict = dict(ps_raw.get("metrics", {}))
             params_content_hash = sha256_bytes(params_path.read_bytes())
+            if params_path.name == "parameter_set.json":
+                weights_model_hash = str(ps_raw.get("model_hash", ""))
         elif mxw_path.exists():
             from matrixai.parameters.binary_store import read_mxw_header
             header = read_mxw_header(mxw_path)
@@ -265,7 +268,32 @@ class ModelRegistry:
             parameter_schema_hash = str(header.get("parameter_schema_hash", "sha256:" + "0" * 64))
             ps_metrics = {}
             params_content_hash = "sha256:" + str(header.get("content_hash", "0" * 64))
-        else:
+            weights_model_hash = str(header.get("model_hash", ""))
+
+        # Auditoría C6 [MEDIA-2]: los pesos deben pertenecer al modelo del run.
+        # Los hashes por-fichero de siempre detectan tamper de CADA artefacto,
+        # pero nada ligaba pesos↔modelo: un weights.mxw (o parameter_set.json)
+        # de OTRO modelo junto a un .mxai ajeno quedaba registrado y "verified".
+        # Solo aplica a los caminos que C6 abre (parameter_set.json /
+        # weights.mxw) — las entradas params.best.json/params.json
+        # preexistentes conservan su semántica histórica intacta.
+        if weights_model_hash and model_path is not None:
+            from matrixai.parameters.store import program_hash as _program_hash
+            from matrixai.parser import parse_file as _parse_file
+            try:
+                program_digest = _program_hash(_parse_file(model_path))
+            except Exception as exc:  # noqa: BLE001 — un .mxai ilegible en este camino es un run corrupto
+                raise ModelRegistryError(
+                    f"push_run_dir: cannot parse {model_path.name} to cross-check "
+                    f"the trained weights' model_hash: {exc}"
+                ) from exc
+            if weights_model_hash != program_digest:
+                raise ModelRegistryError(
+                    f"push_run_dir: trained weights belong to a different model "
+                    f"(weights declare model_hash {weights_model_hash!r} but "
+                    f"{model_path.name} hashes to {program_digest!r})"
+                )
+        if not (params_path or mxw_path.exists()):
             parameter_set_id = f"{name}_{version}_ps"
             parameter_schema_hash = "sha256:" + "0" * 64
             ps_metrics = {}

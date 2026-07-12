@@ -342,6 +342,18 @@ class OnnxExporter:
         _set_meta(model, "matrixai_kind", kind)
         if labels:
             _set_meta(model, "matrixai_labels", ",".join(labels))
+        # Auditoría C6 [MEDIA-3]: la metadata de auditoría del bloque viaja EN
+        # el modelo exportado (borrador 49 §Auditoría: "deberá formar parte del
+        # modelo exportado"), no solo en los manifests del bundle — un .onnx
+        # suelto de `mx export-onnx` también la lleva.
+        from matrixai.parameters.network_params import (
+            transformer_block_export_metadata_for_program,
+        )
+        _tb_meta = transformer_block_export_metadata_for_program(program)
+        if _tb_meta is not None:
+            import json as _json
+            _set_meta(model, "matrixai_transformer_block",
+                      _json.dumps(_tb_meta, sort_keys=True))
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if use_external_data:
@@ -960,6 +972,15 @@ def export_onnx_graph_external(program, mxw_header, output_path, *,
     _set_meta(model, "matrixai_parameter_set_id", "torch_state")
     _set_meta(model, "matrixai_parameter_schema_hash", parameter_schema_hash)
     _set_meta(model, "matrixai_kind", kind)
+    # Auditoría C6 [MEDIA-3]: mismo embebido que el camino ParameterSet — un
+    # transformer grande exportado por streaming también lleva su metadata.
+    from matrixai.parameters.network_params import (
+        transformer_block_export_metadata_for_program,
+    )
+    _tb_meta = transformer_block_export_metadata_for_program(program)
+    if _tb_meta is not None:
+        import json as _json
+        _set_meta(model, "matrixai_transformer_block", _json.dumps(_tb_meta, sort_keys=True))
 
     # NOTA: `onnx.checker.check_model` NO se llama aquí — con initializers
     # EXTERNAL intenta abrir `model.onnx.data` para validar los tensores, y ese

@@ -319,17 +319,19 @@ def _build_sequence_inference_spec(
     pool_kind = pool_kinds[0] if pool_kinds else None
 
     # TRANSFORMER C6: metadata de auditoría del bloque (§"C6 — Auditoría del
-    # bloque"). layer_manifest ya trae la arquitectura resuelta calculada por
-    # el mismo camino que exporta a ONNX (single source of truth) — un
-    # typecheck sucio aquí sería un bug en un caller previo (export ya lo
-    # habría rechazado), así que un KeyError es el fallo correcto.
-    from matrixai.compiler import BackendContractAnalyzer
-    from matrixai.parameters.network_params import transformer_block_export_metadata
-    block_entry = next(
-        e for e in BackendContractAnalyzer().analyze(program).layer_manifest
-        if e.get("layer_type") == "TransformerBlock" and e.get("network") == net.name
+    # bloque"), misma fuente única que el ONNX embebido y el model_manifest.
+    # Auditoría C6 [BAJA-1]: con typecheck sucio el helper devuelve None y
+    # aquí se convierte en error accionable (antes: KeyError críptico).
+    from matrixai.parameters.network_params import (
+        transformer_block_export_metadata_for_program,
     )
-    transformer_block = transformer_block_export_metadata(block_entry)
+    transformer_block = transformer_block_export_metadata_for_program(program)
+    if transformer_block is None:
+        raise InferenceSpecError(
+            f"NETWORK {net.name}: the transformer block architecture is not "
+            "resolved (typecheck failed?) — cannot describe the model in "
+            "inference_spec.json"
+        )
 
     spec: dict[str, Any] = {
         "spec_version": SPEC_VERSION,
