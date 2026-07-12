@@ -3,18 +3,17 @@
 
 """Build inference_spec.json — the "tokenizer" of an exported MatrixAI bundle.
 
-The ONNX graph expects a flat float32 vector in `vector.fields` order, fed with
-values that were normalized to [0, 1] at training time. A downloaded model is
-therefore unusable on its own: the consumer cannot know which raw field maps to
-which column, how to normalize a scalar, or how a category becomes a number.
+Tabular ONNX graphs expect a flat float32 vector in `vector.fields` order;
+transformer graphs expect fixed-length int64 token IDs plus a padding mask. A
+downloaded model is unusable unless that encoding contract travels with it.
 
 `build_inference_spec` derives that contract from the program + the ONNX export
 result, combined with the optional Studio-side metadata (field_ranges,
 field_categories, field_types, labels). The resulting dict is written verbatim
 as inference_spec.json and consumed by the standalone predict.py (C2).
 
-Scope (EXPORT_MODELO_DESCARGABLE_CONTRACT C1): single flat VECTOR input only.
-SEQUENCE or multi-input models fail explicitly and point to the follow-up.
+Scope: one flat VECTOR input, or one C5 transformer SEQUENCE input. Other
+multi-input models still fail explicitly.
 """
 from __future__ import annotations
 
@@ -61,7 +60,8 @@ def build_inference_spec(
     sequences = list(getattr(program, "sequences", []) or [])
     if sequences:
         return _build_sequence_inference_spec(
-            program, export_result, labels=labels, example_input=example_input,
+            program, parameter_set, export_result,
+            labels=labels, example_input=example_input,
         )
     _guard_single_vector(program)
     vector = program.vectors[0]
@@ -250,6 +250,12 @@ def build_example_input(spec: dict[str, Any]) -> dict[str, Any]:
     dataset rows: midpoints for scalars, first category for one-hot/embedding.
     """
     example: dict[str, Any] = {}
+    # TRANSFORMER C5 audit: sequence specs do not have ``fields``.  Generate
+    # the same raw record accepted by the bundled predict.py instead of the
+    # empty object that made its packaging smoke-test meaningless.
+    for name, entry in spec.get("input", {}).items():
+        if entry.get("encoding") == "token_ids":
+            example[name] = [0] * int(entry["length"])
     for field, entry in spec.get("fields", {}).items():
         enc = entry["encoding"]
         if enc == "scalar":
@@ -267,6 +273,7 @@ def build_example_input(spec: dict[str, Any]) -> dict[str, Any]:
 
 def _build_sequence_inference_spec(
     program: MatrixAIProgram,
+    parameter_set: ParameterSet,
     export_result: "OnnxExportResult",
     *,
     labels: list[str] | None = None,
@@ -309,7 +316,16 @@ def _build_sequence_inference_spec(
         layer.pool_kind for layer in getattr(net, "top_layers", [])
         if layer.layer_type == "Pool"
     ]
+    pool_kind = pool_kinds[0] if pool_kinds else None
     spec: dict[str, Any] = {
+        "spec_version": SPEC_VERSION,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "matrixai_version": _matrixai_version(),
+        "model_hash": parameter_set.model_hash,
+        "parameter_schema_hash": parameter_set.parameter_schema_hash,
+        "parameter_set_id": parameter_set.parameter_set_id,
+        "onnx_opset": export_result.opset_version,
+        "onnx_file": "model.onnx",
         "input": {
             seq.name: {
                 "encoding": "token_ids",
@@ -318,9 +334,16 @@ def _build_sequence_inference_spec(
             }
         },
         "input_order": [seq.name],
+        # Keep the common envelope consumed by predict.py.  ``onnx_input`` is
+        # retained as the explicit sequence alias for backwards compatibility
+        # with the first C5 spec draft.
+        "input_name": export_result.input_name,
+        "input_shape": list(export_result.input_shape),
         "onnx_input": export_result.input_name,
         "mask_input": f"{export_result.input_name}_mask",
+        "mask_shape": list(export_result.input_shape),
         "mask_semantics": "1.0 = real token, 0.0 = padding; all-ones if no padding",
+        "pool_kind": pool_kind,
         "output": _build_output(program, export_result, labels),
     }
     if "cls" in pool_kinds:

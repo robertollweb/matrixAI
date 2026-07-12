@@ -16,8 +16,9 @@ encoding and label mapping that the model was trained with are applied here.
     python predict.py --input example_input.json
 
 The contract between this script and the model is ``inference_spec.json``:
-``input_order`` is the exact float32 column order the ONNX graph expects, and
-``fields`` says how each raw field maps onto those columns.
+For tabular models, ``input_order`` is the exact float32 column order and
+``fields`` says how raw values map onto it.  Sequence models instead declare a
+``token_ids`` input and an optional padding mask.
 """
 from __future__ import annotations
 
@@ -53,7 +54,22 @@ class MatrixAIModel:
         self.input_index = {col: i for i, col in enumerate(self.input_order)}
         self.fields: dict[str, Any] = self.spec.get("fields", {})
         self.output: dict[str, Any] = self.spec.get("output", {})
-        self.input_name: str = self.spec["input_name"]
+        sequence_inputs = {
+            name: entry for name, entry in self.spec.get("input", {}).items()
+            if entry.get("encoding") == "token_ids"
+        }
+        if len(sequence_inputs) > 1:
+            raise MatrixAIModelError("predict.py supports exactly one token_ids input.")
+        self.sequence_name: str | None = next(iter(sequence_inputs), None)
+        self.sequence_entry: dict[str, Any] | None = (
+            sequence_inputs.get(self.sequence_name) if self.sequence_name else None
+        )
+        self.input_name: str = self.spec.get("input_name") or self.spec.get("onnx_input")
+        if not self.input_name:
+            raise MatrixAIModelError("inference_spec.json does not declare input_name.")
+        self.mask_input: str | None = self.spec.get("mask_input")
+        if self.sequence_name and not self.mask_input:
+            raise MatrixAIModelError("token_ids spec does not declare mask_input.")
 
         onnx_path = spec_path.parent / self.spec.get("onnx_file", "model.onnx")
         if not onnx_path.exists():
@@ -64,14 +80,35 @@ class MatrixAIModel:
 
     # -- public API --------------------------------------------------------
 
-    def predict(self, record: dict[str, Any], *, return_meta: bool = False):
+    def predict(self, record: Any, *, return_meta: bool = False):
+        if self.sequence_name:
+            ids, mask, meta = self._encode_sequence(record)
+            raw = self.session.run(None, {
+                self.input_name: np.asarray([ids], dtype=np.int64),
+                self.mask_input: np.asarray([mask], dtype=np.float32),
+            })[0]
+            result = self._decode(np.asarray(raw)[0])
+            return (result, meta) if return_meta else result
         vector, meta = self._encode(record)
         x = np.asarray([vector], dtype=np.float32)
         raw = self.session.run(None, {self.input_name: x})[0]
         result = self._decode(np.asarray(raw)[0])
         return (result, meta) if return_meta else result
 
-    def predict_batch(self, records: list[dict[str, Any]], *, return_meta: bool = False):
+    def predict_batch(self, records: list[Any], *, return_meta: bool = False):
+        if self.sequence_name:
+            encoded = [self._encode_sequence(r) for r in records]
+            ids = np.asarray([row[0] for row in encoded], dtype=np.int64)
+            masks = np.asarray([row[1] for row in encoded], dtype=np.float32)
+            raw = self.session.run(None, {
+                self.input_name: ids,
+                self.mask_input: masks,
+            })[0]
+            raw = np.asarray(raw)
+            results = [self._decode(raw[i]) for i in range(len(records))]
+            if return_meta:
+                return results, [row[2] for row in encoded]
+            return results
         encoded = [self._encode(r) for r in records]
         x = np.asarray([vec for vec, _ in encoded], dtype=np.float32)
         raw = self.session.run(None, {self.input_name: x})[0]
@@ -82,6 +119,75 @@ class MatrixAIModel:
         return results
 
     # -- encoding ----------------------------------------------------------
+
+    def _encode_sequence(self, record: Any) -> tuple[list[int], list[float], dict[str, Any]]:
+        """Validate one token-id row and construct its ONNX padding mask."""
+        assert self.sequence_name is not None and self.sequence_entry is not None
+        meta: dict[str, Any] = {"spec_version": self.spec.get("spec_version"),
+                                "warnings": [], "clipped": []}
+        if isinstance(record, list):
+            raw_ids = record
+            raw_mask = None
+        elif isinstance(record, dict):
+            if self.sequence_name not in record:
+                raise MatrixAIModelError(
+                    f"Missing required sequence field {self.sequence_name!r}."
+                )
+            raw_ids = record[self.sequence_name]
+            raw_mask = record.get(self.mask_input)
+            allowed = {self.sequence_name, self.mask_input}
+            unknown = sorted(k for k in record if k not in allowed)
+            if unknown:
+                meta["warnings"].append(f"ignored unknown fields: {unknown}")
+        else:
+            raise MatrixAIModelError(
+                "Token input must be a list of integers or an object containing that list."
+            )
+
+        length = int(self.sequence_entry["length"])
+        vocab_size = int(self.sequence_entry["vocab_size"])
+        if not isinstance(raw_ids, list) or len(raw_ids) != length:
+            got = len(raw_ids) if isinstance(raw_ids, list) else type(raw_ids).__name__
+            raise MatrixAIModelError(
+                f"Field {self.sequence_name!r}: expected a list of {length} token ids, got {got}."
+            )
+        ids: list[int] = []
+        for i, value in enumerate(raw_ids):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise MatrixAIModelError(
+                    f"Field {self.sequence_name!r}[{i}]: expected an integer token id, got {value!r}."
+                )
+            if not 0 <= value < vocab_size:
+                raise MatrixAIModelError(
+                    f"Field {self.sequence_name!r}[{i}]: token id {value} out of range "
+                    f"[0, {vocab_size - 1}]."
+                )
+            ids.append(value)
+
+        if raw_mask is None:
+            mask = [1.0] * length
+        else:
+            if not isinstance(raw_mask, list) or len(raw_mask) != length:
+                got = len(raw_mask) if isinstance(raw_mask, list) else type(raw_mask).__name__
+                raise MatrixAIModelError(
+                    f"Field {self.mask_input!r}: expected a list of {length} mask values, got {got}."
+                )
+            mask = []
+            for i, value in enumerate(raw_mask):
+                if isinstance(value, bool):
+                    mask.append(1.0 if value else 0.0)
+                elif isinstance(value, (int, float)) and value in (0, 1):
+                    mask.append(float(value))
+                else:
+                    raise MatrixAIModelError(
+                        f"Field {self.mask_input!r}[{i}]: mask values must be boolean or 0/1, "
+                        f"got {value!r}."
+                    )
+        if not any(mask):
+            raise MatrixAIModelError("Mask must keep at least one real token.")
+        if self.spec.get("pool_kind") == "cls" and mask[0] != 1.0:
+            raise MatrixAIModelError("POOL cls requires mask[0] = 1 (a real token).")
+        return ids, mask, meta
 
     def _encode(self, record: dict[str, Any]) -> tuple[list[float], dict[str, Any]]:
         if not isinstance(record, dict):
@@ -252,7 +358,14 @@ def _main(argv: list[str] | None = None) -> int:
     model = MatrixAIModel(args.spec, check_hash=not args.no_check_hash)
     payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
     try:
-        if isinstance(payload, list):
+        # For a token_ids model a JSON array of integers is one raw sequence;
+        # batches are arrays of objects/arrays.  Tabular semantics stay intact.
+        is_single_sequence = (
+            model.sequence_name is not None
+            and isinstance(payload, list)
+            and all(isinstance(v, int) and not isinstance(v, bool) for v in payload)
+        )
+        if isinstance(payload, list) and not is_single_sequence:
             out = model.predict_batch(payload, return_meta=args.meta)
         else:
             out = model.predict(payload, return_meta=args.meta)

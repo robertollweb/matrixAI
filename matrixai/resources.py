@@ -95,6 +95,22 @@ class ResourceEstimate:
     binary_ram_gib: float
     binary_disk_gib: float
     binary_time_seconds: float
+    exceeds_native_threshold: bool | None = None
+
+    def __post_init__(self) -> None:
+        """Capture the threshold decision at estimation time.
+
+        This is an orientative signal, never a gate.  It makes the C5
+        "large transformer warns through the estimator" requirement usable by
+        callers without duplicating the threshold comparison.  Capturing it
+        avoids changing an existing estimate if the environment override is
+        modified later.
+        """
+        if self.exceeds_native_threshold is None:
+            object.__setattr__(
+                self, "exceeds_native_threshold",
+                self.param_count >= torch_native_min_params(),
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -112,6 +128,7 @@ class ResourceEstimate:
                 "disk_gib": round(self.binary_disk_gib, 4),
                 "time_seconds": round(self.binary_time_seconds, 2),
             },
+            "exceeds_native_threshold": self.exceeds_native_threshold,
             # Invariante 6: la estimación es orientativa, nunca bloquea.
             "orientative": True,
         }

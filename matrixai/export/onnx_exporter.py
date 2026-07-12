@@ -109,9 +109,9 @@ class OnnxExporter:
         `state_dict`, `parameter_set` se ignora (puede ser `None`) y
         `model_hash`/`parameter_schema_hash` son obligatorios (el caller ya los
         validó contra la cabecera del `.mxw` — aquí se revalida contra el
-        hash del programa, igual que el camino de `parameter_set`). Solo
-        soporta `dense_network` — el único tipo de red que PESOS_GRANDES trata
-        como "grande" (composite/layer_call entrenan y guardan distinto)."""
+        hash del programa, igual que el camino de `parameter_set`). Soporta
+        `dense_network` y el composite transformer, las dos familias que el
+        trainer puede persistir como `.mxw`."""
         onnx, numpy_helper, helper, TensorProto = _import_onnx()
         np = _import_numpy()
 
@@ -179,27 +179,68 @@ class OnnxExporter:
             f.name for f in program.functions if f.semantic.kind not in _SUPPORTED_KINDS
         ]
         dense_nets = [n for n in program.networks if getattr(n, "kind", "") == "dense_network"]
-        composite_nets = [] if using_state_dict else [
+        composite_nets = [
             n for n in program.networks if getattr(n, "kind", "") == "composite_network"
         ]
 
         if using_state_dict:
-            if not dense_nets:
-                raise OnnxExportError(
-                    f"state_dict export solo soporta dense_network en {program.project!r} "
-                    "(el único tipo de red que PESOS_GRANDES guarda en .mxw)"
+            transformer_nets = [
+                n for n in composite_nets if getattr(n, "transformer_blocks", [])
+            ]
+            if transformer_nets:
+                from matrixai.types import check_composite_network_types
+                from matrixai.parameters.network_params import (
+                    composite_network_parameter_schema_hash,
                 )
-            network = dense_nets[0]
-            if not program.vectors:
-                raise OnnxExportError(f"No VECTOR input for dense network {network.name!r}")
-            input_dim = program.vectors[0].size
-            nodes, initializers, x_info, y_info, out_shape = _build_dense_network_pipeline_from_state(
-                network, program, state_dict, np, numpy_helper, helper, TensorProto
-            )
-            exported_names = [network.name]
-            labels = []
-            kind = "dense_network"
-            skipped = [n.name for n in dense_nets[1:]]
+                network = transformer_nets[0]
+                type_result = check_composite_network_types(
+                    network,
+                    {v.name: v for v in program.vectors},
+                    {s.name: s for s in program.sequences},
+                )
+                if not type_result.ok:
+                    raise OnnxExportError(
+                        "transformer network failed typecheck: "
+                        + "; ".join(type_result.errors[:3])
+                    )
+                expected_schema = composite_network_parameter_schema_hash(
+                    network.name, network, type_result,
+                )
+                if parameter_schema_hash != expected_schema:
+                    raise OnnxExportError(
+                        f"state_dict parameter_schema_hash {parameter_schema_hash!r} "
+                        f"does not match transformer schema {expected_schema!r}"
+                    )
+                nodes, initializers, x_info, y_info, out_shape = (
+                    _build_transformer_network_pipeline(
+                        network, program, None, np, numpy_helper, helper, TensorProto,
+                        state_dict=state_dict,
+                    )
+                )
+                input_dim = next(
+                    s.length for s in program.sequences if s.name == network.input
+                )
+                exported_names = [network.name]
+                labels = []
+                kind = "composite_network"
+                skipped = [n.name for n in composite_nets if n is not network]
+            elif not dense_nets:
+                raise OnnxExportError(
+                    f"state_dict export supports dense_network or a composite transformer "
+                    f"in {program.project!r}"
+                )
+            else:
+                network = dense_nets[0]
+                if not program.vectors:
+                    raise OnnxExportError(f"No VECTOR input for dense network {network.name!r}")
+                input_dim = program.vectors[0].size
+                nodes, initializers, x_info, y_info, out_shape = _build_dense_network_pipeline_from_state(
+                    network, program, state_dict, np, numpy_helper, helper, TensorProto
+                )
+                exported_names = [network.name]
+                labels = []
+                kind = "dense_network"
+                skipped = [n.name for n in dense_nets[1:]]
         elif layer_call_fns:
             # Input size for result: from VECTOR or SEQUENCE spec
             if program.vectors:
@@ -826,18 +867,19 @@ def _build_dense_network_pipeline_external(network, program, mxw_header, helper,
     return nodes, initializers, x_info, y_info, current_shape, ordered_metas
 
 
-def export_dense_onnx_graph_external(program, mxw_header, output_path, *,
-                                     model_hash, parameter_schema_hash):
-    """PESOS_GRANDES C7 auditoría — export ONNX external-data por STREAMING.
+def export_onnx_graph_external(program, mxw_header, output_path, *,
+                               model_hash, parameter_schema_hash):
+    """Export dense or transformer ONNX external-data by streaming.
 
     Escribe SOLO el grafo (`model.onnx`, con initializers EXTERNAL que apuntan a
     `model.onnx.data`) — NO escribe el `.data`; el caller lo streamea desde el
     `.mxw` con `binary_store.stream_mxw_tensor` en el orden de `ordered_metas`.
-    Así un modelo de 15 GiB nunca pasa por RAM: `read_mxw` (cuerpo entero +
-    copias) y `numpy_helper.from_array` (copia a `raw_data`) quedan fuera del
-    camino. Solo soporta `dense_network` (lo único que PESOS_GRANDES guarda en
-    `.mxw`). Devuelve `(OnnxExportResult, ordered_metas)`."""
-    _onnx, _numpy_helper, helper, TensorProto = _import_onnx()
+    Thus even a multi-GiB model never enters RAM. Transformer matrices that
+    need transposition keep their raw `.mxw` layout and receive an ONNX
+    Transpose node. Returns ``(OnnxExportResult, ordered_metas)``.
+    """
+    _onnx, numpy_helper, helper, TensorProto = _import_onnx()
+    np = _import_numpy()
     output_path = Path(output_path)
 
     expected_hash = program_hash(program)
@@ -846,32 +888,78 @@ def export_dense_onnx_graph_external(program, mxw_header, output_path, *,
             f".mxw model_hash {model_hash!r} does not match program hash "
             f"{expected_hash!r} for {program.project!r}. Export refused."
         )
-    dense_nets = [n for n in program.networks if getattr(n, "kind", "") == "dense_network"]
-    if not dense_nets:
+    if mxw_header.get("model_hash") != model_hash:
+        raise OnnxExportError(".mxw header model_hash does not match the requested model_hash")
+    if mxw_header.get("parameter_schema_hash") != parameter_schema_hash:
         raise OnnxExportError(
-            f"export external-data solo soporta dense_network en {program.project!r}"
+            ".mxw header parameter_schema_hash does not match the requested schema"
         )
-    if not program.vectors:
-        raise OnnxExportError(f"No VECTOR input for dense network in {program.project!r}")
-    network = dense_nets[0]
-    input_dim = program.vectors[0].size
-
-    nodes, initializers, x_info, y_info, out_shape, ordered_metas = (
-        _build_dense_network_pipeline_external(network, program, mxw_header, helper, TensorProto)
-    )
+    dense_nets = [n for n in program.networks if getattr(n, "kind", "") == "dense_network"]
+    transformer_nets = [
+        n for n in program.networks
+        if getattr(n, "kind", "") == "composite_network"
+        and getattr(n, "transformer_blocks", [])
+    ]
+    if transformer_nets:
+        from matrixai.types import check_composite_network_types
+        from matrixai.parameters.network_params import composite_network_parameter_schema_hash
+        network = transformer_nets[0]
+        type_result = check_composite_network_types(
+            network,
+            {v.name: v for v in program.vectors},
+            {s.name: s for s in program.sequences},
+        )
+        if not type_result.ok:
+            raise OnnxExportError(
+                "transformer network failed typecheck: " + "; ".join(type_result.errors[:3])
+            )
+        expected_schema = composite_network_parameter_schema_hash(
+            network.name, network, type_result,
+        )
+        if parameter_schema_hash != expected_schema:
+            raise OnnxExportError(
+                f".mxw parameter_schema_hash {parameter_schema_hash!r} does not match "
+                f"transformer schema {expected_schema!r}"
+            )
+        ordered_metas: list[dict] = []
+        nodes, initializers, x_info, y_info, out_shape = (
+            _build_transformer_network_pipeline(
+                network, program, None, np, numpy_helper, helper, TensorProto,
+                mxw_header=mxw_header, external_layout=ordered_metas,
+            )
+        )
+        input_dim = next(s.length for s in program.sequences if s.name == network.input)
+        kind = "composite_network"
+        skipped_names = [n.name for n in transformer_nets[1:]]
+    elif not dense_nets:
+        raise OnnxExportError(
+            f"external-data export supports dense_network or a composite transformer "
+            f"in {program.project!r}"
+        )
+    else:
+        if not program.vectors:
+            raise OnnxExportError(f"No VECTOR input for dense network in {program.project!r}")
+        network = dense_nets[0]
+        input_dim = program.vectors[0].size
+        nodes, initializers, x_info, y_info, out_shape, ordered_metas = (
+            _build_dense_network_pipeline_external(network, program, mxw_header, helper, TensorProto)
+        )
+        kind = "dense_network"
+        skipped_names = [n.name for n in dense_nets[1:]]
 
     graph = helper.make_graph(
         nodes, name=f"{program.project}_graph",
-        inputs=[x_info], outputs=[y_info], initializer=initializers,
+        inputs=x_info if isinstance(x_info, list) else [x_info],
+        outputs=[y_info], initializer=initializers,
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", _OPSET_VERSION)])
-    model.doc_string = f"MatrixAI export of {program.project!r} ({network.name}, dense_network)"
+    model.doc_string = f"MatrixAI export of {program.project!r} ({network.name}, {kind})"
     model.ir_version = 10
     _set_meta(model, "matrixai_project", program.project)
     _set_meta(model, "matrixai_model_hash", model_hash)
     _set_meta(model, "matrixai_parameter_set_id", "torch_state")
     _set_meta(model, "matrixai_parameter_schema_hash", parameter_schema_hash)
-    _set_meta(model, "matrixai_kind", "dense_network")
+    _set_meta(model, "matrixai_kind", kind)
 
     # NOTA: `onnx.checker.check_model` NO se llama aquí — con initializers
     # EXTERNAL intenta abrir `model.onnx.data` para validar los tensores, y ese
@@ -889,21 +977,36 @@ def export_dense_onnx_graph_external(program, mxw_header, output_path, *,
         model_hash=model_hash,
         parameter_set_id="torch_state",
         parameter_schema_hash=parameter_schema_hash,
-        input_name=x_info.name,
+        input_name=(x_info[0] if isinstance(x_info, list) else x_info).name,
         input_shape=[-1, input_dim],
         output_name=y_info.name,
         output_shape=out_shape,
         exported_functions=[network.name],
-        skipped_functions=[n.name for n in dense_nets[1:]],
+        skipped_functions=skipped_names,
         labels=[],
         external_data=True,
     )
     return result, ordered_metas
 
 
+def export_dense_onnx_graph_external(program, mxw_header, output_path, *,
+                                     model_hash, parameter_schema_hash):
+    """Backward-compatible name for the now generic external-data exporter."""
+    return export_onnx_graph_external(
+        program, mxw_header, output_path,
+        model_hash=model_hash, parameter_schema_hash=parameter_schema_hash,
+    )
+
+
 def _emit_dense_activation(act, pre_act, post_act, helper):
-    """Emit the ONNX activation node for a Dense/Activation layer. Softmax over the
-    last axis (composite tensors are [batch, dim], so axis=1)."""
+    """Emit a one-node ONNX activation.
+
+    Softmax is always over the feature axis.  ``axis=-1`` works for both flat
+    ``[B,D]`` tensors and transformer streams ``[B,L,D]``; the old hard-coded
+    axis 1 silently normalized over sequence positions in the latter.
+
+    GELU needs several nodes and is emitted by ``_emit_gelu_erf_nodes``.
+    """
     act = (act or "linear").lower()
     if act == "relu":
         return helper.make_node("Relu", inputs=[pre_act], outputs=[post_act])
@@ -912,13 +1015,37 @@ def _emit_dense_activation(act, pre_act, post_act, helper):
     if act == "tanh":
         return helper.make_node("Tanh", inputs=[pre_act], outputs=[post_act])
     if act == "softmax":
-        return helper.make_node("Softmax", inputs=[pre_act], outputs=[post_act], axis=1)
+        return helper.make_node("Softmax", inputs=[pre_act], outputs=[post_act], axis=-1)
     # linear / identity
     return helper.make_node("Identity", inputs=[pre_act], outputs=[post_act])
 
 
+def _emit_gelu_erf_nodes(x_in, out, prefix, np, numpy_helper, helper):
+    """Exact GELU used by stdlib/torch: ``0.5*x*(1+erf(x/sqrt(2)))``."""
+    inv_name = f"{prefix}_invs2"
+    half_name = f"{prefix}_half"
+    one_name = f"{prefix}_one"
+    initializers = [
+        numpy_helper.from_array(np.array(1.0 / math.sqrt(2.0), dtype=np.float32), name=inv_name),
+        numpy_helper.from_array(np.array(0.5, dtype=np.float32), name=half_name),
+        numpy_helper.from_array(np.array(1.0, dtype=np.float32), name=one_name),
+    ]
+    scaled, erf, one_plus, half_x = (
+        f"{prefix}_scaled", f"{prefix}_erf", f"{prefix}_onep", f"{prefix}_halfx"
+    )
+    nodes = [
+        helper.make_node("Mul", [x_in, inv_name], [scaled]),
+        helper.make_node("Erf", [scaled], [erf]),
+        helper.make_node("Add", [one_name, erf], [one_plus]),
+        helper.make_node("Mul", [x_in, half_name], [half_x]),
+        helper.make_node("Mul", [half_x, one_plus], [out]),
+    ]
+    return nodes, initializers
+
+
 def _build_composite_layer_onnx_nodes(layer, prefix, tag, current, current_dim,
-                                      parameter_set, np, numpy_helper, helper):
+                                      parameter_set, np, numpy_helper, helper,
+                                      parameter_source=None):
     """Lower one CompositeLayerSpec to ONNX nodes. Mirrors composite_forward's
     _forward_composite_layer (inference: Dropout/Pool/Reshape are identity).
 
@@ -933,35 +1060,45 @@ def _build_composite_layer_onnx_nodes(layer, prefix, tag, current, current_dim,
     if lt == "Dense":
         w_key = f"{pfx}.W"
         b_key = f"{pfx}.b"
-        if w_key not in parameter_set.parameters:
-            raise OnnxExportError(f"Composite parameter {w_key!r} not found in ParameterSet")
-        if b_key not in parameter_set.parameters:
-            raise OnnxExportError(f"Composite parameter {b_key!r} not found in ParameterSet")
-        W = np.array(parameter_set.parameters[w_key]["values"], dtype=np.float32)  # (out, in)
-        b = np.array(parameter_set.parameters[b_key]["values"], dtype=np.float32)  # (out,)
         w_name, b_name = f"{name}_W", f"{name}_b"
+        if parameter_source is not None:
+            w_name, w_shape = parameter_source(w_key, w_name)
+            b_name, _ = parameter_source(b_key, b_name)
+            out_dim = int(w_shape[0])
+        else:
+            if w_key not in parameter_set.parameters:
+                raise OnnxExportError(f"Composite parameter {w_key!r} not found in ParameterSet")
+            if b_key not in parameter_set.parameters:
+                raise OnnxExportError(f"Composite parameter {b_key!r} not found in ParameterSet")
+            W = np.array(parameter_set.parameters[w_key]["values"], dtype=np.float32)  # (out, in)
+            b = np.array(parameter_set.parameters[b_key]["values"], dtype=np.float32)  # (out,)
+            initializers.append(numpy_helper.from_array(W, name=w_name))
+            initializers.append(numpy_helper.from_array(b, name=b_name))
+            out_dim = int(W.shape[0])
         pre_act, post_act = f"{name}_pre", f"{name}_out"
-        initializers.append(numpy_helper.from_array(W, name=w_name))
-        initializers.append(numpy_helper.from_array(b, name=b_name))
         nodes.append(helper.make_node(
             "Gemm", inputs=[current, w_name, b_name], outputs=[pre_act],
             transB=1, alpha=1.0, beta=1.0,
         ))
         nodes.append(_emit_dense_activation(layer.activation, pre_act, post_act, helper))
-        return nodes, initializers, post_act, int(W.shape[0])
+        return nodes, initializers, post_act, out_dim
 
     if lt == "LayerNorm":
         gamma_key = f"{pfx}.gamma"
         beta_key = f"{pfx}.beta"
-        if gamma_key not in parameter_set.parameters:
-            raise OnnxExportError(f"Composite parameter {gamma_key!r} not found in ParameterSet")
-        if beta_key not in parameter_set.parameters:
-            raise OnnxExportError(f"Composite parameter {beta_key!r} not found in ParameterSet")
-        gamma = np.array(parameter_set.parameters[gamma_key]["values"], dtype=np.float32)
-        beta = np.array(parameter_set.parameters[beta_key]["values"], dtype=np.float32)
         g_name, bt_name, out = f"{name}_gamma", f"{name}_beta", f"{name}_ln"
-        initializers.append(numpy_helper.from_array(gamma, name=g_name))
-        initializers.append(numpy_helper.from_array(beta, name=bt_name))
+        if parameter_source is not None:
+            g_name, _ = parameter_source(gamma_key, g_name)
+            bt_name, _ = parameter_source(beta_key, bt_name)
+        else:
+            if gamma_key not in parameter_set.parameters:
+                raise OnnxExportError(f"Composite parameter {gamma_key!r} not found in ParameterSet")
+            if beta_key not in parameter_set.parameters:
+                raise OnnxExportError(f"Composite parameter {beta_key!r} not found in ParameterSet")
+            gamma = np.array(parameter_set.parameters[gamma_key]["values"], dtype=np.float32)
+            beta = np.array(parameter_set.parameters[beta_key]["values"], dtype=np.float32)
+            initializers.append(numpy_helper.from_array(gamma, name=g_name))
+            initializers.append(numpy_helper.from_array(beta, name=bt_name))
         nodes.append(helper.make_node(
             "LayerNormalization", inputs=[current, g_name, bt_name], outputs=[out],
             axis=-1, epsilon=1e-5,
@@ -970,8 +1107,15 @@ def _build_composite_layer_onnx_nodes(layer, prefix, tag, current, current_dim,
 
     if lt == "Activation":
         out = f"{name}_act"
-        nodes.append(_emit_dense_activation(getattr(layer, "activation_kind", "relu"),
-                                            current, out, helper))
+        activation = getattr(layer, "activation_kind", "relu")
+        if activation == "gelu":
+            act_nodes, act_initializers = _emit_gelu_erf_nodes(
+                current, out, f"{name}_gelu", np, numpy_helper, helper,
+            )
+            nodes.extend(act_nodes)
+            initializers.extend(act_initializers)
+        else:
+            nodes.append(_emit_dense_activation(activation, current, out, helper))
         return nodes, initializers, out, current_dim
 
     if lt in ("Dropout", "Pool", "Reshape"):
@@ -985,7 +1129,10 @@ def _build_composite_layer_onnx_nodes(layer, prefix, tag, current, current_dim,
     )
 
 
-def _build_transformer_network_pipeline(network, program, parameter_set, np, numpy_helper, helper, TensorProto):
+def _build_transformer_network_pipeline(
+    network, program, parameter_set, np, numpy_helper, helper, TensorProto,
+    *, state_dict=None, mxw_header=None, external_layout=None,
+):
     """TRANSFORMER C5 — lowering ONNX de una red composite con BLOCK TRANSFORMER.
 
     Entradas del grafo: `<sequence>` int64 [-1, L] (token ids) y
@@ -999,6 +1146,8 @@ def _build_transformer_network_pipeline(network, program, parameter_set, np, num
     """
     from matrixai.forward.transformer_forward import sinusoidal_positional_table
     from matrixai.types import check_composite_network_types
+    from matrixai.parameters.network_params import composite_network_parameter_manifest
+    from matrixai.parameters.binary_store import validate_mxw_tensor_meta
 
     vector_map = {v.name: v for v in program.vectors}
     sequence_map = {s.name: s for s in program.sequences}
@@ -1016,6 +1165,15 @@ def _build_transformer_network_pipeline(network, program, parameter_set, np, num
 
     nodes: list = []
     initializers: list = []
+    expected_shapes = {
+        entry["path"]: [int(d) for d in entry["shape"]]
+        for entry in composite_network_parameter_manifest(network.name, network, tr)
+    }
+    used_paths: set[str] = set()
+    external_metas = {
+        m.get("path"): m for m in (mxw_header or {}).get("tensors", [])
+    }
+    running_external_offset = 0
     ids_name = network.input
     mask_name = f"{network.input}_mask"
     x_infos = [
@@ -1027,13 +1185,64 @@ def _build_transformer_network_pipeline(network, program, parameter_set, np, num
         initializers.append(numpy_helper.from_array(arr, name=name))
         return name
 
-    def _param(path: str):
-        entry = parameter_set.parameters.get(path)
-        if entry is None or entry.get("values") is None:
+    def _parameter(path: str, name: str, transpose: bool = False):
+        """Add one trainable initializer from ParameterSet, state_dict or .mxw.
+
+        External `.mxw` tensors keep their original byte layout; matrix
+        transposition is represented as an ONNX node, so graph construction
+        only reads header metadata and remains O(number of tensors).
+        """
+        nonlocal running_external_offset
+        expected = expected_shapes.get(path)
+        if expected is None:
+            raise OnnxExportError(f"Unexpected transformer parameter path {path!r}")
+        if path in used_paths:
+            raise OnnxExportError(f"Transformer parameter {path!r} emitted more than once")
+        used_paths.add(path)
+
+        if mxw_header is not None:
+            meta = external_metas.get(path)
+            if meta is None:
+                raise OnnxExportError(f"Transformer tensor {path!r} not found in .mxw header")
+            _path, _source_offset, nbytes, shape = validate_mxw_tensor_meta(meta)
+            if shape != expected:
+                raise OnnxExportError(
+                    f"Transformer tensor {path!r} shape {shape} != expected {expected}"
+                )
+            raw_name = f"{name}_raw" if transpose else name
+            initializers.append(_external_initializer(
+                raw_name, shape, running_external_offset, nbytes, TensorProto,
+            ))
+            if external_layout is not None:
+                external_layout.append(meta)
+            running_external_offset += nbytes
+            if transpose:
+                nodes.append(helper.make_node("Transpose", [raw_name], [name], perm=[1, 0]))
+                shape = [shape[1], shape[0]]
+            return name, shape
+
+        if state_dict is not None:
+            if path not in state_dict:
+                raise OnnxExportError(f"Transformer tensor {path!r} not found in state_dict")
+            value = state_dict[path]
+            if hasattr(value, "detach"):
+                value = value.detach().cpu().contiguous().numpy()
+            arr = np.asarray(value, dtype=np.float32)
+        else:
+            entry = parameter_set.parameters.get(path) if parameter_set is not None else None
+            if entry is None or entry.get("values") is None:
+                raise OnnxExportError(
+                    f"Composite parameter {path!r} not found/materialized in ParameterSet"
+                )
+            arr = np.asarray(entry["values"], dtype=np.float32)
+        if list(arr.shape) != expected:
             raise OnnxExportError(
-                f"Composite parameter {path!r} not found/materialized in ParameterSet"
+                f"Transformer tensor {path!r} shape {list(arr.shape)} != expected {expected}"
             )
-        return np.array(entry["values"], dtype=np.float32)
+        if transpose:
+            arr = arr.T.copy()
+        initializers.append(numpy_helper.from_array(arr, name=name))
+        return name, list(arr.shape)
 
     def _gelu_erf(x_in: str, out: str, pfx: str) -> None:
         """GELU exacta: 0.5·x·(1+Erf(x/√2)) — la MISMA de stdlib C2 y F.gelu."""
@@ -1051,23 +1260,23 @@ def _build_transformer_network_pipeline(network, program, parameter_set, np, num
         nodes.append(helper.make_node("Mul", [half_x, one_plus], [out]))
 
     def _layer_norm3(x_in: str, out: str, gain_path: str, bias_path: str, pfx: str) -> None:
-        g = _init(f"{pfx}_gain", _param(gain_path))
-        b = _init(f"{pfx}_bias", _param(bias_path))
+        g, _ = _parameter(gain_path, f"{pfx}_gain")
+        b, _ = _parameter(bias_path, f"{pfx}_bias")
         nodes.append(helper.make_node(
             "LayerNormalization", [x_in, g, b], [out], axis=-1, epsilon=1e-5,
         ))
 
     # 1. Embedding por posición: Gather(table, ids) → [B, L, dim]
-    table = _init(f"{tag}_tok_table", _param(f"{tag}.{emb.name}.table"))
+    table, _ = _parameter(f"{tag}.{emb.name}.table", f"{tag}_tok_table")
     emb_out = f"{tag}_emb"
     nodes.append(helper.make_node("Gather", [table, ids_name], [emb_out], axis=0))
 
     # 2. Posicional (misma tabla P10 del stdlib — única fuente de la fórmula)
     if tb.pos == "learned":
-        pos_arr = _param(f"{tag}.{tb.name}.pos.table")
+        pos, _ = _parameter(f"{tag}.{tb.name}.pos.table", f"{tag}_pos_table")
     else:
         pos_arr = np.array(sinusoidal_positional_table(seq_len, dim), dtype=np.float32)
-    pos = _init(f"{tag}_pos_table", pos_arr)
+        pos = _init(f"{tag}_pos_table", pos_arr)
     current = f"{tag}_emb_pos"
     nodes.append(helper.make_node("Add", [emb_out, pos], [current]))
 
@@ -1095,10 +1304,10 @@ def _build_transformer_network_pipeline(network, program, parameter_set, np, num
             t = f"{block_tag}_l{i}"
             p = f"{pfx_store}.layer_{i}"
             # Proyecciones sin bias: MatMul(x, W.T) == y = W @ x por posición
-            wq = _init(f"{t}_WqT", _param(f"{p}.attention.Wq").T.copy())
-            wk = _init(f"{t}_WkT", _param(f"{p}.attention.Wk").T.copy())
-            wv = _init(f"{t}_WvT", _param(f"{p}.attention.Wv").T.copy())
-            wo = _init(f"{t}_WoT", _param(f"{p}.attention.Wo").T.copy())
+            wq, _ = _parameter(f"{p}.attention.Wq", f"{t}_WqT", transpose=True)
+            wk, _ = _parameter(f"{p}.attention.Wk", f"{t}_WkT", transpose=True)
+            wv, _ = _parameter(f"{p}.attention.Wv", f"{t}_WvT", transpose=True)
+            wo, _ = _parameter(f"{p}.attention.Wo", f"{t}_WoT", transpose=True)
             q3, k3, v3 = f"{t}_q3", f"{t}_k3", f"{t}_v3"
             nodes.append(helper.make_node("MatMul", [cur, wq], [q3]))
             nodes.append(helper.make_node("MatMul", [cur, wk], [k3]))
@@ -1135,10 +1344,10 @@ def _build_transformer_network_pipeline(network, program, parameter_set, np, num
             ln1 = f"{t}_ln1"
             _layer_norm3(add1, ln1, f"{p}.norm1.gain", f"{p}.norm1.bias", f"{t}_n1")
             # FFN
-            w1 = _init(f"{t}_W1T", _param(f"{p}.ffn.W1").T.copy())
-            b1 = _init(f"{t}_b1", _param(f"{p}.ffn.b1"))
-            w2 = _init(f"{t}_W2T", _param(f"{p}.ffn.W2").T.copy())
-            b2 = _init(f"{t}_b2", _param(f"{p}.ffn.b2"))
+            w1, _ = _parameter(f"{p}.ffn.W1", f"{t}_W1T", transpose=True)
+            b1, _ = _parameter(f"{p}.ffn.b1", f"{t}_b1")
+            w2, _ = _parameter(f"{p}.ffn.W2", f"{t}_W2T", transpose=True)
+            b2, _ = _parameter(f"{p}.ffn.b2", f"{t}_b2")
             h1 = f"{t}_h1"
             nodes.append(helper.make_node("MatMul", [ln1, w1], [h1]))
             h1b = f"{t}_h1b"
@@ -1225,6 +1434,7 @@ def _build_transformer_network_pipeline(network, program, parameter_set, np, num
             n, inits, current, current_dim = _build_composite_layer_onnx_nodes(
                 spec, network.name, tag, current, current_dim,
                 parameter_set, np, numpy_helper, helper,
+                parameter_source=_parameter,
             )
             nodes.extend(n)
             initializers.extend(inits)
@@ -1233,6 +1443,18 @@ def _build_transformer_network_pipeline(network, program, parameter_set, np, num
         raise OnnxExportError(
             "the network body never pooled the stream (typecheck should require POOL)"
         )
+
+    if state_dict is not None or mxw_header is not None:
+        actual_paths = set(state_dict) if state_dict is not None else set(external_metas)
+        expected_paths = set(expected_shapes)
+        if actual_paths != expected_paths or used_paths != expected_paths:
+            missing = sorted(expected_paths - actual_paths)[:3]
+            extra = sorted(actual_paths - expected_paths)[:3]
+            unused = sorted(expected_paths - used_paths)[:3]
+            raise OnnxExportError(
+                "transformer tensor paths do not match the parameter manifest — "
+                f"missing: {missing}, unexpected: {extra}, not emitted: {unused}"
+            )
 
     out_shape = [-1, current_dim]
     y_info = helper.make_tensor_value_info(current, TensorProto.FLOAT, out_shape)

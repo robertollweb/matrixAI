@@ -201,7 +201,10 @@ class TestInferenceSpec:
         entry = spec["input"]["Texto"]
         assert entry == {"encoding": "token_ids", "length": 6, "vocab_size": 11}
         assert spec["input_order"] == ["Texto"]
+        assert spec["input_name"] == spec["onnx_input"] == "Texto"
         assert spec["mask_input"] == "Texto_mask"
+        assert spec["input_shape"] == spec["mask_shape"] == [-1, 6]
+        assert spec["model_hash"] and spec["parameter_schema_hash"]
 
     def test_cls_note_present(self):
         spec, _ = self._spec(pool="cls")
@@ -254,6 +257,8 @@ class TestEstimador:
         expected_block = transformer_block_param_count(12, 768, 3072)
         assert est.param_count > expected_block  # + embedding + cabeza
         assert est.param_count > torch_native_min_params()
+        assert est.exceeds_native_threshold is True
+        assert est.to_dict()["exceeds_native_threshold"] is True
         assert est.weights_gib > 0.3  # ~108M float32 ≈ 0.4 GiB
 
 
@@ -302,3 +307,182 @@ class TestCapacidadExport:
         assert result.input_name == "Texto"
         assert result.input_shape == [-1, 6]
         assert result.output_shape == [-1, 2]
+
+
+# ---------------------------------------------------------------------------
+# Auditoría C5 — bundle público, activaciones intercaladas y PESOS_GRANDES
+# ---------------------------------------------------------------------------
+
+class TestC5AuditFixes:
+    @pytest.mark.parametrize("where,kind", [
+        ("pre", "softmax"),   # [B,L,D]: softmax debe ir sobre D, no sobre L
+        ("post", "gelu"),     # tras POOL: GELU exacta, nunca Identity
+    ])
+    def test_interleaved_activation_onnx_parity(self, where, kind):
+        from matrixai.forward.transformer_forward import transformer_network_forward
+        src = _mxai()
+        layer = f"  LAYER Activation kind={kind}"
+        if where == "pre":
+            src = src.replace("  BLOCK enc TRANSFORMER", layer + "\n  BLOCK enc TRANSFORMER")
+        else:
+            src = src.replace(
+                "  LAYER Dense units=4 activation=relu",
+                layer + "\n  LAYER Dense units=4 activation=relu",
+            )
+        prog, net, res, ps = _build(src)
+        path, _ = _export(prog, ps)
+        ids = [1, 2, 3, 0, 0, 0]
+        got = _ort_run(path, ids, MASK3)
+        expected = transformer_network_forward(net, res, ps, ids, mask=MASK3).output
+        assert max(abs(a - b) for a, b in zip(got, expected)) < ATOL_ONNX
+
+    def test_edge_bundle_predict_py_is_sequence_usable(self, tmp_path):
+        import importlib.util
+        import json
+        from matrixai.export.bundle import create_edge_bundle
+        from matrixai.parameters.store import write_parameter_set
+
+        src = _mxai()
+        prog, _net, _res, ps = _build(src)
+        mxai = tmp_path / "model.mxai"
+        params = tmp_path / "params.json"
+        bundle = tmp_path / "bundle"
+        mxai.write_text(src, encoding="utf-8")
+        write_parameter_set(params, ps)
+        result = create_edge_bundle(
+            prog, ps, mxai, params, bundle, labels=["NEG", "POS"],
+        )
+        assert "model_manifest.json" in result.files
+        assert json.loads((bundle / "example_input.json").read_text()) == {"Texto": [0] * 6}
+
+        module_spec = importlib.util.spec_from_file_location("_c5_predict", bundle / "predict.py")
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        model = module.MatrixAIModel(bundle / "inference_spec.json")
+        direct = model.predict(IDS)
+        explicit = model.predict({"Texto": IDS, "Texto_mask": [1, 1, 1, 1, 1, 1]})
+        assert direct == explicit
+        assert set(direct) == {"NEG", "POS"}
+
+    def test_predict_rejects_invalid_masks(self, tmp_path):
+        import importlib.util
+        from matrixai.export.bundle import create_edge_bundle
+        from matrixai.parameters.store import write_parameter_set
+
+        src = _mxai(pool="cls")
+        prog, _net, _res, ps = _build(src)
+        mxai = tmp_path / "model.mxai"
+        params = tmp_path / "params.json"
+        bundle = tmp_path / "bundle"
+        mxai.write_text(src, encoding="utf-8")
+        write_parameter_set(params, ps)
+        create_edge_bundle(
+            prog, ps, mxai, params, bundle, labels=["NEG", "POS"], validate=False,
+        )
+        module_spec = importlib.util.spec_from_file_location("_c5_predict_mask", bundle / "predict.py")
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+        model = module.MatrixAIModel(bundle / "inference_spec.json")
+        with pytest.raises(module.MatrixAIModelError, match="at least one real token"):
+            model.predict({"Texto": IDS, "Texto_mask": [0] * 6})
+        with pytest.raises(module.MatrixAIModelError, match=r"mask\[0\]"):
+            model.predict({"Texto": IDS, "Texto_mask": [0, 1, 1, 1, 1, 1]})
+
+    @pytest.mark.skipif(not _HAS_TORCH, reason="torch required")
+    def test_state_dict_transformer_export_parity(self, tmp_path):
+        import torch
+        from matrixai.export.onnx_exporter import export_onnx
+
+        prog, _net, _res, ps = _build(_mxai())
+        state = {
+            path: torch.tensor(entry["values"], dtype=torch.float32)
+            for path, entry in ps.parameters.items()
+        }
+        path = tmp_path / "state.onnx"
+        export_onnx(
+            prog, None, path, state_dict=state,
+            model_hash=ps.model_hash,
+            parameter_schema_hash=ps.parameter_schema_hash,
+        )
+        expected_path, _ = _export(prog, ps)
+        assert _ort_run(path, IDS, MASK3) == _ort_run(expected_path, IDS, MASK3)
+
+    @pytest.mark.skipif(not _HAS_TORCH, reason="torch required")
+    def test_state_dict_transformer_export_validates_schema_and_shapes(self, tmp_path):
+        import torch
+        from matrixai.export.onnx_exporter import OnnxExportError, export_onnx
+
+        prog, _net, _res, ps = _build(_mxai())
+        state = {
+            path: torch.tensor(entry["values"], dtype=torch.float32)
+            for path, entry in ps.parameters.items()
+        }
+        with pytest.raises(OnnxExportError, match="parameter_schema_hash"):
+            export_onnx(
+                prog, None, tmp_path / "schema.onnx", state_dict=state,
+                model_hash=ps.model_hash, parameter_schema_hash="wrong",
+            )
+        broken = dict(state)
+        broken["N.enc.layer_0.attention.Wq"] = torch.zeros(9, 8)
+        with pytest.raises(OnnxExportError, match="shape"):
+            export_onnx(
+                prog, None, tmp_path / "shape.onnx", state_dict=broken,
+                model_hash=ps.model_hash,
+                parameter_schema_hash=ps.parameter_schema_hash,
+            )
+
+    @pytest.mark.skipif(not _HAS_TORCH, reason="torch required")
+    def test_mxw_transformer_external_graph_roundtrip(self, tmp_path):
+        import torch
+        from matrixai.export.onnx_exporter import export_onnx_graph_external
+        from matrixai.parameters.binary_store import (
+            read_mxw_header_and_body_start,
+            stream_mxw_tensor,
+            write_mxw,
+        )
+
+        prog, _net, _res, ps = _build(_mxai())
+        state = {
+            path: torch.tensor(entry["values"], dtype=torch.float32)
+            for path, entry in ps.parameters.items()
+        }
+        mxw = tmp_path / "weights.mxw"
+        write_mxw(
+            mxw, state, model_hash=ps.model_hash,
+            parameter_schema_hash=ps.parameter_schema_hash,
+        )
+        header, body_start = read_mxw_header_and_body_start(mxw)
+        onnx_path = tmp_path / "model.onnx"
+        result, ordered = export_onnx_graph_external(
+            prog, header, onnx_path,
+            model_hash=ps.model_hash,
+            parameter_schema_hash=ps.parameter_schema_hash,
+        )
+        with open(mxw, "rb") as source, open(tmp_path / "model.onnx.data", "wb") as data:
+            for meta in ordered:
+                stream_mxw_tensor(source, body_start, meta, data)
+        assert result.external_data is True
+        assert {m["path"] for m in ordered} == set(state)
+        expected_path, _ = _export(prog, ps)
+        assert _ort_run(onnx_path, IDS, MASK3) == _ort_run(expected_path, IDS, MASK3)
+
+        # The public bundle dispatcher must use the same generic graph path;
+        # before this audit it unconditionally called the dense-only exporter.
+        from matrixai.export.bundle import create_edge_bundle
+        template = build_composite_network_parameter_set(
+            prog.networks[0],
+            check_composite_network_types(prog.networks[0], {}, {"Texto": prog.sequences[0]}),
+            program_hash(prog), with_values=False,
+        )
+        mxai = tmp_path / "model.mxai"
+        mxai.write_text(_mxai(), encoding="utf-8")
+        bundle_result = create_edge_bundle(
+            prog, template, mxai, None, tmp_path / "bundle",
+            mxw_path=mxw, mxw_header=header,
+            model_hash=ps.model_hash,
+            parameter_schema_hash=ps.parameter_schema_hash,
+            labels=["NEG", "POS"], validate=False,
+        )
+        assert bundle_result.export_result.external_data is True
+        assert bundle_result.external_data_layout
+        assert "model.onnx.data" in bundle_result.files

@@ -175,8 +175,8 @@ class EdgeBundler:
                     # (`model.onnx`, initializers EXTERNAL); el `model.onnx.data`
                     # lo streamea el caller desde el `.mxw`. `ordered_metas` da el
                     # orden de concatenación que casa con los offsets del grafo.
-                    from matrixai.export.onnx_exporter import export_dense_onnx_graph_external
-                    export_result, external_data_layout = export_dense_onnx_graph_external(
+                    from matrixai.export.onnx_exporter import export_onnx_graph_external
+                    export_result, external_data_layout = export_onnx_graph_external(
                         program, mxw_header, onnx_dest,
                         model_hash=model_hash, parameter_schema_hash=parameter_schema_hash,
                     )
@@ -440,7 +440,12 @@ def _build_model_manifest(program: MatrixAIProgram, parameter_set: ParameterSet)
         "backend_contract": {
             "target": report.target,
             "ok": report.ok,
-            "unsupported_nodes": list(report.unsupported_nodes),
+            # BackendNodeReport is a dataclass-like domain object, not JSON
+            # serializable.  Transformer programs deliberately keep one
+            # unsupported program-level forward node even though export is
+            # supported, so C5 is the first bundle path that reliably reaches
+            # this non-empty branch.
+            "unsupported_nodes": [node.to_dict() for node in report.unsupported_nodes],
         },
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -529,11 +534,16 @@ def _build_readme(
     if is_sequence:
         seq = program.sequences[0]
         input_name = seq.name
-        input_desc = f"`{seq.name}` shape `{export_result.input_shape}` (int64 token IDs)"
+        mask_name = f"{seq.name}_mask"
+        input_desc = (
+            f"`{seq.name}` shape `{export_result.input_shape}` (int64 token IDs) + "
+            f"`{mask_name}` with the same shape (float32; 1 real / 0 padding)"
+        )
         inference_snippet = (
             f"sess = ort.InferenceSession(\"model.onnx\")\n"
             f"ids = np.array([[...]], dtype=np.int64)  # shape [batch, {seq.length}]\n"
-            f"result = sess.run(None, {{\"{seq.name}\": ids}})[0]  # {out_shape}"
+            f"mask = np.ones_like(ids, dtype=np.float32)\n"
+            f"result = sess.run(None, {{\"{seq.name}\": ids, \"{mask_name}\": mask}})[0]  # {out_shape}"
         )
     else:
         vec = program.vectors[0] if program.vectors else None
