@@ -18,6 +18,14 @@ class OnnxExportError(ValueError):
     pass
 
 
+def _matrixai_version_str() -> str:
+    try:
+        import matrixai
+        return str(getattr(matrixai, "__version__", "") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 _SUPPORTED_KINDS = frozenset({"softmax_linear", "sigmoid_linear", "layer_call"})
 _OPSET_VERSION = 17
 
@@ -340,6 +348,9 @@ class OnnxExporter:
         _set_meta(model, "matrixai_parameter_set_id", result_parameter_set_id)
         _set_meta(model, "matrixai_parameter_schema_hash", result_parameter_schema_hash)
         _set_meta(model, "matrixai_kind", kind)
+        # Auditoría C6 ronda 2 [MEDIA-1]: "versión del compilador" del contrato
+        # — el .onnx AUTÓNOMO la lleva, no solo los manifests laterales.
+        _set_meta(model, "matrixai_version", _matrixai_version_str())
         if labels:
             _set_meta(model, "matrixai_labels", ",".join(labels))
         # Auditoría C6 [MEDIA-3]: la metadata de auditoría del bloque viaja EN
@@ -972,6 +983,7 @@ def export_onnx_graph_external(program, mxw_header, output_path, *,
     _set_meta(model, "matrixai_parameter_set_id", "torch_state")
     _set_meta(model, "matrixai_parameter_schema_hash", parameter_schema_hash)
     _set_meta(model, "matrixai_kind", kind)
+    _set_meta(model, "matrixai_version", _matrixai_version_str())
     # Auditoría C6 [MEDIA-3]: mismo embebido que el camino ParameterSet — un
     # transformer grande exportado por streaming también lleva su metadata.
     from matrixai.parameters.network_params import (

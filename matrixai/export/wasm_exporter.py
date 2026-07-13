@@ -272,6 +272,22 @@ def _build_predict_js(program: MatrixAIProgram, onnx_result: OnnxExportResult) -
     has_mask = any(getattr(n, "transformer_blocks", []) for n in program.networks)
     if has_mask:
         mask_name = f"{input_name}_mask"
+        seq = program.sequences[0]
+        length = seq.length
+        vocab = seq.vocab_size
+        # Auditoría C6 ronda 2 [MEDIA-2]: mismas validaciones semánticas que
+        # el predict.py del bundle — sin ellas, una máscara todo-ceros con
+        # POOL mean produce [NaN, NaN] silenciosos en el navegador.
+        pool_kinds = [
+            layer.pool_kind for layer in getattr(program.networks[0], "top_layers", [])
+            if getattr(layer, "layer_type", "") == "Pool"
+        ]
+        cls_check = ""
+        if "cls" in pool_kinds:
+            cls_check = (
+                "\n  if (mask[0] !== 1)"
+                " throw new Error('POOL cls requires mask[0] = 1 (a real token)');"
+            )
         return f"""// MatrixAI WASM inference — ONNX Runtime Web
 // Requires: <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@{ORT_WEB_MIN_VERSION}/dist/ort.min.js"></script>
 // Project: {program.project}
@@ -279,10 +295,28 @@ def _build_predict_js(program: MatrixAIProgram, onnx_result: OnnxExportResult) -
 //         '{mask_name}' {shape_str} — float32, 1.0 = real token / 0.0 = padding
 // Output: '{output_name}' {out_shape_str}
 
+function validateInputs(inputIds, mask) {{
+  if (!Array.isArray(inputIds) || inputIds.length !== {length})
+    throw new Error('inputIds must be an array of {length} token ids');
+  for (const v of inputIds) {{
+    if (!Number.isInteger(v) || v < 0 || v >= {vocab})
+      throw new Error('token id ' + v + ' out of range [0, {vocab})');
+  }}
+  if (!Array.isArray(mask) || mask.length !== {length})
+    throw new Error('mask must be an array of {length} values');
+  for (const v of mask) {{
+    if (v !== 0 && v !== 1)
+      throw new Error('mask values must be 0 or 1, got ' + v);
+  }}
+  if (!mask.some((v) => v === 1))
+    throw new Error('mask must keep at least one real token');{cls_check}
+}}
+
 async function predict(inputIds, maskData) {{
+  const mask = maskData ?? inputIds.map(() => 1);  // all-ones if no padding
+  validateInputs(inputIds, mask);
   const session = await ort.InferenceSession.create('./model.onnx');
   const inputTensor = new ort.Tensor({js_dtype}, {js_arr_type}, {shape_str});
-  const mask = maskData ?? inputIds.map(() => 1.0);  // all-ones if no padding
   const maskTensor = new ort.Tensor('float32', Float32Array.from(mask), {shape_str});
   const feeds = {{ '{input_name}': inputTensor, '{mask_name}': maskTensor }};
   const results = await session.run(feeds);
@@ -292,6 +326,11 @@ async function predict(inputIds, maskData) {{
 // Integrity check
 const MODEL_HASH = '{onnx_result.model_hash}';
 const PARAMETER_SET_ID = '{onnx_result.parameter_set_id}';
+
+// Node/test entry point (browser usage ignores this)
+if (typeof module !== 'undefined' && module.exports) {{
+  module.exports = {{ predict, validateInputs }};
+}}
 """
 
     return f"""// MatrixAI WASM inference — ONNX Runtime Web

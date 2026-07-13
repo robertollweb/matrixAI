@@ -230,6 +230,14 @@ class TransformerSupervisedTrainer:
 
         run_id = str(uuid.uuid4())[:8]
         artifacts: dict[str, str] = {}
+        # Auditoría C6 ronda 2 [ALTA-4]: el run dir lleva el .mxai EXACTO con
+        # el que se entrenó — sin él, push_run_dir no puede cruzar
+        # pesos↔modelo y el registro P21 rechaza la entrada (el cross-check
+        # ya no se salta en silencio).
+        import shutil as _shutil
+        mxai_copy = out / "model.mxai"
+        _shutil.copyfile(report.model_path, mxai_copy)
+        artifacts["model_mxai"] = str(mxai_copy)
         if best_ps is not None:
             ps_path = out / "parameter_set.json"
             write_parameter_set(ps_path, best_ps)
@@ -298,6 +306,8 @@ class TransformerSupervisedEvaluator:
         parameter_set: Any,
         data_path: str | None = None,
         base_path: Path | None = None,
+        state_dict: dict[str, Any] | None = None,
+        weights_header: dict[str, Any] | None = None,
     ) -> Any:
         from matrixai.parameters.tensor_bridge import torch_available
         from matrixai.training.composite_torch_trainer import (
@@ -311,6 +321,8 @@ class TransformerSupervisedEvaluator:
                 "BLOCK TRANSFORMER evaluation requires torch (the block's "
                 "product backend — invariante 6)"
             )
+        if parameter_set is None and state_dict is None:
+            raise ValueError("evaluate requires a parameter_set or a state_dict")
 
         base = base_path or Path(".")
         loaded = _resolve_transformer_dataset(training, base, data_path=data_path)
@@ -322,9 +334,24 @@ class TransformerSupervisedEvaluator:
         resolved_data = loaded["resolved_data"]
         device = training.backend.device if training.backend else "cpu"
 
+        program_digest = program_hash(loaded["program"])
+        if state_dict is not None:
+            # Auditoría C6 ronda 2 [ALTA-1]: camino weights.mxw — el header
+            # declara a qué modelo pertenecen los pesos; evaluarlos contra
+            # otro .mxai es un error, no una coincidencia de shapes.
+            header = weights_header or {}
+            header_model = str(header.get("model_hash", ""))
+            if header_model and header_model != program_digest:
+                raise ValueError(
+                    f"weights.mxw belongs to a different model (header "
+                    f"model_hash {header_model!r}, program hashes to "
+                    f"{program_digest!r})"
+                )
+
         result = evaluate_composite_network_torch(
             net, parameter_set, examples, loss_fn,
             labels=labels or None, type_result=type_result, device=device,
+            state_dict=state_dict,
         )
 
         per_label: dict[str, dict[str, float]] = {}
@@ -344,11 +371,17 @@ class TransformerSupervisedEvaluator:
             if result.recall else 0.0
         )
 
+        if parameter_set is not None:
+            schema_hash = parameter_set.parameter_schema_hash
+            ps_id = parameter_set.parameter_set_id
+        else:
+            schema_hash = str((weights_header or {}).get("parameter_schema_hash", ""))
+            ps_id = "torch_state"
         return EvaluationResult(
             model=training.model,
-            model_hash=program_hash(loaded["program"]),
-            parameter_schema_hash=parameter_set.parameter_schema_hash,
-            parameter_set_id=parameter_set.parameter_set_id,
+            model_hash=program_digest,
+            parameter_schema_hash=schema_hash,
+            parameter_set_id=ps_id,
             dataset=str(resolved_data),
             dataset_fingerprint=dataset_fingerprint(resolved_data),
             dataset_schema={},

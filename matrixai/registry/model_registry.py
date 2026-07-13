@@ -135,9 +135,19 @@ class ModelRegistry:
                 f"entry_hash mismatch for {name}@{resolved}: stored {entry.entry_hash!r}"
             )
 
-        # Re-hash stored artifact files and compare against manifest values
+        # Re-hash stored artifact files and compare against manifest values.
+        #
+        # Auditoría C6 ronda 2 [ALTA-2]: para las entradas CON CUSTODIA de
+        # pesos (params_content_hash no vacío — las que push_run_dir crea
+        # desde C6), un hash declarado cuyo artefacto NO está almacenado es
+        # un error, no un "continue": borrar el fichero del registro dejaba
+        # verify() en verde. Las entradas legacy (push() de metadata pura,
+        # sin params_content_hash) conservan su semántica histórica
+        # (verificar-si-presente).
         _null_hash = "sha256:" + "0" * 64
         entry_dir = self.layout.entry_dir(name, resolved)
+        custodial = bool(entry.params_content_hash)
+        mxw_path = entry_dir / "weights.mxw"
         for filename, stored_hash in [
             ("model.mxai", entry.model_hash if entry.model_hash != _null_hash else ""),
             ("params.json", entry.params_content_hash),
@@ -148,6 +158,26 @@ class ModelRegistry:
                 continue
             file_path = entry_dir / filename
             if not file_path.exists():
+                # params.json y weights.mxw son alternativas: el hash de
+                # params_content_hash lo cubre el bloque mxw de abajo.
+                if filename == "params.json":
+                    if mxw_path.exists():
+                        continue
+                    if custodial:
+                        raise VerificationError(
+                            f"weights are declared by {name}@{resolved} "
+                            f"(params_content_hash {stored_hash[:20]}…) but "
+                            "neither params.json nor weights.mxw is stored in "
+                            "the registry entry — artifact deleted or never "
+                            "stored"
+                        )
+                    continue
+                if custodial:
+                    raise VerificationError(
+                        f"{filename} is declared by {name}@{resolved} "
+                        f"(hash {stored_hash[:20]}…) but is missing from the "
+                        "registry entry — artifact deleted or never stored"
+                    )
                 continue
             actual_hash = sha256_bytes(file_path.read_bytes())
             if actual_hash != stored_hash:
@@ -156,16 +186,28 @@ class ModelRegistry:
                 )
 
         # TRANSFORMER C6: PESOS_GRANDES entries carry weights.mxw instead of
-        # params.json — re-hash it in streaming (mxw_body_content_hash) rather
-        # than sha256_bytes(full file), which would defeat the whole point of
-        # not materializing a multi-GiB model in RAM to verify it.
-        mxw_path = entry_dir / "weights.mxw"
+        # params.json — re-hash it in streaming rather than
+        # sha256_bytes(full file in RAM). Ronda 2 [ALTA-3]: el hash cubre el
+        # fichero COMPLETO (la cabecera manda sobre la interpretación del
+        # cuerpo) y la semántica de la cabecera se contrasta con la entrada
+        # (schema_hash) — un rename de path en la cabecera ya no pasa.
         if entry.params_content_hash and mxw_path.exists():
-            from matrixai.parameters.binary_store import mxw_body_content_hash
-            actual_hash = "sha256:" + mxw_body_content_hash(mxw_path)
+            from matrixai.parameters.binary_store import (
+                mxw_file_content_hash,
+                read_mxw_header,
+            )
+            actual_hash = "sha256:" + mxw_file_content_hash(mxw_path)
             if actual_hash != entry.params_content_hash:
                 raise VerificationError(
                     f"weights.mxw content hash mismatch for {name}@{resolved}"
+                )
+            header = read_mxw_header(mxw_path)
+            header_schema = str(header.get("parameter_schema_hash", ""))
+            if header_schema and header_schema != entry.parameter_schema_hash:
+                raise VerificationError(
+                    f"weights.mxw header parameter_schema_hash "
+                    f"({header_schema!r}) does not match the registry entry "
+                    f"({entry.parameter_schema_hash!r}) for {name}@{resolved}"
                 )
 
         sig_path = self.layout.entry_file(name, resolved, "signature")
@@ -262,22 +304,38 @@ class ModelRegistry:
             if params_path.name == "parameter_set.json":
                 weights_model_hash = str(ps_raw.get("model_hash", ""))
         elif mxw_path.exists():
-            from matrixai.parameters.binary_store import read_mxw_header
+            from matrixai.parameters.binary_store import (
+                mxw_file_content_hash,
+                read_mxw_header,
+            )
             header = read_mxw_header(mxw_path)
             parameter_set_id = f"{name}_{version}_ps"
             parameter_schema_hash = str(header.get("parameter_schema_hash", "sha256:" + "0" * 64))
             ps_metrics = {}
-            params_content_hash = "sha256:" + str(header.get("content_hash", "0" * 64))
+            # Auditoría C6 ronda 2 [ALTA-3]: hash del fichero COMPLETO
+            # (cabecera incluida) — el content_hash de la cabecera solo cubre
+            # el cuerpo, y la cabecera (paths/shapes/offsets) determina cómo
+            # se interpretan esos bytes.
+            params_content_hash = "sha256:" + mxw_file_content_hash(mxw_path)
             weights_model_hash = str(header.get("model_hash", ""))
 
-        # Auditoría C6 [MEDIA-2]: los pesos deben pertenecer al modelo del run.
-        # Los hashes por-fichero de siempre detectan tamper de CADA artefacto,
-        # pero nada ligaba pesos↔modelo: un weights.mxw (o parameter_set.json)
-        # de OTRO modelo junto a un .mxai ajeno quedaba registrado y "verified".
-        # Solo aplica a los caminos que C6 abre (parameter_set.json /
-        # weights.mxw) — las entradas params.best.json/params.json
-        # preexistentes conservan su semántica histórica intacta.
-        if weights_model_hash and model_path is not None:
+        # Auditoría C6 [MEDIA-2] + ronda 2 [ALTA-4]: los pesos deben pertenecer
+        # al modelo del run. Los hashes por-fichero de siempre detectan tamper
+        # de CADA artefacto, pero nada ligaba pesos↔modelo. Solo aplica a los
+        # caminos que C6 abre (parameter_set.json / weights.mxw) — las
+        # entradas params.best.json/params.json preexistentes conservan su
+        # semántica histórica intacta. Ronda 2: sin `.mxai` en el run el
+        # cross-check se SALTABA en silencio (el ciclo CLI real no dejaba el
+        # modelo en el run dir — el trainer ahora lo copia) → ahora el .mxai
+        # es OBLIGATORIO en estos caminos, no opcional.
+        if weights_model_hash:
+            if model_path is None:
+                raise ModelRegistryError(
+                    "push_run_dir: a modern entry (parameter_set.json / "
+                    "weights.mxw) requires the trained model's .mxai in the "
+                    "run directory to cross-check weights against model — "
+                    "the trainer copies it as model.mxai since TRANSFORMER C6"
+                )
             from matrixai.parameters.store import program_hash as _program_hash
             from matrixai.parser import parse_file as _parse_file
             try:

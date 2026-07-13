@@ -175,6 +175,27 @@ def mxw_body_content_hash(path: str | Path) -> str:
     return hasher.hexdigest()
 
 
+def mxw_file_content_hash(path: str | Path) -> str:
+    """sha256 del fichero `.mxw` COMPLETO (magic + cabecera + cuerpo), en
+    streaming. Auditoría C6 ronda 2 [ALTA-3]: `content_hash` de la cabecera
+    solo cubre el cuerpo — renombrar un path en la cabecera (p.ej.
+    `attention.Wq` → `attention.WX`), o alterar shapes/offsets, dejaba el
+    hash del registro P21 intacto pese a cambiar cómo se INTERPRETAN esos
+    bytes. El registro custodia el fichero entero, así que hashea el fichero
+    entero."""
+    path = Path(path)
+    if not path.exists():
+        raise MxwError(f"{path}: fichero .mxw no encontrado")
+    hasher = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(_CHUNK_BYTES)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 def read_mxw_header_and_body_start(path: str | Path) -> tuple[dict[str, Any], int]:
     """Como `read_mxw_header` pero devuelve también el offset (bytes) donde
     empieza el cuerpo — necesario para `stream_mxw_tensor` (leer un tensor

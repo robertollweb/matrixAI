@@ -1786,7 +1786,9 @@ def _cmd_evaluate(args) -> int:
             print(f"Evaluation error: {device_error}", file=sys.stderr)
             return 1
         training = dataclasses.replace(training, backend=resolved)
-        parameter_set = load_parameter_set(args.params)
+        # Auditoría C6 ronda 2 [ALTA-1]: --params puede ser weights.mxw
+        # (PESOS_GRANDES) — antes load_parameter_set() moría en UTF-8.
+        parameter_set, _mxw_state, _mxw_header = _load_trained_weights(args.params)
 
         # Auditoría C6 [ALTA-1/2]: espejo del dispatch de `train` — un programa
         # con BLOCK TRANSFORMER evalúa por su evaluador dedicado (torch es SU
@@ -1805,6 +1807,14 @@ def _cmd_evaluate(args) -> int:
                 return 1
             from matrixai.training.transformer_trainer import TransformerSupervisedEvaluator
             evaluator: Any = TransformerSupervisedEvaluator()
+        elif _mxw_state is not None:
+            print(
+                "Evaluation error: --params is a .mxw weights file but the "
+                "model is not a BLOCK TRANSFORMER — .mxw evaluation is only "
+                "wired for the transformer CLI cycle (TRANSFORMER C6)",
+                file=sys.stderr,
+            )
+            return 1
         elif resolved.target == "torch":
             from matrixai.training.torch_evaluator import TorchSupervisedEvaluator
             evaluator = TorchSupervisedEvaluator()
@@ -1827,11 +1837,15 @@ def _cmd_evaluate(args) -> int:
                     else SupervisedEvaluator()
                 )
 
+        _eval_kwargs: dict[str, Any] = {}
+        if _mxw_state is not None:
+            _eval_kwargs = {"state_dict": _mxw_state, "weights_header": _mxw_header}
         result = evaluator.evaluate(
             training,
             parameter_set=parameter_set,
             data_path=args.data,
             base_path=training_path.parent,
+            **_eval_kwargs,
         )
         if args.output:
             Path(args.output).parent.mkdir(parents=True, exist_ok=True)
@@ -1910,6 +1924,60 @@ def _cmd_validate_parameters(args) -> int:
     else:
         print(report.summary())
     return 0 if report.ok else 1
+
+
+def _load_trained_weights(params_arg: str):
+    """Auditoría C6 ronda 2 [ALTA-1] — cargador común de `--params`.
+
+    El trainer persiste `parameter_set.json` (JSON) por debajo del umbral
+    PESOS_GRANDES y `weights.mxw` (binario) por encima; los comandos
+    evaluate/export llamaban `load_parameter_set()` a secas y un `.mxw`
+    moría en un UnicodeDecodeError críptico. Discrimina por el magic MXW1
+    (no por extensión) y devuelve `(parameter_set, state_dict, mxw_header)`
+    — exactamente uno de parameter_set/state_dict es no-None.
+    """
+    path = Path(params_arg)
+    with open(path, "rb") as f:
+        is_mxw = f.read(4) == b"MXW1"
+    if not is_mxw:
+        return load_parameter_set(params_arg), None, None
+    from matrixai.parameters.binary_store import read_mxw, read_mxw_header
+    from matrixai.parameters.tensor_bridge import torch_available
+    if not torch_available():
+        raise ValueError(
+            f"{path.name} is a .mxw binary weights file — loading it requires "
+            "torch (PESOS_GRANDES); install torch or export from the machine "
+            "that trained the model"
+        )
+    header = read_mxw_header(path)
+    state = read_mxw(path, verify=True)
+    return None, state, header
+
+
+def _mxw_template_parameter_set(program, header):
+    """Plantilla de estructura (values=None) para los caminos state_dict del
+    export — el bundle la necesita para manifests/spec sin materializar
+    valores. Cubre transformer (composite) y dense (delegando en el helper
+    PESOS_GRANDES existente)."""
+    nets = getattr(program, "networks", [])
+    if nets and getattr(nets[0], "transformer_blocks", []):
+        from matrixai.parameters.network_params import (
+            build_composite_network_parameter_set,
+        )
+        from matrixai.parameters.store import program_hash as _phash
+        from matrixai.types import check_composite_network_types
+        net = nets[0]
+        tr = check_composite_network_types(
+            net, {v.name: v for v in program.vectors},
+            {s.name: s for s in program.sequences},
+        )
+        if not tr.ok:
+            raise ValueError("transformer typecheck failed: " + "; ".join(tr.errors[:3]))
+        return build_composite_network_parameter_set(
+            net, tr, _phash(program), with_values=False,
+        )
+    from matrixai.forward.dense_torch import build_parameter_template_for_state
+    return build_parameter_template_for_state(program)[1]
 
 
 def _load_backend_parameters(value: str | None, namespace: dict[str, object]) -> dict[str, object] | None:
@@ -2070,18 +2138,39 @@ def _cmd_export_onnx(args) -> int:
             if not args.json:
                 print(f"Export error: model {args.file} did not pass validation", file=sys.stderr)
             return validation_code
-        parameter_set = load_parameter_set(args.params)
-        # TRANSFORMER C6: validate_parameter_set (generic, dense/function-only)
-        # rejects any composite ParameterSet whose differentiable_python
-        # forward is deliberately unsupported — true by design for a
-        # transformer block (invariante 6, torch-only). validate_export_parameter_set
-        # dispatches composite networks to their dedicated validator instead.
-        parameter_validation = validate_export_parameter_set(program, parameter_set)
-        if not parameter_validation.ok:
-            for error in parameter_validation.errors:
-                print(f"Parameter error: {error}", file=sys.stderr)
-            return 1
-        result = export_onnx(program, parameter_set, args.output)
+        # Auditoría C6 ronda 2 [ALTA-1]: --params puede ser weights.mxw.
+        parameter_set, _mxw_state, _mxw_header = _load_trained_weights(args.params)
+        if _mxw_state is not None:
+            if args.validate:
+                print(
+                    "Export error: --validate is not available for .mxw "
+                    "state_dict exports (the equivalence reference would "
+                    "materialize O(params) Python lists — PESOS_GRANDES); "
+                    "export without --validate or use export-bundle from a "
+                    "JSON parameter set",
+                    file=sys.stderr,
+                )
+                return 1
+            # El propio export valida model_hash/schema_hash contra el
+            # programa (camino state_dict de PESOS_GRANDES C7b / C5).
+            result = export_onnx(
+                program, None, args.output,
+                state_dict=_mxw_state,
+                model_hash=str(_mxw_header.get("model_hash", "")),
+                parameter_schema_hash=str(_mxw_header.get("parameter_schema_hash", "")),
+            )
+        else:
+            # TRANSFORMER C6: validate_parameter_set (generic, dense/function-only)
+            # rejects any composite ParameterSet whose differentiable_python
+            # forward is deliberately unsupported — true by design for a
+            # transformer block (invariante 6, torch-only). validate_export_parameter_set
+            # dispatches composite networks to their dedicated validator instead.
+            parameter_validation = validate_export_parameter_set(program, parameter_set)
+            if not parameter_validation.ok:
+                for error in parameter_validation.errors:
+                    print(f"Parameter error: {error}", file=sys.stderr)
+                return 1
+            result = export_onnx(program, parameter_set, args.output)
     except OnnxExportError as exc:
         print(f"Export error: {exc}", file=sys.stderr)
         return 1
@@ -2244,24 +2333,44 @@ def _cmd_export_bundle(args) -> int:
         if validation_code != 0:
             print(f"Export error: model {args.file} did not pass validation", file=sys.stderr)
             return validation_code
-        parameter_set = load_parameter_set(args.params)
-        # TRANSFORMER C6: see export-onnx above — composite networks (including
-        # the transformer block) need the dedicated dispatcher, not the
-        # generic dense/function-only validator.
-        parameter_validation = validate_export_parameter_set(program, parameter_set)
-        if not parameter_validation.ok:
-            for error in parameter_validation.errors:
-                print(f"Parameter error: {error}", file=sys.stderr)
-            return 1
-        result = create_edge_bundle(
-            program, parameter_set,
-            mxai_path=args.file,
-            params_path=args.params,
-            outdir=args.outdir,
-            validate=not args.no_validate,
-            force=args.force,
-            **meta_kwargs,
-        )
+        # Auditoría C6 ronda 2 [ALTA-1]: --params puede ser weights.mxw — el
+        # bundle ya tiene el camino state_dict (PESOS_GRANDES C7b): plantilla
+        # de estructura para manifests/spec + tensores para los initializers;
+        # la equivalencia se salta con motivo registrado (equivalence_skipped_
+        # reason), como en el Studio.
+        parameter_set, _mxw_state, _mxw_header = _load_trained_weights(args.params)
+        if _mxw_state is not None:
+            template = _mxw_template_parameter_set(program, _mxw_header)
+            result = create_edge_bundle(
+                program, template,
+                mxai_path=args.file,
+                params_path=None,
+                outdir=args.outdir,
+                state_dict=_mxw_state,
+                model_hash=str(_mxw_header.get("model_hash", "")),
+                parameter_schema_hash=str(_mxw_header.get("parameter_schema_hash", "")),
+                validate=not args.no_validate,
+                force=args.force,
+                **meta_kwargs,
+            )
+        else:
+            # TRANSFORMER C6: see export-onnx above — composite networks (including
+            # the transformer block) need the dedicated dispatcher, not the
+            # generic dense/function-only validator.
+            parameter_validation = validate_export_parameter_set(program, parameter_set)
+            if not parameter_validation.ok:
+                for error in parameter_validation.errors:
+                    print(f"Parameter error: {error}", file=sys.stderr)
+                return 1
+            result = create_edge_bundle(
+                program, parameter_set,
+                mxai_path=args.file,
+                params_path=args.params,
+                outdir=args.outdir,
+                validate=not args.no_validate,
+                force=args.force,
+                **meta_kwargs,
+            )
     except EdgeBundleError as exc:  # subclass of ValueError — must precede it
         print(f"Bundle error: {exc}", file=sys.stderr)
         return 1
@@ -2287,6 +2396,8 @@ def _cmd_export_bundle(args) -> int:
                 f"Equivalence {status}: "
                 f"max_abs_diff={result.equivalence_result.max_abs_diff:.2e}"
             )
+        elif result.equivalence_skipped_reason:
+            print(f"Equivalence skipped: {result.equivalence_skipped_reason}")
         if result.inference_spec_skipped_reason is None:
             print("Self-usable: yes (predict.py + inference_spec.json included)")
         else:
@@ -2301,7 +2412,19 @@ def _cmd_export_wasm(args) -> int:
         if validation_code != 0:
             print(f"Export error: model {args.file} did not pass validation", file=sys.stderr)
             return validation_code
-        parameter_set = load_parameter_set(args.params)
+        # Auditoría C6 ronda 2 [ALTA-1]: un .mxw señala un modelo por encima
+        # del umbral PESOS_GRANDES — WASM exige el modelo en UN fichero
+        # cargado en el navegador (sin external data), así que este camino se
+        # rechaza con destino claro en vez de morir en UTF-8.
+        parameter_set, _mxw_state, _ = _load_trained_weights(args.params)
+        if _mxw_state is not None:
+            print(
+                "WASM export error: --params is a .mxw weights file "
+                "(PESOS_GRANDES) — a browser bundle cannot load external "
+                "weight data; use export-onnx or export-bundle instead",
+                file=sys.stderr,
+            )
+            return 1
         # TRANSFORMER C6: see export-onnx above.
         parameter_validation = validate_export_parameter_set(program, parameter_set)
         if not parameter_validation.ok:
