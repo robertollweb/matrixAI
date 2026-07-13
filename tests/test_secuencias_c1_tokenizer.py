@@ -130,7 +130,71 @@ class TestConfig:
 
     def test_from_config_rejects_unknown_kind(self):
         with pytest.raises(ValueError, match="byte_v1"):
-            ByteTokenizer.from_config({"kind": "bpe_v1", "length": 32})
+            ByteTokenizer.from_config({
+                "kind": "bpe_v1", "length": 32,
+                "vocab_size": 259, "pad": 256, "cls": 258,
+            })
+
+    # -- auditoría C1 [MEDIA]: from_config estricto, sin coerción -----------
+
+    def test_from_config_rejects_missing_keys(self):
+        for missing in ByteTokenizer._REQUIRED_CONFIG_KEYS:
+            full = {"kind": "byte_v1", "length": 16, "vocab_size": 259, "pad": 256, "cls": 258}
+            del full[missing]
+            with pytest.raises(ValueError, match="missing required keys"):
+                ByteTokenizer.from_config(full)
+
+    def test_from_config_rejects_non_dict(self):
+        with pytest.raises(ValueError, match="object"):
+            ByteTokenizer.from_config(["kind", "byte_v1"])  # type: ignore[arg-type]
+
+    def test_from_config_rejects_contradictory_values(self):
+        """Repro del auditor: vocab_size/pad/cls que no casan con byte_v1
+        se aceptaban y se normalizaban en silencio a la config canónica."""
+        with pytest.raises(ValueError, match="vocab_size must be 259"):
+            ByteTokenizer.from_config({
+                "kind": "byte_v1", "length": 4,
+                "vocab_size": 999, "pad": 0, "cls": 1,
+            })
+
+    def test_from_config_rejects_wrong_pad(self):
+        with pytest.raises(ValueError, match="pad must be 256"):
+            ByteTokenizer.from_config({
+                "kind": "byte_v1", "length": 4,
+                "vocab_size": 259, "pad": 0, "cls": 258,
+            })
+
+    def test_from_config_rejects_wrong_cls(self):
+        with pytest.raises(ValueError, match="cls must be 258"):
+            ByteTokenizer.from_config({
+                "kind": "byte_v1", "length": 4,
+                "vocab_size": 259, "pad": 256, "cls": 1,
+            })
+
+    @pytest.mark.parametrize("bad_length", [3.9, "4", None, [4], 4.0])
+    def test_from_config_rejects_non_int_length_without_coercion(self, bad_length):
+        """Repro del auditor: int(config["length"]) normalizaba 3.9->3,
+        "4"->4 en silencio — ahora el tipo debe ser EXACTAMENTE int."""
+        with pytest.raises(ValueError, match="length must be a positive int"):
+            ByteTokenizer.from_config({
+                "kind": "byte_v1", "length": bad_length,
+                "vocab_size": 259, "pad": 256, "cls": 258,
+            })
+
+    def test_from_config_rejects_bool_length(self):
+        """bool hereda de int — True/False no son longitudes válidas."""
+        with pytest.raises(ValueError, match="length must be a positive int"):
+            ByteTokenizer.from_config({
+                "kind": "byte_v1", "length": True,
+                "vocab_size": 259, "pad": 256, "cls": 258,
+            })
+
+    def test_from_config_rejects_non_positive_length(self):
+        with pytest.raises(ValueError, match="length must be a positive int"):
+            ByteTokenizer.from_config({
+                "kind": "byte_v1", "length": 0,
+                "vocab_size": 259, "pad": 256, "cls": 258,
+            })
 
 
 class TestValidation:
@@ -145,5 +209,37 @@ class TestValidation:
 
     def test_decode_ignores_out_of_range_ids(self):
         tok = ByteTokenizer(length=8)
-        # ids fuera de [0, 256) además de PAD/CLS/UNK no deben reventar
         assert tok.decode([ord("a"), 999, -1, ByteTokenizer.PAD]) == "a"
+
+    # -- auditoría C1 [BAJA] --------------------------------------------
+
+    def test_rejects_bool_length(self):
+        """bool hereda de int — ByteTokenizer(True) no debe colarse como
+        longitud 1."""
+        with pytest.raises(ValueError, match="positive integer"):
+            ByteTokenizer(length=True)  # type: ignore[arg-type]
+
+    def test_encode_rejects_non_str_input(self):
+        tok = ByteTokenizer(length=8)
+        for bad in (b"ab", None, 5, ["a", "b"]):
+            with pytest.raises(TypeError, match="expects str"):
+                tok.encode(bad)  # type: ignore[arg-type]
+
+    def test_encode_rejects_non_bool_add_cls(self):
+        """Una cadena truthy como add_cls="false" no debe colar un CLS que
+        el caller no pidió explícitamente."""
+        tok = ByteTokenizer(length=8)
+        with pytest.raises(TypeError, match="add_cls must be bool"):
+            tok.encode("ab", add_cls="false")  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="add_cls must be bool"):
+            tok.encode("ab", add_cls=1)  # type: ignore[arg-type]
+
+    def test_encode_does_not_materialize_full_input_before_truncating(self):
+        """auditoría C1 [BAJA]: encode debe truncar el bytes ANTES de
+        convertir a list — un texto enorme con length pequeño no debe
+        construir una lista proporcional al texto completo."""
+        tok = ByteTokenizer(length=8)
+        huge = "x" * 10_000_000
+        ids = tok.encode(huge)  # debe ser rápido y devolver solo `length` ids
+        assert len(ids) == 8
+        assert ids == [ord("x")] * 8

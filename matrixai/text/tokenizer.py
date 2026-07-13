@@ -32,9 +32,13 @@ class ByteTokenizer:
     CLS = 258
     BASE_VOCAB = 256
     VOCAB_SIZE = 259
+    _REQUIRED_CONFIG_KEYS = ("kind", "length", "vocab_size", "pad", "cls")
 
     def __init__(self, length: int) -> None:
-        if not isinstance(length, int) or length < 1:
+        # auditoría C1 [BAJA]: `bool` hereda de `int` — `ByteTokenizer(True)`
+        # pasaría `isinstance(length, int)` y crearía un tokenizador de
+        # longitud 1 por accidente. `type(length) is int` lo excluye.
+        if type(length) is not int or length < 1:
             raise ValueError(f"ByteTokenizer length must be a positive integer, got {length!r}")
         self.length = length
 
@@ -42,11 +46,21 @@ class ByteTokenizer:
         """UTF-8 → bytes (cada byte es su propio id, 0-255), truncado a
         `length` (a `length - 1` si `add_cls`, dejando sitio al CLS inicial),
         relleno con `PAD` hasta `length`."""
-        raw = list(text.encode("utf-8"))
+        # auditoría C1 [BAJA]: entrada no-str daba un AttributeError críptico
+        # (bytes/None/int no tienen `.encode`); `add_cls` no-bool (p.ej. una
+        # cadena "false", truthy) colaba un CLS que el caller no pidió.
+        if not isinstance(text, str):
+            raise TypeError(f"ByteTokenizer.encode expects str, got {type(text).__name__}")
+        if type(add_cls) is not bool:
+            raise TypeError(f"add_cls must be bool, got {type(add_cls).__name__}")
+        # auditoría C1 [BAJA]: truncar el `bytes` ANTES de convertir a list
+        # — `list(text.encode(...))` materializaba O(len(texto)) enteros
+        # aunque `length` capa el resultado a unas pocas decenas.
+        raw = text.encode("utf-8")
+        limit = self.length - 1 if add_cls else self.length
+        ids = list(raw[:limit])
         if add_cls:
-            ids = [self.CLS] + raw[: self.length - 1]
-        else:
-            ids = raw[: self.length]
+            ids = [self.CLS] + ids
         if len(ids) < self.length:
             ids = ids + [self.PAD] * (self.length - len(ids))
         return ids
@@ -73,7 +87,30 @@ class ByteTokenizer:
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> ByteTokenizer:
-        kind = config.get("kind")
+        """Reconstruye el tokenizador desde `config()` — validación ESTRICTA
+        (auditoría C1 [MEDIA]): `inference_spec.json`/`field_seq` son entrada
+        EXTERNA (invariante 2 del contrato: "si el spec y el modelo no
+        casan, el export falla con razón visible" — nunca en silencio, y
+        menos aún reconstruyendo un tokenizador DISTINTO al declarado). Antes
+        `int(config["length"])` normalizaba `3.9`/`"4"` sin avisar y
+        `vocab_size`/`pad`/`cls` ni se miraban."""
+        if not isinstance(config, dict):
+            raise ValueError(f"tokenizer config must be an object, got {type(config).__name__}")
+        missing = [k for k in cls._REQUIRED_CONFIG_KEYS if k not in config]
+        if missing:
+            raise ValueError(f"tokenizer config missing required keys: {missing}")
+        kind = config["kind"]
         if kind != "byte_v1":
             raise ValueError(f"Unknown tokenizer kind {kind!r}; expected 'byte_v1'")
-        return cls(int(config["length"]))
+        length = config["length"]
+        if type(length) is not int or length < 1:
+            raise ValueError(f"tokenizer config length must be a positive int, got {length!r}")
+        if config["vocab_size"] != cls.VOCAB_SIZE:
+            raise ValueError(
+                f"tokenizer config vocab_size must be {cls.VOCAB_SIZE}, got {config['vocab_size']!r}"
+            )
+        if config["pad"] != cls.PAD:
+            raise ValueError(f"tokenizer config pad must be {cls.PAD}, got {config['pad']!r}")
+        if config["cls"] != cls.CLS:
+            raise ValueError(f"tokenizer config cls must be {cls.CLS}, got {config['cls']!r}")
+        return cls(length)
