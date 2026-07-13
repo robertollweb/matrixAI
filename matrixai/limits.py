@@ -31,6 +31,11 @@ _EQUILIBRADO: dict[str, int | None] = {
     "max_csv_bytes": 50_000_000,
     "max_depth": 12,
     "max_labels": 12,
+    # SECUENCIAS_PRODUCTO C2 (auditoría [ALTA]): Text[L] sin tope permite pedir
+    # una SEQUENCE arbitrariamente grande — la atención del bloque transformer
+    # escala O(L²) y el .mxtrain/CSV generados escalan O(L) por fila (varias
+    # veces el texto: mxai, training_text, dataset_template_text).
+    "max_sequence_length": 512,
 }
 # Perfil "avanzado": máquina potente; topes altos pero aún con red de seguridad anti-typo.
 _AVANZADO: dict[str, int | None] = {
@@ -39,6 +44,7 @@ _AVANZADO: dict[str, int | None] = {
     "max_csv_bytes": 1_000_000_000,
     "max_depth": 128,
     "max_labels": 128,
+    "max_sequence_length": 8_192,
 }
 # Perfil "ilimitado": sin topes. SOLO descargable (hosted nunca lo ofrece).
 _ILIMITADO: dict[str, int | None] = {k: None for k in _EQUILIBRADO}
@@ -55,6 +61,7 @@ _ENV_BY_KEY = {
     "max_csv_bytes": "MATRIXAI_MAX_CSV_BYTES",
     "max_depth": "MATRIXAI_MAX_DEPTH",
     "max_labels": "MATRIXAI_MAX_LABELS",
+    "max_sequence_length": "MATRIXAI_MAX_SEQUENCE_LENGTH",
 }
 
 _UNLIMITED_TOKENS = {"0", "none", "unlimited", "ilimitado", "sin", "off"}

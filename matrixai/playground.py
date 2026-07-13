@@ -211,17 +211,32 @@ def _dense_pipeline_stages(result: dict[str, Any], generator_name: str = "dense_
             ]
         filtered.append(c)
 
-    # Backend Contract — synthesized from artifacts
+    # Backend Contract — synthesized from artifacts. Auditoría SECUENCIAS_
+    # PRODUCTO C2 [MEDIA]: este stage se recalculaba INDEPENDIENTEMENTE del
+    # check ya corregido en `result["checks"]` (`_backend_contract_ok_for_
+    # studio`) — mismo criterio aquí para que la UI no muestre "fail" en un
+    # stage que el agregado ya trata como soft-pass (un nodo
+    # training_supported=True/export_supported=True pero forward_supported=
+    # False, p.ej. BLOCK TRANSFORMER, no bloquea).
     bc = result.get("backend_contract") or {}
-    bc_unsupported = [
-        f"{n.get('node', '?')}: {n.get('reason', 'unsupported')}"
-        for n in (bc.get("unsupported_nodes") or [])
-    ]
+    bc_blocking: list[str] = []
+    bc_soft: list[str] = []
+    for n in (bc.get("unsupported_nodes") or []):
+        label = f"{n.get('node', '?')}: {n.get('reason', 'unsupported')}"
+        if n.get("node_type") == "action":
+            continue
+        if n.get("training_supported") and n.get("export_supported"):
+            bc_soft.append(label)
+        else:
+            bc_blocking.append(label)
     bc_check = {
         "name": "backend_contract",
-        "ok": bool(bc.get("ok", True)) and not bc_unsupported,
-        "errors": bc_unsupported,
-        "warnings": [],
+        # NOTA: no se usa bc.get("ok") — ese es el agregado CONSERVADOR de
+        # BackendContractAnalyzer (gatea el runner interactivo de un
+        # ejemplo); `bc_blocking` ya excluye los nodos soft-pass.
+        "ok": not bc_blocking and not (bc.get("parameter_errors") or []),
+        "errors": bc_blocking,
+        "warnings": bc_soft,
     }
 
     # Training Verifier — synthesized from training_artifacts.verification
@@ -2724,6 +2739,17 @@ def _prompt_is_sequence(prompt: str) -> bool:
     return any(h in text for h in _SEQUENCE_HINTS)
 
 
+def _prompt_has_text_field(prompt: str) -> bool:
+    """SECUENCIAS_PRODUCTO C2 (auditoría [ALTA]): un campo `Text` explícito en
+    el prompt SIEMPRE implica intención neural — el contrato exige que
+    `resenas: Text` a secas (sin verbo de tarea como "clasificar"/"predecir")
+    genere el transformer, pero `_is_neural_prompt` solo mira vocabulario de
+    intención/tarea y no sabía nada de `Text`. Se usa en el gate de
+    `analyze_playground_request`, ANTES de `_is_neural_prompt`."""
+    from matrixai.generation import parse_field_specs  # noqa: PLC0415
+    return any(f.kind == "text" for f in parse_field_specs(prompt).fields)
+
+
 def _prompt_unsupported_ops(prompt: str) -> list[str]:
     text = prompt.lower()
     found: list[str] = []
@@ -2743,7 +2769,11 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
 
     if mode == "prompt":
         use_llm = bool(payload.get("use_llm", False))
-        if _is_neural_prompt(prompt):
+        # SECUENCIAS_PRODUCTO C2 (auditoría [ALTA]): el campo Text del prompt
+        # basta por sí solo — el contrato exige que "resenas: Text" a secas
+        # (sin verbo de tarea) ya genere el transformer, no solo cuando
+        # _is_neural_prompt detecta vocabulario de intención/tarea.
+        if _is_neural_prompt(prompt) or _prompt_has_text_field(prompt):
             # Route to a network generator when the user requests a neural network.
             # Produces real NETWORK blocks in the .mxai → program.networks populated →
             # network_visual.networks non-empty → Architecture tab visible in Studio.
@@ -2789,12 +2819,6 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     + ". Decláralas en el prompt como Categorical[valores...] para "
                     "one-hot con valores humanos."
                 )
-            is_seq = _prompt_is_sequence(prompt)
-            if is_seq:
-                gen_warnings.append(
-                    "Secuencias/series temporales no soportadas aún en el Studio; "
-                    "se genera un modelo tabular."
-                )
             # GEN C5 (diferido de C2): a PROMPT-declared categorical beyond one-hot
             # territory (> _ONEHOT_MAX values) needs the embedding path — the dense
             # generator would leave it scalar. Route it to the composite generator,
@@ -2808,6 +2832,17 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 for f in _prompt_fields
             )
             want_transformer = any(f.kind == "text" for f in _prompt_fields)
+            is_seq = _prompt_is_sequence(prompt)
+            if is_seq and not want_transformer:
+                # SECUENCIAS_PRODUCTO C2 (auditoría [BAJA]): un prompt Text que
+                # además mencione "secuencia"/"serie temporal" en prosa SÍ genera
+                # el transformer (decisión 4: el aviso es solo para el camino
+                # numérico sin soporte, no para el nuevo camino Text) — el aviso
+                # solo aplica cuando el camino REALMENTE cae a tabular.
+                gen_warnings.append(
+                    "Secuencias/series temporales no soportadas aún en el Studio; "
+                    "se genera un modelo tabular."
+                )
             unsupported = _prompt_unsupported_ops(prompt)
             if want_transformer and "transformer" in unsupported:
                 # "transformer" ya no es una operación omitida: el campo Text lo
@@ -3173,6 +3208,37 @@ def _result_from_mxai(
     return result
 
 
+def _backend_contract_ok_for_studio(bc_report: Any) -> tuple[bool, list[str]]:
+    """SECUENCIAS_PRODUCTO C2 (auditoría [MEDIA]): `BackendContractReport.ok`
+    es el agregado CONSERVADOR de `BackendContractAnalyzer` — pensado para
+    gatear el runner interactivo de un solo ejemplo
+    (`MatrixAIRuntime().run`), que exige training+forward+export en verde
+    para TODO nodo. Un `BLOCK TRANSFORMER` queda `training_ok=True`/
+    `export_ok=True` pero `forward_ok=False` POR DISEÑO (contrato A: "el
+    runner de programa no tiene rama NETWORK" — capacidades separadas
+    deliberadamente, ver `compiler/backend_contract.py`) — antes de este fix
+    esto hacía que el Studio declarase "rechazado" un modelo recién
+    generado, válido, typechequeado y ENTRENABLE. `action` nodes (sin
+    parámetros) ya se excluyen del mismo modo en `validate_parameter_set` —
+    aquí igual. Devuelve `(ok, notas)`: las notas explican CADA nodo que
+    pasó "en verde suave" (nunca silencioso — el check sigue en warning, no
+    en ok limpio)."""
+    if bc_report.ok:
+        return True, []
+    notes: list[str] = []
+    for node in bc_report.unsupported_nodes:
+        if node.node_type == "action":
+            continue
+        if not (node.training_ok and node.export_ok):
+            return False, []
+        notes.append(
+            f"{node.node}: entrenable y exportable (contrato A) pero sin runner "
+            "interactivo de un solo ejemplo (forward_ok=False) — no bloquea la "
+            "generación."
+        )
+    return True, notes
+
+
 def _program_artifacts(
     mxai_text: str,
     input_text: str,
@@ -3231,11 +3297,12 @@ def _program_artifacts(
     try:
         bc_report = BackendContractAnalyzer().analyze(program)
         backend_contract = bc_report.to_dict()
+        _bc_ok, _bc_soft_notes = _backend_contract_ok_for_studio(bc_report)
         checks.append({
             "name": "backend_contract",
-            "ok": bc_report.ok,
+            "ok": _bc_ok,
             "errors": bc_report.parameter_errors,
-            "warnings": bc_report.warnings,
+            "warnings": list(bc_report.warnings) + _bc_soft_notes,
         })
     except Exception as exc:  # noqa: BLE001
         backend_contract = {"error": str(exc)}

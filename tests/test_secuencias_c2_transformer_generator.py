@@ -147,6 +147,69 @@ class TestGeneratorErrors:
         with pytest.raises(TransformerNetworkGeneratorError):
             TransformerNetworkGenerator().generate("   ")
 
+    def test_mixing_with_bare_untyped_tabular_field_raises(self):
+        """Auditoría C2 [MEDIA]: campos tabulares SIN tipo declarado ("campos:
+        edad, ingreso") no pasaban por parse_field_specs y se ignoraban en
+        silencio — deben detectarse igual que un campo tipado."""
+        with pytest.raises(TransformerNetworkGeneratorError, match="Mezclar Text"):
+            TransformerNetworkGenerator().generate(
+                "resenas: Text\ncampos: edad, ingreso\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+            )
+
+    def test_duplicate_conflicting_declaration_text_first_raises(self):
+        """Auditoría C2 [MEDIA]: 'resenas: Text' seguido de 'resenas: Scalar'
+        generaba el transformer en silencio, ignorando la contradicción."""
+        with pytest.raises(TransformerNetworkGeneratorError, match="contradictorias"):
+            TransformerNetworkGenerator().generate(
+                "resenas: Text\nresenas: Scalar\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+            )
+
+    def test_duplicate_conflicting_declaration_scalar_first_raises_informatively(self):
+        """Mismo conflicto en el orden inverso: antes daba el mensaje genérico
+        "no Text field" sin explicar la contradicción; ahora la menciona."""
+        with pytest.raises(TransformerNetworkGeneratorError, match="contradice"):
+            TransformerNetworkGenerator().generate(
+                "resenas: Scalar\nresenas: Text\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+            )
+
+    def test_length_exceeding_limit_raises(self):
+        """Auditoría C2 [ALTA]: Text[L] sin tope permitía agotar memoria (L
+        arbitrario materializa columnas t0..t{L-1} varias veces: mxai,
+        training_text, dataset_template_text) y la atención escala O(L²)."""
+        with pytest.raises(TransformerNetworkGeneratorError, match="límite de longitud"):
+            TransformerNetworkGenerator().generate(
+                "resenas: Text[1000000000]\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+            )
+
+    def test_length_within_default_profile_limit_ok(self):
+        gen = TransformerNetworkGenerator().generate(
+            "resenas: Text[400]\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+        )
+        assert gen.length == 400
+
+    def test_length_limit_configurable_via_profile(self, monkeypatch):
+        monkeypatch.setenv("MATRIXAI_LIMITS_PROFILE", "avanzado")
+        gen = TransformerNetworkGenerator().generate(
+            "resenas: Text[4000]\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+        )
+        assert gen.length == 4000
+
+    def test_length_limit_hard_in_hosted(self, monkeypatch):
+        monkeypatch.setenv("MATRIXAI_HOSTED", "1")
+        monkeypatch.setenv("MATRIXAI_LIMITS_PROFILE", "avanzado")  # ignorado en hosted
+        with pytest.raises(TransformerNetworkGeneratorError, match="límite de longitud"):
+            TransformerNetworkGenerator().generate(
+                "resenas: Text[4000]\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+            )
+
+    def test_self_referencing_variables_list_does_not_false_positive(self):
+        """"variables: resenas" (repite el propio nombre del campo Text) no
+        debe interpretarse como un campo tabular adicional."""
+        gen = TransformerNetworkGenerator().generate(
+            "resenas: Text\nvariables: resenas\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+        )
+        assert gen.field_name == "resenas"
+
 
 class TestGeneratorM12M17:
     def test_depth_from_prompt_sets_layers(self):
@@ -245,6 +308,39 @@ class TestPlaygroundDispatch:
         assert r["field_types"] == {"resenas": "text"}
         assert r["field_seq"] == {"resenas": {"length": 64, "tokenizer": "byte_v1"}}
 
+    def test_exact_contract_minimal_prompt_routes_to_transformer(self):
+        """Auditoría C2 [ALTA]: el prompt mínimo LITERAL del contrato (§C2) no
+        lleva ningún verbo de intención neural ("clasificar"/"predecir") —
+        _is_neural_prompt() a secas lo enviaba a PromptSupervisor. El campo
+        Text debe bastar por sí solo para entrar al generador."""
+        r = analyze_playground_request({
+            "mode": "prompt",
+            "prompt": "resenas: Text\nOUTPUT clase: ProbabilityMap[NEG, POS]",
+        })
+        assert r["supervision_source"] == "transformer_generator"
+        assert r["architecture_decision"]["kind"] == "transformer"
+        assert r["field_types"] == {"resenas": "text"}
+        assert "BLOCK enc TRANSFORMER" in r.get("mxai", "")
+        assert "ACTION" not in r.get("mxai", "")  # no PromptSupervisor fallback
+
+    def test_ok_true_for_a_valid_transformer_prompt(self):
+        """Auditoría C2 [MEDIA]: backend_contract.ok=False por diseño para
+        BLOCK TRANSFORMER (solo el runner interactivo de un ejemplo no lo
+        soporta — training/export sí) no debe declarar rechazado un modelo
+        válido, typechequeado y entrenable recién generado."""
+        r = analyze_playground_request({
+            "mode": "prompt",
+            "prompt": "resenas: Text\nOUTPUT clase: ProbabilityMap[NEG, POS]",
+        })
+        assert r["ok"] is True
+        assert r["accepted"] is True
+        checks = {c["name"]: c["ok"] for c in r["checks"]}
+        assert checks["backend_contract"] is True
+        stage = next(s for s in r["pipeline_stages"] if s["name"] == "backend_contract")
+        assert stage["status"] == "warning"  # visible, no oculto — pero no "fail"
+        assert stage["errors"] == []
+        assert any("BLOCK TRANSFORMER" in w for w in stage["warnings"])
+
     def test_text_prompt_parses_and_typechecks(self):
         r = analyze_playground_request({
             "mode": "prompt",
@@ -314,3 +410,17 @@ class TestRegressionTabularAndSequence:
         warnings = _stage_warnings(r)
         assert any("Secuencias/series temporales" in w for w in warnings)
         assert r["architecture_decision"]["kind"] != "transformer"
+
+    def test_sequence_wording_with_text_field_does_not_warn(self):
+        """Auditoría C2 [BAJA]: un prompt Text que ADEMÁS mencione "secuencia"/
+        "serie temporal" en prosa SÍ genera el transformer (decisión 4) — el
+        aviso de "no soportado, se genera tabular" no debe aparecer, sería
+        contradictorio con el propio resultado."""
+        r = analyze_playground_request({
+            "mode": "prompt",
+            "prompt": "analizar la secuencia de reseñas\nresenas: Text\n"
+                      "OUTPUT clase: ProbabilityMap[NEG, POS]",
+        })
+        assert r["architecture_decision"]["kind"] == "transformer"
+        warnings = _stage_warnings(r)
+        assert not any("Secuencias/series temporales" in w for w in warnings)

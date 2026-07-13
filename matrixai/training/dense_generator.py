@@ -572,7 +572,12 @@ def resolve_prompt_fields(dg, prompt, input_fields):
     specs_by_name = parsed.by_name()
     warnings = list(parsed.warnings)
     typed_names = [f.name for f in parsed.fields]
-    bare_clean = " ".join(strip_field_specs(prompt).split())
+    # SECUENCIAS_PRODUCTO C2 (auditoría [MEDIA]): collapsing ALL whitespace
+    # (incl. newlines) destroyed the `\n` boundary _FIELD_RE relies on to stop
+    # capturing ("variables: edad, ingreso\nOUTPUT clase: ProbabilityMap[...]"
+    # swallowed the OUTPUT line into the field list and lost "edad, ingreso"
+    # entirely). Normalize horizontal whitespace PER LINE, keep line breaks.
+    bare_clean = "\n".join(" ".join(line.split()) for line in strip_field_specs(prompt).split("\n"))
     bare_names = [n for n in (dg._extract_fields(bare_clean) or []) if n not in specs_by_name]
     caller_fields: list[str] = []
     for raw in (input_fields or []):

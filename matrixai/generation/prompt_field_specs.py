@@ -114,13 +114,27 @@ def parse_field_specs(prompt: str) -> FieldSpecParse:
     """
     specs: list[FieldSpec] = []
     warnings: list[str] = []
-    seen: set[str] = set()
+    seen: dict[str, str] = {}  # name -> canonical kind of the FIRST declaration
 
     for m in _FIELD_ENTRY_RE.finditer(prompt or ""):
         name = _sanitize_name(m.group("name"))
-        if not name or name in seen:
+        if not name:
             continue
         canonical = _TYPE_ALIASES.get(m.group("type").lower().replace("á", "a"), "scalar")
+        if name in seen:
+            # SECUENCIAS_PRODUCTO C2 (auditoría [MEDIA]): antes se descartaba en
+            # silencio — un `resenas: Text` seguido de `resenas: Scalar` (o al
+            # revés) dependía del ORDEN de aparición sin avisar de la
+            # contradicción. La primera declaración sigue ganando (invariante 1:
+            # ninguna re-declaración posterior puede desplazarla), pero ahora se
+            # deja constancia expresa cuando los kinds no casan.
+            if seen[name] != canonical:
+                warnings.append(
+                    f"campo {name!r}: declarado como {seen[name]!r} y también como "
+                    f"{canonical!r}; se conserva la primera declaración ({seen[name]!r})"
+                )
+            continue
+        seen[name] = canonical
         args = (m.group("args") or "").strip()
 
         if canonical == "categorical":
@@ -141,7 +155,6 @@ def parse_field_specs(prompt: str) -> FieldSpecParse:
             rng = _parse_range(args, name, warnings)
             specs.append(FieldSpec(name=name, kind="scalar", range=rng,
                                    integer=(canonical == "integer")))
-        seen.add(name)
 
     return FieldSpecParse(fields=specs, warnings=warnings)
 

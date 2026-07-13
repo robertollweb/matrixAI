@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from matrixai import limits as _limits
-from matrixai.generation import parse_field_specs
+from matrixai.generation import parse_field_specs, strip_field_specs
 from matrixai.text.tokenizer import ByteTokenizer
 from matrixai.training.dense_generator import (
     DenseNetworkGenerator,
@@ -115,7 +115,21 @@ class TransformerNetworkGenerator:
         parsed = parse_field_specs(prompt)
         text_fields = [f for f in parsed.fields if f.kind == "text"]
         tabular_fields = [f for f in parsed.fields if f.kind != "text"]
+        # Auditoría C2 [MEDIA]: una re-declaración contradictoria del mismo
+        # campo ("resenas: Scalar" ... "resenas: Text" en otra línea) hacía que
+        # el resultado dependiera de qué línea aparece PRIMERO — con Scalar
+        # ganando, ni siquiera se sabía que el prompt pedía un campo Text
+        # (mensaje genérico "no Text field"). parse_field_specs ya detecta el
+        # conflicto en `warnings`; aquí se usa para dar un error específico
+        # en vez de una ausencia sin explicar.
+        _text_conflicts = [w for w in parsed.warnings if "'text'" in w and "declarado como" in w]
         if not text_fields:
+            if _text_conflicts:
+                raise TransformerNetworkGeneratorError(
+                    "El prompt declara un campo como Text, pero una segunda "
+                    f"declaración lo contradice y gana: {_text_conflicts[0]} — "
+                    "declara ese campo como Text una sola vez."
+                )
             raise TransformerNetworkGeneratorError(
                 "TransformerNetworkGenerator requires a Text field declared in the prompt"
             )
@@ -135,6 +149,40 @@ class TransformerNetworkGenerator:
             )
 
         text_field = text_fields[0]
+        _dg = DenseNetworkGenerator()
+
+        # Auditoría C2 [MEDIA]: parse_field_specs solo ve declaraciones TIPADAS
+        # ("campo: Tipo") — un prompt como "resenas: Text\nvariables: edad,
+        # ingreso" mezclaba Text con campos tabulares BARE sin que la
+        # comprobación de arriba lo detectara (silenciosamente ignorados).
+        # Mismo mecanismo que resolve_prompt_fields (dense/composite): strip
+        # las declaraciones tipadas y pasa el resto por el extractor legado.
+        bare_clean = "\n".join(
+            " ".join(line.split()) for line in strip_field_specs(prompt).split("\n")
+        )
+        bare_names = [
+            n for n in (_dg._extract_fields(bare_clean) or [])
+            if n != text_field.name
+        ]
+        if bare_names:
+            raise TransformerNetworkGeneratorError(
+                f"Mezclar Text ({text_field.name!r}) con campos tabulares sin tipo "
+                f"declarado ({bare_names!r}) en el mismo modelo no está soportado "
+                "(v1, decisión 3 del contrato SECUENCIAS_PRODUCTO): usa un único "
+                "campo Text por modelo, o quita el campo Text para un modelo "
+                "tabular normal."
+            )
+
+        # Text ganó (está en text_fields) pero una declaración posterior LO
+        # contradice igualmente — mismo caso que arriba, con Text en vez de
+        # Scalar como ganador; también debe ser error, no éxito silencioso.
+        if _text_conflicts:
+            raise TransformerNetworkGeneratorError(
+                f"El campo Text {text_field.name!r} tiene declaraciones "
+                f"contradictorias en el prompt: {_text_conflicts[0]} — declara "
+                f"{text_field.name!r} como Text una sola vez."
+            )
+
         warnings: list[str] = list(parsed.warnings)
 
         # Invariante GEN 1: el campo Text del prompt gana — un input_fields de
@@ -146,8 +194,22 @@ class TransformerNetworkGenerator:
             )
 
         length = text_field.length or _DEFAULT_LENGTH
+        # Auditoría C2 [ALTA]: Text[L] no tenía tope — la atención del bloque
+        # escala O(L²) y el .mxtrain/CSV generados escalan O(L) por fila
+        # (varias veces el texto). Rechazo explícito, no recorte silencioso
+        # (invariante GEN: nunca degradar un valor declarado sin decirlo) —
+        # a diferencia de LAYERS/DIM (M12/M17), que sí se capan en silencio
+        # porque son defaults del GENERADOR, no algo que el usuario tipeó
+        # como parte del contrato de datos (Text[L] fija la forma del dataset).
+        if _limits.exceeds(length, "max_sequence_length"):
+            max_length = _limits.get_limit("max_sequence_length")
+            raise TransformerNetworkGeneratorError(
+                f"Text[{length}] supera el límite de longitud de secuencia "
+                f"({max_length}) — la atención del bloque transformer escala "
+                "cuadráticamente con L. Usa un valor menor, o sube el perfil de "
+                "límites (MATRIXAI_LIMITS_PROFILE=avanzado; no disponible en hosted)."
+            )
 
-        _dg = DenseNetworkGenerator()
         task, resolved_labels, label_warnings = resolve_task_and_labels(_dg, clean, labels)
         warnings.extend(label_warnings)
         output_activation, output_type, output_units, loss_type = _output_config(
