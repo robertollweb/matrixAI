@@ -27,18 +27,22 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class FieldSpec:
-    """One field's declared type. ``kind`` ∈ {scalar, categorical, boolean}.
+    """One field's declared type. ``kind`` ∈ {scalar, categorical, boolean, text}.
 
     - categorical: ``values`` holds the ordered, de-duplicated HUMAN vocabulary
       (spaces/accents preserved); the canonical human input stays this field.
     - scalar: ``range`` holds ``(min, max)`` when declared and valid; ``integer``
       is True when declared as Integer.
+    - text (SECUENCIAS_PRODUCTO C1): ``length`` holds the declared ``Text[L]``
+      max length in tokens/bytes; ``None`` means the bare ``Text`` form (the
+      generator applies the default, decision 6 of the contract).
     """
     name: str
     kind: str
     values: tuple[str, ...] | None = None
     range: tuple[float, float] | None = None
     integer: bool = False
+    length: int | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,8 @@ _TYPE_ALIASES = {
     "categorical": "categorical", "category": "categorical", "categorica": "categorical",
     "categórica": "categorical",
     "boolean": "boolean", "bool": "boolean", "booleano": "boolean",
+    # SECUENCIAS_PRODUCTO C1 (decisión 2): "Text" o "Text[L]".
+    "text": "text", "texto": "text",
 }
 
 # Matches "<name>: <Type>" optionally followed by "en/in/de" and a "[...]" payload.
@@ -66,12 +72,18 @@ _TYPE_ALIASES = {
 # kept and sanitized afterwards instead of being truncated mid-token. The type
 # keyword is what disqualifies non-field "word: value" lines (PROYECTO:, DOMINIO:,
 # ...) and the output (ProbabilityMap): only these keywords count as a field type.
+# The `(?!...)` guard excludes `OUTPUT <name>: <Type>` lines whose declared type
+# happens to collide with a field-type keyword (Scalar/Boolean/Integer are all
+# valid OUTPUT types too, unlike ProbabilityMap/Label — those never collided) —
+# without it, "OUTPUT puntuacion: Scalar" parsed as a bogus field named
+# "output_puntuacion", silently added to the VECTOR.
 _FIELD_ENTRY_RE = re.compile(
     r"(?:^|[\n,;:])"                       # field boundary
+    r"(?![ \t]*OUTPUT\b)"                  # not the model's OUTPUT declaration
     r"(?P<name>[^\n,;:]+?)"                # full name up to ':' (accents/spaces/hyphens ok)
     r"[ \t]*:[ \t]*"                       # ':' — horizontal whitespace only (line-bound)
     r"(?P<type>categorical|categorica|categórica|category|boolean|booleano|bool|"
-    r"scalar|numeric|number|float|integer|int)\b"
+    r"scalar|numeric|number|float|integer|int|text|texto)\b"
     r"(?:[ \t]+(?:en|in|de))?[ \t]*"       # optional "en/in/de" — same line only
     r"(?:\[(?P<args>[^\]]*)\])?",           # optional "[...]" — same line only
     re.IGNORECASE | re.MULTILINE,
@@ -122,6 +134,9 @@ def parse_field_specs(prompt: str) -> FieldSpecParse:
                 specs.append(FieldSpec(name=name, kind="categorical", values=tuple(values)))
         elif canonical == "boolean":
             specs.append(FieldSpec(name=name, kind="boolean"))
+        elif canonical == "text":
+            length = _parse_text_length(args, name, warnings)
+            specs.append(FieldSpec(name=name, kind="text", length=length))
         else:  # scalar or integer
             rng = _parse_range(args, name, warnings)
             specs.append(FieldSpec(name=name, kind="scalar", range=rng,
@@ -174,3 +189,23 @@ def _parse_range(args: str, name: str, warnings: list[str]) -> tuple[float, floa
         )
         return None
     return (lo, hi)
+
+
+def _parse_text_length(args: str, name: str, warnings: list[str]) -> int | None:
+    """Parse ``Text[L]``'s max length. Invalid → ``None`` (+ warning, the
+    generator applies the default), never raw — same policy as `_parse_range`."""
+    if not args:
+        return None
+    try:
+        length = int(args)
+    except ValueError:
+        warnings.append(
+            f"campo {name!r}: longitud de Text no numérica [{args}]; se usa el valor por defecto"
+        )
+        return None
+    if length < 1:
+        warnings.append(
+            f"campo {name!r}: longitud de Text no positiva [{args}]; se usa el valor por defecto"
+        )
+        return None
+    return length

@@ -239,9 +239,13 @@ def _dense_pipeline_stages(result: dict[str, Any], generator_name: str = "dense_
     }
 
     all_checks = [router_check, dng_check] + filtered + [bc_check, tv_check]
-    # M2-C3: the generator stage name varies (dense vs composite); swap it into
-    # the fixed stage order so it isn't filtered out.
-    gen_label = "Composite Network Generator" if generator_name == "composite_generator" else "Dense Network Generator"
+    # M2-C3: the generator stage name varies (dense vs composite vs
+    # transformer, SECUENCIAS_PRODUCTO C2); swap it into the fixed stage
+    # order so it isn't filtered out.
+    gen_label = {
+        "composite_generator": "Composite Network Generator",
+        "transformer_generator": "Transformer Network Generator",
+    }.get(generator_name, "Dense Network Generator")
     stage_order = [
         (generator_name, gen_label) if name == "dense_generator" else (name, label)
         for name, label in _DENSE_STAGES
@@ -2749,6 +2753,13 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 DenseNetworkGenerator,
                 DenseNetworkGeneratorError,
             )
+            # SECUENCIAS_PRODUCTO C2: importado incondicionalmente aquí (no dentro
+            # de `if want_transformer:`) — el except de abajo debe poder resolver
+            # el nombre de la excepción sin importar qué rama se tomó.
+            from matrixai.training.transformer_generator import (  # noqa: PLC0415
+                TransformerNetworkGenerator,
+                TransformerNetworkGeneratorError,
+            )
             llm_schema = _dense_llm_schema(prompt) if use_llm else {}
             llm_warning = llm_schema.pop("_llm_warning", None)
             # M8-B1: the LLM may propose the architecture type + a rationale.
@@ -2784,24 +2795,35 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     "Secuencias/series temporales no soportadas aún en el Studio; "
                     "se genera un modelo tabular."
                 )
-            unsupported = _prompt_unsupported_ops(prompt)
-            if unsupported:
-                gen_warnings.append(
-                    "Operaciones no soportadas (se omiten): " + ", ".join(unsupported) + "."
-                )
             # GEN C5 (diferido de C2): a PROMPT-declared categorical beyond one-hot
             # territory (> _ONEHOT_MAX values) needs the embedding path — the dense
             # generator would leave it scalar. Route it to the composite generator,
             # which materializes it as EMBEDDING with the human vocab persisted.
+            # SECUENCIAS_PRODUCTO C2: a PROMPT-declared Text field routes to the
+            # transformer generator — parsed ONCE and reused for both checks.
             from matrixai.generation import parse_field_specs  # noqa: PLC0415
+            _prompt_fields = parse_field_specs(prompt).fields
             _prompt_highcard = any(
                 f.kind == "categorical" and f.values and len(f.values) > _ONEHOT_MAX
-                for f in parse_field_specs(prompt).fields
+                for f in _prompt_fields
             )
+            want_transformer = any(f.kind == "text" for f in _prompt_fields)
+            unsupported = _prompt_unsupported_ops(prompt)
+            if want_transformer and "transformer" in unsupported:
+                # "transformer" ya no es una operación omitida: el campo Text lo
+                # enruta al generador real (contrato A). El resto de operaciones
+                # no soportadas (atención suelta, RNN/LSTM/GRU, conv...) sigue
+                # avisando igual.
+                unsupported = [u for u in unsupported if u != "transformer"]
+            if unsupported:
+                gen_warnings.append(
+                    "Operaciones no soportadas (se omiten): " + ", ".join(unsupported) + "."
+                )
             # Composite when the prompt hints at it OR the LLM (M8-B1) proposes
             # 'residual' OR the LLM (M2 v2 C5) declares categoricals for EMBEDDING
             # OR the prompt declares a high-cardinality categorical (GEN C5);
-            # never for sequence prompts (flat-CSV pipeline, v1).
+            # never for sequence prompts (flat-CSV pipeline, v1) nor for a Text
+            # prompt (transformer path takes priority, checked first below).
             want_composite = (
                 _prompt_wants_composite(prompt)
                 or llm_architecture == "residual"
@@ -2809,7 +2831,15 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 or _prompt_highcard
             ) and not is_seq
             try:
-                if want_composite:
+                if want_transformer:
+                    trans_kwargs = {
+                        k: v for k, v in llm_kwargs.items()
+                        if k in ("input_fields", "labels", "network_name", "input_name")
+                    }
+                    gen = TransformerNetworkGenerator().generate(prompt, **trans_kwargs)
+                    gen_source = "transformer_generator"
+                    llm_used = bool(trans_kwargs)
+                elif want_composite:
                     from matrixai.training.composite_generator import (  # noqa: PLC0415
                         CompositeNetworkGenerator,
                     )
@@ -2870,6 +2900,10 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 # data is normalized to [0,1]). Source of truth for the Studio/export.
                 result["field_ranges"] = dict(getattr(gen, "field_ranges", {}) or {})
                 result["field_types"] = dict(getattr(gen, "field_types", {}) or {})
+                # SECUENCIAS_PRODUCTO invariante 3: metadata del tokenizador por
+                # campo Text ({campo: {"length": L, "tokenizer": "byte_v1"}}) —
+                # vacío para dense/composite (getattr por defecto {}).
+                result["field_seq"] = dict(getattr(gen, "field_seq", {}) or {})
                 # M8-B1: record who chose the architecture + the LLM's rationale,
                 # for auditability. The deterministic sanitizer (A1) still governs.
                 _emitted_embeddings = bool(getattr(gen, "embeddings", []))
@@ -2879,8 +2913,12 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 # categorical was rejected by validation) — showing "composite
                 # (embeddings)" for an all-Scalar dense model was the Colab debt.
                 _emitted_blocks = bool(getattr(gen, "blocks", []))
+                # SECUENCIAS_PRODUCTO C2: a Text-declared prompt always yields the
+                # transformer generator — never mislabelled residual/composite/dense.
+                _is_transformer_gen = bool(getattr(gen, "is_transformer", False))
                 arch_kind = (
-                    "residual" if _emitted_blocks
+                    "transformer" if _is_transformer_gen
+                    else "residual" if _emitted_blocks
                     else "composite" if (getattr(gen, "is_composite", False) or _emitted_embeddings)
                     else "dense"
                 )
@@ -2889,7 +2927,10 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     # GEN C5 audit: "prompt_types" = routed composite because the
                     # PROMPT declared a high-cardinality categorical (no LLM, no
                     # residual hints) — before, this showed up as "default".
-                    "source": ("llm" if (llm_architecture or llm_categoricals)
+                    # SECUENCIAS_PRODUCTO C2: a Text field is ALWAYS "prompt_types"
+                    # (the LLM never participates in transformer routing — invariant 1).
+                    "source": ("prompt_types" if want_transformer
+                               else "llm" if (llm_architecture or llm_categoricals)
                                else "prompt_hints" if _prompt_wants_composite(prompt)
                                else "prompt_types" if _prompt_highcard
                                else "default"),
@@ -2921,10 +2962,25 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     notes.append(llm_warning)
                 if notes:
                     for stage in result["pipeline_stages"]:
-                        if stage.get("name") in ("dense_generator", "composite_generator"):
+                        if stage.get("name") in (
+                            "dense_generator", "composite_generator", "transformer_generator",
+                        ):
                             stage.setdefault("warnings", []).extend(notes)
                             stage["status"] = "warning"
                             break
+            except TransformerNetworkGeneratorError as exc:
+                # SECUENCIAS_PRODUCTO C2 (decisión 3): mezclar Text con tabular, o
+                # varios campos Text, es un error de usuario accionable — NUNCA se
+                # degrada en silencio a PromptSupervisor/tabular.
+                result = {
+                    "ok": False,
+                    "mode": mode,
+                    "accepted": False,
+                    "mxai": "",
+                    "checks": [],
+                    "error": str(exc),
+                }
+                result["llm_schema_used"] = False
             except DenseNetworkGeneratorError:
                 # Fall back to PromptSupervisor if the generator cannot handle the prompt.
                 report = PromptSupervisor().supervise_prompt(prompt, force_deterministic=not use_llm)
