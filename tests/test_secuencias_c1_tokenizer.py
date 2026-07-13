@@ -171,6 +171,18 @@ class TestConfig:
                 "vocab_size": 259, "pad": 256, "cls": 1,
             })
 
+    @pytest.mark.parametrize("key,value", [
+        ("vocab_size", 259.0), ("pad", 256.0), ("cls", 258.0),
+    ])
+    def test_from_config_rejects_float_equivalent_constants(self, key, value):
+        """Auditoría C1 [BAJA] ronda 2: `259.0 == 259` es `True` en Python —
+        una comparación de igualdad a secas dejaba pasar vocab_size/pad/cls
+        en float, coeridos en silencio a la config canónica."""
+        config = {"kind": "byte_v1", "length": 16, "vocab_size": 259, "pad": 256, "cls": 258}
+        config[key] = value
+        with pytest.raises(ValueError, match=f"{key} must be"):
+            ByteTokenizer.from_config(config)
+
     @pytest.mark.parametrize("bad_length", [3.9, "4", None, [4], 4.0])
     def test_from_config_rejects_non_int_length_without_coercion(self, bad_length):
         """Repro del auditor: int(config["length"]) normalizaba 3.9->3,

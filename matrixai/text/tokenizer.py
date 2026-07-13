@@ -85,6 +85,20 @@ class ByteTokenizer:
             "cls": self.CLS,
         }
 
+    @staticmethod
+    def _require_exact_int(config: dict[str, Any], key: str, expected: int | None = None) -> int:
+        """`type(...) is int` estricto — auditoría C1 [BAJA] ronda 2: `bool`
+        e `int` son subtipos entre sí a efectos de `==`/`!=` en Python
+        (`259.0 == 259` es `True`), así que una comparación de igualdad a
+        secas dejaba pasar `vocab_size=259.0`/`pad=256.0`/`cls=258.0`
+        silenciosamente coeridas — la misma clase de fuga que ya se cerró
+        para `length` en la ronda 1."""
+        value = config[key]
+        if type(value) is not int or (expected is not None and value != expected):
+            wanted = str(expected) if expected is not None else "a positive int"
+            raise ValueError(f"tokenizer config {key} must be {wanted}, got {value!r}")
+        return value
+
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> ByteTokenizer:
         """Reconstruye el tokenizador desde `config()` — validación ESTRICTA
@@ -93,7 +107,8 @@ class ByteTokenizer:
         casan, el export falla con razón visible" — nunca en silencio, y
         menos aún reconstruyendo un tokenizador DISTINTO al declarado). Antes
         `int(config["length"])` normalizaba `3.9`/`"4"` sin avisar y
-        `vocab_size`/`pad`/`cls` ni se miraban."""
+        `vocab_size`/`pad`/`cls` ni se miraban (ronda 2: tampoco bastaba con
+        `==`, ver `_require_exact_int`)."""
         if not isinstance(config, dict):
             raise ValueError(f"tokenizer config must be an object, got {type(config).__name__}")
         missing = [k for k in cls._REQUIRED_CONFIG_KEYS if k not in config]
@@ -102,15 +117,10 @@ class ByteTokenizer:
         kind = config["kind"]
         if kind != "byte_v1":
             raise ValueError(f"Unknown tokenizer kind {kind!r}; expected 'byte_v1'")
-        length = config["length"]
-        if type(length) is not int or length < 1:
+        length = cls._require_exact_int(config, "length")
+        if length < 1:
             raise ValueError(f"tokenizer config length must be a positive int, got {length!r}")
-        if config["vocab_size"] != cls.VOCAB_SIZE:
-            raise ValueError(
-                f"tokenizer config vocab_size must be {cls.VOCAB_SIZE}, got {config['vocab_size']!r}"
-            )
-        if config["pad"] != cls.PAD:
-            raise ValueError(f"tokenizer config pad must be {cls.PAD}, got {config['pad']!r}")
-        if config["cls"] != cls.CLS:
-            raise ValueError(f"tokenizer config cls must be {cls.CLS}, got {config['cls']!r}")
+        cls._require_exact_int(config, "vocab_size", cls.VOCAB_SIZE)
+        cls._require_exact_int(config, "pad", cls.PAD)
+        cls._require_exact_int(config, "cls", cls.CLS)
         return cls(length)
