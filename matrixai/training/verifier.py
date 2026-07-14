@@ -313,6 +313,26 @@ class TrainingVerifier:
         # (ambos pasan por este mismo verificador).
         errors: list[str] = []
         vector = next((item for item in program.vectors if item.name == training.dataset.input.vector), None)
+        # Auditoría C3 residual: el upload del Playground rechaza texto
+        # vacío (`_validate_text_column`), pero ese chequeo vive fuera de
+        # este verificador — un CSV subido por CLI con una fila de texto
+        # vacía pasaba `report.ok=True`. Con el pad_id ya cableado
+        # (auditoría C3 [ALTA]), una fila vacía tokeniza a TODO PAD — una
+        # máscara completamente falsa que revienta más tarde en el forward
+        # con un error mucho menos accionable que rechazarla aquí. Una
+        # columna es SIEMPRE texto crudo (ver `_resolve_transformer_dataset`
+        # — sin heurístico de nombre, la ambigüedad de `Text[1]` se resolvió
+        # tratando 1 columna como texto sin excepción), así que basta mirar
+        # el conteo de columnas para saber si esta SEQUENCE es la forma
+        # canónica de texto.
+        sequence = next(
+            (item for item in program.sequences if item.name == training.dataset.input.vector), None,
+        )
+        text_column = (
+            training.dataset.input.columns[0]
+            if sequence is not None and len(training.dataset.input.columns) == 1
+            else None
+        )
         try:
             with dataset_path.open("r", encoding="utf-8", newline="") as handle:
                 rows = list(csv.DictReader(handle))
@@ -347,6 +367,10 @@ class TrainingVerifier:
                             f"DATASET row {row_index} field {field} expects {type_spec.name} range "
                             f"[{type_spec.range.minimum}, {type_spec.range.maximum}], got {number}"
                         )
+            elif text_column is not None:
+                text_value = row.get(text_column, "")
+                if not text_value.strip():
+                    errors.append(f"DATASET row {row_index} field {text_column} is empty")
             target_value = row.get(training.dataset.target.name, "")
             if target_value == "":
                 errors.append(f"DATASET row {row_index} target {training.dataset.target.name} is empty")

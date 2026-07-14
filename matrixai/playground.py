@@ -1006,7 +1006,14 @@ def _csv_template(mxai_text: str, training_text: str) -> dict[str, Any]:
         # SECUENCIAS_PRODUCTO C3: para un modelo Text la columna de entrada es
         # texto CRUDO — "0.5" ahí sería basura (una reseña no es un número).
         # Fila de ejemplo con texto real, claramente marcado como placeholder.
-        if program.sequences and len(input_columns) == 1:
+        # Auditoría C3 residual: `program.sequences` (cualquier SEQUENCE en el
+        # programa) es el mismo routing global impreciso que ya se corrigió
+        # en generación/upload — un modelo denso de una sola feature con una
+        # SEQUENCE auxiliar sin relación caía aquí y generaba un placeholder
+        # de texto para una columna numérica. Mismo chequeo preciso que el
+        # resto: el INPUT de ESTE training debe ser la SEQUENCE consumida
+        # por un transformer.
+        if _training_input_is_transformer_sequence(program, training) and len(input_columns) == 1:
             example_target = labels[0] if labels else "0.0"
             example_row = ",".join(
                 ["texto de ejemplo — sustituye por el tuyo", str(example_target)]

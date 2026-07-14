@@ -89,14 +89,18 @@ def _resolve_transformer_dataset(
     if resolved_data is None:
         raise FileNotFoundError(f"Dataset not found: {source}")
 
-    # Auditoría C3 [MEDIA]: con seq.length == 1 AMBAS formas tienen
-    # exactamente 1 columna — genuinamente ambiguo por número de columnas a
-    # secas. Se desambigua por la convención de nombre YA usada en todo
-    # fixture/legacy real: la única columna pre-tokenizada de una SEQUENCE
-    # length=1 se llama literalmente "t0"; cualquier otro nombre de columna
-    # es la forma canónica (texto crudo). Sin ampliar la gramática .mxtrain.
-    _degenerate_legacy = seq.length == 1 and columns == ["t0"]
-    if len(columns) == 1 and not _degenerate_legacy:
+    # Auditoría C3 [MEDIA] + residual: con seq.length == 1 AMBAS formas
+    # tendrían 1 columna. Un heurístico basado en el NOMBRE de columna
+    # ("t0" = legacy) fue intentado y descartado: "t0" es también un
+    # nombre de campo Text perfectamente válido declarado en el prompt
+    # (`t0: Text[1]`), así que el heurístico rompía la forma canónica del
+    # propio producto para ese nombre. Ningún fixture/test real de este
+    # repo usa el formato legacy pre-tokenizado degenerado a L=1 (grep
+    # confirmado) — UNA columna es SIEMPRE texto crudo, sin excepción; el
+    # formato legacy de una columna por posición solo aplica cuando hay
+    # más de una posición (seq.length > 1), donde no hay ambigüedad
+    # posible por conteo.
+    if len(columns) == 1:
         tokenizer = ByteTokenizer(seq.length)
         adapter = CSVTextDataAdapter(
             resolved_data, seq.name, columns[0], training.dataset.target.name,

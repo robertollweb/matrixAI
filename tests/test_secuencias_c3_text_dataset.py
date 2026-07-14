@@ -443,6 +443,51 @@ class TestVerifierValidatesSequenceDatasetTarget:
         assert r["ok"] is False
         assert any("is empty" in e for e in r.get("errors", []))
 
+    def test_empty_text_row_rejected_by_cli_verifier_directly(self, tmp_path: Path):
+        """Auditoría C3 residual: el upload rechazaba texto vacío
+        (`_validate_text_column`, fuera de `TrainingVerifier`), pero el CLI
+        (`mx train`/`mx evaluate`, que solo pasa por `TrainingVerifier`) lo
+        aceptaba — con el pad_id ya cableado, una fila vacía tokeniza a
+        TODO PAD (una máscara completamente falsa)."""
+        gen = _gen()
+        (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
+        (tmp_path / f"{gen.network_name.lower()}.train.csv").write_text(
+            "resenas,predicted_class\n,pos\nbuen producto,neg\n"
+        )
+        training = parse_training_text(gen.training_text)
+        report = TrainingVerifier().verify(training, base_path=tmp_path)
+        assert not report.ok
+        assert any("field resenas is empty" in e for e in report.errors)
+
+    def test_whitespace_only_text_row_rejected(self, tmp_path: Path):
+        gen = _gen()
+        (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
+        (tmp_path / f"{gen.network_name.lower()}.train.csv").write_text(
+            "resenas,predicted_class\n   ,pos\nbuen producto,neg\n"
+        )
+        training = parse_training_text(gen.training_text)
+        report = TrainingVerifier().verify(training, base_path=tmp_path)
+        assert not report.ok
+        assert any("field resenas is empty" in e for e in report.errors)
+
+    def test_legacy_pretokenized_columns_unaffected_by_text_check(self, tmp_path: Path):
+        """El nuevo chequeo de texto vacío es exclusivo de la forma canónica
+        (1 columna) — el formato legacy (una columna por posición) no debe
+        activarlo aunque una posición individual esté vacía (ese caso ya lo
+        cubre `float(value)` fallando más adelante en el trainer, no aquí)."""
+        gen = _gen()
+        legacy_training = gen.training_text.replace(
+            "FROM COLUMNS [resenas]",
+            "FROM COLUMNS [" + ", ".join(f"t{i}" for i in range(16)) + "]",
+        )
+        (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
+        header = ",".join([f"t{i}" for i in range(16)] + ["predicted_class"])
+        row = ",".join(["0"] * 16 + ["neg"])
+        (tmp_path / f"{gen.network_name.lower()}.train.csv").write_text(f"{header}\n{row}\n{row}\n")
+        training = parse_training_text(legacy_training)
+        report = TrainingVerifier().verify(training, base_path=tmp_path)
+        assert report.ok, report.errors
+
 
 class TestResolveTransformerDatasetBoundary:
     def _write(self, tmp_path: Path, gen, training_text: str, csv_text: str) -> None:
@@ -582,10 +627,14 @@ class TestPadIdThreadedToTorchBackend:
 
 
 class TestTextLengthOneDisambiguation:
-    """Auditoría C3 [MEDIA]: con `seq.length == 1` UNA columna es la firma
-    de ambas formas (texto crudo Y legacy pre-tokenizado) — desambiguado por
-    la convención de nombre ya usada en todo fixture legacy real: la única
-    columna pre-tokenizada de longitud 1 se llama literalmente "t0"."""
+    """Auditoría C3 [MEDIA] + residual: con `seq.length == 1` UNA columna es
+    la firma de ambas formas (texto crudo Y legacy pre-tokenizado). Un
+    heurístico por NOMBRE de columna ("t0" = legacy) se probó y se descartó
+    en la ronda residual: "t0" es también un nombre de campo Text
+    perfectamente válido declarado en el prompt, así que el heurístico
+    rompía la forma canónica del producto para ese nombre concreto. Ningún
+    fixture real usa el legacy degenerado a L=1 — UNA columna es SIEMPRE
+    texto crudo, sin excepción ni heurístico."""
 
     def test_raw_text_at_length_one_does_not_crash(self, tmp_path: Path):
         gen = TransformerNetworkGenerator().generate(
@@ -602,21 +651,45 @@ class TestTextLengthOneDisambiguation:
         first_vector, _ = loaded["examples"][0]
         assert first_vector[seq_name] == ByteTokenizer(1).encode("hola")
 
-    def test_legacy_degenerate_t0_column_still_numeric(self, tmp_path: Path):
+    def test_field_literally_named_t0_is_still_raw_text(self, tmp_path: Path):
+        """Repro residual exacto: `t0: Text[1]` en el prompt — el nombre de
+        columna coincide con la convención legacy, pero es texto crudo
+        legítimo declarado por el usuario y debe tratarse como tal."""
         gen = TransformerNetworkGenerator().generate(
-            "resenas: Text[1]\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+            "t0: Text[1]\nOUTPUT clase: ProbabilityMap[NEG, POS]"
         )
-        legacy_training = gen.training_text.replace("FROM COLUMNS [resenas]", "FROM COLUMNS [t0]")
+        assert gen.field_name == "t0"
         (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
         (tmp_path / f"{gen.network_name.lower()}.train.csv").write_text(
-            "t0,predicted_class\n42,pos\n7,neg\n"
+            "t0,predicted_class\nhola,pos\nmal,neg\n"
+        )
+        training = parse_training_text(gen.training_text)
+        loaded = _resolve_transformer_dataset(training, tmp_path)
+        assert loaded["pad_id"] == ByteTokenizer.PAD
+        seq_name = loaded["seq"].name
+        first_vector, _ = loaded["examples"][0]
+        assert first_vector[seq_name] == ByteTokenizer(1).encode("hola")
+
+    def test_legacy_pretokenized_only_reachable_above_length_one(self, tmp_path: Path):
+        """El formato legacy (una columna POR POSICIÓN) sigue funcionando
+        sin cambios cuando no hay ambigüedad posible (seq.length > 1) — solo
+        el caso degenerado L=1 dejó de reconocerse como legacy."""
+        gen = TransformerNetworkGenerator().generate(
+            "resenas: Text[2]\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+        )
+        legacy_training = gen.training_text.replace(
+            "FROM COLUMNS [resenas]", "FROM COLUMNS [t0, t1]",
+        )
+        (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
+        (tmp_path / f"{gen.network_name.lower()}.train.csv").write_text(
+            "t0,t1,predicted_class\n42,7,pos\n1,2,neg\n"
         )
         training = parse_training_text(legacy_training)
         loaded = _resolve_transformer_dataset(training, tmp_path)
         assert loaded["pad_id"] is None
         seq_name = loaded["seq"].name
         first_vector, _ = loaded["examples"][0]
-        assert first_vector[seq_name] == [42]
+        assert first_vector[seq_name] == [42, 7]
 
 
 # ---------------------------------------------------------------------------
@@ -795,6 +868,64 @@ class TestCsvTemplateText:
         assert "0.5" not in lines[1]
         assert lines[1].split(",")[0]
 
+    def test_dense_model_with_unrelated_sequence_gets_numeric_placeholder(self):
+        """Auditoría C3 residual: `_csv_template` seguía usando
+        `program.sequences` a secas (routing global impreciso ya corregido
+        en generación/upload) — un modelo denso de UNA feature con una
+        SEQUENCE auxiliar sin relación producía un placeholder de TEXTO
+        para una columna numérica."""
+        from matrixai.playground import _csv_template
+
+        mxai = """PROJECT House
+SEQUENCE Texto
+  length = 16
+  vocab_size = 259
+END
+VECTOR Home[1]
+  size: Score
+END
+FUNCTION Price
+  value: Scalar = size
+END
+GRAPH
+  Home -> Price
+END
+AUDIT
+  EXPLAIN Home -> Price
+END
+"""
+        training_text = """MODEL HouseProject.mxai
+
+DATASET HouseTrainingSet
+  SOURCE csv("house.train.csv")
+  INPUT Home FROM COLUMNS [size]
+  TARGET predicted_value: Scalar
+  SPLIT train=0.8 validation=0.2 seed=42
+  BATCH size=8
+END
+
+LOSS HouseLoss
+  TYPE mse
+  PREDICTION Price
+  TARGET predicted_value
+END
+
+OPTIMIZER HouseOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.01
+  UPDATE Price.*
+END
+
+RUN
+  EPOCHS 10
+END
+"""
+        r = _csv_template(mxai, training_text)
+        assert r["ok"], r.get("error")
+        lines = r["template_csv"].splitlines()
+        assert lines[0] == "size,predicted_value"
+        assert lines[1] == "0.5,0.0"
+
 
 class TestValidateTextColumn:
     def test_valid_rows_no_errors_no_warnings(self):
@@ -852,13 +983,20 @@ class TestValidateTrainingCsvTextIntegration:
         assert "resenas" in r["missing_columns"]
 
     def test_empty_text_row_rejected(self):
+        """Auditoría C3 residual: el chequeo de fila vacía se movió al
+        `TrainingVerifier` compartido (paridad CLI↔upload) — ahora es EL
+        VERIFICADOR quien lo detecta primero (mensaje técnico consistente
+        con el resto de sus errores, p.ej. el de un campo VECTOR vacío), no
+        `_validate_text_column` (cuyo propio chequeo de vacíos queda como
+        validador independiente, redundante en este camino concreto pero
+        útil si se llama fuera de `_validate_training_csv`)."""
         from matrixai.playground import _validate_training_csv
 
         gen = _gen()
         csv_text = "resenas,predicted_class\n,pos\nmal servicio,neg\n"
         r = _validate_training_csv(gen.mxai_text, gen.training_text, csv_text)
         assert r["ok"] is False
-        assert any("vacías" in e for e in r["errors"])
+        assert any("is empty" in e for e in r["errors"])
 
     def test_row_exceeding_length_warns_but_passes(self):
         from matrixai.playground import _validate_training_csv
