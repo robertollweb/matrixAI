@@ -2747,7 +2747,7 @@ def _prompt_has_text_field(prompt: str) -> bool:
     intención/tarea y no sabía nada de `Text`. Se usa en el gate de
     `analyze_playground_request`, ANTES de `_is_neural_prompt`."""
     from matrixai.generation import parse_field_specs  # noqa: PLC0415
-    return any(f.kind == "text" for f in parse_field_specs(prompt).fields)
+    return parse_field_specs(prompt).declares_kind("text")
 
 
 def _prompt_unsupported_ops(prompt: str) -> list[str]:
@@ -2826,12 +2826,16 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
             # SECUENCIAS_PRODUCTO C2: a PROMPT-declared Text field routes to the
             # transformer generator — parsed ONCE and reused for both checks.
             from matrixai.generation import parse_field_specs  # noqa: PLC0415
-            _prompt_fields = parse_field_specs(prompt).fields
+            _prompt_parse = parse_field_specs(prompt)
+            _prompt_fields = _prompt_parse.fields
             _prompt_highcard = any(
                 f.kind == "categorical" and f.values and len(f.values) > _ONEHOT_MAX
                 for f in _prompt_fields
             )
-            want_transformer = any(f.kind == "text" for f in _prompt_fields)
+            # Any Text declaration owns routing, even if an earlier duplicate
+            # kept a different first-wins effective spec. The transformer
+            # generator then surfaces the structured conflict actionably.
+            want_transformer = _prompt_parse.declares_kind("text")
             is_seq = _prompt_is_sequence(prompt)
             if is_seq and not want_transformer:
                 # SECUENCIAS_PRODUCTO C2 (auditoría [BAJA]): un prompt Text que
@@ -3223,6 +3227,12 @@ def _backend_contract_ok_for_studio(bc_report: Any) -> tuple[bool, list[str]]:
     aquí igual. Devuelve `(ok, notas)`: las notas explican CADA nodo que
     pasó "en verde suave" (nunca silencioso — el check sigue en warning, no
     en ok limpio)."""
+    # Parameter-contract errors are never a capability split: they describe an
+    # incoherent model and must remain blocking. Without this guard a report
+    # with no unsupported nodes but a wrong/missing PARAM returned a soft-pass,
+    # producing the impossible check state ok=True with errors!=[].
+    if bc_report.parameter_errors:
+        return False, []
     if bc_report.ok:
         return True, []
     notes: list[str] = []

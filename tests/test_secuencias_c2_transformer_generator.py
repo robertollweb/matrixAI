@@ -72,6 +72,20 @@ class TestFieldSpecsText:
         kinds = {f.name: f.kind for f in r.fields}
         assert kinds == {"resenas": "text", "edad": "scalar"}
 
+    def test_duplicate_text_lengths_are_a_structured_conflict(self):
+        r = parse_field_specs("resenas: Text[64]\nresenas: Text[128]")
+        assert r.by_name()["resenas"].length == 64  # legacy first-wins view
+        assert r.declares_kind("text") is True
+        assert len(r.conflicts) == 1
+        assert r.conflicts[0].first.length == 64
+        assert r.conflicts[0].duplicate.length == 128
+        assert any("length=64" in w and "length=128" in w for w in r.warnings)
+
+    def test_identical_duplicate_text_declaration_is_harmless(self):
+        r = parse_field_specs("resenas: Text[64]\nresenas: TEXT[64]")
+        assert r.by_name()["resenas"].length == 64
+        assert r.conflicts == []
+
 
 # ---------------------------------------------------------------------------
 # TransformerNetworkGenerator
@@ -156,6 +170,15 @@ class TestGeneratorErrors:
                 "resenas: Text\ncampos: edad, ingreso\nOUTPUT clase: ProbabilityMap[NEG, POS]"
             )
 
+    def test_mixing_with_one_bare_untyped_tabular_field_raises(self):
+        """Una lista legacy de cardinalidad uno también es una mezcla; el
+        extractor denso conserva mínimo dos por defecto, pero Text la valida
+        con mínimo uno porque ya existe una declaración explícita inequívoca."""
+        with pytest.raises(TransformerNetworkGeneratorError, match="Mezclar Text"):
+            TransformerNetworkGenerator().generate(
+                "resenas: Text\ncampos: edad\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+            )
+
     def test_duplicate_conflicting_declaration_text_first_raises(self):
         """Auditoría C2 [MEDIA]: 'resenas: Text' seguido de 'resenas: Scalar'
         generaba el transformer en silencio, ignorando la contradicción."""
@@ -170,6 +193,13 @@ class TestGeneratorErrors:
         with pytest.raises(TransformerNetworkGeneratorError, match="contradice"):
             TransformerNetworkGenerator().generate(
                 "resenas: Scalar\nresenas: Text\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+            )
+
+    def test_duplicate_text_with_different_lengths_raises(self):
+        with pytest.raises(TransformerNetworkGeneratorError, match="contradictorias"):
+            TransformerNetworkGenerator().generate(
+                "resenas: Text[64]\nresenas: Text[128]\n"
+                "OUTPUT clase: ProbabilityMap[NEG, POS]"
             )
 
     def test_length_exceeding_limit_raises(self):
@@ -340,6 +370,55 @@ class TestPlaygroundDispatch:
         assert stage["status"] == "warning"  # visible, no oculto — pero no "fail"
         assert stage["errors"] == []
         assert any("BLOCK TRANSFORMER" in w for w in stage["warnings"])
+
+    @pytest.mark.parametrize("prefix", ["", "Clasificar reseñas\n"])
+    def test_scalar_first_text_conflict_never_degrades_to_other_router(self, prefix):
+        """La declaración Text duplicada debe poseer el routing aunque no sea
+        la first-wins efectiva; el generador reporta la contradicción tanto sin
+        verbo neuronal como con uno, nunca PromptSupervisor/dense."""
+        r = analyze_playground_request({
+            "mode": "prompt",
+            "prompt": prefix + "resenas: Scalar\nresenas: Text\n"
+                      "OUTPUT clase: ProbabilityMap[NEG, POS]",
+        })
+        assert r["ok"] is False
+        assert r["accepted"] is False
+        assert "contradice" in (r.get("error") or "")
+        assert not r.get("mxai")
+
+    def test_backend_parameter_errors_remain_blocking_in_mxai_mode(self):
+        """El soft-pass solo aplica a capacidades separadas del transformer;
+        un contrato PARAM incoherente nunca puede producir ok=True con errores."""
+        bad_mxai = """PROJECT BadExplicitParams
+
+PARAM W1 Tensor[2, 2]
+  TRAINABLE true
+  INIT zeros
+END
+
+VECTOR Email[2]
+  urgency: Score
+  sender_trust: Score
+END
+
+FUNCTION Classifier
+  C: ProbabilityMap = softmax(W1 * Email + b1)
+END
+
+GRAPH
+  Email -> Classifier
+END
+
+AUDIT
+  EXPLAIN Email -> Classifier
+END
+"""
+        r = analyze_playground_request({"mode": "mxai", "mxai_text": bad_mxai})
+        check = next(c for c in r["checks"] if c["name"] == "backend_contract")
+        assert check["ok"] is False
+        assert check["errors"]
+        assert r["ok"] is False
+        assert r["accepted"] is False
 
     def test_text_prompt_parses_and_typechecks(self):
         r = analyze_playground_request({

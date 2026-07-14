@@ -46,13 +46,47 @@ class FieldSpec:
 
 
 @dataclass(frozen=True)
+class FieldSpecConflict:
+    """Two incompatible declarations that normalize to the same field name.
+
+    ``first`` remains the effective declaration for backwards compatibility;
+    consumers that must fail closed (notably the Text transformer generator)
+    use this structured record instead of scraping human warning strings.
+    """
+    name: str
+    first: FieldSpec
+    duplicate: FieldSpec
+
+    def warning(self) -> str:
+        return (
+            f"campo {self.name!r}: declarado como {_describe_spec(self.first)} y también "
+            f"como {_describe_spec(self.duplicate)}; se conserva la primera declaración "
+            f"({_describe_spec(self.first)})"
+        )
+
+
+@dataclass(frozen=True)
 class FieldSpecParse:
     """Result of parsing a prompt: the typed fields plus any normalization notices."""
     fields: list[FieldSpec] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Every declaration, including duplicates. ``fields`` intentionally keeps
+    # the historical first-wins view used by dense/composite consumers.
+    declarations: list[FieldSpec] = field(default_factory=list)
+    conflicts: list[FieldSpecConflict] = field(default_factory=list)
 
     def by_name(self) -> dict[str, FieldSpec]:
         return {f.name: f for f in self.fields}
+
+    def declares_kind(self, kind: str) -> bool:
+        """Whether ANY declaration requested ``kind``, including a duplicate.
+
+        This is deliberately different from looking at ``fields``: for
+        ``x: Scalar`` followed by ``x: Text``, first-wins keeps Scalar effective,
+        but routing must still enter the Text validator and surface the conflict.
+        """
+        source = self.declarations or self.fields
+        return any(spec.kind == kind for spec in source)
 
 
 # Type keyword → canonical family. Case-insensitive (see regex flag).
@@ -114,27 +148,15 @@ def parse_field_specs(prompt: str) -> FieldSpecParse:
     """
     specs: list[FieldSpec] = []
     warnings: list[str] = []
-    seen: dict[str, str] = {}  # name -> canonical kind of the FIRST declaration
+    declarations: list[FieldSpec] = []
+    conflicts: list[FieldSpecConflict] = []
+    seen: dict[str, FieldSpec] = {}  # name -> FIRST effective declaration
 
     for m in _FIELD_ENTRY_RE.finditer(prompt or ""):
         name = _sanitize_name(m.group("name"))
         if not name:
             continue
         canonical = _TYPE_ALIASES.get(m.group("type").lower().replace("á", "a"), "scalar")
-        if name in seen:
-            # SECUENCIAS_PRODUCTO C2 (auditoría [MEDIA]): antes se descartaba en
-            # silencio — un `resenas: Text` seguido de `resenas: Scalar` (o al
-            # revés) dependía del ORDEN de aparición sin avisar de la
-            # contradicción. La primera declaración sigue ganando (invariante 1:
-            # ninguna re-declaración posterior puede desplazarla), pero ahora se
-            # deja constancia expresa cuando los kinds no casan.
-            if seen[name] != canonical:
-                warnings.append(
-                    f"campo {name!r}: declarado como {seen[name]!r} y también como "
-                    f"{canonical!r}; se conserva la primera declaración ({seen[name]!r})"
-                )
-            continue
-        seen[name] = canonical
         args = (m.group("args") or "").strip()
 
         if canonical == "categorical":
@@ -143,25 +165,54 @@ def parse_field_specs(prompt: str) -> FieldSpecParse:
                 warnings.append(
                     f"campo {name!r}: Categorical con menos de 2 valores; se trata como escalar"
                 )
-                specs.append(FieldSpec(name=name, kind="scalar"))
+                candidate = FieldSpec(name=name, kind="scalar")
             else:
-                specs.append(FieldSpec(name=name, kind="categorical", values=tuple(values)))
+                candidate = FieldSpec(name=name, kind="categorical", values=tuple(values))
         elif canonical == "boolean":
-            specs.append(FieldSpec(name=name, kind="boolean"))
+            candidate = FieldSpec(name=name, kind="boolean")
         elif canonical == "text":
             length = _parse_text_length(args, name, warnings)
-            specs.append(FieldSpec(name=name, kind="text", length=length))
+            candidate = FieldSpec(name=name, kind="text", length=length)
         else:  # scalar or integer
             rng = _parse_range(args, name, warnings)
-            specs.append(FieldSpec(name=name, kind="scalar", range=rng,
-                                   integer=(canonical == "integer")))
+            candidate = FieldSpec(name=name, kind="scalar", range=rng,
+                                  integer=(canonical == "integer"))
 
-    return FieldSpecParse(fields=specs, warnings=warnings)
+        declarations.append(candidate)
+        if name in seen:
+            # Identical aliases/declarations remain a harmless duplicate. Any
+            # semantic difference (kind, range, integer flag, categorical vocab
+            # or Text length) is explicit ambiguity and is recorded structurally.
+            if seen[name] != candidate:
+                conflict = FieldSpecConflict(name, seen[name], candidate)
+                conflicts.append(conflict)
+                warnings.append(conflict.warning())
+            continue
+        seen[name] = candidate
+        specs.append(candidate)
+
+    return FieldSpecParse(
+        fields=specs,
+        warnings=warnings,
+        declarations=declarations,
+        conflicts=conflicts,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _describe_spec(spec: FieldSpec) -> str:
+    if spec.kind == "text":
+        suffix = "default" if spec.length is None else str(spec.length)
+        return f"'text' (length={suffix})"
+    if spec.kind == "categorical":
+        return f"'categorical' (values={list(spec.values or ())!r})"
+    if spec.kind == "scalar":
+        scalar_kind = "integer" if spec.integer else "scalar"
+        return f"'{scalar_kind}' (range={spec.range!r})"
+    return repr(spec.kind)
 
 def _sanitize_name(value: str) -> str:
     """Identifier-safe field name (accents stripped, lowercased). '' if unusable."""

@@ -3,9 +3,16 @@
 
 from matrixai.generation.prompt_field_specs import (
     FieldSpec,
+    FieldSpecConflict,
     FieldSpecParse,
     parse_field_specs,
     strip_field_specs,
 )
 
-__all__ = ["FieldSpec", "FieldSpecParse", "parse_field_specs", "strip_field_specs"]
+__all__ = [
+    "FieldSpec",
+    "FieldSpecConflict",
+    "FieldSpecParse",
+    "parse_field_specs",
+    "strip_field_specs",
+]

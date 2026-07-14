@@ -386,7 +386,7 @@ class DenseNetworkGenerator:
         m_labels = _limits.get_limit("max_labels")
         return result if m_labels is None else result[:m_labels]
 
-    def _extract_fields(self, prompt: str) -> list[str]:
+    def _extract_fields(self, prompt: str, *, min_count: int = 2) -> list[str]:
         m = self._FIELD_RE.search(prompt)
         if not m:
             return []
@@ -401,7 +401,7 @@ class DenseNetworkGenerator:
         raw = re.sub(r"[\[(][^\])]*[\])]", " ", raw)
         parts = re.split(r",|;|\s+y\s+|\s+and\s+", raw, flags=re.IGNORECASE)
         result = [_identifier(p) for p in parts if _identifier(p)]
-        return result if len(result) >= 2 else []
+        return result if len(result) >= min_count else []
 
     def _extract_name(self, prompt: str) -> str:
         m = self._NAME_RE.search(prompt)
