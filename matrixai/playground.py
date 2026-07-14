@@ -1355,6 +1355,31 @@ def _select_train_backend() -> tuple[bool, str]:
     return (cuda, "cuda" if cuda else "cpu")  # auto
 
 
+def _select_transformer_train_device() -> tuple[bool, str]:
+    """SECUENCIAS_PRODUCTO C4 — (use_torch, device) para BLOCK TRANSFORMER.
+
+    Casi igual que `_select_train_backend`, pero SIN el atajo "auto en CPU
+    → stdlib": dense/composite tienen un forward stdlib real (más lento,
+    pero correcto) que justifica ese atajo en 'auto'; BLOCK TRANSFORMER NO
+    tiene forward de producto en stdlib (invariante 6 del contrato A) — así
+    que para transformer 'auto' significa "torch, CUDA si hay, si no CPU",
+    nunca stdlib. Solo `MATRIXAI_TRAIN_BACKEND=stdlib` (override EXPLÍCITO
+    del operador) rechaza el entrenamiento por completo, con el mismo
+    mensaje accionable que ya usan dense/composite para esa política."""
+    mode = os.environ.get("MATRIXAI_TRAIN_BACKEND", "auto").strip().lower()
+    if mode == "stdlib":
+        return (False, "cpu")
+    try:
+        from matrixai.parameters.tensor_bridge import torch_available
+        if not torch_available():
+            return (False, "cpu")
+        import torch
+        cuda = bool(torch.cuda.is_available())
+    except Exception:  # noqa: BLE001
+        return (False, "cpu")
+    return (True, "cuda" if cuda else "cpu")
+
+
 def _eval_report_from_dense_result(dense_result: Any, labels: list[str] | None) -> dict[str, Any]:
     """M14 — construye el report (mismas claves que EvaluationResult.to_dict consumidas
     aguas abajo) a partir de un DenseEvaluationResult del evaluador torch/GPU."""
@@ -1905,6 +1930,196 @@ def _run_playground_composite_training(
         return {"ok": False, "error": str(exc)}
 
 
+def _network_is_transformer(mxai_text: str) -> bool:
+    """SECUENCIAS_PRODUCTO C4: True when the first NETWORK block has a BLOCK
+    TRANSFORMER (SEQUENCE input). A transformer network is ALSO
+    `kind="composite_network"` (mismo AST que P19, `transformer_blocks` es
+    solo un campo extra) — este chequeo debe correr ANTES de
+    `_network_is_composite` en el dispatch, o un modelo Text se enruta al
+    trainer composite plano, que rechaza explícitamente `transformer_blocks`
+    (`composite_forward`: "use transformer_network_forward ... TRANSFORMER_
+    BLOQUE C4")."""
+    try:
+        program = parse_text(mxai_text)
+        nets = getattr(program, "networks", []) or []
+        return bool(nets) and bool(getattr(nets[0], "transformer_blocks", []))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _run_playground_transformer_training(
+    mxai_text: str,
+    training_text: str,
+    csv_text: str,
+    epochs_override: int | None = None,
+    epoch_callback: Any = None,
+    seed: int = 42,
+    cancel_check: Any = None,
+) -> dict[str, Any]:
+    """SECUENCIAS_PRODUCTO C4 — synchronous training for a BLOCK TRANSFORMER
+    (SEQUENCE input) NETWORK model, called from the SAME `network_call`
+    dispatch as dense/composite (`_run_playground_training`/
+    `_submit_training_job`) so Studio's generate→dataset→train→save→infer
+    cycle works for Text models exactly like it does for tabular ones.
+
+    Reuses `_resolve_transformer_dataset` (matrixai/training/
+    transformer_trainer.py) — the SAME dataset-loading logic the CLI trainer
+    uses (raw-text vs legacy pre-tokenized columns, `pad_id`, labels — all
+    audited across the C3 rounds) — instead of a third reimplementation.
+    Returns the SAME flat dict shape as `_run_playground_composite_training`
+    (snapshot/infer/export downstream expect it), but delegates the actual
+    torch training/eval to `train_composite_network_torch`/
+    `evaluate_composite_network_torch` directly (not
+    `TransformerSupervisedTrainer`, which persists its OWN artifacts to an
+    `output_dir` — Studio's `_studio_model_save` decides persistence from the
+    in-memory result instead, matching the dense/composite paths).
+
+    Torch is a HARD requirement (invariante 6 del contrato A: ningún forward
+    de producto en stdlib para BLOCK TRANSFORMER) — honra la MISMA política
+    MATRIXAI_TRAIN_BACKEND que dense/composite (`_select_train_backend`): si
+    el operador fuerza 'stdlib', o torch no está instalado, el entrenamiento
+    falla con un error accionable en vez de forzar torch en silencio."""
+    from matrixai.training.transformer_trainer import _resolve_transformer_dataset
+    from matrixai.training.composite_torch_trainer import (
+        train_composite_network_torch,
+        evaluate_composite_network_torch,
+    )
+    from matrixai.parameters.network_params import build_composite_network_parameter_set
+    from matrixai.parameters.store import program_hash
+
+    use_torch, device = _select_transformer_train_device()
+    if not use_torch:
+        return {
+            "ok": False,
+            "error": (
+                "Los modelos de texto (BLOCK TRANSFORMER) requieren el backend "
+                "torch — no disponible (instálalo, o revisa MATRIXAI_TRAIN_BACKEND "
+                "si lo has forzado a 'stdlib')."
+            ),
+        }
+
+    try:
+        training = parse_training_text(training_text)
+        epochs_override = _apply_epoch_cap(training, epochs_override)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            (tmp / Path(training.model).name).write_text(mxai_text, encoding="utf-8")
+            (tmp / Path(training.dataset.source).name).write_text(csv_text, encoding="utf-8")
+            loaded = _resolve_transformer_dataset(training, tmp)
+
+        program = loaded["program"]
+        net = loaded["net"]
+        type_result = loaded["type_result"]
+        examples = loaded["examples"]
+        labels = loaded["labels"]
+        loss_fn = loaded["loss_fn"]
+        pad_id = loaded["pad_id"]
+
+        lr = training.optimizer.learning_rate if training.optimizer else 0.01
+        opt_type = training.optimizer.type if training.optimizer else "adam"
+        epochs = epochs_override if epochs_override is not None else (training.run.epochs if training.run else 50)
+        patience = training.run.early_stop_patience if training.run else None
+        batch_size: int | None = (
+            training.dataset.batch.size if (training.dataset and training.dataset.batch) else None
+        )
+
+        split = training.dataset.split
+        train_ratio = split.train if split else 0.8
+        n_train = max(1, int(len(examples) * train_ratio))
+        train_ex = examples[:n_train]
+        val_ex = examples[n_train:] or examples[-1:]
+
+        mhash = program_hash(program)
+        ps = build_composite_network_parameter_set(
+            net, type_result, model_hash_str=mhash, seed=seed, with_values=False,
+        )
+
+        epoch_trace: list[dict[str, Any]] = []
+
+        def _cb(entry: dict[str, Any]) -> None:
+            row = {
+                "epoch": entry["epoch"], "train_loss": round(entry["loss"], 6),
+                "validation_loss": round(entry["val_loss"], 6), "accuracy": None,
+            }
+            epoch_trace.append(row)
+            if epoch_callback is not None:
+                epoch_callback(row)  # may raise _TrainingCancelled
+
+        tr = train_composite_network_torch(
+            net, ps, train_ex, loss_fn,
+            lr=lr, epochs=epochs,
+            early_stop=(patience, "validation_loss") if patience else None,
+            device=device, seed=seed, batch_size=batch_size,
+            epoch_callback=_cb, cancel_check=cancel_check,
+            type_result=type_result, optimizer=opt_type, pad_id=pad_id,
+            validation_examples=val_ex,
+        )
+        best_ps = tr["best_params"]
+        best_state = tr["best_state_dict"]
+        effective_batch_size = tr.get("effective_batch_size")
+        peak_vram_gb = tr.get("peak_vram_gb")
+
+        # Sin fallback a stdlib (a diferencia de composite): no existe forward
+        # de referencia de producto para BLOCK TRANSFORMER en stdlib
+        # (invariante 6) — un fallo de evaluación torch es un error real,
+        # nunca se degrada en silencio.
+        ev = evaluate_composite_network_torch(
+            net, best_ps, val_ex, loss_fn, labels=labels or None, device=device,
+            cancel_check=cancel_check, type_result=type_result, pad_id=pad_id,
+            state_dict=best_state,
+        )
+        evaluation_report = ev.to_dict()
+        is_reg = ev.is_regression()
+
+        return {
+            "ok": True,
+            "task_kind": "regression" if is_reg else "classification",
+            "run_id": uuid.uuid4().hex[:8],
+            "best_epoch": tr["best_epoch"],
+            "best_validation_loss": tr["best_val_loss"],
+            "final_train_loss": tr["train_loss"],
+            "accuracy": None if is_reg else evaluation_report.get("accuracy"),
+            "macro_f1": evaluation_report.get("macro_f1"),
+            "confusion_matrix": evaluation_report.get("confusion_matrix"),
+            "labels": evaluation_report.get("labels"),
+            "per_label": evaluation_report.get("per_label"),
+            "mae": evaluation_report.get("mae"),
+            "rmse": evaluation_report.get("rmse"),
+            "r2": evaluation_report.get("r2"),
+            "backend": device,
+            "evaluation_backend": device,
+            "evaluation_warning": None,
+            "effective_batch_size": effective_batch_size,
+            "peak_vram_gb": peak_vram_gb,
+            "epochs": epoch_trace,
+            # C3/PESOS_GRANDES: modelo pequeño → dict de valores; modelo
+            # grande → MARCADOR (sin valores), tensores en `best_state_dict`
+            # (mismo patrón que dense — `_run_playground_dense_training`).
+            "params_best": (
+                best_ps.to_dict() if best_ps is not None
+                else build_torch_state_marker(tr.get("param_count", 0))
+            ),
+            "best_state_dict": best_state,
+            "materialized": best_ps is not None,
+            "metrics": {"epochs": epoch_trace},
+            "training_trace": {
+                "backend_report": {
+                    "target": device,
+                    "effective_batch_size": effective_batch_size,
+                    "peak_vram_gb": peak_vram_gb,
+                },
+                "task_kind": "regression" if is_reg else "classification",
+            },
+            "evaluation_report": evaluation_report,
+            "network_kind": "composite_network",
+        }
+    except _TrainingCancelled:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+
+
 def _run_playground_training(
     mxai_text: str,
     training_text: str,
@@ -1942,6 +2157,12 @@ def _run_playground_training(
         validation = _validate_training_csv(mxai_text, training_text, csv_text)
         if not validation.get("ok"):
             return {"ok": False, "error": validation.get("error") or str(validation.get("errors", "validation failed"))}
+        # SECUENCIAS_PRODUCTO C4: transformer (BLOCK TRANSFORMER / SEQUENCE
+        # input) networks are ALSO kind="composite_network" — checked FIRST,
+        # or _network_is_composite would misroute them into the plain
+        # composite trainer (see _network_is_transformer docstring).
+        if _network_is_transformer(mxai_text):
+            return _run_playground_transformer_training(mxai_text, training_text, csv_text, epochs_override)
         # M2-C2: route composite (P19) networks to the composite trainer
         if _network_is_composite(mxai_text):
             return _run_playground_composite_training(mxai_text, training_text, csv_text, epochs_override)
@@ -2143,7 +2364,7 @@ def _coerce_field_ranges(raw: Any) -> dict[str, tuple[float, float]]:
     return ranges
 
 
-_S2_FIELD_TYPES = ("number", "integer", "boolean")
+_S2_FIELD_TYPES = ("number", "integer", "boolean", "text")
 
 
 def _coerce_field_types(raw: Any) -> dict[str, str]:
@@ -2469,8 +2690,15 @@ def _submit_training_job(
                 if not result.get("ok"):
                     job["error"] = result.get("error")
             elif prediction_kind == "network_call":
+                # SECUENCIAS_PRODUCTO C4: checked FIRST — ver
+                # _network_is_transformer.
+                if _network_is_transformer(mxai_text):
+                    result = _run_playground_transformer_training(
+                        mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
+                        seed=seed, cancel_check=cancel_check,
+                    )
                 # M2-C2: composite (P19) networks use the composite trainer
-                if _network_is_composite(mxai_text):
+                elif _network_is_composite(mxai_text):
                     result = _run_playground_composite_training(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check,
