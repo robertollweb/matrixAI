@@ -32,6 +32,7 @@ from matrixai.training.synthetic_text import (
     parse_llm_text_examples,
     validate_llm_text_examples,
     _signal_token,
+    _tokenized_collisions,
 )
 from matrixai.training.transformer_generator import TransformerNetworkGenerator
 from matrixai.training.transformer_trainer import _resolve_transformer_dataset
@@ -84,36 +85,71 @@ class TestGenerateRandomExamples:
 
 class TestSignalToken:
     def test_stable_per_class(self):
-        assert _signal_token("POS") == _signal_token("POS")
+        assert _signal_token("POS", _LABELS) == _signal_token("POS", _LABELS)
 
     def test_distinct_between_classes(self):
-        assert _signal_token("POS") != _signal_token("NEG")
+        assert _signal_token("POS", _LABELS) != _signal_token("NEG", _LABELS)
 
-    def test_not_hash_based(self):
-        """No debe depender de hash() — no determinista entre procesos por
-        PYTHONHASHSEED. Verificamos indirectamente: el token es puramente
-        función del identificador normalizado (mismo resultado en este
-        proceso sin ninguna variable de entorno de por medio) y no contiene
-        dígitos grandes típicos de un hash."""
-        token = _signal_token("Producto Estrella")
-        assert token == "senal_producto_estrella"
+    def test_index_based_not_textual_hash(self):
+        """El token es puramente función de la POSICIÓN del label en la
+        lista — no de hash() (no determinista entre procesos por
+        PYTHONHASHSEED) ni de normalización textual del nombre."""
+        labels = ["Producto Estrella", "Otro"]
+        assert _signal_token("Producto Estrella", labels) == "0"
+        assert _signal_token("Otro", labels) == "1"
+
+    def test_auditoria_c3_media_labels_colapsando_al_mismo_identifier_no_colisionan(self):
+        """Auditoría C3 [MEDIA]: la versión anterior derivaba el token de
+        `_identifier(label)` — "A-B" y "A B" normalizaban al mismo
+        identificador ("a_b") y compartían señal. Ahora depende del ÍNDICE
+        en `labels`, nunca del texto normalizado."""
+        labels = ["A-B", "A B"]
+        assert _signal_token("A-B", labels) != _signal_token("A B", labels)
 
 
 class TestGenerateTemplateExamples:
     def test_round_robin_class_coverage(self):
-        rows = generate_template_examples(9, ["A", "B", "C"], seed=1)
+        rows = generate_template_examples(9, ["A", "B", "C"], seed=1, seq_length=64)
         counts = {l: 0 for l in ["A", "B", "C"]}
         for _, label in rows:
             counts[label] += 1
         assert counts == {"A": 3, "B": 3, "C": 3}
 
     def test_each_row_contains_its_class_signal_token(self):
-        rows = generate_template_examples(6, _LABELS, seed=3)
+        rows = generate_template_examples(6, _LABELS, seed=3, seq_length=64)
         for text, label in rows:
-            assert _signal_token(label) in text
+            assert _signal_token(label, _LABELS) in text
+
+    def test_signal_token_is_always_the_first_token(self):
+        """Auditoría C3 [MEDIA]: la señal debe ir SIEMPRE al principio —
+        ByteTokenizer trunca por el final, así que es la única posición que
+        garantiza que sobrevive con Text[L] pequeño."""
+        rows = generate_template_examples(6, _LABELS, seed=3, seq_length=64)
+        for text, label in rows:
+            assert text.split(" ", 1)[0] == _signal_token(label, _LABELS)
 
     def test_deterministic_for_same_seed(self):
-        assert generate_template_examples(12, _LABELS, seed=5) == generate_template_examples(12, _LABELS, seed=5)
+        a = generate_template_examples(12, _LABELS, seed=5, seq_length=64)
+        b = generate_template_examples(12, _LABELS, seed=5, seq_length=64)
+        assert a == b
+
+    def test_no_tokenized_collisions_across_wide_range_of_small_lengths(self):
+        """Auditoría C3 [MEDIA]: con `Text[L]` pequeño (1-6 bytes) la versión
+        anterior colapsaba filas de clases DISTINTAS a la misma
+        representación tokenizada — "siempre aprendible" era falso. Ahora se
+        valida (y se garantiza, para L suficiente) que no colisionan."""
+        for length in range(1, 7):
+            rows = generate_template_examples(50, _LABELS, seed=1, seq_length=length)
+            assert _tokenized_collisions(rows, length) == []
+
+    def test_impossible_disambiguation_raises_actionable_error(self):
+        """Más clases que bytes-primer-carácter distinguibles (36, base36) a
+        L=1 es físicamente imposible de separar — debe fallar de forma
+        accountable, nunca devolver un dataset que parece aprendible y no
+        lo es."""
+        labels = [f"clase_{i}" for i in range(40)]
+        with pytest.raises(ValueError, match="demasiado pequeño"):
+            generate_template_examples(200, labels, seed=1, seq_length=1)
 
 
 class TestParseLlmTextExamples:
@@ -140,22 +176,48 @@ class TestParseLlmTextExamples:
         by_label = parse_llm_text_examples(raw, _LABELS)
         assert by_label["NEG"] == ["mal producto"]
 
+    def test_auditoria_c3_media_same_text_across_classes_only_first_kept(self):
+        """Auditoría C3 [MEDIA]: la deduplicación era solo POR CLASE — el
+        mismo texto para NEG y POS se aceptaba en ambas, un ejemplo
+        contradictorio declarado igualmente aprendible. Ahora es GLOBAL: el
+        primer texto (por orden de aparición) se queda con él."""
+        raw = "NEG: mismo texto\nPOS: mismo texto\n"
+        by_label = parse_llm_text_examples(raw, _LABELS)
+        assert by_label["NEG"] == ["mismo texto"]
+        assert by_label["POS"] == []
+
+    def test_auditoria_c3_media_length_cap_enforced(self):
+        """El system prompt pide <200 caracteres; ahora también se aplica."""
+        raw = "NEG: " + ("x" * 250) + "\nNEG: ejemplo corto valido\n"
+        by_label = parse_llm_text_examples(raw, _LABELS)
+        assert by_label["NEG"] == ["ejemplo corto valido"]
+
 
 class TestValidateLlmTextExamples:
     def test_sufficient_examples_pass(self):
-        by_label = {"NEG": ["a", "b"], "POS": ["c", "d"]}
-        assert validate_llm_text_examples(by_label, _LABELS) == []
+        by_label = {"NEG": ["texto malo a", "texto malo b"], "POS": ["texto bueno c", "texto bueno d"]}
+        assert validate_llm_text_examples(by_label, _LABELS, seq_length=64) == []
 
     def test_insufficient_examples_reported(self):
         by_label = {"NEG": ["a"], "POS": ["c", "d"]}
-        problems = validate_llm_text_examples(by_label, _LABELS)
+        problems = validate_llm_text_examples(by_label, _LABELS, seq_length=64)
         assert problems
         assert "NEG" in problems[0]
 
     def test_missing_class_entirely_reported(self):
         by_label = {"NEG": [], "POS": ["c", "d"]}
-        problems = validate_llm_text_examples(by_label, _LABELS)
+        problems = validate_llm_text_examples(by_label, _LABELS, seq_length=64)
         assert "NEG" in problems[0]
+
+    def test_auditoria_c3_media_post_tokenize_collision_reported(self):
+        """Auditoría C3 [MEDIA]: dos textos DISTINTOS que colapsan a la misma
+        representación tras truncar a Text[L] son indistinguibles para el
+        modelo — debe reportarse aunque el dedup global ya evitó texto
+        IDÉNTICO entre clases."""
+        by_label = {"NEG": ["abcXXXXXX", "abcYYYYYY"], "POS": ["abcZZZZZZ", "abcWWWWWW"]}
+        problems = validate_llm_text_examples(by_label, _LABELS, seq_length=3)
+        assert problems
+        assert "collide" in problems[0]
 
 
 class TestLlmTextExamples:
@@ -189,12 +251,14 @@ class TestGenerateTextExamplesDispatch:
     """Punto de entrada único de los 3 orígenes (decisión 5)."""
 
     def test_random_mode_returns_synthetic_random(self):
-        rows, origin = generate_text_examples("random", "clasificar", 10, _LABELS, seed=1)
+        rows, origin = generate_text_examples("random", "clasificar", 10, _LABELS, seed=1, seq_length=64)
         assert origin == "synthetic_random"
         assert len(rows) == 10
 
     def test_coherent_without_llm_returns_synthetic_template(self):
-        rows, origin = generate_text_examples("coherent", "clasificar", 10, _LABELS, seed=1, use_llm=False)
+        rows, origin = generate_text_examples(
+            "coherent", "clasificar", 10, _LABELS, seed=1, seq_length=64, use_llm=False,
+        )
         assert origin == "synthetic_template"
         assert len(rows) == 10
 
@@ -203,7 +267,9 @@ class TestGenerateTextExamplesDispatch:
             "matrixai.agents.llm_proposal.ChatCompletionsLLMProposalProvider.from_env",
             return_value=_FakeProvider(_LLM_GOOD_TEXT),
         ):
-            rows, origin = generate_text_examples("coherent", "clasificar", 8, _LABELS, seed=1, use_llm=True)
+            rows, origin = generate_text_examples(
+                "coherent", "clasificar", 8, _LABELS, seed=1, seq_length=64, use_llm=True,
+            )
         assert origin == "synthetic_llm_examples"
         assert len(rows) == 8
 
@@ -212,22 +278,43 @@ class TestGenerateTextExamplesDispatch:
             "matrixai.agents.llm_proposal.ChatCompletionsLLMProposalProvider.from_env",
             side_effect=RuntimeError("no key"),
         ):
-            rows, origin = generate_text_examples("coherent", "clasificar", 8, _LABELS, seed=1, use_llm=True)
+            rows, origin = generate_text_examples(
+                "coherent", "clasificar", 8, _LABELS, seed=1, seq_length=64, use_llm=True,
+            )
         assert origin == "synthetic_template"
         for text, label in rows:
-            assert _signal_token(label) in text
+            assert _signal_token(label, _LABELS) in text
 
     def test_coherent_with_llm_insufficient_examples_falls_back_to_template(self):
         with patch(
             "matrixai.agents.llm_proposal.ChatCompletionsLLMProposalProvider.from_env",
             return_value=_FakeProvider("NEG: solo un ejemplo\n"),
         ):
-            rows, origin = generate_text_examples("coherent", "clasificar", 8, _LABELS, seed=1, use_llm=True)
+            rows, origin = generate_text_examples(
+                "coherent", "clasificar", 8, _LABELS, seed=1, seq_length=64, use_llm=True,
+            )
+        assert origin == "synthetic_template"
+
+    def test_coherent_with_llm_tokenize_collision_falls_back_to_template(self):
+        """Auditoría C3 [MEDIA]: el LLM puede redactar ejemplos válidos y
+        únicos como TEXTO que aun así colisionan al truncar a Text[L] — debe
+        caer a plantilla igual que cualquier otro fallo de validación."""
+        colliding = (
+            "NEG: abcXXXXXX primero\nNEG: abcYYYYYY segundo\n"
+            "POS: abcZZZZZZ tercero\nPOS: abcWWWWWW cuarto\n"
+        )
+        with patch(
+            "matrixai.agents.llm_proposal.ChatCompletionsLLMProposalProvider.from_env",
+            return_value=_FakeProvider(colliding),
+        ):
+            rows, origin = generate_text_examples(
+                "coherent", "clasificar", 8, _LABELS, seed=1, seq_length=3, use_llm=True,
+            )
         assert origin == "synthetic_template"
 
     def test_empty_labels_raises(self):
         with pytest.raises(ValueError):
-            generate_text_examples("random", "x", 5, [], seed=1)
+            generate_text_examples("random", "x", 5, [], seed=1, seq_length=64)
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +391,59 @@ class TestVerifierAcceptsRawTextSequence:
         assert any("raw-text column" in e and "pre-tokenized" in e for e in report.errors)
 
 
+class TestVerifierValidatesSequenceDatasetTarget:
+    """Auditoría C3 [ALTA]: `_verify_dataset` retornaba de inmediato cuando
+    el INPUT no era una VECTOR — un modelo Text (INPUT es una SEQUENCE)
+    quedaba con CERO validación de filas/target: un CSV con target vacío o
+    fuera de Label[...] pasaba `ok=True`."""
+
+    def test_empty_target_rejected(self, tmp_path: Path):
+        gen = _gen()
+        (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
+        (tmp_path / f"{gen.network_name.lower()}.train.csv").write_text(
+            "resenas,predicted_class\nbuen producto,\nmal producto,neg\n"
+        )
+        training = parse_training_text(gen.training_text)
+        report = TrainingVerifier().verify(training, base_path=tmp_path)
+        assert not report.ok
+        assert any("is empty" in e for e in report.errors)
+
+    def test_target_outside_declared_labels_rejected(self, tmp_path: Path):
+        gen = _gen()
+        (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
+        (tmp_path / f"{gen.network_name.lower()}.train.csv").write_text(
+            "resenas,predicted_class\nbuen producto,OTRA\nmal producto,neg\n"
+        )
+        training = parse_training_text(gen.training_text)
+        report = TrainingVerifier().verify(training, base_path=tmp_path)
+        assert not report.ok
+        assert any("must be one of" in e and "OTRA" in e for e in report.errors)
+
+    def test_valid_targets_still_pass(self, tmp_path: Path):
+        gen = _gen()
+        (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
+        (tmp_path / f"{gen.network_name.lower()}.train.csv").write_text(
+            "resenas,predicted_class\nbuen producto,pos\nmal producto,neg\n"
+        )
+        training = parse_training_text(gen.training_text)
+        report = TrainingVerifier().verify(training, base_path=tmp_path)
+        assert report.ok, report.errors
+
+    def test_same_validation_applies_via_playground_upload(self):
+        """El hallazgo pedía que la corrección alcance también al CLI, no
+        solo al upload del Playground — ambos pasan por el mismo
+        `TrainingVerifier`, así que basta un chequeo end-to-end del upload."""
+        from matrixai.playground import _validate_training_csv
+
+        gen = _gen()
+        r = _validate_training_csv(
+            gen.mxai_text, gen.training_text,
+            "resenas,predicted_class\nbuen producto,\nmal producto,neg\n",
+        )
+        assert r["ok"] is False
+        assert any("is empty" in e for e in r.get("errors", []))
+
+
 class TestResolveTransformerDatasetBoundary:
     def _write(self, tmp_path: Path, gen, training_text: str, csv_text: str) -> None:
         (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
@@ -349,6 +489,134 @@ class TestResolveTransformerDatasetBoundary:
         training = parse_training_text(bad_training)
         with pytest.raises(ValueError, match="raw-text column"):
             _resolve_transformer_dataset(training, tmp_path)
+
+    def test_raw_text_path_returns_pad_id(self, tmp_path: Path):
+        """Auditoría C3 [ALTA]: el pad_id (256) debe viajar para la rama de
+        texto crudo — sin él, PAD entra en atención/pooling."""
+        gen = _gen()
+        self._write(
+            tmp_path, gen, gen.training_text,
+            "resenas,predicted_class\nme encanta este producto,pos\nque mal servicio,neg\n",
+        )
+        training = parse_training_text(gen.training_text)
+        loaded = _resolve_transformer_dataset(training, tmp_path)
+        assert loaded["pad_id"] == ByteTokenizer.PAD
+
+    def test_legacy_path_returns_pad_id_none(self, tmp_path: Path):
+        """El formato legacy (filas ya fijas a L, sin relleno conocido) no
+        debe enmascarar ninguna posición — pad_id=None conserva el
+        comportamiento previo intacto."""
+        gen = _gen()
+        legacy_training = gen.training_text.replace(
+            "FROM COLUMNS [resenas]",
+            "FROM COLUMNS [" + ", ".join(f"t{i}" for i in range(16)) + "]",
+        )
+        header = ",".join([f"t{i}" for i in range(16)] + ["predicted_class"])
+        row = ",".join([str(i) for i in range(16)] + ["neg"])
+        self._write(tmp_path, gen, legacy_training, f"{header}\n{row}\n{row}\n")
+        training = parse_training_text(legacy_training)
+        loaded = _resolve_transformer_dataset(training, tmp_path)
+        assert loaded["pad_id"] is None
+
+
+class TestPadIdThreadedToTorchBackend:
+    """Auditoría C3 [ALTA]: `train`/`evaluate` no pasaban `pad_id` a
+    `train_composite_network_torch`/`evaluate_composite_network_torch` — el
+    backend trataba TODAS las posiciones (incluido PAD=256) como reales.
+    Verificado por inyección de un doble que captura los kwargs recibidos."""
+
+    def _prepare(self, tmp_path: Path):
+        gen = _gen()
+        (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
+        (tmp_path / f"{gen.network_name.lower()}.train.csv").write_text(
+            "resenas,predicted_class\n"
+            "me encanta este producto,pos\nque mal servicio,neg\n"
+            "esto es genial,pos\nterrible experiencia,neg\n"
+        )
+        training = parse_training_text(gen.training_text)
+        return training
+
+    def test_train_passes_pad_id_to_torch_trainer(self, tmp_path: Path):
+        from matrixai.training.transformer_trainer import TransformerSupervisedTrainer
+
+        training = self._prepare(tmp_path)
+        captured: dict = {}
+
+        def _fake_train(*args, **kwargs):
+            captured["pad_id"] = kwargs.get("pad_id")
+            raise RuntimeError("stop-before-real-torch-work")
+
+        with patch(
+            "matrixai.training.composite_torch_trainer.train_composite_network_torch",
+            side_effect=_fake_train,
+        ):
+            try:
+                TransformerSupervisedTrainer().train(
+                    training, output_dir=str(tmp_path / "out"), base_path=tmp_path,
+                )
+            except RuntimeError:
+                pass
+        assert captured.get("pad_id") == ByteTokenizer.PAD
+
+    def test_evaluate_passes_pad_id_to_torch_evaluator(self, tmp_path: Path):
+        from matrixai.training.transformer_trainer import TransformerSupervisedEvaluator
+
+        training = self._prepare(tmp_path)
+        captured: dict = {}
+
+        def _fake_evaluate(*args, **kwargs):
+            captured["pad_id"] = kwargs.get("pad_id")
+            raise RuntimeError("stop-before-real-torch-work")
+
+        with patch(
+            "matrixai.training.composite_torch_trainer.evaluate_composite_network_torch",
+            side_effect=_fake_evaluate,
+        ):
+            try:
+                TransformerSupervisedEvaluator().evaluate(
+                    training, parameter_set=object(), base_path=tmp_path,
+                )
+            except RuntimeError:
+                pass
+        assert captured.get("pad_id") == ByteTokenizer.PAD
+
+
+class TestTextLengthOneDisambiguation:
+    """Auditoría C3 [MEDIA]: con `seq.length == 1` UNA columna es la firma
+    de ambas formas (texto crudo Y legacy pre-tokenizado) — desambiguado por
+    la convención de nombre ya usada en todo fixture legacy real: la única
+    columna pre-tokenizada de longitud 1 se llama literalmente "t0"."""
+
+    def test_raw_text_at_length_one_does_not_crash(self, tmp_path: Path):
+        gen = TransformerNetworkGenerator().generate(
+            "resenas: Text[1]\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+        )
+        (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
+        (tmp_path / f"{gen.network_name.lower()}.train.csv").write_text(
+            "resenas,predicted_class\nhola,pos\nmal,neg\n"
+        )
+        training = parse_training_text(gen.training_text)
+        loaded = _resolve_transformer_dataset(training, tmp_path)
+        assert loaded["pad_id"] == ByteTokenizer.PAD
+        seq_name = loaded["seq"].name
+        first_vector, _ = loaded["examples"][0]
+        assert first_vector[seq_name] == ByteTokenizer(1).encode("hola")
+
+    def test_legacy_degenerate_t0_column_still_numeric(self, tmp_path: Path):
+        gen = TransformerNetworkGenerator().generate(
+            "resenas: Text[1]\nOUTPUT clase: ProbabilityMap[NEG, POS]"
+        )
+        legacy_training = gen.training_text.replace("FROM COLUMNS [resenas]", "FROM COLUMNS [t0]")
+        (tmp_path / f"{gen.network_name}Project.mxai").write_text(gen.mxai_text)
+        (tmp_path / f"{gen.network_name.lower()}.train.csv").write_text(
+            "t0,predicted_class\n42,pos\n7,neg\n"
+        )
+        training = parse_training_text(legacy_training)
+        loaded = _resolve_transformer_dataset(training, tmp_path)
+        assert loaded["pad_id"] is None
+        seq_name = loaded["seq"].name
+        first_vector, _ = loaded["examples"][0]
+        assert first_vector[seq_name] == [42]
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +668,23 @@ class TestPlaygroundSyntheticTextDataset:
         r = self._generate(mode="random")
         assert r["field_types"] == {"resenas": "text"}
         assert r["field_seq"] == {"resenas": {"length": 16, "tokenizer": "byte_v1"}}
+
+    def test_binary_text_prompt_without_explicit_bracket_generates_dataset(self):
+        """Auditoría C3 [ALTA] — repro exacto del hallazgo: un prompt Text
+        con task "binary" (sin ProbabilityMap[...] explícito) serializaba
+        TARGET Probability, `_labels_from_spec` devolvía [] y C3 lo
+        rechazaba como si fuera regresión. Ahora TARGET es Label[negative,
+        positive] y el dataset se genera con normalidad."""
+        from matrixai.playground import _generate_synthetic_dataset
+
+        gen = TransformerNetworkGenerator().generate(
+            "clasificacion binaria de fraude\nmensaje: Text[16]"
+        )
+        assert "Label[negative, positive]" in gen.training_text
+        r = _generate_synthetic_dataset(gen.mxai_text, gen.training_text, 10, 1, "coherent", use_llm=False)
+        assert r["ok"], r.get("error")
+        assert r["labels"] == ["negative", "positive"]
+        assert r["label_origin"] == "synthetic_template"
 
     def test_rows_capped_by_profile_produces_warning(self, monkeypatch):
         monkeypatch.setenv("MATRIXAI_MAX_ROWS", "5")
@@ -607,3 +892,100 @@ class TestValidateTrainingCsvTextIntegration:
         )
         assert r["ok"], r
         assert r["rows"] == 2
+
+
+class TestSequenceRoutingPrecision:
+    """Auditoría C3 [MEDIA]: `bool(program.sequences)` enrutaba a la rama de
+    texto CUALQUIER programa que contuviera alguna SEQUENCE, aunque el INPUT
+    de ESTE training fuera una VECTOR densa sin relación. La comprobación
+    correcta es que el INPUT DECLARADO nombre una SEQUENCE consumida por una
+    red con BLOCK TRANSFORMER."""
+
+    def test_dense_model_with_unrelated_sequence_not_routed_to_text(self):
+        from types import SimpleNamespace
+        from matrixai.playground import _training_input_is_transformer_sequence
+
+        seq = SimpleNamespace(name="Texto", length=16)
+        net_transformer = SimpleNamespace(input="Texto", transformer_blocks=["block"])
+        net_dense = SimpleNamespace(input="Home", transformer_blocks=[])
+        program = SimpleNamespace(sequences=[seq], networks=[net_transformer, net_dense])
+        training = SimpleNamespace(dataset=SimpleNamespace(input=SimpleNamespace(vector="Home")))
+        assert _training_input_is_transformer_sequence(program, training) is False
+
+    def test_real_text_model_still_routed(self):
+        from types import SimpleNamespace
+        from matrixai.playground import _training_input_is_transformer_sequence
+
+        seq = SimpleNamespace(name="Texto", length=16)
+        net_transformer = SimpleNamespace(input="Texto", transformer_blocks=["block"])
+        program = SimpleNamespace(sequences=[seq], networks=[net_transformer])
+        training = SimpleNamespace(dataset=SimpleNamespace(input=SimpleNamespace(vector="Texto")))
+        assert _training_input_is_transformer_sequence(program, training) is True
+
+    def test_no_sequences_at_all_not_routed(self):
+        from types import SimpleNamespace
+        from matrixai.playground import _training_input_is_transformer_sequence
+
+        program = SimpleNamespace(sequences=[], networks=[])
+        training = SimpleNamespace(dataset=SimpleNamespace(input=SimpleNamespace(vector="Home")))
+        assert _training_input_is_transformer_sequence(program, training) is False
+
+    def test_generate_synthetic_dataset_regression_for_plain_tabular_unaffected(self):
+        """Regresión end-to-end (ya cubierta por
+        `TestPlaygroundSyntheticTextDataset.test_tabular_prompt_regression_unaffected`)
+        — aquí se confirma explícitamente vía la nueva función de gate."""
+        from matrixai.playground import _generate_synthetic_dataset
+        from matrixai.parser import parse_text
+        from matrixai.training.parser import parse_training_text
+
+        mxai = """PROJECT House
+
+VECTOR Home[2]
+  size: Score
+  rooms: Score
+END
+
+FUNCTION Price
+  value: Scalar = size + rooms
+END
+
+GRAPH
+  Home -> Price
+END
+
+AUDIT
+  EXPLAIN Home -> Price
+END
+"""
+        training_text = """MODEL HouseProject.mxai
+
+DATASET HouseTrainingSet
+  SOURCE csv("house.train.csv")
+  INPUT Home FROM COLUMNS [size, rooms]
+  TARGET predicted_value: Scalar
+  SPLIT train=0.8 validation=0.2 seed=42
+  BATCH size=8
+END
+
+LOSS HouseLoss
+  TYPE mse
+  PREDICTION Price
+  TARGET predicted_value
+END
+
+OPTIMIZER HouseOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.01
+  UPDATE Price.*
+END
+
+RUN
+  EPOCHS 10
+END
+"""
+        program = parse_text(mxai)
+        training = parse_training_text(training_text)
+        assert program.sequences == []  # nada que auxiliar aquí; regresión llana
+        r = _generate_synthetic_dataset(mxai, training_text, 10, 1, "random")
+        assert r["ok"], r.get("error")
+        assert "field_seq" not in r or not r.get("field_seq")

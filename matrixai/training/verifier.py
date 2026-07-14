@@ -300,10 +300,19 @@ class TrainingVerifier:
     def _verify_dataset(
         self, training: TrainingSpec, program: MatrixAIProgram, dataset_path: Path
     ) -> list[str]:
+        # Auditoría C3 [ALTA]: este método retornaba de INMEDIATO (sin leer
+        # siquiera el CSV) cuando el INPUT no era una VECTOR — un modelo Text
+        # (INPUT es una SEQUENCE, C2/C3) quedaba con CERO validación de
+        # filas/target: un upload con target vacío o fuera de Label[...]
+        # pasaba ok=True (confirmado: cross_entropy convertía la etiqueta
+        # desconocida en un one-hot todo-cero, sin avisar). La validación de
+        # FEATURES (rango numérico por campo) sigue siendo específica de
+        # VECTOR — una SEQUENCE es texto crudo, no escalares con rango — pero
+        # filas/cabecera/target son comunes a AMBAS formas de INPUT y deben
+        # correr siempre, tanto en el upload del Playground como en el CLI
+        # (ambos pasan por este mismo verificador).
         errors: list[str] = []
         vector = next((item for item in program.vectors if item.name == training.dataset.input.vector), None)
-        if vector is None:
-            return errors
         try:
             with dataset_path.open("r", encoding="utf-8", newline="") as handle:
                 rows = list(csv.DictReader(handle))
@@ -321,22 +330,23 @@ class TrainingVerifier:
         labels = set(target_type.parameters.get("args", []))
         _is_continuous_target = target_type.name in {"Scalar", "Integer"}
         for row_index, row in enumerate(rows, start=2):
-            for field in vector.fields:
-                value = row.get(field, "")
-                if value == "":
-                    errors.append(f"DATASET row {row_index} field {field} is empty")
-                    continue
-                try:
-                    number = float(value)
-                except ValueError:
-                    errors.append(f"DATASET row {row_index} field {field} must be numeric, got {value!r}")
-                    continue
-                type_spec = vector.field_types.get(field)
-                if type_spec is not None and type_spec.range is not None and not type_spec.range.contains(number):
-                    errors.append(
-                        f"DATASET row {row_index} field {field} expects {type_spec.name} range "
-                        f"[{type_spec.range.minimum}, {type_spec.range.maximum}], got {number}"
-                    )
+            if vector is not None:
+                for field in vector.fields:
+                    value = row.get(field, "")
+                    if value == "":
+                        errors.append(f"DATASET row {row_index} field {field} is empty")
+                        continue
+                    try:
+                        number = float(value)
+                    except ValueError:
+                        errors.append(f"DATASET row {row_index} field {field} must be numeric, got {value!r}")
+                        continue
+                    type_spec = vector.field_types.get(field)
+                    if type_spec is not None and type_spec.range is not None and not type_spec.range.contains(number):
+                        errors.append(
+                            f"DATASET row {row_index} field {field} expects {type_spec.name} range "
+                            f"[{type_spec.range.minimum}, {type_spec.range.maximum}], got {number}"
+                        )
             target_value = row.get(training.dataset.target.name, "")
             if target_value == "":
                 errors.append(f"DATASET row {row_index} target {training.dataset.target.name} is empty")

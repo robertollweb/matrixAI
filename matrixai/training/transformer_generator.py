@@ -298,8 +298,17 @@ class TransformerNetworkGenerator:
 def _dataset_target_type_for(task: str, labels: list[str]) -> str:
     if task == "regression":
         return "Scalar"
-    if task == "binary":
-        return "Probability"
+    # Auditoría C3 [ALTA]: "binary" serializaba TARGET Probability (float
+    # crudo 0/1) descartando los `labels` ya resueltos (p.ej. los defaults
+    # ["negative", "positive"]) — `_labels_from_spec` (que solo lee args del
+    # tipo declarado) devolvía [] para CUALQUIER Text binario, y C3 lo
+    # rechazaba como si fuera regresión. binary_cross_entropy YA admite
+    # Label[...] de 2 valores en el verificador (además de Probability) — a
+    # diferencia del denso/tabular (Probability numérico SÍ es el formato
+    # correcto ahí: SyntheticDataGenerator genera floats 0/1 sin nombres),
+    # el texto NECESITA una etiqueta con NOMBRE por fila (una plantilla/LLM
+    # no puede escribir una fila de texto "de clase 0.7"), así que Label[...]
+    # es la forma canónica aquí.
     return f"Label[{', '.join(labels)}]"
 
 
@@ -398,7 +407,10 @@ def _build_dataset_template(
 ) -> str:
     """CSV de ejemplo descargable — UNA columna de texto crudo (placeholder
     claramente marcado como tal, no un texto real) + el target."""
-    dummy_target = labels[0] if task == "multiclass" else "0.0"
+    # Auditoría C3 [ALTA]: "binary" ahora serializa Label[...] (ver
+    # _dataset_target_type_for) — el dummy también debe ser un label con
+    # nombre, no "0.0" (que ya no typechequea contra Label[...]).
+    dummy_target = labels[0] if task in ("multiclass", "binary") else "0.0"
     header = ",".join([field_name, output_name])
     dummy_row = ",".join(["texto de ejemplo — sustituye por el tuyo", dummy_target])
     return f"{header}\n{dummy_row}\n"

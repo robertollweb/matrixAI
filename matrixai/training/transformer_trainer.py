@@ -89,17 +89,32 @@ def _resolve_transformer_dataset(
     if resolved_data is None:
         raise FileNotFoundError(f"Dataset not found: {source}")
 
-    if len(columns) == 1 and seq.length != 1:
+    # Auditoría C3 [MEDIA]: con seq.length == 1 AMBAS formas tienen
+    # exactamente 1 columna — genuinamente ambiguo por número de columnas a
+    # secas. Se desambigua por la convención de nombre YA usada en todo
+    # fixture/legacy real: la única columna pre-tokenizada de una SEQUENCE
+    # length=1 se llama literalmente "t0"; cualquier otro nombre de columna
+    # es la forma canónica (texto crudo). Sin ampliar la gramática .mxtrain.
+    _degenerate_legacy = seq.length == 1 and columns == ["t0"]
+    if len(columns) == 1 and not _degenerate_legacy:
         tokenizer = ByteTokenizer(seq.length)
         adapter = CSVTextDataAdapter(
             resolved_data, seq.name, columns[0], training.dataset.target.name,
             tokenizer, labels if labels else None,
         )
+        # Auditoría C3 [ALTA]: PAD=256 debe quedar fuera de atención/pooling
+        # — el pad_id viaja hasta el trainer/evaluador torch (que ya sabe
+        # construir la máscara, __mask__ = ids != pad_id) SOLO para esta
+        # rama de texto crudo real.
+        pad_id: int | None = ByteTokenizer.PAD
     elif len(columns) == seq.length:
         adapter = CSVDataAdapter(
             resolved_data, seq.name, columns,
             training.dataset.target.name, labels if labels else None,
         )
+        # Legacy pre-tokenizado: filas ya fijas a L, sin relleno conocido —
+        # ninguna posición se enmascara (comportamiento previo intacto).
+        pad_id = None
     else:
         raise ValueError(
             f"DATASET INPUT declares {len(columns)} columns but SEQUENCE "
@@ -121,6 +136,7 @@ def _resolve_transformer_dataset(
         "labels": labels,
         "loss_fn": loss_fn,
         "resolved_data": resolved_data,
+        "pad_id": pad_id,
     }
 
 
@@ -167,6 +183,7 @@ class TransformerSupervisedTrainer:
         examples = loaded["examples"]
         labels = loaded["labels"]
         loss_fn = loaded["loss_fn"]
+        pad_id = loaded["pad_id"]
 
         lr = training.optimizer.learning_rate if training.optimizer else 0.01
         opt_type = training.optimizer.type if training.optimizer else "adam"
@@ -226,6 +243,7 @@ class TransformerSupervisedTrainer:
             optimizer=opt_type,
             device=device,
             validation_examples=val_examples,
+            pad_id=pad_id,
         )
         best_ps = tr["best_params"]
         best_state = tr["best_state_dict"]
@@ -235,7 +253,7 @@ class TransformerSupervisedTrainer:
             eval_result = evaluate_composite_network_torch(
                 net, best_ps, val_examples, loss_fn,
                 labels=labels or None, type_result=type_result,
-                device=device, state_dict=best_state,
+                device=device, state_dict=best_state, pad_id=pad_id,
             )
             accuracy = (
                 max(0.0, min(1.0, eval_result.r2))
@@ -346,6 +364,7 @@ class TransformerSupervisedEvaluator:
         labels = loaded["labels"]
         loss_fn = loaded["loss_fn"]
         resolved_data = loaded["resolved_data"]
+        pad_id = loaded["pad_id"]
         device = training.backend.device if training.backend else "cpu"
 
         program_digest = program_hash(loaded["program"])
@@ -365,7 +384,7 @@ class TransformerSupervisedEvaluator:
         result = evaluate_composite_network_torch(
             net, parameter_set, examples, loss_fn,
             labels=labels or None, type_result=type_result, device=device,
-            state_dict=state_dict,
+            state_dict=state_dict, pad_id=pad_id,
         )
 
         per_label: dict[str, dict[str, float]] = {}

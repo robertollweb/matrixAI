@@ -510,6 +510,27 @@ def _generate_training_from_mxai(mxai_text: str, prompt: str = "") -> dict[str, 
         return {"ok": False, "error": str(exc)}
 
 
+def _training_input_is_transformer_sequence(program: Any, training: Any) -> bool:
+    """SECUENCIAS_PRODUCTO auditoría C3 [MEDIA]: `bool(program.sequences)`
+    enrutaba a la rama de texto CUALQUIER programa que contuviera alguna
+    SEQUENCE en absoluto — un modelo denso válido (INPUT es una VECTOR) con
+    una SEQUENCE auxiliar sin relación (otra red del mismo `.mxai`, por
+    ejemplo) caía erróneamente en la rama de texto y exigía una única
+    columna sin sentido. Comprobación precisa: el INPUT DECLARADO en este
+    training concreto debe nombrar una SEQUENCE que además sea el `input`
+    de una red con `BLOCK TRANSFORMER` — no basta con que el programa
+    contenga una SEQUENCE en algún sitio."""
+    seq = next(
+        (s for s in program.sequences if s.name == training.dataset.input.vector), None,
+    )
+    if seq is None:
+        return False
+    return any(
+        n.input == seq.name and getattr(n, "transformer_blocks", [])
+        for n in program.networks
+    )
+
+
 def _generate_synthetic_dataset(
     mxai_text: str,
     training_text: str,
@@ -583,7 +604,10 @@ def _generate_synthetic_dataset(
         # prompt, C2) no tiene VECTOR — SyntheticDataGenerator busca
         # `program.vectors` exclusivamente y revienta con "Vector not found".
         # Rama completamente aparte: genera texto crudo, nunca ids.
-        if program.sequences:
+        # Auditoría C3 [MEDIA]: el gate es el INPUT declarado de ESTE
+        # training, no "el programa contiene alguna SEQUENCE" (ver
+        # `_training_input_is_transformer_sequence`).
+        if _training_input_is_transformer_sequence(program, training):
             return _generate_synthetic_text_dataset(
                 program, training, rows, seed, mode, use_llm,
                 rows_capped_warning,
@@ -865,9 +889,12 @@ def _generate_synthetic_text_dataset(
 
     try:
         # `mode` ya llega normalizado a "random"/"coherent" (el caller lo
-        # fuerza antes de esta rama).
+        # fuerza antes de esta rama). `seq.length` viaja para que la señal
+        # (plantilla o LLM) se valide contra el truncado REAL del modelo
+        # (auditoría C3 [MEDIA] — antes se generaba texto "señal" sin saber
+        # si sobreviviría a Text[L]).
         text_rows, label_origin = generate_text_examples(
-            mode, program.project, rows, labels, seed, use_llm=use_llm,
+            mode, program.project, rows, labels, seed, seq.length, use_llm=use_llm,
         )
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}
@@ -1071,19 +1098,24 @@ def _validate_training_csv(
         program = parse_text(mxai_text)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"mxai_text inválido: {exc}"}
-    # SECUENCIAS_PRODUCTO C3: para un modelo Text no hay rangos de dominio que
-    # normalizar (la columna es texto, no escalares [0,1]) — omitir aunque el
-    # caller pase field_ranges por error, en vez de dejar que
-    # _normalize_csv_with_ranges corrompa la columna de texto.
-    is_text_model = bool(program.sequences)
-    # M5: domain-scale CSV must be normalized before the TrainingVerifier checks
-    # values against the DSL type ranges (Scalar [0,1]).
-    if field_ranges and not is_text_model:
-        csv_text = _normalize_csv_with_ranges(csv_text, field_ranges)
     try:
         training = parse_training_text(training_text)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"training_text inválido: {exc}"}
+    # SECUENCIAS_PRODUCTO C3: para un modelo Text no hay rangos de dominio que
+    # normalizar (la columna es texto, no escalares [0,1]) — omitir aunque el
+    # caller pase field_ranges por error, en vez de dejar que
+    # _normalize_csv_with_ranges corrompa la columna de texto.
+    # Auditoría C3 [MEDIA]: `bool(program.sequences)` desviaba a la rama de
+    # texto cualquier programa con una SEQUENCE en algún sitio, aunque el
+    # INPUT de ESTE training fuera una VECTOR densa — comprobación precisa
+    # vía `_training_input_is_transformer_sequence` (necesita `training`, así
+    # que se parsea ANTES de este chequeo).
+    is_text_model = _training_input_is_transformer_sequence(program, training)
+    # M5: domain-scale CSV must be normalized before the TrainingVerifier checks
+    # values against the DSL type ranges (Scalar [0,1]).
+    if field_ranges and not is_text_model:
+        csv_text = _normalize_csv_with_ranges(csv_text, field_ranges)
 
     # M16 — chequeo de cabecera con mensaje accionable ANTES del verificador técnico:
     # si faltan columnas esperadas, decimos exactamente cuáles (y cuáles llegaron).
