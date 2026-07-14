@@ -306,8 +306,10 @@ def _build_sequence_inference_spec(
     predict.py tokeniza con el ByteTokenizer EMBEBIDO (invariante 1). El
     grafo ONNX expone ademas una segunda entrada `<sequence>_mask` (1.0 real
     / 0.0 padding) en AMBOS casos; mask_input la documenta. POOL cls exige
-    que la posicion 0 sea real (invariante 1c) — anotado en la spec, y el
-    tokenizador embebido reserva esa posicion para CLS cuando aplica.
+    que la posicion 0 sea real (invariante 1c) — anotado en la spec; el
+    tokenizador embebido NUNCA inserta CLS (`add_cls=False`), igual que el
+    entrenamiento y la inferencia del Studio, así POOL cls hace pooling del
+    primer byte REAL del texto (ver comentario en `add_cls` más abajo).
     """
     if len(program.sequences) > 1:
         raise InferenceSpecError(
@@ -347,7 +349,21 @@ def _build_sequence_inference_spec(
             )
         from matrixai.text.tokenizer import ByteTokenizer
         tokenizer_cfg = ByteTokenizer(seq.length).config()
-        tokenizer_cfg["add_cls"] = pool_kind == "cls"
+        # SECUENCIAS_PRODUCTO C5 (autoauditoría): `add_cls` SIEMPRE False.
+        # El boundary de tokenización de ENTRENAMIENTO (`CSVTextDataAdapter`,
+        # `training/data.py`) y el de inferencia del Studio (C4,
+        # `_studio_infer_transformer_forward`) llaman `encode(text)` con el
+        # default `add_cls=False` — nunca insertan CLS. POOL cls hace pooling
+        # de la posición 0 TAL CUAL (`current_rows[0]`, no inserta un CLS), y
+        # esa posición 0 en entrenamiento es el PRIMER BYTE del texto (fila
+        # 0-255 del embedding, entrenada). Si predict.py añadiera un CLS
+        # (id 258, fila NUNCA vista en entrenamiento) tokenizaría distinto que
+        # Studio/entrenamiento y haría pooling de un embedding sin entrenar
+        # → predicción silenciosamente errónea (viola invariante 2: mismo
+        # texto → mismos ids en Studio, CLI y predict.py). El generador emite
+        # siempre POOL mean, así que esto solo tocaría un .mxai POOL cls hecho
+        # a mano; se mantiene explícito y consistente igualmente.
+        tokenizer_cfg["add_cls"] = False
 
     if example_input is not None:
         value = example_input.get(seq.name)

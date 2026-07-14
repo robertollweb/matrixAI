@@ -119,9 +119,12 @@ class TestInferenceSpecText:
         assert spec["input_order"] == ["Resenas"]
         assert spec["mask_input"] == "Resenas_mask"
 
-    def test_add_cls_true_when_pool_cls(self):
+    def test_add_cls_always_false_even_for_pool_cls(self):
+        """Autoauditoría C5: `add_cls` SIEMPRE False, también con POOL cls —
+        el entrenamiento y la inferencia del Studio nunca insertan CLS, así
+        que predict.py tampoco (invariante 2: mismos ids en las 3 rutas)."""
         spec, _ = self._spec(field_seq=self.FIELD_SEQ, pool="cls")
-        assert spec["input"]["Resenas"]["tokenizer"]["add_cls"] is True
+        assert spec["input"]["Resenas"]["tokenizer"]["add_cls"] is False
 
     def test_add_cls_false_when_pool_mean(self):
         spec, _ = self._spec(field_seq=self.FIELD_SEQ, pool="mean")
@@ -171,6 +174,87 @@ class TestInferenceSpecText:
 
 
 # ---------------------------------------------------------------------------
+# CLI: --inference-metadata acepta field_seq (validación fail-closed estricta)
+# Autoauditoría C5 [BAJA] — el camino CLI estaba implementado pero sin test.
+# ---------------------------------------------------------------------------
+
+class TestCliFieldSeqMetadata:
+    def _load(self, payload):
+        import json as _json
+        import tempfile as _tf
+        from matrixai.cli import _load_inference_metadata
+        p = Path(_tf.mktemp(suffix=".json"))
+        p.write_text(_json.dumps(payload), encoding="utf-8")
+        try:
+            return _load_inference_metadata(str(p))
+        finally:
+            p.unlink(missing_ok=True)
+
+    def test_valid_field_seq_loads(self):
+        out = self._load({"field_seq": {"resenas": {"length": 16, "tokenizer": "byte_v1"}}})
+        assert out["field_seq"] == {"resenas": {"length": 16, "tokenizer": "byte_v1"}}
+
+    def test_field_seq_not_object_raises(self):
+        with pytest.raises(ValueError, match="field_seq must be an object"):
+            self._load({"field_seq": "byte_v1"})
+
+    def test_field_seq_entry_not_object_raises(self):
+        with pytest.raises(ValueError, match="must be an object"):
+            self._load({"field_seq": {"resenas": "byte_v1"}})
+
+    def test_field_seq_missing_keys_raises(self):
+        with pytest.raises(ValueError, match="must declare 'length' and 'tokenizer'"):
+            self._load({"field_seq": {"resenas": {"length": 16}}})
+
+    def test_field_seq_length_zero_raises(self):
+        with pytest.raises(ValueError, match="positive integer"):
+            self._load({"field_seq": {"resenas": {"length": 0, "tokenizer": "byte_v1"}}})
+
+    def test_field_seq_length_bool_raises(self):
+        # bool es subtipo de int — no debe colar como longitud
+        with pytest.raises(ValueError, match="positive integer"):
+            self._load({"field_seq": {"resenas": {"length": True, "tokenizer": "byte_v1"}}})
+
+    def test_field_seq_unknown_tokenizer_raises(self):
+        with pytest.raises(ValueError, match="must be 'byte_v1'"):
+            self._load({"field_seq": {"resenas": {"length": 16, "tokenizer": "bpe"}}})
+
+
+@unittest.skipUnless(_HAS_ONNX and _HAS_ORT, "onnx/onnxruntime required")
+class TestCliExportBundleWithFieldSeq(unittest.TestCase):
+    """El camino CLI completo: `mx export bundle --inference-metadata` con
+    field_seq produce un bundle con encoding 'text'."""
+
+    def test_cli_bundle_text_encoding_end_to_end(self):
+        import json as _json
+        import subprocess
+        import sys
+        from matrixai.parameters import write_parameter_set
+
+        src = _mxai()
+        prog, net, res, ps = _build(src)
+        td = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, str(td), True)
+        (td / "m.mxai").write_text(src, encoding="utf-8")
+        write_parameter_set(str(td / "p.json"), ps)
+        (td / "meta.json").write_text(_json.dumps({
+            "field_seq": {"resenas": {"length": 8, "tokenizer": "byte_v1"}},
+            "labels": ["NEG", "POS"],
+        }), encoding="utf-8")
+
+        rc = subprocess.run(
+            [sys.executable, "-m", "matrixai", "export-bundle",
+             str(td / "m.mxai"), "--params", str(td / "p.json"),
+             "--outdir", str(td / "bundle"), "--no-validate",
+             "--inference-metadata", str(td / "meta.json")],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(rc.returncode, 0, rc.stderr)
+        spec = _json.loads((td / "bundle" / "inference_spec.json").read_text())
+        self.assertEqual(spec["input"]["Resenas"]["encoding"], "text")
+
+
+# ---------------------------------------------------------------------------
 # predict.py embebido — _ByteTokenizer replica matrixai.text.tokenizer BYTE A BYTE
 # ---------------------------------------------------------------------------
 
@@ -212,13 +296,14 @@ class TestEmbeddedByteTokenizerMatchesCore:
 class TestBundleEndToEndText(unittest.TestCase):
     FIELD_SEQ = {"resenas": {"length": 8, "tokenizer": "byte_v1"}}
 
-    def _bundle(self):
+    def _bundle(self, pool: str = "mean"):
         from matrixai.export import create_edge_bundle
         from matrixai.parameters import write_parameter_set
-        prog, net, res, ps = _build(_mxai())
+        src = _mxai(pool=pool)
+        prog, net, res, ps = _build(src)
         td = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, str(td), True)
-        (td / "m.mxai").write_text(_mxai(), encoding="utf-8")
+        (td / "m.mxai").write_text(src, encoding="utf-8")
         write_parameter_set(str(td / "p.json"), ps)
         result = create_edge_bundle(
             prog, ps, mxai_path=str(td / "m.mxai"), params_path=str(td / "p.json"),
@@ -284,6 +369,44 @@ class TestBundleEndToEndText(unittest.TestCase):
             model.predict([1, 2, 3])  # legacy token_ids shape, not accepted here
         with self.assertRaises(mod.MatrixAIModelError):
             model.predict({"Resenas": 123})
+
+    def test_predict_py_tokenizes_identically_to_core_tokenizer(self):
+        """Autoauditoría C5 [MEDIA] — el guard directo del invariante 2: la
+        salida de predict.py sobre TEXTO CRUDO debe ser idéntica a correr el
+        MISMO grafo ONNX con los ids del ByteTokenizer del CORE (el que usa el
+        entrenamiento y la inferencia del Studio). Si predict.py tokenizara
+        distinto (p.ej. insertando un CLS que el entrenamiento nunca vio),
+        estas dos salidas divergirían."""
+        import numpy as np
+        import onnxruntime as ort
+        from matrixai.text.tokenizer import ByteTokenizer
+
+        for pool in ("mean", "cls"):
+            result, bd = self._bundle(pool=pool)
+            m = util.spec_from_file_location(f"pred_{id(self)}_{pool}", str(bd / "predict.py"))
+            mod = util.module_from_spec(m)
+            m.loader.exec_module(mod)
+            model = mod.MatrixAIModel(str(bd / "inference_spec.json"))
+
+            # spec debe declarar add_cls=False para AMBOS pool kinds
+            spec = json.loads((bd / "inference_spec.json").read_text())
+            self.assertIs(spec["input"]["Resenas"]["tokenizer"]["add_cls"], False)
+
+            text = "buen producto"
+            got = model.predict(text)
+
+            # referencia: tokenizar con el ByteTokenizer del CORE (add_cls por
+            # defecto = False, como el entrenamiento) y correr el mismo ONNX
+            ids = ByteTokenizer(8).encode(text)
+            mask = [1.0 if i != ByteTokenizer.PAD else 0.0 for i in ids]
+            sess = ort.InferenceSession(str(bd / "model.onnx"))
+            raw = sess.run(None, {
+                "Resenas": np.array([ids], dtype=np.int64),
+                "Resenas_mask": np.array([mask], dtype=np.float32),
+            })[0][0]
+            ref = {"NEG": float(raw[0]), "POS": float(raw[1])}
+            for k in ("NEG", "POS"):
+                self.assertAlmostEqual(got[k], ref[k], places=6, msg=f"pool={pool}")
 
 
 # ---------------------------------------------------------------------------
