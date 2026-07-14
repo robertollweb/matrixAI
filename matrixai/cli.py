@@ -2308,6 +2308,32 @@ def _load_inference_metadata(path: str) -> dict:
             out_types[str(key)] = value
         kwargs["field_types"] = out_types
 
+    if "field_seq" in raw:
+        # SECUENCIAS_PRODUCTO C5 — tokenizer metadata for a Text field
+        # ({field: {"length": L, "tokenizer": "byte_v1"}}). Presence elevates
+        # the exported SEQUENCE input to raw text with the embedded
+        # ByteTokenizer; absence keeps the retrocompatible token_ids form
+        # (TRANSFORMER_BLOQUE C5). Strict, same fail-closed style as the
+        # other metadata keys above.
+        seqs = raw["field_seq"]
+        if not isinstance(seqs, dict):
+            raise ValueError("field_seq must be an object of {field: {length, tokenizer}}")
+        out_seq: dict[str, dict[str, Any]] = {}
+        for key, meta in seqs.items():
+            if not isinstance(meta, dict):
+                raise ValueError(f"field_seq[{key!r}] must be an object")
+            if "length" not in meta or "tokenizer" not in meta:
+                raise ValueError(f"field_seq[{key!r}] must declare 'length' and 'tokenizer'")
+            length = meta["length"]
+            if type(length) is not int or length < 1:
+                raise ValueError(f"field_seq[{key!r}].length must be a positive integer, got {length!r}")
+            if meta["tokenizer"] != "byte_v1":
+                raise ValueError(
+                    f"field_seq[{key!r}].tokenizer must be 'byte_v1', got {meta['tokenizer']!r}"
+                )
+            out_seq[str(key)] = {"length": length, "tokenizer": "byte_v1"}
+        kwargs["field_seq"] = out_seq
+
     if "labels" in raw:
         labels = raw["labels"]
         if not isinstance(labels, list) or not all(isinstance(x, str) for x in labels):

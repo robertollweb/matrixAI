@@ -114,6 +114,7 @@ class EdgeBundler:
         field_ranges: dict[str, tuple[float, float]] | None = None,
         field_categories: dict[str, list[str]] | None = None,
         field_types: dict[str, str] | None = None,
+        field_seq: dict[str, dict[str, Any]] | None = None,
         labels: list[str] | None = None,
         example_input: dict[str, Any] | None = None,
     ) -> EdgeBundleResult:
@@ -247,6 +248,7 @@ class EdgeBundler:
                     field_ranges=field_ranges,
                     field_categories=field_categories,
                     field_types=field_types,
+                    field_seq=field_seq,
                     labels=labels,
                     example_input=example_input,
                 )
@@ -368,6 +370,7 @@ def create_edge_bundle(
     field_ranges: dict[str, tuple[float, float]] | None = None,
     field_categories: dict[str, list[str]] | None = None,
     field_types: dict[str, str] | None = None,
+    field_seq: dict[str, dict[str, Any]] | None = None,
     labels: list[str] | None = None,
     example_input: dict[str, Any] | None = None,
 ) -> EdgeBundleResult:
@@ -379,6 +382,7 @@ def create_edge_bundle(
         field_ranges=field_ranges,
         field_categories=field_categories,
         field_types=field_types,
+        field_seq=field_seq,
         labels=labels,
         example_input=example_input,
     )

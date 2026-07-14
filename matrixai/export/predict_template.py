@@ -17,8 +17,11 @@ encoding and label mapping that the model was trained with are applied here.
 
 The contract between this script and the model is ``inference_spec.json``:
 For tabular models, ``input_order`` is the exact float32 column order and
-``fields`` says how raw values map onto it.  Sequence models instead declare a
-``token_ids`` input and an optional padding mask.
+``fields`` says how raw values map onto it.  Sequence models instead declare
+either a ``token_ids`` input (pre-tokenized ids, TRANSFORMER_BLOQUE C5) or a
+``text`` input (SECUENCIAS_PRODUCTO C5) — raw text, tokenized HERE with the
+embedded ``_ByteTokenizer`` (byte_v1: UTF-8 bytes are the token ids, zero
+dependencies, deterministic) — plus an optional padding mask in both cases.
 """
 from __future__ import annotations
 
@@ -39,6 +42,40 @@ class MatrixAIModelError(Exception):
     """Raised on a malformed input record or a spec/model mismatch."""
 
 
+class _ByteTokenizer:
+    """SECUENCIAS_PRODUCTO C5 — embedded byte_v1 tokenizer, zero dependency.
+
+    Mirrors ``matrixai.text.tokenizer.ByteTokenizer.encode`` exactly (this
+    file ships standalone, no MatrixAI import): UTF-8 bytes ARE the token
+    ids (0-255); PAD fills up to ``length``; CLS (if ``add_cls``) takes slot
+    0, reserving one position. Config comes straight from inference_spec.json
+    (already validated at export time — the model and the config agree by
+    construction), so this stays a thin, trusting encoder.
+    """
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        if config.get("kind") != "byte_v1":
+            raise MatrixAIModelError(
+                f"Unknown tokenizer kind {config.get('kind')!r}; expected 'byte_v1'."
+            )
+        self.length = int(config["length"])
+        self.pad = int(config["pad"])
+        self.cls = int(config["cls"])
+        self.add_cls = bool(config.get("add_cls", False))
+
+    def encode(self, text: str) -> list[int]:
+        if not isinstance(text, str):
+            raise MatrixAIModelError(f"Expected a string to tokenize, got {type(text).__name__}.")
+        raw = text.encode("utf-8")
+        limit = self.length - 1 if self.add_cls else self.length
+        ids = list(raw[:limit])
+        if self.add_cls:
+            ids = [self.cls] + ids
+        if len(ids) < self.length:
+            ids = ids + [self.pad] * (self.length - len(ids))
+        return ids
+
+
 class MatrixAIModel:
     """Load a MatrixAI bundle and run predictions from raw records."""
 
@@ -54,22 +91,28 @@ class MatrixAIModel:
         self.input_index = {col: i for i, col in enumerate(self.input_order)}
         self.fields: dict[str, Any] = self.spec.get("fields", {})
         self.output: dict[str, Any] = self.spec.get("output", {})
+        # SECUENCIAS_PRODUCTO C5: "text" (tokenizador embebido) se une a
+        # "token_ids" (TRANSFORMER_BLOQUE C5, retrocompatible) — un bundle
+        # concreto solo declara UNA de las dos, nunca ambas.
         sequence_inputs = {
             name: entry for name, entry in self.spec.get("input", {}).items()
-            if entry.get("encoding") == "token_ids"
+            if entry.get("encoding") in ("token_ids", "text")
         }
         if len(sequence_inputs) > 1:
-            raise MatrixAIModelError("predict.py supports exactly one token_ids input.")
+            raise MatrixAIModelError("predict.py supports exactly one sequence input.")
         self.sequence_name: str | None = next(iter(sequence_inputs), None)
         self.sequence_entry: dict[str, Any] | None = (
             sequence_inputs.get(self.sequence_name) if self.sequence_name else None
         )
+        self._tokenizer: "_ByteTokenizer | None" = None
+        if self.sequence_entry is not None and self.sequence_entry.get("encoding") == "text":
+            self._tokenizer = _ByteTokenizer(self.sequence_entry["tokenizer"])
         self.input_name: str = self.spec.get("input_name") or self.spec.get("onnx_input")
         if not self.input_name:
             raise MatrixAIModelError("inference_spec.json does not declare input_name.")
         self.mask_input: str | None = self.spec.get("mask_input")
         if self.sequence_name and not self.mask_input:
-            raise MatrixAIModelError("token_ids spec does not declare mask_input.")
+            raise MatrixAIModelError("sequence spec does not declare mask_input.")
 
         onnx_path = spec_path.parent / self.spec.get("onnx_file", "model.onnx")
         if not onnx_path.exists():
@@ -121,10 +164,48 @@ class MatrixAIModel:
     # -- encoding ----------------------------------------------------------
 
     def _encode_sequence(self, record: Any) -> tuple[list[int], list[float], dict[str, Any]]:
-        """Validate one token-id row and construct its ONNX padding mask."""
+        """Validate one sequence row (raw text or pre-tokenized ids,
+        depending on the spec) and construct its ONNX padding mask."""
         assert self.sequence_name is not None and self.sequence_entry is not None
         meta: dict[str, Any] = {"spec_version": self.spec.get("spec_version"),
                                 "warnings": [], "clipped": []}
+
+        if self._tokenizer is not None:
+            # SECUENCIAS_PRODUCTO C5: raw text — invariante 1, tokenizado
+            # AQUÍ con el ByteTokenizer embebido. The mask is DERIVED from
+            # the tokenized ids (real vs PAD) — never accepted from the
+            # caller, there is no correct way for a consumer to compute it
+            # without the tokenizer itself.
+            if isinstance(record, str):
+                text: Any = record
+            elif isinstance(record, dict):
+                if self.sequence_name not in record:
+                    raise MatrixAIModelError(
+                        f"Missing required text field {self.sequence_name!r}."
+                    )
+                text = record[self.sequence_name]
+                unknown = sorted(k for k in record if k != self.sequence_name)
+                if unknown:
+                    meta["warnings"].append(f"ignored unknown fields: {unknown}")
+            else:
+                raise MatrixAIModelError(
+                    "Text input must be a string or an object containing that string."
+                )
+            if not isinstance(text, str):
+                raise MatrixAIModelError(
+                    f"Field {self.sequence_name!r}: expected a string, got {type(text).__name__}."
+                )
+            ids = self._tokenizer.encode(text)
+            mask = [1.0 if i != self._tokenizer.pad else 0.0 for i in ids]
+            if not any(mask):
+                raise MatrixAIModelError(
+                    f"Field {self.sequence_name!r}: text produced an empty (all-padding) sequence."
+                )
+            if self.spec.get("pool_kind") == "cls" and mask[0] != 1.0:
+                raise MatrixAIModelError("POOL cls requires mask[0] = 1 (a real token).")
+            return ids, mask, meta
+
+        # Legacy path (TRANSFORMER_BLOQUE C5): pre-tokenized ids.
         if isinstance(record, list):
             raw_ids = record
             raw_mask = None

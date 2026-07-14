@@ -41,6 +41,7 @@ def build_inference_spec(
     field_ranges: dict[str, tuple[float, float]] | None = None,
     field_categories: dict[str, list[str]] | None = None,
     field_types: dict[str, str] | None = None,
+    field_seq: dict[str, dict[str, Any]] | None = None,
     labels: list[str] | None = None,
     example_input: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -54,14 +55,22 @@ def build_inference_spec(
     ``example_input`` (a raw record), if given, is validated against the resolved
     fields so a malformed example fails at export time rather than for the consumer.
     """
-    # TRANSFORMER C5: entrada SEQUENCE (token ids). El contrato B elevará esta
-    # spec a texto crudo con el tokenizador embebido; en C5 el consumidor pasa
-    # la lista [L] de enteros directamente.
+    # SECUENCIAS_PRODUCTO C5: entrada SEQUENCE. Con `field_seq` (metadata del
+    # tokenizador, misma procedencia que field_ranges/types/categories —
+    # invariante 4: resuelta por el generador, nunca por el consumidor) la
+    # spec eleva la entrada a texto crudo con el ByteTokenizer EMBEBIDO
+    # (invariante 1: "texto crudo de punta a punta" también en el bundle
+    # exportado). Sin `field_seq` (SEQUENCE genérica del contrato A, sin
+    # provenance de campo Text) se mantiene "token_ids" — el consumidor sigue
+    # pasando la lista [L] de enteros, retrocompatible con TRANSFORMER_BLOQUE
+    # C5. La señal es EXPLÍCITA (nunca se infiere de vocab_size==259: sería
+    # el mismo error de clasificación por coincidencia que ya se corrigió en
+    # la auditoría C3 [MEDIA] para el routing de dataset).
     sequences = list(getattr(program, "sequences", []) or [])
     if sequences:
         return _build_sequence_inference_spec(
             program, parameter_set, export_result,
-            labels=labels, example_input=example_input,
+            labels=labels, example_input=example_input, field_seq=field_seq,
         )
     _guard_single_vector(program)
     vector = program.vectors[0]
@@ -256,6 +265,11 @@ def build_example_input(spec: dict[str, Any]) -> dict[str, Any]:
     for name, entry in spec.get("input", {}).items():
         if entry.get("encoding") == "token_ids":
             example[name] = [0] * int(entry["length"])
+        elif entry.get("encoding") == "text":
+            # SECUENCIAS_PRODUCTO C5: placeholder de texto real, no una lista
+            # de ids — invariante 1, el ejemplo empaquetado también es texto
+            # crudo de punta a punta.
+            example[name] = "texto de ejemplo"
     for field, entry in spec.get("fields", {}).items():
         enc = entry["encoding"]
         if enc == "scalar":
@@ -278,14 +292,22 @@ def _build_sequence_inference_spec(
     *,
     labels: list[str] | None = None,
     example_input: dict[str, Any] | None = None,
+    field_seq: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """TRANSFORMER C5 — spec de inferencia para entrada SEQUENCE.
+    """TRANSFORMER C5 / SECUENCIAS_PRODUCTO C5 — spec de inferencia para
+    entrada SEQUENCE.
 
-    input: {"encoding": "token_ids", "length": L, "vocab_size": V} (literal del
-    contrato 51 §C5). El grafo ONNX expone ademas una segunda entrada
-    `<sequence>_mask` (1.0 real / 0.0 padding); mask_input la documenta y el
-    consumidor puede pasar todo-unos si no hay padding. POOL cls exige que la
-    posicion 0 sea real (invariante 1c) — anotado en la spec.
+    Sin `field_seq`: input {"encoding": "token_ids", "length": L,
+    "vocab_size": V} (literal del contrato 51 §C5, retrocompatible — el
+    consumidor pasa la lista [L] de ids directamente). Con `field_seq`
+    (metadata del tokenizador — invariante 4, misma procedencia que
+    field_ranges/types/categories): input {"encoding": "text", "length": L,
+    "tokenizer": {config byte_v1}} — el consumidor pasa texto crudo,
+    predict.py tokeniza con el ByteTokenizer EMBEBIDO (invariante 1). El
+    grafo ONNX expone ademas una segunda entrada `<sequence>_mask` (1.0 real
+    / 0.0 padding) en AMBOS casos; mask_input la documenta. POOL cls exige
+    que la posicion 0 sea real (invariante 1c) — anotado en la spec, y el
+    tokenizador embebido reserva esa posicion para CLS cuando aplica.
     """
     if len(program.sequences) > 1:
         raise InferenceSpecError(
@@ -300,23 +322,50 @@ def _build_sequence_inference_spec(
             "inference path (TRANSFORMER_BLOQUE covers only the transformer)."
         )
 
-    if example_input is not None:
-        value = example_input.get(seq.name)
-        if not isinstance(value, list) or len(value) != seq.length:
-            raise InferenceSpecError(
-                f"example_input[{seq.name!r}] must be a list of {seq.length} token ids"
-            )
-        bad = [v for v in value if not isinstance(v, int) or v < 0 or v >= seq.vocab_size]
-        if bad:
-            raise InferenceSpecError(
-                f"example_input[{seq.name!r}] contains ids outside [0, {seq.vocab_size}): {bad[:3]}"
-            )
-
     pool_kinds = [
         layer.pool_kind for layer in getattr(net, "top_layers", [])
         if layer.layer_type == "Pool"
     ]
     pool_kind = pool_kinds[0] if pool_kinds else None
+
+    # SECUENCIAS_PRODUCTO C5: invariante 3 (un solo campo Text) — se toma la
+    # ÚNICA entrada de `field_seq`, sin exigir que su clave coincida con
+    # `seq.name` (la misma desconexión de nombres — SEQUENCE title-cased vs
+    # campo del prompt — ya resuelta en C4 para la inferencia del Studio).
+    # Invariante 6 (metadata debe describir ESTE modelo): la longitud
+    # declarada debe coincidir con la de la SEQUENCE, o el tokenizador
+    # embebido tokenizaría a una forma distinta de la que el modelo espera.
+    tokenizer_cfg: dict[str, Any] | None = None
+    if field_seq:
+        seq_meta = next(iter(field_seq.values()))
+        declared_length = seq_meta.get("length")
+        if declared_length != seq.length:
+            raise InferenceSpecError(
+                f"field_seq declares length {declared_length!r} but SEQUENCE "
+                f"{seq.name!r} has length {seq.length}. Tokenizer metadata "
+                "does not describe this model."
+            )
+        from matrixai.text.tokenizer import ByteTokenizer
+        tokenizer_cfg = ByteTokenizer(seq.length).config()
+        tokenizer_cfg["add_cls"] = pool_kind == "cls"
+
+    if example_input is not None:
+        value = example_input.get(seq.name)
+        if tokenizer_cfg is not None:
+            if not isinstance(value, str) or not value:
+                raise InferenceSpecError(
+                    f"example_input[{seq.name!r}] must be a non-empty string (raw text)"
+                )
+        else:
+            if not isinstance(value, list) or len(value) != seq.length:
+                raise InferenceSpecError(
+                    f"example_input[{seq.name!r}] must be a list of {seq.length} token ids"
+                )
+            bad = [v for v in value if not isinstance(v, int) or v < 0 or v >= seq.vocab_size]
+            if bad:
+                raise InferenceSpecError(
+                    f"example_input[{seq.name!r}] contains ids outside [0, {seq.vocab_size}): {bad[:3]}"
+                )
 
     # TRANSFORMER C6: metadata de auditoría del bloque (§"C6 — Auditoría del
     # bloque"), misma fuente única que el ONNX embebido y el model_manifest.
@@ -333,6 +382,19 @@ def _build_sequence_inference_spec(
             "inference_spec.json"
         )
 
+    if tokenizer_cfg is not None:
+        input_entry: dict[str, Any] = {
+            "encoding": "text",
+            "length": seq.length,
+            "tokenizer": tokenizer_cfg,
+        }
+    else:
+        input_entry = {
+            "encoding": "token_ids",
+            "length": seq.length,
+            "vocab_size": seq.vocab_size,
+        }
+
     spec: dict[str, Any] = {
         "spec_version": SPEC_VERSION,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -342,13 +404,7 @@ def _build_sequence_inference_spec(
         "parameter_set_id": parameter_set.parameter_set_id,
         "onnx_opset": export_result.opset_version,
         "onnx_file": "model.onnx",
-        "input": {
-            seq.name: {
-                "encoding": "token_ids",
-                "length": seq.length,
-                "vocab_size": seq.vocab_size,
-            }
-        },
+        "input": {seq.name: input_entry},
         "input_order": [seq.name],
         # Keep the common envelope consumed by predict.py.  ``onnx_input`` is
         # retained as the explicit sequence alias for backwards compatibility
