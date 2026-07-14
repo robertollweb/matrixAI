@@ -115,19 +115,19 @@ class TransformerNetworkGenerator:
         parsed = parse_field_specs(prompt)
         text_fields = [f for f in parsed.fields if f.kind == "text"]
         tabular_fields = [f for f in parsed.fields if f.kind != "text"]
-        # Auditoría C2 [MEDIA]: una re-declaración contradictoria del mismo
-        # campo ("resenas: Scalar" ... "resenas: Text" en otra línea) hacía que
-        # el resultado dependiera de qué línea aparece PRIMERO — con Scalar
-        # ganando, ni siquiera se sabía que el prompt pedía un campo Text
-        # (mensaje genérico "no Text field"). parse_field_specs ya detecta el
-        # conflicto en `warnings`; aquí se usa para dar un error específico
-        # en vez de una ausencia sin explicar.
-        _text_conflicts = [w for w in parsed.warnings if "'text'" in w and "declarado como" in w]
+        # Structured conflicts include duplicate Text declarations with a
+        # different length, not only a different kind. This also lets the
+        # Scalar-first order retain enough information to route here and fail
+        # explicitly instead of degrading to dense/PromptSupervisor.
+        _text_conflicts = [
+            conflict for conflict in parsed.conflicts
+            if conflict.first.kind == "text" or conflict.duplicate.kind == "text"
+        ]
         if not text_fields:
             if _text_conflicts:
                 raise TransformerNetworkGeneratorError(
                     "El prompt declara un campo como Text, pero una segunda "
-                    f"declaración lo contradice y gana: {_text_conflicts[0]} — "
+                    f"declaración lo contradice: {_text_conflicts[0].warning()} — "
                     "declara ese campo como Text una sola vez."
                 )
             raise TransformerNetworkGeneratorError(
@@ -161,7 +161,7 @@ class TransformerNetworkGenerator:
             " ".join(line.split()) for line in strip_field_specs(prompt).split("\n")
         )
         bare_names = [
-            n for n in (_dg._extract_fields(bare_clean) or [])
+            n for n in (_dg._extract_fields(bare_clean, min_count=1) or [])
             if n != text_field.name
         ]
         if bare_names:
@@ -179,7 +179,7 @@ class TransformerNetworkGenerator:
         if _text_conflicts:
             raise TransformerNetworkGeneratorError(
                 f"El campo Text {text_field.name!r} tiene declaraciones "
-                f"contradictorias en el prompt: {_text_conflicts[0]} — declara "
+                f"contradictorias en el prompt: {_text_conflicts[0].warning()} — declara "
                 f"{text_field.name!r} como Text una sola vez."
             )
 
@@ -247,10 +247,12 @@ class TransformerNetworkGenerator:
         epochs = extract_epochs_from_prompt(clean)
         early_stop = extract_early_stop_from_prompt(clean)
         training_text = _build_transformer_training_text(
-            resolved_name, resolved_seq_name, length, out_name,
+            resolved_name, resolved_seq_name, text_field.name, out_name,
             dataset_target_type, loss_type, epochs, early_stop,
         )
-        dataset_template_text = _build_dataset_template(resolved_seq_name, length, out_name, resolved_labels, task)
+        dataset_template_text = _build_dataset_template(
+            text_field.name, out_name, resolved_labels, task,
+        )
 
         field_types = {text_field.name: "text"}
         field_seq = {text_field.name: {"length": length, "tokenizer": "byte_v1"}}
@@ -261,9 +263,8 @@ class TransformerNetworkGenerator:
             f"vocab_size={vocab_size})",
             f"transformer: layers={layers}, heads={heads}, dim={dim}",
             f"loss={loss_type}, output_activation={output_activation}",
-            "training_text usa columnas t0..t{L-1} pre-tokenizadas (convención del "
-            "contrato A/C4) — el dataset con texto crudo + tokenización en el "
-            "boundary de train llega en el corte C3.",
+            f"training_text usa una columna de texto crudo ({text_field.name!r}) "
+            "— el backend tokeniza en el boundary de train (SECUENCIAS_PRODUCTO C3).",
         ]
 
         return TransformerNetworkGenerationResult(
@@ -341,14 +342,20 @@ def _build_transformer_mxai(
 def _build_transformer_training_text(
     network_name: str,
     seq_name: str,
-    length: int,
+    field_name: str,
     output_name: str,
     dataset_target_type: str,
     loss_type: str,
     epochs: int,
     early_stop: tuple[int, str] | None,
 ) -> str:
-    columns = "[" + ", ".join(f"t{i}" for i in range(length)) + "]"
+    # SECUENCIAS_PRODUCTO C3: UNA columna con el texto CRUDO — el backend
+    # tokeniza en el boundary de train (invariante 1: nunca se piden ids al
+    # usuario). El nombre de columna es el propio campo Text del prompt
+    # (p.ej. "resenas"), no t0..t{L-1} (formato legacy pre-tokenizado del
+    # contrato A, que `_resolve_transformer_dataset` sigue aceptando para
+    # .mxtrain ya existentes, pero que este generador ya no emite).
+    columns = f"[{field_name}]"
     loss_name = f"{network_name}Loss"
     optimizer_name = f"{network_name}Optimizer"
     lines = [
@@ -387,10 +394,11 @@ def _build_transformer_training_text(
 
 
 def _build_dataset_template(
-    seq_name: str, length: int, output_name: str, labels: list[str], task: str,
+    field_name: str, output_name: str, labels: list[str], task: str,
 ) -> str:
-    columns = [f"t{i}" for i in range(length)]
+    """CSV de ejemplo descargable — UNA columna de texto crudo (placeholder
+    claramente marcado como tal, no un texto real) + el target."""
     dummy_target = labels[0] if task == "multiclass" else "0.0"
-    header = ",".join(columns + [output_name])
-    dummy_row = ",".join(["0"] * length + [dummy_target])
+    header = ",".join([field_name, output_name])
+    dummy_row = ",".join(["texto de ejemplo — sustituye por el tuyo", dummy_target])
     return f"{header}\n{dummy_row}\n"

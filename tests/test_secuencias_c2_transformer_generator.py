@@ -315,10 +315,18 @@ class TestGeneratorTrainingArtifacts:
         gen = TransformerNetworkGenerator().generate("resenas: Text\nOUTPUT clase: ProbabilityMap[NEG, POS]")
         assert "TYPE adam" in gen.training_text
 
-    def test_dataset_template_column_count_matches_length(self):
+    def test_dataset_template_has_one_raw_text_column(self):
+        """SECUENCIAS_PRODUCTO C3: UNA columna de texto crudo (nombrada como
+        el propio campo Text) + el target — nunca t0..t{L-1} (`length` solo
+        afecta la tokenización en train, no la forma del CSV)."""
         gen = TransformerNetworkGenerator().generate("resenas: Text[8]\nOUTPUT clase: ProbabilityMap[NEG, POS]")
-        header = gen.dataset_template_text.splitlines()[0]
-        assert len(header.split(",")) == 8 + 1  # t0..t7 + output
+        header = gen.dataset_template_text.splitlines()[0].split(",")
+        assert header == ["resenas", "predicted_class"]
+
+    def test_training_text_has_one_raw_text_column(self):
+        gen = TransformerNetworkGenerator().generate("resenas: Text[8]\nOUTPUT clase: ProbabilityMap[NEG, POS]")
+        assert "FROM COLUMNS [resenas]" in gen.training_text
+        assert "t0" not in gen.training_text
 
 
 # ---------------------------------------------------------------------------

@@ -579,6 +579,16 @@ def _generate_synthetic_dataset(
         program = parse_text(mxai_text)
         training = parse_training_text(training_text)
 
+        # SECUENCIAS_PRODUCTO C3: un programa con SEQUENCE (campo Text del
+        # prompt, C2) no tiene VECTOR — SyntheticDataGenerator busca
+        # `program.vectors` exclusivamente y revienta con "Vector not found".
+        # Rama completamente aparte: genera texto crudo, nunca ids.
+        if program.sequences:
+            return _generate_synthetic_text_dataset(
+                program, training, rows, seed, mode, use_llm,
+                rows_capped_warning,
+            )
+
         # GEN C6: a model whose categoricals were expanded AT GENERATION TIME
         # (C2: prompt-declared one-hot) arrives with the expanded columns already
         # in the VECTOR and field_categories as metadata — expand_categoricals is
@@ -813,6 +823,94 @@ def _generate_synthetic_dataset(
         return {"ok": False, "error": str(exc)}
 
 
+def _generate_synthetic_text_dataset(
+    program: Any,
+    training: Any,
+    rows: int,
+    seed: int,
+    mode: str,
+    use_llm: bool,
+    rows_capped_warning: str,
+) -> dict[str, Any]:
+    """SECUENCIAS_PRODUCTO C3 — dataset sintético para un modelo Text
+    (SEQUENCE + BLOCK TRANSFORMER, C2). CSV con la COLUMNA DE TEXTO CRUDO
+    (nunca ids — invariante 1); 3 orígenes de etiqueta (decisión 5):
+    `synthetic_random` / `synthetic_template` / `synthetic_llm_examples`,
+    con fallback determinista si el LLM falla o no valida."""
+    import hashlib
+    from matrixai.training.dense_trainer import _labels_from_spec
+    from matrixai.training.synthetic_text import generate_text_examples
+
+    columns = list(training.dataset.input.columns)
+    if len(columns) != 1:
+        return {
+            "ok": False,
+            "error": "Dataset sintético de texto requiere exactamente una "
+                     f"columna de entrada (DATASET INPUT), declaradas {len(columns)}.",
+        }
+    field_name = columns[0]
+    seq = next((s for s in program.sequences if s.name == training.dataset.input.vector), None)
+    if seq is None:
+        return {"ok": False, "error": f"SEQUENCE {training.dataset.input.vector!r} no encontrada"}
+
+    labels = _labels_from_spec(training)
+    if not labels:
+        return {
+            "ok": False,
+            "error": "Dataset sintético de texto requiere un target de "
+                     "clasificación (ProbabilityMap/Label) — regresión sobre "
+                     "texto queda fuera de alcance de la generación sintética.",
+        }
+    target_name = training.dataset.target.name
+
+    try:
+        # `mode` ya llega normalizado a "random"/"coherent" (el caller lo
+        # fuerza antes de esta rama).
+        text_rows, label_origin = generate_text_examples(
+            mode, program.project, rows, labels, seed, use_llm=use_llm,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([field_name, target_name])
+    for text, label in text_rows:
+        writer.writerow([text, label])
+    csv_text = buf.getvalue()
+
+    if _limits.exceeds(len(csv_text.encode()), "max_csv_bytes"):
+        _lim = _limits.get_limit("max_csv_bytes")
+        return {"ok": False, "error": f"Dataset sintetico supera el límite de {_lim // 1000} KB"}
+
+    fingerprint = "data_" + hashlib.sha256(csv_text.encode()).hexdigest()[:16]
+    result: dict[str, Any] = {
+        "ok": True,
+        "csv_text": csv_text,
+        "rows": len(text_rows),
+        "seed": seed,
+        "mode": mode,
+        "fingerprint": fingerprint,
+        "columns": [field_name, target_name],
+        "labels": labels,
+        "origin": "synthetic",
+        "label_origin": label_origin,
+        # SECUENCIAS_PRODUCTO invariante 3: metadata canónica del campo Text
+        # — nunca se pierde en train/save/export.
+        "field_types": {field_name: "text"},
+        "field_seq": {field_name: {"length": seq.length, "tokenizer": "byte_v1"}},
+    }
+    if rows_capped_warning:
+        result["rows_capped_warning"] = rows_capped_warning
+    if label_origin == "synthetic_random":
+        result["signal_warning"] = (
+            "Datos sintéticos aleatorios: la salida no depende de la entrada, "
+            "así que el modelo no puede aprender nada (colapsará al predictor "
+            "constante). Para señal real, activa el LLM o sube datos reales."
+        )
+    return result
+
+
 def _suggest_field_ranges(mxai_text: str, training_text: str) -> dict[str, Any]:
     """M6 — input columns + LLM-suggested domain ranges for the range editor.
 
@@ -872,17 +970,27 @@ def _csv_template(mxai_text: str, training_text: str) -> dict[str, Any]:
         from matrixai.training.parser import parse_training_text
         from matrixai.training.dense_trainer import _labels_from_spec
 
-        parse_text(mxai_text)
+        program = parse_text(mxai_text)
         training = parse_training_text(training_text)
         input_columns, target_column = _expected_csv_columns(training)
         labels = _labels_from_spec(training)
         columns = input_columns + [target_column]
 
-        # 2 filas de ejemplo: inputs en 0.5 (mitad de [0,1]); target = primera clase, o
-        # 0.0 si es regresión. Solo ilustra el FORMATO y los nombres de columna.
-        example_target = labels[0] if labels else "0.0"
-        example_row = ",".join(["0.5"] * len(input_columns) + [str(example_target)])
-        template_csv = ",".join(columns) + "\n" + example_row + "\n" + example_row + "\n"
+        # SECUENCIAS_PRODUCTO C3: para un modelo Text la columna de entrada es
+        # texto CRUDO — "0.5" ahí sería basura (una reseña no es un número).
+        # Fila de ejemplo con texto real, claramente marcado como placeholder.
+        if program.sequences and len(input_columns) == 1:
+            example_target = labels[0] if labels else "0.0"
+            example_row = ",".join(
+                ["texto de ejemplo — sustituye por el tuyo", str(example_target)]
+            )
+            template_csv = ",".join(columns) + "\n" + example_row + "\n" + example_row + "\n"
+        else:
+            # 2 filas de ejemplo: inputs en 0.5 (mitad de [0,1]); target = primera clase, o
+            # 0.0 si es regresión. Solo ilustra el FORMATO y los nombres de columna.
+            example_target = labels[0] if labels else "0.0"
+            example_row = ",".join(["0.5"] * len(input_columns) + [str(example_target)])
+            template_csv = ",".join(columns) + "\n" + example_row + "\n" + example_row + "\n"
 
         return {
             "ok": True,
@@ -903,6 +1011,51 @@ def _csv_template(mxai_text: str, training_text: str) -> dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
+def _validate_text_column(csv_text: str, text_column: str, seq_length: int) -> tuple[list[str], list[str]]:
+    """SECUENCIAS_PRODUCTO C3 — validación de la columna de texto crudo de un
+    CSV subido: filas vacías (error — sin texto no hay ejemplo), caracteres
+    de reemplazo (aviso de codificación probablemente incorrecta) y filas que
+    excederán `Text[L]` (aviso — el tokenizador ya trunca de forma
+    determinista al entrenar, no es fatal)."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    empty_rows: list[int] = []
+    replacement_rows: list[int] = []
+    truncated_rows: list[int] = []
+    reader = csv.DictReader(io.StringIO(csv_text))
+    for row_offset, row in enumerate(reader, start=2):
+        text = row.get(text_column) or ""
+        if not text.strip():
+            empty_rows.append(row_offset)
+            continue
+        if "�" in text:
+            replacement_rows.append(row_offset)
+        if len(text.encode("utf-8")) > seq_length:
+            truncated_rows.append(row_offset)
+
+    def _fmt(rows: list[int]) -> str:
+        shown = ", ".join(str(r) for r in rows[:10])
+        more = f" (+{len(rows) - 10} más)" if len(rows) > 10 else ""
+        return shown + more
+
+    if empty_rows:
+        errors.append(
+            f"La columna {text_column!r} tiene filas vacías: {_fmt(empty_rows)}. "
+            "Cada fila necesita texto real."
+        )
+    if replacement_rows:
+        warnings.append(
+            f"La columna {text_column!r} tiene caracteres de reemplazo (U+FFFD) — "
+            f"codificación probablemente incorrecta, en las filas: {_fmt(replacement_rows)}."
+        )
+    if truncated_rows:
+        warnings.append(
+            f"{len(truncated_rows)} fila(s) superan los {seq_length} bytes declarados "
+            f"(Text[{seq_length}]) y se truncarán al entrenar: {_fmt(truncated_rows)}."
+        )
+    return errors, warnings
+
+
 def _validate_training_csv(
     mxai_text: str,
     training_text: str,
@@ -914,9 +1067,18 @@ def _validate_training_csv(
     if _limits.exceeds(len(csv_text.encode()), "max_csv_bytes"):
         _lim = _limits.get_limit("max_csv_bytes")
         return {"ok": False, "error": f"CSV supera el límite de {_lim // 1000} KB"}
+    try:
+        program = parse_text(mxai_text)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"mxai_text inválido: {exc}"}
+    # SECUENCIAS_PRODUCTO C3: para un modelo Text no hay rangos de dominio que
+    # normalizar (la columna es texto, no escalares [0,1]) — omitir aunque el
+    # caller pase field_ranges por error, en vez de dejar que
+    # _normalize_csv_with_ranges corrompa la columna de texto.
+    is_text_model = bool(program.sequences)
     # M5: domain-scale CSV must be normalized before the TrainingVerifier checks
     # values against the DSL type ranges (Scalar [0,1]).
-    if field_ranges:
+    if field_ranges and not is_text_model:
         csv_text = _normalize_csv_with_ranges(csv_text, field_ranges)
     try:
         training = parse_training_text(training_text)
@@ -977,10 +1139,28 @@ def _validate_training_csv(
             if _limits.exceeds(rows, "max_rows"):
                 return {"ok": False, "error": f"CSV tiene {rows} filas, máximo {_limits.get_limit('max_rows')}"}
             warnings_out = list(report.warnings)
+            # SECUENCIAS_PRODUCTO C3: columna presente ya lo comprueba el chequeo
+            # de cabecera de arriba; aquí longitudes/codificación — lo que el
+            # contrato pide y que TrainingVerifier no cubre (no-op para SEQUENCE).
+            field_seq: dict[str, dict[str, Any]] = {}
+            if is_text_model and len(input_columns) == 1:
+                seq = next(
+                    (s for s in program.sequences if s.name == training.dataset.input.vector),
+                    None,
+                )
+                if seq is not None:
+                    text_errors, text_warnings = _validate_text_column(
+                        csv_text, input_columns[0], seq.length,
+                    )
+                    if text_errors:
+                        return {"ok": False, "errors": text_errors, "warnings": warnings_out + text_warnings}
+                    warnings_out.extend(text_warnings)
+                    # Invariante 3: la metadata del tokenizador viaja con el eco.
+                    field_seq = {input_columns[0]: {"length": seq.length, "tokenizer": "byte_v1"}}
             # M5-C3: uploaded CSV without ranges but with domain-scale values on
             # untyped fields — the verifier cannot catch it (no declared range)
             # and training would silently consume out-of-slider-space features.
-            if not field_ranges:
+            if not field_ranges and not is_text_model:
                 scale_warning = _detect_domain_scale_csv(csv_text, training)
                 if scale_warning:
                     warnings_out.append(scale_warning)
@@ -988,9 +1168,12 @@ def _validate_training_csv(
                 warnings_out.append(
                     f"El CSV tiene columnas extra que se ignorarán: {', '.join(extra_columns)}."
                 )
-            return {"ok": True, "rows": rows, "warnings": warnings_out,
-                    "expected_columns": expected_columns,
-                    "extra_columns": extra_columns}
+            result = {"ok": True, "rows": rows, "warnings": warnings_out,
+                      "expected_columns": expected_columns,
+                      "extra_columns": extra_columns}
+            if field_seq:
+                result["field_seq"] = field_seq
+            return result
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}
 
@@ -5855,4 +6038,3 @@ _INDEX_HTML = """<!doctype html>
 </body>
 </html>
 """
-

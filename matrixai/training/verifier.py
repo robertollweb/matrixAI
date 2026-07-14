@@ -147,12 +147,16 @@ class TrainingVerifier:
             errors.append(
                 f"INPUT columns for {vector.name} must match VECTOR fields {vector.fields}, got {training.dataset.input.columns}"
             )
-        elif sequence is not None and len(training.dataset.input.columns) != sequence.length:
-            # Auditoría C4 [ALTA-2]: el DATASET puede alimentar una SEQUENCE
-            # (token-ids pre-tokenizados, una columna por posición).
+        elif sequence is not None and len(training.dataset.input.columns) not in (1, sequence.length):
+            # Auditoría C4 [ALTA-2]: el DATASET puede alimentar una SEQUENCE con
+            # token-ids pre-tokenizados (una columna por posición, formato legacy
+            # de prueba del contrato A). SECUENCIAS_PRODUCTO C3: UNA columna es
+            # la forma canónica del producto — texto crudo, tokenizado en el
+            # boundary de train (invariante 1: nunca se piden ids al usuario).
             errors.append(
-                f"INPUT columns for SEQUENCE {sequence.name} must be one per "
-                f"position ({sequence.length}), got {len(training.dataset.input.columns)}"
+                f"INPUT columns for SEQUENCE {sequence.name} must be either ONE "
+                f"raw-text column, or one per position ({sequence.length}) of "
+                f"pre-tokenized ids, got {len(training.dataset.input.columns)}"
             )
 
         prediction_function = self._prediction_function(program, training.loss.prediction)

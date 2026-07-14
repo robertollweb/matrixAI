@@ -140,6 +140,9 @@ class CSVDataAdapter(DataAdapter):
             },
         )
 
+    def _encode_row(self, row: dict[str, str]) -> list[float]:
+        return [float(row[column]) for column in self.input_columns]
+
     def _load_examples(self) -> list[SupervisedExample]:
         with self.path.open("r", encoding="utf-8", newline="") as handle:
             rows = list(csv.DictReader(handle))
@@ -155,7 +158,7 @@ class CSVDataAdapter(DataAdapter):
                     pass
             examples.append(
                 SupervisedExample(
-                    vector=[float(row[column]) for column in self.input_columns],
+                    vector=self._encode_row(row),
                     label=label_str,
                     row_index=row_offset,
                     row_hash=_row_hash(row_offset, row),
@@ -163,6 +166,38 @@ class CSVDataAdapter(DataAdapter):
                 )
             )
         return examples
+
+
+class CSVTextDataAdapter(CSVDataAdapter):
+    """SECUENCIAS_PRODUCTO C3 — como `CSVDataAdapter` pero la ÚNICA columna
+    es texto CRUDO, no floats: tokeniza cada fila en el boundary de carga
+    (invariante 1 del contrato — el CSV guarda texto, el trainer ve ids;
+    nunca se le piden ids al usuario). Solo sustituye la codificación de
+    fila (`_encode_row`); `schema()`/`fingerprint()`/`iter_batches()` se
+    heredan intactos — `SupervisedExample.vector` sigue siendo `list[float]`
+    (los ids), así que el resto del pipeline (`_examples_to_xy`, `int(v) for
+    v in x`) no cambia.
+
+    `tokenizer` es cualquier objeto con `.encode(text: str) -> list[int]`
+    (duck-typed a propósito — este módulo es genérico, no depende de
+    `matrixai.text`; el caller pasa un `ByteTokenizer`)."""
+
+    def __init__(
+        self,
+        path: str | Path,
+        input_vector: str,
+        text_column: str,
+        target: str,
+        tokenizer: Any,
+        labels: list[str] | None = None,
+    ) -> None:
+        super().__init__(path, input_vector, [text_column], target, labels)
+        self.text_column = text_column
+        self.tokenizer = tokenizer
+
+    def _encode_row(self, row: dict[str, str]) -> list[float]:
+        ids = self.tokenizer.encode(str(row[self.text_column]))
+        return [float(i) for i in ids]
 
 
 class InMemoryDataAdapter(DataAdapter):

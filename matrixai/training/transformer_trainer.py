@@ -26,7 +26,8 @@ from typing import Any, Callable
 from matrixai.parameters.network_params import build_composite_network_parameter_set
 from matrixai.parameters.store import program_hash, write_parameter_set
 from matrixai.parser import parse_file
-from matrixai.training.data import CSVDataAdapter
+from matrixai.text.tokenizer import ByteTokenizer
+from matrixai.training.data import CSVDataAdapter, CSVTextDataAdapter
 from matrixai.training.dense_trainer import _examples_to_xy, _labels_from_spec, _resolve_path
 from matrixai.training.spec import TrainingRunResult, TrainingSpec
 from matrixai.training.verifier import TrainingVerifier
@@ -73,15 +74,13 @@ def _resolve_transformer_dataset(
     if seq is None:
         raise ValueError(f"INPUT {net.input!r} is not a declared SEQUENCE")
 
-    # Columnas del DATASET INPUT = una por posición de la SEQUENCE
+    # SECUENCIAS_PRODUCTO C3: el DATASET INPUT admite dos formas — UNA
+    # columna de texto CRUDO (canónica del producto, tokenizada aquí mismo
+    # con el mismo ByteTokenizer que declara la SEQUENCE — invariante 1:
+    # nunca se piden ids al usuario) o una columna por posición con ids
+    # pre-tokenizados (formato legacy del contrato A, conservado para no
+    # romper .mxtrain/CSVs ya generados por CLI/tests).
     columns = list(training.dataset.input.columns)
-    if len(columns) != seq.length:
-        raise ValueError(
-            f"DATASET INPUT declares {len(columns)} columns but SEQUENCE "
-            f"{seq.name!r} has length {seq.length} — one column per position "
-            f"(t0..t{seq.length - 1})"
-        )
-
     loss_fn = training.loss.type if training.loss else "cross_entropy"
     labels = _labels_from_spec(training)
 
@@ -89,10 +88,25 @@ def _resolve_transformer_dataset(
     resolved_data = _resolve_path(source, base)
     if resolved_data is None:
         raise FileNotFoundError(f"Dataset not found: {source}")
-    adapter = CSVDataAdapter(
-        resolved_data, seq.name, columns,
-        training.dataset.target.name, labels if labels else None,
-    )
+
+    if len(columns) == 1 and seq.length != 1:
+        tokenizer = ByteTokenizer(seq.length)
+        adapter = CSVTextDataAdapter(
+            resolved_data, seq.name, columns[0], training.dataset.target.name,
+            tokenizer, labels if labels else None,
+        )
+    elif len(columns) == seq.length:
+        adapter = CSVDataAdapter(
+            resolved_data, seq.name, columns,
+            training.dataset.target.name, labels if labels else None,
+        )
+    else:
+        raise ValueError(
+            f"DATASET INPUT declares {len(columns)} columns but SEQUENCE "
+            f"{seq.name!r} has length {seq.length} — must be either ONE "
+            f"raw-text column, or one per position (t0..t{seq.length - 1}) "
+            "of pre-tokenized ids"
+        )
     xy = _examples_to_xy(adapter.examples(), loss_fn, labels)
     examples = [({seq.name: [int(v) for v in x]}, y) for x, y in xy]
     if not examples:
