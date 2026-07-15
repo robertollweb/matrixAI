@@ -2072,7 +2072,28 @@ def _run_playground_transformer_training(
         evaluation_report = ev.to_dict()
         is_reg = ev.is_regression()
 
-        return {
+        # SECUENCIAS_PRODUCTO — autoauditoría: M7 (`_probe_model_collapse`,
+        # más abajo) mira exclusivamente `program.vectors` y devuelve `None`
+        # para CUALQUIER modelo Text (su INPUT es una SEQUENCE) — el aviso
+        # "Modelo colapsado" de la UI nunca se disparaba para un transformer,
+        # ni cuando colapsó de verdad (mismo síntoma que accuracy ~50% / F1
+        # macro ~33% en binario). Mismo patrón que dense/GPU: se adjunta AQUÍ
+        # (torch, instantáneo) para que `_attach_collapse_check` detecte que
+        # ya está probado y no reintente por un runtime Python que ni
+        # siquiera existe para BLOCK TRANSFORMER (invariante 6).
+        _collapse = None
+        try:
+            seq = next((s for s in program.sequences if s.name == net.input), None)
+            if seq is not None:
+                from matrixai.training.composite_torch_trainer import probe_collapse_transformer_torch
+                _collapse = probe_collapse_transformer_torch(
+                    net, type_result, seq.length, seq.vocab_size,
+                    device=device, parameter_set=best_ps, state_dict=best_state,
+                )
+        except Exception:  # noqa: BLE001
+            _collapse = None
+
+        result: dict[str, Any] = {
             "ok": True,
             "task_kind": "regression" if is_reg else "classification",
             "run_id": uuid.uuid4().hex[:8],
@@ -2114,6 +2135,18 @@ def _run_playground_transformer_training(
             "evaluation_report": evaluation_report,
             "network_kind": "composite_network",
         }
+        if _collapse is not None:
+            result["model_collapsed"] = bool(_collapse["collapsed"])
+            if _collapse["collapsed"]:
+                result["collapse_constant_output"] = _collapse.get("constant_output")
+                result["collapse_warning"] = (
+                    "El modelo entrenado produce la misma salida para cualquier "
+                    "entrada (predictor constante). Con texto real esto suele "
+                    "deberse a pocos ejemplos únicos, pocas épocas, o un dataset "
+                    "sintético sin señal real: sube las épocas, pide más capas "
+                    "en el prompt, o revisa la diversidad real del dataset."
+                )
+        return result
     except _TrainingCancelled:
         raise
     except Exception as exc:  # noqa: BLE001

@@ -429,3 +429,85 @@ def evaluate_composite_network_torch(
                 _torch.cuda.empty_cache()
             except Exception:  # noqa: BLE001
                 pass
+
+
+def probe_collapse_transformer_torch(
+    network: Any,
+    type_result: Any,
+    seq_length: int,
+    vocab_size: int,
+    *,
+    device: str = "cpu",
+    tol: float = 1e-4,
+    parameter_set: ParameterSet | None = None,
+    state_dict: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """M7 para BLOCK TRANSFORMER — mismo probe de colapso (predictor constante)
+    que `probe_collapse_torch` (dense), adaptado a una entrada SEQUENCE: 4
+    secuencias de ids sintéticas (ceros, máximo, 2 aleatorias sembradas) en
+    vez de 4 vectores de floats — el resto del contrato es idéntico (4
+    forwards en un batch, instantáneo, `collapsed=True` si la salida no
+    varía con la entrada).
+
+    Autoauditoría C4/C5 — SECUENCIAS_PRODUCTO: `_probe_model_collapse`
+    (`playground.py`, M7 original) mira exclusivamente `program.vectors`,
+    así que devuelve `None` para CUALQUIER modelo Text (su INPUT es una
+    SEQUENCE, nunca tiene VECTOR) — el aviso "Modelo colapsado" de la UI
+    (con el botón "Reintentar con otra inicialización", M8-A3) nunca se
+    disparaba para un transformer, ni siquiera cuando el modelo colapsó de
+    verdad a un predictor constante (mismo síntoma que un accuracy ~50% /
+    F1 macro ~33% en clasificación binaria — la firma matemática de "predice
+    SIEMPRE la misma clase"). Mismo patrón que `probe_collapse_torch`: se
+    adjunta al resultado del entrenamiento (torch, instantáneo) en vez de
+    reintentar por un runtime Python que ni siquiera existe para BLOCK
+    TRANSFORMER (invariante 6 del contrato A).
+
+    Best-effort: `None` si torch no está disponible o si no hay pesos
+    (ni `parameter_set` ni `state_dict`) que probar."""
+    if not torch_available() or seq_length <= 0 or vocab_size <= 1:
+        return None
+    if parameter_set is None and state_dict is None:
+        return None
+    import torch  # noqa: PLC0415
+    import random  # noqa: PLC0415
+    from matrixai.forward.transformer_torch import (
+        transformer_network_to_torch_module,
+        transformer_network_to_torch_module_from_state,
+        transformer_torch_forward_batch,
+    )
+
+    rng = random.Random(7)
+    rows = [
+        [0] * seq_length,
+        [vocab_size - 1] * seq_length,
+        [rng.randrange(vocab_size) for _ in range(seq_length)],
+        [rng.randrange(vocab_size) for _ in range(seq_length)],
+    ]
+    try:
+        module = (
+            transformer_network_to_torch_module_from_state(network, type_result, state_dict)
+            if state_dict is not None
+            else transformer_network_to_torch_module(network, type_result, parameter_set)
+        )
+        module.to(device)
+        outputs = transformer_torch_forward_batch(module, rows)
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        try:
+            del module
+        except Exception:  # noqa: BLE001
+            pass
+
+    first = outputs[0]
+    if any(len(o) != len(first) for o in outputs[1:]):
+        return None
+    collapsed = all(
+        abs(value - first[i]) <= tol
+        for probe_out in outputs[1:]
+        for i, value in enumerate(probe_out)
+    )
+    result: dict[str, Any] = {"collapsed": collapsed}
+    if collapsed:
+        result["constant_output"] = [round(v, 6) for v in first]
+    return result
