@@ -145,7 +145,7 @@ class CSVDataAdapter(DataAdapter):
         return [float(row[column]) for column in self.input_columns]
 
     def _load_examples(self) -> list[SupervisedExample]:
-        with self.path.open("r", encoding="utf-8", newline="") as handle:
+        with self.path.open("r", encoding="utf-8-sig", newline="") as handle:
             rows = list(csv.DictReader(handle))
         is_regression = not self.labels
         examples: list[SupervisedExample] = []
@@ -364,8 +364,13 @@ def normalize_csv_delimiter(csv_text: str) -> str:
     header_line = csv_text.splitlines()[0]
     if "," in header_line or ";" not in header_line:
         return csv_text
-    lines = csv_text.splitlines()
-    reader = csv.reader(lines, delimiter=";")
+    # Auditoría de las sugerencias (H-B): la reescritura lee de un StringIO,
+    # NUNCA de `splitlines()` — partir en líneas ANTES de parsear rompe los
+    # campos entrecomillados que contienen saltos de línea, y `csv.reader`
+    # los re-unía SIN el salto ("linea1\nlinea2" → "linea1linea2": corrupción
+    # silenciosa de datos). Con el stream intacto, el valor multilínea
+    # sobrevive el round-trip entero (re-entrecomillado en la salida).
+    reader = csv.reader(io.StringIO(csv_text), delimiter=";")
     out = io.StringIO()
     writer = csv.writer(out, delimiter=",", lineterminator="\n")
     writer.writerows(reader)

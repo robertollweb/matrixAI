@@ -345,7 +345,7 @@ class SupervisedPromptRunner:
         if not row_indices:
             shutil.copyfile(source_path, destination)
             return
-        with source_path.open("r", encoding="utf-8", newline="") as source_handle:
+        with source_path.open("r", encoding="utf-8-sig", newline="") as source_handle:
             reader = csv.DictReader(source_handle)
             fieldnames = reader.fieldnames or []
             rows_by_index = {row_index: row for row_index, row in enumerate(reader, start=2)}

@@ -499,7 +499,7 @@ def _csv_partition(path: Path, row_indices: list[int]) -> dict[str, Any]:
 
 
 def _csv_row_metadata(path: Path) -> list[dict[str, Any]]:
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
     return [
         {

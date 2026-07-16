@@ -334,7 +334,7 @@ class TrainingVerifier:
             else None
         )
         try:
-            with dataset_path.open("r", encoding="utf-8", newline="") as handle:
+            with dataset_path.open("r", encoding="utf-8-sig", newline="") as handle:
                 rows = list(csv.DictReader(handle))
         except OSError as exc:
             return [f"DATASET cannot be read: {exc}"]

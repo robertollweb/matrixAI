@@ -71,7 +71,7 @@ def composite_examples_from_csv(
     emb_vocab: dict[str, int] = embedding_specs or {}
 
     examples: list[tuple[dict[str, Any], list[float]]] = []
-    with Path(path).open("r", encoding="utf-8", newline="") as fh:
+    with Path(path).open("r", encoding="utf-8-sig", newline="") as fh:
         for row_num, row in enumerate(csv.DictReader(fh), start=2):
             input_dict: dict[str, Any] = {}
             for col in input_columns:

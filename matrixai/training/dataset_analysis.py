@@ -110,6 +110,17 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
     if not csv_text or not csv_text.strip():
         raise DatasetAnalysisError("El CSV está vacío.")
 
+    # Auditoría de las sugerencias: el límite de tamaño se comprueba sobre el
+    # texto CRUDO, antes de pagar la reescritura O(n) de la normalización —
+    # un payload gigante debe rechazarse ANTES de costar CPU/memoria (mismo
+    # orden que `_normalize_external_csv` en playground.py).
+    size = len(csv_text.encode("utf-8"))
+    if _limits.exceeds(size, "max_csv_bytes"):
+        limit = _limits.get_limit("max_csv_bytes")
+        raise DatasetAnalysisError(
+            f"El CSV supera el límite de tamaño ({limit // 1_000_000} MB)."
+        )
+
     # Autoauditoría C1 (sugerencias implementadas): BOM UTF-8 de Excel y
     # delimitador ';' (Excel europeo) — mismo helper compartido que usan
     # `_validate_training_csv`/`_run_playground_training`/
@@ -118,13 +129,6 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
     # `normalize_csv_text`).
     from matrixai.training.data import normalize_csv_text
     csv_text = normalize_csv_text(csv_text)
-
-    size = len(csv_text.encode("utf-8"))
-    if _limits.exceeds(size, "max_csv_bytes"):
-        limit = _limits.get_limit("max_csv_bytes")
-        raise DatasetAnalysisError(
-            f"El CSV supera el límite de tamaño ({limit // 1_000_000} MB)."
-        )
 
     try:
         reader = csv.DictReader(io.StringIO(csv_text))

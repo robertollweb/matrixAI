@@ -143,3 +143,87 @@ class TestExistingUploadFlowAcceptsRealWorldCsv:
         )
         r = _run_playground_training(gen.mxai_text, gen.training_text, csv_semi, epochs_override=1)
         assert r.get("ok"), r.get("error")
+
+
+# ---------------------------------------------------------------------------
+# Auditoría de las sugerencias — 3 hallazgos, cada uno con su regresión
+# ---------------------------------------------------------------------------
+
+class TestAuditOfSuggestions:
+    def test_multiline_quoted_value_survives_delimiter_rewrite(self):
+        """[H-B, MEDIA] la versión inicial partía en líneas ANTES de parsear
+        — un campo entrecomillado con salto de línea se corrompía EN SILENCIO
+        ("linea1\\nlinea2" → "linea1linea2", salto perdido y celdas
+        fusionadas). Con StringIO el valor sobrevive el round-trip entero."""
+        import csv
+        import io
+        out = normalize_csv_delimiter('a;b\n"linea1\nlinea2";2\n')
+        rows = list(csv.reader(io.StringIO(out)))
+        assert rows == [["a", "b"], ["linea1\nlinea2", "2"]]
+
+    def test_csv_data_adapter_reads_bom_file(self, tmp_path):
+        """[H-A, MEDIA] el camino de FICHERO (CLI `mx train`, adapters) abría
+        con encoding="utf-8" — un CSV de Excel EN DISCO seguía ensuciando la
+        primera columna ("\\ufefftemp") aunque el flujo de subida ya
+        estuviera arreglado. utf-8-sig lee igual un fichero sin BOM."""
+        from matrixai.training.data import CSVDataAdapter
+        p = tmp_path / "datos.csv"
+        p.write_bytes("temp,humedad,y\n50,60,ok\n30,40,ko\n".encode("utf-8-sig"))
+        adapter = CSVDataAdapter(p, "In", ["temp", "humedad"], "y", ["ok", "ko"])
+        examples = adapter.examples()
+        assert len(examples) == 2
+        assert examples[0].vector == [50.0, 60.0]
+
+    def test_csv_data_adapter_still_reads_plain_file(self, tmp_path):
+        from matrixai.training.data import CSVDataAdapter
+        p = tmp_path / "datos.csv"
+        p.write_text("temp,humedad,y\n50,60,ok\n", encoding="utf-8")
+        adapter = CSVDataAdapter(p, "In", ["temp", "humedad"], "y", ["ok", "ko"])
+        assert adapter.examples()[0].vector == [50.0, 60.0]
+
+    def test_training_verifier_accepts_bom_file(self, tmp_path):
+        """El TrainingVerifier (valida el dataset desde FICHERO) también
+        abre con utf-8-sig — el mismo CSV de Excel pasa la verificación."""
+        gen = _generated()
+        import re
+        model_name = re.search(r"MODEL\s+(\S+)", gen.training_text).group(1)
+        csv_name = re.search(r'csv\("([^"]+)"\)', gen.training_text).group(1)
+        (tmp_path / model_name).write_text(gen.mxai_text, encoding="utf-8")
+        rows = "temp,humedad,predicted_class\n" + "\n".join(
+            f"0.{i},0.{9 - i},{'ok' if i % 2 else 'ko'}" for i in range(6)
+        )
+        (tmp_path / csv_name).write_bytes(rows.encode("utf-8-sig"))
+        from matrixai.training.parser import parse_training_text
+        from matrixai.training.verifier import TrainingVerifier
+        training = parse_training_text(gen.training_text)
+        report = TrainingVerifier().verify(training, base_path=tmp_path)
+        assert report.ok, report.errors
+
+    def test_size_limit_checked_before_normalization_rewrite(self, monkeypatch):
+        """[orden, hosted anti-DoS] un payload sobredimensionado se rechaza
+        ANTES de pagar la reescritura O(n) — normalize_csv_text NO llega a
+        llamarse (verificado con spy), ni en validate ni en analyze."""
+        import matrixai.training.data as data_mod
+        monkeypatch.setenv("MATRIXAI_MAX_CSV_BYTES", "50")
+        called = []
+        orig = data_mod.normalize_csv_text
+        monkeypatch.setattr(
+            data_mod, "normalize_csv_text",
+            lambda t: (called.append(1), orig(t))[1],
+        )
+        big = "a;b\n" + "\n".join(f"{i};{i}" for i in range(100))
+
+        from matrixai.playground import _validate_training_csv
+        r = _validate_training_csv("PROJECT X", "MODEL X", big)
+        assert not r.get("ok")
+        assert "límite" in (r.get("error") or "")
+        assert not called
+
+        from matrixai.training.dataset_analysis import (
+            DatasetAnalysisError,
+            analyze_dataset_csv,
+        )
+        import pytest as _pytest
+        with _pytest.raises(DatasetAnalysisError, match="límite"):
+            analyze_dataset_csv(big)
+        assert not called
