@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
 import random
 from dataclasses import dataclass
@@ -314,3 +315,65 @@ def _fingerprint_payload(prefix: str, payload: Any) -> str:
 def _row_hash(row_index: int, row: dict[str, Any]) -> str:
     payload = {"row_index": row_index, "row": row}
     return _fingerprint_payload("row", payload)
+
+
+# ---------------------------------------------------------------------------
+# BIBLIOTECA_PROYECTOS_INTELIGENTES — normalización de CSV real de entrada
+# ---------------------------------------------------------------------------
+# Sugerencias de la autoauditoría de C1 (analyze_dataset_csv): un CSV REAL
+# (subido a mano, exportado de Excel) llega con variaciones que un CSV
+# generado internamente (sintético) nunca tiene. `normalize_csv_text` es el
+# punto ÚNICO por el que debe pasar cualquier `csv_text` que entra desde
+# FUERA del producto — se llama en los 3 sitios donde eso ocurre
+# (`_validate_training_csv`, `_run_playground_training`,
+# `_submit_training_job` en playground.py, y `analyze_dataset_csv` de C1) —
+# para que las tres cosas (validar, entrenar, analizar) vean SIEMPRE el
+# mismo texto normalizado, nunca tres normalizaciones distintas.
+
+def strip_csv_bom(csv_text: str) -> str:
+    """Quita el BOM UTF-8 (``\\ufeff``) que antepone Excel al exportar CSV.
+
+    Sin esto, la primera columna se llama ``"\\ufefffecha"`` y nada casa
+    aguas abajo (cabecera esperada, esquema, target) — el fallo es opaco:
+    "falta la columna fecha" con un CSV que, a simple vista, la tiene.
+    """
+    return csv_text.removeprefix("﻿")
+
+
+def normalize_csv_delimiter(csv_text: str) -> str:
+    """Si la cabecera usa ``;`` (Excel europeo) y no ``,``, reescribe a
+    coma — el resto del producto (parser de columnas, `TrainingVerifier`,
+    `analyze_dataset_csv`) exige coma.
+
+    Señal deliberadamente conservadora (cero comas Y al menos un `;` en la
+    CABECERA cruda, antes de parsear nada): un CSV de verdad delimitado por
+    comas casi nunca tiene cero comas en la cabecera con 2+ columnas, así
+    que el riesgo de falso positivo es mínimo. La reescritura usa el módulo
+    `csv` (no `str.replace`) para que un valor que YA contenga una coma
+    quede correctamente entrecomillado en la salida.
+
+    Límite documentado (NO resuelto aquí — llevaría a normalizar también el
+    separador DECIMAL, un problema distinto): un CSV europeo que además usa
+    la coma como separador decimal (``"12,5"``) sigue sin tipar numérico
+    tras esta reescritura — la celda queda entrecomillada intacta
+    (``"12,5"``) y `analyze_dataset_csv` la verá como texto. El usuario
+    puede corregir el tipo en el editor (invariante 8).
+    """
+    if not csv_text.strip():
+        return csv_text
+    header_line = csv_text.splitlines()[0]
+    if "," in header_line or ";" not in header_line:
+        return csv_text
+    lines = csv_text.splitlines()
+    reader = csv.reader(lines, delimiter=";")
+    out = io.StringIO()
+    writer = csv.writer(out, delimiter=",", lineterminator="\n")
+    writer.writerows(reader)
+    return out.getvalue()
+
+
+def normalize_csv_text(csv_text: str) -> str:
+    """BOM + delimitador — la única función que un entry point externo debe
+    llamar (orden fijo: BOM antes que delimitador, para que el heurístico de
+    la cabecera no se confunda con el BOM pegado al primer nombre)."""
+    return normalize_csv_delimiter(strip_csv_bom(csv_text))

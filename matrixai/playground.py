@@ -1098,6 +1098,13 @@ def _validate_training_csv(
 ) -> dict[str, Any]:
     if not mxai_text.strip() or not training_text.strip() or not csv_text.strip():
         return {"ok": False, "error": "mxai_text, training_text y csv_text son obligatorios"}
+    # BIBLIOTECA C1 (autoauditoría, sugerencia implementada): un CSV real
+    # (subido a mano, exportado de Excel) puede llegar con BOM UTF-8 y/o
+    # delimitador ';' — sin normalizar aquí, el chequeo de cabecera de más
+    # abajo falla con "falta la columna X" sobre un CSV que, a simple
+    # vista, SÍ la tiene. Punto de entrada único, ver `normalize_csv_text`.
+    from matrixai.training.data import normalize_csv_text
+    csv_text = normalize_csv_text(csv_text)
     if _limits.exceeds(len(csv_text.encode()), "max_csv_bytes"):
         _lim = _limits.get_limit("max_csv_bytes")
         return {"ok": False, "error": f"CSV supera el límite de {_lim // 1000} KB"}
@@ -2160,6 +2167,12 @@ def _run_playground_training(
     epochs_override: int | None = None,
 ) -> dict[str, Any]:
     """Synchronous training — used by tests and /api/train endpoint."""
+    # BIBLIOTECA C1 (autoauditoría, sugerencia implementada): normalizar AQUÍ
+    # (BOM/delimitador), no solo dentro de `_validate_training_csv` — esa
+    # limpia su copia LOCAL, que nunca vuelve a este `csv_text` (los
+    # trainers de más abajo reciben el ORIGINAL si no se hace aquí también).
+    from matrixai.training.data import normalize_csv_text
+    csv_text = normalize_csv_text(csv_text)
     prediction_kind = _get_prediction_kind(mxai_text, training_text)
 
     if prediction_kind == "layer_call":
@@ -2657,6 +2670,12 @@ def _submit_training_job(
     # Enforce 1 concurrent run (contract P9 §Límites operativos)
     if any(j["status"] == "running" for j in _training_jobs.values()):
         return {"ok": False, "error": "Ya hay un entrenamiento en curso. Espera a que termine o pulsa Detener."}
+
+    # BIBLIOTECA C1 (autoauditoría, sugerencia implementada): BOM/delimitador
+    # ANTES que nada más toque `csv_text` — en particular antes de
+    # `_normalize_csv_with_ranges`, que ya parsea el CSV por columnas.
+    from matrixai.training.data import normalize_csv_text
+    csv_text = normalize_csv_text(csv_text)
 
     # M5: domain-scale CSV → normalized BEFORE validation, so the validator and
     # the three trainer paths only ever see slider-space [0,1] values.

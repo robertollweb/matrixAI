@@ -360,6 +360,49 @@ class TestAuditFindings:
         assert r["columns"]["color"]["vocabulary"] == ["azul", "rojo", "verde"]
         assert "vocabulary_truncated" not in r["columns"]["color"]
 
+    def test_leading_zero_postal_codes_not_typed_as_integer(self):
+        """[sugerencia implementada] '08001' es un código, no un entero — si
+        se normalizara a 8001 el cero significativo se pierde para siempre."""
+        rows = ["cp,poblacion"] + [f"0{8000 + i},{1000 + i}" for i in range(15)]
+        r = analyze_dataset_csv("\n".join(rows))
+        assert r["columns"]["cp"]["type"] != "integer"
+        assert r["columns"]["cp"]["type"] != "number"
+
+    def test_leading_zero_low_cardinality_becomes_categorical(self):
+        rows = ["codigo,y"] + [f"00{i % 4},{'a' if i % 2 else 'b'}" for i in range(20)]
+        r = analyze_dataset_csv("\n".join(rows))
+        assert r["columns"]["codigo"]["type"] == "categorical"
+
+    def test_plain_integers_without_leading_zero_unaffected(self):
+        r = analyze_dataset_csv("edad\n18\n25\n33\n41\n")
+        assert r["columns"]["edad"]["type"] == "integer"
+
+    def test_single_zero_and_decimals_not_confused_with_leading_zero_code(self):
+        """'0' solo y '0.5' NO deben disparar el heurístico de código."""
+        r = analyze_dataset_csv("x\n0\n1\n2\n0.5\n")
+        # con un valor decimal en la mezcla, el tipo real depende de si TODO
+        # parsea como numero -- lo que importa aqui es que NO se confunda
+        # con un codigo de ceros a la izquierda (no cae a categorica por eso)
+        assert r["columns"]["x"]["type"] in ("number", "integer")
+
+    def test_semicolon_delimited_csv_parses_columns_correctly(self):
+        """[sugerencia implementada] CSV con ';' (Excel europeo) — antes
+        salía como 1 sola columna gigante."""
+        csv_text = (
+            "fecha;temperatura;viento\n"
+            "2024-01-01;12,5;20\n2024-01-02;15,0;18\n2024-01-03;9,2;25\n"
+        )
+        r = analyze_dataset_csv(csv_text)
+        assert r["column_order"] == ["fecha", "temperatura", "viento"]
+        assert r["columns"]["fecha"]["type"] == "date"
+
+    def test_comma_delimited_csv_with_semicolon_in_a_value_untouched(self):
+        """Señal conservadora: si la cabecera YA tiene coma, no se toca el
+        delimitador aunque algún valor contenga ';'."""
+        csv_text = "nota,texto\n1,hola; mundo\n2,adios\n"
+        r = analyze_dataset_csv(csv_text)
+        assert r["column_order"] == ["nota", "texto"]
+
 
 # ---------------------------------------------------------------------------
 # Determinismo

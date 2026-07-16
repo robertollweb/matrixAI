@@ -110,12 +110,14 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
     if not csv_text or not csv_text.strip():
         raise DatasetAnalysisError("El CSV está vacío.")
 
-    # Auditoría C1: los CSV exportados por Excel llevan BOM UTF-8 — sin
-    # quitarlo, la primera columna se llama "﻿fecha" y ya nada casa
-    # (ni el esquema, ni el target, ni el mxai de C2). El flujo de subida
-    # existente tampoco lo maneja (hueco pre-existente anotado en el
-    # contrato); ESTA es la puerta de entrada de CSVs reales y lo quita.
-    csv_text = csv_text.removeprefix("\ufeff")
+    # Autoauditoría C1 (sugerencias implementadas): BOM UTF-8 de Excel y
+    # delimitador ';' (Excel europeo) — mismo helper compartido que usan
+    # `_validate_training_csv`/`_run_playground_training`/
+    # `_submit_training_job` en playground.py, para que validar/entrenar/
+    # analizar vean SIEMPRE el mismo texto normalizado (ver docstring de
+    # `normalize_csv_text`).
+    from matrixai.training.data import normalize_csv_text
+    csv_text = normalize_csv_text(csv_text)
 
     size = len(csv_text.encode("utf-8"))
     if _limits.exceeds(size, "max_csv_bytes"):
@@ -236,7 +238,21 @@ def _analyze_column(raw_values: list[str | None], rows_analyzed: int) -> dict[st
         and unique_ratio >= _IDENTIFIER_UNIQUE_RATIO
     )
 
-    numeric_kind = _numeric_kind(non_null)
+    # Autoauditoría C1 (sugerencia implementada): un código con cero(s) a la
+    # izquierda ("08001", "007") NUNCA es un valor de dominio numérico — es
+    # un código (postal, de empleado…) donde el cero es información, no
+    # relleno. `float`/`int` lo aceptarían igual (`int("007") == 7`) y
+    # normalizarlo perdería el cero para siempre. Si ALGÚN valor de la
+    # columna tiene esta forma, la columna entera se trata como no-numérica
+    # (identificador si es casi-única, si no categórica) — una columna
+    # inconsistente (algunas filas con cero, otras sin él) es señal de que
+    # el cero se perdió en algún punto de la exportación, no de que sea
+    # opcional; el usuario puede corregir el tipo en el editor
+    # (invariante 8).
+    numeric_kind = (
+        None if any(_has_significant_leading_zero(v) for v in non_null)
+        else _numeric_kind(non_null)
+    )
     # Un entero casi-todo-distinto (1,2,3,...,N — el clásico id secuencial)
     # es identificador, no un valor de dominio — pero un DECIMAL nunca lo es
     # por esta vía sola (una medida continua es normal que salga casi única
@@ -294,6 +310,14 @@ def _detect_date_format(values: list[str]) -> str | None:
 def _is_boolean_column(values: list[str]) -> bool:
     tokens = {v.strip().lower() for v in values}
     return tokens.issubset(_BOOL_TRUE | _BOOL_FALSE) and len(tokens) <= 2
+
+
+def _has_significant_leading_zero(value: str) -> bool:
+    """"08001"/"007" → True (código con cero significativo); "0"/"0.5"/"8001"
+    → False. Deliberadamente estricto (solo dígitos tras el 0 inicial, sin
+    signo ni punto decimal) para no atrapar "0.5" ni "-08" como falsos
+    positivos de una columna que SÍ es numérica de verdad."""
+    return len(value) > 1 and value[0] == "0" and value[1:].isdigit()
 
 
 def _numeric_kind(values: list[str]) -> str | None:
