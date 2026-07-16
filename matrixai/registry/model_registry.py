@@ -194,20 +194,63 @@ class ModelRegistry:
         if entry.params_content_hash and mxw_path.exists():
             from matrixai.parameters.binary_store import (
                 mxw_file_content_hash,
-                read_mxw_header,
+                validate_mxw_file,
+                MxwError,
             )
             actual_hash = "sha256:" + mxw_file_content_hash(mxw_path)
             if actual_hash != entry.params_content_hash:
                 raise VerificationError(
                     f"weights.mxw content hash mismatch for {name}@{resolved}"
                 )
-            header = read_mxw_header(mxw_path)
+            if entry.model_hash == _null_hash:
+                raise VerificationError(
+                    f"weights.mxw is custodial but model_hash is null for "
+                    f"{name}@{resolved}"
+                )
+            model_path = entry_dir / "model.mxai"
+            if not model_path.exists():
+                raise VerificationError(
+                    f"weights.mxw is custodial but model.mxai is missing for "
+                    f"{name}@{resolved}"
+                )
+            # Reauditoría C6 ronda 3 [ALTA-3]: el hash de custodia detecta
+            # cambios posteriores al push, pero un fichero que YA llegaba con
+            # body != header.content_hash quedaba registrado y verify=True.
+            try:
+                header, _body_start = validate_mxw_file(mxw_path)
+            except MxwError as exc:
+                raise VerificationError(
+                    f"weights.mxw is internally invalid for {name}@{resolved}: {exc}"
+                ) from exc
             header_schema = str(header.get("parameter_schema_hash", ""))
-            if header_schema and header_schema != entry.parameter_schema_hash:
+            header_model = str(header.get("model_hash", ""))
+            if not header_schema:
+                raise VerificationError(
+                    f"weights.mxw header has no parameter_schema_hash for {name}@{resolved}"
+                )
+            if header_schema != entry.parameter_schema_hash:
                 raise VerificationError(
                     f"weights.mxw header parameter_schema_hash "
                     f"({header_schema!r}) does not match the registry entry "
                     f"({entry.parameter_schema_hash!r}) for {name}@{resolved}"
+                )
+            if not header_model:
+                raise VerificationError(
+                    f"weights.mxw header has no model_hash for {name}@{resolved}"
+                )
+            from matrixai.parameters.store import program_hash as _program_hash
+            from matrixai.parser import parse_file as _parse_file
+            try:
+                stored_program_hash = _program_hash(_parse_file(model_path))
+            except Exception as exc:  # noqa: BLE001
+                raise VerificationError(
+                    f"stored model.mxai cannot be parsed for {name}@{resolved}: {exc}"
+                ) from exc
+            if header_model != stored_program_hash:
+                raise VerificationError(
+                    f"weights.mxw header model_hash ({header_model!r}) does not "
+                    f"match stored model.mxai ({stored_program_hash!r}) for "
+                    f"{name}@{resolved}"
                 )
 
         sig_path = self.layout.entry_file(name, resolved, "signature")
@@ -295,20 +338,50 @@ class ModelRegistry:
         # the null placeholder.
         mxw_path = run_dir / "weights.mxw"
         weights_model_hash = ""
+        modern_weights = bool(
+            (params_path is not None and params_path.name == "parameter_set.json")
+            or (params_path is None and mxw_path.exists())
+        )
         if params_path:
-            ps_raw = json.loads(params_path.read_text())
-            parameter_set_id = str(ps_raw.get("parameter_set_id", f"{name}_{version}_ps"))
-            parameter_schema_hash = str(ps_raw.get("parameter_schema_hash", "sha256:" + "0" * 64))
-            ps_metrics: dict = dict(ps_raw.get("metrics", {}))
-            params_content_hash = sha256_bytes(params_path.read_bytes())
+            try:
+                ps_raw = json.loads(params_path.read_text())
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise ModelRegistryError(
+                    f"push_run_dir: invalid {params_path.name}: {exc}"
+                ) from exc
             if params_path.name == "parameter_set.json":
-                weights_model_hash = str(ps_raw.get("model_hash", ""))
+                from matrixai.parameters.store import ParameterSet
+                try:
+                    modern_ps = ParameterSet.from_dict(ps_raw)
+                except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                    raise ModelRegistryError(
+                        f"push_run_dir: invalid parameter_set.json: {exc}"
+                    ) from exc
+                parameter_set_id = modern_ps.parameter_set_id
+                parameter_schema_hash = modern_ps.parameter_schema_hash
+                ps_metrics = dict(modern_ps.metrics)
+                weights_model_hash = modern_ps.model_hash
+            else:
+                parameter_set_id = str(
+                    ps_raw.get("parameter_set_id", f"{name}_{version}_ps")
+                )
+                parameter_schema_hash = str(
+                    ps_raw.get("parameter_schema_hash", "sha256:" + "0" * 64)
+                )
+                ps_metrics = dict(ps_raw.get("metrics", {}))
+            params_content_hash = sha256_bytes(params_path.read_bytes())
         elif mxw_path.exists():
             from matrixai.parameters.binary_store import (
                 mxw_file_content_hash,
-                read_mxw_header,
+                validate_mxw_file,
+                MxwError,
             )
-            header = read_mxw_header(mxw_path)
+            try:
+                header, _body_start = validate_mxw_file(mxw_path)
+            except MxwError as exc:
+                raise ModelRegistryError(
+                    f"push_run_dir: weights.mxw is invalid or corrupt: {exc}"
+                ) from exc
             parameter_set_id = f"{name}_{version}_ps"
             parameter_schema_hash = str(header.get("parameter_schema_hash", "sha256:" + "0" * 64))
             ps_metrics = {}
@@ -328,7 +401,29 @@ class ModelRegistry:
         # cross-check se SALTABA en silencio (el ciclo CLI real no dejaba el
         # modelo en el run dir — el trainer ahora lo copia) → ahora el .mxai
         # es OBLIGATORIO en estos caminos, no opcional.
-        if weights_model_hash:
+        # Reauditoría C6 ronda 3 [ALTA-2]: la obligatoriedad depende del TIPO
+        # de artefacto moderno, no de que el hash aportado sea truthy. Antes
+        # bastaba borrar model_hash del JSON/header para saltarse también el
+        # model.mxai y registrar una entrada que verify() aceptaba.
+        _null_hash = "sha256:" + "0" * 64
+        if modern_weights:
+            if (
+                not weights_model_hash.strip()
+                or weights_model_hash in (_null_hash, "None")
+            ):
+                raise ModelRegistryError(
+                    "push_run_dir: a modern entry (parameter_set.json / "
+                    "weights.mxw) requires a non-empty model_hash binding the "
+                    "trained weights to model.mxai"
+                )
+            if (
+                not parameter_schema_hash.strip()
+                or parameter_schema_hash in (_null_hash, "None")
+            ):
+                raise ModelRegistryError(
+                    "push_run_dir: a modern entry (parameter_set.json / "
+                    "weights.mxw) requires a non-empty parameter_schema_hash"
+                )
             if model_path is None:
                 raise ModelRegistryError(
                     "push_run_dir: a modern entry (parameter_set.json / "

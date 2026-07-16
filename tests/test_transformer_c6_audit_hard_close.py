@@ -12,7 +12,8 @@ Dos piezas:
     transformer_trainer.py) o weights.mxw (PESOS_GRANDES) — el hash del
     registro NO cubría los pesos del bloque en ninguno de los dos caminos
     reales que usa el transformer. `verify()` re-hashea weights.mxw en
-    streaming (nunca sha256 del fichero completo — invariante 6/PESOS_GRANDES).
+    streaming: hash de custodia del fichero completo + hash interno/layout del
+    cuerpo, siempre por chunks (invariante 6/PESOS_GRANDES).
 (c) Cierre duro: ciclo CLI real (subprocess) `.mxai` → `mx train` → `mx
     export-bundle` → `predict.py` importado y ejecutado → mismos resultados
     que el forward de referencia sobre los MISMOS pesos entrenados.
@@ -731,10 +732,13 @@ class TestC6AuditRound2:
             pytest.skip("onnx + onnxruntime required for the export half")
         onnx_out = subprocess.run(
             [sys.executable, "-m", "matrixai.cli", "export-onnx", str(model_path),
-             "--params", str(mxw), "--output", str(out_dir / "model.onnx")],
+             "--params", str(mxw), "--output", str(out_dir / "exported.onnx")],
             capture_output=True, text=True, timeout=180,
         )
         assert onnx_out.returncode == 0, onnx_out.stderr
+        # Ronda 3: el CLI no materializa state_dict; publica grafo + sidecar
+        # external-data construido directamente desde el .mxw.
+        assert (out_dir / "exported.onnx.data").exists()
 
         bundle = subprocess.run(
             [sys.executable, "-m", "matrixai.cli", "export-bundle", str(model_path),
@@ -745,13 +749,14 @@ class TestC6AuditRound2:
         bpayload = json.loads(bundle.stdout)
         assert bpayload["equivalence_skipped_reason"]  # registrado, no silencioso
         assert (tmp_path / "bundle" / "predict.py").exists()
+        assert (tmp_path / "bundle" / "model.onnx.data").exists()
 
         # ONNX del bundle == ONNX del export directo, bit a bit en la salida
         import numpy as np
         import onnxruntime as ort
         ids = np.array([[1, 2, 3, 4, 5, 0]], dtype=np.int64)
         mask = np.ones((1, L), dtype=np.float32)
-        a = ort.InferenceSession(str(out_dir / "model.onnx")).run(
+        a = ort.InferenceSession(str(out_dir / "exported.onnx")).run(
             None, {"Texto": ids, "Texto_mask": mask})[0]
         b = ort.InferenceSession(str(tmp_path / "bundle" / "model.onnx")).run(
             None, {"Texto": ids, "Texto_mask": mask})[0]
@@ -903,3 +908,113 @@ async function expectThrow(fn, tag) {{
                 assert "THREW:clsmask" in out
             else:
                 assert "NOTHROW:clsmask" in out  # mean no exige mask[0]
+
+
+# ---------------------------------------------------------------------------
+# Reauditoría C6 ronda 3 — streaming real + P21 fail-closed desde el origen
+# ---------------------------------------------------------------------------
+
+
+class TestC6AuditRound3:
+    @staticmethod
+    def _valid_mxw_run(tmp_path):
+        from matrixai.parameters.binary_store import write_mxw
+
+        prog, _net, _res, ps = _build()
+        run_dir = tmp_path / "run"
+        run_dir.mkdir(parents=True)
+        state = {
+            path: torch.tensor(entry["values"], dtype=torch.float32)
+            for path, entry in ps.parameters.items()
+        }
+        write_mxw(
+            run_dir / "weights.mxw", state,
+            model_hash=ps.model_hash,
+            parameter_schema_hash=ps.parameter_schema_hash,
+        )
+        (run_dir / "model.mxai").write_text(_MXAI, encoding="utf-8")
+        (run_dir / "evaluation_report.json").write_text(
+            json.dumps({"accuracy": 0.8}), encoding="utf-8",
+        )
+        return run_dir, ps
+
+    def test_cli_weight_loader_is_header_only_or_mmap(self, tmp_path, monkeypatch):
+        """Export/WASM no leen el cuerpo; evaluate usa mmap, nunca read_mxw."""
+        from matrixai import cli
+        from matrixai.parameters import binary_store
+
+        run_dir, ps = self._valid_mxw_run(tmp_path)
+        mxw = run_dir / "weights.mxw"
+
+        def forbidden(*_args, **_kwargs):
+            raise AssertionError("legacy read_mxw must not be used by the C6 CLI")
+
+        monkeypatch.setattr(binary_store, "read_mxw", forbidden)
+        parameter_set, state, header = cli._load_trained_weights(str(mxw))
+        assert parameter_set is None and state is None
+        assert header["model_hash"] == ps.model_hash
+
+        calls = 0
+        real_mmap = binary_store.read_mxw_mmap
+
+        def tracked_mmap(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return real_mmap(*args, **kwargs)
+
+        monkeypatch.setattr(binary_store, "read_mxw_mmap", tracked_mmap)
+        parameter_set, state, header = cli._load_trained_weights(
+            str(mxw), materialize_mxw=True,
+        )
+        assert parameter_set is None and calls == 1
+        assert set(state) == set(ps.parameters)
+
+    def test_registry_rejects_missing_model_binding_json_and_mxw(self, tmp_path):
+        """Omitir model_hash ya no permite eludir model.mxai/cross-check."""
+        import struct
+        from matrixai.registry.model_registry import ModelRegistry, ModelRegistryError
+        from matrixai.parameters.store import write_parameter_set
+
+        # parameter_set.json moderno sin model_hash.
+        json_dir = tmp_path / "json"; json_dir.mkdir()
+        _prog, _net, _res, ps = _build()
+        write_parameter_set(json_dir / "parameter_set.json", ps)
+        raw = json.loads((json_dir / "parameter_set.json").read_text())
+        raw.pop("model_hash")
+        (json_dir / "parameter_set.json").write_text(json.dumps(raw))
+        (json_dir / "evaluation_report.json").write_text('{"accuracy": 0.8}')
+        with pytest.raises(ModelRegistryError, match="invalid parameter_set.json"):
+            ModelRegistry(tmp_path / "reg_json").push_run_dir(
+                json_dir, "missing-json-binding", "v1",
+            )
+
+        # MXW válido en cuerpo pero con model_hash retirado de la cabecera.
+        mxw_dir, _ps = self._valid_mxw_run(tmp_path / "mxw")
+        (mxw_dir / "model.mxai").unlink()
+        path = mxw_dir / "weights.mxw"
+        data = path.read_bytes()
+        header_len = struct.unpack("<Q", data[4:12])[0]
+        header = json.loads(data[12:12 + header_len].decode("utf-8"))
+        body = data[12 + header_len:]
+        header["model_hash"] = ""
+        header_bytes = json.dumps(header).encode("utf-8")
+        path.write_bytes(b"MXW1" + struct.pack("<Q", len(header_bytes)) + header_bytes + body)
+        with pytest.raises(ModelRegistryError, match="invalid or corrupt"):
+            ModelRegistry(tmp_path / "reg_mxw").push_run_dir(
+                mxw_dir, "missing-mxw-binding", "v1",
+            )
+
+    def test_registry_rejects_mxw_corrupt_before_push(self, tmp_path):
+        """El hash interno se valida al ingresar, no solo tras la custodia."""
+        from matrixai.registry.model_registry import ModelRegistry, ModelRegistryError
+
+        run_dir, _ps = self._valid_mxw_run(tmp_path)
+        mxw = run_dir / "weights.mxw"
+        data = bytearray(mxw.read_bytes())
+        data[-1] ^= 0xFF
+        mxw.write_bytes(data)
+
+        registry = ModelRegistry(tmp_path / "registry")
+        with pytest.raises(ModelRegistryError, match="invalid or corrupt"):
+            registry.push_run_dir(run_dir, "precorrupt", "v1")
+        assert registry.list() == []

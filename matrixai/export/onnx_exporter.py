@@ -824,9 +824,13 @@ def _build_dense_network_pipeline_from_state(network, program, state, np, numpy_
 _EXTERNAL_DATA_FILE = "model.onnx.data"
 
 
-def _external_initializer(name, dims, offset, nbytes, TensorProto):
+def _external_initializer(
+    name, dims, offset, nbytes, TensorProto,
+    external_data_file: str = _EXTERNAL_DATA_FILE,
+):
     """PESOS_GRANDES C7 auditoría — un initializer ONNX cuyos bytes viven en un
-    fichero EXTERNO (`model.onnx.data`, offset/length dados) en vez de en línea
+    fichero EXTERNO (por defecto `model.onnx.data`, con offset/length dados)
+    en vez de en línea
     en el proto. El caller escribe ese fichero por streaming desde el `.mxw`, así
     que el proto en memoria nunca contiene los pesos (ni `numpy_helper.from_array`
     los copia a `raw_data`)."""
@@ -835,7 +839,7 @@ def _external_initializer(name, dims, offset, nbytes, TensorProto):
     t.data_type = TensorProto.FLOAT
     t.dims.extend([int(d) for d in dims])
     t.data_location = TensorProto.EXTERNAL
-    for key, value in (("location", _EXTERNAL_DATA_FILE), ("offset", str(int(offset))),
+    for key, value in (("location", external_data_file), ("offset", str(int(offset))),
                        ("length", str(int(nbytes)))):
         entry = t.external_data.add()
         entry.key = key
@@ -843,7 +847,10 @@ def _external_initializer(name, dims, offset, nbytes, TensorProto):
     return t
 
 
-def _build_dense_network_pipeline_external(network, program, mxw_header, helper, TensorProto):
+def _build_dense_network_pipeline_external(
+    network, program, mxw_header, helper, TensorProto,
+    external_data_file: str = _EXTERNAL_DATA_FILE,
+):
     """PESOS_GRANDES C7 auditoría — como `_build_dense_network_pipeline_from_state`
     pero SIN traer los tensores a RAM: los initializers son EXTERNAL (apuntan a
     `model.onnx.data`) y se devuelve `ordered_metas` (los tensores del `.mxw` en
@@ -872,7 +879,10 @@ def _build_dense_network_pipeline_external(network, program, mxw_header, helper,
             if meta is None:
                 raise OnnxExportError(f"Dense-network tensor {key!r} not found in .mxw header")
             _name, _offset, nbytes, shape = validate_mxw_tensor_meta(meta)
-            initializers.append(_external_initializer(onnx_name, shape, running_offset, nbytes, TensorProto))
+            initializers.append(_external_initializer(
+                onnx_name, shape, running_offset, nbytes, TensorProto,
+                external_data_file,
+            ))
             ordered_metas.append(meta)
             running_offset += nbytes
 
@@ -890,12 +900,15 @@ def _build_dense_network_pipeline_external(network, program, mxw_header, helper,
     return nodes, initializers, x_info, y_info, current_shape, ordered_metas
 
 
-def export_onnx_graph_external(program, mxw_header, output_path, *,
-                               model_hash, parameter_schema_hash):
+def export_onnx_graph_external(
+    program, mxw_header, output_path, *, model_hash, parameter_schema_hash,
+    external_data_file: str | None = None,
+):
     """Export dense or transformer ONNX external-data by streaming.
 
-    Escribe SOLO el grafo (`model.onnx`, con initializers EXTERNAL que apuntan a
-    `model.onnx.data`) — NO escribe el `.data`; el caller lo streamea desde el
+    Escribe SOLO el grafo (con initializers EXTERNAL que apuntan a
+    ``external_data_file`` o `<output>.data`) — NO escribe el `.data`; el
+    caller lo streamea desde el
     `.mxw` con `binary_store.stream_mxw_tensor` en el orden de `ordered_metas`.
     Thus even a multi-GiB model never enters RAM. Transformer matrices that
     need transposition keep their raw `.mxw` layout and receive an ONNX
@@ -904,6 +917,7 @@ def export_onnx_graph_external(program, mxw_header, output_path, *,
     _onnx, numpy_helper, helper, TensorProto = _import_onnx()
     np = _import_numpy()
     output_path = Path(output_path)
+    external_data_file = external_data_file or f"{output_path.name}.data"
 
     expected_hash = program_hash(program)
     if model_hash != expected_hash:
@@ -949,6 +963,7 @@ def export_onnx_graph_external(program, mxw_header, output_path, *,
             _build_transformer_network_pipeline(
                 network, program, None, np, numpy_helper, helper, TensorProto,
                 mxw_header=mxw_header, external_layout=ordered_metas,
+                external_data_file=external_data_file,
             )
         )
         input_dim = next(s.length for s in program.sequences if s.name == network.input)
@@ -965,7 +980,10 @@ def export_onnx_graph_external(program, mxw_header, output_path, *,
         network = dense_nets[0]
         input_dim = program.vectors[0].size
         nodes, initializers, x_info, y_info, out_shape, ordered_metas = (
-            _build_dense_network_pipeline_external(network, program, mxw_header, helper, TensorProto)
+            _build_dense_network_pipeline_external(
+                network, program, mxw_header, helper, TensorProto,
+                external_data_file,
+            )
         )
         kind = "dense_network"
         skipped_names = [n.name for n in dense_nets[1:]]
@@ -1165,6 +1183,7 @@ def _build_composite_layer_onnx_nodes(layer, prefix, tag, current, current_dim,
 def _build_transformer_network_pipeline(
     network, program, parameter_set, np, numpy_helper, helper, TensorProto,
     *, state_dict=None, mxw_header=None, external_layout=None,
+    external_data_file: str = _EXTERNAL_DATA_FILE,
 ):
     """TRANSFORMER C5 — lowering ONNX de una red composite con BLOCK TRANSFORMER.
 
@@ -1245,6 +1264,7 @@ def _build_transformer_network_pipeline(
             raw_name = f"{name}_raw" if transpose else name
             initializers.append(_external_initializer(
                 raw_name, shape, running_external_offset, nbytes, TensorProto,
+                external_data_file,
             ))
             if external_layout is not None:
                 external_layout.append(meta)

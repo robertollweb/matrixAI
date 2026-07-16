@@ -61,6 +61,10 @@ def write_mxw(
     Devuelve la cabecera escrita (metadata) — el caller la persiste en el
     snapshot JSON del modelo (para validar sin releer el `.mxw` entero).
     """
+    if not isinstance(model_hash, str) or not model_hash.strip():
+        raise MxwError("write_mxw requires a non-empty model_hash")
+    if not isinstance(parameter_schema_hash, str) or not parameter_schema_hash.strip():
+        raise MxwError("write_mxw requires a non-empty parameter_schema_hash")
     path = Path(path)
     tmp_path = path.with_name(path.name + ".tmp")
     body_tmp = path.with_name(path.name + ".body.tmp")
@@ -196,6 +200,106 @@ def mxw_file_content_hash(path: str | Path) -> str:
     return hasher.hexdigest()
 
 
+def validate_mxw_file(path: str | Path) -> tuple[dict[str, Any], int]:
+    """Valida íntegramente un ``.mxw`` sin materializar sus tensores.
+
+    Comprueba cabecera, layout contiguo/no solapado, tamaño físico y el
+    ``content_hash`` del cuerpo mediante chunks. Devuelve ``(header,
+    body_start)`` para que los callers de export/registro puedan reutilizar la
+    metadata ya validada. Esta es la validación fail-closed del formato; un
+    hash del fichero completo protege la custodia, pero no sustituye la
+    comprobación del hash interno que escribió el trainer.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise MxwError(f"{path}: fichero .mxw no encontrado")
+
+    with open(path, "rb") as f:
+        header, body_start = _read_header(f, path)
+        if header.get("version") != _FORMAT_VERSION:
+            raise MxwError(
+                f"{path}: versión .mxw no soportada "
+                f"({header.get('version')!r}, esperada {_FORMAT_VERSION})"
+            )
+        for binding in ("model_hash", "parameter_schema_hash"):
+            value = header.get(binding)
+            if not isinstance(value, str) or not value.strip():
+                raise MxwError(
+                    f"{path}: {binding} vacío o ausente en la cabecera .mxw"
+                )
+        tensors = header.get("tensors")
+        if not isinstance(tensors, list):
+            raise MxwError(f"{path}: cabecera .mxw sin lista de tensores válida")
+
+        seen: set[str] = set()
+        expected_offset = 0
+        for meta in tensors:
+            if not isinstance(meta, dict):
+                raise MxwError(f"{path}: entrada de tensor no válida en la cabecera")
+            name, offset, nbytes, _shape = validate_mxw_tensor_meta(meta, path)
+            if not isinstance(name, str) or not name:
+                raise MxwError(f"{path}: tensor con path vacío o no textual en la cabecera")
+            if name in seen:
+                raise MxwError(f"{path}: tensor duplicado {name!r} en la cabecera")
+            seen.add(name)
+            if meta.get("dtype") != "float32":
+                raise MxwError(
+                    f"{path}: tensor {name!r} declara dtype "
+                    f"{meta.get('dtype')!r}; solo float32 es válido en MXW1"
+                )
+            if offset != expected_offset:
+                raise MxwError(
+                    f"{path}: layout no contiguo o solapado antes de {name!r} "
+                    f"(offset={offset}, esperado={expected_offset})"
+                )
+            expected_offset += nbytes
+
+        try:
+            declared_total = int(header["total_bytes"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise MxwError(
+                f"{path}: total_bytes inválido o ausente en la cabecera .mxw"
+            ) from exc
+        if declared_total < 0 or declared_total != expected_offset:
+            raise MxwError(
+                f"{path}: total_bytes={declared_total} no coincide con el layout "
+                f"de tensores ({expected_offset} bytes)"
+            )
+
+        f.seek(0, os.SEEK_END)
+        physical_total = f.tell() - body_start
+        if physical_total != declared_total:
+            raise MxwError(
+                f"{path}: tamaño del cuerpo no coincide con la cabecera "
+                f"({physical_total} bytes reales, {declared_total} declarados)"
+            )
+
+        expected_hash = header.get("content_hash")
+        if not isinstance(expected_hash, str) or len(expected_hash) != 64:
+            raise MxwError(f"{path}: content_hash inválido o ausente en la cabecera .mxw")
+        try:
+            int(expected_hash, 16)
+        except ValueError as exc:
+            raise MxwError(f"{path}: content_hash no es un sha256 hexadecimal válido") from exc
+
+        hasher = hashlib.sha256()
+        f.seek(body_start)
+        while True:
+            chunk = f.read(_CHUNK_BYTES)
+            if not chunk:
+                break
+            hasher.update(chunk)
+        actual_hash = hasher.hexdigest()
+        if actual_hash != expected_hash:
+            raise MxwError(
+                f"{path}: el hash de contenido no coincide (esperado "
+                f"{expected_hash}, calculado {actual_hash}) — el fichero .mxw "
+                "ha sido modificado o está corrompido."
+            )
+
+    return header, body_start
+
+
 def read_mxw_header_and_body_start(path: str | Path) -> tuple[dict[str, Any], int]:
     """Como `read_mxw_header` pero devuelve también el offset (bytes) donde
     empieza el cuerpo — necesario para `stream_mxw_tensor` (leer un tensor
@@ -269,6 +373,93 @@ def stream_mxw_tensor(f: Any, body_start: int, meta: dict[str, Any], out: Any,
         out.write(buf)
         remaining -= len(buf)
     return nbytes
+
+
+def stream_mxw_tensors_to_file(
+    path: str | Path,
+    ordered_metas: list[dict[str, Any]],
+    output_path: str | Path,
+) -> int:
+    """Escribe un sidecar ONNX desde ``.mxw`` usando memoria O(chunk).
+
+    El origen se valida completamente *antes* de promover el destino. Los
+    tensores se escriben en el orden solicitado por el grafo ONNX y el fichero
+    final se publica atómicamente, por lo que una corrupción o truncado nunca
+    deja un ``.data`` aparentemente válido a medias.
+    """
+    path = Path(path)
+    output_path = Path(output_path)
+    header, body_start = validate_mxw_file(path)
+    header_metas = {
+        str(meta.get("path")): meta for meta in header.get("tensors", [])
+    }
+    tmp_path = output_path.with_name(output_path.name + ".tmp")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    seen: set[str] = set()
+    try:
+        with open(path, "rb") as source, open(tmp_path, "wb") as dest:
+            for requested in ordered_metas:
+                name = requested.get("path")
+                if not isinstance(name, str) or name not in header_metas:
+                    raise MxwError(
+                        f"{path}: el layout externo solicita un tensor desconocido {name!r}"
+                    )
+                if name in seen:
+                    raise MxwError(
+                        f"{path}: el layout externo repite el tensor {name!r}"
+                    )
+                seen.add(name)
+                copied += stream_mxw_tensor(
+                    source, body_start, header_metas[name], dest,
+                )
+        os.replace(tmp_path, output_path)
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:  # pragma: no cover - best-effort cleanup
+            pass
+    return copied
+
+
+def read_mxw_mmap(path: str | Path, *, verify: bool = True) -> dict[str, Any]:
+    """Carga tensores torch respaldados por mmap, sin ``f.read()`` del cuerpo.
+
+    ``evaluate`` necesita tensores reales, pero no necesita una segunda copia
+    Python de todos los bytes. El mapping copy-on-write permanece vivo a
+    través de los arrays/tensores y ``load_state_dict`` copia después al módulo
+    torch de destino. Con ``verify=True`` se valida primero el fichero completo
+    por streaming.
+    """
+    import numpy as np
+    import torch
+
+    path = Path(path)
+    if verify:
+        header, body_start = validate_mxw_file(path)
+    else:
+        header, body_start = read_mxw_header_and_body_start(path)
+
+    total_bytes = int(header.get("total_bytes", 0))
+    if total_bytes == 0:
+        return {
+            str(meta.get("path")): torch.empty(
+                tuple(int(d) for d in meta.get("shape", [])), dtype=torch.float32,
+            )
+            for meta in header.get("tensors", [])
+        }
+
+    flat = np.memmap(
+        path, dtype="<f4", mode="c", offset=body_start,
+        shape=(total_bytes // 4,),
+    )
+    result: dict[str, Any] = {}
+    for meta in header.get("tensors", []):
+        name, offset, nbytes, shape = validate_mxw_tensor_meta(meta, path)
+        start = offset // 4
+        stop = start + nbytes // 4
+        result[name] = torch.from_numpy(flat[start:stop].reshape(shape))
+    return result
 
 
 def read_mxw(path: str | Path, *, verify: bool = True) -> dict[str, Any]:

@@ -55,6 +55,34 @@ class RoundTripTest(unittest.TestCase):
         self.assertEqual(loaded["W"].dtype, torch.float32)
         self.assertTrue(torch.allclose(loaded["W"], state["W"].float()))
 
+    def test_mmap_reader_matches_without_full_body_copy(self) -> None:
+        import torch
+        from matrixai.parameters.binary_store import write_mxw, read_mxw_mmap
+
+        state = self._state()
+        tmp = Path(tempfile.mkdtemp())
+        path = tmp / "m.mxw"
+        write_mxw(path, state, model_hash="mh", parameter_schema_hash="sh")
+        loaded = read_mxw_mmap(path)
+        self.assertEqual(set(loaded), set(state))
+        for key, expected in state.items():
+            self.assertTrue(torch.equal(loaded[key], expected.float()))
+
+    def test_writer_requires_model_and_schema_bindings(self) -> None:
+        from matrixai.parameters.binary_store import write_mxw, MxwError
+
+        tmp = Path(tempfile.mkdtemp())
+        with self.assertRaisesRegex(MxwError, "model_hash"):
+            write_mxw(
+                tmp / "no-model.mxw", self._state(),
+                model_hash="", parameter_schema_hash="sh",
+            )
+        with self.assertRaisesRegex(MxwError, "parameter_schema_hash"):
+            write_mxw(
+                tmp / "no-schema.mxw", self._state(),
+                model_hash="mh", parameter_schema_hash="",
+            )
+
     def test_header_only_read_does_not_need_the_body(self) -> None:
         from matrixai.parameters.binary_store import write_mxw, read_mxw_header
         state = self._state()

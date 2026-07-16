@@ -104,6 +104,7 @@ class EdgeBundler:
         state_dict: dict[str, Any] | None = None,
         mxw_path: str | Path | None = None,
         mxw_header: dict[str, Any] | None = None,
+        materialize_external_data: bool = False,
         model_hash: str | None = None,
         parameter_schema_hash: str | None = None,
         validate: bool = True,
@@ -129,6 +130,10 @@ class EdgeBundler:
         mismo `.tolist()` que este camino evita); la validación de
         equivalencia (que sí necesita una REFERENCIA con valores reales) se
         salta con motivo registrado.
+
+        Con ``mxw_path``, ``materialize_external_data=True`` escribe el
+        sidecar en el staging del bundle (CLI); ``False`` devuelve su layout
+        para que un caller como Studio lo streamee directamente a un ZIP.
         """
         using_state_dict = state_dict is not None
         # PESOS_GRANDES C7 auditoría: modo STREAMING — los pesos NUNCA se traen
@@ -324,9 +329,18 @@ class EdgeBundler:
                 encoding="utf-8",
             )
 
-            # PESOS_GRANDES C7 auditoría: en streaming el `.onnx.data` NO está
-            # en `work` (lo escribe el caller directo al zip) — se excluye de
-            # `files` para que el listado sea honesto (el caller lo añade).
+            # CLI C6 materializa el sidecar por chunks DENTRO del staging para
+            # que la promoción del bundle siga siendo atómica. Studio mantiene
+            # `materialize_external_data=False`: lo escribe directo al ZIP y
+            # evita una copia intermedia multi-GiB.
+            if using_mxw_streaming and materialize_external_data:
+                from matrixai.parameters.binary_store import stream_mxw_tensors_to_file
+                stream_mxw_tensors_to_file(
+                    mxw_path,
+                    external_data_layout or [],
+                    work / "model.onnx.data",
+                )
+
             # Atomic promotion: remove stale outdir then rename temp into place
             if outdir.exists():
                 shutil.rmtree(str(outdir))
@@ -363,6 +377,7 @@ def create_edge_bundle(
     state_dict: dict[str, Any] | None = None,
     mxw_path: str | Path | None = None,
     mxw_header: dict[str, Any] | None = None,
+    materialize_external_data: bool = False,
     model_hash: str | None = None,
     parameter_schema_hash: str | None = None,
     validate: bool = True,
@@ -377,6 +392,7 @@ def create_edge_bundle(
     return EdgeBundler().bundle(
         program, parameter_set, mxai_path, params_path, outdir,
         state_dict=state_dict, mxw_path=mxw_path, mxw_header=mxw_header,
+        materialize_external_data=materialize_external_data,
         model_hash=model_hash, parameter_schema_hash=parameter_schema_hash,
         validate=validate, force=force,
         field_ranges=field_ranges,

@@ -417,7 +417,10 @@ def main() -> int:
         "evaluate", help="Evaluate a MatrixAI ParameterSet on a supervised CSV dataset"
     )
     evaluate_parser.add_argument("file", help=".mxai model file")
-    evaluate_parser.add_argument("--params", required=True, help="ParameterSet JSON file")
+    evaluate_parser.add_argument(
+        "--params", required=True,
+        help="ParameterSet JSON or binary weights.mxw file",
+    )
     evaluate_parser.add_argument("--training", required=True, help=".mxtrain training spec")
     evaluate_parser.add_argument("--data", help="Optional CSV dataset override")
     evaluate_parser.add_argument("--output", "-o", help="Optional evaluation_report.json output path")
@@ -504,7 +507,10 @@ def main() -> int:
         "export-onnx", help="Export a trained MatrixAI model to ONNX format"
     )
     export_onnx_parser.add_argument("file", help=".mxai model file")
-    export_onnx_parser.add_argument("--params", required=True, help="ParameterSet JSON file (trained weights)")
+    export_onnx_parser.add_argument(
+        "--params", required=True,
+        help="ParameterSet JSON or binary weights.mxw file",
+    )
     export_onnx_parser.add_argument("--output", "-o", required=True, help="Output .onnx file path")
     export_onnx_parser.add_argument("--json", action="store_true", help="Print export result as JSON")
     export_onnx_parser.add_argument(
@@ -520,7 +526,10 @@ def main() -> int:
         "export-bundle", help="Create a self-contained edge bundle (model.onnx + manifests)"
     )
     export_bundle_parser.add_argument("file", help=".mxai model file")
-    export_bundle_parser.add_argument("--params", required=True, help="ParameterSet JSON file (trained weights)")
+    export_bundle_parser.add_argument(
+        "--params", required=True,
+        help="ParameterSet JSON or binary weights.mxw file",
+    )
     export_bundle_parser.add_argument("--outdir", required=True, help="Output directory for the bundle")
     export_bundle_parser.add_argument(
         "--no-validate", action="store_true",
@@ -1788,7 +1797,9 @@ def _cmd_evaluate(args) -> int:
         training = dataclasses.replace(training, backend=resolved)
         # Auditoría C6 ronda 2 [ALTA-1]: --params puede ser weights.mxw
         # (PESOS_GRANDES) — antes load_parameter_set() moría en UTF-8.
-        parameter_set, _mxw_state, _mxw_header = _load_trained_weights(args.params)
+        parameter_set, _mxw_state, _mxw_header = _load_trained_weights(
+            args.params, materialize_mxw=True,
+        )
 
         # Auditoría C6 [ALTA-1/2]: espejo del dispatch de `train` — un programa
         # con BLOCK TRANSFORMER evalúa por su evaluador dedicado (torch es SU
@@ -1926,31 +1937,36 @@ def _cmd_validate_parameters(args) -> int:
     return 0 if report.ok else 1
 
 
-def _load_trained_weights(params_arg: str):
+def _load_trained_weights(params_arg: str, *, materialize_mxw: bool = False):
     """Auditoría C6 ronda 2 [ALTA-1] — cargador común de `--params`.
 
     El trainer persiste `parameter_set.json` (JSON) por debajo del umbral
     PESOS_GRANDES y `weights.mxw` (binario) por encima; los comandos
     evaluate/export llamaban `load_parameter_set()` a secas y un `.mxw`
     moría en un UnicodeDecodeError críptico. Discrimina por el magic MXW1
-    (no por extensión) y devuelve `(parameter_set, state_dict, mxw_header)`
-    — exactamente uno de parameter_set/state_dict es no-None.
+    (no por extensión) y devuelve ``(parameter_set, state_dict, mxw_header)``.
+    Por defecto un MXW solo lee la cabecera: export/WASM no deben traer los
+    pesos a RAM. ``materialize_mxw=True`` se reserva para evaluate y usa mmap,
+    sin el ``f.read()`` + copias O(params) del lector histórico.
     """
     path = Path(params_arg)
     with open(path, "rb") as f:
         is_mxw = f.read(4) == b"MXW1"
     if not is_mxw:
         return load_parameter_set(params_arg), None, None
-    from matrixai.parameters.binary_store import read_mxw, read_mxw_header
-    from matrixai.parameters.tensor_bridge import torch_available
-    if not torch_available():
-        raise ValueError(
-            f"{path.name} is a .mxw binary weights file — loading it requires "
-            "torch (PESOS_GRANDES); install torch or export from the machine "
-            "that trained the model"
-        )
+    from matrixai.parameters.binary_store import read_mxw_header
     header = read_mxw_header(path)
-    state = read_mxw(path, verify=True)
+    state = None
+    if materialize_mxw:
+        from matrixai.parameters.binary_store import read_mxw_mmap
+        from matrixai.parameters.tensor_bridge import torch_available
+        if not torch_available():
+            raise ValueError(
+                f"{path.name} is a .mxw binary weights file — evaluating it "
+                "requires torch (PESOS_GRANDES); install torch or evaluate on "
+                "the machine that trained the model"
+            )
+        state = read_mxw_mmap(path, verify=True)
     return None, state, header
 
 
@@ -2140,25 +2156,50 @@ def _cmd_export_onnx(args) -> int:
             return validation_code
         # Auditoría C6 ronda 2 [ALTA-1]: --params puede ser weights.mxw.
         parameter_set, _mxw_state, _mxw_header = _load_trained_weights(args.params)
-        if _mxw_state is not None:
+        if _mxw_header is not None:
             if args.validate:
                 print(
                     "Export error: --validate is not available for .mxw "
-                    "state_dict exports (the equivalence reference would "
+                    "streaming exports (the equivalence reference would "
                     "materialize O(params) Python lists — PESOS_GRANDES); "
                     "export without --validate or use export-bundle from a "
                     "JSON parameter set",
                     file=sys.stderr,
                 )
                 return 1
-            # El propio export valida model_hash/schema_hash contra el
-            # programa (camino state_dict de PESOS_GRANDES C7b / C5).
-            result = export_onnx(
-                program, None, args.output,
-                state_dict=_mxw_state,
-                model_hash=str(_mxw_header.get("model_hash", "")),
-                parameter_schema_hash=str(_mxw_header.get("parameter_schema_hash", "")),
-            )
+            # Reauditoría C6 ronda 3 [ALTA-1]: construir el grafo SOLO desde
+            # la cabecera y streamear el sidecar. La ronda 2 llamaba read_mxw
+            # y duplicaba cuerpo+tensores+initializers en RAM.
+            from matrixai.export import export_onnx_graph_external
+            from matrixai.parameters.binary_store import stream_mxw_tensors_to_file
+            output_path = Path(args.output)
+            data_path = output_path.with_name(output_path.name + ".data")
+            if Path(args.params).resolve() in {
+                output_path.resolve(), data_path.resolve(),
+            }:
+                raise ValueError(
+                    "the ONNX output/sidecar cannot overwrite the source weights.mxw"
+                )
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            import tempfile as _tempfile
+            with _tempfile.TemporaryDirectory(
+                dir=output_path.parent, prefix=".onnx_stream_",
+            ) as _tmp:
+                stage_dir = Path(_tmp)
+                stage_graph = stage_dir / output_path.name
+                stage_data = stage_dir / data_path.name
+                result, ordered_metas = export_onnx_graph_external(
+                    program, _mxw_header, stage_graph,
+                    model_hash=str(_mxw_header.get("model_hash", "")),
+                    parameter_schema_hash=str(
+                        _mxw_header.get("parameter_schema_hash", "")
+                    ),
+                    external_data_file=data_path.name,
+                )
+                stream_mxw_tensors_to_file(args.params, ordered_metas, stage_data)
+                os.replace(stage_data, data_path)
+                os.replace(stage_graph, output_path)
+                result = dataclasses.replace(result, output_path=str(output_path))
         else:
             # TRANSFORMER C6: validate_parameter_set (generic, dense/function-only)
             # rejects any composite ParameterSet whose differentiable_python
@@ -2359,22 +2400,26 @@ def _cmd_export_bundle(args) -> int:
         if validation_code != 0:
             print(f"Export error: model {args.file} did not pass validation", file=sys.stderr)
             return validation_code
-        # Auditoría C6 ronda 2 [ALTA-1]: --params puede ser weights.mxw — el
-        # bundle ya tiene el camino state_dict (PESOS_GRANDES C7b): plantilla
-        # de estructura para manifests/spec + tensores para los initializers;
-        # la equivalencia se salta con motivo registrado (equivalence_skipped_
-        # reason), como en el Studio.
+        # Auditoría C6 ronda 3 [ALTA-1]: --params puede ser weights.mxw — el
+        # bundle usa su camino mxw_path: plantilla de estructura para
+        # manifests/spec + grafo external-data desde cabecera + sidecar por
+        # chunks; la equivalencia se salta con motivo registrado
+        # (equivalence_skipped_reason), como en Studio.
         parameter_set, _mxw_state, _mxw_header = _load_trained_weights(args.params)
-        if _mxw_state is not None:
+        if _mxw_header is not None:
             template = _mxw_template_parameter_set(program, _mxw_header)
             result = create_edge_bundle(
                 program, template,
                 mxai_path=args.file,
                 params_path=None,
                 outdir=args.outdir,
-                state_dict=_mxw_state,
+                mxw_path=args.params,
+                mxw_header=_mxw_header,
+                materialize_external_data=True,
                 model_hash=str(_mxw_header.get("model_hash", "")),
-                parameter_schema_hash=str(_mxw_header.get("parameter_schema_hash", "")),
+                parameter_schema_hash=str(
+                    _mxw_header.get("parameter_schema_hash", "")
+                ),
                 validate=not args.no_validate,
                 force=args.force,
                 **meta_kwargs,
@@ -2442,8 +2487,8 @@ def _cmd_export_wasm(args) -> int:
         # del umbral PESOS_GRANDES — WASM exige el modelo en UN fichero
         # cargado en el navegador (sin external data), así que este camino se
         # rechaza con destino claro en vez de morir en UTF-8.
-        parameter_set, _mxw_state, _ = _load_trained_weights(args.params)
-        if _mxw_state is not None:
+        parameter_set, _mxw_state, _mxw_header = _load_trained_weights(args.params)
+        if _mxw_header is not None:
             print(
                 "WASM export error: --params is a .mxw weights file "
                 "(PESOS_GRANDES) — a browser bundle cannot load external "
