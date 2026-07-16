@@ -292,6 +292,76 @@ class TestEdgeCases:
 
 
 # ---------------------------------------------------------------------------
+# Autoauditoría C1 — 6 hallazgos empíricos, cada uno con su regresión
+# ---------------------------------------------------------------------------
+
+class TestAuditFindings:
+    def test_hourly_timestamps_detected_as_date_not_identifier(self):
+        """[MEDIA] Open-Meteo hourly emite '2024-01-01T00:00' — sin formatos
+        con hora, el timestamp del ejemplo canónico del mar caía a
+        'identifier' (unicidad) y el modo serie temporal nunca se ofrecía."""
+        rows = ["time,wave_height"]
+        for i in range(20):
+            rows.append(f"2024-01-01T{i:02d}:00,{2.0 + i * 0.1:.2f}")
+        r = analyze_dataset_csv("\n".join(rows))
+        assert r["columns"]["time"]["type"] == "date"
+        assert r["temporal_columns"] == ["time"]
+
+    def test_datetime_with_seconds_detected_as_date(self):
+        rows = ["ts,v"] + [f"2024-01-01 {i:02d}:30:00,{i}" for i in range(15)]
+        r = analyze_dataset_csv("\n".join(rows))
+        assert r["columns"]["ts"]["type"] == "date"
+
+    def test_excel_bom_stripped_from_first_column_name(self):
+        """[MEDIA] los CSV de Excel llevan BOM UTF-8 — sin quitarlo, la
+        primera columna se llamaba '\\ufefffecha' y nada casaba después."""
+        r = analyze_dataset_csv("﻿fecha,valor\n2024-01-01,5\n2024-01-02,6\n")
+        assert r["column_order"] == ["fecha", "valor"]
+        assert r["columns"]["fecha"]["type"] == "date"
+
+    def test_duplicate_header_names_raise_actionable_error(self):
+        """[MEDIA] DictReader se queda con el último valor por nombre — la
+        columna duplicada se analizaba a medias y salía DOS veces en
+        target_candidates. Ahora: error accionable con los nombres."""
+        with pytest.raises(DatasetAnalysisError, match="repite nombres"):
+            analyze_dataset_csv("a,b,a\n1,2,3\n4,5,6\n")
+
+    def test_empty_header_name_raises_actionable_error(self):
+        with pytest.raises(DatasetAnalysisError, match="sin nombre"):
+            analyze_dataset_csv("a,b,\n1,2,3\n4,5,6\n")
+
+    def test_constant_column_never_a_target_candidate(self):
+        """[BAJA] una constante llamada 'y' llegaba a proponerse PRIMERA
+        (última columna + nombre típico) como 'valores numéricos continuos'
+        — siendo un valor que nunca cambia."""
+        r = analyze_dataset_csv("x,y\n1,5.0\n2,5.0\n3,5.0\n")
+        assert "y" not in {c["column"] for c in r["target_candidates"]}
+
+    def test_constant_boolean_also_excluded(self):
+        r = analyze_dataset_csv("x,activo\n1,si\n2,si\n3,si\n")
+        assert "activo" not in {c["column"] for c in r["target_candidates"]}
+
+    def test_high_cardinality_vocabulary_capped_with_sample(self):
+        """[MEDIA] alineación con el contrato ('vocabulario si categórica de
+        cardinalidad BAJA'): una categórica de 600 valores metía 600 entradas
+        en la respuesta; ahora muestra de _ONEHOT_MAX + flag de truncado."""
+        rows = ["ciudad,y"]
+        for i in range(1000):
+            rows.append(f"ciudad_{i % 600},{'a' if i % 2 else 'b'}")
+        r = analyze_dataset_csv("\n".join(rows))
+        info = r["columns"]["ciudad"]
+        assert "vocabulary" not in info
+        assert info["vocabulary_truncated"] is True
+        assert len(info["vocabulary_sample"]) == _ONEHOT_MAX
+        assert info["cardinality"] == 600
+
+    def test_low_cardinality_keeps_full_vocabulary(self):
+        r = analyze_dataset_csv("color,y\nrojo,a\nverde,b\nazul,a\nrojo,b\n")
+        assert r["columns"]["color"]["vocabulary"] == ["azul", "rojo", "verde"]
+        assert "vocabulary_truncated" not in r["columns"]["color"]
+
+
+# ---------------------------------------------------------------------------
 # Determinismo
 # ---------------------------------------------------------------------------
 

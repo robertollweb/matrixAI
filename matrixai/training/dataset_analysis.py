@@ -54,11 +54,25 @@ _BOOL_FALSE = {"false", "falso", "no", "n", "f", "0"}
 # Marcadores de nulo habituales en CSVs reales (case-insensitive).
 _NULL_TOKENS = {"", "na", "n/a", "null", "nan", "none", "-", "?"}
 
-# Formatos de fecha probados en orden — el primero que casa el 100% de los
-# valores no vacíos de la columna gana. ISO primero (inequívoco); luego
+# Formatos de fecha/hora probados en orden — el primero que casa el 100% de
+# los valores no vacíos de la columna gana. ISO primero (inequívoco); luego
 # día/mes (convención habitual fuera de EEUU, coherente con el resto del
-# producto en español) antes que mes/día.
-_DATE_FORMATS = ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d", "%d-%m-%Y")
+# producto en español) antes que mes/día. Los formatos CON hora existen
+# porque los proveedores reales los emiten así (auditoría C1: Open-Meteo
+# hourly devuelve "2024-01-01T00:00" — sin ellos, el timestamp del ejemplo
+# canónico del mar caía a "identifier" por unicidad y el modo serie temporal
+# nunca se ofrecía).
+_DATE_FORMATS = (
+    "%Y-%m-%d",
+    "%Y-%m-%dT%H:%M",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d %H:%M:%S",
+    "%d/%m/%Y",
+    "%m/%d/%Y",
+    "%Y/%m/%d",
+    "%d-%m-%Y",
+)
 
 # Identificador: unicidad casi total Y suficientes filas para que la señal
 # sea significativa (con pocas filas, "todo distinto" es habitual y no dice
@@ -96,6 +110,13 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
     if not csv_text or not csv_text.strip():
         raise DatasetAnalysisError("El CSV está vacío.")
 
+    # Auditoría C1: los CSV exportados por Excel llevan BOM UTF-8 — sin
+    # quitarlo, la primera columna se llama "﻿fecha" y ya nada casa
+    # (ni el esquema, ni el target, ni el mxai de C2). El flujo de subida
+    # existente tampoco lo maneja (hueco pre-existente anotado en el
+    # contrato); ESTA es la puerta de entrada de CSVs reales y lo quita.
+    csv_text = csv_text.removeprefix("\ufeff")
+
     size = len(csv_text.encode("utf-8"))
     if _limits.exceeds(size, "max_csv_bytes"):
         limit = _limits.get_limit("max_csv_bytes")
@@ -115,6 +136,23 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
     columns = [str(c) for c in fieldnames if c is not None]
     if not columns:
         raise DatasetAnalysisError("El CSV no tiene columnas.")
+    # Auditoría C1: una cabecera con nombres duplicados o vacíos no puede
+    # convertirse en un VECTOR (los campos del mxai son únicos y con nombre)
+    # y además corrompe el análisis en silencio — DictReader se queda con el
+    # ÚLTIMO valor de cada nombre repetido, así que la columna duplicada se
+    # analizaría a medias y saldría DOS veces en target_candidates. Error
+    # accionable aquí, nunca un esquema a medias (invariante 7).
+    if any(not c.strip() for c in columns):
+        raise DatasetAnalysisError(
+            "La cabecera del CSV tiene columnas sin nombre (¿coma de más?). "
+            "Pon nombre a todas las columnas."
+        )
+    duplicated = sorted({c for c in columns if columns.count(c) > 1})
+    if duplicated:
+        raise DatasetAnalysisError(
+            f"La cabecera del CSV repite nombres de columna: {duplicated}. "
+            "Renombra las columnas duplicadas."
+        )
     if not rows:
         raise DatasetAnalysisError("El CSV no tiene filas de datos.")
 
@@ -225,7 +263,18 @@ def _analyze_column(raw_values: list[str | None], rows_analyzed: int) -> dict[st
 
     info["type"] = "categorical"
     info["cardinality"] = cardinality
-    info["vocabulary"] = distinct
+    # Auditoría C1 (alineación con el contrato: "vocabulario si categórica
+    # (cardinalidad BAJA)"): el vocabulario completo solo viaja en territorio
+    # one-hot (≤ _ONEHOT_MAX, el umbral existente) — una categórica de 600
+    # ciudades metía 600 entradas en la respuesta del análisis sin tope. Por
+    # encima va una MUESTRA (mismo tamaño que el umbral, sin inventar otro) y
+    # el flag de truncado; C2 puede re-derivar el vocabulario completo del
+    # propio CSV cuando el camino embedding lo necesite.
+    if cardinality <= _ONEHOT_MAX:
+        info["vocabulary"] = distinct
+    else:
+        info["vocabulary_sample"] = distinct[:_ONEHOT_MAX]
+        info["vocabulary_truncated"] = True
     return info
 
 
@@ -308,6 +357,13 @@ def _rank_target_candidates(
         col_type = info["type"]
         if col_type in ("identifier", "unknown"):
             continue  # nunca tiene sentido predecir un id o una columna vacía
+        # Auditoría C1: una columna CONSTANTE (cardinalidad < 2) tampoco es
+        # un target — "predecir" un valor que nunca cambia no entrena nada,
+        # y antes una constante llamada "y" llegaba a proponerse la PRIMERA
+        # (última columna + nombre típico) con el motivo "valores numéricos
+        # continuos"… siendo una constante.
+        if info.get("cardinality", 0) < 2:
+            continue
 
         score = 0.0
         reasons: list[str] = []
