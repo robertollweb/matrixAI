@@ -434,12 +434,25 @@ def generate_temporal_project_from_dataset(
     `column_type_overrides`/`column_range_overrides` (invariante 8) se
     aplican DESPUÉS del pipeline — sus claves son los nombres de columna
     TRANSFORMADOS (p.ej. `altura_ola_lag1`, no `altura_ola`), porque son
-    los únicos que el usuario ve en el esquema final editable.
+    los únicos que el usuario ve en el esquema final editable. **Excepción
+    deliberada, solo para `column_type_overrides`**: una corrección de
+    TIPO declarada sobre `target_column` (el nombre CRUDO, el único que el
+    editor conoce — el target desplazado `{target_column}_target_h
+    {horizon}` no existe hasta que este mismo envoltorio lo crea) se
+    PROPAGA también a esa clave desplazada, además de aplicarse tal cual a
+    `target_column` (que sigue existiendo como FEATURE tras el shift) —
+    sin esto, corregir el tipo del target crudo nunca alcanzaba al target
+    REAL usado para entrenar. `column_range_overrides` NO se propaga: un
+    target (temporal o no, regresión o clasificación) nunca declara rango
+    en el prompt sintetizado (`SALIDA: nombre` sin `en [lo, hi]`) — los
+    rangos solo importan para FEATURES, y `target_column` ya los recibe
+    tal cual por seguir siendo una feature tras el shift.
 
     Lanza `DatasetProjectError` si el pipeline no puede construirse
     (columna temporal/objetivo inexistente, parámetros inválidos), si
     `validate_pipeline_output` (C3) rechaza el resultado (min_rows, target
-    presente, nulos residuales) o si no queda ninguna fila tras
+    presente, nulos residuales en target/features, columnas numéricas que
+    no lo son de verdad) o si no queda ninguna fila tras
     `missing_values(drop)` (ventana/horizonte demasiado grandes para el
     dataset)."""
     from matrixai.training.dataset_pipeline import (
@@ -474,20 +487,59 @@ def generate_temporal_project_from_dataset(
         })
     ops.append({"op": "missing_values", "strategy": "drop"})
 
+    # Reauditoría 2026-07-17 (ronda 2) [ALTA]: el editor de esquema del SPA
+    # analiza el CSV CRUDO (antes del pipeline) — el único nombre de target
+    # que conoce es `target_column`. Una corrección de TIPO declarada
+    # sobre esa clave se propaga también a `effective_target` (el target
+    # REAL, que este envoltorio crea) — el original SIGUE recibiendo su
+    # propia entrada tal cual, porque sigue existiendo como FEATURE tras
+    # el shift. `column_range_overrides` no se propaga a propósito: un
+    # target nunca declara rango (ver docstring), propagarlo sería código
+    # muerto — verificado que ningún camino lo consulta.
+    type_overrides = dict(column_type_overrides or {})
+    if target_column in (column_type_overrides or {}):
+        type_overrides[effective_target] = column_type_overrides[target_column]
+
     try:
         pipeline_result = run_pipeline(rows, ops)
     except PipelineError as exc:
         raise DatasetProjectError(f"Serie temporal: {exc}") from exc
 
+    # Reauditoría 2026-07-17 (ronda 2) [MEDIA]: C3 documenta `feature_
+    # columns`/`expected_types` como opcionales A PROPÓSITO para que el
+    # caller que conoce el esquema final los declare (ver 4ª pasada de C3)
+    # — C4 es ese caller. `expected_types` solo puede declarar tipos de
+    # `_CAST_TYPES` (number/integer/string), así que se limita a las
+    # columnas cuyo tipo FINAL (esquema original de C1 + overrides ya
+    # traducidos arriba) es number/integer — es lo único verificable aquí,
+    # y atrapa un CSV que no es realmente numérico con un mensaje
+    # específico antes de la generación, no el rechazo genérico de GEN más
+    # abajo.
+    expected_types: dict[str, str] = {}
+    for col, info in original_analysis["columns"].items():
+        effective_type = type_overrides.get(col, info["type"])
+        if effective_type not in ("number", "integer"):
+            continue
+        expected_types[col] = effective_type
+        if col == target_column:
+            # Mismo criterio de propagación que los overrides arriba: el
+            # target desplazado comparte los valores (y por tanto el tipo)
+            # del target crudo.
+            expected_types[effective_target] = effective_type
+    final_columns = pipeline_result.steps[-1].columns_after if pipeline_result.steps else []
+    feature_columns = [c for c in final_columns if c != effective_target]
+
     # Auditoría C4 [MEDIA]: la validación final obligatoria de C3
     # ("min_rows, tipos, nulos residuales, target presente") no se estaba
     # ejecutando — solo se comprobaba "queda alguna fila". `missing_values
     # (drop)` ya deja el target y las features sin nulos por construcción,
-    # así que lo que esto añade de verdad es `min_rows` (una sola fila
-    # sobreviviente pasaría "queda alguna fila" pero no basta para
-    # entrenar nada).
+    # así que lo que la comprobación de nulos añade de verdad es
+    # `min_rows` (una sola fila sobreviviente pasaría "queda alguna fila"
+    # pero no basta para entrenar nada); `expected_types` sí es un chequeo
+    # nuevo genuino (arriba).
     validation_errors = validate_pipeline_output(
         pipeline_result.rows, target_column=effective_target,
+        feature_columns=feature_columns, expected_types=expected_types,
     )
     if validation_errors:
         raise DatasetProjectError("Serie temporal: " + "; ".join(validation_errors))
@@ -495,7 +547,7 @@ def generate_temporal_project_from_dataset(
 
     result = generate_project_from_dataset(
         prepared_csv, effective_target,
-        column_type_overrides=column_type_overrides,
+        column_type_overrides=type_overrides or None,
         column_range_overrides=column_range_overrides,
     )
 
@@ -515,6 +567,17 @@ def generate_temporal_project_from_dataset(
     # temporales; C3/C4 sí).
     result["training_text"] = _force_temporal_split(result.get("training_text") or "")
 
+    # Reauditoría 2026-07-17 (ronda 2) [MEDIA]: `provenance["seed"]` se
+    # había extraído del `training_text` ALEATORIO original (seed=42, el
+    # que GEN siempre emite) ANTES de la reescritura de arriba — el
+    # resultado finalmente entregado no tiene seed (mode=temporal lo
+    # rechaza), pero la procedencia seguía "recordando" el seed viejo,
+    # contradiciendo el propio training_text devuelto. Se re-extrae del
+    # texto YA reescrito — mismo criterio que `_extract_seed` ya declara
+    # en su docstring ("para que la procedencia nunca pueda divergir del
+    # training_text real devuelto").
+    prov_seed_source = result["training_text"]
+
     # Auditoría C4 [ALTA]: corrige la procedencia para que describa el
     # pipeline COMPLETO — el CSV que `generate_project_from_dataset` trató
     # como "crudo" es en realidad el resultado del pipeline C3; se
@@ -522,6 +585,7 @@ def generate_temporal_project_from_dataset(
     # del CSV ORIGINAL en su lugar. Las operaciones de C3 se anteponen a
     # las de C2 en `operations` — son las que ocurrieron primero.
     prov = result["provenance"]
+    prov["seed"] = _extract_seed(prov_seed_source)
     prov["post_pipeline_csv_sha256"] = prov["raw_csv_sha256"]
     prov["raw_csv_sha256"] = original_csv_sha256
     prov["schema_inferred"] = original_analysis["columns"]
