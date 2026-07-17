@@ -437,14 +437,28 @@ def generate_temporal_project_from_dataset(
     los únicos que el usuario ve en el esquema final editable.
 
     Lanza `DatasetProjectError` si el pipeline no puede construirse
-    (columna temporal/objetivo inexistente, parámetros inválidos) o si no
-    queda ninguna fila tras `missing_values(drop)` (ventana/horizonte
-    demasiado grandes para el dataset)."""
+    (columna temporal/objetivo inexistente, parámetros inválidos), si
+    `validate_pipeline_output` (C3) rechaza el resultado (min_rows, target
+    presente, nulos residuales) o si no queda ninguna fila tras
+    `missing_values(drop)` (ventana/horizonte demasiado grandes para el
+    dataset)."""
     from matrixai.training.dataset_pipeline import (
         PipelineError,
         check_anti_leakage,
         run_pipeline,
+        validate_pipeline_output,
     )
+
+    # Auditoría C4 [ALTA]: procedencia del CSV REALMENTE subido por el
+    # usuario (hash + esquema) — antes de que el pipeline lo transforme.
+    # `generate_project_from_dataset` (más abajo) recibe el CSV YA
+    # transformado y lo trata como "el crudo", así que sin esto
+    # `raw_csv_sha256`/`schema_inferred` de la procedencia final
+    # describían el CSV post-pipeline, no el que el usuario vio y corrigió
+    # — imposible reconstruir "CSV subido → esquema editado → pipeline →
+    # CSV final" (invariante 3 del contrato).
+    original_analysis = analyze_dataset_csv(csv_text)
+    original_csv_sha256 = _sha256_text(csv_text)
 
     rows = _read_rows(csv_text)
     ops: list[dict[str, Any]] = [{"op": "sort_temporal", "column": temporal_column}]
@@ -464,11 +478,19 @@ def generate_temporal_project_from_dataset(
         pipeline_result = run_pipeline(rows, ops)
     except PipelineError as exc:
         raise DatasetProjectError(f"Serie temporal: {exc}") from exc
-    if not pipeline_result.rows:
-        raise DatasetProjectError(
-            "Serie temporal: el pipeline no deja ninguna fila — la ventana de "
-            "lags y/o el horizonte son demasiado grandes para este dataset."
-        )
+
+    # Auditoría C4 [MEDIA]: la validación final obligatoria de C3
+    # ("min_rows, tipos, nulos residuales, target presente") no se estaba
+    # ejecutando — solo se comprobaba "queda alguna fila". `missing_values
+    # (drop)` ya deja el target y las features sin nulos por construcción,
+    # así que lo que esto añade de verdad es `min_rows` (una sola fila
+    # sobreviviente pasaría "queda alguna fila" pero no basta para
+    # entrenar nada).
+    validation_errors = validate_pipeline_output(
+        pipeline_result.rows, target_column=effective_target,
+    )
+    if validation_errors:
+        raise DatasetProjectError("Serie temporal: " + "; ".join(validation_errors))
     prepared_csv = _rows_to_csv_text(pipeline_result.rows)
 
     result = generate_project_from_dataset(
@@ -482,7 +504,29 @@ def generate_temporal_project_from_dataset(
     if leaks:
         raise DatasetProjectError("Serie temporal: " + "; ".join(leaks))
 
-    result["provenance"]["temporal"] = {
+    # Auditoría C4 [ALTA]: GEN emite SIEMPRE `SPLIT train=X validation=Y
+    # seed=42` — nunca `mode=temporal` (no es un parámetro que el
+    # generador conozca). Sin esto, un proyecto "serie temporal" entrenaba
+    # con split ALEATORIO, anulando la protección de C3 (invariante 6/13)
+    # en el momento exacto en que más importa: el entrenamiento real. Se
+    # reescribe la línea SPLIT ya generada (mismo ratio, sin seed —
+    # mode=temporal no lo admite, ver parser.py) en vez de enseñarle a GEN
+    # un concepto que no le pertenece (GEN no sabe nada de series
+    # temporales; C3/C4 sí).
+    result["training_text"] = _force_temporal_split(result.get("training_text") or "")
+
+    # Auditoría C4 [ALTA]: corrige la procedencia para que describa el
+    # pipeline COMPLETO — el CSV que `generate_project_from_dataset` trató
+    # como "crudo" es en realidad el resultado del pipeline C3; se
+    # renombra a `post_pipeline_csv_sha256` y se restaura el hash/esquema
+    # del CSV ORIGINAL en su lugar. Las operaciones de C3 se anteponen a
+    # las de C2 en `operations` — son las que ocurrieron primero.
+    prov = result["provenance"]
+    prov["post_pipeline_csv_sha256"] = prov["raw_csv_sha256"]
+    prov["raw_csv_sha256"] = original_csv_sha256
+    prov["schema_inferred"] = original_analysis["columns"]
+    prov["operations"] = [s.operation for s in pipeline_result.steps] + prov["operations"]
+    prov["temporal"] = {
         "temporal_column": temporal_column,
         "raw_target_column": target_column,
         "horizon": horizon,
@@ -491,6 +535,28 @@ def generate_temporal_project_from_dataset(
         "pipeline_operations": [s.to_dict() for s in pipeline_result.steps],
     }
     return result
+
+
+def _force_temporal_split(training_text: str) -> str:
+    """Reescribe la línea `SPLIT` de un `training_text` ya generado para
+    declarar `mode=temporal` (nunca baraja) en vez del `seed=...` que GEN
+    siempre emite — ver el comentario en el punto de uso. Preserva la
+    ratio train/validation declarada y la indentación original."""
+    from matrixai.training.parser import _SPLIT_RE
+
+    out_lines = []
+    for line in training_text.split("\n"):
+        stripped = line.strip()
+        match = _SPLIT_RE.match(stripped)
+        if match:
+            leading_ws = line[: len(line) - len(line.lstrip())]
+            out_lines.append(
+                f"{leading_ws}SPLIT train={match.group('train')} "
+                f"validation={match.group('validation')} mode=temporal"
+            )
+        else:
+            out_lines.append(line)
+    return "\n".join(out_lines)
 
 
 # ---------------------------------------------------------------------------
