@@ -112,6 +112,54 @@ class TestMissingValues:
         res = run_pipeline(rows, [{"op": "missing_values", "strategy": "interpolate", "columns": ["y"]}])
         assert [r["y"] for r in res.rows] == ["", "", "99"]
 
+    # -- Reauditoría 2026-07-17 [ALTA]: interpolate solo es causal si las
+    # filas YA están en orden temporal — exige sort_temporal ANTES --
+
+    def test_interpolate_before_sort_temporal_raises(self):
+        """Repro exacto del hallazgo: sin ordenar primero, 'hacia atrás en
+        la lista' no es 'hacia atrás en el tiempo' — una fila anterior en
+        la lista puede ser una fecha FUTURA."""
+        rows = [
+            {"fecha": "2024-01-03", "y": ""},
+            {"fecha": "2024-01-01", "y": "10"},
+            {"fecha": "2024-01-02", "y": ""},
+        ]
+        with pytest.raises(PipelineError, match="antes de sort_temporal"):
+            run_pipeline(rows, [
+                {"op": "missing_values", "strategy": "interpolate", "columns": ["y"]},
+                {"op": "sort_temporal", "column": "fecha"},
+            ])
+
+    def test_interpolate_after_sort_temporal_is_allowed(self):
+        rows = [
+            {"fecha": "2024-01-03", "y": "30"},
+            {"fecha": "2024-01-01", "y": "10"},
+            {"fecha": "2024-01-02", "y": ""},
+        ]
+        res = run_pipeline(rows, [
+            {"op": "sort_temporal", "column": "fecha"},
+            {"op": "missing_values", "strategy": "interpolate", "columns": ["y"]},
+        ])
+        # tras ordenar: 01-01=10, 01-02=(hueco->ffill de 10), 01-03=30
+        assert [r["y"] for r in res.rows] == ["10", "10", "30"]
+
+    def test_interpolate_without_any_sort_temporal_is_allowed(self):
+        """Sin `sort_temporal` en el pipeline, se asume que el caller ya
+        entrega las filas en el orden que le interesa — este motor no
+        puede inventar una columna temporal que no se le ha señalado."""
+        rows = [{"y": "1"}, {"y": ""}, {"y": "3"}]
+        res = run_pipeline(rows, [{"op": "missing_values", "strategy": "interpolate", "columns": ["y"]}])
+        assert [r["y"] for r in res.rows] == ["1", "1", "3"]
+
+    def test_interpolate_multiple_before_single_sort_all_flagged(self):
+        rows = [{"fecha": "2024-01-01", "y": "1", "z": "2"}]
+        with pytest.raises(PipelineError, match="antes de sort_temporal"):
+            run_pipeline(rows, [
+                {"op": "missing_values", "strategy": "interpolate", "columns": ["y"]},
+                {"op": "missing_values", "strategy": "interpolate", "columns": ["z"]},
+                {"op": "sort_temporal", "column": "fecha"},
+            ])
+
     def test_interpolate_non_numeric_raises(self):
         rows = [{"y": "abc"}, {"y": ""}, {"y": "10"}]
         with pytest.raises(PipelineError, match="numérico"):

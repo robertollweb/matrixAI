@@ -118,6 +118,44 @@ class PipelineResult:
         }
 
 
+def _check_interpolate_after_sort(operations: list[dict[str, Any]]) -> None:
+    """Auditoría [ALTA, reauditoría 2026-07-17]: `interpolate` es causal
+    según el ORDEN de las FILAS (forward-fill: "el último valor conocido
+    hacia atrás EN LA LISTA") — eso solo coincide con "hacia atrás en el
+    TIEMPO" si las filas ya están ordenadas temporalmente. Con datos
+    desordenados, una fila anterior en la lista puede ser una fecha
+    FUTURA respecto a la fila que se rellena — el forward-fill copiaría
+    esa fuga sin que nada lo detecte (column_offsets no puede saber que
+    el ORDEN de entrada no era temporal). Si el pipeline declara
+    `sort_temporal` en algún punto, es la única señal de que le importa el
+    orden temporal — se exige que preceda a CUALQUIER `interpolate`. Si no
+    se declara ningún `sort_temporal`, se asume que el caller ya entrega
+    las filas en el orden que le interesa (este motor no puede inventar
+    una columna temporal que no se le ha señalado)."""
+    first_sort_idx: int | None = None
+    for i, op_decl in enumerate(operations):
+        if isinstance(op_decl, dict) and op_decl.get("op") == "sort_temporal":
+            first_sort_idx = i
+            break
+    if first_sort_idx is None:
+        return
+    for i, op_decl in enumerate(operations):
+        if (
+            isinstance(op_decl, dict)
+            and op_decl.get("op") == "missing_values"
+            and op_decl.get("strategy") == "interpolate"
+            and i < first_sort_idx
+        ):
+            raise PipelineError(
+                f"Paso {i}: missing_values(strategy=interpolate) antes de "
+                f"sort_temporal (paso {first_sort_idx}) — interpolate es "
+                "causal según el ORDEN de las filas; sin ordenar primero por "
+                "tiempo, \"hacia atrás en la lista\" no es \"hacia atrás en "
+                "el tiempo\" y podría copiar un valor futuro. Mueve "
+                "sort_temporal antes de cualquier interpolate."
+            )
+
+
 def run_pipeline(
     rows: list[dict[str, str]], operations: list[dict[str, Any]]
 ) -> PipelineResult:
@@ -127,6 +165,7 @@ def run_pipeline(
     procedencia completa de cada paso y el linaje temporal final."""
     if not rows:
         raise PipelineError("El pipeline necesita al menos una fila de entrada.")
+    _check_interpolate_after_sort(operations)
     current: list[dict[str, str]] = [dict(row) for row in rows]
     columns_order = list(rows[0].keys())
     column_offsets: dict[str, int] = {c: 0 for c in columns_order}
