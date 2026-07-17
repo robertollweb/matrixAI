@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Roberto Llamosas Conde
-"""BIBLIOTECA_PROYECTOS_INTELIGENTES C5 — proveedor `stooq`.
+"""BIBLIOTECA_PROYECTOS_INTELIGENTES C5 — proveedor `stooq` (NO
+REGISTRADO por defecto desde la reauditoría ronda 2 — ver
+`test_biblioteca_c5_provider_registry.py::test_stooq_is_not_registered`
+y el docstring de `provider_stooq.py`). Se mantiene bajo test porque el
+código en sí sigue siendo correcto y podría reactivarse.
 
 Cero red real: `secure_fetch` se sustituye por completo vía
 `unittest.mock.patch`.
@@ -19,7 +23,7 @@ import unittest.mock
 
 import pytest
 
-from matrixai.training.data_provider import DataProviderError
+from matrixai.training.data_provider import DataProviderError, LicenseAcceptanceStore
 from matrixai.training.provider_stooq import StooqProvider
 from matrixai.training.secure_fetch import SecureFetchError, SecureFetchResult
 
@@ -59,6 +63,12 @@ def _patched(**kwargs):
     return unittest.mock.patch("matrixai.training.provider_stooq.secure_fetch", **kwargs)
 
 
+def _accepted():
+    provider = StooqProvider()
+    store = LicenseAcceptanceStore()
+    return provider, store.record(provider, actor="test")
+
+
 class TestValidateConfig:
     def test_valid_config_has_no_errors(self):
         assert StooqProvider().validate_config(_config()) == []
@@ -78,8 +88,9 @@ class TestValidateConfig:
 
 class TestDownloadHappyPath:
     def test_returns_canonical_csv(self):
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result(_TYPICAL_CSV)) as mock_fetch:
-            result = StooqProvider().download(_config(), license_accepted=True)
+            result = provider.download(_config(), license_acceptance=acceptance)
         assert mock_fetch.call_count == 1
         assert result.rows == 2
         assert result.columns == ["Date", "Open", "High", "Low", "Close", "Volume"]
@@ -95,45 +106,94 @@ class TestUnexpectedSchema:
         """El caso central descubierto en este corte: stooq.com devuelve
         un reto JS en vez de CSV — el proveedor debe fallar limpio
         (invariante 7), nunca intentar parsear HTML como CSV."""
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result(_REAL_ANTIBOT_HTML, content_type="text/html")):
             with pytest.raises(DataProviderError, match="forma inesperada"):
-                StooqProvider().download(_config(), license_accepted=True)
+                provider.download(_config(), license_acceptance=acceptance)
 
     def test_no_data_response_for_unknown_symbol_is_rejected(self):
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result("No data\n")):
             with pytest.raises(DataProviderError, match="forma inesperada"):
-                StooqProvider().download(_config(symbol="thisisnotarealsymbolxyz"), license_accepted=True)
+                provider.download(_config(symbol="thisisnotarealsymbolxyz"), license_acceptance=acceptance)
 
     def test_header_only_no_rows_is_rejected(self):
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result("Date,Open,High,Low,Close,Volume\n")):
             with pytest.raises(DataProviderError, match="ninguna cotización"):
-                StooqProvider().download(_config(), license_accepted=True)
+                provider.download(_config(), license_acceptance=acceptance)
 
     def test_empty_body_is_rejected(self):
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result("")):
             with pytest.raises(DataProviderError, match="forma inesperada"):
-                StooqProvider().download(_config(), license_accepted=True)
+                provider.download(_config(), license_acceptance=acceptance)
+
+
+# ---------------------------------------------------------------------------
+# Reauditoría 2026-07-17 (ronda 2) [MEDIA] — solo se validaba la CABECERA;
+# una fila corrupta (campos de menos, fecha ilegible, OHLCV no numérico o
+# vacío, fuera del rango pedido) pasaba tal cual al CSV "canónico".
+# ---------------------------------------------------------------------------
+
+class TestRowLevelValidation:
+    def test_row_with_wrong_field_count_is_rejected(self):
+        provider, acceptance = _accepted()
+        bad = "Date,Open,High,Low,Close,Volume\n2024-01-02,187.15,188.44\n"
+        with _patched(return_value=_fetch_result(bad)):
+            with pytest.raises(DataProviderError, match="campos"):
+                provider.download(_config(), license_acceptance=acceptance)
+
+    def test_row_with_unparseable_date_is_rejected(self):
+        provider, acceptance = _accepted()
+        bad = "Date,Open,High,Low,Close,Volume\nnot-a-date,1,2,3,4,5\n"
+        with _patched(return_value=_fetch_result(bad)):
+            with pytest.raises(DataProviderError, match="fecha inválida"):
+                provider.download(_config(), license_acceptance=acceptance)
+
+    def test_row_with_non_numeric_ohlcv_is_rejected(self):
+        provider, acceptance = _accepted()
+        bad = "Date,Open,High,Low,Close,Volume\n2024-01-02,not_a_number,188.44,183.89,184.25,82488700\n"
+        with _patched(return_value=_fetch_result(bad)):
+            with pytest.raises(DataProviderError, match="no numérico"):
+                provider.download(_config(), license_acceptance=acceptance)
+
+    def test_row_with_empty_field_is_rejected(self):
+        provider, acceptance = _accepted()
+        bad = "Date,Open,High,Low,Close,Volume\n2024-01-02,,188.44,183.89,184.25,82488700\n"
+        with _patched(return_value=_fetch_result(bad)):
+            with pytest.raises(DataProviderError, match="vacío"):
+                provider.download(_config(), license_acceptance=acceptance)
+
+    def test_row_date_outside_requested_range_is_rejected(self):
+        provider, acceptance = _accepted()
+        bad = "Date,Open,High,Low,Close,Volume\n2030-01-02,187.15,188.44,183.89,184.25,82488700\n"
+        with _patched(return_value=_fetch_result(bad)):
+            with pytest.raises(DataProviderError, match="fuera del rango"):
+                provider.download(_config(), license_acceptance=acceptance)
 
 
 class TestSecureFetchFailurePropagates:
     def test_secure_fetch_error_becomes_data_provider_error(self):
+        provider, acceptance = _accepted()
         with _patched(side_effect=SecureFetchError("timeout")):
             with pytest.raises(DataProviderError, match="Stooq"):
-                StooqProvider().download(_config(), license_accepted=True)
+                provider.download(_config(), license_acceptance=acceptance)
 
 
 class TestLicenseGate:
     def test_download_without_acceptance_makes_zero_requests(self):
         with _patched() as mock_fetch:
-            with pytest.raises(DataProviderError, match="exige aceptar su licencia"):
-                StooqProvider().download(_config(), license_accepted=False)
+            with pytest.raises(DataProviderError, match="exige un recibo"):
+                StooqProvider().download(_config(), license_acceptance=None)
             mock_fetch.assert_not_called()
 
 
 class TestHostAllowlist:
     def test_allowed_hosts_is_stooq_com_only(self):
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result(_TYPICAL_CSV)) as mock_fetch:
-            StooqProvider().download(_config(), license_accepted=True)
+            provider.download(_config(), license_acceptance=acceptance)
         allowed = mock_fetch.call_args.kwargs["allowed_hosts"]
         assert allowed == frozenset({"stooq.com"})
 
@@ -147,11 +207,16 @@ class TestEstimate:
 
 
 class TestAvailability:
-    def test_check_availability_reflects_the_real_antibot_gate(self):
-        """Documenta el estado real descubierto: HOY `check_availability`
-        devuelve False contra el servicio real (ver TestUnexpectedSchema)
-        — aquí solo se verifica el mecanismo con un mock que simula ese
-        mismo resultado."""
+    def test_check_availability_false_against_the_real_antibot_page(self):
+        """Auditoría 2026-07-17 (ronda 2) [ALTA]: antes `check_availability`
+        solo comprobaba que `secure_fetch` no lanzara — el reto anti-bot
+        responde HTTP 200 (verificado con curl real), así que declaraba
+        `True` viendo esa misma página HTML. Ahora valida la FORMA del
+        cuerpo con el mismo camino que `download`."""
+        with _patched(return_value=_fetch_result(_REAL_ANTIBOT_HTML, content_type="text/html")):
+            assert StooqProvider().check_availability() is False
+
+    def test_check_availability_false_on_network_failure(self):
         with _patched(side_effect=SecureFetchError("blocked")):
             assert StooqProvider().check_availability() is False
 

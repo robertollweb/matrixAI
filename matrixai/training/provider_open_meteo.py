@@ -12,7 +12,7 @@ canónico del estado de la mar necesita `marine`:
 
 Licencia verificada (ver memoria del proyecto): CC-BY 4.0, uso NO
 comercial — declarada en `get_license_info`; el gate de licencia
-(`require_license_accepted`) es quien la hace bloqueante, no este
+(`require_valid_acceptance`) es quien la hace bloqueante, no este
 módulo.
 
 El host de cada endpoint es FIJO (constante de módulo) — la config del
@@ -32,9 +32,10 @@ from matrixai.training.data_provider import (
     DataProviderError,
     DownloadEstimate,
     DownloadResult,
+    LicenseAcceptance,
     LicenseInfo,
     ProviderMetadata,
-    require_license_accepted,
+    require_valid_acceptance,
 )
 from matrixai.training.secure_fetch import SecureFetchError, secure_fetch
 
@@ -44,6 +45,8 @@ _ALLOWED_HOSTS = frozenset({_ARCHIVE_HOST, _MARINE_HOST})
 _DATASETS = frozenset({"archive", "marine"})
 _MAX_BYTES = 20_000_000
 _TIMEOUT = 20.0
+_MAX_VARIABLES = 20
+_MAX_DAYS = 366 * 5  # 5 años — generoso para el ejemplo canónico (histórico largo), acota el caso patológico
 
 
 class OpenMeteoProvider:
@@ -70,14 +73,21 @@ class OpenMeteoProvider:
         )
 
     def check_availability(self) -> bool:
+        # Auditoría 2026-07-17 (ronda 2) [ALTA, mismo patrón que motivó el
+        # fix en Stooq]: comprobar solo que `secure_fetch` no lance no basta
+        # — un 200 con un cuerpo de forma inesperada (mantenimiento,
+        # cambio de esquema) declararía "disponible" sin serlo de verdad.
+        # Se valida el CUERPO con el mismo camino que usa `download`.
+        probe_config = {"dataset": "archive", "variables": ["temperature_2m_max"]}
         try:
-            secure_fetch(
+            fetched = secure_fetch(
                 f"https://{_ARCHIVE_HOST}/v1/archive?latitude=0&longitude=0"
                 "&start_date=2024-01-01&end_date=2024-01-01&daily=temperature_2m_max",
                 allowed_hosts=_ALLOWED_HOSTS, timeout=_TIMEOUT, max_bytes=_MAX_BYTES,
             )
+            self._to_canonical_csv(fetched.body, probe_config)
             return True
-        except SecureFetchError:
+        except (SecureFetchError, DataProviderError):
             return False
 
     def validate_config(self, config: dict[str, Any]) -> list[str]:
@@ -92,12 +102,28 @@ class OpenMeteoProvider:
             errors.append("longitude debe ser un número entre -180 y 180.")
         parsed_start = self._parse_date(config.get("start_date"), "start_date", errors)
         parsed_end = self._parse_date(config.get("end_date"), "end_date", errors)
-        if parsed_start and parsed_end and parsed_start > parsed_end:
-            errors.append("start_date debe ser anterior o igual a end_date.")
+        if parsed_start and parsed_end:
+            if parsed_start > parsed_end:
+                errors.append("start_date debe ser anterior o igual a end_date.")
+            elif (parsed_end - parsed_start).days + 1 > _MAX_DAYS:
+                # Auditoría 2026-07-17 (ronda 2) [MEDIA]: sin cota, un rango
+                # de fechas arbitrariamente largo (o un typo de año) pide un
+                # JSON potencialmente enorme — max_bytes de secure_fetch ya
+                # lo corta, pero es mejor rechazarlo ANTES de la petición
+                # con un mensaje específico.
+                errors.append(f"El rango start_date/end_date no puede superar {_MAX_DAYS} días.")
         variables = config.get("variables")
         if (not isinstance(variables, list) or not variables
                 or not all(isinstance(v, str) and v.strip() for v in variables)):
             errors.append("variables debe ser una lista no vacía de nombres de variable.")
+        elif len(variables) > _MAX_VARIABLES:
+            errors.append(f"variables no puede tener más de {_MAX_VARIABLES} entradas.")
+        elif len(set(variables)) != len(variables):
+            # Auditoría 2026-07-17 (ronda 2) [MEDIA]: una variable repetida
+            # pasaba limpio y generaba DOS columnas CSV con el mismo nombre
+            # (`temperature_2m_max,temperature_2m_max`) — C1 no puede
+            # consumir una cabecera con nombres duplicados.
+            errors.append("variables tiene nombres duplicados.")
         return errors
 
     def _parse_date(self, value: Any, field: str, errors: list[str]) -> date | None:
@@ -131,8 +157,8 @@ class OpenMeteoProvider:
             ),
         )
 
-    def download(self, config: dict[str, Any], *, license_accepted: bool) -> DownloadResult:
-        require_license_accepted(license_accepted, self.provider_id)
+    def download(self, config: dict[str, Any], *, license_acceptance: LicenseAcceptance | None) -> DownloadResult:
+        require_valid_acceptance(license_acceptance, self)
         errors = self.validate_config(config)
         if errors:
             raise DataProviderError("Config inválida: " + "; ".join(errors))
@@ -152,6 +178,7 @@ class OpenMeteoProvider:
                 "dataset": config["dataset"],
                 "latitude": config["latitude"],
                 "longitude": config["longitude"],
+                "license_acceptance": license_acceptance.to_dict(),
             },
         )
 

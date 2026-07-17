@@ -109,6 +109,67 @@ class TestTimeout:
         with pytest.raises(SecureFetchError, match="Tiempo de espera agotado"):
             secure_fetch("https://api.example.com/slow.csv", allowed_hosts=_ALLOWED, opener=opener, timeout=1.0)
 
+    def test_timeout_during_read_raises_actionable_error(self):
+        class _TimeoutOnRead:
+            status = 200
+            headers = {"Content-Type": "text/csv"}
+
+            def read(self, n: int = -1) -> bytes:
+                raise TimeoutError("read timed out")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        opener = _FakeOpener([_TimeoutOnRead()])
+        with pytest.raises(SecureFetchError, match="Tiempo de espera agotado leyendo"):
+            secure_fetch("https://api.example.com/slow.csv", allowed_hosts=_ALLOWED, opener=opener)
+
+
+class TestReadFailures:
+    def test_connection_reset_during_read_is_wrapped(self):
+        """Auditoría 2026-07-17 (ronda 2) [MEDIA]: solo TimeoutError estaba
+        envuelto durante la lectura — un ConnectionResetError (u otro
+        OSError/http.client.HTTPException) se escapaba sin traducir."""
+        class _ResetOnRead:
+            status = 200
+            headers = {"Content-Type": "text/csv"}
+
+            def read(self, n: int = -1) -> bytes:
+                raise ConnectionResetError("peer reset")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        opener = _FakeOpener([_ResetOnRead()])
+        with pytest.raises(SecureFetchError, match="Fallo de red leyendo"):
+            secure_fetch("https://api.example.com/x", allowed_hosts=_ALLOWED, opener=opener)
+
+    def test_incomplete_read_during_read_is_wrapped(self):
+        import http.client
+
+        class _IncompleteOnRead:
+            status = 200
+            headers = {"Content-Type": "text/csv"}
+
+            def read(self, n: int = -1) -> bytes:
+                raise http.client.IncompleteRead(b"partial")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        opener = _FakeOpener([_IncompleteOnRead()])
+        with pytest.raises(SecureFetchError, match="Fallo de red leyendo"):
+            secure_fetch("https://api.example.com/x", allowed_hosts=_ALLOWED, opener=opener)
+
 
 class TestHttpErrors:
     def test_non_redirect_http_error_is_actionable(self):

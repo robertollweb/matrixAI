@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Roberto Llamosas Conde
-"""BIBLIOTECA_PROYECTOS_INTELIGENTES C5 — proveedor `stooq`.
+"""BIBLIOTECA_PROYECTOS_INTELIGENTES C5 — proveedor `stooq` (**NO
+REGISTRADO por defecto** — ver `data_provider.get_default_registry`).
 
 Stooq (https://stooq.com): histórico de cotizaciones (acciones, índices)
 en CSV directo, sin clave. Licencia verificada (ver memoria del
@@ -11,34 +12,45 @@ proyecto): uso personal/educativo, nunca comercial.
 reto JS de prueba-de-trabajo ("This site requires JavaScript to verify
 your browser") — ni siquiera con un User-Agent de navegador responden con
 el CSV. Un fetch de servidor (`urllib`, sin motor JS) NUNCA puede pasar
-ese reto. El código de este módulo es correcto y su comprobación de
-esquema (`_EXPECTED_HEADER`) YA detecta y rechaza esa página HTML como
-"esquema inesperado" — el fallo queda limpio (invariante 7), no en
-silencio. Pendiente de decisión de Roberto (documentado, no resuelto
-aquí): sustituir la fuente bursátil o aceptar que `stooq` no funciona en
-la práctica hasta que cambien su política anti-bot.
+ese reto (confirmado también con `curl` real, no solo con este código).
+Reintentado deliberadamente NO ejecutando un motor JS/Playwright/
+Selenium para resolver el reto — ampliaría la superficie de ataque,
+consumiría recursos y podría romperse sin aviso, para un problema que no
+es "fetch inseguro" sino "el proveedor no quiere tráfico de servidor".
+
+Reauditoría 2026-07-17 (ronda 2) [ALTA]: por eso `stooq` se RETIRA del
+registro por defecto (`get_default_registry()` ya no lo incluye — ver
+`provider_ecb_fx.py` como sustituto de fuente de series temporales
+financieras). La clase se conserva aquí, completa y con sus propios
+bugs corregidos (validación de fila a fila, `check_availability` que
+valida la FORMA del cuerpo, no solo la ausencia de excepción), por si
+Roberto decide reactivarla si Stooq cambia su política anti-bot — pero
+NADIE debe registrarla en producción mientras el reto siga bloqueando
+toda petición de servidor.
 """
 from __future__ import annotations
 
 import csv
 import io
-import urllib.parse
 from datetime import date, datetime, timezone
+import urllib.parse
 from typing import Any
 
 from matrixai.training.data_provider import (
     DataProviderError,
     DownloadEstimate,
     DownloadResult,
+    LicenseAcceptance,
     LicenseInfo,
     ProviderMetadata,
-    require_license_accepted,
+    require_valid_acceptance,
 )
 from matrixai.training.secure_fetch import SecureFetchError, secure_fetch
 
 _HOST = "stooq.com"
 _ALLOWED_HOSTS = frozenset({_HOST})
 _EXPECTED_HEADER = ["Date", "Open", "High", "Low", "Close", "Volume"]
+_NUMERIC_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 _VALID_INTERVALS = frozenset({"d", "w", "m"})
 _MAX_BYTES = 20_000_000
 _TIMEOUT = 20.0
@@ -65,16 +77,20 @@ class StooqProvider:
         )
 
     def check_availability(self) -> bool:
+        # Auditoría 2026-07-17 (ronda 2) [ALTA]: comprobar solo que
+        # `secure_fetch` no lance NO basta — el reto anti-bot responde
+        # HTTP 200 con HTML (verificado con curl real), así que "sin
+        # excepción" declaraba `True` incluso viendo esa página. Se valida
+        # la FORMA del cuerpo con el mismo camino que usa `download`.
+        probe_config = {"symbol": "aapl.us", "start_date": "2024-01-02", "end_date": "2024-01-03"}
         try:
-            secure_fetch(
-                self._build_url({
-                    "symbol": "aapl.us", "start_date": "2024-01-02",
-                    "end_date": "2024-01-03", "interval": "d",
-                }),
+            fetched = secure_fetch(
+                self._build_url({**probe_config, "interval": "d"}),
                 allowed_hosts=_ALLOWED_HOSTS, timeout=_TIMEOUT, max_bytes=_MAX_BYTES,
             )
+            self._to_canonical_csv(fetched.body, probe_config)
             return True
-        except SecureFetchError:
+        except (SecureFetchError, DataProviderError):
             return False
 
     def validate_config(self, config: dict[str, Any]) -> list[str]:
@@ -116,8 +132,8 @@ class StooqProvider:
             ),
         )
 
-    def download(self, config: dict[str, Any], *, license_accepted: bool) -> DownloadResult:
-        require_license_accepted(license_accepted, self.provider_id)
+    def download(self, config: dict[str, Any], *, license_acceptance: LicenseAcceptance | None) -> DownloadResult:
+        require_valid_acceptance(license_acceptance, self)
         errors = self.validate_config(config)
         if errors:
             raise DataProviderError("Config inválida: " + "; ".join(errors))
@@ -133,7 +149,10 @@ class StooqProvider:
             csv_text=csv_text, rows=n_rows, columns=columns,
             source_url=fetched.url, fetched_at=_utcnow_iso(),
             license_info=self.get_license_info(),
-            provenance_extra={"symbol": config["symbol"], "interval": config.get("interval", "d")},
+            provenance_extra={
+                "symbol": config["symbol"], "interval": config.get("interval", "d"),
+                "license_acceptance": license_acceptance.to_dict(),
+            },
         )
 
     def _build_url(self, config: dict[str, Any]) -> str:
@@ -164,6 +183,41 @@ class StooqProvider:
             raise DataProviderError(
                 f"Stooq no devolvió ninguna cotización para {config['symbol']!r} en ese rango."
             )
+
+        # Auditoría 2026-07-17 (ronda 2) [MEDIA]: solo se validaba la
+        # CABECERA — una fila con menos campos, fecha ilegible, un valor
+        # OHLCV no numérico o vacío pasaba tal cual al CSV "canónico"
+        # entregado a C1, que asumiría datos limpios.
+        start = date.fromisoformat(config["start_date"]) if "start_date" in config else None
+        end = date.fromisoformat(config["end_date"]) if "end_date" in config else None
+        for row_num, row in enumerate(data_rows, start=2):  # fila 1 es la cabecera
+            if len(row) != len(_EXPECTED_HEADER):
+                raise DataProviderError(
+                    f"Stooq: la fila {row_num} tiene {len(row)} campos, se esperaban "
+                    f"{len(_EXPECTED_HEADER)} ({','.join(_EXPECTED_HEADER)})."
+                )
+            row_date_raw = row[0]
+            try:
+                row_date = date.fromisoformat(row_date_raw)
+            except ValueError as exc:
+                raise DataProviderError(
+                    f"Stooq: la fila {row_num} tiene una fecha inválida {row_date_raw!r}."
+                ) from exc
+            if start is not None and end is not None and not (start <= row_date <= end):
+                raise DataProviderError(
+                    f"Stooq: la fila {row_num} tiene fecha {row_date_raw!r}, fuera del "
+                    f"rango solicitado [{config['start_date']}, {config['end_date']}]."
+                )
+            for col_name, value in zip(_NUMERIC_COLUMNS, row[1:]):
+                if not value.strip():
+                    raise DataProviderError(f"Stooq: la fila {row_num} tiene {col_name!r} vacío.")
+                try:
+                    float(value)
+                except ValueError as exc:
+                    raise DataProviderError(
+                        f"Stooq: la fila {row_num} tiene {col_name!r}={value!r} no numérico."
+                    ) from exc
+
         buf = io.StringIO()
         writer = csv.writer(buf, lineterminator="\n")
         writer.writerow(_EXPECTED_HEADER)

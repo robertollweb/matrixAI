@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 import random
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -20,9 +21,10 @@ from matrixai.training.data_provider import (
     DataProviderError,
     DownloadEstimate,
     DownloadResult,
+    LicenseAcceptance,
     LicenseInfo,
     ProviderMetadata,
-    require_license_accepted,
+    require_valid_acceptance,
 )
 
 _VALID_TYPES = frozenset({"number", "integer", "boolean", "categorical", "date"})
@@ -98,11 +100,7 @@ class SyntheticLocalProvider:
             )
             return errors
         if col_type in ("number", "integer"):
-            rng = col.get("range")
-            if (not isinstance(rng, (list, tuple)) or len(rng) != 2
-                    or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in rng)
-                    or rng[0] >= rng[1]):
-                errors.append(f"columns[{index}].range debe ser [min, max] numérico con min < max.")
+            errors.extend(self._validate_range(col.get("range"), index, col_type))
         elif col_type == "categorical":
             cats = col.get("categories")
             if (not isinstance(cats, list) or len(cats) < 2
@@ -110,6 +108,12 @@ class SyntheticLocalProvider:
                 errors.append(
                     f"columns[{index}].categories debe ser una lista de al menos 2 textos no vacíos."
                 )
+            elif len(set(cats)) != len(cats):
+                # Auditoría 2026-07-17 (ronda 2) [ALTA]: ["a","a"] pasaba
+                # "al menos 2 textos" pero produce una columna CONSTANTE
+                # (rng.choice siempre devuelve "a") — no aporta ninguna
+                # señal, contradice "categórica" de verdad.
+                errors.append(f"columns[{index}].categories tiene valores duplicados.")
         elif col_type == "date":
             start = col.get("date_start")
             if not isinstance(start, str):
@@ -119,7 +123,39 @@ class SyntheticLocalProvider:
                     date.fromisoformat(start)
                 except ValueError:
                     errors.append(f"columns[{index}].date_start {start!r} no es una fecha ISO válida.")
+            # Auditoría 2026-07-17 (ronda 2) [ALTA]: date_step_days nunca se
+            # validaba — un valor no convertible a entero (p.ej. "bad")
+            # pasaba validate_config() limpio y explotaba con ValueError sin
+            # envolver dentro de _sample(), un HTTP 500 en vez de un error
+            # accionable (invariante 7).
+            step = col.get("date_step_days", 1)
+            if not isinstance(step, int) or isinstance(step, bool) or step < 1:
+                errors.append(f"columns[{index}].date_step_days debe ser un entero positivo (recibido {step!r}).")
         return errors
+
+    def _validate_range(self, rng: Any, index: int, col_type: str) -> list[str]:
+        if (not isinstance(rng, (list, tuple)) or len(rng) != 2
+                or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in rng)):
+            return [f"columns[{index}].range debe ser [min, max] numérico."]
+        lo, hi = float(rng[0]), float(rng[1])
+        # Auditoría 2026-07-17 (ronda 2) [ALTA]: NaN/infinito pasaban el
+        # isinstance() de arriba (son floats válidos en Python) y `nan >=
+        # hi` siempre es False, así que un rango [nan, 5] "pasaba" la
+        # comprobación min<max sin ser un rango real.
+        if not (math.isfinite(lo) and math.isfinite(hi)):
+            return [f"columns[{index}].range debe ser un rango finito (nada de NaN/infinito)."]
+        if lo >= hi:
+            return [f"columns[{index}].range debe ser [min, max] con min < max."]
+        if col_type == "integer" and not (lo.is_integer() and hi.is_integer()):
+            # Auditoría 2026-07-17 (ronda 2) [ALTA]: un rango [0.9, 1.1]
+            # para type="integer" pasaba la validación y luego randint(int
+            # (0.9), int(1.1)) == randint(0, 1) truncaba en silencio a un
+            # rango DISTINTO del declarado (0 queda fuera de [0.9, 1.1]).
+            return [
+                f"columns[{index}].range para type='integer' debe tener límites "
+                f"enteros (recibido [{rng[0]!r}, {rng[1]!r}])."
+            ]
+        return []
 
     def estimate_download(self, config: dict[str, Any]) -> DownloadEstimate:
         errors = self.validate_config(config)
@@ -135,8 +171,8 @@ class SyntheticLocalProvider:
             notes="Estimación aproximada — la generación real es instantánea (sin red).",
         )
 
-    def download(self, config: dict[str, Any], *, license_accepted: bool) -> DownloadResult:
-        require_license_accepted(license_accepted, self.provider_id)
+    def download(self, config: dict[str, Any], *, license_acceptance: LicenseAcceptance | None) -> DownloadResult:
+        require_valid_acceptance(license_acceptance, self)
         errors = self.validate_config(config)
         if errors:
             raise DataProviderError("Config inválida: " + "; ".join(errors))
@@ -157,7 +193,10 @@ class SyntheticLocalProvider:
             csv_text=buf.getvalue(), rows=len(rows), columns=names,
             source_url=None, fetched_at=_utcnow_iso(),
             license_info=self.get_license_info(),
-            provenance_extra={"seed": config["seed"]},
+            provenance_extra={
+                "seed": config["seed"],
+                "license_acceptance": license_acceptance.to_dict(),
+            },
         )
 
     def _sample(self, col: dict[str, Any], rng: random.Random, row_index: int) -> str:

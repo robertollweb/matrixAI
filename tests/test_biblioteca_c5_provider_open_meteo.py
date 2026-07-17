@@ -13,7 +13,7 @@ import unittest.mock
 
 import pytest
 
-from matrixai.training.data_provider import DataProviderError
+from matrixai.training.data_provider import DataProviderError, LicenseAcceptanceStore
 from matrixai.training.provider_open_meteo import OpenMeteoProvider
 from matrixai.training.secure_fetch import SecureFetchError, SecureFetchResult
 
@@ -85,6 +85,12 @@ def _patched(**kwargs):
     return unittest.mock.patch("matrixai.training.provider_open_meteo.secure_fetch", **kwargs)
 
 
+def _accepted():
+    provider = OpenMeteoProvider()
+    store = LicenseAcceptanceStore()
+    return provider, store.record(provider, actor="test")
+
+
 class TestValidateConfig:
     def test_valid_archive_config_has_no_errors(self):
         assert OpenMeteoProvider().validate_config(_archive_config()) == []
@@ -107,11 +113,46 @@ class TestValidateConfig:
         errors = OpenMeteoProvider().validate_config(_archive_config(variables=[]))
         assert any("variables" in e for e in errors)
 
+    def test_date_range_over_max_days_is_rejected(self):
+        errors = OpenMeteoProvider().validate_config(
+            _archive_config(start_date="2000-01-01", end_date="2024-01-01")
+        )
+        assert any("días" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# Reauditoría 2026-07-17 (ronda 2) [MEDIA] — variables duplicadas pasaban
+# validate_config() y generaban un CSV con cabeceras repetidas, que C1 no
+# puede consumir; tampoco había cota de cantidad de variables.
+# ---------------------------------------------------------------------------
+
+class TestDuplicateVariablesRejected:
+    def test_duplicate_variable_names_are_rejected(self):
+        errors = OpenMeteoProvider().validate_config(
+            _archive_config(variables=["temperature_2m_max", "temperature_2m_max"])
+        )
+        assert any("duplicados" in e for e in errors)
+
+    def test_too_many_variables_is_rejected(self):
+        errors = OpenMeteoProvider().validate_config(
+            _archive_config(variables=[f"v{i}" for i in range(25)])
+        )
+        assert any("variables" in e for e in errors)
+
+    def test_download_never_produces_a_duplicate_header(self):
+        provider, acceptance = _accepted()
+        with pytest.raises(DataProviderError, match="duplicados"):
+            provider.download(
+                _archive_config(variables=["temperature_2m_max", "temperature_2m_max"]),
+                license_acceptance=acceptance,
+            )
+
 
 class TestDownloadArchiveWithRealFixture:
     def test_returns_canonical_csv_matching_real_response(self):
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result(_REAL_ARCHIVE_JSON)) as mock_fetch:
-            result = OpenMeteoProvider().download(_archive_config(), license_accepted=True)
+            result = provider.download(_archive_config(), license_acceptance=acceptance)
         assert mock_fetch.call_count == 1
         assert result.rows == 3
         assert result.columns == ["time", "temperature_2m_max", "temperature_2m_min"]
@@ -125,11 +166,18 @@ class TestDownloadArchiveWithRealFixture:
         assert info.commercial_use_allowed is False
         assert info.requires_attribution is True
 
+    def test_provenance_extra_carries_the_acceptance_receipt(self):
+        provider, acceptance = _accepted()
+        with _patched(return_value=_fetch_result(_REAL_ARCHIVE_JSON)):
+            result = provider.download(_archive_config(), license_acceptance=acceptance)
+        assert result.provenance_extra["license_acceptance"] == acceptance.to_dict()
+
 
 class TestDownloadMarineWithRealFixture:
     def test_returns_canonical_csv_and_preserves_real_nulls_as_empty(self):
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result(_REAL_MARINE_JSON)):
-            result = OpenMeteoProvider().download(_marine_config(), license_accepted=True)
+            result = provider.download(_marine_config(), license_acceptance=acceptance)
         assert result.rows == 3
         lines = result.csv_text.splitlines()
         assert lines[0] == "time,wave_height"
@@ -140,31 +188,36 @@ class TestDownloadMarineWithRealFixture:
 
 class TestApiErrorResponse:
     def test_real_error_payload_raises_actionable_error(self):
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result(_REAL_ERROR_JSON)):
             with pytest.raises(DataProviderError, match="Latitude must be in range"):
-                OpenMeteoProvider().download(_archive_config(latitude=52.52), license_accepted=True)
+                provider.download(_archive_config(latitude=52.52), license_acceptance=acceptance)
 
 
 class TestUnexpectedSchema:
     def test_non_json_body_is_rejected(self):
+        provider, acceptance = _accepted()
         bad = SecureFetchResult(url="https://archive-api.open-meteo.com/x", status=200, body=b"<html>nope</html>", content_type="text/html")
         with _patched(return_value=bad):
             with pytest.raises(DataProviderError, match="no-JSON"):
-                OpenMeteoProvider().download(_archive_config(), license_accepted=True)
+                provider.download(_archive_config(), license_acceptance=acceptance)
 
     def test_missing_daily_key_is_rejected(self):
+        provider, acceptance = _accepted()
         bad = _fetch_result({"latitude": 1, "longitude": 1})
         with _patched(return_value=bad):
             with pytest.raises(DataProviderError, match="esquema inesperado"):
-                OpenMeteoProvider().download(_archive_config(), license_accepted=True)
+                provider.download(_archive_config(), license_acceptance=acceptance)
 
     def test_missing_requested_variable_is_rejected(self):
+        provider, acceptance = _accepted()
         payload = {"daily": {"time": ["2024-01-01"], "temperature_2m_max": [7.4]}}
         with _patched(return_value=_fetch_result(payload)):
             with pytest.raises(DataProviderError, match="temperature_2m_min"):
-                OpenMeteoProvider().download(_archive_config(), license_accepted=True)
+                provider.download(_archive_config(), license_acceptance=acceptance)
 
     def test_variable_length_mismatch_is_rejected(self):
+        provider, acceptance = _accepted()
         payload = {"daily": {
             "time": ["2024-01-01", "2024-01-02"],
             "temperature_2m_max": [7.4],
@@ -172,40 +225,44 @@ class TestUnexpectedSchema:
         }}
         with _patched(return_value=_fetch_result(payload)):
             with pytest.raises(DataProviderError, match="longitud distinta"):
-                OpenMeteoProvider().download(_archive_config(), license_accepted=True)
+                provider.download(_archive_config(), license_acceptance=acceptance)
 
 
 class TestSecureFetchFailurePropagates:
     def test_secure_fetch_error_becomes_data_provider_error(self):
+        provider, acceptance = _accepted()
         with _patched(side_effect=SecureFetchError("timeout")):
             with pytest.raises(DataProviderError, match="Open-Meteo"):
-                OpenMeteoProvider().download(_archive_config(), license_accepted=True)
+                provider.download(_archive_config(), license_acceptance=acceptance)
 
 
 class TestLicenseGate:
     def test_download_without_acceptance_makes_zero_requests(self):
         with _patched() as mock_fetch:
-            with pytest.raises(DataProviderError, match="exige aceptar su licencia"):
-                OpenMeteoProvider().download(_archive_config(), license_accepted=False)
+            with pytest.raises(DataProviderError, match="exige un recibo"):
+                OpenMeteoProvider().download(_archive_config(), license_acceptance=None)
             mock_fetch.assert_not_called()
 
 
 class TestHostAllowlistWiring:
     def test_archive_dataset_uses_archive_host(self):
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result(_REAL_ARCHIVE_JSON)) as mock_fetch:
-            OpenMeteoProvider().download(_archive_config(), license_accepted=True)
+            provider.download(_archive_config(), license_acceptance=acceptance)
         called_url = mock_fetch.call_args.args[0]
         assert called_url.startswith("https://archive-api.open-meteo.com/v1/archive?")
 
     def test_marine_dataset_uses_marine_host(self):
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result(_REAL_MARINE_JSON)) as mock_fetch:
-            OpenMeteoProvider().download(_marine_config(), license_accepted=True)
+            provider.download(_marine_config(), license_acceptance=acceptance)
         called_url = mock_fetch.call_args.args[0]
         assert called_url.startswith("https://marine-api.open-meteo.com/v1/marine?")
 
     def test_allowed_hosts_passed_to_secure_fetch_are_the_fixed_pair(self):
+        provider, acceptance = _accepted()
         with _patched(return_value=_fetch_result(_REAL_ARCHIVE_JSON)) as mock_fetch:
-            OpenMeteoProvider().download(_archive_config(), license_accepted=True)
+            provider.download(_archive_config(), license_acceptance=acceptance)
         allowed = mock_fetch.call_args.kwargs["allowed_hosts"]
         assert allowed == frozenset({"archive-api.open-meteo.com", "marine-api.open-meteo.com"})
 
@@ -229,4 +286,9 @@ class TestAvailability:
 
     def test_check_availability_false_on_failure(self):
         with _patched(side_effect=SecureFetchError("down")):
+            assert OpenMeteoProvider().check_availability() is False
+
+    def test_check_availability_false_when_body_shape_is_wrong(self):
+        bad = SecureFetchResult(url="x", status=200, body=b"<html>maintenance</html>", content_type="text/html")
+        with _patched(return_value=bad):
             assert OpenMeteoProvider().check_availability() is False

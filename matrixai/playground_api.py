@@ -35,6 +35,7 @@ from matrixai.training.dataset_project import (
 )
 from matrixai.training.data_provider import (
     get_default_registry,
+    get_default_acceptance_store,
     DataProviderError,
 )
 from matrixai.playground import (
@@ -90,6 +91,7 @@ __all__ = [
     "generate_temporal_project_from_dataset",
     "DatasetProjectError",
     "get_default_registry",
+    "get_default_acceptance_store",
     "DataProviderError",
     "analyze_playground_request",
     "serve",

@@ -63,6 +63,7 @@ _EXTERNAL_ALIAS_MAP = {
     "generate_temporal_project_from_dataset": (_dataset_project, "generate_temporal_project_from_dataset"),
     "DatasetProjectError": (_dataset_project, "DatasetProjectError"),
     "get_default_registry": (_data_provider, "get_default_registry"),
+    "get_default_acceptance_store": (_data_provider, "get_default_acceptance_store"),
     "DataProviderError": (_data_provider, "DataProviderError"),
 }
 

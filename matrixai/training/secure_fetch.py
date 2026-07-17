@@ -27,6 +27,7 @@ Reutiliza el patrón de "transport" inyectable ya usado en
 """
 from __future__ import annotations
 
+import http.client
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -112,6 +113,17 @@ def secure_fetch(
         except TimeoutError as exc:
             raise SecureFetchError(
                 f"Tiempo de espera agotado leyendo {current_url!r} (timeout={timeout}s)."
+            ) from exc
+        except (OSError, http.client.HTTPException) as exc:
+            # Auditoría 2026-07-17 [MEDIA]: solo TimeoutError estaba envuelto
+            # aquí — un ConnectionResetError/IncompleteRead/otro OSError de
+            # bajo nivel durante la LECTURA (no en el open()) se escapaba sin
+            # traducir y podía terminar como un 500 genérico en el caller,
+            # en vez de un fallo limpio y accionable (invariante 7).
+            # TimeoutError es un OSError desde Python 3.10 pero se atrapa
+            # antes con su propio mensaje más específico.
+            raise SecureFetchError(
+                f"Fallo de red leyendo {current_url!r}: {exc}"
             ) from exc
 
     raise SecureFetchError(f"Demasiadas redirecciones (> {max_redirects}) partiendo de {url!r}.")
