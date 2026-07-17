@@ -59,6 +59,7 @@ _EXTERNAL_ALIAS_MAP = {
     "analyze_dataset_csv": (_dataset_analysis, "analyze_dataset_csv"),
     "DatasetAnalysisError": (_dataset_analysis, "DatasetAnalysisError"),
     "generate_project_from_dataset": (_dataset_project, "generate_project_from_dataset"),
+    "generate_temporal_project_from_dataset": (_dataset_project, "generate_temporal_project_from_dataset"),
     "DatasetProjectError": (_dataset_project, "DatasetProjectError"),
 }
 

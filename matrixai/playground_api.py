@@ -30,6 +30,7 @@ from matrixai.training.dataset_analysis import (
 )
 from matrixai.training.dataset_project import (
     generate_project_from_dataset,
+    generate_temporal_project_from_dataset,
     DatasetProjectError,
 )
 from matrixai.playground import (
@@ -78,10 +79,11 @@ from matrixai.playground import (
 )
 
 __all__ = [
-    # BIBLIOTECA_PROYECTOS_INTELIGENTES C1/C2 — flujo datos-primero
+    # BIBLIOTECA_PROYECTOS_INTELIGENTES C1/C2/C4 — flujo datos-primero
     "analyze_dataset_csv",
     "DatasetAnalysisError",
     "generate_project_from_dataset",
+    "generate_temporal_project_from_dataset",
     "DatasetProjectError",
     "analyze_playground_request",
     "serve",

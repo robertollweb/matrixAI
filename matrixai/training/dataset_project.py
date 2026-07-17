@@ -124,11 +124,14 @@ from matrixai.training.dense_generator import _identifier, _ONEHOT_MAX
 # que C1 los excluye de target_candidates, aquí se excluyen del prompt
 # sintetizado por completo (nunca aparecen en FEATURES ni en FROM COLUMNS).
 _NEVER_FEATURE_TYPES = {"identifier", "unknown"}
-# `date` tampoco es una FEATURE utilizable todavía (v1): una fecha cruda no
-# es un `Scalar`/`Categorical` — el pipeline de ventanas/desplazamiento que
-# la haría utilizable es C3 (aún no construido). Se excluye igual que
-# identifier/unknown; el usuario la ve en `temporal_columns` (C1) mientras
-# tanto.
+# `date` tampoco es una FEATURE utilizable directamente: una fecha cruda no
+# es un `Scalar`/`Categorical`. El pipeline de ventanas/desplazamiento que la
+# hace utilizable es C3 (`dataset_pipeline.py`) — `sort_temporal` la consume
+# para ordenar pero la columna cruda sigue sin ser feature; lo que SÍ se
+# vuelve feature son las columnas `_lag*` que produce `lag_window` sobre
+# OTRAS columnas (ver `generate_temporal_project_from_dataset`, C4). Se
+# excluye igual que identifier/unknown; el usuario la ve en
+# `temporal_columns` (C1) mientras tanto.
 _NOT_YET_USABLE_FEATURE_TYPES = _NEVER_FEATURE_TYPES | {"date"}
 
 _CLASSIFICATION_TARGET_TYPES = {"boolean", "categorical"}
@@ -394,6 +397,102 @@ def generate_project_from_dataset(
     return result
 
 
+def generate_temporal_project_from_dataset(
+    csv_text: str,
+    target_column: str,
+    *,
+    temporal_column: str,
+    horizon: int,
+    lag_window_columns: list[str] | None = None,
+    lag_window_size: int | None = None,
+    column_type_overrides: dict[str, str] | None = None,
+    column_range_overrides: dict[str, tuple[float, float]] | None = None,
+) -> dict[str, Any]:
+    """C4 — flujo A, caso serie temporal: "columna temporal + ventana +
+    horizonte → operaciones de C3" (contrato 57). Envoltorio DELGADO
+    alrededor de `generate_project_from_dataset` (cero caminos paralelos,
+    invariante 4) — nunca reimplementa la generación, solo prepara el CSV
+    antes de entregárselo:
+
+      1. `run_pipeline` (C3, `dataset_pipeline.py`) sobre el CSV crudo:
+         `sort_temporal(temporal_column)` → `shift_target(target_column,
+         horizon)` → opcionalmente `lag_window(lag_window_columns,
+         lag_window_size)` → `missing_values(strategy=drop)` (limpia a la
+         vez los bordes del lag y la cola sin target futuro).
+      2. El CSV resultante + el nombre del target DESPLAZADO
+         (`{target_column}_target_h{horizon}`) se entregan tal cual a
+         `generate_project_from_dataset` — el resto del flujo (esquema,
+         prompt tipado, generación, validación) es EXACTAMENTE el mismo
+         que el caso no temporal.
+      3. Anti-fuga (invariante 6/13): tras generar, se verifica con
+         `check_anti_leakage` que ninguna FEATURE del proyecto resultante
+         tenga desplazamiento temporal positivo — defensa en profundidad,
+         nunca debería dispararse si el propio pipeline se construyó bien
+         arriba, pero un futuro cambio en cómo se arma `ops` no puede
+         colar una fuga en silencio.
+
+    `column_type_overrides`/`column_range_overrides` (invariante 8) se
+    aplican DESPUÉS del pipeline — sus claves son los nombres de columna
+    TRANSFORMADOS (p.ej. `altura_ola_lag1`, no `altura_ola`), porque son
+    los únicos que el usuario ve en el esquema final editable.
+
+    Lanza `DatasetProjectError` si el pipeline no puede construirse
+    (columna temporal/objetivo inexistente, parámetros inválidos) o si no
+    queda ninguna fila tras `missing_values(drop)` (ventana/horizonte
+    demasiado grandes para el dataset)."""
+    from matrixai.training.dataset_pipeline import (
+        PipelineError,
+        check_anti_leakage,
+        run_pipeline,
+    )
+
+    rows = _read_rows(csv_text)
+    ops: list[dict[str, Any]] = [{"op": "sort_temporal", "column": temporal_column}]
+    ops.append({"op": "shift_target", "column": target_column, "horizon": horizon})
+    effective_target = f"{target_column}_target_h{horizon}"
+    if lag_window_columns:
+        if not lag_window_size:
+            raise DatasetProjectError(
+                "lag_window_size es obligatorio si se declara lag_window_columns."
+            )
+        ops.append({
+            "op": "lag_window", "columns": list(lag_window_columns), "window": lag_window_size,
+        })
+    ops.append({"op": "missing_values", "strategy": "drop"})
+
+    try:
+        pipeline_result = run_pipeline(rows, ops)
+    except PipelineError as exc:
+        raise DatasetProjectError(f"Serie temporal: {exc}") from exc
+    if not pipeline_result.rows:
+        raise DatasetProjectError(
+            "Serie temporal: el pipeline no deja ninguna fila — la ventana de "
+            "lags y/o el horizonte son demasiado grandes para este dataset."
+        )
+    prepared_csv = _rows_to_csv_text(pipeline_result.rows)
+
+    result = generate_project_from_dataset(
+        prepared_csv, effective_target,
+        column_type_overrides=column_type_overrides,
+        column_range_overrides=column_range_overrides,
+    )
+
+    feature_columns = list(result["provenance"]["feature_name_map"].keys())
+    leaks = check_anti_leakage(pipeline_result, feature_columns)
+    if leaks:
+        raise DatasetProjectError("Serie temporal: " + "; ".join(leaks))
+
+    result["provenance"]["temporal"] = {
+        "temporal_column": temporal_column,
+        "raw_target_column": target_column,
+        "horizon": horizon,
+        "lag_window_columns": list(lag_window_columns or []),
+        "lag_window_size": lag_window_size,
+        "pipeline_operations": [s.to_dict() for s in pipeline_result.steps],
+    }
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -402,6 +501,17 @@ def _read_rows(csv_text: str) -> list[dict[str, str]]:
     from matrixai.training.data import normalize_csv_text
     normalized = normalize_csv_text(csv_text)
     return list(csv.DictReader(io.StringIO(normalized)))
+
+
+def _rows_to_csv_text(rows: list[dict[str, str]]) -> str:
+    """Inverso de `_read_rows` — serializa las filas YA transformadas por
+    `run_pipeline` (C3) de vuelta a texto CSV para entregárselas a
+    `generate_project_from_dataset` (C4, caso serie temporal)."""
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=list(rows[0].keys()))
+    writer.writeheader()
+    writer.writerows(rows)
+    return out.getvalue()
 
 
 def _distinct_non_null(rows: list[dict[str, str]], col: str) -> list[str]:
