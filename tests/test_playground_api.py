@@ -17,6 +17,8 @@ import matrixai.playground as pg
 import matrixai.training.dataset_analysis as _dataset_analysis
 import matrixai.training.dataset_project as _dataset_project
 import matrixai.training.data_provider as _data_provider
+import matrixai.training.template_schema as _template_schema
+import matrixai.training.template_project as _template_project
 from matrixai import playground_api as api
 
 
@@ -65,6 +67,10 @@ _EXTERNAL_ALIAS_MAP = {
     "get_default_registry": (_data_provider, "get_default_registry"),
     "get_default_acceptance_store": (_data_provider, "get_default_acceptance_store"),
     "DataProviderError": (_data_provider, "DataProviderError"),
+    "validate_template": (_template_schema, "validate_template"),
+    "TemplateValidationError": (_template_schema, "TemplateValidationError"),
+    "generate_project_from_template": (_template_project, "generate_project_from_template"),
+    "TemplateProjectError": (_template_project, "TemplateProjectError"),
 }
 
 

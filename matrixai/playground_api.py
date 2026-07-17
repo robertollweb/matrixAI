@@ -38,6 +38,14 @@ from matrixai.training.data_provider import (
     get_default_acceptance_store,
     DataProviderError,
 )
+from matrixai.training.template_schema import (
+    validate_template,
+    TemplateValidationError,
+)
+from matrixai.training.template_project import (
+    generate_project_from_template,
+    TemplateProjectError,
+)
 from matrixai.playground import (
     # Already-public engine entry points
     analyze_playground_request,
@@ -93,6 +101,10 @@ __all__ = [
     "get_default_registry",
     "get_default_acceptance_store",
     "DataProviderError",
+    "validate_template",
+    "TemplateValidationError",
+    "generate_project_from_template",
+    "TemplateProjectError",
     "analyze_playground_request",
     "serve",
     "handler_class",
