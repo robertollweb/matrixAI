@@ -104,6 +104,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import math
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -197,7 +198,27 @@ def generate_project_from_dataset(
                 f"column_range_overrides referencia la columna {col!r}, que no "
                 f"existe en el CSV. Columnas: {analysis['column_order']}."
             )
-        columns[col]["proposed_range"] = list(rng)
+        # Auditoría C2 [MEDIA, reauditoría]: hasta aquí solo se validaba la
+        # FORMA del override ([min, max] numérico, en el endpoint Studio) —
+        # un rango invertido ([10, 0]) o no finito (NaN/inf) pasaba de largo
+        # y GEN lo descartaba por su cuenta más adelante SIN avisar (un
+        # rango inválido se degrada a "sin rango declarado", verificado),
+        # así que la columna se quedaba sin field_ranges pese a `ok: true`.
+        # Se valida aquí, en el núcleo — protege a CUALQUIER caller, no solo
+        # al endpoint Studio.
+        lo, hi = float(rng[0]), float(rng[1])
+        if not (math.isfinite(lo) and math.isfinite(hi)):
+            raise DatasetProjectError(
+                f"column_range_overrides[{col!r}] = {list(rng)!r} no es un "
+                "rango finito — usa valores numéricos reales (nada de "
+                "NaN/infinito)."
+            )
+        if lo >= hi:
+            raise DatasetProjectError(
+                f"column_range_overrides[{col!r}] = {list(rng)!r} tiene el "
+                "mínimo mayor o igual que el máximo — corrige el rango."
+            )
+        columns[col]["proposed_range"] = [lo, hi]
 
     if target_column not in columns:
         raise DatasetProjectError(
@@ -216,6 +237,11 @@ def generate_project_from_dataset(
             "pueden predecir; corrige el tipo en column_type_overrides si C1 "
             "se equivocó)."
         )
+    # GEN nombra el target SIEMPRE así, sea cual sea la columna real (ver
+    # punto 1 del docstring) — se calcula aquí, temprano, porque también
+    # hace falta para detectar una FEATURE que colisione con ese nombre
+    # reservado (ver `_normalize_feature_names`).
+    target_header = "predicted_class" if task == "classification" else "predicted_value"
 
     feature_columns = [
         col for col in analysis["column_order"]
@@ -229,8 +255,10 @@ def generate_project_from_dataset(
         )
 
     # Auditoría C2 [ALTA] (ver punto 5 del docstring): nombres de campo
-    # saneados por adelantado y colisión detectada como error accionable.
-    feature_safe_names = _normalize_feature_names(feature_columns)
+    # saneados por adelantado y colisión detectada como error accionable —
+    # incluida la colisión con el nombre reservado del target (auditoría
+    # C2 [MEDIA, residual]).
+    feature_safe_names = _normalize_feature_names(feature_columns, target_header)
 
     # Reescanea el CSV crudo para el target (valores REALES, con su case
     # original — C1 no guarda vocabulario para 'boolean' y lo trunca para
@@ -297,14 +325,23 @@ def generate_project_from_dataset(
     from matrixai.playground import analyze_playground_request, _validate_training_csv
     res = analyze_playground_request({"mode": "prompt", "prompt": prompt, "use_llm": False})
     if not res.get("ok"):
+        # Auditoría C2 [MEDIA, reauditoría]: `res` es el dict COMPLETO de
+        # `analyze_playground_request` (mxai + AST + python compilado +
+        # checks...) — volcarlo entero como mensaje de error producía un
+        # DatasetProjectError de decenas de miles de caracteres, nada
+        # accionable. Se extrae el motivo real de `checks` (cada uno trae su
+        # propia lista de errores) y, si no hay ninguno, un mensaje corto en
+        # vez del dict crudo.
+        reason = res.get("error") or "; ".join(
+            err for check in (res.get("checks") or []) for err in (check.get("errors") or [])
+        ) or "el generador rechazó el prompt sintetizado sin detallar el motivo"
         raise DatasetProjectError(
-            f"El prompt sintetizado desde el esquema no generó un modelo válido: "
-            f"{res.get('error') or res}"
+            f"El prompt sintetizado desde el esquema no generó un modelo válido: {reason}"
         )
 
     prepared = _prepare_training_csv(
         rows, feature_columns, columns, feature_safe_names, target_column, task,
-        target_label_map,
+        target_label_map, target_header,
     )
     prepared_csv = prepared.text
 
@@ -339,6 +376,8 @@ def generate_project_from_dataset(
         excluded_columns=excluded_columns,
         rows_dropped_null_target=prepared.rows_dropped_null_target,
         feature_operations=prepared.operations,
+        feature_name_map=feature_safe_names,
+        target_label_map=target_label_map,
         task=task,
         prompt=prompt,
         training_text=res.get("training_text") or "",
@@ -397,7 +436,14 @@ def _safe_field_name(name: str) -> str:
     return safe or "objetivo"
 
 
-def _normalize_feature_names(feature_columns: list[str]) -> dict[str, str]:
+# Auditoría C2 [MEDIA, residual]: centinela para distinguir, dentro de
+# `_normalize_feature_names`, "colisiona con el nombre reservado del
+# target" de "colisiona con otra columna real" — mensajes distintos,
+# mismo mecanismo de detección.
+_RESERVED_TARGET_SENTINEL = "\0target_header\0"
+
+
+def _normalize_feature_names(feature_columns: list[str], target_header: str) -> dict[str, str]:
     """Nombre de columna cruda -> nombre de campo seguro para VECTOR/CSV.
 
     GEN sanea el nombre de cada FEATURE con `_sanitize_name`
@@ -408,9 +454,17 @@ def _normalize_feature_names(feature_columns: list[str]) -> dict[str, str]:
     [ALTA]). Se aplica aquí la MISMA función, con colisión (dos columnas
     crudas distintas que sanean igual) como error accionable — GEN se
     quedaría con la primera y descartaría la segunda en silencio si no se
-    detectara antes."""
+    detectara antes.
+
+    También detecta que una FEATURE normalice al mismo nombre que
+    `target_header` (`predicted_class`/`predicted_value`, SIEMPRE
+    reservado para el target — ver punto 1 del docstring del módulo): sin
+    este chequeo, el prompt sintetizado generaba un VECTOR con dos campos
+    llamados igual (uno de entrada, uno de salida) y GEN lo rechazaba con
+    un error interno de cientos de líneas, nada accionable (auditoría C2
+    [MEDIA, residual])."""
     mapping: dict[str, str] = {}
-    seen: dict[str, str] = {}
+    seen: dict[str, str] = {target_header: _RESERVED_TARGET_SENTINEL}
     for col in feature_columns:
         safe = _identifier(col)
         if not safe:
@@ -419,6 +473,12 @@ def _normalize_feature_names(feature_columns: list[str]) -> dict[str, str]:
                 "normalizar (solo símbolos/espacios) — renómbrala en el CSV."
             )
         if safe in seen and seen[safe] != col:
+            if seen[safe] == _RESERVED_TARGET_SENTINEL:
+                raise DatasetProjectError(
+                    f"La columna {col!r} normaliza a {safe!r}, el nombre "
+                    "reservado que el modelo generado usa siempre para la "
+                    "columna objetivo — renómbrala en el CSV de origen."
+                )
             raise DatasetProjectError(
                 f"Las columnas {seen[safe]!r} y {col!r} generan el mismo "
                 f"nombre de campo tras normalizar ({safe!r}) — el modelo no "
@@ -505,6 +565,7 @@ def _prepare_training_csv(
     target_column: str,
     task: str,
     target_label_map: dict[str, str] | None,
+    target_header: str,
 ) -> _PreparedCSV:
     # Grupos one-hot/embedding + los mapas valor_crudo->columna o índice,
     # calculados UNA VEZ (no por fila — recalcular _distinct_non_null
@@ -541,7 +602,6 @@ def _prepare_training_csv(
             header.append(safe_name)
             if col_type == "boolean" and "normalize_boolean_features" not in operations:
                 operations.append("normalize_boolean_features")
-    target_header = "predicted_class" if task == "classification" else "predicted_value"
     header.append(target_header)
 
     out = io.StringIO()
@@ -613,6 +673,8 @@ def _build_provenance(
     excluded_columns: list[str],
     rows_dropped_null_target: int,
     feature_operations: list[str],
+    feature_name_map: dict[str, str],
+    target_label_map: dict[str, str] | None,
     task: str,
     prompt: str,
     training_text: str,
@@ -647,6 +709,14 @@ def _build_provenance(
         # procedencia no dejaba rastro de ninguna de las dos cosas.
         "excluded_columns": excluded_columns,
         "rows_dropped_null_target": rows_dropped_null_target,
+        # Auditoría C2 [MEDIA, reauditoría]: mapa cabecera_original ->
+        # cabecera_normalizada y valor_crudo -> etiqueta (None en
+        # regresión, donde no hay etiquetas) — la reversibilidad que la
+        # auditoría pedía ya existía en memoria (`_normalize_feature_names`/
+        # `_normalize_labels`) pero se descartaba al no viajar en la
+        # procedencia devuelta.
+        "feature_name_map": feature_name_map,
+        "target_label_map": target_label_map,
         "task": task,
         "column_type_overrides": column_type_overrides,
         "column_range_overrides": {k: list(v) for k, v in column_range_overrides.items()},

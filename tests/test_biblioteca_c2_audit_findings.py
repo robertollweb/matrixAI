@@ -218,6 +218,74 @@ class TestMediaProvenanceCompleteness:
         res = generate_project_from_dataset(csv_text, target_column="resultado")
         assert res["provenance"]["rows_dropped_null_target"] == 2
 
+    def test_feature_name_map_and_target_label_map_recorded(self):
+        csv_text = "customer age,resultado\n1,si\n3,no\n5,si\n7,no\n9,si\n11,no\n"
+        res = generate_project_from_dataset(csv_text, target_column="resultado")
+        assert res["provenance"]["feature_name_map"] == {"customer age": "customer_age"}
+        assert res["provenance"]["target_label_map"] == {"si": "si", "no": "no"}
+
+    def test_target_label_map_is_none_for_regression(self):
+        csv_text = "x,resultado\n1,2.5\n2,3.5\n3,4.5\n4,5.5\n5,6.5\n6,7.5\n"
+        res = generate_project_from_dataset(csv_text, target_column="resultado")
+        assert res["provenance"]["target_label_map"] is None
+
+
+# ---------------------------------------------------------------------------
+# MEDIA (reauditoría 2026-07-17) — rangos editados: min>=max / no finito
+# ---------------------------------------------------------------------------
+
+class TestMediaRangeOverrideSemanticValidation:
+    _CSV = "x,y,resultado\n1,2,si\n3,4,no\n5,6,si\n7,8,no\n9,10,si\n11,12,no\n"
+
+    def test_inverted_range_raises(self):
+        with pytest.raises(DatasetProjectError, match="mínimo mayor o igual"):
+            generate_project_from_dataset(self._CSV, target_column="resultado",
+                                           column_range_overrides={"x": (10.0, 0.0)})
+
+    def test_equal_min_max_raises(self):
+        with pytest.raises(DatasetProjectError, match="mínimo mayor o igual"):
+            generate_project_from_dataset(self._CSV, target_column="resultado",
+                                           column_range_overrides={"x": (5.0, 5.0)})
+
+    def test_nan_range_raises(self):
+        with pytest.raises(DatasetProjectError, match="no es un rango finito"):
+            generate_project_from_dataset(self._CSV, target_column="resultado",
+                                           column_range_overrides={"x": (float("nan"), 10.0)})
+
+    def test_infinite_range_raises(self):
+        with pytest.raises(DatasetProjectError, match="no es un rango finito"):
+            generate_project_from_dataset(self._CSV, target_column="resultado",
+                                           column_range_overrides={"x": (0.0, float("inf"))})
+
+    def test_valid_range_still_works(self):
+        res = generate_project_from_dataset(self._CSV, target_column="resultado",
+                                             column_range_overrides={"x": (0.0, 100.0)})
+        assert tuple(res["field_ranges"]["x"]) == (0.0, 100.0)
+
+
+# ---------------------------------------------------------------------------
+# MEDIA (reauditoría 2026-07-17) — feature con el nombre reservado del target
+# ---------------------------------------------------------------------------
+
+class TestMediaReservedTargetNameCollision:
+    def test_feature_named_predicted_class_raises_short_actionable_error(self):
+        csv_text = "predicted_class,x,resultado\n1,2,si\n3,4,no\n5,6,si\n7,8,no\n9,10,si\n11,12,no\n"
+        with pytest.raises(DatasetProjectError) as exc_info:
+            generate_project_from_dataset(csv_text, target_column="resultado")
+        msg = str(exc_info.value)
+        assert "nombre reservado" in msg
+        assert len(msg) < 500  # nunca el dict interno completo de GEN
+
+    def test_feature_named_predicted_value_raises_for_regression(self):
+        csv_text = "predicted_value,resultado\n1,2.5\n2,3.5\n3,4.5\n4,5.5\n5,6.5\n6,7.5\n"
+        with pytest.raises(DatasetProjectError, match="nombre reservado"):
+            generate_project_from_dataset(csv_text, target_column="resultado")
+
+    def test_feature_that_normalizes_to_reserved_name_also_raises(self):
+        csv_text = "Predicted Class,x,resultado\n1,2,si\n3,4,no\n5,6,si\n7,8,no\n9,10,si\n11,12,no\n"
+        with pytest.raises(DatasetProjectError, match="nombre reservado"):
+            generate_project_from_dataset(csv_text, target_column="resultado")
+
 
 if __name__ == "__main__":
     import sys
