@@ -115,6 +115,26 @@ class TestMultipleLagColumns:
         assert "altura_ola_lag1: Scalar" in res["mxai"]
         assert "temperatura_lag1: Scalar" in res["mxai"]
 
+    def test_category_vocabulary_override_reaches_a_derived_lag(self):
+        lines = ["fecha,altura_ola,regimen"]
+        values = ["calma", "mar", "tormenta"]
+        for day in range(1, 21):
+            lines.append(
+                f"2024-01-{day:02d},{2.0 + day * 0.1:.2f},{values[day % 3]}"
+            )
+        res = generate_temporal_project_from_dataset(
+            "\n".join(lines) + "\n", target_column="altura_ola",
+            temporal_column="fecha", horizon=1,
+            lag_window_columns=["regimen"], lag_window_size=1,
+            column_category_overrides={
+                "regimen": ["tormenta", "mar", "calma", "desconocido"],
+                "regimen_lag1": ["tormenta", "mar", "calma", "desconocido"],
+            },
+        )
+        assert res["ok"]
+        assert "regimen_lag1__desconocido" in res["csv_text"].splitlines()[0]
+        assert res["provenance"]["column_category_overrides"]["regimen_lag1"][-1] == "desconocido"
+
 
 class TestActionableErrors:
     def test_unknown_temporal_column_raises(self):
@@ -510,6 +530,8 @@ class TestFinalValidationReceivesTheKnownSchema:
         assert captured["expected_types"]["altura_ola"] == "number"
         assert captured["expected_types"]["altura_ola_target_h1"] == "number"
         assert captured["expected_types"]["temperatura"] == "number"
+        assert captured["expected_types"]["altura_ola_lag1"] == "number"
+        assert captured["expected_types"]["altura_ola_lag2"] == "number"
         assert "fecha" not in captured["expected_types"]  # tipo date, no verificable como numérico
 
     def test_a_column_forced_to_number_that_is_not_actually_numeric_is_rejected_early(self):

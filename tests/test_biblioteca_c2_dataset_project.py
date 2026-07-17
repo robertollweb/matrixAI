@@ -75,6 +75,24 @@ class TestCanonicalExamples:
         )
         assert v.get("ok"), v.get("error")
 
+    def test_edited_category_vocabulary_controls_prompt_csv_and_provenance(self):
+        res = generate_project_from_dataset(
+            _SEMANA_SANTA_CSV, target_column="resultado",
+            column_category_overrides={"tipo_dia": ["festivo", "laboral", "puente"]},
+        )
+        assert "Categorical[festivo, laboral, puente]" in res["provenance"]["synthesized_prompt"]
+        assert "tipo_dia__puente" in res["csv_text"].splitlines()[0]
+        assert res["provenance"]["column_category_overrides"]["tipo_dia"] == [
+            "festivo", "laboral", "puente",
+        ]
+
+    def test_edited_category_vocabulary_cannot_omit_observed_values(self):
+        with pytest.raises(DatasetProjectError, match="omite valores presentes"):
+            generate_project_from_dataset(
+                _SEMANA_SANTA_CSV, target_column="resultado",
+                column_category_overrides={"tipo_dia": ["laboral", "puente"]},
+            )
+
     def test_mar_time_series_regression_target_from_numeric_column(self):
         """Sin salida explícita (serie temporal pura): una columna numérica
         continua (no la fecha) sirve de target de regresión — el

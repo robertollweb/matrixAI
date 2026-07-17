@@ -162,10 +162,11 @@ def generate_project_from_dataset(
     *,
     column_type_overrides: dict[str, str] | None = None,
     column_range_overrides: dict[str, tuple[float, float]] | None = None,
+    column_category_overrides: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """Genera un proyecto MatrixAI completo A PARTIR de datos reales.
 
-    `column_type_overrides`/`column_range_overrides` son las correcciones
+    Los overrides de tipo/rango/vocabulario son las correcciones
     del usuario sobre el esquema que C1 infirió (invariante 8 — SIEMPRE
     ganan sobre lo inferido). Devuelve un dict con el MISMO shape de campos
     que `analyze_playground_request` (`ok`, `mxai`, `training_text`,
@@ -270,10 +271,51 @@ def generate_project_from_dataset(
     # docstring de C1 sobre `vocabulary_sample`).
     rows = _read_rows(csv_text)
     target_values_raw = _distinct_non_null(rows, target_column)
-    if len(target_values_raw) < 2 and task == "classification":
+    category_vocabularies: dict[str, list[str]] = {}
+    for col, raw_values in (column_category_overrides or {}).items():
+        if col not in columns:
+            raise DatasetProjectError(
+                f"column_category_overrides referencia la columna {col!r}, que no "
+                f"existe en el CSV. Columnas: {analysis['column_order']}."
+            )
+        if columns[col]["type"] != "categorical":
+            raise DatasetProjectError(
+                f"column_category_overrides[{col!r}] solo se puede aplicar a "
+                "una columna cuyo tipo final sea 'categorical'."
+            )
+        if not isinstance(raw_values, list):
+            raise DatasetProjectError(
+                f"column_category_overrides[{col!r}] debe ser una lista de valores."
+            )
+        if not all(isinstance(value, str) for value in raw_values):
+            raise DatasetProjectError(
+                f"column_category_overrides[{col!r}] solo admite valores de texto."
+            )
+        values = [value.strip() for value in raw_values]
+        if len(values) < 2 or any(not value for value in values):
+            raise DatasetProjectError(
+                f"column_category_overrides[{col!r}] debe contener al menos "
+                "2 valores no vacíos."
+            )
+        if len(set(values)) != len(values):
+            raise DatasetProjectError(
+                f"column_category_overrides[{col!r}] contiene valores duplicados."
+            )
+        _check_categorical_values_safe(values, col)
+        observed = _distinct_non_null(rows, col)
+        missing = [value for value in observed if value not in values]
+        if missing:
+            raise DatasetProjectError(
+                f"column_category_overrides[{col!r}] omite valores presentes en "
+                f"el CSV: {missing}. Añádelos al vocabulario o corrige los datos."
+            )
+        category_vocabularies[col] = values
+
+    effective_target_values = category_vocabularies.get(target_column, target_values_raw)
+    if len(effective_target_values) < 2 and task == "classification":
         raise DatasetProjectError(
             f"La columna objetivo {target_column!r} tiene menos de 2 valores "
-            f"distintos ({target_values_raw}) — no hay nada que clasificar."
+            f"distintos ({effective_target_values}) — no hay nada que clasificar."
         )
 
     feature_lines: list[str] = []
@@ -290,7 +332,7 @@ def generate_project_from_dataset(
             lo, hi = _range_for(info, col)
             feature_lines.append(f"  {safe_name}: Scalar en [{_fmt_num(lo)}, {_fmt_num(hi)}]")
         elif col_type == "categorical":
-            values = _distinct_non_null(rows, col)
+            values = category_vocabularies.get(col) or _distinct_non_null(rows, col)
             if len(values) < 2:
                 # Cardinalidad<2 tras corregir el tipo a mano — no aporta
                 # señal; se excluye en vez de fallar todo el proyecto.
@@ -312,7 +354,7 @@ def generate_project_from_dataset(
     target_label_map: dict[str, str] | None = None
     if task == "classification":
         target_labels_normalized, target_label_map = _normalize_labels(
-            target_values_raw, target_column
+            effective_target_values, target_column
         )
         prompt = (
             "clasificar\nFEATURES:\n" + "\n".join(feature_lines) +
@@ -344,7 +386,7 @@ def generate_project_from_dataset(
 
     prepared = _prepare_training_csv(
         rows, feature_columns, columns, feature_safe_names, target_column, task,
-        target_label_map, target_header,
+        target_label_map, target_header, category_vocabularies,
     )
     prepared_csv = prepared.text
 
@@ -386,6 +428,7 @@ def generate_project_from_dataset(
         training_text=res.get("training_text") or "",
         column_type_overrides=column_type_overrides or {},
         column_range_overrides=column_range_overrides or {},
+        column_category_overrides=column_category_overrides or {},
     )
 
     result = dict(res)
@@ -407,6 +450,7 @@ def generate_temporal_project_from_dataset(
     lag_window_size: int | None = None,
     column_type_overrides: dict[str, str] | None = None,
     column_range_overrides: dict[str, tuple[float, float]] | None = None,
+    column_category_overrides: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """C4 — flujo A, caso serie temporal: "columna temporal + ventana +
     horizonte → operaciones de C3" (contrato 57). Envoltorio DELGADO
@@ -499,6 +543,9 @@ def generate_temporal_project_from_dataset(
     type_overrides = dict(column_type_overrides or {})
     if target_column in (column_type_overrides or {}):
         type_overrides[effective_target] = column_type_overrides[target_column]
+    category_overrides = dict(column_category_overrides or {})
+    if target_column in category_overrides:
+        category_overrides[effective_target] = category_overrides[target_column]
 
     try:
         pipeline_result = run_pipeline(rows, ops)
@@ -516,8 +563,10 @@ def generate_temporal_project_from_dataset(
     # específico antes de la generación, no el rechazo genérico de GEN más
     # abajo.
     expected_types: dict[str, str] = {}
+    effective_schema_types: dict[str, str] = {}
     for col, info in original_analysis["columns"].items():
         effective_type = type_overrides.get(col, info["type"])
+        effective_schema_types[col] = effective_type
         if effective_type not in ("number", "integer"):
             continue
         expected_types[col] = effective_type
@@ -526,6 +575,18 @@ def generate_temporal_project_from_dataset(
             # target desplazado comparte los valores (y por tanto el tipo)
             # del target crudo.
             expected_types[effective_target] = effective_type
+    for col in lag_window_columns or []:
+        source_type = effective_schema_types.get(col)
+        for lag in range(1, (lag_window_size or 0) + 1):
+            lag_col = f"{col}_lag{lag}"
+            lag_type = type_overrides.get(lag_col, source_type)
+            if lag_type in ("number", "integer"):
+                expected_types[lag_col] = lag_type
+    # Un override sobre cualquier nombre ya transformado también forma
+    # parte del contrato de salida, aunque no sea una columna de lag.
+    for col, overridden_type in type_overrides.items():
+        if overridden_type in ("number", "integer"):
+            expected_types[col] = overridden_type
     final_columns = pipeline_result.steps[-1].columns_after if pipeline_result.steps else []
     feature_columns = [c for c in final_columns if c != effective_target]
 
@@ -549,6 +610,7 @@ def generate_temporal_project_from_dataset(
         prepared_csv, effective_target,
         column_type_overrides=type_overrides or None,
         column_range_overrides=column_range_overrides,
+        column_category_overrides=category_overrides or None,
     )
 
     feature_columns = list(result["provenance"]["feature_name_map"].keys())
@@ -806,6 +868,7 @@ def _prepare_training_csv(
     task: str,
     target_label_map: dict[str, str] | None,
     target_header: str,
+    category_vocabularies: dict[str, list[str]],
 ) -> _PreparedCSV:
     # Grupos one-hot/embedding + los mapas valor_crudo->columna o índice,
     # calculados UNA VEZ (no por fila — recalcular _distinct_non_null
@@ -820,7 +883,7 @@ def _prepare_training_csv(
         safe_name = feature_safe_names[col]
         col_type = columns[col]["type"]
         if col_type == "categorical":
-            values = _distinct_non_null(rows, col)
+            values = category_vocabularies.get(col) or _distinct_non_null(rows, col)
             if len(values) < 2:
                 continue
             if len(values) > _ONEHOT_MAX:
@@ -920,6 +983,7 @@ def _build_provenance(
     training_text: str,
     column_type_overrides: dict[str, str],
     column_range_overrides: dict[str, tuple[float, float]],
+    column_category_overrides: dict[str, list[str]],
 ) -> dict[str, Any]:
     from matrixai.export.inference_spec import _matrixai_version
 
@@ -960,6 +1024,7 @@ def _build_provenance(
         "task": task,
         "column_type_overrides": column_type_overrides,
         "column_range_overrides": {k: list(v) for k, v in column_range_overrides.items()},
+        "column_category_overrides": column_category_overrides,
         "synthesized_prompt": prompt,
         "operations": operations,
         "seed": _extract_seed(training_text),
