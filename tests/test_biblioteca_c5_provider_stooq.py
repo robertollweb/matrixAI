@@ -172,6 +172,34 @@ class TestRowLevelValidation:
             with pytest.raises(DataProviderError, match="fuera del rango"):
                 provider.download(_config(), license_acceptance=acceptance)
 
+    def test_nan_ohlcv_value_is_rejected(self):
+        """Reauditoría 2026-07-17 (ronda 3) [MEDIA]: float("nan") NO
+        lanza ValueError — un float(value) desnudo aceptaba "NaN" como
+        si fuera una cotización real."""
+        provider, acceptance = _accepted()
+        bad = "Date,Open,High,Low,Close,Volume\n2024-01-02,NaN,188.44,183.89,184.25,82488700\n"
+        with _patched(return_value=_fetch_result(bad)):
+            with pytest.raises(DataProviderError, match="no finito"):
+                provider.download(_config(), license_acceptance=acceptance)
+
+    def test_infinite_ohlcv_value_is_rejected(self):
+        provider, acceptance = _accepted()
+        bad = "Date,Open,High,Low,Close,Volume\n2024-01-02,187.15,inf,183.89,184.25,82488700\n"
+        with _patched(return_value=_fetch_result(bad)):
+            with pytest.raises(DataProviderError, match="no finito"):
+                provider.download(_config(), license_acceptance=acceptance)
+
+    def test_duplicate_date_is_rejected(self):
+        provider, acceptance = _accepted()
+        bad = (
+            "Date,Open,High,Low,Close,Volume\n"
+            "2024-01-02,187.15,188.44,183.89,184.25,82488700\n"
+            "2024-01-02,184.22,185.88,183.43,184.05,58414500\n"
+        )
+        with _patched(return_value=_fetch_result(bad)):
+            with pytest.raises(DataProviderError, match="repite la fecha"):
+                provider.download(_config(), license_acceptance=acceptance)
+
 
 class TestSecureFetchFailurePropagates:
     def test_secure_fetch_error_becomes_data_provider_error(self):

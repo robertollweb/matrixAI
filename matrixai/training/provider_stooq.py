@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 from datetime import date, datetime, timezone
 import urllib.parse
 from typing import Any
@@ -190,6 +191,7 @@ class StooqProvider:
         # entregado a C1, que asumiría datos limpios.
         start = date.fromisoformat(config["start_date"]) if "start_date" in config else None
         end = date.fromisoformat(config["end_date"]) if "end_date" in config else None
+        seen_dates: set[str] = set()
         for row_num, row in enumerate(data_rows, start=2):  # fila 1 es la cabecera
             if len(row) != len(_EXPECTED_HEADER):
                 raise DataProviderError(
@@ -208,15 +210,28 @@ class StooqProvider:
                     f"Stooq: la fila {row_num} tiene fecha {row_date_raw!r}, fuera del "
                     f"rango solicitado [{config['start_date']}, {config['end_date']}]."
                 )
+            if row_date_raw in seen_dates:
+                # Reauditoría 2026-07-17 (ronda 3) [MEDIA]: mismo criterio
+                # que el fix en ecb_fx — una fecha repetida no debe
+                # producir dos filas en el CSV "canónico".
+                raise DataProviderError(f"Stooq: la fila {row_num} repite la fecha {row_date_raw!r}.")
+            seen_dates.add(row_date_raw)
             for col_name, value in zip(_NUMERIC_COLUMNS, row[1:]):
                 if not value.strip():
                     raise DataProviderError(f"Stooq: la fila {row_num} tiene {col_name!r} vacío.")
                 try:
-                    float(value)
+                    numeric_value = float(value)
                 except ValueError as exc:
                     raise DataProviderError(
                         f"Stooq: la fila {row_num} tiene {col_name!r}={value!r} no numérico."
                     ) from exc
+                if not math.isfinite(numeric_value):
+                    # Reauditoría 2026-07-17 (ronda 3) [MEDIA]: float("nan")/
+                    # float("inf") NO lanzan ValueError — `float(value)` por
+                    # sí solo aceptaba "NaN"/"Infinity" como una cotización real.
+                    raise DataProviderError(
+                        f"Stooq: la fila {row_num} tiene {col_name!r}={value!r} no finito (NaN/infinito)."
+                    )
 
         buf = io.StringIO()
         writer = csv.writer(buf, lineterminator="\n")

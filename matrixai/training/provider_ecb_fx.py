@@ -18,12 +18,24 @@ Formato CSV real (`format=csvdata&detail=dataonly`):
 `KEY,FREQ,CURRENCY,CURRENCY_DENOM,EXR_TYPE,EXR_SUFFIX,TIME_PERIOD,
 OBS_VALUE` — se parsea por NOMBRE de columna (`csv.DictReader`), nunca
 por posición, para no depender de que el ECB mantenga el orden exacto.
+
+Reauditoría 2026-07-17 (ronda 3) [MEDIA]: `currency` validaba solo la
+FORMA (3 letras mayúsculas) — cualquier código sintácticamente válido
+pero inexistente (p.ej. "ZZZ") pasaba `validate_config`/`estimate_
+download` y solo fallaba al descargar de verdad. `_KNOWN_CURRENCIES` es
+la lista REAL y COMPLETA de divisas de la serie EXR diaria, obtenida en
+vivo con `curl` contra el propio catálogo del BCE (`GET .../EXR/
+D..EUR.SP00.A?format=csvdata&detail=serieskeysonly`, 2026-07-17) — no
+una lista ISO-4217 genérica ni inventada. Incluye divisas de
+preadopción del euro ya discontinuadas (CYP, EEK, GRD, LTL, LVL, MTL,
+SIT, SKK) porque siguen presentes en la serie HISTÓRICA (invariante 5:
+reproducibilidad de un proyecto antiguo que las use).
 """
 from __future__ import annotations
 
 import csv
 import io
-import re
+import math
 import urllib.parse
 from datetime import date, datetime, timezone
 from typing import Any
@@ -41,7 +53,15 @@ from matrixai.training.secure_fetch import SecureFetchError, secure_fetch
 
 _HOST = "data-api.ecb.europa.eu"
 _ALLOWED_HOSTS = frozenset({_HOST})
-_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+# Divisas REALES de la serie EXR/D..EUR.SP00.A — capturadas en vivo
+# (curl) contra data-api.ecb.europa.eu el 2026-07-17, ver docstring.
+_KNOWN_CURRENCIES = frozenset({
+    "ARS", "AUD", "BGN", "BRL", "CAD", "CHF", "CNY", "CYP", "CZK", "DKK",
+    "DZD", "EEK", "GBP", "GRD", "HKD", "HRK", "HUF", "IDR", "ILS", "INR",
+    "ISK", "JPY", "KRW", "LTL", "LVL", "MAD", "MTL", "MXN", "MYR", "NOK",
+    "NZD", "PHP", "PLN", "RON", "RUB", "SEK", "SGD", "SIT", "SKK", "THB",
+    "TRY", "TWD", "USD", "ZAR",
+})
 _MAX_DAYS = 366 * 20  # el ECB publica desde 1999 — 20 años es generoso sin ser ilimitado
 _MAX_BYTES = 20_000_000
 _TIMEOUT = 20.0
@@ -87,10 +107,15 @@ class EcbFxProvider:
     def validate_config(self, config: dict[str, Any]) -> list[str]:
         errors: list[str] = []
         currency = config.get("currency")
-        if not isinstance(currency, str) or not _CURRENCY_RE.match(currency):
-            errors.append("currency debe ser un código ISO-4217 de 3 letras mayúsculas (p.ej. 'USD').")
+        if not isinstance(currency, str):
+            errors.append("currency debe ser un texto (código de divisa).")
         elif currency == "EUR":
             errors.append("currency no puede ser 'EUR' (la serie ya es EUR→divisa).")
+        elif currency not in _KNOWN_CURRENCIES:
+            errors.append(
+                f"currency {currency!r} no es una divisa publicada por la serie EXR diaria "
+                f"del BCE. Divisas disponibles: {sorted(_KNOWN_CURRENCIES)}."
+            )
         parsed_start = self._parse_date(config.get("start_date"), "start_date", errors)
         parsed_end = self._parse_date(config.get("end_date"), "end_date", errors)
         if parsed_start and parsed_end:
@@ -175,6 +200,7 @@ class EcbFxProvider:
         start = date.fromisoformat(config["start_date"]) if "start_date" in config else None
         end = date.fromisoformat(config["end_date"]) if "end_date" in config else None
         canonical_rows: list[tuple[str, str]] = []
+        seen_dates: set[str] = set()
         for row_num, row in enumerate(reader, start=2):  # fila 1 es la cabecera
             raw_date = row.get("TIME_PERIOD")
             raw_value = row.get("OBS_VALUE")
@@ -189,10 +215,25 @@ class EcbFxProvider:
                     f"BCE: la fila {row_num} tiene fecha {raw_date!r}, fuera del rango "
                     f"solicitado [{config['start_date']}, {config['end_date']}]."
                 )
+            if raw_date in seen_dates:
+                # Reauditoría 2026-07-17 (ronda 3) [MEDIA]: una serie con
+                # una fecha repetida (dato revisado/duplicado del BCE) se
+                # colaba dos veces en el CSV "canónico" — una sola fecha
+                # debe producir una sola fila.
+                raise DataProviderError(f"BCE: la fila {row_num} repite la fecha {raw_date!r}.")
+            seen_dates.add(raw_date)
             try:
-                float(raw_value)
+                numeric_value = float(raw_value)
             except ValueError as exc:
                 raise DataProviderError(f"BCE: la fila {row_num} tiene OBS_VALUE={raw_value!r} no numérico.") from exc
+            if not math.isfinite(numeric_value):
+                # Reauditoría 2026-07-17 (ronda 3) [MEDIA]: float("nan")/
+                # float("inf") NO lanzan ValueError en Python — `float(raw_
+                # value)` por sí solo aceptaba "NaN"/"Infinity" como si
+                # fueran una cotización real.
+                raise DataProviderError(
+                    f"BCE: la fila {row_num} tiene OBS_VALUE={raw_value!r} no finito (NaN/infinito)."
+                )
             canonical_rows.append((raw_date, raw_value))
 
         if not canonical_rows:

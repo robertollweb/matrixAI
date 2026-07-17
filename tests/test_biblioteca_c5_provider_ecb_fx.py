@@ -79,6 +79,25 @@ class TestValidateConfig:
         errors = EcbFxProvider().validate_config(_config(start_date="2000-01-01", end_date="2024-01-01"))
         assert any("días" in e for e in errors)
 
+    def test_well_formed_but_nonexistent_currency_is_rejected(self):
+        """Reauditoría 2026-07-17 (ronda 3) [MEDIA]: 'ZZZ' tiene la FORMA
+        correcta (3 letras mayúsculas) pero no es una divisa real de la
+        serie EXR — antes solo se validaba la forma, así que pasaba
+        validate_config()/estimate_download() y solo fallaba al
+        descargar de verdad."""
+        errors = EcbFxProvider().validate_config(_config(currency="ZZZ"))
+        assert any("ZZZ" in e for e in errors)
+
+    def test_all_known_currencies_are_accepted(self):
+        for currency in [
+            "ARS", "AUD", "BGN", "BRL", "CAD", "CHF", "CNY", "CYP", "CZK", "DKK",
+            "DZD", "EEK", "GBP", "GRD", "HKD", "HRK", "HUF", "IDR", "ILS", "INR",
+            "ISK", "JPY", "KRW", "LTL", "LVL", "MAD", "MTL", "MXN", "MYR", "NOK",
+            "NZD", "PHP", "PLN", "RON", "RUB", "SEK", "SGD", "SIT", "SKK", "THB",
+            "TRY", "TWD", "USD", "ZAR",
+        ]:
+            assert EcbFxProvider().validate_config(_config(currency=currency)) == []
+
 
 class TestDownloadWithRealFixture:
     def test_returns_canonical_csv_matching_real_response(self):
@@ -121,6 +140,40 @@ class TestUnexpectedSchema:
         )
         with _patched(return_value=_fetch_result(bad)):
             with pytest.raises(DataProviderError, match="no numérico"):
+                provider.download(_config(), license_acceptance=acceptance)
+
+    def test_nan_obs_value_is_rejected(self):
+        """Reauditoría 2026-07-17 (ronda 3) [MEDIA]: float("nan") NO
+        lanza ValueError en Python — un float(raw_value) desnudo aceptaba
+        "NaN" como si fuera una cotización real."""
+        provider, acceptance = _accepted()
+        bad = (
+            "KEY,FREQ,CURRENCY,CURRENCY_DENOM,EXR_TYPE,EXR_SUFFIX,TIME_PERIOD,OBS_VALUE\n"
+            "EXR.D.USD.EUR.SP00.A,D,USD,EUR,SP00,A,2024-01-02,NaN\n"
+        )
+        with _patched(return_value=_fetch_result(bad)):
+            with pytest.raises(DataProviderError, match="no finito"):
+                provider.download(_config(), license_acceptance=acceptance)
+
+    def test_infinite_obs_value_is_rejected(self):
+        provider, acceptance = _accepted()
+        bad = (
+            "KEY,FREQ,CURRENCY,CURRENCY_DENOM,EXR_TYPE,EXR_SUFFIX,TIME_PERIOD,OBS_VALUE\n"
+            "EXR.D.USD.EUR.SP00.A,D,USD,EUR,SP00,A,2024-01-02,inf\n"
+        )
+        with _patched(return_value=_fetch_result(bad)):
+            with pytest.raises(DataProviderError, match="no finito"):
+                provider.download(_config(), license_acceptance=acceptance)
+
+    def test_duplicate_date_is_rejected(self):
+        provider, acceptance = _accepted()
+        bad = (
+            "KEY,FREQ,CURRENCY,CURRENCY_DENOM,EXR_TYPE,EXR_SUFFIX,TIME_PERIOD,OBS_VALUE\n"
+            "EXR.D.USD.EUR.SP00.A,D,USD,EUR,SP00,A,2024-01-02,1.1\n"
+            "EXR.D.USD.EUR.SP00.A,D,USD,EUR,SP00,A,2024-01-02,1.2\n"
+        )
+        with _patched(return_value=_fetch_result(bad)):
+            with pytest.raises(DataProviderError, match="repite la fecha"):
                 provider.download(_config(), license_acceptance=acceptance)
 
     def test_row_date_outside_requested_range_is_rejected(self):
