@@ -128,7 +128,19 @@ class DenseSupervisedTrainer:
         data_path = _resolve_path(dataset_source, base_path) if dataset_source else None
         examples = self._load_examples(program, net, training, data_path)
 
-        split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
+        # BIBLIOTECA_PROYECTOS_INTELIGENTES C3: este camino YA era secuencial
+        # (nunca baraja, ratio 0.8 fijo, ignora `training.dataset.split` por
+        # completo) — mode ausente/"random" se deja INTACTO (byte-idéntico,
+        # invariante del corte). mode=temporal es lo único nuevo: usa el
+        # ratio DECLARADO en vez del 0.8 fijo, mismo mecanismo secuencial
+        # (el último tramo, en el orden que llega, es la validación).
+        split_spec = training.dataset.split
+        if split_spec is not None and split_spec.mode == "temporal":
+            train_ratio = split_spec.train
+            split = max(1, min(len(examples) - 1, int(len(examples) * train_ratio))) \
+                if len(examples) > 1 else len(examples)
+        else:
+            split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
         train_ex = examples[:split]
         val_ex = examples[split:]
 

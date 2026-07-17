@@ -32,9 +32,18 @@ class DatasetSplitSpec:
     train: float
     validation: float
     seed: int | None = None
+    # BIBLIOTECA_PROYECTOS_INTELIGENTES C3: "random" (default) es el
+    # comportamiento de SIEMPRE, byte-idéntico — barajado con `seed` si se
+    # declara, secuencial si no. "temporal" NUNCA baraja (aunque haya
+    # seed): el último tramo, en el orden que llega, es SIEMPRE la
+    # validación — para series temporales, donde barajar sería fuga
+    # (invariante 6 del contrato 57).
+    mode: str = "random"
 
     def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] = {"train": self.train, "validation": self.validation}
+        data: dict[str, Any] = {
+            "train": self.train, "validation": self.validation, "mode": self.mode,
+        }
         if self.seed is not None:
             data["seed"] = self.seed
         return data

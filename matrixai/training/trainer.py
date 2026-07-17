@@ -222,7 +222,13 @@ class SupervisedTrainer:
     ) -> tuple[list[TrainingExample], list[TrainingExample]]:
         indices = list(range(len(examples)))
         split = training.dataset.split
-        if split and split.seed is not None:
+        # BIBLIOTECA_PROYECTOS_INTELIGENTES C3: mode=temporal NUNCA baraja,
+        # aunque haya seed — barajar destruiría el orden cronológico y el
+        # último tramo (SIEMPRE la validación en modo temporal, invariante
+        # 6 del contrato 57) dejaría de ser realmente "el futuro". mode
+        # ausente/"random" (default) es el comportamiento de siempre,
+        # byte-idéntico.
+        if split and split.seed is not None and split.mode != "temporal":
             random.Random(split.seed).shuffle(indices)
         train_ratio = split.train if split else 0.8
         train_count = max(1, min(len(examples) - 1, int(len(examples) * train_ratio)))
@@ -758,6 +764,11 @@ def _split_trace(
     }
     if split is not None and split.seed is not None:
         config["seed"] = split.seed
+    # C3: solo se anota si es temporal — "random" es el default histórico,
+    # omitirlo mantiene el trace byte-idéntico a antes de C3 cuando no se
+    # usa (mismo criterio que "seed" arriba).
+    if split is not None and split.mode == "temporal":
+        config["mode"] = split.mode
     payload = {
         "config": config,
         "train": _split_partition_trace(train_examples),

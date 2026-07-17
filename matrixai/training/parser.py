@@ -30,7 +30,8 @@ _SOURCE_RE = re.compile(r'^SOURCE\s+(?P<kind>[A-Za-z_][\w]*)\("(?P<source>.+)"\)
 _INPUT_RE = re.compile(r"^INPUT\s+(?P<vector>[A-Za-z_][\w]*)\s+FROM\s+COLUMNS\s+(?P<columns>.+)$")
 _TARGET_RE = re.compile(r"^TARGET\s+(?P<name>[A-Za-z_][\w]*)\s*:\s*(?P<type>.+)$")
 _SPLIT_RE = re.compile(
-    r"^SPLIT\s+train=(?P<train>[0-9.]+)\s+validation=(?P<validation>[0-9.]+)(?:\s+seed=(?P<seed>\d+))?$"
+    r"^SPLIT\s+train=(?P<train>[0-9.]+)\s+validation=(?P<validation>[0-9.]+)"
+    r"(?:\s+seed=(?P<seed>\d+))?(?:\s+mode=(?P<mode>temporal|random))?$"
 )
 _BATCH_RE = re.compile(r"^BATCH\s+size=(?P<size>\d+)(?:\s+shuffle=(?P<shuffle>true|false))?$")
 _TYPE_RE = re.compile(r"^TYPE\s+(?P<type>[A-Za-z_][\w]*)$")
@@ -194,6 +195,7 @@ def _parse_dataset(block: list[str]) -> DatasetSpec:
                 train=float(match.group("train")),
                 validation=float(match.group("validation")),
                 seed=int(match.group("seed")) if match.group("seed") else None,
+                mode=match.group("mode") or "random",
             )
             index += 1
             continue

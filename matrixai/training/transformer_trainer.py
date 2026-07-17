@@ -208,7 +208,11 @@ class TransformerSupervisedTrainer:
         import random as _random
         split_spec = training.dataset.split if training.dataset else None
         indices = list(range(len(examples)))
-        if split_spec and split_spec.seed is not None:
+        # BIBLIOTECA_PROYECTOS_INTELIGENTES C3: mode=temporal nunca baraja,
+        # aunque haya seed (mismo criterio que `_split_examples` del
+        # trainer stdlib — ver su comentario). mode ausente/"random" es el
+        # comportamiento de siempre, byte-idéntico.
+        if split_spec and split_spec.seed is not None and split_spec.mode != "temporal":
             _random.Random(split_spec.seed).shuffle(indices)
         train_ratio = split_spec.train if split_spec else 0.8
         n_train = max(1, min(len(examples) - 1, int(len(examples) * train_ratio))) \
