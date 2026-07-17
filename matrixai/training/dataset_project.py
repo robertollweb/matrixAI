@@ -36,27 +36,77 @@ Verificado empíricamente contra el generador real (no asumido):
    (El kwarg estructurado `labels=[...]` SÍ preserva mayúsculas — pero
    `analyze_playground_request` no lo expone en su payload; solo el texto
    del prompt llega, verificado.)
-3. **Las categóricas se expanden a one-hot.** El CSV de entrenamiento
-   esperado por un modelo con `Categorical[...]` no lleva la columna cruda
-   — lleva una columna binaria por valor (`col__valor`, S2-C2), verificado
-   con `_csv_template`. Se usa `_build_group_names` (categorical.py), la
-   MISMA función que `expand_categoricals` usa para nombrar esas columnas
-   en el `.mxai`, así que los nombres coinciden por construcción.
+3. **Las categóricas de cardinalidad baja se expanden a one-hot.** El CSV
+   de entrenamiento esperado por un modelo con `Categorical[...]` que GEN
+   resolvió como one-hot no lleva la columna cruda — lleva una columna
+   binaria por valor (`col__valor`, S2-C2), verificado con `_csv_template`.
+   Se usa `_build_group_names` (categorical.py), la MISMA función que
+   `expand_categoricals` usa para nombrar esas columnas en el `.mxai`, así
+   que los nombres coinciden por construcción.
 4. **Las booleanas van como 0/1, no "si"/"no".** El CSV de entrenamiento
    trata `Boolean` como un Scalar más (`_csv_template` propone 0.5 de
    ejemplo) — la conversión de tokens humanos ("si"/"no"/"true"/"false") a
    0/1 solo existe en `predict.py` (inferencia), nunca en el CSV de
    entrenamiento.
+5. **El nombre de cada FEATURE debe coincidir con lo que GEN sanea.**
+   `parse_field_specs` acepta cualquier texto como nombre de campo en el
+   prompt (acentos/espacios/símbolos) pero lo sanea con
+   `_sanitize_name` — idéntica normalización a `_identifier` (verificado
+   comparando ambas funciones) — antes de escribirlo en el VECTOR. Si el
+   CSV preparado usara el nombre crudo de la columna ("customer age") y el
+   VECTOR generado usa el saneado ("customer_age"), `/api/validate-csv`
+   rechaza el proyecto siempre que la cabecera tenga espacios, guiones,
+   acentos o símbolos (auditoría C2 [ALTA], reproducido). Aquí se sanea
+   con `_identifier` (la misma regla) ANTES de escribir el prompt y el CSV,
+   con detección de colisión si dos columnas crudas distintas saneasen
+   igual.
+6. **Una categórica de alta cardinalidad NO se expande a one-hot.** GEN
+   enruta cualquier `Categorical[...]` con más de `_ONEHOT_MAX` valores al
+   generador composite con EMBEDDING nativo — la columna sigue siendo UNA
+   sola en el VECTOR (no N columnas one-hot) y el CSV de entrenamiento
+   espera el ÍNDICE del valor en el vocabulario (verificado empíricamente:
+   `_validate_training_csv` exige "campo X debe ser numérico" para la
+   columna fuente de un EMBEDDING). Expandir siempre a one-hot sin mirar
+   la cardinalidad (auditoría C2 [ALTA]) produce un CSV con columnas que el
+   modelo generado ni siquiera declara.
+7. **Una etiqueta de clasificación que empieza por dígito no queda
+   vacía.** `_identifier` rechaza cualquier token que empiece por número
+   (un identificador de Python tampoco puede) — un target booleano
+   CANÓNICO 0/1 (el que C1 reconoce a propósito) o una etiqueta como "24h"
+   normalizaban a cadena vacía y `generate_project_from_dataset` fallaba
+   siempre con esos datasets (auditoría C2 [ALTA], reproducido). Se
+   reintenta con el prefijo `class_` (mismo criterio que usaría cualquier
+   generador de identificadores) — solo un valor SIN ningún carácter
+   alfanumérico ("###") sigue siendo un error real.
+8. **Un valor categórico con ',', ']' o salto de línea rompería el
+   corchete del prompt.** `Categorical[...]` se parsea partiendo por comas
+   sin escape (`args.split(",")` en `prompt_field_specs.py`) — un valor
+   real "red,blue" se leería como DOS categorías distintas mientras el CSV
+   preparado seguiría tratándolo como un único valor, produciendo un
+   desalineamiento silencioso entre modelo y CSV (auditoría C2 [ALTA],
+   reproducido). Se detecta ANTES de sintetizar el prompt y se rechaza con
+   un error accionable (invariante 7) — GEN no tiene mecanismo de escape
+   para este vocabulario, así que no hay forma segura de "arreglarlo" en
+   silencio.
 
 Los rangos numéricos NO se tocan aquí — igual que el flujo de subida de
 HOY, viajan como `field_ranges` y `_normalize_csv_with_ranges` (M5) los
 lleva a [0,1] en el boundary de entrenamiento existente.
+
+El CSV preparado se valida CONTRA el modelo generado (`_validate_training_
+csv`, el mismo flujo `/api/validate-csv` de siempre) antes de responder
+`ok` (auditoría C2 [MEDIA] — contrato §C2: "el CSV real queda... validado
+contra el modelo generado"). Nunca se devuelve un proyecto "aparentemente
+correcto" que falla después, en silencio, al entrenar.
 """
 from __future__ import annotations
 
 import csv
 import hashlib
 import io
+import re
+import unicodedata
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -67,7 +117,7 @@ from matrixai.training.dataset_analysis import (
     analyze_dataset_csv,
 )
 from matrixai.training.categorical import _build_group_names
-from matrixai.training.dense_generator import _identifier
+from matrixai.training.dense_generator import _identifier, _ONEHOT_MAX
 
 # Tipos de columna que nunca son una FEATURE ni un target válido — igual
 # que C1 los excluye de target_candidates, aquí se excluyen del prompt
@@ -83,10 +133,23 @@ _NOT_YET_USABLE_FEATURE_TYPES = _NEVER_FEATURE_TYPES | {"date"}
 _CLASSIFICATION_TARGET_TYPES = {"boolean", "categorical"}
 _REGRESSION_TARGET_TYPES = {"number", "integer"}
 
+# Auditoría C2 [ALTA]: caracteres que romperían el parseo de
+# `Categorical[v1, v2, ...]` si aparecieran DENTRO de un valor — ',' es el
+# separador (sin escape posible, verificado en prompt_field_specs.py),
+# ']' cierra el corchete, '\n'/'\r' rompen el límite de línea del parser.
+_UNSAFE_CATEGORY_CHARS = (",", "]", "\n", "\r")
+
 
 class DatasetProjectError(ValueError):
     """Esquema/target inválido para generar un proyecto — error accionable
     (invariante 7 del contrato 57): nunca un proyecto a medias."""
+
+
+@dataclass
+class _PreparedCSV:
+    text: str
+    rows_dropped_null_target: int
+    operations: list[str] = field(default_factory=list)
 
 
 def generate_project_from_dataset(
@@ -104,14 +167,16 @@ def generate_project_from_dataset(
     que `analyze_playground_request` (`ok`, `mxai`, `training_text`,
     `field_ranges`, `field_types`, `field_categories`, ...) más:
       - `csv_text`: el CSV PREPARADO (target renombrado/normalizado,
-        categóricas expandidas, booleanas a 0/1) — listo para
-        `/api/validate-csv`/`/api/train-start`, el flujo existente.
+        categóricas expandidas a one-hot o indexadas para embedding,
+        booleanas a 0/1) — YA VALIDADO contra el modelo generado, listo
+        para `/api/train-start`, el flujo existente.
       - `provenance`: procedencia del flujo A (invariante 3 del contrato).
 
     Lanza `DatasetAnalysisError` si el CSV es ilegible (delegado a C1) o
     `DatasetProjectError` si el target/esquema no permite generar un
-    modelo (columna inexistente, tipo no soportado, etiquetas
-    ambiguas tras normalizar, target constante...).
+    modelo (columna inexistente, tipo no soportado, etiquetas/nombres de
+    columna ambiguos tras normalizar, target constante, valor categórico
+    que rompería el prompt...).
     """
     analysis = analyze_dataset_csv(csv_text)
     schema_inferred = analysis["columns"]
@@ -163,6 +228,10 @@ def generate_project_from_dataset(
             "que entrenar."
         )
 
+    # Auditoría C2 [ALTA] (ver punto 5 del docstring): nombres de campo
+    # saneados por adelantado y colisión detectada como error accionable.
+    feature_safe_names = _normalize_feature_names(feature_columns)
+
     # Reescanea el CSV crudo para el target (valores REALES, con su case
     # original — C1 no guarda vocabulario para 'boolean' y lo trunca para
     # categóricas de cardinalidad alta) y para las categóricas de alta
@@ -180,22 +249,23 @@ def generate_project_from_dataset(
     for col in feature_columns:
         info = columns[col]
         col_type = info["type"]
+        safe_name = feature_safe_names[col]
         if col_type == "boolean":
-            feature_lines.append(f"  {col}: Boolean")
+            feature_lines.append(f"  {safe_name}: Boolean")
         elif col_type == "integer":
             lo, hi = _range_for(info, col)
-            feature_lines.append(f"  {col}: Integer[{_fmt_num(lo)}, {_fmt_num(hi)}]")
+            feature_lines.append(f"  {safe_name}: Integer[{_fmt_num(lo)}, {_fmt_num(hi)}]")
         elif col_type == "number":
             lo, hi = _range_for(info, col)
-            feature_lines.append(f"  {col}: Scalar en [{_fmt_num(lo)}, {_fmt_num(hi)}]")
+            feature_lines.append(f"  {safe_name}: Scalar en [{_fmt_num(lo)}, {_fmt_num(hi)}]")
         elif col_type == "categorical":
             values = _distinct_non_null(rows, col)
             if len(values) < 2:
                 # Cardinalidad<2 tras corregir el tipo a mano — no aporta
                 # señal; se excluye en vez de fallar todo el proyecto.
                 continue
-            escaped = ", ".join(values)
-            feature_lines.append(f"  {col}: Categorical[{escaped}]")
+            _check_categorical_values_safe(values, col)
+            feature_lines.append(f"  {safe_name}: Categorical[{', '.join(values)}]")
         else:
             raise DatasetProjectError(
                 f"Tipo de columna {col_type!r} en {col!r} no soportado como "
@@ -208,8 +278,11 @@ def generate_project_from_dataset(
         )
 
     target_labels_normalized: list[str] | None = None
+    target_label_map: dict[str, str] | None = None
     if task == "classification":
-        target_labels_normalized = _normalize_labels(target_values_raw, target_column)
+        target_labels_normalized, target_label_map = _normalize_labels(
+            target_values_raw, target_column
+        )
         prompt = (
             "clasificar\nFEATURES:\n" + "\n".join(feature_lines) +
             f"\nSALIDA: {_safe_field_name(target_column)}: ProbabilityMap"
@@ -221,7 +294,7 @@ def generate_project_from_dataset(
             f"\nSALIDA: {_safe_field_name(target_column)}\n"
         )
 
-    from matrixai.playground import analyze_playground_request
+    from matrixai.playground import analyze_playground_request, _validate_training_csv
     res = analyze_playground_request({"mode": "prompt", "prompt": prompt, "use_llm": False})
     if not res.get("ok"):
         raise DatasetProjectError(
@@ -229,9 +302,33 @@ def generate_project_from_dataset(
             f"{res.get('error') or res}"
         )
 
-    prepared_csv = _prepare_training_csv(
-        rows, feature_columns, columns, target_column, task,
+    prepared = _prepare_training_csv(
+        rows, feature_columns, columns, feature_safe_names, target_column, task,
+        target_label_map,
     )
+    prepared_csv = prepared.text
+
+    # Auditoría C2 [MEDIA]: el contrato exige validar el CSV preparado
+    # CONTRA el modelo generado antes de responder — mismo flujo
+    # `/api/validate-csv` de siempre. Si alguna de las transformaciones de
+    # arriba tuviera un hueco no cazado por sus propios tests, esto lo
+    # convierte en un error accionable AQUÍ, nunca en un proyecto
+    # "aparentemente correcto" que falla después, en silencio, al entrenar.
+    validation = _validate_training_csv(
+        res["mxai"], res["training_text"], prepared_csv,
+        field_ranges=res.get("field_ranges"),
+    )
+    if not validation.get("ok"):
+        raise DatasetProjectError(
+            "El CSV preparado no pasa la validación del modelo que acaba de "
+            "generarse (esto indica un hueco en la preparación del CSV, no un "
+            f"problema de tus datos): {validation.get('errors') or validation.get('error')}"
+        )
+
+    excluded_columns = [
+        col for col in analysis["column_order"]
+        if col != target_column and columns[col]["type"] in _NOT_YET_USABLE_FEATURE_TYPES
+    ]
 
     provenance = _build_provenance(
         csv_text=csv_text,
@@ -239,8 +336,12 @@ def generate_project_from_dataset(
         schema_inferred=schema_inferred,
         schema_final=columns,
         target_column=target_column,
+        excluded_columns=excluded_columns,
+        rows_dropped_null_target=prepared.rows_dropped_null_target,
+        feature_operations=prepared.operations,
         task=task,
         prompt=prompt,
+        training_text=res.get("training_text") or "",
         column_type_overrides=column_type_overrides or {},
         column_range_overrides=column_range_overrides or {},
     )
@@ -296,16 +397,88 @@ def _safe_field_name(name: str) -> str:
     return safe or "objetivo"
 
 
-def _normalize_labels(raw_values: list[str], target_column: str) -> list[str]:
+def _normalize_feature_names(feature_columns: list[str]) -> dict[str, str]:
+    """Nombre de columna cruda -> nombre de campo seguro para VECTOR/CSV.
+
+    GEN sanea el nombre de cada FEATURE con `_sanitize_name`
+    (`prompt_field_specs.py`) — idéntica a `_identifier` (NFKD, no-alnum a
+    '_', minúsculas) — al construir el VECTOR. Si el CSV preparado usara el
+    nombre CRUDO, el VECTOR generado y la cabecera del CSV divergirían en
+    cuanto la columna tuviera espacios/acentos/símbolos (auditoría C2
+    [ALTA]). Se aplica aquí la MISMA función, con colisión (dos columnas
+    crudas distintas que sanean igual) como error accionable — GEN se
+    quedaría con la primera y descartaría la segunda en silencio si no se
+    detectara antes."""
+    mapping: dict[str, str] = {}
+    seen: dict[str, str] = {}
+    for col in feature_columns:
+        safe = _identifier(col)
+        if not safe:
+            raise DatasetProjectError(
+                f"La columna {col!r} no tiene un nombre de campo válido tras "
+                "normalizar (solo símbolos/espacios) — renómbrala en el CSV."
+            )
+        if safe in seen and seen[safe] != col:
+            raise DatasetProjectError(
+                f"Las columnas {seen[safe]!r} y {col!r} generan el mismo "
+                f"nombre de campo tras normalizar ({safe!r}) — el modelo no "
+                "puede distinguirlas. Renombra una de las dos columnas."
+            )
+        seen[safe] = col
+        mapping[col] = safe
+    return mapping
+
+
+def _check_categorical_values_safe(values: list[str], col: str) -> None:
+    """Auditoría C2 [ALTA] (ver punto 8 del docstring): un valor con ',',
+    ']' o salto de línea rompería el corchete `Categorical[...]` — GEN lo
+    parsea partiendo por comas sin escape, así que "red,blue" se leería
+    como DOS categorías mientras el CSV lo trataría como una. Fallo cerrado
+    en vez de sintetizar un prompt que generaría un modelo desalineado."""
+    for v in values:
+        if any(ch in v for ch in _UNSAFE_CATEGORY_CHARS):
+            raise DatasetProjectError(
+                f"El valor {v!r} de la columna categórica {col!r} contiene una "
+                "coma, ']' o un salto de línea — el prompt tipado no puede "
+                "representarlo sin ambigüedad. Limpia ese valor en el CSV de "
+                "origen antes de generar el modelo."
+            )
+
+
+def _slug(raw: str) -> str:
+    """Como `_identifier` pero SIN el veto de dígito inicial — solo se usa
+    como base del prefijo `class_` cuando `_identifier` rechaza un valor
+    por empezar con número (ver `_normalize_labels`)."""
+    text = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^0-9A-Za-z_]+", "_", text)
+    text = re.sub(r"_+", "_", text).strip("_").lower()
+    return text
+
+
+def _normalize_labels(
+    raw_values: list[str], target_column: str
+) -> tuple[list[str], dict[str, str]]:
     """`_identifier(v)` por cada valor — la MISMA normalización que GEN
     aplica a `ProbabilityMap[...]` por dentro (ver docstring del módulo,
-    punto 2). Detecta colisiones (dos valores crudos DISTINTOS que
-    normalizan igual, p.ej. "Sí" y "SI") y valores vacíos tras normalizar —
-    ambos casos son ambigüedad real, error accionable en vez de un
-    entrenamiento que silenciosamente confunde dos clases."""
-    normalized: dict[str, str] = {}
+    punto 2). Auditoría C2 [ALTA] (ver punto 7 del docstring): un valor que
+    EMPIEZA por dígito ("0"/"1" — el booleano canónico que C1 reconoce a
+    propósito, o "24h") queda vacío tras `_identifier` (los identificadores
+    no pueden empezar por número) pero SÍ tiene contenido real — se
+    reintenta con el prefijo `class_` en vez de descartarlo. Solo un valor
+    SIN ningún carácter alfanumérico ("###") sigue siendo ambigüedad real,
+    error accionable. También detecta colisiones (dos valores crudos
+    DISTINTOS que normalizan igual, p.ej. "Sí" y "SI").
+    Devuelve `(etiquetas_ordenadas, mapa_valor_crudo->etiqueta)` — el mapa
+    se reutiliza en `_prepare_training_csv` para que cada fila del CSV use
+    EXACTAMENTE la misma etiqueta que se escribió en el prompt, nunca una
+    normalización recalculada por separado que podría divergir."""
+    normalized: dict[str, str] = {}  # etiqueta -> primer valor crudo (para colisiones)
+    raw_to_label: dict[str, str] = {}
     for raw in raw_values:
         norm = _identifier(raw)
+        if not norm:
+            slug = _slug(raw)
+            norm = f"class_{slug}" if slug else ""
         if not norm:
             raise DatasetProjectError(
                 f"El valor {raw!r} de la columna objetivo {target_column!r} "
@@ -320,74 +493,114 @@ def _normalize_labels(raw_values: list[str], target_column: str) -> list[str]:
                 "el texto de esas filas antes de generar el modelo."
             )
         normalized[norm] = raw
-    return sorted(normalized.keys())
+        raw_to_label[raw] = norm
+    return sorted(normalized.keys()), raw_to_label
 
 
 def _prepare_training_csv(
     rows: list[dict[str, str]],
     feature_columns: list[str],
     columns: dict[str, dict[str, Any]],
+    feature_safe_names: dict[str, str],
     target_column: str,
     task: str,
-) -> str:
-    # Grupos one-hot + el mapa valor_crudo->columna, calculados UNA VEZ (no
-    # por fila — recalcular _distinct_non_null dentro del bucle de filas es
-    # O(filas²) y, peor, podría ver un vocabulario distinto por fila si el
-    # cálculo no fuera puramente determinista).
+    target_label_map: dict[str, str] | None,
+) -> _PreparedCSV:
+    # Grupos one-hot/embedding + los mapas valor_crudo->columna o índice,
+    # calculados UNA VEZ (no por fila — recalcular _distinct_non_null
+    # dentro del bucle de filas es O(filas²) y, peor, podría ver un
+    # vocabulario distinto por fila si el cálculo no fuera puramente
+    # determinista).
     onehot_columns: dict[str, dict[str, str]] = {}  # col -> {valor_crudo: columna_onehot}
+    embedding_columns: dict[str, dict[str, int]] = {}  # col -> {valor_crudo: índice}
     header: list[str] = []
+    operations: list[str] = []
     for col in feature_columns:
-        if columns[col]["type"] == "categorical":
+        safe_name = feature_safe_names[col]
+        col_type = columns[col]["type"]
+        if col_type == "categorical":
             values = _distinct_non_null(rows, col)
             if len(values) < 2:
                 continue
-            names = _build_group_names(col, values)
-            onehot_columns[col] = dict(zip(values, names))
-            header.extend(names)
+            if len(values) > _ONEHOT_MAX:
+                # Auditoría C2 [ALTA] (ver punto 6 del docstring): GEN
+                # enrutó esta columna al composite con EMBEDDING nativo —
+                # el CSV lleva el ÍNDICE del valor en el vocabulario (mismo
+                # orden que se escribió en el prompt), NUNCA one-hot.
+                embedding_columns[col] = {v: i for i, v in enumerate(values)}
+                header.append(safe_name)
+                if "embed_high_cardinality_categoricals" not in operations:
+                    operations.append("embed_high_cardinality_categoricals")
+            else:
+                names = _build_group_names(safe_name, values)
+                onehot_columns[col] = dict(zip(values, names))
+                header.extend(names)
+                if "expand_categoricals_onehot" not in operations:
+                    operations.append("expand_categoricals_onehot")
         else:
-            header.append(col)
+            header.append(safe_name)
+            if col_type == "boolean" and "normalize_boolean_features" not in operations:
+                operations.append("normalize_boolean_features")
     target_header = "predicted_class" if task == "classification" else "predicted_value"
     header.append(target_header)
 
     out = io.StringIO()
     writer = csv.DictWriter(out, fieldnames=header)
     writer.writeheader()
+    rows_dropped = 0
     for row in rows:
         target_raw = row.get(target_column)
         if _is_null(target_raw):
+            rows_dropped += 1
             continue  # sin target no hay fila que entrenar (nunca se inventa uno)
         prepared: dict[str, str] = {}
         for col in feature_columns:
             info = columns[col]
+            safe_name = feature_safe_names[col]
             if info["type"] == "categorical":
-                value_to_column = onehot_columns.get(col)
-                if value_to_column is None:
-                    continue
-                for onehot_col in value_to_column.values():
-                    prepared[onehot_col] = "0"
-                raw = row.get(col)
-                raw = raw.strip() if raw is not None else raw
-                if raw in value_to_column:
-                    prepared[value_to_column[raw]] = "1"
+                if col in onehot_columns:
+                    value_to_column = onehot_columns[col]
+                    for onehot_col in value_to_column.values():
+                        prepared[onehot_col] = "0"
+                    raw = row.get(col)
+                    raw = raw.strip() if raw is not None else raw
+                    if raw in value_to_column:
+                        prepared[value_to_column[raw]] = "1"
+                elif col in embedding_columns:
+                    raw = row.get(col)
+                    raw = raw.strip() if raw is not None else raw
+                    idx = embedding_columns[col].get(raw)
+                    prepared[safe_name] = str(idx) if idx is not None else ""
+                # cardinalidad<2 -> columna excluida arriba, nada que escribir
             elif info["type"] == "boolean":
                 raw = (row.get(col) or "").strip().lower()
                 if raw in _BOOL_TRUE:
-                    prepared[col] = "1"
+                    prepared[safe_name] = "1"
                 elif raw in _BOOL_FALSE:
-                    prepared[col] = "0"
+                    prepared[safe_name] = "0"
                 else:
-                    prepared[col] = row.get(col, "")  # deja que el verificador existente lo rechace
+                    prepared[safe_name] = row.get(col, "")  # deja que el verificador existente lo rechace
             else:
-                prepared[col] = row.get(col, "")
-        prepared[target_header] = (
-            _identifier(target_raw.strip()) if task == "classification" else target_raw.strip()
-        )
+                prepared[safe_name] = row.get(col, "")
+        raw_target = target_raw.strip()
+        if task == "classification":
+            prepared[target_header] = (target_label_map or {}).get(raw_target, "")
+        else:
+            prepared[target_header] = raw_target
         writer.writerow(prepared)
-    return out.getvalue()
+    return _PreparedCSV(text=out.getvalue(), rows_dropped_null_target=rows_dropped, operations=operations)
 
 
 def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _extract_seed(training_text: str) -> int | None:
+    """El seed de SPLIT que `training_text` ya declara (GEN lo fija, C2 no
+    lo elige) — se re-extrae en vez de duplicar el literal para que la
+    procedencia nunca pueda divergir del training_text real devuelto."""
+    m = re.search(r"\bseed=(\d+)", training_text)
+    return int(m.group(1)) if m else None
 
 
 def _build_provenance(
@@ -397,20 +610,30 @@ def _build_provenance(
     schema_inferred: dict[str, Any],
     schema_final: dict[str, Any],
     target_column: str,
+    excluded_columns: list[str],
+    rows_dropped_null_target: int,
+    feature_operations: list[str],
     task: str,
     prompt: str,
+    training_text: str,
     column_type_overrides: dict[str, str],
     column_range_overrides: dict[str, tuple[float, float]],
 ) -> dict[str, Any]:
     from matrixai.export.inference_spec import _matrixai_version
 
-    operations: list[str] = [f"rename_target_column:{target_column}->predicted_{'class' if task == 'classification' else 'value'}"]
+    # Auditoría C2 [MEDIA]: `feature_operations` viene de lo que
+    # `_prepare_training_csv` hizo REALMENTE con las FEATURES — antes se
+    # miraba `schema_final` completo (incluido el target), así que un
+    # target categórico (el caso normal de clasificación) declaraba
+    # "expand_categoricals_onehot" aunque ninguna feature se hubiera
+    # expandido.
+    operations: list[str] = [
+        f"rename_target_column:{target_column}->predicted_"
+        f"{'class' if task == 'classification' else 'value'}"
+    ]
     if task == "classification":
         operations.append("normalize_target_labels")
-    if any(c["type"] == "categorical" for c in schema_final.values()):
-        operations.append("expand_categoricals_onehot")
-    if any(c["type"] == "boolean" for c in schema_final.values()):
-        operations.append("normalize_boolean_features")
+    operations.extend(feature_operations)
 
     return {
         "source": "user_upload",
@@ -419,11 +642,17 @@ def _build_provenance(
         "schema_inferred": schema_inferred,
         "schema_final": schema_final,
         "target_column": target_column,
+        # Auditoría C2 [MEDIA]: qué se excluyó (identificador/fecha/vacía)
+        # y cuántas filas se perdieron por target nulo — antes la
+        # procedencia no dejaba rastro de ninguna de las dos cosas.
+        "excluded_columns": excluded_columns,
+        "rows_dropped_null_target": rows_dropped_null_target,
         "task": task,
         "column_type_overrides": column_type_overrides,
         "column_range_overrides": {k: list(v) for k, v in column_range_overrides.items()},
         "synthesized_prompt": prompt,
         "operations": operations,
+        "seed": _extract_seed(training_text),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "matrixai_version": _matrixai_version(),
     }
