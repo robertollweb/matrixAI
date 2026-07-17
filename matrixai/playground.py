@@ -1489,6 +1489,29 @@ def _dense_torch_train_result(
         if not examples:
             return {"ok": False, "error": "El dataset no produjo ejemplos válidos"}
 
+        # Auditoría BIBLIOTECA_PROYECTOS_INTELIGENTES C3 [ALTA]: este es el
+        # camino REAL que usa el Studio cuando torch está disponible (el
+        # camino stdlib de dense_trainer.py solo corre sin torch) — sin esto,
+        # `SPLIT mode=temporal` se declaraba pero `train_dense_network_torch`
+        # lo ignoraba por completo (80/20 fijo interno, sin acceso a
+        # `training.dataset.split`). Partición EXPLÍCITA aquí, mismo criterio
+        # que `DenseSupervisedTrainer`/`_split_examples`: mode=temporal usa el
+        # ratio declarado sin barajar; mode ausente/"random" reproduce el
+        # 80/20 fijo de siempre, byte-idéntico.
+        split_spec = training.dataset.split
+        if split_spec is not None and split_spec.mode == "temporal":
+            train_ratio = split_spec.train
+            n_train = max(1, min(len(examples) - 1, int(len(examples) * train_ratio))) \
+                if len(examples) > 1 else len(examples)
+        else:
+            n_train = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
+        train_ex = examples[:n_train]
+        # 1 solo ejemplo: val vacío se sustituye por el propio train (mismo
+        # criterio que ya usa el camino composite un poco más abajo en este
+        # fichero, `or examples[-1:]`) — el trainer torch exige
+        # validation_examples no vacío si se declara explícitamente.
+        val_ex = examples[n_train:] or examples[-1:]
+
         # M15(a): plantilla de estructura (sin pesos en Python); el módulo torch usa su
         # init nativo (Kaiming), sembrado por torch.manual_seed(seed) en el trainer.
         ps = build_network_parameter_set(net, resolved_layers, program_hash(program),
@@ -1506,11 +1529,12 @@ def _dense_torch_train_result(
         _diag(f"inicia entrenamiento: device={device}, ejemplos={len(examples)}, "
               f"epochs={epochs}, batch spec={batch_size}")
         tr = train_dense_network_torch(
-            net, ps, examples, loss_fn, lr=lr, epochs=epochs,
+            net, ps, train_ex, loss_fn, lr=lr, epochs=epochs,
             early_stop=(patience, "validation_loss") if patience else None,
             device=device, seed=seed, batch_size=batch_size,
             epoch_callback=_torch_cb, cancel_check=cancel_check,
             optimizer=dense_opt_type,
+            validation_examples=val_ex,
             # PESOS_GRANDES C3: `materialize` sin fijar → el trainer decide por
             # umbral (`torch_native_min_params`). Por debajo materializa (igual que
             # siempre, `best_params`); por encima devuelve `best_state_dict`
@@ -1823,12 +1847,29 @@ def _run_playground_composite_training(
                 if epoch_callback is not None:
                     epoch_callback(entry)  # may raise _TrainingCancelled
 
+            # Auditoría BIBLIOTECA_PROYECTOS_INTELIGENTES C3 [ALTA]: `train_ex`/
+            # `val_ex` (arriba — ratio-aware desde el release inicial, PRE-C3)
+            # se calculaban y se TIRABAN aquí: se pasaba `examples` completo y
+            # el trainer torch hacía su PROPIO 80/20 interno, DISTINTO del
+            # `val_ex` que la evaluación de más abajo usa (mismatch train/eval
+            # real). mode=temporal usa la partición explícita (correcta y
+            # consistente con la evaluación); mode ausente/"random" preserva
+            # el 80/20 interno del trainer torch — su comportamiento de
+            # SIEMPRE — para no tocar ninguna semántica fuera de lo que C3
+            # pide (el hecho de que ese 80/20 ignore una ratio custom en
+            # mode=random es un hueco PRE-EXISTENTE, ajeno a C3).
+            _split_spec = training.dataset.split
+            if _split_spec is not None and _split_spec.mode == "temporal":
+                _torch_examples, _torch_val = train_ex, val_ex
+            else:
+                _torch_examples, _torch_val = examples, None
             tr = train_composite_network_torch(
-                net, ps, examples, loss_fn, lr=lr, epochs=epochs,
+                net, ps, _torch_examples, loss_fn, lr=lr, epochs=epochs,
                 early_stop=(patience, "validation_loss") if patience else None,
                 device=device, seed=seed, batch_size=batch_size,
                 epoch_callback=_torch_cb, cancel_check=cancel_check,
                 optimizer=opt_type,
+                validation_examples=_torch_val,
             )
             best_ps = tr["best_params"]
             best_epoch = tr["best_epoch"]

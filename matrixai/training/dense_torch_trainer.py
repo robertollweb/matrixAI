@@ -89,6 +89,7 @@ def train_dense_network_torch(
     materialize: bool | None = None,
     initial_state_dict: dict[str, Any] | None = None,
     optimizer: str | None = None,
+    validation_examples: list[tuple[list[float], list[float]]] | None = None,
 ) -> dict[str, Any]:
     """Train a dense_network via torch autograd.
 
@@ -140,9 +141,18 @@ def train_dense_network_torch(
     )
     module._torch_module.to(device)
 
-    # 80/20 split (mirrors the stdlib dense trainer)
-    split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
-    train_ex, val_ex = examples[:split], examples[split:]
+    # Auditoría BIBLIOTECA_PROYECTOS_INTELIGENTES C3 [ALTA]: particiones
+    # EXPLÍCITAS del caller (playground.py aplica el SPLIT mode=temporal|
+    # random declarado, mismo patrón que `train_composite_network_torch`)
+    # — sin `validation_examples`, 80/20 fijo de siempre (mirrors the
+    # stdlib dense trainer), byte-idéntico.
+    if validation_examples is not None:
+        if not validation_examples:
+            raise DenseTorchTrainError("validation_examples must be non-empty")
+        train_ex, val_ex = examples, validation_examples
+    else:
+        split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
+        train_ex, val_ex = examples[:split], examples[split:]
 
     def _to_tensors(rows: list[tuple[list[float], list[float]]]):
         xs = torch.tensor([x for x, _ in rows], dtype=torch.float32, device=device)

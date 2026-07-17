@@ -1,12 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Roberto Llamosas Conde
 """BIBLIOTECA_PROYECTOS_INTELIGENTES C3 — motor de pipeline declarativo
-(vocabulario cerrado de 8 operaciones) + anti-fuga temporal (invariante 6).
-Cubre cada operación aislada, el vocabulario cerrado (op desconocida/
-parámetro inválido -> error accionable), orden+determinismo, el ejemplo
-canónico del mar (sort_temporal + shift_target + lag_window +
-missing_values) y el "dataset trampa" del contrato (columna futura colada
--> detectada por HISTORIAL de operaciones, no por nombre).
+(vocabulario cerrado de 8 operaciones) + anti-fuga temporal (invariante
+6/13). Cubre cada operación aislada, el vocabulario cerrado (op
+desconocida/parámetro inválido/desconocido -> error accionable),
+orden+determinismo, el ejemplo canónico del mar, el linaje temporal
+compuesto (anti-fuga que sobrevive a rename/lag_window encadenados) y la
+reauditoría 2026-07-17 (4 ALTA + 2 MEDIA, todos reproducidos y
+corregidos): linaje perdido tras rename/lag_window, formato de
+lag_window distinto del contrato, corrupción de rename en swap/cadena,
+validate_pipeline_output ciego a nulos en features, vocabulario abierto
+en parámetros.
 """
 from __future__ import annotations
 
@@ -119,6 +123,43 @@ class TestRename:
         with pytest.raises(PipelineError, match="no existe"):
             run_pipeline(rows, [{"op": "rename", "mapping": {"no_existe": "x"}}])
 
+    def test_non_string_destination_raises(self):
+        rows = [{"a": "1"}]
+        with pytest.raises(PipelineError, match="strings no vacíos"):
+            run_pipeline(rows, [{"op": "rename", "mapping": {"a": 123}}])
+
+    def test_empty_string_destination_raises(self):
+        rows = [{"a": "1"}]
+        with pytest.raises(PipelineError, match="strings no vacíos"):
+            run_pipeline(rows, [{"op": "rename", "mapping": {"a": ""}}])
+
+    # -- Auditoría 2026-07-17 [ALTA]: corrupción de datos en swap/cadena --
+
+    def test_swap_exchanges_values_correctly(self):
+        """{"x":"y","y":"x"} debe INTERCAMBIAR los valores, no perder una
+        columna. Reproducción exacta del hallazgo: la versión previa dejaba
+        una sola columna con el valor equivocado."""
+        rows = [{"x": "1", "y": "2"}]
+        res = run_pipeline(rows, [{"op": "rename", "mapping": {"x": "y", "y": "x"}}])
+        assert res.rows == [{"y": "1", "x": "2"}]
+        assert set(res.rows[0].keys()) == {"x", "y"}
+
+    def test_chain_rename_relabels_simultaneously(self):
+        """{"a":"b","b":"c"} es un relabel SIMULTÁNEO (foto de los valores
+        originales) — a pasa a llamarse b, la b ORIGINAL pasa a llamarse c;
+        ninguna se pierde ni se pisa a medio camino."""
+        rows = [{"a": "1", "b": "2"}]
+        res = run_pipeline(rows, [{"op": "rename", "mapping": {"a": "b", "b": "c"}}])
+        assert res.rows == [{"b": "1", "c": "2"}]
+
+    def test_swap_preserves_row_count_and_all_original_values(self):
+        rows = [{"x": str(i), "y": str(i * 10)} for i in range(5)]
+        res = run_pipeline(rows, [{"op": "rename", "mapping": {"x": "y", "y": "x"}}])
+        assert len(res.rows) == 5
+        for i, row in enumerate(res.rows):
+            assert row["y"] == str(i)
+            assert row["x"] == str(i * 10)
+
 
 class TestCast:
     def test_number_reformats_value(self):
@@ -157,37 +198,69 @@ class TestCast:
             run_pipeline(rows, [{"op": "cast", "column": "x", "to": "date"}])
 
 
+# ---------------------------------------------------------------------------
+# lag_window — formato EXACTO del contrato: columns (lista) + window
+# ---------------------------------------------------------------------------
+
 class TestLagWindow:
-    def test_adds_k_lag_columns(self):
+    def test_adds_window_lag_columns_per_column(self):
         rows = [{"x": str(i)} for i in range(5)]
-        res = run_pipeline(rows, [{"op": "lag_window", "column": "x", "k": 2}])
+        res = run_pipeline(rows, [{"op": "lag_window", "columns": ["x"], "window": 2}])
         assert res.rows[0] == {"x": "0", "x_lag1": "", "x_lag2": ""}
         assert res.rows[2] == {"x": "2", "x_lag1": "1", "x_lag2": "0"}
         assert res.rows[4] == {"x": "4", "x_lag1": "3", "x_lag2": "2"}
 
+    def test_multiple_columns_same_window(self):
+        """Reproduce el ejemplo EXACTO del contrato: una lista de columnas,
+        la misma ventana para todas."""
+        rows = [{"a": str(i), "b": str(i * 10)} for i in range(4)]
+        res = run_pipeline(rows, [{"op": "lag_window", "columns": ["a", "b"], "window": 1}])
+        header = set(res.rows[0].keys())
+        assert header == {"a", "b", "a_lag1", "b_lag1"}
+        assert res.rows[2]["a_lag1"] == "1"
+        assert res.rows[2]["b_lag1"] == "10"
+
     def test_never_drops_rows(self):
         rows = [{"x": str(i)} for i in range(5)]
-        res = run_pipeline(rows, [{"op": "lag_window", "column": "x", "k": 3}])
+        res = run_pipeline(rows, [{"op": "lag_window", "columns": ["x"], "window": 3}])
         assert len(res.rows) == 5
 
-    def test_k_zero_raises(self):
+    def test_window_zero_raises(self):
         rows = [{"x": "1"}]
-        with pytest.raises(PipelineError, match="k debe ser un entero >= 1"):
-            run_pipeline(rows, [{"op": "lag_window", "column": "x", "k": 0}])
+        with pytest.raises(PipelineError, match="window debe ser un entero >= 1"):
+            run_pipeline(rows, [{"op": "lag_window", "columns": ["x"], "window": 0}])
 
-    def test_negative_k_raises(self):
+    def test_negative_window_raises(self):
         rows = [{"x": "1"}]
-        with pytest.raises(PipelineError, match="k debe ser un entero >= 1"):
-            run_pipeline(rows, [{"op": "lag_window", "column": "x", "k": -1}])
+        with pytest.raises(PipelineError, match="window debe ser un entero >= 1"):
+            run_pipeline(rows, [{"op": "lag_window", "columns": ["x"], "window": -1}])
 
-    def test_non_int_k_raises(self):
+    def test_non_int_window_raises(self):
         rows = [{"x": "1"}]
-        with pytest.raises(PipelineError, match="k debe ser un entero"):
-            run_pipeline(rows, [{"op": "lag_window", "column": "x", "k": "3"}])
+        with pytest.raises(PipelineError, match="window debe ser un entero"):
+            run_pipeline(rows, [{"op": "lag_window", "columns": ["x"], "window": "3"}])
+
+    def test_empty_columns_list_raises(self):
+        rows = [{"x": "1"}]
+        with pytest.raises(PipelineError, match="lista no vacía"):
+            run_pipeline(rows, [{"op": "lag_window", "columns": [], "window": 1}])
+
+    def test_singular_column_key_rejected_not_silently_ignored(self):
+        """El formato ANTIGUO (column/k singular) ya no existe — debe
+        fallar con un error accionable, nunca ignorar 'column' en silencio
+        y reventar con un mensaje que confunda al caller."""
+        rows = [{"x": "1"}]
+        with pytest.raises(PipelineError):
+            run_pipeline(rows, [{"op": "lag_window", "column": "x", "k": 1}])
+
+    def test_window_over_max_raises(self):
+        rows = [{"x": "1"}]
+        with pytest.raises(PipelineError, match="supera el máximo"):
+            run_pipeline(rows, [{"op": "lag_window", "columns": ["x"], "window": 100000}])
 
     def test_never_flagged_by_anti_leakage(self):
         rows = [{"x": str(i)} for i in range(5)]
-        res = run_pipeline(rows, [{"op": "lag_window", "column": "x", "k": 2}])
+        res = run_pipeline(rows, [{"op": "lag_window", "columns": ["x"], "window": 2}])
         assert check_anti_leakage(res, feature_columns=["x", "x_lag1", "x_lag2"]) == []
 
 
@@ -219,10 +292,16 @@ class TestShiftTarget:
         with pytest.raises(PipelineError, match="horizon debe ser un entero >= 1"):
             run_pipeline(rows, [{"op": "shift_target", "column": "x", "horizon": -1}])
 
-    def test_result_column_tracked_as_forward_shifted(self):
+    def test_horizon_over_max_raises(self):
+        rows = [{"x": "1"}]
+        with pytest.raises(PipelineError, match="supera el máximo"):
+            run_pipeline(rows, [{"op": "shift_target", "column": "x", "horizon": 100000}])
+
+    def test_result_column_has_positive_offset(self):
         rows = [{"x": str(i)} for i in range(5)]
         res = run_pipeline(rows, [{"op": "shift_target", "column": "x", "horizon": 1}])
-        assert res.forward_shifted_columns == frozenset({"x_target_h1"})
+        assert res.column_offsets["x_target_h1"] == 1
+        assert res.column_offsets["x"] == 0
 
 
 class TestDropColumns:
@@ -242,9 +321,17 @@ class TestDropColumns:
         with pytest.raises(PipelineError, match="lista no vacía"):
             run_pipeline(rows, [{"op": "drop_columns", "columns": []}])
 
+    def test_drops_lineage_entry(self):
+        rows = [{"x": str(i)} for i in range(5)]
+        res = run_pipeline(rows, [
+            {"op": "shift_target", "column": "x", "horizon": 1},
+            {"op": "drop_columns", "columns": ["x_target_h1"]},
+        ])
+        assert "x_target_h1" not in res.column_offsets
+
 
 # ---------------------------------------------------------------------------
-# Vocabulario cerrado
+# Vocabulario cerrado (op + parámetros)
 # ---------------------------------------------------------------------------
 
 class TestClosedVocabulary:
@@ -268,6 +355,25 @@ class TestClosedVocabulary:
         assert res.rows == rows
         assert res.steps == []
 
+    # -- Auditoría 2026-07-17 [MEDIA]: parámetros extra ya NO se ignoran --
+
+    def test_unexpected_extra_param_raises(self):
+        rows = [{"a": "1"}]
+        with pytest.raises(PipelineError, match="desconocido"):
+            run_pipeline(rows, [{"op": "drop_duplicates", "unexpected": "ignored"}])
+
+    def test_unexpected_param_on_typed_op_raises(self):
+        rows = [{"a": "1"}]
+        with pytest.raises(PipelineError, match="desconocido"):
+            run_pipeline(rows, [{"op": "cast", "column": "a", "to": "number", "extra": 1}])
+
+    def test_typo_in_param_name_is_caught(self):
+        """Un typo ("columnn" en vez de "column") debe fallar, no
+        interpretarse como "sin columna declarada"."""
+        rows = [{"a": "1"}]
+        with pytest.raises(PipelineError, match="desconocido"):
+            run_pipeline(rows, [{"op": "sort_temporal", "columnn": "a"}])
+
 
 # ---------------------------------------------------------------------------
 # Orden y determinismo
@@ -279,7 +385,7 @@ class TestOrderAndDeterminism:
         ops = [
             {"op": "sort_temporal", "column": "fecha"},
             {"op": "shift_target", "column": "altura_ola", "horizon": 1},
-            {"op": "lag_window", "column": "altura_ola", "k": 2},
+            {"op": "lag_window", "columns": ["altura_ola"], "window": 2},
             {"op": "missing_values", "strategy": "drop"},
         ]
         res1 = run_pipeline(rows, ops)
@@ -299,7 +405,7 @@ class TestOrderAndDeterminism:
         rows = [{"x": str(i)} for i in range(3)]
         res_rename_first = run_pipeline(rows, [
             {"op": "rename", "mapping": {"x": "y"}},
-            {"op": "lag_window", "column": "y", "k": 1},
+            {"op": "lag_window", "columns": ["y"], "window": 1},
         ])
         assert "y_lag1" in res_rename_first.rows[0]
 
@@ -327,32 +433,31 @@ class TestCanonicalMarExample:
         ops = [
             {"op": "sort_temporal", "column": "fecha"},
             {"op": "shift_target", "column": "altura_ola", "horizon": 1},
-            {"op": "lag_window", "column": "altura_ola", "k": 2},
+            {"op": "lag_window", "columns": ["altura_ola"], "window": 2},
             {"op": "missing_values", "strategy": "drop"},
         ]
         res = run_pipeline(rows, ops)
         # 2 filas caídas al principio (lag_window sin historia) + 1 al final
         # (shift_target sin futuro) = 3 de 10.
         assert len(res.rows) == 7
-        errors = validate_pipeline_output(res.rows, target_column="altura_ola_target_h1")
-        assert errors == []
-        leaks = check_anti_leakage(
-            res, feature_columns=["altura_ola", "altura_ola_lag1", "altura_ola_lag2", "temperatura"],
+        feature_cols = ["altura_ola", "altura_ola_lag1", "altura_ola_lag2", "temperatura"]
+        errors = validate_pipeline_output(
+            res.rows, target_column="altura_ola_target_h1", feature_columns=feature_cols,
         )
+        assert errors == []
+        leaks = check_anti_leakage(res, feature_columns=feature_cols)
         assert leaks == []
 
 
 # ---------------------------------------------------------------------------
-# Anti-fuga (invariante 6) — "dataset trampa" del contrato
+# Anti-fuga (invariante 6/13) — "dataset trampa" del contrato + linaje
+# compuesto (reauditoría 2026-07-17 [ALTA]: la versión anterior solo
+# recordaba el NOMBRE creado directamente por shift_target — se perdía tras
+# rename/lag_window, o se quedaba pegado a un nombre reciclado)
 # ---------------------------------------------------------------------------
 
 class TestAntiLeakageTrapDataset:
     def test_shifted_column_used_as_feature_is_detected(self):
-        """El caso trampa EXACTO del contrato: una columna con información
-        posterior a t colada entre las features — detectada por HISTORIAL
-        de shift_target, nunca por su nombre (aquí incluso se le da un
-        nombre inocuo, "clima_manana", para probar que el nombre es
-        irrelevante)."""
         rows = _mar_rows(10)
         res = run_pipeline(rows, [
             {"op": "sort_temporal", "column": "fecha"},
@@ -372,22 +477,58 @@ class TestAntiLeakageTrapDataset:
         assert check_anti_leakage(res, feature_columns=["totally_safe_column"]) != []
 
     def test_alarming_looking_name_without_shift_is_not_flagged(self):
-        """Un nombre que SUENA a fuga ("futuro_x") pero que NUNCA pasó por
-        shift_target no es fuga — la detección es por historial, no por
-        nombre, en ambas direcciones."""
         rows = [{"x": "1", "futuro_x": "2"}]
         res = run_pipeline(rows, [{"op": "cast", "column": "x", "to": "number"}])
         assert check_anti_leakage(res, feature_columns=["x", "futuro_x"]) == []
 
     def test_shift_target_source_column_itself_is_not_flagged(self):
-        """Usar altura_ola(t) como feature para predecir altura_ola(t+1) es
-        autorregresión normal, NO fuga — solo el resultado DESPLAZADO lo es."""
         rows = _mar_rows(6)
         res = run_pipeline(rows, [
             {"op": "sort_temporal", "column": "fecha"},
             {"op": "shift_target", "column": "altura_ola", "horizon": 1},
         ])
         assert check_anti_leakage(res, feature_columns=["altura_ola", "temperatura"]) == []
+
+    # -- Reauditoría [ALTA]: los 3 repros exactos del hallazgo --
+
+    def test_shift_then_rename_still_flagged(self):
+        """Repro 1: shift_target(as='future') -> rename(future->innocent).
+        El linaje se TRANSFIERE en el rename, no se pierde."""
+        rows = [{"x": str(i)} for i in range(5)]
+        res = run_pipeline(rows, [
+            {"op": "shift_target", "column": "x", "horizon": 1, "as": "future"},
+            {"op": "rename", "mapping": {"future": "innocent"}},
+        ])
+        leaks = check_anti_leakage(res, feature_columns=["innocent"])
+        assert len(leaks) == 1
+        assert "innocent" in leaks[0]
+
+    def test_shift_then_lag_still_flagged_with_residual_offset(self):
+        """Repro 2: shift_target(horizon=3) -> lag_window(k=1) sobre la
+        columna desplazada. x_target_h3_lag1 = x_target_h3 en t-1 = x en
+        (t-1)+3 = t+2 — SIGUE en el futuro (offset neto +2), no +3 ni 0."""
+        rows = [{"x": str(i)} for i in range(10)]
+        res = run_pipeline(rows, [
+            {"op": "shift_target", "column": "x", "horizon": 3},
+            {"op": "lag_window", "columns": ["x_target_h3"], "window": 1},
+        ])
+        assert res.column_offsets["x_target_h3_lag1"] == 2
+        leaks = check_anti_leakage(res, feature_columns=["x_target_h3_lag1"])
+        assert len(leaks) == 1
+
+    def test_drop_then_rename_of_unrelated_column_is_not_a_false_positive(self):
+        """Repro 3: shift_target(as='future') -> drop_columns(['future'])
+        -> rename(x -> 'future') [x es la columna PRESENTE original, sin
+        relación]. El nombre reciclado 'future' NO debe arrastrar el
+        linaje de la fuga ya eliminada — falso positivo si lo hiciera."""
+        rows = [{"x": str(i), "y": str(i * 2)} for i in range(5)]
+        res = run_pipeline(rows, [
+            {"op": "shift_target", "column": "x", "horizon": 1, "as": "future"},
+            {"op": "drop_columns", "columns": ["future"]},
+            {"op": "rename", "mapping": {"y": "future"}},
+        ])
+        assert res.column_offsets["future"] == 0
+        assert check_anti_leakage(res, feature_columns=["future"]) == []
 
 
 # ---------------------------------------------------------------------------
@@ -413,3 +554,34 @@ class TestValidatePipelineOutput:
     def test_clean_dataset_has_no_errors(self):
         rows = [{"y": "1"}, {"y": "2"}, {"y": "3"}]
         assert validate_pipeline_output(rows, target_column="y") == []
+
+    def test_min_rows_not_positive_int_raises(self):
+        rows = [{"y": "1"}, {"y": "2"}]
+        with pytest.raises(PipelineError, match="min_rows"):
+            validate_pipeline_output(rows, target_column="y", min_rows=0)
+
+    def test_min_rows_non_int_raises(self):
+        rows = [{"y": "1"}, {"y": "2"}]
+        with pytest.raises(PipelineError, match="min_rows"):
+            validate_pipeline_output(rows, target_column="y", min_rows="2")
+
+    # -- Reauditoría [MEDIA]: nulos residuales en FEATURES, no solo target --
+
+    def test_residual_nulls_in_feature_reported(self):
+        """El target completo NO basta — un lag_window(window=2) deja las
+        2 primeras filas de la feature vacías; antes esto pasaba `[]`."""
+        rows = [
+            {"y": "1", "x_lag1": ""}, {"y": "2", "x_lag1": ""},
+            {"y": "3", "x_lag1": "1"}, {"y": "4", "x_lag1": "2"},
+        ]
+        errors = validate_pipeline_output(rows, target_column="y", feature_columns=["x_lag1"])
+        assert errors and "x_lag1" in errors[0]
+
+    def test_missing_feature_column_reported(self):
+        rows = [{"y": "1"}, {"y": "2"}]
+        errors = validate_pipeline_output(rows, target_column="y", feature_columns=["no_existe"])
+        assert errors and "no_existe" in errors[0]
+
+    def test_clean_features_report_no_errors(self):
+        rows = [{"y": "1", "x": "9"}, {"y": "2", "x": "8"}]
+        assert validate_pipeline_output(rows, target_column="y", feature_columns=["x"]) == []

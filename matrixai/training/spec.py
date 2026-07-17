@@ -41,11 +41,15 @@ class DatasetSplitSpec:
     mode: str = "random"
 
     def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] = {
-            "train": self.train, "validation": self.validation, "mode": self.mode,
-        }
+        data: dict[str, Any] = {"train": self.train, "validation": self.validation}
         if self.seed is not None:
             data["seed"] = self.seed
+        # Auditoría [MEDIA]: solo se anota si es "temporal" — "random" es el
+        # default de SIEMPRE (pre-C3), así que la serialización de un split
+        # sin `mode` declarado queda BYTE-IDÉNTICA a antes de C3 (mismo
+        # criterio que `seed` arriba).
+        if self.mode == "temporal":
+            data["mode"] = self.mode
         return data
 
 

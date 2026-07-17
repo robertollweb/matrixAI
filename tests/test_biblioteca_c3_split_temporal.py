@@ -65,13 +65,6 @@ class TestParserSplitMode:
         spec = parse_training_text(_mxtrain_text("d.csv", "SPLIT train=0.7 validation=0.3"))
         assert spec.dataset.split.mode == "random"
 
-    def test_seed_and_mode_together(self):
-        spec = parse_training_text(
-            _mxtrain_text("d.csv", "SPLIT train=0.7 validation=0.3 seed=42 mode=temporal")
-        )
-        assert spec.dataset.split.seed == 42
-        assert spec.dataset.split.mode == "temporal"
-
     def test_invalid_mode_value_rejected(self):
         with pytest.raises(MatrixAITrainingParseError):
             parse_training_text(_mxtrain_text("d.csv", "SPLIT train=0.7 validation=0.3 mode=bogus"))
@@ -80,11 +73,41 @@ class TestParserSplitMode:
         spec = parse_training_text(_mxtrain_text("d.csv", ""))
         assert spec.dataset.split is None
 
-    def test_split_spec_to_dict_includes_mode(self):
+    def test_split_spec_to_dict_omits_mode_when_random_byte_identical(self):
+        """Auditoría [MEDIA]: `to_dict()` NO debe añadir "mode" cuando es
+        "random" (default) — antes lo hacía siempre, así que la
+        serialización de un split declarado ANTES de C3 dejaba de ser
+        byte-idéntica aunque `mode` nunca se usara."""
         spec = DatasetSplitSpec(train=0.8, validation=0.2)
-        assert spec.to_dict()["mode"] == "random"
+        assert "mode" not in spec.to_dict()
         spec2 = DatasetSplitSpec(train=0.8, validation=0.2, mode="temporal")
         assert spec2.to_dict()["mode"] == "temporal"
+
+    # -- Auditoría 2026-07-17 [MEDIA]: SPLIT acepta ratios incoherentes --
+
+    def test_seed_with_mode_temporal_rejected(self):
+        """mode=temporal nunca baraja — un seed ahí es casi siempre una
+        confusión del usuario, se rechaza en vez de aceptarlo e ignorarlo."""
+        with pytest.raises(MatrixAITrainingParseError, match="seed"):
+            parse_training_text(
+                _mxtrain_text("d.csv", "SPLIT train=0.7 validation=0.3 seed=42 mode=temporal")
+            )
+
+    def test_train_plus_validation_over_one_rejected(self):
+        with pytest.raises(MatrixAITrainingParseError, match="sumar 1"):
+            parse_training_text(_mxtrain_text("d.csv", "SPLIT train=0.9 validation=0.9"))
+
+    def test_train_zero_rejected(self):
+        with pytest.raises(MatrixAITrainingParseError, match="entre 0 y 1"):
+            parse_training_text(_mxtrain_text("d.csv", "SPLIT train=0 validation=1"))
+
+    def test_train_one_rejected(self):
+        with pytest.raises(MatrixAITrainingParseError, match="entre 0 y 1"):
+            parse_training_text(_mxtrain_text("d.csv", "SPLIT train=1 validation=0"))
+
+    def test_ratios_that_sum_to_one_still_parse(self):
+        spec = parse_training_text(_mxtrain_text("d.csv", "SPLIT train=0.85 validation=0.15"))
+        assert spec.dataset.split.train == 0.85
 
 
 # ---------------------------------------------------------------------------
@@ -333,8 +356,9 @@ END
 
 class TestTransformerTrainerTemporalSplit:
     def test_temporal_never_calls_shuffle(self, tmp_path, monkeypatch):
-        """Confirma el código real (no una réplica): con mode=temporal y
-        seed declarado, random.Random.shuffle NUNCA se invoca."""
+        """Confirma el código real (no una réplica): con mode=temporal,
+        random.Random.shuffle NUNCA se invoca (mode=temporal no admite
+        seed — invariante "sin barajar", ver TestParserSplitMode)."""
         from matrixai.training.transformer_trainer import TransformerSupervisedTrainer
         from matrixai.training.parser import parse_training_file
 
@@ -348,7 +372,7 @@ class TestTransformerTrainerTemporalSplit:
         monkeypatch.setattr(random.Random, "shuffle", _spy_shuffle)
 
         mxtrain = _write_transformer_fixture(
-            tmp_path, "SPLIT train=0.7 validation=0.3 seed=42 mode=temporal",
+            tmp_path, "SPLIT train=0.7 validation=0.3 mode=temporal",
         )
         training = parse_training_file(mxtrain)
         TransformerSupervisedTrainer().train(
@@ -377,3 +401,197 @@ class TestTransformerTrainerTemporalSplit:
             training, output_dir=str(tmp_path / "out"), base_path=tmp_path,
         )
         assert len(calls) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Reauditoría 2026-07-17 [ALTA]: el camino torch REAL del Studio
+# (`_run_playground_dense_training`/`_run_playground_training` con
+# MATRIXAI_TRAIN_BACKEND=torch) ignoraba `training.dataset.split` por
+# completo — SPLIT mode=temporal se declaraba y el trainer torch hacía su
+# propio 80/20 interno sin mirarlo. Reproducido y corregido en
+# dense_torch_trainer.py (validation_examples explícito) + playground.py
+# (partición calculada honrando split.mode antes de llamar al trainer).
+# ---------------------------------------------------------------------------
+
+_DENSE_TORCH_MXAI = """PROJECT DT
+VECTOR In[2]
+  x1: Scalar
+  x2: Scalar
+END
+NETWORK Net
+  INPUT In
+  LAYER Dense units=4 activation=relu
+  LAYER Dense units=1 activation=linear
+  OUTPUT y: Scalar
+END
+GRAPH
+  In -> Net
+END
+"""
+
+
+def _dense_torch_train_text(split_line: str) -> str:
+    return f"""MODEL DT.mxai
+DATASET DS
+  SOURCE csv("d.csv")
+  INPUT In FROM COLUMNS [x1, x2]
+  TARGET y: Scalar
+  {split_line}
+END
+LOSS L
+  TYPE mse
+  PREDICTION Net
+  TARGET y
+END
+OPTIMIZER O
+  TYPE sgd
+  LEARNING_RATE 0.01
+  UPDATE Net.*
+END
+"""
+
+
+def _dense_torch_csv() -> str:
+    # x1 = índice de fila (0..9) — identifica EXACTAMENTE qué filas
+    # originales terminan en validación mirando los x1 vistos.
+    rows = ["x1,x2,y"] + [f"{i},0,{i}" for i in range(10)]
+    return "\n".join(rows) + "\n"
+
+
+class TestDenseTorchStudioPathHonorsTemporalSplit:
+    def _run_and_capture_val_x1(self, split_line, monkeypatch):
+        import matrixai.training.dense_torch_trainer as dtt
+        from matrixai.playground import _run_playground_dense_training
+
+        monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", "torch")
+        captured: dict = {}
+        real_train = dtt.train_dense_network_torch
+
+        def _spy(*args, **kwargs):
+            captured["validation_examples"] = kwargs.get("validation_examples")
+            return real_train(*args, **kwargs)
+
+        monkeypatch.setattr(dtt, "train_dense_network_torch", _spy)
+
+        r = _run_playground_dense_training(
+            _DENSE_TORCH_MXAI, _dense_torch_train_text(split_line), _dense_torch_csv(),
+            epochs_override=2,
+        )
+        assert r["ok"], r.get("error")
+        return captured["validation_examples"]
+
+    def test_temporal_passes_explicit_last_tramo(self, monkeypatch):
+        val = self._run_and_capture_val_x1(
+            "SPLIT train=0.6 validation=0.4 mode=temporal", monkeypatch,
+        )
+        assert val is not None
+        val_x1 = sorted(int(x[0]) for x, _y in val)
+        assert val_x1 == [6, 7, 8, 9]
+
+    def test_temporal_different_ratio_different_boundary(self, monkeypatch):
+        val = self._run_and_capture_val_x1(
+            "SPLIT train=0.9 validation=0.1 mode=temporal", monkeypatch,
+        )
+        val_x1 = sorted(int(x[0]) for x, _y in val)
+        assert val_x1 == [9]
+
+    def test_mode_random_matches_old_hardcoded_80_20_ignoring_custom_ratio(self, monkeypatch):
+        """mode ausente/"random": la partición explícita que ahora se pasa
+        reproduce EXACTAMENTE el 80/20 fijo que el trainer torch ya hacía
+        internamente (byte-idéntico a antes de C3) — el ratio 0.6/0.4
+        declarado se IGNORA, igual que antes de C3."""
+        val = self._run_and_capture_val_x1(
+            "SPLIT train=0.6 validation=0.4", monkeypatch,
+        )
+        assert val is not None
+        val_x1 = sorted(int(x[0]) for x, _y in val)
+        assert val_x1 == [8, 9]  # 0.8 fijo, NO 0.6
+
+
+_COMPOSITE_TORCH_MXAI = """PROJECT CT
+VECTOR In[2]
+  x1: Scalar
+  x2: Scalar
+END
+NETWORK Net
+  INPUT In
+  LAYER Dense units=8 activation=relu
+  BLOCK r1
+    LAYER Dense units=8 activation=relu
+    LAYER LayerNorm
+    RESIDUAL FROM PREVIOUS
+  END
+  LAYER Dense units=1 activation=linear
+  OUTPUT y: Scalar
+END
+GRAPH
+  In -> Net
+END
+"""
+
+
+def _composite_torch_train_text(split_line: str) -> str:
+    return f"""MODEL CT.mxai
+DATASET DS
+  SOURCE csv("d.csv")
+  INPUT In FROM COLUMNS [x1, x2]
+  TARGET y: Scalar
+  {split_line}
+END
+LOSS L
+  TYPE mse
+  PREDICTION Net
+  TARGET y
+END
+OPTIMIZER O
+  TYPE sgd
+  LEARNING_RATE 0.01
+  UPDATE Net.*
+END
+"""
+
+
+class TestCompositeTorchStudioPathHonorsTemporalSplit:
+    def _run_and_capture(self, split_line, monkeypatch):
+        import matrixai.training.composite_torch_trainer as ctt
+        from matrixai.playground import _run_playground_composite_training
+
+        monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", "torch")
+        captured: dict = {}
+        real_train = ctt.train_composite_network_torch
+
+        def _spy(net, ps, examples, loss_fn, **kwargs):
+            captured["examples"] = examples
+            captured["validation_examples"] = kwargs.get("validation_examples")
+            return real_train(net, ps, examples, loss_fn, **kwargs)
+
+        monkeypatch.setattr(ctt, "train_composite_network_torch", _spy)
+
+        r = _run_playground_composite_training(
+            _COMPOSITE_TORCH_MXAI, _composite_torch_train_text(split_line), _dense_torch_csv(),
+            epochs_override=1,
+        )
+        assert r["ok"], r.get("error")
+        return captured
+
+    def test_temporal_passes_explicit_split(self, monkeypatch):
+        captured = self._run_and_capture(
+            "SPLIT train=0.6 validation=0.4 mode=temporal", monkeypatch,
+        )
+        assert captured["validation_examples"] is not None
+        val_x1 = sorted(int(x["x1"]) for x, _y in captured["validation_examples"])
+        assert val_x1 == [6, 7, 8, 9]
+        train_x1 = sorted(int(x["x1"]) for x, _y in captured["examples"])
+        assert train_x1 == [0, 1, 2, 3, 4, 5]
+
+    def test_mode_random_preserves_old_full_examples_no_explicit_partition(self, monkeypatch):
+        """mode ausente/"random": el trainer torch recibe TODOS los
+        examples (no train_ex) y validation_examples=None — el ratio 0.6
+        declarado se ignora, byte-idéntico al comportamiento torch de
+        antes de C3 (el bug real: train_ex/val_ex ya se calculaban pero
+        se tiraban)."""
+        captured = self._run_and_capture(
+            "SPLIT train=0.6 validation=0.4", monkeypatch,
+        )
+        assert captured["validation_examples"] is None
+        assert len(captured["examples"]) == 10  # TODOS, no solo el 60%

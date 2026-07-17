@@ -191,11 +191,43 @@ def _parse_dataset(block: list[str]) -> DatasetSpec:
             match = _SPLIT_RE.match(line)
             if not match:
                 raise MatrixAITrainingParseError(f"Invalid SPLIT declaration: {line}")
+            train_ratio = float(match.group("train"))
+            validation_ratio = float(match.group("validation"))
+            seed = int(match.group("seed")) if match.group("seed") else None
+            mode = match.group("mode") or "random"
+            # BIBLIOTECA_PROYECTOS_INTELIGENTES C3 (auditoría [MEDIA]): antes
+            # se aceptaba cualquier train/validation (0.9+0.9, train=0,
+            # train=1...) — los trainers solo usan `train` para el corte y
+            # ajustan el resultado en silencio; `validation` era meramente
+            # informativo, así que una declaración incoherente NUNCA se
+            # notaba. Vocabulario cerrado también en los VALORES.
+            if not (0.0 < train_ratio < 1.0):
+                raise MatrixAITrainingParseError(
+                    f"Invalid SPLIT declaration: train={train_ratio} debe estar "
+                    f"estrictamente entre 0 y 1: {line}"
+                )
+            if not (0.0 < validation_ratio < 1.0):
+                raise MatrixAITrainingParseError(
+                    f"Invalid SPLIT declaration: validation={validation_ratio} debe "
+                    f"estar estrictamente entre 0 y 1: {line}"
+                )
+            if abs((train_ratio + validation_ratio) - 1.0) > 1e-6:
+                raise MatrixAITrainingParseError(
+                    f"Invalid SPLIT declaration: train={train_ratio} + "
+                    f"validation={validation_ratio} debe sumar 1.0: {line}"
+                )
+            # mode=temporal nunca baraja (invariante 12 del contrato 57: "sin
+            # barajar") — un seed ahí no tendría ningún efecto; declararlo de
+            # todos modos es casi siempre una confusión del usuario ("¿por
+            # qué mi seed no cambia nada?"), así que se rechaza en vez de
+            # aceptarlo e ignorarlo en silencio.
+            if mode == "temporal" and seed is not None:
+                raise MatrixAITrainingParseError(
+                    f"Invalid SPLIT declaration: mode=temporal no admite seed "
+                    f"(nunca baraja, el seed no tendría efecto): {line}"
+                )
             split = DatasetSplitSpec(
-                train=float(match.group("train")),
-                validation=float(match.group("validation")),
-                seed=int(match.group("seed")) if match.group("seed") else None,
-                mode=match.group("mode") or "random",
+                train=train_ratio, validation=validation_ratio, seed=seed, mode=mode,
             )
             index += 1
             continue
