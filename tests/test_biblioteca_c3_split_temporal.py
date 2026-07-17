@@ -507,6 +507,49 @@ class TestDenseTorchStudioPathHonorsTemporalSplit:
         val_x1 = sorted(int(x[0]) for x, _y in val)
         assert val_x1 == [8, 9]  # 0.8 fijo, NO 0.6
 
+    # -- Reauditoría 2026-07-17 [ALTA]: la EVALUACIÓN dense-torch usaba
+    # `examples` completo (train+val), no `val_ex` — métricas parcialmente
+    # in-sample. Espía sobre evaluate_dense_network_torch, no solo el
+    # trainer (petición explícita de la auditoría). --
+
+    def _run_and_capture_eval_x1(self, split_line, monkeypatch):
+        import matrixai.training.dense_torch_trainer as dtt
+        from matrixai.playground import _run_playground_dense_training
+
+        monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", "torch")
+        captured: dict = {}
+        real_eval = dtt.evaluate_dense_network_torch
+
+        def _spy_eval(net, ps, examples, *args, **kwargs):
+            captured["eval_examples"] = examples
+            return real_eval(net, ps, examples, *args, **kwargs)
+
+        monkeypatch.setattr(dtt, "evaluate_dense_network_torch", _spy_eval)
+
+        r = _run_playground_dense_training(
+            _DENSE_TORCH_MXAI, _dense_torch_train_text(split_line), _dense_torch_csv(),
+            epochs_override=2,
+        )
+        assert r["ok"], r.get("error")
+        return captured["eval_examples"]
+
+    def test_temporal_evaluates_only_on_held_out_validation_tramo(self, monkeypatch):
+        eval_x1 = sorted(int(x[0]) for x, _y in self._run_and_capture_eval_x1(
+            "SPLIT train=0.6 validation=0.4 mode=temporal", monkeypatch,
+        ))
+        assert eval_x1 == [6, 7, 8, 9]  # NUNCA las filas de entrenamiento [0..5]
+
+    def test_mode_random_also_evaluates_only_on_validation_not_full_dataset(self, monkeypatch):
+        """Incluso en mode=random (80/20 fijo, byte-idéntico para el
+        ENTRENAMIENTO) la evaluación debe restringirse a las filas de
+        validación — nunca al dataset completo (train+val), o las
+        métricas reportadas serían parcialmente in-sample."""
+        eval_x1 = sorted(int(x[0]) for x, _y in self._run_and_capture_eval_x1(
+            "SPLIT train=0.6 validation=0.4", monkeypatch,
+        ))
+        assert eval_x1 == [8, 9]
+        assert len(eval_x1) != 10  # nunca el dataset completo
+
 
 _COMPOSITE_TORCH_MXAI = """PROJECT CT
 VECTOR In[2]

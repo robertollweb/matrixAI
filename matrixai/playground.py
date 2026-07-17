@@ -1550,15 +1550,22 @@ def _dense_torch_train_result(
               f"(ejemplos={len(examples)}, VRAM pico={tr.get('peak_vram_gb')} GB)")
         best_ps = tr["best_params"]                    # None si no se materializó (grande)
         best_state_dict = tr.get("best_state_dict")    # None si se materializó (pequeño)
-        # M14 — evaluación BATCHED en torch/GPU (no fila a fila en CPU). Reusa los
-        # `examples` ya cargados; sin re-leer el CSV. Con datasets grandes + redes
-        # anchas evita que el run se cuelgue evaluando en CPU tras entrenar en GPU.
+        # M14 — evaluación BATCHED en torch/GPU (no fila a fila en CPU).
+        # Auditoría BIBLIOTECA_PROYECTOS_INTELIGENTES C3 [ALTA, reauditoría
+        # 2026-07-17]: evaluaba sobre `examples` completo (train+val) — las
+        # métricas (mae/rmse/r2/accuracy) incluían filas que el modelo YA
+        # había visto entrenando, parcialmente in-sample y optimistas.
+        # `train_ex`/`val_ex` (arriba) ya existen — evalúa SOLO sobre
+        # `val_ex`, igual que el camino stdlib (`DenseSupervisedTrainer`,
+        # que evalúa con `evaluate_dense_network(..., val_ex, ...)`
+        # internamente) y el camino composite (`evaluate_composite_network_
+        # torch(..., val_ex, ...)` más abajo en este fichero).
         # C3: si el modelo es grande, evalúa desde los tensores (`state_dict`), no
         # desde una ParameterSet materializada.
         evaluation_warning: str | None = None
         try:
             dense_result = evaluate_dense_network_torch(
-                net, best_ps, examples, loss_fn, labels=labels or None, device=device,
+                net, best_ps, val_ex, loss_fn, labels=labels or None, device=device,
                 cancel_check=cancel_check, state_dict=best_state_dict,
             )
             evaluation_report = _eval_report_from_dense_result(dense_result, labels)
@@ -1855,9 +1862,26 @@ def _run_playground_composite_training(
             # real). mode=temporal usa la partición explícita (correcta y
             # consistente con la evaluación); mode ausente/"random" preserva
             # el 80/20 interno del trainer torch — su comportamiento de
-            # SIEMPRE — para no tocar ninguna semántica fuera de lo que C3
-            # pide (el hecho de que ese 80/20 ignore una ratio custom en
-            # mode=random es un hueco PRE-EXISTENTE, ajeno a C3).
+            # SIEMPRE.
+            #
+            # DECISIÓN EXPLÍCITA (reauditoría [MEDIA]: "conviene decidir si
+            # byte-idéntico también autoriza ignorar ratios declarados" —
+            # respuesta: SÍ, deliberadamente): el contrato (corte C3) fija
+            # por escrito "default random = comportamiento actual
+            # byte-idéntico" como requisito del corte, ANTES de que existiera
+            # ninguna duda sobre ratios — es una restricción de diseño, no un
+            # olvido a rellenar sobre la marcha. Honrar la ratio también en
+            # mode=random en TODOS los caminos (incluido este, torch) violaría
+            # esa restricción explícita. Si se quiere una ratio custom
+            # garantizada de verdad, la vía soportada es `mode=temporal` (la
+            # ÚNICA que este corte promete). El hueco de que un `SPLIT
+            # train=0.6...` sin `mode` se ignore en el camino torch (pero SÍ
+            # se respete en el camino stdlib de este mismo bloque, líneas de
+            # arriba) es pre-existente — más antiguo que C3 — y una
+            # inconsistencia real entre backends; corregirla es una decisión
+            # de producto (cambiar qué significa "random" en TODOS los
+            # backends) que le corresponde a Roberto, no a un pase de
+            # auditoría de C3.
             _split_spec = training.dataset.split
             if _split_spec is not None and _split_spec.mode == "temporal":
                 _torch_examples, _torch_val = train_ex, val_ex

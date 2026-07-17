@@ -13,7 +13,7 @@ plantilla", flujo B — verificado contra el JSON de ejemplo del documento):
 
   sort_temporal(column)                    — ordena por una columna fecha, ascendente
   drop_duplicates()                        — elimina filas EXACTAMENTE duplicadas
-  missing_values(strategy, columns=None)   — "drop" o "interpolate" (solo numéricas)
+  missing_values(strategy, columns=None)   — "drop" o "interpolate" (forward-fill CAUSAL, solo numéricas, nunca usa un valor futuro)
   rename(mapping)                          — {columna_actual: columna_nueva}
   cast(column, to)                         — "number"/"integer"/"string"
   lag_window(columns, window)              — por cada columna, añade {col}_lag1..{col}_lag{window} (SIEMPRE hacia atrás, window>=1)
@@ -202,15 +202,23 @@ def validate_pipeline_output(
     rows: list[dict[str, str]], *,
     target_column: str,
     feature_columns: list[str] | None = None,
+    expected_types: dict[str, str] | None = None,
     min_rows: int = 2,
 ) -> list[str]:
     """Validación final del contrato ("min_rows, tipos, nulos residuales,
-    target presente"): `tipos` ya lo garantiza `cast` (falla cerrado al
-    aplicarse, no hace falta re-chequear); aquí quedan min_rows, target
-    presente, nulos residuales en el target Y (auditoría [MEDIA]) en las
-    `feature_columns` declaradas — antes solo se miraba el target, así que
-    un `lag_window` que deja las primeras filas sin lag pasaba "limpio"
-    aunque esas features estuvieran vacías."""
+    target presente"): min_rows, target presente, nulos residuales en el
+    target Y en las `feature_columns` declaradas — antes solo se miraba el
+    target, así que un `lag_window` que deja las primeras filas sin lag
+    pasaba "limpio" aunque esas features estuvieran vacías.
+
+    `expected_types` (auditoría [MEDIA, reauditoría]): "tipos" no puede
+    darse por garantizado solo porque `cast` exista en el vocabulario — un
+    pipeline puede omitirlo, o aplicarlo solo a ALGUNAS columnas. Este
+    módulo no tiene esquema propio (no es su responsabilidad inventar uno:
+    ese conocimiento vive en C1/C2), así que la validación de tipos es
+    OPCIONAL y explícita: el caller que SÍ conoce el esquema pasa
+    `{columna: "number"|"integer"|"string"}` y aquí se verifica el
+    resultado REAL, columna por columna, con la misma regla que `cast`."""
     if not isinstance(min_rows, int) or isinstance(min_rows, bool) or min_rows < 1:
         raise PipelineError(f"validate_pipeline_output: min_rows debe ser un entero >= 1 (recibido {min_rows!r}).")
     if len(rows) < min_rows:
@@ -237,6 +245,38 @@ def validate_pipeline_output(
                 "tras el pipeline (¿falta un missing_values(strategy=drop) al "
                 "final para limpiar los bordes de un lag_window?)."
             )
+    for col, expected_type in (expected_types or {}).items():
+        if expected_type not in _CAST_TYPES:
+            raise PipelineError(
+                f"validate_pipeline_output: tipo esperado {expected_type!r} para "
+                f"{col!r} desconocido — usa {sorted(_CAST_TYPES)}."
+            )
+        if col not in rows[0]:
+            errors.append(
+                f"La columna {col!r} (tipo esperado {expected_type!r}) no existe "
+                "tras el pipeline."
+            )
+            continue
+        if expected_type == "string":
+            continue
+        for row in rows:
+            raw = row.get(col)
+            if _is_null(raw):
+                continue
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                errors.append(
+                    f"La columna {col!r} tiene un valor no numérico ({raw!r}) "
+                    f"pese a esperar tipo {expected_type!r}."
+                )
+                break
+            if expected_type == "integer" and not value.is_integer():
+                errors.append(
+                    f"La columna {col!r} tiene un valor no entero ({raw!r}) pese "
+                    f"a esperar tipo {expected_type!r}."
+                )
+                break
     return errors
 
 
@@ -305,41 +345,31 @@ def _op_missing_values(
 
 
 def _interpolate_column(rows: list[dict[str, str]], column: str) -> None:
-    n = len(rows)
-    values: list[float | None] = []
+    """Auditoría [ALTA, reauditoría 2026-07-17]: interpolación CAUSAL
+    (forward-fill) — solo usa el ÚLTIMO valor CONOCIDO hacia atrás, NUNCA
+    uno posterior. La versión anterior interpolaba linealmente entre el
+    vecino anterior Y el siguiente (`next_idx`), así que una feature en la
+    fila t incorporaba información de t+1 o más tarde — una fuga temporal
+    real que `column_offsets` no reflejaba (el valor seguía en offset 0
+    pese a depender del futuro), evadiendo `check_anti_leakage` (invariante
+    13 del contrato 57). Un hueco INICIAL (sin ningún valor conocido antes)
+    sigue sin poder rellenarse — no hay nada causal de lo que partir (un
+    `missing_values(strategy=drop)` posterior lo limpia si hace falta)."""
+    last_known: float | None = None
     for row in rows:
         raw = row.get(column)
         if _is_null(raw):
-            values.append(None)
+            if last_known is not None:
+                row[column] = _fmt_num(last_known)
             continue
         try:
-            values.append(float(raw))
+            last_known = float(raw)
         except (TypeError, ValueError):
             raise PipelineError(
                 f"missing_values(interpolate): el valor {raw!r} de la columna "
                 f"{column!r} no es numérico — interpolate solo aplica a columnas "
                 "numéricas."
             )
-    i = 0
-    while i < n:
-        if values[i] is not None:
-            i += 1
-            continue
-        j = i
-        while j < n and values[j] is None:
-            j += 1
-        prev_idx, next_idx = i - 1, j if j < n else None
-        if prev_idx >= 0 and next_idx is not None:
-            prev_v, next_v = values[prev_idx], values[next_idx]
-            span = next_idx - prev_idx
-            for k in range(i, j):
-                values[k] = prev_v + (next_v - prev_v) * (k - prev_idx) / span
-        # borde inicial/final sin vecino conocido en un lado: queda vacío
-        # (un missing_values(strategy=drop) posterior lo limpia si hace falta)
-        i = j
-    for row, v in zip(rows, values):
-        if v is not None:
-            row[column] = _fmt_num(v)
 
 
 def _op_rename(

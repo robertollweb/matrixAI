@@ -85,15 +85,32 @@ class TestMissingValues:
         res = run_pipeline(rows, [{"op": "missing_values", "strategy": "drop", "columns": ["a"]}])
         assert res.rows == [{"a": "1", "b": ""}]
 
-    def test_interpolate_fills_interior_gap(self):
+    def test_interpolate_is_causal_forward_fill_interior_gap(self):
+        """Auditoría 2026-07-17 [ALTA]: interpolate ya NO usa el valor
+        SIGUIENTE (eso era una fuga temporal real) — un hueco interior se
+        rellena con el ÚLTIMO valor conocido hacia atrás (forward-fill),
+        nunca con una media que incorpore un valor futuro."""
         rows = [{"y": "0"}, {"y": "10"}, {"y": ""}, {"y": ""}, {"y": "40"}, {"y": "50"}]
         res = run_pipeline(rows, [{"op": "missing_values", "strategy": "interpolate", "columns": ["y"]}])
-        assert [r["y"] for r in res.rows] == ["0", "10", "20", "30", "40", "50"]
+        assert [r["y"] for r in res.rows] == ["0", "10", "10", "10", "40", "50"]
 
-    def test_interpolate_leaves_leading_trailing_gap_null(self):
+    def test_interpolate_leading_gap_stays_null_trailing_gap_now_fillable(self):
+        """Un hueco INICIAL (sin valor previo) sigue sin poder rellenarse
+        causalmente. Un hueco FINAL sí es causal (solo depende del pasado)
+        y ahora se rellena — antes se dejaba vacío por prudencia excesiva,
+        pero forward-fill de un tramo final no incorpora ningún futuro."""
         rows = [{"y": ""}, {"y": "10"}, {"y": "20"}, {"y": ""}]
         res = run_pipeline(rows, [{"op": "missing_values", "strategy": "interpolate", "columns": ["y"]}])
-        assert [r["y"] for r in res.rows] == ["", "10", "20", ""]
+        assert [r["y"] for r in res.rows] == ["", "10", "20", "20"]
+
+    def test_interpolate_never_uses_a_future_value(self):
+        """Repro directo del hallazgo: una fuga por interpolación bidireccional
+        se habría manifestado como que la fila en t reflejase el valor de
+        t+1. Con una única fila conocida DESPUÉS del hueco (sin nada antes),
+        el hueco debe seguir vacío — jamás tomar prestado ese valor futuro."""
+        rows = [{"y": ""}, {"y": ""}, {"y": "99"}]
+        res = run_pipeline(rows, [{"op": "missing_values", "strategy": "interpolate", "columns": ["y"]}])
+        assert [r["y"] for r in res.rows] == ["", "", "99"]
 
     def test_interpolate_non_numeric_raises(self):
         rows = [{"y": "abc"}, {"y": ""}, {"y": "10"}]
@@ -585,3 +602,50 @@ class TestValidatePipelineOutput:
     def test_clean_features_report_no_errors(self):
         rows = [{"y": "1", "x": "9"}, {"y": "2", "x": "8"}]
         assert validate_pipeline_output(rows, target_column="y", feature_columns=["x"]) == []
+
+    # -- Reauditoría 2026-07-17 [MEDIA]: validación de tipos (opcional,
+    # explícita — este módulo no tiene esquema propio) --
+
+    def test_expected_types_number_rejects_non_numeric(self):
+        rows = [{"y": "1", "x": "abc"}, {"y": "2", "x": "9"}]
+        errors = validate_pipeline_output(rows, target_column="y", expected_types={"x": "number"})
+        assert errors and "x" in errors[0] and "no numérico" in errors[0]
+
+    def test_expected_types_integer_rejects_non_integer(self):
+        rows = [{"y": "1", "x": "3.5"}, {"y": "2", "x": "9"}]
+        errors = validate_pipeline_output(rows, target_column="y", expected_types={"x": "integer"})
+        assert errors and "no entero" in errors[0]
+
+    def test_expected_types_string_never_rejects(self):
+        rows = [{"y": "1", "x": "anything at all"}, {"y": "2", "x": "más texto"}]
+        assert validate_pipeline_output(rows, target_column="y", expected_types={"x": "string"}) == []
+
+    def test_expected_types_null_values_are_skipped(self):
+        rows = [{"y": "1", "x": ""}, {"y": "2", "x": "9"}]
+        assert validate_pipeline_output(rows, target_column="y", expected_types={"x": "number"}) == []
+
+    def test_expected_types_missing_column_reported(self):
+        rows = [{"y": "1"}, {"y": "2"}]
+        errors = validate_pipeline_output(rows, target_column="y", expected_types={"no_existe": "number"})
+        assert errors and "no_existe" in errors[0]
+
+    def test_expected_types_clean_types_report_no_errors(self):
+        rows = [{"y": "1", "x": "9"}, {"y": "2", "x": "10"}]
+        assert validate_pipeline_output(rows, target_column="y", expected_types={"x": "integer"}) == []
+
+    def test_expected_types_unknown_type_raises(self):
+        rows = [{"y": "1", "x": "9"}, {"y": "2", "x": "8"}]
+        with pytest.raises(PipelineError, match="desconocido"):
+            validate_pipeline_output(rows, target_column="y", expected_types={"x": "date"})
+
+    def test_cast_alone_is_not_enough_reproduces_the_finding(self):
+        """Repro exacto del hallazgo: un pipeline que declara `cast` para
+        UNA columna y omite otra deja esa segunda columna sin validar si
+        nadie pasa `expected_types` — pero SI se pasa, el hueco se cierra."""
+        rows = [{"y": "1", "x": "9"}, {"y": "2", "x": "abc"}]  # x sin castear, valor sucio
+        res = run_pipeline(rows, [{"op": "cast", "column": "y", "to": "integer"}])
+        assert validate_pipeline_output(res.rows, target_column="y") == []  # ciego a x
+        errors = validate_pipeline_output(
+            res.rows, target_column="y", expected_types={"x": "number"},
+        )
+        assert errors and "x" in errors[0]
