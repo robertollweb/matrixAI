@@ -33,6 +33,10 @@ from matrixai.training.dataset_project import (
     generate_temporal_project_from_dataset,
     DatasetProjectError,
 )
+from matrixai.training.data_provider import (
+    get_default_registry,
+    DataProviderError,
+)
 from matrixai.playground import (
     # Already-public engine entry points
     analyze_playground_request,
@@ -85,6 +89,8 @@ __all__ = [
     "generate_project_from_dataset",
     "generate_temporal_project_from_dataset",
     "DatasetProjectError",
+    "get_default_registry",
+    "DataProviderError",
     "analyze_playground_request",
     "serve",
     "handler_class",

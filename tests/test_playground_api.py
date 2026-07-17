@@ -16,6 +16,7 @@ import unittest
 import matrixai.playground as pg
 import matrixai.training.dataset_analysis as _dataset_analysis
 import matrixai.training.dataset_project as _dataset_project
+import matrixai.training.data_provider as _data_provider
 from matrixai import playground_api as api
 
 
@@ -61,6 +62,8 @@ _EXTERNAL_ALIAS_MAP = {
     "generate_project_from_dataset": (_dataset_project, "generate_project_from_dataset"),
     "generate_temporal_project_from_dataset": (_dataset_project, "generate_temporal_project_from_dataset"),
     "DatasetProjectError": (_dataset_project, "DatasetProjectError"),
+    "get_default_registry": (_data_provider, "get_default_registry"),
+    "DataProviderError": (_data_provider, "DataProviderError"),
 }
 
 
