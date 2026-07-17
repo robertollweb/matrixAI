@@ -2,7 +2,11 @@
 
 Verifies that `matrixai.playground_api` exposes the documented surface, that every
 symbol is callable, and that each public alias is the *same object* as the private
-function in `matrixai.playground` (so the re-export adds no behavioural drift).
+function it re-exports (so the re-export adds no behavioural drift) — the vast
+majority live in `matrixai.playground`, but BIBLIOTECA_PROYECTOS_INTELIGENTES C1/C2
+added a few from their own modules (`dataset_analysis.py`/`dataset_project.py`):
+cleaner factoring for genuinely new capabilities, not everything needs to live in
+the (already large) `playground.py`.
 """
 
 from __future__ import annotations
@@ -10,6 +14,8 @@ from __future__ import annotations
 import unittest
 
 import matrixai.playground as pg
+import matrixai.training.dataset_analysis as _dataset_analysis
+import matrixai.training.dataset_project as _dataset_project
 from matrixai import playground_api as api
 
 
@@ -46,10 +52,20 @@ _ALIAS_MAP = {
     "safe_float": "_safe_float",
 }
 
+# BIBLIOTECA C1/C2: public alias -> (module, name) for re-exports that come from
+# OUTSIDE playground.py. Kept separate from _ALIAS_MAP (which assumes the source
+# is always `pg`) rather than overloading that dict's value type.
+_EXTERNAL_ALIAS_MAP = {
+    "analyze_dataset_csv": (_dataset_analysis, "analyze_dataset_csv"),
+    "DatasetAnalysisError": (_dataset_analysis, "DatasetAnalysisError"),
+    "generate_project_from_dataset": (_dataset_project, "generate_project_from_dataset"),
+    "DatasetProjectError": (_dataset_project, "DatasetProjectError"),
+}
+
 
 class TestPlaygroundPublicAPI(unittest.TestCase):
     def test_all_lists_every_alias(self) -> None:
-        self.assertEqual(set(api.__all__), set(_ALIAS_MAP))
+        self.assertEqual(set(api.__all__), set(_ALIAS_MAP) | set(_EXTERNAL_ALIAS_MAP))
 
     # Shared state/constants that are intentionally not callable.
     _NON_CALLABLE = {"PROJECT_ROOT", "training_jobs"}
@@ -67,6 +83,12 @@ class TestPlaygroundPublicAPI(unittest.TestCase):
                 getattr(api, public_name),
                 getattr(pg, private_name),
                 f"{public_name} must be the same object as playground.{private_name}",
+            )
+        for public_name, (module, private_name) in _EXTERNAL_ALIAS_MAP.items():
+            self.assertIs(
+                getattr(api, public_name),
+                getattr(module, private_name),
+                f"{public_name} must be the same object as {module.__name__}.{private_name}",
             )
 
     def test_safe_float_behaviour_through_public_api(self) -> None:

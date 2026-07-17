@@ -24,6 +24,14 @@ breaking importers of this module.
 
 from __future__ import annotations
 
+from matrixai.training.dataset_analysis import (
+    analyze_dataset_csv,
+    DatasetAnalysisError,
+)
+from matrixai.training.dataset_project import (
+    generate_project_from_dataset,
+    DatasetProjectError,
+)
 from matrixai.playground import (
     # Already-public engine entry points
     analyze_playground_request,
@@ -70,6 +78,11 @@ from matrixai.playground import (
 )
 
 __all__ = [
+    # BIBLIOTECA_PROYECTOS_INTELIGENTES C1/C2 — flujo datos-primero
+    "analyze_dataset_csv",
+    "DatasetAnalysisError",
+    "generate_project_from_dataset",
+    "DatasetProjectError",
     "analyze_playground_request",
     "serve",
     "handler_class",

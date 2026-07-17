@@ -190,6 +190,15 @@ class DenseSupervisedTrainer:
                 "best_epoch": best_epoch,
                 "best_val_loss": best_val_loss,
                 "network": net.name,
+                # BIBLIOTECA C2 (auditoría): sin esta clave,
+                # `_collect_training_result` (playground.py) caía SIEMPRE al
+                # default "classification" — cualquier NETWORK de regresión
+                # entrenado por el camino stdlib (DenseSupervisedTrainer, el
+                # fallback cuando use_torch=False) reportaba task_kind
+                # incorrecto, aunque el entrenamiento en sí fuera correcto.
+                # Mismo criterio que ya usa el camino torch (is_reg = loss_fn
+                # == "mse").
+                "task_kind": "regression" if loss_fn == "mse" else "classification",
             }, indent=2),
             encoding="utf-8",
         )
