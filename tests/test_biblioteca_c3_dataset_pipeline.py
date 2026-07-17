@@ -160,6 +160,34 @@ class TestMissingValues:
                 {"op": "sort_temporal", "column": "fecha"},
             ])
 
+    def test_interpolate_between_two_temporal_sorts_raises(self):
+        """La primera ordenación no basta: una segunda puede redefinir el
+        eje temporal y convertir el forward-fill intermedio en una fuga."""
+        rows = [
+            {"fecha_a": "2024-01-01", "fecha_b": "2024-01-03", "y": "10"},
+            {"fecha_a": "2024-01-02", "fecha_b": "2024-01-02", "y": ""},
+            {"fecha_a": "2024-01-03", "fecha_b": "2024-01-01", "y": "30"},
+        ]
+        with pytest.raises(PipelineError, match="antes de sort_temporal"):
+            run_pipeline(rows, [
+                {"op": "sort_temporal", "column": "fecha_a"},
+                {"op": "missing_values", "strategy": "interpolate", "columns": ["y"]},
+                {"op": "sort_temporal", "column": "fecha_b"},
+            ])
+
+    def test_all_temporal_sorts_before_interpolate_are_allowed(self):
+        rows = [
+            {"fecha_a": "2024-01-03", "fecha_b": "2024-01-01", "y": "30"},
+            {"fecha_a": "2024-01-01", "fecha_b": "2024-01-02", "y": "10"},
+            {"fecha_a": "2024-01-02", "fecha_b": "2024-01-03", "y": ""},
+        ]
+        res = run_pipeline(rows, [
+            {"op": "sort_temporal", "column": "fecha_a"},
+            {"op": "sort_temporal", "column": "fecha_b"},
+            {"op": "missing_values", "strategy": "interpolate", "columns": ["y"]},
+        ])
+        assert [r["y"] for r in res.rows] == ["30", "10", "10"]
+
     def test_interpolate_non_numeric_raises(self):
         rows = [{"y": "abc"}, {"y": ""}, {"y": "10"}]
         with pytest.raises(PipelineError, match="numérico"):

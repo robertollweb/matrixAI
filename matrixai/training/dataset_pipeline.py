@@ -128,31 +128,34 @@ def _check_interpolate_after_sort(operations: list[dict[str, Any]]) -> None:
     esa fuga sin que nada lo detecte (column_offsets no puede saber que
     el ORDEN de entrada no era temporal). Si el pipeline declara
     `sort_temporal` en algún punto, es la única señal de que le importa el
-    orden temporal — se exige que preceda a CUALQUIER `interpolate`. Si no
+    orden temporal — se exige que TODAS las ordenaciones precedan a
+    CUALQUIER `interpolate`. No basta con mirar la primera: una segunda
+    ordenación posterior podría cambiar el eje temporal y convertir un
+    forward-fill ya aplicado en una dependencia futura. Si no
     se declara ningún `sort_temporal`, se asume que el caller ya entrega
     las filas en el orden que le interesa (este motor no puede inventar
     una columna temporal que no se le ha señalado)."""
-    first_sort_idx: int | None = None
-    for i, op_decl in enumerate(operations):
-        if isinstance(op_decl, dict) and op_decl.get("op") == "sort_temporal":
-            first_sort_idx = i
-            break
-    if first_sort_idx is None:
+    sort_indices = [
+        i for i, op_decl in enumerate(operations)
+        if isinstance(op_decl, dict) and op_decl.get("op") == "sort_temporal"
+    ]
+    if not sort_indices:
         return
+    last_sort_idx = sort_indices[-1]
     for i, op_decl in enumerate(operations):
         if (
             isinstance(op_decl, dict)
             and op_decl.get("op") == "missing_values"
             and op_decl.get("strategy") == "interpolate"
-            and i < first_sort_idx
+            and i < last_sort_idx
         ):
             raise PipelineError(
                 f"Paso {i}: missing_values(strategy=interpolate) antes de "
-                f"sort_temporal (paso {first_sort_idx}) — interpolate es "
+                f"sort_temporal (paso {last_sort_idx}) — interpolate es "
                 "causal según el ORDEN de las filas; sin ordenar primero por "
                 "tiempo, \"hacia atrás en la lista\" no es \"hacia atrás en "
                 "el tiempo\" y podría copiar un valor futuro. Mueve "
-                "sort_temporal antes de cualquier interpolate."
+                "todos los sort_temporal antes de cualquier interpolate."
             )
 
 
