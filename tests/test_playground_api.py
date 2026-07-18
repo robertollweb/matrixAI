@@ -17,8 +17,7 @@ import matrixai.playground as pg
 import matrixai.training.dataset_analysis as _dataset_analysis
 import matrixai.training.dataset_project as _dataset_project
 import matrixai.training.data_provider as _data_provider
-import matrixai.training.template_schema as _template_schema
-import matrixai.training.template_project as _template_project
+import matrixai.training.dataset_pipeline as _dataset_pipeline
 from matrixai import playground_api as api
 
 
@@ -67,10 +66,14 @@ _EXTERNAL_ALIAS_MAP = {
     "get_default_registry": (_data_provider, "get_default_registry"),
     "get_default_acceptance_store": (_data_provider, "get_default_acceptance_store"),
     "DataProviderError": (_data_provider, "DataProviderError"),
-    "validate_template": (_template_schema, "validate_template"),
-    "TemplateValidationError": (_template_schema, "TemplateValidationError"),
-    "generate_project_from_template": (_template_project, "generate_project_from_template"),
-    "TemplateProjectError": (_template_project, "TemplateProjectError"),
+    "LicenseAcceptance": (_data_provider, "LicenseAcceptance"),
+    "force_temporal_split": (_dataset_project, "_force_temporal_split"),
+    "read_csv_rows": (_dataset_project, "_read_rows"),
+    "rows_to_csv_text": (_dataset_project, "_rows_to_csv_text"),
+    "run_pipeline": (_dataset_pipeline, "run_pipeline"),
+    "check_anti_leakage": (_dataset_pipeline, "check_anti_leakage"),
+    "validate_pipeline_output": (_dataset_pipeline, "validate_pipeline_output"),
+    "PipelineError": (_dataset_pipeline, "PipelineError"),
 }
 
 

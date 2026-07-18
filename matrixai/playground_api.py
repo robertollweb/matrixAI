@@ -32,19 +32,28 @@ from matrixai.training.dataset_project import (
     generate_project_from_dataset,
     generate_temporal_project_from_dataset,
     DatasetProjectError,
+    _force_temporal_split as force_temporal_split,
+    _read_rows as read_csv_rows,
+    _rows_to_csv_text as rows_to_csv_text,
 )
 from matrixai.training.data_provider import (
     get_default_registry,
     get_default_acceptance_store,
     DataProviderError,
+    LicenseAcceptance,
 )
-from matrixai.training.template_schema import (
-    validate_template,
-    TemplateValidationError,
-)
-from matrixai.training.template_project import (
-    generate_project_from_template,
-    TemplateProjectError,
+from matrixai.training.dataset_pipeline import (
+    # BIBLIOTECA_PROYECTOS_INTELIGENTES C6 (reauditoría): la orquestación de
+    # plantillas se movió a matrixai_studio (decisión de alcance 1 del
+    # contrato — "Biblioteca... va a studio-backend/SPA, nada en el core
+    # público") pero sigue necesitando el motor de pipeline C3 tal cual —
+    # reexportado aquí para que studio-backend nunca importe
+    # matrixai.training.* directamente (mismo criterio que el resto de este
+    # módulo).
+    run_pipeline,
+    check_anti_leakage,
+    validate_pipeline_output,
+    PipelineError,
 )
 from matrixai.playground import (
     # Already-public engine entry points
@@ -101,10 +110,14 @@ __all__ = [
     "get_default_registry",
     "get_default_acceptance_store",
     "DataProviderError",
-    "validate_template",
-    "TemplateValidationError",
-    "generate_project_from_template",
-    "TemplateProjectError",
+    "LicenseAcceptance",
+    "force_temporal_split",
+    "read_csv_rows",
+    "rows_to_csv_text",
+    "run_pipeline",
+    "check_anti_leakage",
+    "validate_pipeline_output",
+    "PipelineError",
     "analyze_playground_request",
     "serve",
     "handler_class",
