@@ -80,20 +80,32 @@ class EcbFxProvider:
         )
 
     def get_license_info(self) -> LicenseInfo:
+        # Reauditoría C8 [ALTA]: el resumen omitía una obligación real del
+        # disclaimer oficial del BCE (verificado con `curl` real,
+        # 2026-07-18) — si el resultado se INCORPORA en documentos
+        # VENDIDOS, hay que informar a los compradores, antes de pagar y
+        # cada vez que accedan, de que la información original está
+        # disponible gratis en el sitio del BCE. Añadida al resumen.
         return LicenseInfo(
             name="European Central Bank — Disclaimer & copyright",
             url="https://www.ecb.europa.eu/services/using-our-site/disclaimer/html/index.en.html",
             summary=(
                 "Reutilización libre (incluido uso comercial) con atribución obligatoria: "
                 "hay que citar al ECB como fuente y declarar explícitamente cualquier "
-                "modificación de los datos (p.ej. ajuste estacional)."
+                "modificación de los datos (p.ej. ajuste estacional). Si el resultado se "
+                "VENDE (en cualquier formato), hay que informar a los compradores, antes de "
+                "pagar y cada vez que accedan, de que la información original es gratuita "
+                "en el sitio del BCE."
             ),
             requires_attribution=True,
             commercial_use_allowed=True,
             summary_i18n={
                 "en": (
                     "Free reuse (including commercial use) with mandatory attribution: "
-                    "cite the ECB as the source and explicitly disclose any data modifications."
+                    "cite the ECB as the source and explicitly disclose any data modifications. "
+                    "If the result is SOLD (in any format), buyers must be informed, before "
+                    "paying and every time they access it, that the original information is "
+                    "free on the ECB's website."
                 ),
             },
         )

@@ -61,19 +61,43 @@ class OpenMeteoProvider:
         )
 
     def get_license_info(self) -> LicenseInfo:
+        # Reauditoría C8 [ALTA]: Open-Meteo mezcla DOS derechos distintos
+        # que un solo booleano no puede confundir sin mentir a medias:
+        # (1) los DATOS en sí están bajo CC-BY 4.0 (open-meteo.com/en/
+        # licence) — CC-BY, a secas, SÍ permite reutilización comercial
+        # con atribución (no es CC-BY-NC); (2) el ACCESO a la API
+        # GRATUITA (la que este proveedor usa siempre — nunca
+        # customer-api.open-meteo.com) está restringido a uso no
+        # comercial (open-meteo.com/en/pricing, tabla de planes: "Free /
+        # Open-Access API — Commercial use ❌"; se necesita una
+        # suscripción de pago para una "Commercial Use Licence").
+        # `commercial_use_allowed=False` aquí describe (2), no (1) — es
+        # la restricción que de verdad aplica a CUALQUIER descarga que
+        # pase por este proveedor, porque nunca usa el nivel de pago.
+        # Verificado con `curl` real contra ambas páginas oficiales.
         return LicenseInfo(
-            name="Open-Meteo (CC-BY 4.0, uso no comercial)",
+            name="Open-Meteo — API gratuita (uso no comercial); datos CC-BY 4.0",
             url="https://open-meteo.com/en/license",
             summary=(
-                "Gratuito para uso NO comercial con atribución obligatoria "
-                "(CC-BY 4.0) — el uso comercial requiere una licencia de pago aparte."
+                "Los datos en sí están licenciados CC-BY 4.0 (que por sí solo permitiría "
+                "reutilización comercial con atribución), pero este proveedor usa siempre "
+                "la API GRATUITA de Open-Meteo, cuyos términos de servicio restringen su uso "
+                "a fines NO comerciales (open-meteo.com/en/pricing) — para uso comercial, "
+                "Open-Meteo exige una suscripción de pago con licencia comercial explícita, "
+                "que este proveedor no implementa. Verifica siempre los términos oficiales "
+                "antes de cualquier uso comercial: los de Open-Meteo prevalecen sobre este resumen."
             ),
             requires_attribution=True,
             commercial_use_allowed=False,
             summary_i18n={
                 "en": (
-                    "Free for non-commercial use with mandatory attribution "
-                    "(CC-BY 4.0); commercial use requires a separate paid license."
+                    "The data itself is licensed under CC-BY 4.0 (which by itself would allow "
+                    "commercial reuse with attribution), but this provider always uses "
+                    "Open-Meteo's FREE API, whose terms of service restrict it to non-commercial "
+                    "use (open-meteo.com/en/pricing) — commercial use requires a paid subscription "
+                    "with an explicit commercial use licence, which this provider does not "
+                    "implement. Always check Open-Meteo's official terms before any commercial "
+                    "use: they take precedence over this summary."
                 ),
             },
         )

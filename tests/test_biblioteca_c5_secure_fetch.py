@@ -9,11 +9,18 @@ por completo (mismo patrón de "transport" inyectable que
 from __future__ import annotations
 
 import io
+import socket
+import unittest.mock
 import urllib.error
 
 import pytest
 
-from matrixai.training.secure_fetch import SecureFetchError, secure_fetch
+from matrixai.training.secure_fetch import (
+    SecureFetchError,
+    _PinnedHTTPSConnection,
+    _resolve_and_validate,
+    secure_fetch,
+)
 
 
 class _FakeResponse:
@@ -239,15 +246,16 @@ class TestRedirects:
             secure_fetch("https://api.example.com/0", allowed_hosts=_ALLOWED, opener=opener, max_redirects=3)
 
 
-class TestSSRFInternalIPs:
-    """Auditoría C8 — categoría explícita de la matriz de seguridad
-    ("intentos de SSRF: IPs internas"). El allowlist es de NOMBRES de
-    host fijos por proveedor (nunca IPs, nunca configurable por el
-    usuario) — un literal IP nunca puede estar en `allowed_hosts` porque
-    ningún proveedor real lo declara así, así que estos casos ya los
-    cubre `Host no permitido` estructuralmente. Estos tests lo hacen
-    EXPLÍCITO (antes solo se probaba con hosts de dominio) para que la
-    categoría quede verificada por su nombre, no solo implícita."""
+class TestSSRFInternalIPsAsLiteralHost:
+    """Auditoría C8 (ronda 1) — un literal IP usado DIRECTAMENTE como host
+    en la URL (o en un redirect) nunca está en `allowed_hosts` (que solo
+    contiene NOMBRES de dominio), así que cae en `Host no permitido`.
+    Reauditoría C8 (ronda 2) [MEDIA]: esto NO cubre DNS rebinding — un
+    HOST PERMITIDO (`archive-api.open-meteo.com`) que resuelve a una IP
+    interna en el momento de conectar pasaba `_validate_url` limpio,
+    porque esa función solo compara texto, nunca resuelve DNS. Ver
+    `TestDNSRebindingProtection` más abajo para la protección real
+    (resolver + validar la IP antes de conectar)."""
 
     def test_rejects_a_direct_request_to_a_loopback_ip(self):
         opener = _FakeOpener([])
@@ -302,6 +310,106 @@ class TestSSRFInternalIPs:
         with pytest.raises(SecureFetchError, match="Host no permitido"):
             secure_fetch("https://api.example.com/old", allowed_hosts=_ALLOWED, opener=opener)
         assert opener.requested_urls == ["https://api.example.com/old"]
+
+
+class TestDNSRebindingProtection:
+    """Reauditoría C8 (ronda 2) [MEDIA]: `_validate_url` solo compara el
+    NOMBRE textual del host contra el allowlist — un host PERMITIDO que
+    resuelve (ahora, o tras un cambio de DNS) a una IP interna pasaba
+    limpio, porque nada resolvía DNS antes de conectar. La protección
+    real vive en `_resolve_and_validate` (usada por `_PinnedHTTPSConnection.
+    connect()`, la ÚNICA conexión real que hace el opener por defecto) —
+    resuelve UNA vez, valida TODAS las IPs candidatas, y conecta a la
+    MISMA dirección ya validada, sin una segunda resolución (que sería la
+    ventana TOCTOU de un ataque de DNS rebinding)."""
+
+    def test_resolve_and_validate_rejects_a_private_ip(self):
+        with unittest.mock.patch("socket.getaddrinfo", return_value=[
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 443)),
+        ]):
+            with pytest.raises(SecureFetchError, match="no pública"):
+                _resolve_and_validate("archive-api.open-meteo.com", 443)
+
+    def test_resolve_and_validate_rejects_loopback(self):
+        with unittest.mock.patch("socket.getaddrinfo", return_value=[
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443)),
+        ]):
+            with pytest.raises(SecureFetchError, match="no pública"):
+                _resolve_and_validate("archive-api.open-meteo.com", 443)
+
+    def test_resolve_and_validate_rejects_the_cloud_metadata_ip(self):
+        with unittest.mock.patch("socket.getaddrinfo", return_value=[
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 443)),
+        ]):
+            with pytest.raises(SecureFetchError, match="no pública"):
+                _resolve_and_validate("archive-api.open-meteo.com", 443)
+
+    def test_resolve_and_validate_rejects_ipv6_loopback(self):
+        with unittest.mock.patch("socket.getaddrinfo", return_value=[
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 443, 0, 0)),
+        ]):
+            with pytest.raises(SecureFetchError, match="no pública"):
+                _resolve_and_validate("archive-api.open-meteo.com", 443)
+
+    def test_resolve_and_validate_rejects_if_any_candidate_is_private(self):
+        """Un atacante con control PARCIAL de DNS podría intercalar una IP
+        pública "señuelo" junto a la interna real — se rechaza si
+        CUALQUIERA de las candidatas no es pública, no solo la primera."""
+        with unittest.mock.patch("socket.getaddrinfo", return_value=[
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 443)),
+        ]):
+            with pytest.raises(SecureFetchError, match="no pública"):
+                _resolve_and_validate("archive-api.open-meteo.com", 443)
+
+    def test_resolve_and_validate_accepts_a_public_ip(self):
+        family, sockaddr = None, None
+        with unittest.mock.patch("socket.getaddrinfo", return_value=[
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443)),
+        ]):
+            family, sockaddr = _resolve_and_validate("archive-api.open-meteo.com", 443)
+        assert sockaddr == ("8.8.8.8", 443)
+
+    def test_resolve_and_validate_wraps_a_dns_failure(self):
+        with unittest.mock.patch("socket.getaddrinfo", side_effect=socket.gaierror("no address")):
+            with pytest.raises(SecureFetchError, match="No se pudo resolver"):
+                _resolve_and_validate("archive-api.open-meteo.com", 443)
+
+    def test_pinned_connection_connects_to_the_pre_validated_address_only(self):
+        """Verifica que `_PinnedHTTPSConnection.connect()` conecta al
+        SOCKADDR devuelto por `_resolve_and_validate` — NUNCA vuelve a
+        resolver DNS por su cuenta (que sería la ventana TOCTOU real)."""
+        conn = _PinnedHTTPSConnection("archive-api.open-meteo.com", 443, timeout=5.0)
+        fake_sock = unittest.mock.MagicMock()
+        fake_wrapped = unittest.mock.MagicMock()
+        conn._context = unittest.mock.MagicMock()
+        conn._context.wrap_socket.return_value = fake_wrapped
+
+        with unittest.mock.patch(
+            "matrixai.training.secure_fetch._resolve_and_validate",
+            return_value=(socket.AF_INET, ("203.0.113.5", 443)),
+        ) as mock_resolve, unittest.mock.patch("socket.socket", return_value=fake_sock):
+            conn.connect()
+
+        mock_resolve.assert_called_once_with("archive-api.open-meteo.com", 443)
+        fake_sock.connect.assert_called_once_with(("203.0.113.5", 443))
+        conn._context.wrap_socket.assert_called_once_with(
+            fake_sock, server_hostname="archive-api.open-meteo.com",
+        )
+        assert conn.sock is fake_wrapped
+
+    def test_pinned_connection_closes_the_socket_on_connect_failure(self):
+        conn = _PinnedHTTPSConnection("archive-api.open-meteo.com", 443, timeout=5.0)
+        fake_sock = unittest.mock.MagicMock()
+        fake_sock.connect.side_effect = OSError("connection refused")
+
+        with unittest.mock.patch(
+            "matrixai.training.secure_fetch._resolve_and_validate",
+            return_value=(socket.AF_INET, ("203.0.113.5", 443)),
+        ), unittest.mock.patch("socket.socket", return_value=fake_sock):
+            with pytest.raises(OSError):
+                conn.connect()
+        fake_sock.close.assert_called_once()
 
 
 class TestRateLimit:
