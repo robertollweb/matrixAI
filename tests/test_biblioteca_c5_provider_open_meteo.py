@@ -227,6 +227,20 @@ class TestUnexpectedSchema:
             with pytest.raises(DataProviderError, match="longitud distinta"):
                 provider.download(_archive_config(), license_acceptance=acceptance)
 
+    def test_empty_time_series_is_rejected(self):
+        """Auditoría C8 [MEDIA — matriz de errores §29, "dataset vacío"]:
+        una combinación fecha/ubicación/dataset sin cobertura devuelve
+        HTTP 200 con `time: []` — antes esto pasaba limpio como un CSV
+        de solo cabecera, y el fallo se detectaba mucho más tarde
+        (analyze_dataset_csv, fuera del manejo de errores del provider)
+        con un mensaje genérico sin contexto de qué proveedor/parámetros
+        lo causaron."""
+        provider, acceptance = _accepted()
+        payload = {"daily": {"time": [], "temperature_2m_max": [], "temperature_2m_min": []}}
+        with _patched(return_value=_fetch_result(payload)):
+            with pytest.raises(DataProviderError, match="no devolvió ningún registro"):
+                provider.download(_archive_config(), license_acceptance=acceptance)
+
 
 class TestSecureFetchFailurePropagates:
     def test_secure_fetch_error_becomes_data_provider_error(self):

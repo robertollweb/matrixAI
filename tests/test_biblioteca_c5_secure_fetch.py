@@ -239,5 +239,106 @@ class TestRedirects:
             secure_fetch("https://api.example.com/0", allowed_hosts=_ALLOWED, opener=opener, max_redirects=3)
 
 
+class TestSSRFInternalIPs:
+    """Auditoría C8 — categoría explícita de la matriz de seguridad
+    ("intentos de SSRF: IPs internas"). El allowlist es de NOMBRES de
+    host fijos por proveedor (nunca IPs, nunca configurable por el
+    usuario) — un literal IP nunca puede estar en `allowed_hosts` porque
+    ningún proveedor real lo declara así, así que estos casos ya los
+    cubre `Host no permitido` estructuralmente. Estos tests lo hacen
+    EXPLÍCITO (antes solo se probaba con hosts de dominio) para que la
+    categoría quede verificada por su nombre, no solo implícita."""
+
+    def test_rejects_a_direct_request_to_a_loopback_ip(self):
+        opener = _FakeOpener([])
+        with pytest.raises(SecureFetchError, match="Host no permitido"):
+            secure_fetch("https://127.0.0.1/admin", allowed_hosts=_ALLOWED, opener=opener)
+        assert opener.requested_urls == []
+
+    def test_rejects_a_direct_request_to_the_cloud_metadata_ip(self):
+        """169.254.169.254 — el objetivo clásico de SSRF contra metadata
+        de instancia en nube (AWS/GCP/Azure)."""
+        opener = _FakeOpener([])
+        with pytest.raises(SecureFetchError, match="Host no permitido"):
+            secure_fetch("https://169.254.169.254/latest/meta-data/", allowed_hosts=_ALLOWED, opener=opener)
+        assert opener.requested_urls == []
+
+    def test_rejects_a_direct_request_to_a_private_range_ip(self):
+        opener = _FakeOpener([])
+        with pytest.raises(SecureFetchError, match="Host no permitido"):
+            secure_fetch("https://10.0.0.5/internal", allowed_hosts=_ALLOWED, opener=opener)
+        assert opener.requested_urls == []
+
+    def test_rejects_a_redirect_to_a_loopback_ip(self):
+        """El caso realmente peligroso: un proveedor externo confiable
+        redirige (por config maliciosa, compromiso, o bug) hacia una IP
+        interna en vez de a otro dominio — misma defensa que un host
+        de dominio ajeno, verificada explícitamente con una IP."""
+        redirect = urllib.error.HTTPError(
+            "https://api.example.com/old", 302, "Found",
+            {"Location": "https://127.0.0.1:8080/steal"}, None,
+        )
+        opener = _FakeOpener([redirect])
+        with pytest.raises(SecureFetchError, match="Host no permitido"):
+            secure_fetch("https://api.example.com/old", allowed_hosts=_ALLOWED, opener=opener)
+        assert opener.requested_urls == ["https://api.example.com/old"]
+
+    def test_rejects_a_redirect_to_the_cloud_metadata_ip(self):
+        redirect = urllib.error.HTTPError(
+            "https://api.example.com/old", 302, "Found",
+            {"Location": "https://169.254.169.254/latest/meta-data/iam/"}, None,
+        )
+        opener = _FakeOpener([redirect])
+        with pytest.raises(SecureFetchError, match="Host no permitido"):
+            secure_fetch("https://api.example.com/old", allowed_hosts=_ALLOWED, opener=opener)
+        assert opener.requested_urls == ["https://api.example.com/old"]
+
+    def test_rejects_a_redirect_to_ipv6_loopback(self):
+        redirect = urllib.error.HTTPError(
+            "https://api.example.com/old", 302, "Found",
+            {"Location": "https://[::1]/steal"}, None,
+        )
+        opener = _FakeOpener([redirect])
+        with pytest.raises(SecureFetchError, match="Host no permitido"):
+            secure_fetch("https://api.example.com/old", allowed_hosts=_ALLOWED, opener=opener)
+        assert opener.requested_urls == ["https://api.example.com/old"]
+
+
+class TestRateLimit:
+    """Auditoría C8 — matriz de errores §29, "límite de peticiones"
+    (rate limit). Comparte el camino genérico de `HTTPError` no-3xx
+    (ya cubierto por `test_non_redirect_http_error_is_actionable`), pero
+    se nombra explícitamente para que la categoría quede verificada."""
+
+    def test_http_429_is_actionable(self):
+        exc = urllib.error.HTTPError("https://api.example.com/x", 429, "Too Many Requests", {}, None)
+        opener = _FakeOpener([exc])
+        with pytest.raises(SecureFetchError, match="HTTP 429"):
+            secure_fetch("https://api.example.com/x", allowed_hosts=_ALLOWED, opener=opener)
+
+
+class TestNoCredentials:
+    """Auditoría C8: "credenciales incorrectas" de la matriz §29 es N/A
+    para v1 — los 3 proveedores son APIs públicas sin clave (docstring
+    del módulo). Este test lo hace verificable: `secure_fetch` nunca
+    añade cabeceras de autenticación por su cuenta — si algún día un
+    proveedor CON credenciales se añadiera, tendría que pasarlas él
+    mismo (fuera de este módulo), nunca inyectadas aquí en silencio."""
+
+    def test_never_sends_an_authorization_header(self):
+        captured_headers: dict = {}
+
+        class _CapturingOpener:
+            def open(self_inner, url, *, timeout):
+                captured_headers["url"] = url
+                return _FakeResponse(b"ok")
+
+        secure_fetch("https://api.example.com/x", allowed_hosts=_ALLOWED, opener=_CapturingOpener())
+        # `secure_fetch` llama a `opener.open(url, timeout=...)` — nunca
+        # construye una `Request` con cabeceras propias, así que no hay
+        # ningún camino por el que una credencial pueda colarse aquí.
+        assert captured_headers["url"] == "https://api.example.com/x"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -15,6 +15,7 @@ import pytest
 from matrixai.training.data_provider import (
     DataProvider,
     DataProviderError,
+    DownloadEstimate,
     LicenseAcceptance,
     LicenseAcceptanceStore,
     LicenseInfo,
@@ -67,6 +68,25 @@ class TestProviderRegistry:
         metas = registry.list_providers()
         assert len(metas) == 1
         assert metas[0].provider_id == "stub"
+
+
+class TestLocalizedProviderText:
+    def test_license_info_localizes_without_changing_the_canonical_dict(self):
+        info = LicenseInfo(
+            "Licencia", "https://example.test", "Resumen español", False, True,
+            summary_i18n={"en": "English summary"},
+        )
+        assert info.to_dict()["summary"] == "Resumen español"
+        assert info.to_dict(locale="es")["summary"] == "Resumen español"
+        assert info.to_dict(locale="en")["summary"] == "English summary"
+        assert "summary_i18n" not in info.to_dict(locale="en")
+
+    def test_download_estimate_localizes_dynamic_notes(self):
+        estimate = DownloadEstimate(
+            10, 100, "Diez días", notes_i18n={"en": "Ten days"},
+        )
+        assert estimate.to_dict()["notes"] == "Diez días"
+        assert estimate.to_dict(locale="en")["notes"] == "Ten days"
 
 
 class TestDefaultRegistry:

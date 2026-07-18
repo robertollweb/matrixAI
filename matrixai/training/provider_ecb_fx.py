@@ -90,6 +90,12 @@ class EcbFxProvider:
             ),
             requires_attribution=True,
             commercial_use_allowed=True,
+            summary_i18n={
+                "en": (
+                    "Free reuse (including commercial use) with mandatory attribution: "
+                    "cite the ECB as the source and explicitly disclose any data modifications."
+                ),
+            },
         )
 
     def check_availability(self) -> bool:
@@ -145,6 +151,9 @@ class EcbFxProvider:
         return DownloadEstimate(
             estimated_rows=days, estimated_bytes=days * 60,
             notes=f"{days} día(s) naturales — estimación aproximada; fines de semana sin cotización se excluyen.",
+            notes_i18n={
+                "en": f"{days} calendar day(s) — approximate estimate; weekends without rates are excluded.",
+            },
         )
 
     def download(self, config: dict[str, Any], *, license_acceptance: LicenseAcceptance | None) -> DownloadResult:

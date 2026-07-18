@@ -56,6 +56,12 @@ class SyntheticLocalProvider:
             ),
             requires_attribution=False,
             commercial_use_allowed=True,
+            summary_i18n={
+                "en": (
+                    "Locally generated data with no external source — no "
+                    "license restrictions or attribution requirements."
+                ),
+            },
         )
 
     def check_availability(self) -> bool:
@@ -169,6 +175,9 @@ class SyntheticLocalProvider:
         return DownloadEstimate(
             estimated_rows=rows, estimated_bytes=estimated_bytes,
             notes="Estimación aproximada — la generación real es instantánea (sin red).",
+            notes_i18n={
+                "en": "Approximate estimate — actual generation is instantaneous (offline).",
+            },
         )
 
     def download(self, config: dict[str, Any], *, license_acceptance: LicenseAcceptance | None) -> DownloadResult:

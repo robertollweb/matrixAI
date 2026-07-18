@@ -70,6 +70,12 @@ class OpenMeteoProvider:
             ),
             requires_attribution=True,
             commercial_use_allowed=False,
+            summary_i18n={
+                "en": (
+                    "Free for non-commercial use with mandatory attribution "
+                    "(CC-BY 4.0); commercial use requires a separate paid license."
+                ),
+            },
         )
 
     def check_availability(self) -> bool:
@@ -155,6 +161,12 @@ class OpenMeteoProvider:
                 f"{days} día(s) × {len(variables)} variable(s) "
                 f"({'horario' if config['dataset'] == 'marine' else 'diario'}), estimación aproximada."
             ),
+            notes_i18n={
+                "en": (
+                    f"{days} day(s) × {len(variables)} variable(s) "
+                    f"({'hourly' if config['dataset'] == 'marine' else 'daily'}), approximate estimate."
+                ),
+            },
         )
 
     def download(self, config: dict[str, Any], *, license_acceptance: LicenseAcceptance | None) -> DownloadResult:
@@ -212,6 +224,20 @@ class OpenMeteoProvider:
         times = block["time"]
         if not isinstance(times, list):
             raise DataProviderError("Open-Meteo: 'time' no es una lista — esquema inesperado.")
+        if not times:
+            # Auditoría C8 [MEDIA — matriz de errores §29, "dataset vacío"]:
+            # una combinación de fecha/ubicación/dataset sin cobertura
+            # devuelve `time: []` con HTTP 200 — sin este check, el CSV
+            # canónico salía con solo cabecera y el fallo se detectaba mucho
+            # más tarde (analyze_dataset_csv, fuera del try/except de
+            # generate_project_from_template) con un mensaje genérico que no
+            # dice que el proveedor es quien no tiene datos. Mismo criterio
+            # que ya aplicaba `provider_ecb_fx.py`.
+            raise DataProviderError(
+                f"Open-Meteo no devolvió ningún registro para dataset={config['dataset']!r}, "
+                f"lat={config['latitude']!r}, lon={config['longitude']!r}, rango "
+                f"{config['start_date']}..{config['end_date']} — prueba otra ubicación o rango de fechas."
+            )
         variables = config["variables"]
         for var in variables:
             if var not in block:

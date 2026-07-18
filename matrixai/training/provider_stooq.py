@@ -75,6 +75,9 @@ class StooqProvider:
             summary="Datos gratuitos para uso personal y educativo — no para uso comercial.",
             requires_attribution=False,
             commercial_use_allowed=False,
+            summary_i18n={
+                "en": "Free data for personal and educational use — not for commercial use.",
+            },
         )
 
     def check_availability(self) -> bool:
@@ -131,6 +134,12 @@ class StooqProvider:
                 f"{days} día(s) naturales — estimación aproximada; fines de "
                 "semana y festivos sin cotización se excluyen al descargar."
             ),
+            notes_i18n={
+                "en": (
+                    f"{days} calendar day(s) — approximate estimate; weekends and "
+                    "market holidays are excluded when downloading."
+                ),
+            },
         )
 
     def download(self, config: dict[str, Any], *, license_acceptance: LicenseAcceptance | None) -> DownloadResult:

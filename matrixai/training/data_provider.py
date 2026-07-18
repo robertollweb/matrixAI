@@ -28,12 +28,21 @@ class LicenseInfo:
     summary: str
     requires_attribution: bool
     commercial_use_allowed: bool
+    summary_i18n: dict[str, str] | None = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def localized_summary(self, locale: str | None = None) -> str:
+        normalized = str(locale or "es").strip().lower()
+        if normalized != "es" and self.summary_i18n:
+            translated = self.summary_i18n.get(normalized)
+            if isinstance(translated, str) and translated.strip():
+                return translated
+        return self.summary
+
+    def to_dict(self, *, locale: str | None = None) -> dict[str, Any]:
         return {
             "name": self.name,
             "url": self.url,
-            "summary": self.summary,
+            "summary": self.localized_summary(locale),
             "requires_attribution": self.requires_attribution,
             "commercial_use_allowed": self.commercial_use_allowed,
         }
@@ -60,12 +69,21 @@ class DownloadEstimate:
     estimated_rows: int | None
     estimated_bytes: int | None
     notes: str
+    notes_i18n: dict[str, str] | None = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def localized_notes(self, locale: str | None = None) -> str:
+        normalized = str(locale or "es").strip().lower()
+        if normalized != "es" and self.notes_i18n:
+            translated = self.notes_i18n.get(normalized)
+            if isinstance(translated, str) and translated.strip():
+                return translated
+        return self.notes
+
+    def to_dict(self, *, locale: str | None = None) -> dict[str, Any]:
         return {
             "estimated_rows": self.estimated_rows,
             "estimated_bytes": self.estimated_bytes,
-            "notes": self.notes,
+            "notes": self.localized_notes(locale),
         }
 
 
