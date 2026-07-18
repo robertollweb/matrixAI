@@ -77,19 +77,23 @@ def _is_disallowed_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool
     )
 
 
-def _resolve_and_validate(host: str, port: int) -> tuple[int, tuple]:
+def _resolve_and_validate(host: str, port: int) -> list[tuple[int, tuple]]:
     """Resuelve DNS UNA sola vez y valida que TODAS las direcciones
     candidatas sean públicas — si CUALQUIERA no lo es, se rechaza el host
     entero (un atacante con control parcial de DNS podría intercalar una
-    IP pública "señuelo" junto a una interna real). Devuelve la familia +
-    sockaddr de la PRIMERA candidata para que `_PinnedHTTPSConnection`
-    conecte exactamente a esa dirección — nunca a una resuelta de nuevo."""
+    IP pública "señuelo" junto a una interna real). Devuelve TODAS las
+    candidatas ya validadas (familia + sockaddr) para que
+    `_PinnedHTTPSConnection` pueda intentarlas en orden si la primera
+    falla al conectar — mismo criterio de resiliencia que `socket.
+    create_connection` (que sí prueba varias direcciones), pero SIN
+    volver a resolver DNS entre intentos (eso sería la ventana TOCTOU)."""
     try:
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
         raise SecureFetchError(f"No se pudo resolver el host {host!r}: {exc}") from exc
     if not infos:
         raise SecureFetchError(f"El host {host!r} no resolvió a ninguna dirección.")
+    candidates: list[tuple[int, tuple]] = []
     for family, _socktype, _proto, _canonname, sockaddr in infos:
         ip = ipaddress.ip_address(sockaddr[0])
         if _is_disallowed_ip(ip):
@@ -97,8 +101,8 @@ def _resolve_and_validate(host: str, port: int) -> tuple[int, tuple]:
                 f"El host {host!r} resuelve a una IP no pública ({sockaddr[0]}) "
                 "— rechazado (protección SSRF / DNS rebinding)."
             )
-    family, _socktype, _proto, _canonname, sockaddr = infos[0]
-    return family, sockaddr
+        candidates.append((family, sockaddr))
+    return candidates
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
@@ -106,21 +110,46 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     NUEVO al conectar — la ventana TOCTOU exacta de un ataque DNS
     rebinding contra un host allowlisted (válido en el primer chequeo,
     reapuntado a una IP interna en el segundo). Esta subclase resuelve y
-    valida UNA vez (`_resolve_and_validate`) y conecta a ESA dirección
-    exacta; el SNI (`server_hostname=self.host`) sigue siendo el nombre
-    original, así que la verificación del certificado TLS es idéntica a
-    la de una conexión normal."""
+    valida UNA vez (`_resolve_and_validate`) y conecta a una de esas
+    direcciones ya validadas; el SNI (`server_hostname=self.host`) sigue
+    siendo el nombre original, así que la verificación del certificado
+    TLS es idéntica a la de una conexión normal.
+
+    Reauditoría C8 (ronda 3) [MEDIA]: NO implementa el túnel CONNECT que
+    `HTTPSConnection.connect()` sí maneja cuando `self._tunnel_host` está
+    fijado (proxy HTTPS) — a propósito. Si el opener por defecto siguiera
+    teniendo un `ProxyHandler` activo, `set_proxy()` reescribe `self.host`
+    al PROXY antes de llegar aquí, así que resolver/pinnear "self.host"
+    pinnearía la IP del proxy, no la del proveedor real, y el SNI sería
+    el nombre del proxy — validación silenciosamente equivocada, además
+    de un fallo funcional (ningún CONNECT se envía). La superficie
+    correcta de arreglo es NO USAR proxy en absoluto para este fetch
+    (ver `_DEFAULT_OPENER`, `ProxyHandler({})` desactiva cualquier proxy
+    de entorno); esta guarda es defensa en profundidad por si algo
+    externo forzara un `_tunnel_host` de todas formas — falla alto y
+    claro en vez de conectar a lo que no toca."""
 
     def connect(self) -> None:
-        family, sockaddr = _resolve_and_validate(self.host, self.port)
-        sock = socket.socket(family, socket.SOCK_STREAM)
-        sock.settimeout(self.timeout)
-        try:
-            sock.connect(sockaddr)
-        except OSError:
-            sock.close()
-            raise
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        if self._tunnel_host:
+            raise SecureFetchError(
+                "secure_fetch no admite conexiones vía proxy HTTPS (túnel CONNECT) — "
+                "el pinning de IP validaría el proxy, no el proveedor real. "
+                "Desactiva HTTPS_PROXY/https_proxy para las descargas de la Biblioteca."
+            )
+        last_error: OSError | None = None
+        for family, sockaddr in _resolve_and_validate(self.host, self.port):
+            sock = socket.socket(family, socket.SOCK_STREAM)
+            sock.settimeout(self.timeout)
+            try:
+                sock.connect(sockaddr)
+            except OSError as exc:
+                sock.close()
+                last_error = exc
+                continue
+            self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+            return
+        assert last_error is not None  # _resolve_and_validate ya garantiza >=1 candidata
+        raise last_error
 
 
 class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
@@ -133,7 +162,17 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
         return self.do_open(_PinnedHTTPSConnection, req, context=self._context)
 
 
-_DEFAULT_OPENER = urllib.request.build_opener(_NoAutoRedirect, _PinnedHTTPSHandler)
+# Reauditoría C8 (ronda 3) [MEDIA]: `build_opener` activa `ProxyHandler`
+# por defecto (lee HTTPS_PROXY/https_proxy del entorno) — con un proxy
+# configurado, `_PinnedHTTPSConnection` pinnearía la IP del PROXY, no la
+# del proveedor real (ver su docstring). `ProxyHandler({})` (diccionario
+# vacío, patrón estándar de `urllib`) desactiva cualquier proxy para
+# este opener — coherente con "reglas fijas, no configurables por quien
+# llama" del resto de este módulo; un usuario que de verdad necesite
+# proxy para su red no puede colarlo aquí por una variable de entorno.
+_DEFAULT_OPENER = urllib.request.build_opener(
+    _NoAutoRedirect, _PinnedHTTPSHandler, urllib.request.ProxyHandler({}),
+)
 _REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 
 

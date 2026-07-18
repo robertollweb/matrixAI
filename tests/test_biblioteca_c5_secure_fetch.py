@@ -12,6 +12,7 @@ import io
 import socket
 import unittest.mock
 import urllib.error
+import urllib.request
 
 import pytest
 
@@ -363,12 +364,27 @@ class TestDNSRebindingProtection:
                 _resolve_and_validate("archive-api.open-meteo.com", 443)
 
     def test_resolve_and_validate_accepts_a_public_ip(self):
-        family, sockaddr = None, None
         with unittest.mock.patch("socket.getaddrinfo", return_value=[
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443)),
         ]):
-            family, sockaddr = _resolve_and_validate("archive-api.open-meteo.com", 443)
-        assert sockaddr == ("8.8.8.8", 443)
+            candidates = _resolve_and_validate("archive-api.open-meteo.com", 443)
+        assert candidates == [(socket.AF_INET, ("8.8.8.8", 443))]
+
+    def test_resolve_and_validate_returns_every_validated_candidate(self):
+        """Reauditoría C8 (ronda 3) [MEDIA]: antes solo se devolvía la
+        PRIMERA candidata — si esa dirección concreta fallaba al
+        conectar (caído, filtrado...), `secure_fetch` no probaba las
+        demás, a diferencia de `socket.create_connection`. Ahora se
+        devuelven TODAS las candidatas ya validadas."""
+        with unittest.mock.patch("socket.getaddrinfo", return_value=[
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443)),
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:4860:4860::8888", 443, 0, 0)),
+        ]):
+            candidates = _resolve_and_validate("archive-api.open-meteo.com", 443)
+        assert candidates == [
+            (socket.AF_INET, ("8.8.8.8", 443)),
+            (socket.AF_INET6, ("2001:4860:4860::8888", 443, 0, 0)),
+        ]
 
     def test_resolve_and_validate_wraps_a_dns_failure(self):
         with unittest.mock.patch("socket.getaddrinfo", side_effect=socket.gaierror("no address")):
@@ -376,8 +392,8 @@ class TestDNSRebindingProtection:
                 _resolve_and_validate("archive-api.open-meteo.com", 443)
 
     def test_pinned_connection_connects_to_the_pre_validated_address_only(self):
-        """Verifica que `_PinnedHTTPSConnection.connect()` conecta al
-        SOCKADDR devuelto por `_resolve_and_validate` — NUNCA vuelve a
+        """Verifica que `_PinnedHTTPSConnection.connect()` conecta a una
+        dirección devuelta por `_resolve_and_validate` — NUNCA vuelve a
         resolver DNS por su cuenta (que sería la ventana TOCTOU real)."""
         conn = _PinnedHTTPSConnection("archive-api.open-meteo.com", 443, timeout=5.0)
         fake_sock = unittest.mock.MagicMock()
@@ -387,7 +403,7 @@ class TestDNSRebindingProtection:
 
         with unittest.mock.patch(
             "matrixai.training.secure_fetch._resolve_and_validate",
-            return_value=(socket.AF_INET, ("203.0.113.5", 443)),
+            return_value=[(socket.AF_INET, ("203.0.113.5", 443))],
         ) as mock_resolve, unittest.mock.patch("socket.socket", return_value=fake_sock):
             conn.connect()
 
@@ -405,11 +421,68 @@ class TestDNSRebindingProtection:
 
         with unittest.mock.patch(
             "matrixai.training.secure_fetch._resolve_and_validate",
-            return_value=(socket.AF_INET, ("203.0.113.5", 443)),
+            return_value=[(socket.AF_INET, ("203.0.113.5", 443))],
         ), unittest.mock.patch("socket.socket", return_value=fake_sock):
             with pytest.raises(OSError):
                 conn.connect()
         fake_sock.close.assert_called_once()
+
+    def test_pinned_connection_falls_back_to_the_next_candidate_on_failure(self):
+        """Reauditoría C8 (ronda 3) [MEDIA]: si la PRIMERA dirección
+        validada falla al conectar, se prueba la siguiente — mismo
+        criterio de resiliencia que `socket.create_connection`."""
+        conn = _PinnedHTTPSConnection("archive-api.open-meteo.com", 443, timeout=5.0)
+        failing_sock = unittest.mock.MagicMock()
+        failing_sock.connect.side_effect = OSError("unreachable")
+        working_sock = unittest.mock.MagicMock()
+        fake_wrapped = unittest.mock.MagicMock()
+        conn._context = unittest.mock.MagicMock()
+        conn._context.wrap_socket.return_value = fake_wrapped
+
+        with unittest.mock.patch(
+            "matrixai.training.secure_fetch._resolve_and_validate",
+            return_value=[
+                (socket.AF_INET6, ("2001:db8::1", 443, 0, 0)),
+                (socket.AF_INET, ("203.0.113.5", 443)),
+            ],
+        ), unittest.mock.patch("socket.socket", side_effect=[failing_sock, working_sock]):
+            conn.connect()
+
+        failing_sock.connect.assert_called_once_with(("2001:db8::1", 443, 0, 0))
+        failing_sock.close.assert_called_once()
+        working_sock.connect.assert_called_once_with(("203.0.113.5", 443))
+        assert conn.sock is fake_wrapped
+
+    def test_pinned_connection_refuses_a_proxy_tunnel(self):
+        """Reauditoría C8 (ronda 3) [MEDIA]: con un proxy HTTPS activo,
+        `urllib` reescribe `self.host` al PROXY y fija `_tunnel_host` al
+        destino real ANTES de llegar aquí — pinnear/validar `self.host`
+        en ese caso pinnearía la IP del PROXY, no la del proveedor real,
+        con el SNI del proxy además. Debe fallar alto y claro, nunca
+        conectar silenciosamente a lo que no toca."""
+        conn = _PinnedHTTPSConnection("proxy.example", 443, timeout=5.0)
+        conn.set_tunnel("archive-api.open-meteo.com", 443)
+        with pytest.raises(SecureFetchError, match="proxy HTTPS"):
+            conn.connect()
+
+    def test_default_opener_routes_https_only_through_the_pinned_handler(self):
+        """Reauditoría C8 (ronda 3) [MEDIA]: `build_opener` activa
+        `ProxyHandler` por defecto (lee HTTPS_PROXY/https_proxy del
+        entorno) — `_DEFAULT_OPENER` pasa `ProxyHandler({})` (proxies
+        vacío) explícitamente. Con un diccionario de proxies vacío,
+        `ProxyHandler.__init__` no registra NINGÚN método `*_open`
+        (recorre `proxies.items()`, que está vacío), así que
+        `OpenerDirector.add_handler` ni siquiera lo añade a las tablas
+        de enrutamiento — verificado aquí inspeccionando directamente
+        `handle_open['https']`: debe contener ÚNICAMENTE
+        `_PinnedHTTPSHandler`, nunca un `ProxyHandler`. Confirmado
+        también con una prueba funcional manual (proxy CONNECT local
+        falso + HTTPS_PROXY apuntando a él + descarga real a
+        Open-Meteo): el proxy nunca recibe ningún CONNECT."""
+        from matrixai.training.secure_fetch import _DEFAULT_OPENER
+        https_handlers = _DEFAULT_OPENER.handle_open.get("https", [])
+        assert all(not isinstance(h, urllib.request.ProxyHandler) for h in https_handlers)
+        assert any(type(h).__name__ == "_PinnedHTTPSHandler" for h in https_handlers)
 
 
 class TestRateLimit:
