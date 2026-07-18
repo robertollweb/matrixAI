@@ -33,6 +33,7 @@ from matrixai.training.dataset_project import (
     generate_temporal_project_from_dataset,
     DatasetProjectError,
     _force_temporal_split as force_temporal_split,
+    _extract_seed as extract_seed,
     _read_rows as read_csv_rows,
     _rows_to_csv_text as rows_to_csv_text,
 )
@@ -112,6 +113,7 @@ __all__ = [
     "DataProviderError",
     "LicenseAcceptance",
     "force_temporal_split",
+    "extract_seed",
     "read_csv_rows",
     "rows_to_csv_text",
     "run_pipeline",

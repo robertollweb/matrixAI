@@ -68,6 +68,7 @@ _EXTERNAL_ALIAS_MAP = {
     "DataProviderError": (_data_provider, "DataProviderError"),
     "LicenseAcceptance": (_data_provider, "LicenseAcceptance"),
     "force_temporal_split": (_dataset_project, "_force_temporal_split"),
+    "extract_seed": (_dataset_project, "_extract_seed"),
     "read_csv_rows": (_dataset_project, "_read_rows"),
     "rows_to_csv_text": (_dataset_project, "_rows_to_csv_text"),
     "run_pipeline": (_dataset_pipeline, "run_pipeline"),
