@@ -349,6 +349,16 @@ class TestValidateArchitectureHintsUnit:
         assert cleaned == {}
         assert error is not None and "objeto" in error
 
+    # Reauditoría C5 [BAJA]: `not hints` trataba CUALQUIER valor falsy como
+    # "ausente" — un `""`/`[]`/`0`/`False` pasaba con `ok=true` en vez de
+    # rechazarse por tipo, contradiciendo la validación estricta de abajo.
+    # Solo `None` y `{}` son "vacío" de verdad.
+    @pytest.mark.parametrize("bad_falsy", ["", [], 0, False])
+    def test_falsy_but_wrong_type_values_are_rejected_not_treated_as_absent(self, bad_falsy):
+        cleaned, error = validate_architecture_hints(bad_falsy)
+        assert cleaned == {}
+        assert error is not None and "objeto" in error
+
     def test_unknown_key_is_rejected(self):
         cleaned, error = validate_architecture_hints({"hidden_layers": [(64, "relu")], "extra": 1})
         assert cleaned == {}

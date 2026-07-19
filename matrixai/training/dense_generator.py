@@ -499,8 +499,16 @@ def validate_architecture_hints(hints: Any) -> tuple[dict[str, Any], str | None]
     None)` si es válido (unidades coeridas a `int` normal, nunca `bool`), o
     `({}, mensaje)` si no lo es — el caller debe tratar el segundo caso como
     un error controlado (`{"ok": False, "error": mensaje}`), nunca dejar
-    que la excepción de más abajo llegue sin capturar al handler HTTP."""
-    if not hints:
+    que la excepción de más abajo llegue sin capturar al handler HTTP.
+
+    Reauditoría C5 [BAJA]: `not hints` trataba CUALQUIER valor falsy como
+    "ausente" — `""`, `[]`, `0`, `False` pasaban con `ok=true` en vez de
+    rechazarse por tipo, contradiciendo la validación estricta de más abajo
+    (que si exige `isinstance(hints, dict)`). Solo `None` y `{}` son
+    "vacío" de verdad; cualquier otro valor falsy pero de tipo incorrecto
+    debe rechazarse igual que un valor truthy del tipo incorrecto (p.ej.
+    `"bad"`)."""
+    if hints is None or hints == {}:
         return {}, None
     if not isinstance(hints, dict):
         return {}, "architecture_hints debe ser un objeto (diccionario)."
