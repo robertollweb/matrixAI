@@ -3350,6 +3350,14 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
 
     if mode == "prompt":
         use_llm = bool(payload.get("use_llm", False))
+        # Contrato 58 C5 — hints de arquitectura ya decididos por un caller
+        # EXTERNO (hoy: la interpretación LLM opt-in de la intención local
+        # del flujo "desde datos", `matrixai/training/intent_llm.py`) —
+        # canal COMPLETAMENTE separado de `use_llm`/`_dense_llm_schema`
+        # (ese re-deriva FIELDS/LABELS del PROMPT; aquí el esquema ya está
+        # fijado y el caller solo puede proponer la FORMA de la red, ya
+        # saneada — invariante: no rederiva ningún dato del esquema).
+        external_architecture_hints = payload.get("architecture_hints") or {}
         # SECUENCIAS_PRODUCTO C2 (auditoría [ALTA]): el campo Text del prompt
         # basta por sí solo — el contrato exige que "resenas: Text" a secas
         # (sin verbo de tarea) ya genere el transformer, no solo cuando
@@ -3381,6 +3389,14 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
             # EMBEDDING. They route to the composite generator (embeddings need it).
             llm_categoricals = llm_schema.pop("categorical_fields", None) or {}
             llm_kwargs: dict[str, Any] = llm_schema
+            # Contrato 58 C5: only `hidden_layers` is honored from the
+            # external channel — anything else in that dict is ignored
+            # (defense in depth; the caller only ever puts `hidden_layers`
+            # there today, see `dataset_project.py`). Only reaches the
+            # DENSE branch below (composite/transformer routing is decided
+            # by the schema itself, out of scope for this hint).
+            if external_architecture_hints.get("hidden_layers"):
+                llm_kwargs["hidden_layers"] = external_architecture_hints["hidden_layers"]
 
             # M2-C3: robustness notices (the downloadable Studio gets unknown prompts)
             gen_warnings: list[str] = []

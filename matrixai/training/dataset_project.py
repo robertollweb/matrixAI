@@ -120,6 +120,12 @@ from matrixai.training.dataset_analysis import (
 from matrixai.training.categorical import _build_group_names
 from matrixai.training.dense_generator import _identifier, _ONEHOT_MAX
 from matrixai.training.user_intent import UserIntentError, normalize_user_intent
+from matrixai.training.intent_llm import (
+    IntentArchitectureError,
+    build_llm_context,
+    propose_intent_architecture,
+    proposal_sha256,
+)
 
 # Tipos de columna que nunca son una FEATURE ni un target válido — igual
 # que C1 los excluye de target_candidates, aquí se excluyen del prompt
@@ -165,6 +171,7 @@ def generate_project_from_dataset(
     column_range_overrides: dict[str, tuple[float, float]] | None = None,
     column_category_overrides: dict[str, list[str]] | None = None,
     user_intent: str | None = None,
+    use_intent_llm: bool = False,
 ) -> dict[str, Any]:
     """Genera un proyecto MatrixAI completo A PARTIR de datos reales.
 
@@ -182,19 +189,35 @@ def generate_project_from_dataset(
         intención LOCAL normalizada (`user_intent.py`), que NUNCA entra al
         prompt tipado/generador (ver docstring de ese módulo). `None` si no
         se declaró intención o quedó vacía tras normalizar.
+      - `provenance["intent_llm"]` (Contrato 58 C5) — bloque de auditoría de
+        la interpretación LLM opt-in (`intent_llm.py`): `None` si no hay
+        intención; si la hay, `{requested, used, provider, model,
+        proposal_sha256, sanitizer_result, fallback}` — `requested=used=
+        false` si `use_intent_llm=False` (el caso por defecto). El LLM SOLO
+        puede proponer la forma de la red (tamaños de capa); nunca toca
+        features/tipos/rangos/categorías/target/pipeline.
 
     Lanza `DatasetAnalysisError` si el CSV es ilegible (delegado a C1),
     `DatasetProjectError` si el target/esquema no permite generar un
     modelo (columna inexistente, tipo no soportado, etiquetas/nombres de
     columna ambiguos tras normalizar, target constante, valor categórico
-    que rompería el prompt...) o si `user_intent` no es válido tras
-    normalizar (envuelve `UserIntentError` — mismo tipo de error que el
-    resto de esta función, un solo tipo que el caller tiene que capturar).
+    que rompería el prompt...), si `user_intent` no es válido tras
+    normalizar (envuelve `UserIntentError`), si `use_intent_llm=True` sin
+    intención declarada, o si la llamada LLM falla (envuelve
+    `IntentArchitectureError` — el atributo `.retryable` de la excepción
+    resultante distingue "sin LLM configurado" de un fallo transitorio,
+    para que el caller pueda ofrecer reintentar). Todos comparten
+    `DatasetProjectError` como tipo — un solo tipo que el caller tiene que
+    capturar.
     """
     try:
         normalized_intent = normalize_user_intent(user_intent)
     except UserIntentError as exc:
         raise DatasetProjectError(str(exc)) from exc
+    if use_intent_llm and normalized_intent is None:
+        raise DatasetProjectError(
+            "use_intent_llm=true requiere una intención declarada (user_intent está vacío)."
+        )
 
     analysis = analyze_dataset_csv(csv_text)
     schema_inferred = analysis["columns"]
@@ -380,8 +403,64 @@ def generate_project_from_dataset(
             f"\nSALIDA: {_safe_field_name(target_column)}\n"
         )
 
+    # Contrato 58 C5 — interpretación LLM OPT-IN de la intención (ver
+    # intent_llm.py). Canal COMPLETAMENTE separado del prompt tipado de
+    # arriba: el LLM recibe `llm_context` (esquema YA decidido + intención),
+    # nunca el CSV/filas, y solo puede proponer la FORMA de la red — se
+    # enhebra a `analyze_playground_request` como `architecture_hints`, un
+    # payload NUEVO y aislado del mecanismo `use_llm=True` de siempre (ese
+    # otro re-deriva FIELDS/LABELS del prompt — prohibido aquí, invariante
+    # "el esquema no cambia").
+    architecture_hints: dict[str, Any] = {}
+    intent_llm: dict[str, Any] | None = None
+    if normalized_intent is not None:
+        if use_intent_llm:
+            llm_features = [
+                {
+                    "name": col,
+                    "type": columns[col]["type"],
+                    "range": (
+                        list(_range_for(columns[col], col))
+                        if columns[col]["type"] in ("number", "integer") else None
+                    ),
+                    "categories": (
+                        category_vocabularies.get(col) or _distinct_non_null(rows, col)
+                        if columns[col]["type"] == "categorical" else None
+                    ),
+                }
+                for col in feature_columns
+            ]
+            llm_context = build_llm_context(
+                features=llm_features, task=task, target_column=target_column,
+                user_intent=normalized_intent,
+            )
+            try:
+                proposal = propose_intent_architecture(llm_context)
+            except IntentArchitectureError as exc:
+                err = DatasetProjectError(str(exc))
+                err.retryable = exc.retryable  # type: ignore[attr-defined]
+                raise err from exc
+            architecture_hints["hidden_layers"] = proposal.hidden_layers
+            intent_llm = {
+                "requested": True,
+                "used": True,
+                "provider": proposal.provider,
+                "model": proposal.model,
+                "proposal_sha256": proposal_sha256(proposal.raw_text),
+                "sanitizer_result": "adjusted" if proposal.sanitizer_adjusted else "accepted",
+                "fallback": None,
+            }
+        else:
+            intent_llm = {
+                "requested": False, "used": False, "provider": None, "model": None,
+                "proposal_sha256": None, "sanitizer_result": None, "fallback": None,
+            }
+
     from matrixai.playground import analyze_playground_request, _validate_training_csv
-    res = analyze_playground_request({"mode": "prompt", "prompt": prompt, "use_llm": False})
+    res = analyze_playground_request({
+        "mode": "prompt", "prompt": prompt, "use_llm": False,
+        **({"architecture_hints": architecture_hints} if architecture_hints else {}),
+    })
     if not res.get("ok"):
         # Auditoría C2 [MEDIA, reauditoría]: `res` es el dict COMPLETO de
         # `analyze_playground_request` (mxai + AST + python compilado +
@@ -443,6 +522,7 @@ def generate_project_from_dataset(
         column_range_overrides=column_range_overrides or {},
         column_category_overrides=column_category_overrides or {},
         user_intent=normalized_intent,
+        intent_llm=intent_llm,
     )
 
     result = dict(res)
@@ -466,6 +546,7 @@ def generate_temporal_project_from_dataset(
     column_range_overrides: dict[str, tuple[float, float]] | None = None,
     column_category_overrides: dict[str, list[str]] | None = None,
     user_intent: str | None = None,
+    use_intent_llm: bool = False,
 ) -> dict[str, Any]:
     """C4 — flujo A, caso serie temporal: "columna temporal + ventana +
     horizonte → operaciones de C3" (contrato 57). Envoltorio DELGADO
@@ -626,10 +707,12 @@ def generate_temporal_project_from_dataset(
         column_type_overrides=type_overrides or None,
         column_range_overrides=column_range_overrides,
         column_category_overrides=category_overrides or None,
-        # Contrato 58 C4 — el camino temporal NUNCA ignora la intención en
-        # silencio: se enhebra tal cual (normalización/validación ya ocurre
-        # dentro de `generate_project_from_dataset`, un solo sitio).
+        # Contrato 58 C4/C5 — el camino temporal NUNCA ignora la intención (ni
+        # su interpretación LLM) en silencio: se enhebran tal cual
+        # (normalización/validación/llamada LLM ocurren dentro de
+        # `generate_project_from_dataset`, un solo sitio).
         user_intent=user_intent,
+        use_intent_llm=use_intent_llm,
     )
 
     feature_columns = list(result["provenance"]["feature_name_map"].keys())
@@ -1004,6 +1087,7 @@ def _build_provenance(
     column_range_overrides: dict[str, tuple[float, float]],
     column_category_overrides: dict[str, list[str]],
     user_intent: str | None = None,
+    intent_llm: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from matrixai.export.inference_spec import _matrixai_version
 
@@ -1053,4 +1137,7 @@ def _build_provenance(
         # Contrato 58 C4 — intención LOCAL del usuario, ya normalizada. NUNCA
         # forma parte de `synthesized_prompt` (arriba) — ver user_intent.py.
         "user_intent": user_intent,
+        # Contrato 58 C5 — auditoría de la interpretación LLM opt-in de esa
+        # intención (None si no hay intención) — ver intent_llm.py.
+        "intent_llm": intent_llm,
     }
