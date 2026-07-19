@@ -425,6 +425,17 @@ def _rank_target_candidates(
                 score += 1.0
                 reasons.append(f"pocas categorías distintas ({cardinality})")
                 reason_codes.append({"code": "low_cardinality", "cardinality": cardinality})
+            else:
+                # Auditoría C3 [MEDIA]: una categórica/boolean con MUCHAS
+                # categorías (por encima de _ONEHOT_MAX) que además no es la
+                # última columna ni tiene nombre típico llegaba aquí con
+                # `reasons=[]`/`reason_codes=[]` — score 0.0 pero SIN motivo,
+                # contradiciendo la promesa contractual de un motivo por
+                # tarjeta. Motivo no puntuable (no toca `score`, orden ni la
+                # heurística previa): es categórica, así que sigue siendo
+                # clasificación aunque tenga muchas clases.
+                reasons.append(f"columna categórica ({cardinality} categorías)")
+                reason_codes.append({"code": "categorical_target", "cardinality": cardinality})
         elif col_type in ("integer", "number") and few_categories:
             task = "classification"
             score += 1.0

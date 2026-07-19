@@ -107,6 +107,23 @@ class TestTargetCandidateReasonCodes:
         for cand in r["target_candidates"]:
             assert len(cand["reason_codes"]) == len(cand["reasons"])
 
+    def test_high_cardinality_categorical_gets_a_non_scoring_reason_code(self):
+        """Auditoría C3 [MEDIA]: una categórica con MUCHAS categorías (por
+        encima de _ONEHOT_MAX) que no es la última columna ni tiene nombre
+        típico llegaba con reasons=[]/reason_codes=[] — score 0.0 pero SIN
+        motivo, contradiciendo la promesa de un motivo por tarjeta. El motivo
+        nuevo no debe alterar el score (sigue en 0.0)."""
+        from matrixai.training.dense_generator import _ONEHOT_MAX
+        n = _ONEHOT_MAX + 5
+        rows = ["tipo,b"]  # "tipo" no es la última columna ni tiene nombre típico de target
+        for i in range(n * 2):
+            rows.append(f"cat{i % n},{i}")
+        r = analyze_dataset_csv("\n".join(rows))
+        cand = next(c for c in r["target_candidates"] if c["column"] == "tipo")
+        assert cand["score"] == 0.0
+        assert cand["reasons"] != []
+        assert {"code": "categorical_target", "cardinality": n} in cand["reason_codes"]
+
     def test_every_reason_code_is_a_dict_with_a_code_key(self):
         rows = ["a,medida"]
         for i in range(20):
