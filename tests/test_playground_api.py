@@ -78,6 +78,9 @@ _EXTERNAL_ALIAS_MAP = {
     "PipelineError": (_dataset_pipeline, "PipelineError"),
     # Contrato 58 C4 — intención local del usuario
     "USER_INTENT_MAX_CHARS": (_user_intent, "USER_INTENT_MAX_CHARS"),
+    # Auditoría C4 [MEDIA] — save exige que `provenance.user_intent`
+    # coincida con su forma normalizada.
+    "normalize_user_intent": (_user_intent, "normalize_user_intent"),
 }
 
 

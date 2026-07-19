@@ -73,6 +73,16 @@ class TestNormalizeUserIntent:
         assert "\x7f" not in result
         assert result == "holamundo"
 
+    def test_control_char_between_spaces_does_not_leave_double_whitespace(self):
+        """Auditoría C4 [BAJA]: un carácter de control NO es whitespace para
+        `str.split()`, así que sobrevivía al primer colapso como un token
+        propio rodeado de espacios simples; al quitarlo en el paso
+        siguiente quedaban los dos espacios que lo rodeaban pegados
+        ("a  b"), rompiendo la semántica equivalente a
+        `" ".join(value.split())`. Reproducido exactamente como reportó la
+        auditoría."""
+        assert normalize_user_intent("a \x00 b") == "a b"
+
     def test_exactly_max_chars_is_accepted(self):
         text = "a" * USER_INTENT_MAX_CHARS
         assert normalize_user_intent(text) == text

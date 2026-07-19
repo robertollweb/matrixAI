@@ -47,6 +47,13 @@ def normalize_user_intent(value: str | None) -> str | None:
     text = unicodedata.normalize("NFC", value)
     text = " ".join(text.split())
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Cc")
+    # Auditoría C4 [BAJA]: un carácter de control NO es whitespace para
+    # `str.split()`, así que sobrevivía al primer colapso como un token
+    # propio rodeado de espacios simples (p.ej. "a \x00 b" no cambia en el
+    # paso anterior); al quitarlo aquí quedan los dos espacios que lo
+    # rodeaban pegados ("a  b"), rompiendo la semántica equivalente a
+    # `" ".join(value.split())`. Segundo colapso tras eliminar controles.
+    text = " ".join(text.split())
     if not text:
         return None
     if len(text) > USER_INTENT_MAX_CHARS:

@@ -38,11 +38,16 @@ from matrixai.training.dataset_project import (
     _rows_to_csv_text as rows_to_csv_text,
 )
 from matrixai.training.user_intent import (
-    # Contrato 58 C4 — solo el LÍMITE se reexporta (studio-backend lo usa
-    # para validar la forma de `provenance.user_intent` en save/get); la
-    # normalización/validación real vive dentro de
-    # `generate_project_from_dataset`, un único sitio.
     USER_INTENT_MAX_CHARS,
+    # Auditoría C4 [MEDIA]: `_validate_provenance_shape` (studio-backend,
+    # save de un proyecto) solo comprobaba tipo/no-vacío/longitud de
+    # `user_intent` — una procedencia manipulada podía persistir texto NO
+    # normalizado (espacios repetidos, NFD, caracteres de control), algo
+    # que la generación real nunca produciría. Se reexporta la función de
+    # normalización para que save exija que el valor persistido coincida
+    # EXACTAMENTE con su forma normalizada — mismo criterio "un único
+    # sitio" que ya se aplicaba al límite.
+    normalize_user_intent,
 )
 from matrixai.training.data_provider import (
     get_default_registry,
@@ -117,6 +122,7 @@ __all__ = [
     "DatasetProjectError",
     # Contrato 58 C4 — intención local del usuario
     "USER_INTENT_MAX_CHARS",
+    "normalize_user_intent",
     "get_default_registry",
     "get_default_acceptance_store",
     "DataProviderError",
