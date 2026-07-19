@@ -119,6 +119,7 @@ from matrixai.training.dataset_analysis import (
 )
 from matrixai.training.categorical import _build_group_names
 from matrixai.training.dense_generator import _identifier, _ONEHOT_MAX
+from matrixai.training.user_intent import UserIntentError, normalize_user_intent
 
 # Tipos de columna que nunca son una FEATURE ni un target válido — igual
 # que C1 los excluye de target_candidates, aquí se excluyen del prompt
@@ -163,6 +164,7 @@ def generate_project_from_dataset(
     column_type_overrides: dict[str, str] | None = None,
     column_range_overrides: dict[str, tuple[float, float]] | None = None,
     column_category_overrides: dict[str, list[str]] | None = None,
+    user_intent: str | None = None,
 ) -> dict[str, Any]:
     """Genera un proyecto MatrixAI completo A PARTIR de datos reales.
 
@@ -175,14 +177,25 @@ def generate_project_from_dataset(
         categóricas expandidas a one-hot o indexadas para embedding,
         booleanas a 0/1) — YA VALIDADO contra el modelo generado, listo
         para `/api/train-start`, el flujo existente.
-      - `provenance`: procedencia del flujo A (invariante 3 del contrato).
+      - `provenance`: procedencia del flujo A (invariante 3 del contrato),
+        incluida `provenance["user_intent"]` (Contrato 58 C4) — la
+        intención LOCAL normalizada (`user_intent.py`), que NUNCA entra al
+        prompt tipado/generador (ver docstring de ese módulo). `None` si no
+        se declaró intención o quedó vacía tras normalizar.
 
-    Lanza `DatasetAnalysisError` si el CSV es ilegible (delegado a C1) o
+    Lanza `DatasetAnalysisError` si el CSV es ilegible (delegado a C1),
     `DatasetProjectError` si el target/esquema no permite generar un
     modelo (columna inexistente, tipo no soportado, etiquetas/nombres de
     columna ambiguos tras normalizar, target constante, valor categórico
-    que rompería el prompt...).
+    que rompería el prompt...) o si `user_intent` no es válido tras
+    normalizar (envuelve `UserIntentError` — mismo tipo de error que el
+    resto de esta función, un solo tipo que el caller tiene que capturar).
     """
+    try:
+        normalized_intent = normalize_user_intent(user_intent)
+    except UserIntentError as exc:
+        raise DatasetProjectError(str(exc)) from exc
+
     analysis = analyze_dataset_csv(csv_text)
     schema_inferred = analysis["columns"]
 
@@ -429,6 +442,7 @@ def generate_project_from_dataset(
         column_type_overrides=column_type_overrides or {},
         column_range_overrides=column_range_overrides or {},
         column_category_overrides=column_category_overrides or {},
+        user_intent=normalized_intent,
     )
 
     result = dict(res)
@@ -451,6 +465,7 @@ def generate_temporal_project_from_dataset(
     column_type_overrides: dict[str, str] | None = None,
     column_range_overrides: dict[str, tuple[float, float]] | None = None,
     column_category_overrides: dict[str, list[str]] | None = None,
+    user_intent: str | None = None,
 ) -> dict[str, Any]:
     """C4 — flujo A, caso serie temporal: "columna temporal + ventana +
     horizonte → operaciones de C3" (contrato 57). Envoltorio DELGADO
@@ -611,6 +626,10 @@ def generate_temporal_project_from_dataset(
         column_type_overrides=type_overrides or None,
         column_range_overrides=column_range_overrides,
         column_category_overrides=category_overrides or None,
+        # Contrato 58 C4 — el camino temporal NUNCA ignora la intención en
+        # silencio: se enhebra tal cual (normalización/validación ya ocurre
+        # dentro de `generate_project_from_dataset`, un solo sitio).
+        user_intent=user_intent,
     )
 
     feature_columns = list(result["provenance"]["feature_name_map"].keys())
@@ -984,6 +1003,7 @@ def _build_provenance(
     column_type_overrides: dict[str, str],
     column_range_overrides: dict[str, tuple[float, float]],
     column_category_overrides: dict[str, list[str]],
+    user_intent: str | None = None,
 ) -> dict[str, Any]:
     from matrixai.export.inference_spec import _matrixai_version
 
@@ -1030,4 +1050,7 @@ def _build_provenance(
         "seed": _extract_seed(training_text),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "matrixai_version": _matrixai_version(),
+        # Contrato 58 C4 — intención LOCAL del usuario, ya normalizada. NUNCA
+        # forma parte de `synthesized_prompt` (arriba) — ver user_intent.py.
+        "user_intent": user_intent,
     }

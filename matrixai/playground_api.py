@@ -37,6 +37,13 @@ from matrixai.training.dataset_project import (
     _read_rows as read_csv_rows,
     _rows_to_csv_text as rows_to_csv_text,
 )
+from matrixai.training.user_intent import (
+    # Contrato 58 C4 — solo el LÍMITE se reexporta (studio-backend lo usa
+    # para validar la forma de `provenance.user_intent` en save/get); la
+    # normalización/validación real vive dentro de
+    # `generate_project_from_dataset`, un único sitio.
+    USER_INTENT_MAX_CHARS,
+)
 from matrixai.training.data_provider import (
     get_default_registry,
     get_default_acceptance_store,
@@ -108,6 +115,8 @@ __all__ = [
     "generate_project_from_dataset",
     "generate_temporal_project_from_dataset",
     "DatasetProjectError",
+    # Contrato 58 C4 — intención local del usuario
+    "USER_INTENT_MAX_CHARS",
     "get_default_registry",
     "get_default_acceptance_store",
     "DataProviderError",

@@ -18,6 +18,7 @@ import matrixai.training.dataset_analysis as _dataset_analysis
 import matrixai.training.dataset_project as _dataset_project
 import matrixai.training.data_provider as _data_provider
 import matrixai.training.dataset_pipeline as _dataset_pipeline
+import matrixai.training.user_intent as _user_intent
 from matrixai import playground_api as api
 
 
@@ -75,6 +76,8 @@ _EXTERNAL_ALIAS_MAP = {
     "check_anti_leakage": (_dataset_pipeline, "check_anti_leakage"),
     "validate_pipeline_output": (_dataset_pipeline, "validate_pipeline_output"),
     "PipelineError": (_dataset_pipeline, "PipelineError"),
+    # Contrato 58 C4 — intención local del usuario
+    "USER_INTENT_MAX_CHARS": (_user_intent, "USER_INTENT_MAX_CHARS"),
 }
 
 
@@ -83,7 +86,7 @@ class TestPlaygroundPublicAPI(unittest.TestCase):
         self.assertEqual(set(api.__all__), set(_ALIAS_MAP) | set(_EXTERNAL_ALIAS_MAP))
 
     # Shared state/constants that are intentionally not callable.
-    _NON_CALLABLE = {"PROJECT_ROOT", "training_jobs"}
+    _NON_CALLABLE = {"PROJECT_ROOT", "training_jobs", "USER_INTENT_MAX_CHARS"}
 
     def test_every_symbol_present_and_callable(self) -> None:
         for name in api.__all__:
