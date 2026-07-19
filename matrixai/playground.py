@@ -3357,7 +3357,27 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
         # (ese re-deriva FIELDS/LABELS del PROMPT; aquí el esquema ya está
         # fijado y el caller solo puede proponer la FORMA de la red, ya
         # saneada — invariante: no rederiva ningún dato del esquema).
-        external_architecture_hints = payload.get("architecture_hints") or {}
+        # Auditoría C5 [MEDIA]: `architecture_hints` llega TAL CUAL del
+        # payload público de `/api/analyze` (nunca solo del canal interno
+        # de `dataset_project.py`) — sin validar aquí, un payload arbitrario
+        # reventaba sin control más abajo: `"bad"` (string en vez de dict)
+        # → `AttributeError` al hacer `.get()`; `hidden_layers=[("bad",
+        # "relu")]` → `TypeError` al comparar unidades; `hidden_layers=
+        # [(64,"relu")]*100` → aceptado sin más, muy por encima del tope de
+        # 12 capas/16384 unidades que el propio C5 exige (el saneador
+        # `sanitize_hidden_layers` solo ensancha ReLU estrechas, no valida
+        # tipos ni acota profundidad/ancho). `validate_architecture_hints`
+        # (`dense_generator.py`) es la primera línea de defensa: objeto
+        # estricto con como mucho la clave `hidden_layers`, enteros dentro
+        # de rango, activación permitida, profundidad acotada — cualquier
+        # entrada inválida se convierte en un error CONTROLADO aquí, nunca
+        # en una excepción sin capturar que llegaría como HTTP 500.
+        from matrixai.training.dense_generator import validate_architecture_hints  # noqa: PLC0415
+        external_architecture_hints, _hints_error = validate_architecture_hints(
+            payload.get("architecture_hints")
+        )
+        if _hints_error:
+            return {"ok": False, "error": _hints_error}
         # SECUENCIAS_PRODUCTO C2 (auditoría [ALTA]): el campo Text del prompt
         # basta por sí solo — el contrato exige que "resenas: Text" a secas
         # (sin verbo de tarea) ya genere el transformer, no solo cuando

@@ -28,6 +28,8 @@ from matrixai.training.intent_llm import (
     build_llm_context,
     propose_intent_architecture,
 )
+from matrixai.training.dense_generator import validate_architecture_hints
+from matrixai.playground import analyze_playground_request
 
 
 def _tabular_csv(n: int = 20) -> str:
@@ -41,6 +43,18 @@ def _mar_rows(n: int = 20) -> str:
     lines = ["fecha,altura_ola,temperatura"]
     for d in range(1, n + 1):
         lines.append(f"2024-01-{d:02d},{2.0 + d * 0.1:.2f},{15.0 + d * 0.05:.2f}")
+    return "\n".join(lines) + "\n"
+
+
+def _high_cardinality_csv(n_categories: int = 20, rows_per_cat: int = 3) -> str:
+    """Auditoría C5 [ALTA]: fuerza `want_composite` en `playground.py`
+    (`_prompt_highcard`) — una categórica declarada con más de `_ONEHOT_MAX`
+    valores distintos enruta al generador COMPOSITE, la ruta que descarta
+    `hidden_layers` propuestos por el LLM."""
+    cats = [f"cat{i}" for i in range(n_categories)]
+    lines = ["x,resultado"]
+    for i in range(n_categories * rows_per_cat):
+        lines.append(f"{cats[i % n_categories]},{i * 0.5:.2f}")
     return "\n".join(lines) + "\n"
 
 
@@ -237,6 +251,46 @@ class TestGenerateProjectFromDatasetIntentLlm:
                     _tabular_csv(), "resultado", user_intent="algo", use_intent_llm=True,
                 )
 
+    # -----------------------------------------------------------------
+    # Auditoría C5 [ALTA]: `used=True` se marcaba en cuanto el LLM proponía
+    # algo interpretable, sin comprobar si la RUTA de generación realmente
+    # elegida (composite/transformer, decidida por el esquema, no por el
+    # LLM) admite `hidden_layers`. Reproducido exactamente: una categórica
+    # de alta cardinalidad fuerza `composite_generator`, que descarta el
+    # hint — el `.mxai` resultante no contenía ninguno de los tamaños
+    # propuestos, pero la procedencia seguía afirmando `used=True`.
+    # -----------------------------------------------------------------
+
+    def test_used_is_corrected_to_false_when_composite_routing_drops_the_proposal(self):
+        with _mock_provider("LAYERS: 777, 333\nRATIONALE: big net\n"):
+            res = generate_project_from_dataset(
+                _high_cardinality_csv(), "resultado",
+                user_intent="quiero una red grande", use_intent_llm=True,
+            )
+        assert res["ok"]
+        assert res["supervision_source"] == "composite_generator"
+        assert "777" not in res["mxai"]
+        assert "333" not in res["mxai"]
+        block = res["provenance"]["intent_llm"]
+        assert block["requested"] is True
+        # La corrección real del hallazgo: sin ella, esto era True.
+        assert block["used"] is False
+        assert block["fallback"] is not None
+        assert "composite" in block["fallback"] or "denso" in block["fallback"]
+
+    def test_used_stays_true_when_dense_routing_actually_applies_the_proposal(self):
+        """Regresión de no sobre-corregir: la ruta DENSA (el caso normal)
+        sigue marcando `used=True` como antes."""
+        with _mock_provider("LAYERS: 256, 128\nRATIONALE: r\n"):
+            res = generate_project_from_dataset(
+                _tabular_csv(), "resultado", user_intent="prioriza urgentes", use_intent_llm=True,
+            )
+        assert res["supervision_source"] == "dense_generator"
+        block = res["provenance"]["intent_llm"]
+        assert block["used"] is True
+        assert block["fallback"] is None
+        assert "256" in res["mxai"]
+
 
 # ---------------------------------------------------------------------------
 # generate_temporal_project_from_dataset — el camino temporal enhebra use_intent_llm
@@ -270,3 +324,118 @@ class TestTemporalPathThreadsUseIntentLlm:
                     user_intent="algo", use_intent_llm=True,
                 )
         assert getattr(exc_info.value, "retryable", None) is False
+
+
+# ---------------------------------------------------------------------------
+# Auditoría C5 [MEDIA]: `architecture_hints` es un payload de la API PÚBLICA
+# (`/api/analyze`, `playground.py`) — el saneador `sanitize_hidden_layers`
+# (M8-A1) asume una forma ya correcta y solo ensancha ReLU estrechas; no
+# validaba tipos ni acotaba profundidad/ancho, así que un payload arbitrario
+# reventaba sin control (AttributeError/TypeError → HTTP 500) o se aceptaba
+# muy por encima de los límites de 12 capas/16384 unidades que el propio C5
+# exige. `validate_architecture_hints` es la primera línea de defensa.
+# ---------------------------------------------------------------------------
+
+_NEURAL_PROMPT = "predecir\nFEATURES:\n  a: Scalar[0,10]\n  b: Scalar[0,10]\nSALIDA: resultado"
+
+
+class TestValidateArchitectureHintsUnit:
+    def test_none_or_empty_is_valid_and_becomes_empty_dict(self):
+        assert validate_architecture_hints(None) == ({}, None)
+        assert validate_architecture_hints({}) == ({}, None)
+
+    def test_non_dict_is_rejected(self):
+        cleaned, error = validate_architecture_hints("bad")
+        assert cleaned == {}
+        assert error is not None and "objeto" in error
+
+    def test_unknown_key_is_rejected(self):
+        cleaned, error = validate_architecture_hints({"hidden_layers": [(64, "relu")], "extra": 1})
+        assert cleaned == {}
+        assert error is not None and "no reconocidas" in error
+
+    def test_hidden_layers_must_be_a_non_empty_list(self):
+        cleaned, error = validate_architecture_hints({"hidden_layers": []})
+        assert cleaned == {}
+        assert error is not None
+
+    def test_layer_must_be_a_pair(self):
+        cleaned, error = validate_architecture_hints({"hidden_layers": [(64,)]})
+        assert cleaned == {}
+        assert error is not None
+
+    def test_non_integer_units_is_rejected(self):
+        cleaned, error = validate_architecture_hints({"hidden_layers": [("bad", "relu")]})
+        assert cleaned == {}
+        assert error is not None and "entero" in error
+
+    def test_bool_units_is_rejected(self):
+        """`bool` es subclase de `int` en Python — se rechaza explícitamente."""
+        cleaned, error = validate_architecture_hints({"hidden_layers": [(True, "relu")]})
+        assert cleaned == {}
+        assert error is not None
+
+    def test_units_out_of_range_is_rejected(self):
+        cleaned, error = validate_architecture_hints({"hidden_layers": [(0, "relu")]})
+        assert cleaned == {} and error is not None
+        cleaned, error = validate_architecture_hints({"hidden_layers": [(16385, "relu")]})
+        assert cleaned == {} and error is not None
+
+    def test_disallowed_activation_is_rejected(self):
+        cleaned, error = validate_architecture_hints({"hidden_layers": [(64, "sigmoid")]})
+        assert cleaned == {}
+        assert error is not None and "activación" in error
+
+    def test_depth_over_max_is_rejected(self):
+        cleaned, error = validate_architecture_hints({"hidden_layers": [(64, "relu")] * 13})
+        assert cleaned == {}
+        assert error is not None and "profundidad" in error
+
+    def test_exactly_max_depth_and_max_width_are_accepted(self):
+        cleaned, error = validate_architecture_hints({"hidden_layers": [(16384, "relu")] * 12})
+        assert error is None
+        assert cleaned == {"hidden_layers": [(16384, "relu")] * 12}
+
+    def test_valid_hint_passes_through_unchanged(self):
+        cleaned, error = validate_architecture_hints({"hidden_layers": [(256, "relu"), (128, "relu")]})
+        assert error is None
+        assert cleaned == {"hidden_layers": [(256, "relu"), (128, "relu")]}
+
+
+class TestArchitectureHintsPublicApiIntegration:
+    """Las 3 reproducciones exactas de la auditoría, a través de
+    `analyze_playground_request` (la función que expone `/api/analyze`) —
+    deben devolver un error CONTROLADO (`ok: False`), nunca dejar escapar
+    una excepción sin capturar."""
+
+    def test_string_instead_of_dict_is_a_controlled_error_not_an_attributeerror(self):
+        res = analyze_playground_request({
+            "mode": "prompt", "prompt": _NEURAL_PROMPT, "architecture_hints": "bad",
+        })
+        assert res["ok"] is False
+        assert "architecture_hints" in res["error"]
+
+    def test_non_integer_units_is_a_controlled_error_not_a_typeerror(self):
+        res = analyze_playground_request({
+            "mode": "prompt", "prompt": _NEURAL_PROMPT,
+            "architecture_hints": {"hidden_layers": [("bad", "relu")]},
+        })
+        assert res["ok"] is False
+        assert "architecture_hints" in res["error"]
+
+    def test_101_layers_is_rejected_not_silently_generated(self):
+        res = analyze_playground_request({
+            "mode": "prompt", "prompt": _NEURAL_PROMPT,
+            "architecture_hints": {"hidden_layers": [(64, "relu")] * 100},
+        })
+        assert res["ok"] is False
+        assert "profundidad" in res["error"]
+
+    def test_valid_hint_still_reaches_the_dense_generator(self):
+        res = analyze_playground_request({
+            "mode": "prompt", "prompt": _NEURAL_PROMPT,
+            "architecture_hints": {"hidden_layers": [(256, "relu"), (128, "relu")]},
+        })
+        assert res["ok"] is True
+        assert "LAYER Dense units=256" in res["mxai"]
+        assert "LAYER Dense units=128" in res["mxai"]

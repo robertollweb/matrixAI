@@ -472,6 +472,72 @@ def sanitize_hidden_layers(
     return out, notes
 
 
+# Auditoría C5 [MEDIA]: `sanitize_hidden_layers` de arriba SOLO ensancha
+# ReLU demasiado estrechas — no valida tipos ni acota profundidad/ancho, así
+# que no basta como defensa para `architecture_hints`, un payload que
+# `/api/analyze` acepta TAL CUAL del cliente (`playground.py`, canal C5).
+# Reproducido exactamente: `architecture_hints="bad"` → `AttributeError`
+# sin capturar (HTTP 500, no un error controlado); `hidden_layers=[("bad",
+# "relu")]` → `TypeError` al comparar unidades; `hidden_layers=[(64,
+# "relu")]*100` → aceptado sin más, 101 capas Dense generadas, muy por
+# encima del tope de 12 capas / 16384 unidades que exige el propio C5. Las
+# únicas activaciones que este generador produce para capas OCULTAS en
+# cualquier camino (prompt/LLM/default) son "relu" — ver `_parse_layers`
+# en `intent_llm.py` y `_default_hidden_layers`/`_hidden_layers_for_depth`
+# aquí mismo — así que es el único valor aceptado desde la entrada pública.
+_ALLOWED_HIDDEN_ACTIVATIONS = {"relu"}
+
+
+def validate_architecture_hints(hints: Any) -> tuple[dict[str, Any], str | None]:
+    """Valida `architecture_hints` (canal público C5) ANTES de que
+    `analyze_playground_request` lo toque — a diferencia de
+    `sanitize_hidden_layers` (que asume una forma ya correcta, propuesta
+    por el propio core), esta función es la primera línea de defensa contra
+    un payload arbitrario de `/api/analyze`.
+
+    Devuelve `({}, None)` si `hints` está ausente/vacío, `(hints_limpios,
+    None)` si es válido (unidades coeridas a `int` normal, nunca `bool`), o
+    `({}, mensaje)` si no lo es — el caller debe tratar el segundo caso como
+    un error controlado (`{"ok": False, "error": mensaje}`), nunca dejar
+    que la excepción de más abajo llegue sin capturar al handler HTTP."""
+    if not hints:
+        return {}, None
+    if not isinstance(hints, dict):
+        return {}, "architecture_hints debe ser un objeto (diccionario)."
+    unknown = set(hints) - {"hidden_layers"}
+    if unknown:
+        return {}, f"architecture_hints: claves no reconocidas {sorted(unknown)!r} (solo se admite 'hidden_layers')."
+    if "hidden_layers" not in hints:
+        return {}, None
+    layers = hints["hidden_layers"]
+    if not isinstance(layers, list) or not layers:
+        return {}, "architecture_hints.hidden_layers debe ser una lista no vacía de [unidades, activación]."
+    if len(layers) > DenseNetworkGenerator._MAX_EXPLICIT_DEPTH:
+        return {}, (
+            "architecture_hints.hidden_layers supera la profundidad máxima "
+            f"({DenseNetworkGenerator._MAX_EXPLICIT_DEPTH} capas)."
+        )
+    cleaned: list[tuple[int, str]] = []
+    for i, item in enumerate(layers):
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return {}, f"architecture_hints.hidden_layers[{i}] debe ser un par [unidades, activación]."
+        units, activation = item
+        if isinstance(units, bool) or not isinstance(units, int):
+            return {}, f"architecture_hints.hidden_layers[{i}]: unidades debe ser un entero."
+        if not (1 <= units <= DenseNetworkGenerator._MAX_EXPLICIT_WIDTH):
+            return {}, (
+                f"architecture_hints.hidden_layers[{i}]: unidades fuera de rango "
+                f"(1..{DenseNetworkGenerator._MAX_EXPLICIT_WIDTH})."
+            )
+        if activation not in _ALLOWED_HIDDEN_ACTIVATIONS:
+            return {}, (
+                f"architecture_hints.hidden_layers[{i}]: activación no permitida "
+                f"{activation!r} (solo {sorted(_ALLOWED_HIDDEN_ACTIVATIONS)!r})."
+            )
+        cleaned.append((int(units), activation))
+    return {"hidden_layers": cleaned}, None
+
+
 def _default_hidden_layers(input_dim: int) -> list[tuple[int, str]]:
     if input_dim <= 4:
         return [(32, "relu"), (16, "relu")]

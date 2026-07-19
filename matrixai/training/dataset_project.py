@@ -476,6 +476,34 @@ def generate_project_from_dataset(
             f"El prompt sintetizado desde el esquema no generó un modelo válido: {reason}"
         )
 
+    # Auditoría C5 [ALTA]: `intent_llm["used"]` se marcaba `True` en cuanto
+    # el LLM devolvía una propuesta interpretable, ANTES de saber si el
+    # enrutamiento de `analyze_playground_request` iba a aplicarla de
+    # verdad. `hidden_layers` (el único hint que viaja por este canal) solo
+    # lo consume la rama DENSA — composite/transformer lo descartan al
+    # filtrar sus kwargs (ver `playground.py`, `comp_kwargs`/`trans_kwargs`)
+    # — así que un dataset con una categórica de alta cardinalidad (que
+    # fuerza `want_composite`) generaba un modelo sin ninguno de los
+    # tamaños propuestos, mientras la procedencia seguía afirmando
+    # `used=true` y la SPA mostraba "interpretada por IA, afectó a la forma
+    # de la red": procedencia falsa. `res["supervision_source"]` refleja el
+    # generador REAL que produjo el `.mxai` — se corrige `used` a `False`
+    # (con un `fallback` explicando el motivo) si la propuesta no llegó a
+    # la única rama que la aplica.
+    if (
+        intent_llm is not None
+        and architecture_hints.get("hidden_layers")
+        and res.get("supervision_source") != "dense_generator"
+    ):
+        intent_llm["used"] = False
+        intent_llm["fallback"] = (
+            "El dataset requirió un generador distinto al denso (p.ej. una "
+            "categórica de alta cardinalidad enruta a composite/embedding, "
+            "o un campo Text al transformer); esa ruta no admite la forma "
+            "de red propuesta por el LLM, así que se ignoró y se usó la "
+            "arquitectura determinista de esa ruta."
+        )
+
     prepared = _prepare_training_csv(
         rows, feature_columns, columns, feature_safe_names, target_column, task,
         target_label_map, target_header, category_vocabularies,
