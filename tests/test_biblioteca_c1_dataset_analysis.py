@@ -65,6 +65,60 @@ class TestCanonicalExamples:
 
 
 # ---------------------------------------------------------------------------
+# Contrato 58 C3 — reason_codes estructurados (mismo criterio de puntuación
+# que `reasons`, pero en forma {code, ...params} para que el SPA los traduzca
+# es/en sin depender del texto en español).
+# ---------------------------------------------------------------------------
+
+class TestTargetCandidateReasonCodes:
+    def test_last_column_reason_code(self):
+        csv_text = "a,b,resultado\n1,2,x\n3,4,y\n5,6,x\n"
+        r = analyze_dataset_csv(csv_text)
+        top = next(c for c in r["target_candidates"] if c["column"] == "resultado")
+        assert {"code": "last_column"} in top["reason_codes"]
+
+    def test_typical_target_name_reason_code(self):
+        csv_text = "a,b,resultado\n1,2,x\n3,4,y\n5,6,x\n"
+        r = analyze_dataset_csv(csv_text)
+        top = next(c for c in r["target_candidates"] if c["column"] == "resultado")
+        assert {"code": "typical_target_name"} in top["reason_codes"]
+
+    def test_low_cardinality_reason_code_carries_the_cardinality(self):
+        csv_text = "a,tipo\n1,x\n2,y\n3,x\n4,y\n"
+        r = analyze_dataset_csv(csv_text)
+        cand = next(c for c in r["target_candidates"] if c["column"] == "tipo")
+        low_card = next(rc for rc in cand["reason_codes"] if rc["code"] == "low_cardinality")
+        assert low_card["cardinality"] == 2
+
+    def test_continuous_numeric_reason_code(self):
+        rows = ["a,medida"]
+        for i in range(20):
+            rows.append(f"{i},{1.5 + i * 0.37:.2f}")
+        r = analyze_dataset_csv("\n".join(rows))
+        cand = next(c for c in r["target_candidates"] if c["column"] == "medida")
+        assert {"code": "continuous_numeric"} in cand["reason_codes"]
+
+    def test_reason_codes_and_legacy_reasons_have_the_same_length_and_order(self):
+        """Cada entrada de `reason_codes` corresponde 1:1 a la de `reasons`
+        (mismo orden de evaluación) — invariante de forma para que el SPA no
+        tenga que adivinar el emparejamiento."""
+        csv_text = "a,b,resultado\n1,2,x\n3,4,y\n5,6,x\n"
+        r = analyze_dataset_csv(csv_text)
+        for cand in r["target_candidates"]:
+            assert len(cand["reason_codes"]) == len(cand["reasons"])
+
+    def test_every_reason_code_is_a_dict_with_a_code_key(self):
+        rows = ["a,medida"]
+        for i in range(20):
+            rows.append(f"{i},{1.5 + i * 0.37:.2f}")
+        r = analyze_dataset_csv("\n".join(rows))
+        for cand in r["target_candidates"]:
+            for rc in cand["reason_codes"]:
+                assert isinstance(rc, dict)
+                assert "code" in rc
+
+
+# ---------------------------------------------------------------------------
 # Heurísticas de tipo, una por una
 # ---------------------------------------------------------------------------
 

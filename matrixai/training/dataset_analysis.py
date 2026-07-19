@@ -395,14 +395,21 @@ def _rank_target_candidates(
 
         score = 0.0
         reasons: list[str] = []
+        # Contrato 58 C3 — códigos ESTRUCTURADOS y versionables (un `code` +
+        # parámetros propios cuando aplica) para que el SPA los traduzca
+        # es/en sin parsear el texto en español de `reasons` (que se
+        # conserva tal cual, retrocompatible con quien ya lo consumía).
+        reason_codes: list[dict[str, Any]] = []
 
         if col == last_col:
             score += 1.0
             reasons.append("es la última columna del CSV")
+            reason_codes.append({"code": "last_column"})
 
         if col.strip().lower() in _TARGET_NAME_HINTS:
             score += 2.0
             reasons.append("nombre típico de columna objetivo")
+            reason_codes.append({"code": "typical_target_name"})
 
         cardinality = info.get("cardinality", 0)
         few_categories = 2 <= cardinality <= _ONEHOT_MAX
@@ -417,14 +424,17 @@ def _rank_target_candidates(
             if few_categories:
                 score += 1.0
                 reasons.append(f"pocas categorías distintas ({cardinality})")
+                reason_codes.append({"code": "low_cardinality", "cardinality": cardinality})
         elif col_type in ("integer", "number") and few_categories:
             task = "classification"
             score += 1.0
             reasons.append(f"pocas categorías distintas ({cardinality})")
+            reason_codes.append({"code": "low_cardinality", "cardinality": cardinality})
         else:
             task = "regression"
             score += 0.5
             reasons.append("valores numéricos continuos")
+            reason_codes.append({"code": "continuous_numeric"})
 
         if task is None:
             continue
@@ -434,6 +444,7 @@ def _rank_target_candidates(
             "task": task,
             "score": round(score, 2),
             "reasons": reasons,
+            "reason_codes": reason_codes,
         })
 
     candidates.sort(key=lambda c: (-c["score"], columns.index(c["column"])))
