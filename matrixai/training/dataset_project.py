@@ -114,7 +114,11 @@ from typing import Any
 from matrixai.training.dataset_analysis import (
     _BOOL_FALSE,
     _BOOL_TRUE,
+    _has_significant_leading_zero,
     _is_null,
+    _numeric_kind,
+    _propose_margin,
+    _round_range,
     analyze_dataset_csv,
 )
 from matrixai.training.categorical import _build_group_names
@@ -221,6 +225,12 @@ def generate_project_from_dataset(
 
     analysis = analyze_dataset_csv(csv_text)
     schema_inferred = analysis["columns"]
+    # CONTRATO 59 C2: se necesitan los valores CRUDOS antes de aplicar los
+    # overrides (para recalcular rango si el usuario corrige el tipo a
+    # number/integer, hallazgo 3) — antes se leía más abajo, solo para
+    # target/features; movido aquí, un único `_read_rows`, reutilizado en
+    # todo el resto de la función (nunca se reasigna, es de solo lectura).
+    rows = _read_rows(csv_text)
 
     columns: dict[str, dict[str, Any]] = {
         col: dict(info) for col, info in schema_inferred.items()
@@ -232,6 +242,24 @@ def generate_project_from_dataset(
                 f"existe en el CSV. Columnas: {analysis['column_order']}."
             )
         columns[col]["type"] = new_type
+        # CONTRATO 59 C2 [hallazgo 3]: antes, corregir el tipo a number/
+        # integer sobre una columna sin rango calculado (identifier/
+        # unknown/categórica no lo calculan) dejaba `_range_for` sin nada
+        # que usar más adelante ("no tiene un rango numérico calculable") —
+        # el usuario tenía que ADEMÁS adivinar el rango a mano en
+        # column_range_overrides. Se recalcula aquí desde los valores
+        # crudos, mismo cálculo que C1 aplicaría si hubiera visto la
+        # columna así desde el principio; `column_range_overrides` (más
+        # abajo) sigue pudiendo sobreescribirlo si el usuario lo declara
+        # explícitamente — invariante 8, el usuario manda.
+        if new_type in ("number", "integer") and not (
+            columns[col].get("proposed_range") or columns[col].get("observed_range")
+        ):
+            recomputed = _numeric_range_from_raw_values([row.get(col) for row in rows])
+            if recomputed is not None:
+                _, (rng_lo, rng_hi) = recomputed
+                columns[col]["observed_range"] = [rng_lo, rng_hi]
+                columns[col]["proposed_range"] = [rng_lo, rng_hi]
     for col, rng in (column_range_overrides or {}).items():
         if col not in columns:
             raise DatasetProjectError(
@@ -295,6 +323,36 @@ def generate_project_from_dataset(
         col for col in analysis["column_order"]
         if col != target_column and columns[col]["type"] not in _NOT_YET_USABLE_FEATURE_TYPES
     ]
+    # CONTRATO 59 C2 (hallazgo de auditoría): declarada FUERA del `if` de
+    # abajo para que exista (vacía) también cuando la reconsideración ni se
+    # dispara — se pasa siempre a `_build_provenance` más abajo.
+    reconsidered_columns: list[str] = []
+    if not feature_columns:
+        # CONTRATO 59 C2 [decisión C]: antes de abortar, reconsiderar los
+        # identificadores NUMÉRICOS (un entero casi-único como
+        # "centigrados" 0..99 es un id secuencial para la heurística de C1,
+        # pero SÍ es una medida de dominio real) — nunca se reconsidera un
+        # identificador de texto (UUID-like: `_numeric_range_from_raw_
+        # values` devuelve `None` para esos, se deja excluido) ni una fecha/
+        # columna vacía. Si hay OTRAS features reales disponibles,
+        # `feature_columns` ya no está vacío y este bloque ni se ejecuta —
+        # un identificador con features reales al lado se sigue excluyendo
+        # como siempre (test de cierre del corte).
+        for col in analysis["column_order"]:
+            if col == target_column or columns[col]["type"] != "identifier":
+                continue
+            recomputed = _numeric_range_from_raw_values([row.get(col) for row in rows])
+            if recomputed is None:
+                continue
+            numeric_kind, (rng_lo, rng_hi) = recomputed
+            columns[col]["type"] = numeric_kind
+            columns[col]["observed_range"] = [rng_lo, rng_hi]
+            columns[col]["proposed_range"] = [rng_lo, rng_hi]
+            reconsidered_columns.append(col)
+        feature_columns = [
+            col for col in analysis["column_order"]
+            if col != target_column and columns[col]["type"] not in _NOT_YET_USABLE_FEATURE_TYPES
+        ]
     if not feature_columns:
         raise DatasetProjectError(
             "Ninguna columna es utilizable como feature (todas son el target, "
@@ -308,12 +366,12 @@ def generate_project_from_dataset(
     # C2 [MEDIA, residual]).
     feature_safe_names = _normalize_feature_names(feature_columns, target_header)
 
-    # Reescanea el CSV crudo para el target (valores REALES, con su case
-    # original — C1 no guarda vocabulario para 'boolean' y lo trunca para
-    # categóricas de cardinalidad alta) y para las categóricas de alta
-    # cardinalidad (vocabulario completo, no la muestra de C1 — ver
-    # docstring de C1 sobre `vocabulary_sample`).
-    rows = _read_rows(csv_text)
+    # `rows` (leído al principio de la función, CONTRATO 59 C2) tiene los
+    # valores REALES, con su case original — C1 no guarda vocabulario para
+    # 'boolean' y lo trunca para categóricas de cardinalidad alta; aquí se
+    # usa para el target y para las categóricas de alta cardinalidad
+    # (vocabulario completo, no la muestra de C1 — ver docstring de C1
+    # sobre `vocabulary_sample`).
     target_values_raw = _distinct_non_null(rows, target_column)
     category_vocabularies: dict[str, list[str]] = {}
     for col, raw_values in (column_category_overrides or {}).items():
@@ -567,6 +625,7 @@ def generate_project_from_dataset(
         user_intent=normalized_intent,
         intent_llm=intent_llm,
         target_range=target_range,
+        reconsidered_identifier_columns=reconsidered_columns,
     )
 
     result = dict(res)
@@ -889,6 +948,41 @@ def _range_for(info: dict[str, Any], col: str) -> tuple[float, float]:
     return float(rng[0]), float(rng[1])
 
 
+def _numeric_range_from_raw_values(
+    raw_values: list[str | None],
+) -> tuple[str, tuple[float, float]] | None:
+    """CONTRATO 59 C2 — recalcula tipo numérico + rango (con margen) de una
+    columna a partir de sus valores CRUDOS del CSV: mismo cálculo EXACTO
+    que `dataset_analysis._analyze_column` aplicaría si hubiera visto la
+    columna así desde el principio (mismos `_numeric_kind` +
+    `_propose_margin` + `_round_range`, importados de ese módulo — una
+    sola fuente de verdad para "qué es un rango numérico válido").
+
+    Se usa en dos sitios: cuando el usuario corrige el tipo a mano a
+    number/integer sobre una columna que C1 clasificó sin rango
+    (identifier/unknown/categórica), y cuando se reconsidera un
+    identificador porque dejaría el proyecto sin features (decisión C).
+
+    Devuelve `None` si los valores no son numéricos de verdad (nunca
+    fuerza un identificador de texto tipo UUID, ni una columna vacía) —
+    el caller decide qué hacer con ese `None` (mantener el tipo pedido sin
+    rango sigue fallando más adelante en `_range_for`, con el mismo
+    mensaje accionable de siempre)."""
+    non_null = [v.strip() for v in raw_values if not _is_null(v)]
+    if not non_null:
+        return None
+    numeric_kind = (
+        None if any(_has_significant_leading_zero(v) for v in non_null)
+        else _numeric_kind(non_null)
+    )
+    if numeric_kind is None:
+        return None
+    values = [float(v) for v in non_null]
+    lo, hi = min(values), max(values)
+    rng = _round_range(_propose_margin(lo, hi), numeric_kind)
+    return numeric_kind, (float(rng[0]), float(rng[1]))
+
+
 def _fmt_num(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else str(value)
 
@@ -1151,6 +1245,7 @@ def _build_provenance(
     user_intent: str | None = None,
     intent_llm: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
+    reconsidered_identifier_columns: list[str] | None = None,
 ) -> dict[str, Any]:
     from matrixai.export.inference_spec import _matrixai_version
 
@@ -1166,6 +1261,11 @@ def _build_provenance(
     ]
     if task == "classification":
         operations.append("normalize_target_labels")
+    # CONTRATO 59 C2 (hallazgo de auditoría): sin esto, un cambio de tipo
+    # automático (sin `column_type_overrides` del usuario) era invisible en
+    # la procedencia — la única otra vía para que el tipo cambiara.
+    for col in (reconsidered_identifier_columns or []):
+        operations.append(f"reconsidered_identifier_as_feature:{col}")
     operations.extend(feature_operations)
 
     return {
