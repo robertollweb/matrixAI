@@ -1283,7 +1283,10 @@ def _build_spec_with_epochs(training: Any, epochs_override: int | None) -> Any:
     return _dc.replace(training, run=new_run)
 
 
-def _collect_training_result(tmp: Path, run_result: Any, spec: Any) -> dict[str, Any]:
+def _collect_training_result(
+    tmp: Path, run_result: Any, spec: Any,
+    target_range: tuple[float, float] | None = None,
+) -> dict[str, Any]:
     """Read artifact files and run evaluation while temp dir is still alive."""
     rd = run_result.to_dict()
     artifacts = rd.get("artifacts", {})
@@ -1318,7 +1321,9 @@ def _collect_training_result(tmp: Path, run_result: Any, spec: Any) -> dict[str,
             # but never reached the training result for Studio models).
             for evaluator in (SupervisedEvaluator(), DenseSupervisedEvaluator()):
                 try:
-                    evaluation_report = evaluator.evaluate(spec, ps, base_path=tmp).to_dict()
+                    evaluation_report = evaluator.evaluate(
+                        spec, ps, base_path=tmp, target_range=target_range,
+                    ).to_dict()
                     break
                 except Exception:  # noqa: BLE001
                     continue
@@ -1329,6 +1334,10 @@ def _collect_training_result(tmp: Path, run_result: Any, spec: Any) -> dict[str,
     return {
         "ok": True,
         "task_kind": task_kind,
+        # CONTRATO 59 C1: eco del rango de dominio del target usado para
+        # normalizar (None en clasificación) — fuente auditable para que
+        # `_studio_infer` desnormalice `prediction.value` sin recalcularlo.
+        "target_range": list(target_range) if target_range is not None else None,
         "run_id": rd.get("run_id", ""),
         "best_epoch": rd.get("best_epoch", 0),
         "best_validation_loss": rd.get("best_validation_loss"),
@@ -1461,13 +1470,20 @@ def _dense_torch_train_result(
     epoch_callback: Any,
     cancel_check: Any = None,
     initial_state_dict: dict[str, Any] | None = None,
+    target_range: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """GPU-C3 — train a dense_network with the torch trainer and build the SAME
     result shape as the stdlib path (so snapshot/infer/export/M3 metrics are
     unaffected). Evaluation uses evaluate_dense_network_torch (batched, chunked).
 
     PESOS_GRANDES C5: `initial_state_dict` (tensores CPU de un modelo guardado)
-    reanuda el entrenamiento desde esos pesos — ver `train_dense_network_torch`."""
+    reanuda el entrenamiento desde esos pesos — ver `train_dense_network_torch`.
+
+    CONTRATO 59 C1: `target_range` reescala MAE/RMSE a la unidad real del
+    target — ver `result_from_predictions`."""
+    target_scale = (
+        (target_range[1] - target_range[0]) if target_range is not None else None
+    )
     from matrixai.types import check_network_types
     from matrixai.parameters.network_params import build_network_parameter_set
     from matrixai.parameters.store import program_hash
@@ -1594,6 +1610,7 @@ def _dense_torch_train_result(
             dense_result = evaluate_dense_network_torch(
                 net, best_ps, val_ex, loss_fn, labels=labels or None, device=device,
                 cancel_check=cancel_check, state_dict=best_state_dict,
+                target_scale=target_scale,
             )
             evaluation_report = _eval_report_from_dense_result(dense_result, labels)
             evaluation_backend = device
@@ -1624,6 +1641,7 @@ def _dense_torch_train_result(
     result = {
         "ok": True,
         "task_kind": "regression" if is_reg else "classification",
+        "target_range": list(target_range) if target_range is not None else None,
         "run_id": uuid.uuid4().hex[:8],
         "best_epoch": tr["best_epoch"],
         "best_validation_loss": tr["best_val_loss"],
@@ -1680,13 +1698,19 @@ def _run_playground_dense_training(
     seed: int = 42,
     cancel_check: Any = None,
     initial_state_dict: dict[str, Any] | None = None,
+    target_range: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Synchronous training for NETWORK (dense) models using DenseSupervisedTrainer.
 
     PESOS_GRANDES C5: `initial_state_dict` solo se honra en el camino torch
     (reanudar entrenamiento desde tensores guardados); el fallback stdlib lo
     ignora — reentrenar un modelo grande sin torch disponible entrena desde
-    cero como siempre (nunca fue el camino de un modelo grande real)."""
+    cero como siempre (nunca fue el camino de un modelo grande real).
+
+    CONTRATO 59 C1: `target_range` (rango de dominio del target normalizado,
+    None en clasificación) reescala MAE/RMSE a la unidad real — se enhebra
+    a ambos backends (torch y stdlib); nunca cambia CÓMO se entrena, solo
+    cómo se reportan las métricas de regresión."""
     try:
         training = parse_training_text(training_text)
     except Exception as exc:  # noqa: BLE001
@@ -1716,7 +1740,8 @@ def _run_playground_dense_training(
         try:
             return _dense_torch_train_result(mxai_text, training, spec, csv_text,
                                              device, seed, epoch_callback, cancel_check,
-                                             initial_state_dict=initial_state_dict)
+                                             initial_state_dict=initial_state_dict,
+                                             target_range=target_range)
         except _TrainingCancelled:
             raise
         except Exception as exc:  # noqa: BLE001  — never let GPU break training: fall back
@@ -1766,7 +1791,7 @@ def _run_playground_dense_training(
         if "run" not in result_holder:
             return {"ok": False, "error": "Entrenamiento no produjo resultado"}
         run_result, tmp2, spec2 = result_holder["run"]
-        result = _collect_training_result(tmp2, run_result, spec2)
+        result = _collect_training_result(tmp2, run_result, spec2, target_range=target_range)
         # DenseSupervisedTrainer doesn't write metrics.json; patch epochs from local callback.
         result["epochs"] = epoch_trace
         return result
@@ -1790,6 +1815,7 @@ def _run_playground_composite_training(
     epoch_callback: Any = None,
     seed: int = 42,
     cancel_check: Any = None,
+    target_range: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """M2-C2 — Synchronous training for composite (P19) NETWORK models.
 
@@ -1798,7 +1824,13 @@ def _run_playground_composite_training(
     (stdlib, no torch), tracks best by validation loss, and evaluates with
     evaluate_composite_network. Returns the same result shape the rest of the
     pipeline (snapshot/infer/export, M3 metrics, M7 collapse probe) expects.
+
+    CONTRATO 59 C1: `target_range` reescala MAE/RMSE a la unidad real del
+    target (None en clasificación) — ver `result_from_predictions`.
     """
+    target_scale = (
+        (target_range[1] - target_range[0]) if target_range is not None else None
+    )
     try:
         from matrixai.types import check_composite_network_types
         from matrixai.parameters.network_params import build_composite_network_parameter_set
@@ -1986,17 +2018,23 @@ def _run_playground_composite_training(
             try:
                 ev = evaluate_composite_network_torch(
                     net, best_ps, val_ex, loss_fn, labels=labels or None, device=device,
-                    cancel_check=cancel_check,
+                    cancel_check=cancel_check, target_scale=target_scale,
                 )
                 composite_eval_backend = device
             except _TrainingCancelled:
                 raise
             except Exception as _eval_exc:  # noqa: BLE001
-                ev = evaluate_composite_network(net, best_ps, val_ex, loss_fn, labels=labels or None)
+                ev = evaluate_composite_network(
+                    net, best_ps, val_ex, loss_fn, labels=labels or None,
+                    target_scale=target_scale,
+                )
                 composite_eval_backend = "stdlib_fallback"
                 composite_eval_warning = f"eval torch failed, fell back to stdlib: {_eval_exc}"
         else:
-            ev = evaluate_composite_network(net, best_ps, val_ex, loss_fn, labels=labels or None)
+            ev = evaluate_composite_network(
+                net, best_ps, val_ex, loss_fn, labels=labels or None,
+                target_scale=target_scale,
+            )
             composite_eval_backend = "stdlib"
         evaluation_report = ev.to_dict()
         is_reg = ev.is_regression()
@@ -2004,6 +2042,7 @@ def _run_playground_composite_training(
         return {
             "ok": True,
             "task_kind": "regression" if is_reg else "classification",
+            "target_range": list(target_range) if target_range is not None else None,
             "run_id": uuid.uuid4().hex[:8],
             "best_epoch": best_epoch,
             "best_validation_loss": best_val_loss,
@@ -2066,6 +2105,7 @@ def _run_playground_transformer_training(
     epoch_callback: Any = None,
     seed: int = 42,
     cancel_check: Any = None,
+    target_range: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """SECUENCIAS_PRODUCTO C4 — synchronous training for a BLOCK TRANSFORMER
     (SEQUENCE input) NETWORK model, called from the SAME `network_call`
@@ -2175,10 +2215,13 @@ def _run_playground_transformer_training(
         # de referencia de producto para BLOCK TRANSFORMER en stdlib
         # (invariante 6) — un fallo de evaluación torch es un error real,
         # nunca se degrada en silencio.
+        target_scale = (
+            (target_range[1] - target_range[0]) if target_range is not None else None
+        )
         ev = evaluate_composite_network_torch(
             net, best_ps, val_ex, loss_fn, labels=labels or None, device=device,
             cancel_check=cancel_check, type_result=type_result, pad_id=pad_id,
-            state_dict=best_state,
+            state_dict=best_state, target_scale=target_scale,
         )
         evaluation_report = ev.to_dict()
         is_reg = ev.is_regression()
@@ -2207,6 +2250,7 @@ def _run_playground_transformer_training(
         result: dict[str, Any] = {
             "ok": True,
             "task_kind": "regression" if is_reg else "classification",
+            "target_range": list(target_range) if target_range is not None else None,
             "run_id": uuid.uuid4().hex[:8],
             "best_epoch": tr["best_epoch"],
             "best_validation_loss": tr["best_val_loss"],
@@ -2592,9 +2636,16 @@ def _normalize_csv_with_ranges(csv_text: str, field_ranges: dict[str, tuple[floa
     """M5 — training boundary: map domain-scale columns (salary 35000) back to
     [0,1] with the SAME ranges used to generate/display the dataset.
 
-    Columns without a range, non-numeric cells and the target are left as-is.
-    Values are clamped to [0,1] so a hand-edited cell slightly out of range
-    cannot push training outside the slider space.
+    Columns without a range and non-numeric cells are left as-is. Values are
+    clamped to [0,1] so a hand-edited cell slightly out of range cannot push
+    training outside the slider space.
+
+    CONTRATO 59 C1: esta función es agnóstica a feature/target — normaliza
+    CUALQUIER columna cuyo nombre esté en `field_ranges`. El caller decide
+    qué incluye; `_submit_training_job` añade la columna del target cuando
+    recibe `target_range` (antes de este contrato, el target NUNCA se
+    incluía, así que en la práctica quedaba sin normalizar — de ahí el
+    comentario viejo "and the target").
     """
     if not field_ranges:
         return csv_text
@@ -2762,6 +2813,7 @@ def _submit_training_job(
     field_ranges: dict[str, tuple[float, float]] | None = None,
     seed: int = 42,
     initial_state_dict: dict[str, Any] | None = None,
+    target_range: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Start async training job. Returns {ok, job_id} immediately.
 
@@ -2771,7 +2823,17 @@ def _submit_training_job(
     PESOS_GRANDES C5: `initial_state_dict` (tensores CPU de un modelo grande
     ya guardado) reanuda el entrenamiento desde esos pesos en vez de
     inicializar — solo se honra en el camino `dense_network` (no composite,
-    fuera de alcance de PESOS_GRANDES)."""
+    fuera de alcance de PESOS_GRANDES).
+
+    CONTRATO 59 C1: `target_range` (rango de dominio del target de
+    regresión, `None` en clasificación o en un `.mxai` de antes de este
+    contrato) normaliza la columna objetivo del CSV con el MISMO mecanismo
+    ya usado para las features (`field_ranges`/`_normalize_csv_with_ranges`)
+    — sin esto, un target en escala de dominio (p.ej. 273-372 Kelvin) hace
+    explotar el MSE con los defaults de entrenamiento y la red colapsa a
+    predecir la media (59_REGRESION_QUE_APRENDE_CONTRACT.md). También se
+    enhebra a los 3 caminos de entrenamiento (dense/composite/transformer)
+    para reescalar MAE/RMSE a la unidad real."""
     # Enforce 1 concurrent run (contract P9 §Límites operativos)
     if any(j["status"] == "running" for j in _training_jobs.values()):
         return {"ok": False, "error": "Ya hay un entrenamiento en curso. Espera a que termine o pulsa Detener."}
@@ -2783,10 +2845,28 @@ def _submit_training_job(
     if _size_error:
         return {"ok": False, "error": _size_error}
 
+    # CONTRATO 59 C1: el target se normaliza con el MISMO mecanismo que las
+    # features (`_normalize_csv_with_ranges` no distingue target de feature,
+    # solo mapea columna->rango) — se necesita el nombre REAL de la columna
+    # de salida (`net.output`, p.ej. "predicted_value"), nunca asumido, por
+    # si algún generador futuro usa otro nombre. Un mxai_text inválido no
+    # debe bloquear el target_range (el chequeo real de validez llega justo
+    # después, en `_validate_training_csv`) — best-effort, igual que el
+    # resto de este bloque.
+    normalize_ranges = dict(field_ranges or {})
+    if target_range is not None:
+        try:
+            _program_for_target = parse_text(mxai_text)
+            _nets_for_target = getattr(_program_for_target, "networks", []) or []
+            if _nets_for_target:
+                normalize_ranges[_nets_for_target[0].output] = target_range
+        except Exception:  # noqa: BLE001
+            pass
+
     # M5: domain-scale CSV → normalized BEFORE validation, so the validator and
     # the three trainer paths only ever see slider-space [0,1] values.
-    if field_ranges:
-        csv_text = _normalize_csv_with_ranges(csv_text, field_ranges)
+    if normalize_ranges:
+        csv_text = _normalize_csv_with_ranges(csv_text, normalize_ranges)
 
     validation = _validate_training_csv(mxai_text, training_text, csv_text)
     if not validation.get("ok"):
@@ -2853,13 +2933,13 @@ def _submit_training_job(
                 if _network_is_transformer(mxai_text):
                     result = _run_playground_transformer_training(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
-                        seed=seed, cancel_check=cancel_check,
+                        seed=seed, cancel_check=cancel_check, target_range=target_range,
                     )
                 # M2-C2: composite (P19) networks use the composite trainer
                 elif _network_is_composite(mxai_text):
                     result = _run_playground_composite_training(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
-                        seed=seed, cancel_check=cancel_check,
+                        seed=seed, cancel_check=cancel_check, target_range=target_range,
                     )
                 else:
                     # PESOS_GRANDES C5: reanudar desde `initial_state_dict` solo
@@ -2867,6 +2947,7 @@ def _submit_training_job(
                     result = _run_playground_dense_training(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check, initial_state_dict=initial_state_dict,
+                        target_range=target_range,
                     )
                 if cancel_event.is_set():
                     job["status"] = "timeout" if job.get("_timed_out") else "cancelled"

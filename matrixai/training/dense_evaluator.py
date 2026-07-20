@@ -69,6 +69,7 @@ def evaluate_dense_network(
     examples: list[tuple[list[float], list[float]]],
     loss_fn: str,
     labels: list[str] | None = None,
+    target_scale: float | None = None,
 ) -> DenseEvaluationResult:
     """Evaluate a dense network over a list of (input, target) examples.
 
@@ -78,6 +79,7 @@ def evaluate_dense_network(
             - binary_cross_entropy: target_vector = [float]  (0.0 or 1.0)
             - cross_entropy: target_vector = one-hot vector
         labels: class label strings for classification (same order as output units).
+        target_scale: CONTRATO 59 C1 — ver `result_from_predictions`.
     """
     if not examples:
         raise ValueError("examples must be non-empty")
@@ -88,7 +90,7 @@ def evaluate_dense_network(
         predictions.append(dense_forward(network, parameter_set, input_vec))
         targets.append(target)
 
-    return result_from_predictions(predictions, targets, loss_fn, labels)
+    return result_from_predictions(predictions, targets, loss_fn, labels, target_scale)
 
 
 def result_from_predictions(
@@ -96,6 +98,7 @@ def result_from_predictions(
     targets: list[list[float]],
     loss_fn: str,
     labels: list[str] | None = None,
+    target_scale: float | None = None,
 ) -> DenseEvaluationResult:
     """Build a DenseEvaluationResult from precomputed predictions (the network's
     probability outputs) and targets.
@@ -103,6 +106,16 @@ def result_from_predictions(
     Shared by the stdlib evaluator (per-row `dense_forward`) and the torch/GPU
     evaluator (batched forward) so both compute IDENTICAL metrics — only the forward
     pass differs. M14 (GPU end-to-end: la evaluación no debe ir por CPU fila a fila).
+
+    CONTRATO 59 C1: `target_scale` es opcional y solo se usa en la rama `mse`
+    (regresión) — cuando el target de entrenamiento viaja normalizado a
+    [0,1] (59_REGRESION_QUE_APRENDE_CONTRACT.md), `predictions`/`targets`
+    llegan aquí en esa misma escala normalizada, así que MAE/RMSE saldrían
+    en unidades normalizadas en vez de la unidad real del dominio (Kelvin,
+    euros...) — `target_scale = hi - lo` del rango del target los reescala a
+    la unidad real. `None` (default, retrocompatible) deja MAE/RMSE tal
+    cual, como hoy. R² es invariante a esta transformación afín — nunca se
+    reescala.
     """
     if not predictions:
         raise ValueError("predictions must be non-empty")
@@ -113,7 +126,7 @@ def result_from_predictions(
     if loss_fn == "mse":
         return DenseEvaluationResult(
             rows=rows, loss=avg_loss, loss_fn=loss_fn,
-            **_regression_metrics(predictions, targets),
+            **_regression_metrics(predictions, targets, target_scale),
         )
     elif loss_fn == "cross_entropy":
         return DenseEvaluationResult(
@@ -175,12 +188,23 @@ def compute_accuracy(
 def _regression_metrics(
     predictions: list[list[float]],
     targets: list[list[float]],
+    target_scale: float | None = None,
 ) -> dict[str, float]:
     flat_pred = [p[0] for p in predictions]
     flat_tgt = [t[0] for t in targets]
+    mae = compute_mae(flat_pred, flat_tgt)
+    rmse = compute_rmse(flat_pred, flat_tgt)
+    # CONTRATO 59 C1: MAE/RMSE son lineales en la diferencia pred-target, así
+    # que reescalarlos DESPUÉS de calcularlos sobre valores normalizados
+    # (multiplicar por hi-lo) es exacto — la traslación por `lo` se cancela
+    # en la resta, no hace falta desnormalizar predictions/targets fila a
+    # fila. R² es invariante a la transformación afín — nunca se reescala.
+    if target_scale is not None:
+        mae *= target_scale
+        rmse *= target_scale
     return {
-        "mae": compute_mae(flat_pred, flat_tgt),
-        "rmse": compute_rmse(flat_pred, flat_tgt),
+        "mae": mae,
+        "rmse": rmse,
         "r2": compute_r2(flat_pred, flat_tgt),
     }
 

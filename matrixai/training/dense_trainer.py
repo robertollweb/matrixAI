@@ -264,7 +264,15 @@ class DenseSupervisedEvaluator:
         parameter_set: ParameterSet,
         data_path: str | None = None,
         base_path: Path | None = None,
+        target_range: tuple[float, float] | None = None,
     ) -> EvaluationResult:
+        # CONTRATO 59 C1: `target_range` (rango de dominio del target
+        # normalizado) reescala MAE/RMSE a la unidad real — ver
+        # `result_from_predictions` en dense_evaluator.py. `None`
+        # (retrocompatible) deja el comportamiento previo intacto.
+        target_scale = (
+            (target_range[1] - target_range[0]) if target_range is not None else None
+        )
         base_path = base_path or Path(".")
 
         model_path = _resolve_path(training.model, base_path)
@@ -291,7 +299,8 @@ class DenseSupervisedEvaluator:
             dense_result = DenseEvaluationResult(rows=0, loss=0.0, loss_fn=loss_fn)
         else:
             dense_result = evaluate_dense_network(
-                net, parameter_set, examples, loss_fn, labels=labels or None
+                net, parameter_set, examples, loss_fn, labels=labels or None,
+                target_scale=target_scale,
             )
 
         mhash = program_hash(program)

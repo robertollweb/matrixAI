@@ -266,10 +266,18 @@ def generate_project_from_dataset(
             f"Columnas: {analysis['column_order']}."
         )
     target_type = columns[target_column]["type"]
+    target_range: tuple[float, float] | None = None
     if target_type in _CLASSIFICATION_TARGET_TYPES:
         task = "classification"
     elif target_type in _REGRESSION_TARGET_TYPES:
         task = "regression"
+        # CONTRATO 59 C1: el target de regresión se entrena normalizado a
+        # [0,1] con el MISMO mecanismo que ya usan las features (rango
+        # observado + margen) — sin esto, un target en escala de dominio
+        # (p.ej. 273-372 Kelvin) hace explotar el MSE con los defaults de
+        # entrenamiento y la red colapsa a predecir la media (ver
+        # 59_REGRESION_QUE_APRENDE_CONTRACT.md, "Base verificada", punto 1).
+        target_range = _range_for(columns[target_column], target_column)
     else:
         raise DatasetProjectError(
             f"La columna objetivo {target_column!r} es de tipo {target_type!r} "
@@ -516,9 +524,16 @@ def generate_project_from_dataset(
     # arriba tuviera un hueco no cazado por sus propios tests, esto lo
     # convierte en un error accionable AQUÍ, nunca en un proyecto
     # "aparentemente correcto" que falla después, en silencio, al entrenar.
+    # CONTRATO 59 C1: la validación interna debe ver el CSV EXACTAMENTE como
+    # lo verá el entrenamiento real — target incluido — o valida un CSV que
+    # nunca se entrena de verdad (mismo espíritu que la auditoría C2 de
+    # BIBLIOTECA_MEJORAS_USO_REAL que introdujo esta llamada).
+    validate_ranges = dict(res.get("field_ranges") or {})
+    if target_range is not None:
+        validate_ranges[target_header] = target_range
     validation = _validate_training_csv(
         res["mxai"], res["training_text"], prepared_csv,
-        field_ranges=res.get("field_ranges"),
+        field_ranges=validate_ranges or None,
     )
     if not validation.get("ok"):
         raise DatasetProjectError(
@@ -551,6 +566,7 @@ def generate_project_from_dataset(
         column_category_overrides=column_category_overrides or {},
         user_intent=normalized_intent,
         intent_llm=intent_llm,
+        target_range=target_range,
     )
 
     result = dict(res)
@@ -559,6 +575,13 @@ def generate_project_from_dataset(
     # field_ranges/field_types/field_categories YA vienen en `res` (extraídos
     # del prompt sintetizado por analyze_playground_request) — no se
     # duplican aquí, se devuelven tal cual llegaron.
+    # CONTRATO 59 C1: `target_range` es DELIBERADAMENTE una clave separada de
+    # `field_ranges` (que es solo-features en todo el resto del producto —
+    # sliders de entrada, export, SchemaEditor) — mezclarla ahí filtraría el
+    # target como si fuera un campo de entrada editable/normalizable en la UI.
+    # `None` para clasificación o cuando el target no tiene rango numérico.
+    result["target_range"] = list(target_range) if target_range is not None else None
+    result["target_header"] = target_header
     return result
 
 
@@ -661,15 +684,26 @@ def generate_temporal_project_from_dataset(
     # sobre esa clave se propaga también a `effective_target` (el target
     # REAL, que este envoltorio crea) — el original SIGUE recibiendo su
     # propia entrada tal cual, porque sigue existiendo como FEATURE tras
-    # el shift. `column_range_overrides` no se propaga a propósito: un
-    # target nunca declara rango (ver docstring), propagarlo sería código
-    # muerto — verificado que ningún camino lo consulta.
+    # el shift.
     type_overrides = dict(column_type_overrides or {})
     if target_column in (column_type_overrides or {}):
         type_overrides[effective_target] = column_type_overrides[target_column]
     category_overrides = dict(column_category_overrides or {})
     if target_column in category_overrides:
         category_overrides[effective_target] = category_overrides[target_column]
+    # CONTRATO 59 C1: `column_range_overrides` SÍ se propaga ahora — antes el
+    # comentario de este bloque decía que un target "nunca declara rango" y
+    # propagarlo sería código muerto; eso dejó de ser cierto en cuanto
+    # `generate_project_from_dataset` empezó a calcular el rango del target
+    # de regresión para normalizarlo (ver más abajo, `_range_for`). Sin este
+    # eco, un target desplazado cuyo tipo crudo se corrigió a mano a
+    # "number" (p.ej. porque la heurística de identificador lo atrapó, como
+    # cualquier otra columna casi-única) se queda sin rango calculable y
+    # `generate_project_from_dataset` revienta con "no tiene un rango
+    # numérico calculable" — mismo patrón que type/category arriba.
+    range_overrides = dict(column_range_overrides or {})
+    if target_column in (column_range_overrides or {}):
+        range_overrides[effective_target] = column_range_overrides[target_column]
 
     try:
         pipeline_result = run_pipeline(rows, ops)
@@ -733,7 +767,7 @@ def generate_temporal_project_from_dataset(
     result = generate_project_from_dataset(
         prepared_csv, effective_target,
         column_type_overrides=type_overrides or None,
-        column_range_overrides=column_range_overrides,
+        column_range_overrides=range_overrides or None,
         column_category_overrides=category_overrides or None,
         # Contrato 58 C4/C5 — el camino temporal NUNCA ignora la intención (ni
         # su interpretación LLM) en silencio: se enhebran tal cual
@@ -1116,6 +1150,7 @@ def _build_provenance(
     column_category_overrides: dict[str, list[str]],
     user_intent: str | None = None,
     intent_llm: dict[str, Any] | None = None,
+    target_range: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     from matrixai.export.inference_spec import _matrixai_version
 
@@ -1168,4 +1203,9 @@ def _build_provenance(
         # Contrato 58 C5 — auditoría de la interpretación LLM opt-in de esa
         # intención (None si no hay intención) — ver intent_llm.py.
         "intent_llm": intent_llm,
+        # CONTRATO 59 C1: rango de dominio del target usado para normalizar
+        # antes de entrenar y desnormalizar la predicción — None en
+        # clasificación. Fuente auditable para `_studio_infer` (evita
+        # confiar en un valor recalculado ad-hoc en otro punto del código).
+        "target_range": list(target_range) if target_range is not None else None,
     }

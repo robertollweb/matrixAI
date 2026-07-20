@@ -321,6 +321,7 @@ def evaluate_dense_network_torch(
     device: str = "cpu",
     cancel_check: Callable[[], None] | None = None,
     state_dict: dict[str, Any] | None = None,
+    target_scale: float | None = None,
 ) -> Any:
     """GPU-C6/M14 — evaluación de un dense_network con forward BATCHED en torch/GPU.
 
@@ -370,7 +371,7 @@ def evaluate_dense_network_torch(
                     cancel_check()
 
         targets = [t for _, t in examples]
-        return result_from_predictions(predictions, targets, loss_fn, labels)
+        return result_from_predictions(predictions, targets, loss_fn, labels, target_scale)
     finally:
         # Igual que en el trainer: liberar el módulo GPU en este frame para que una
         # cancelación entre chunks no deje la VRAM ocupada vía la traza de la excepción.

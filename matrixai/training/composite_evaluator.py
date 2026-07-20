@@ -22,6 +22,7 @@ def evaluate_composite_network(
     examples: list[tuple[dict[str, Any], list[float]]],
     loss_fn: str,
     labels: list[str] | None = None,
+    target_scale: float | None = None,
 ) -> DenseEvaluationResult:
     """Evaluate a composite network over a list of (input_dict, target) examples.
 
@@ -33,6 +34,7 @@ def evaluate_composite_network(
             - binary_cross_entropy: target_vector = [float]  (0.0 or 1.0)
             - cross_entropy: target_vector = one-hot vector
         labels: class label strings for classification (same order as output units).
+        target_scale: CONTRATO 59 C1 — ver `result_from_predictions`.
     """
     if not examples:
         raise ValueError("examples must be non-empty")
@@ -43,7 +45,7 @@ def evaluate_composite_network(
         predictions.append(composite_forward(network, parameter_set, input_data, training=False))
         targets.append(target)
 
-    return result_from_predictions(predictions, targets, loss_fn, labels)
+    return result_from_predictions(predictions, targets, loss_fn, labels, target_scale)
 
 
 def composite_examples_from_csv(

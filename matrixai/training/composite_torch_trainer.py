@@ -341,6 +341,7 @@ def evaluate_composite_network_torch(
     pad_id: int | None = None,
     output_name: str = "",
     state_dict: dict[str, Any] | None = None,
+    target_scale: float | None = None,
 ) -> Any:
     """GPU-C6/M14+M15(e) — evaluación de un composite_network con forward BATCHED en torch/GPU.
 
@@ -413,7 +414,7 @@ def evaluate_composite_network_torch(
             if cancel_check is not None:
                 cancel_check()
         targets = [t for _, t in examples]
-        return result_from_predictions(predictions, targets, loss_fn, labels)
+        return result_from_predictions(predictions, targets, loss_fn, labels, target_scale)
     finally:
         # M18: liberar el módulo GPU en este frame (igual que el denso) para que una
         # cancelación entre chunks no deje la VRAM ocupada vía la traza de la excepción.

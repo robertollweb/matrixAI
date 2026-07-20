@@ -422,7 +422,14 @@ class SupervisedEvaluator:
         parameter_set: ParameterSet,
         data_path: str | Path | None = None,
         base_path: str | Path = ".",
+        target_range: tuple[float, float] | None = None,
     ) -> EvaluationResult:
+        # CONTRATO 59 C1: la ruta lineal/FUNCTION legada está fuera de
+        # alcance del contrato (sus ceros no llegan al payload del Studio,
+        # ver anexo 58.1) — el parámetro existe solo para que
+        # `_collect_training_result` pueda llamar a ambos evaluadores con la
+        # misma firma; se ignora aquí a propósito.
+        del target_range
         base = Path(base_path)
         model_path = _resolve_path(training.model, base)
         if model_path is None:
