@@ -118,6 +118,7 @@ class EdgeBundler:
         field_seq: dict[str, dict[str, Any]] | None = None,
         labels: list[str] | None = None,
         example_input: dict[str, Any] | None = None,
+        target_range: tuple[float, float] | None = None,
     ) -> EdgeBundleResult:
         """PESOS_GRANDES C7b: `state_dict` (tensores torch crudos de un modelo
         grande guardado en `.mxw`) es la alternativa a un `parameter_set` con
@@ -256,6 +257,7 @@ class EdgeBundler:
                     field_seq=field_seq,
                     labels=labels,
                     example_input=example_input,
+                    target_range=target_range,
                 )
                 (work / "inference_spec.json").write_text(
                     json.dumps(inference_spec, indent=2, ensure_ascii=False),
@@ -388,6 +390,7 @@ def create_edge_bundle(
     field_seq: dict[str, dict[str, Any]] | None = None,
     labels: list[str] | None = None,
     example_input: dict[str, Any] | None = None,
+    target_range: tuple[float, float] | None = None,
 ) -> EdgeBundleResult:
     return EdgeBundler().bundle(
         program, parameter_set, mxai_path, params_path, outdir,
@@ -401,6 +404,7 @@ def create_edge_bundle(
         field_seq=field_seq,
         labels=labels,
         example_input=example_input,
+        target_range=target_range,
     )
 
 

@@ -361,7 +361,20 @@ class MatrixAIModel:
             p = float(values[0])
             return {labels[0]: 1.0 - p, labels[1]: p}
         if kind == "regression":
-            return float(values[0])
+            value = float(values[0])
+            # CONTRATO 59 C5: el target se entrena normalizado a [0,1] desde
+            # el contrato 59 (ver 59_REGRESION_QUE_APRENDE_CONTRACT.md) — la
+            # salida cruda de la red vive en esa escala. `range` (ausente en
+            # un bundle exportado antes de este contrato) es el rango de
+            # dominio real; sin él, se devuelve el valor crudo tal cual
+            # (retrocompat con bundles antiguos, invariante contrato 42:
+            # "predice == Studio" también para un bundle exportado ANTES de
+            # este contrato, que nunca normalizó el target al entrenar).
+            rng = self.output.get("range")
+            if rng:
+                lo, hi = float(rng[0]), float(rng[1])
+                value = value * (hi - lo) + lo
+            return value
         return {"values": [float(v) for v in values]}
 
     # -- integrity ---------------------------------------------------------

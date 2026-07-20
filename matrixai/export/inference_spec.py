@@ -44,6 +44,7 @@ def build_inference_spec(
     field_seq: dict[str, dict[str, Any]] | None = None,
     labels: list[str] | None = None,
     example_input: dict[str, Any] | None = None,
+    target_range: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Return the inference_spec.json payload for an exported model.
 
@@ -54,6 +55,16 @@ def build_inference_spec(
 
     ``example_input`` (a raw record), if given, is validated against the resolved
     fields so a malformed example fails at export time rather than for the consumer.
+
+    CONTRATO 59 C5: ``target_range`` es el rango de dominio del target de
+    regresión (invariante del contrato 42: el bundle descargado debe
+    "predecir == Studio"). Desde el contrato 59, el target se entrena
+    normalizado a [0,1] (ver 59_REGRESION_QUE_APRENDE_CONTRACT.md) — sin
+    este rango en la spec, ``predict.py`` devolvería la salida cruda de la
+    red (espacio [0,1]) en vez del valor en escala de dominio que el
+    Studio ya muestra. ``None`` (retrocompat: modelo de antes de este
+    contrato, o clasificación, donde no aplica) deja ``predict.py`` con su
+    comportamiento previo — nunca inventa un rango.
     """
     # SECUENCIAS_PRODUCTO C5: entrada SEQUENCE. Con `field_seq` (metadata del
     # tokenizador, misma procedencia que field_ranges/types/categories —
@@ -190,7 +201,7 @@ def build_inference_spec(
         "input_shape": list(export_result.input_shape),
         "input_order": input_order,
         "fields": fields,
-        "output": _build_output(program, export_result, labels),
+        "output": _build_output(program, export_result, labels, target_range),
         "notes": _NORMALIZE_NOTE,
     }
     if example_input is not None:
@@ -459,6 +470,7 @@ def _build_output(
     program: MatrixAIProgram,
     export_result: OnnxExportResult,
     labels: list[str] | None,
+    target_range: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     out_shape = list(export_result.output_shape)
     last = out_shape[-1] if out_shape and out_shape[-1] != -1 else None
@@ -490,6 +502,10 @@ def _build_output(
         else:
             # single value with no two-way labelling: a usable probability / score
             output["kind"] = "regression"
+            # CONTRATO 59 C5: rango de dominio del target, para que predict.py
+            # desnormalice igual que _studio_infer (invariante contrato 42).
+            if target_range is not None:
+                output["range"] = [float(target_range[0]), float(target_range[1])]
     else:
         output["kind"] = "raw_vector"
     return output
