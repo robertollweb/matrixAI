@@ -246,8 +246,21 @@ class EvaluationResult:
     mae: float = 0.0
     rmse: float = 0.0
     r2: float = 0.0
+    # Anexo 58.1 C1: criterio EXPLÍCITO opcional, más fiable que `not labels`
+    # — una clasificación BINARIA sin nombres de clase declarados (Probability
+    # + binary_cross_entropy, sin bloque LABELS) también tiene `labels=[]`, así
+    # que el criterio heurístico la confundía con regresión (reproducido con
+    # `test_binary_classification_has_metrics`: is_regression() daba True para
+    # un modelo de clasificación real). Los constructores que YA conocen el
+    # loss_fn (dense/composite/torch/legado lineal) lo pasan aquí; los que no
+    # lo pasan (código antiguo, tests que construyen el dataclass a mano)
+    # caen al criterio heredado — retrocompatible, ningún comportamiento
+    # previo cambia para quien no pase este campo.
+    loss_fn: str = ""
 
     def is_regression(self) -> bool:
+        if self.loss_fn:
+            return self.loss_fn == "mse"
         return not self.labels
 
     def to_dict(self) -> dict[str, Any]:
@@ -261,18 +274,26 @@ class EvaluationResult:
             "dataset_schema": self.dataset_schema,
             "rows": self.rows,
             "loss": self.loss,
-            "accuracy": self.accuracy,
-            "labels": list(self.labels),
-            "confusion_matrix": self.confusion_matrix,
-            "per_label": self.per_label,
-            "macro_precision": self.macro_precision,
-            "macro_recall": self.macro_recall,
-            "macro_f1": self.macro_f1,
         }
+        # Anexo 58.1 C1: espejo de `DenseEvaluationResult.to_dict()`
+        # (dense_evaluator.py) — antes SIEMPRE incluía accuracy/labels/
+        # confusion_matrix/per_label/macro_precision/macro_recall/macro_f1
+        # con sus valores por defecto (0.0/[]/{}), incluso en regresión, así
+        # que un consumidor que solo hiciera `.get("macro_f1")` nunca veía
+        # `None` — veía 0.0, indistinguible de "el modelo no aprendió nada".
+        # Un `0.0` de una tarea que no aplica NUNCA debe llegar aguas abajo.
         if self.is_regression():
             data["mae"] = self.mae
             data["rmse"] = self.rmse
             data["r2"] = self.r2
+        else:
+            data["accuracy"] = self.accuracy
+            data["labels"] = list(self.labels)
+            data["confusion_matrix"] = self.confusion_matrix
+            data["per_label"] = self.per_label
+            data["macro_precision"] = self.macro_precision
+            data["macro_recall"] = self.macro_recall
+            data["macro_f1"] = self.macro_f1
         if self.backend:
             data["backend"] = dict(self.backend)
         if self.backend_runtime:

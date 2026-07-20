@@ -1324,6 +1324,8 @@ def _collect_training_result(tmp: Path, run_result: Any, spec: Any) -> dict[str,
                     continue
 
     task_kind = (training_trace or {}).get("task_kind", "classification")
+    is_reg = task_kind == "regression"
+    er = evaluation_report or {}
     return {
         "ok": True,
         "task_kind": task_kind,
@@ -1331,16 +1333,33 @@ def _collect_training_result(tmp: Path, run_result: Any, spec: Any) -> dict[str,
         "best_epoch": rd.get("best_epoch", 0),
         "best_validation_loss": rd.get("best_validation_loss"),
         "final_train_loss": rd.get("final_train_loss"),
-        "accuracy": rd.get("accuracy"),
-        "mae": metrics.get("mae"),
-        "rmse": metrics.get("rmse"),
-        "r2": metrics.get("r2"),
-        # M3: classification metrics flattened for the client (also inside
-        # evaluation_report; absent/None for regression)
-        "macro_f1": (evaluation_report or {}).get("macro_f1"),
-        "confusion_matrix": (evaluation_report or {}).get("confusion_matrix"),
-        "labels": (evaluation_report or {}).get("labels"),
-        "per_label": (evaluation_report or {}).get("per_label"),
+        # Anexo 58.1 C1: `rd["accuracy"]` (TrainingRunResult, calculada
+        # durante el propio entrenamiento) es una fuente DISTINTA de
+        # `evaluation_report["accuracy"]` (evaluación posterior con
+        # DenseSupervisedEvaluator) — confirmado que difieren en la
+        # práctica; no se cambia la fuente para no alterar el valor que ya
+        # ve un usuario de clasificación, solo se discrimina a `None` en
+        # regresión (antes era 0.0, indistinguible de "no aplica").
+        "accuracy": None if is_reg else rd.get("accuracy"),
+        # Anexo 58.1 C1 [bug real]: `metrics.get("mae"/"rmse"/"r2")` leía del
+        # artefacto "metrics.json", que SOLO escribe el entrenador lineal/
+        # FUNCTION legado (`SupervisedTrainer`) — `DenseSupervisedTrainer`
+        # (el que entrena toda NETWORK, incluida cualquier plantilla
+        # financiera de regresión) NUNCA produce ese artefacto, así que para
+        # un modelo denso `metrics` siempre es `{}` y estas 3 claves eran
+        # SIEMPRE `None`, sin importar la tarea. El valor real ya vive en
+        # `evaluation_report` (mismo `EvaluationResult` que ya alimenta
+        # macro_f1/confusion_matrix más abajo, discriminado por tarea).
+        "mae": er.get("mae") if is_reg else None,
+        "rmse": er.get("rmse") if is_reg else None,
+        "r2": er.get("r2") if is_reg else None,
+        # M3: classification metrics flattened for the client — `er` ya
+        # discrimina por tarea (EvaluationResult.to_dict()), `.get()`
+        # devuelve None de verdad en regresión, nunca 0.0/[]/{}.
+        "macro_f1": er.get("macro_f1"),
+        "confusion_matrix": er.get("confusion_matrix"),
+        "labels": er.get("labels"),
+        "per_label": er.get("per_label"),
         "backend": backend,
         "epochs": metrics.get("epochs", []),
         "params_best": params_best_data,
@@ -1401,9 +1420,17 @@ def _select_transformer_train_device() -> tuple[bool, str]:
 
 def _eval_report_from_dense_result(dense_result: Any, labels: list[str] | None) -> dict[str, Any]:
     """M14 — construye el report (mismas claves que EvaluationResult.to_dict consumidas
-    aguas abajo) a partir de un DenseEvaluationResult del evaluador torch/GPU."""
+    aguas abajo) a partir de un DenseEvaluationResult del evaluador torch/GPU.
+
+    Anexo 58.1 C1: acceso DIRECTO a los atributos del dataclass (nunca
+    `.to_dict()`), así que no heredaba la discriminación por tarea que
+    `DenseEvaluationResult.to_dict()` sí aplica — devolvía `accuracy`/
+    `macro_f1` con sus defaults (0.0) incluso en regresión, y `mae`/`rmse`/
+    `r2` con 0.0 incluso en clasificación. Un 0.0 de la tarea que NO aplica
+    nunca debe llegar aguas abajo — se discrimina aquí explícitamente."""
+    is_reg = dense_result.is_regression()
     per_label: dict[str, dict[str, float]] = {}
-    if labels and dense_result.precision:
+    if not is_reg and labels and dense_result.precision:
         for lbl in labels:
             per_label[lbl] = {
                 "precision": dense_result.precision.get(lbl, 0.0),
@@ -1413,14 +1440,14 @@ def _eval_report_from_dense_result(dense_result: Any, labels: list[str] | None) 
     return {
         "rows": dense_result.rows,
         "loss": dense_result.loss,
-        "accuracy": dense_result.accuracy,
-        "macro_f1": dense_result.macro_f1,
-        "confusion_matrix": dense_result.confusion_matrix,
-        "labels": list(labels or []),
-        "per_label": per_label,
-        "mae": dense_result.mae,
-        "rmse": dense_result.rmse,
-        "r2": dense_result.r2,
+        "accuracy": None if is_reg else dense_result.accuracy,
+        "macro_f1": None if is_reg else dense_result.macro_f1,
+        "confusion_matrix": None if is_reg else dense_result.confusion_matrix,
+        "labels": None if is_reg else list(labels or []),
+        "per_label": None if is_reg else per_label,
+        "mae": dense_result.mae if is_reg else None,
+        "rmse": dense_result.rmse if is_reg else None,
+        "r2": dense_result.r2 if is_reg else None,
     }
 
 

@@ -329,6 +329,7 @@ class DenseSupervisedEvaluator:
             mae=dense_result.mae,
             rmse=dense_result.rmse,
             r2=dense_result.r2,
+            loss_fn=dense_result.loss_fn,
         )
 
     def _load_examples(

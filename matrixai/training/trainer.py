@@ -467,6 +467,10 @@ class SupervisedEvaluator:
             mae=metrics.get("mae", 0.0),
             rmse=metrics.get("rmse", 0.0),
             r2=metrics.get("r2", 0.0),
+            # Anexo 58.1 C1: mismo criterio explícito que dense/composite/torch
+            # — evita que `is_regression()` dependa de `not labels` (débil
+            # para clasificación binaria sin nombres de clase).
+            loss_fn="mse" if classifier.semantic.kind == "linear_regression" else "cross_entropy",
         )
 
 
