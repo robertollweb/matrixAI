@@ -37,6 +37,14 @@ matrixai --help
   (`edad: Scalar en [18, 95]`, `Integer[1, 10]`, `Boolean`, `Categorical[...]` → one-hot,
   `ProbabilityMap[NO, SI]` output) — honoured end-to-end by the generator, the LLM
   proposal, the synthetic data and the export metadata
+- **Model generation from real data**: point at your own CSV instead of writing a prompt —
+  schema inference (types, ranges, one-hot categoricals, temporal columns), target-column
+  detection (classification or regression) and a trained model in one pass, with target
+  normalization so regression targets in any scale (not just `[0, 1]`) actually converge
+- **Sequence & Transformer models**: `SEQUENCE` inputs, `BLOCK <name> TRANSFORMER` (multi-head
+  attention, feed-forward, layer norm, positional encoding) and a byte-level tokenizer for
+  text classification — trained end-to-end on GPU (torch backend) and exported like any
+  other network. See `examples/transformer-classifier.mxai`
 - **Auditable graph**: computation graph with named nodes, explicit types and audit trail
 - **Supervised training**: classification, risk scoring and regression with `.mxtrain` specs
 - **Large models (billions of parameters)**: binary `.mxw` weights format with tamper
@@ -224,7 +232,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 3686 passed, 17 skipped
+# 4733 passed, 19 skipped
 ```
 
 ---

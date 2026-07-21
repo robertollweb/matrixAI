@@ -7,6 +7,37 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Transformer blocks** — `BLOCK <name> TRANSFORMER` (multi-head attention,
+  feed-forward, layer norm, configurable positional encoding) over a
+  `SEQUENCE` input, with a byte-level tokenizer for text classification.
+  Trained end-to-end on the torch/GPU backend, evaluated and exported
+  through the same CLI cycle as dense and composite networks (`train`,
+  `evaluate`, `export-onnx`, `export-bundle`). See
+  `examples/transformer-classifier.mxai`.
+- **Model generation from real data** — `generate_project_from_dataset` /
+  `generate_temporal_project_from_dataset` (`matrixai.training.dataset_project`)
+  build a runnable `.mxai` + `.mxtrain` pair directly from a CSV instead of a
+  prompt: column type and range inference, one-hot categoricals, temporal
+  columns, target-column candidate detection (classification or regression),
+  and generated feature/target name mapping recorded in a provenance trail.
+  This is the engine behind MatrixAI Studio's "Create from data" flow.
+
+### Fixed
+
+- **Regression targets in any scale now converge** — the regression target
+  was trained on raw values while features were normalized to `[0, 1]`;
+  above roughly `O(100)` this caused gradient explosion and a dead-ReLU
+  collapse to the output bias (constant prediction). The target is now
+  normalized with the same range mechanism as the features, and MAE/RMSE
+  are rescaled back to the original units for reporting. R² is unaffected
+  (scale-invariant). Confirmed on a Celsius→Kelvin dataset: R² −0.0001 → 0.999993.
+
+---
+
 ## [1.2.0] — 2026-07-08
 
 Feature release: self-usable model export bundles, typed prompt fields, and
