@@ -269,8 +269,7 @@ def _build_layer_module(
             raise CompositeTorchError(f"Missing parameter {w_path!r}")
         if b_path not in parameter_set.parameters:
             raise CompositeTorchError(f"Missing parameter {b_path!r}")
-        # M15(f): dims desde shape; copiar pesos solo si la plantilla los trae
-        # (with_values=False → init nativo de nn.Linear, sembrado por torch.manual_seed).
+        # M15(f): dims desde shape; copiar pesos solo si la plantilla los trae.
         W = parameter_set.parameters[w_path].get("values")
         b = parameter_set.parameters[b_path].get("values")
         w_shape = parameter_set.parameters[w_path].get("shape")
@@ -280,6 +279,16 @@ def _build_layer_module(
             with torch.no_grad():
                 linear.weight.data = torch.tensor(W, dtype=torch.float32)
                 linear.bias.data = torch.tensor(b, dtype=torch.float32)
+        else:
+            # CONTRATO 60: mismo hueco que dense_torch.py — sin pesos de
+            # plantilla, igualar al esquema stdlib (he_normal/xavier + sesgo
+            # cero) en vez del default de nn.Linear, que colapsa esta regresión.
+            with torch.no_grad():
+                if getattr(layer, "activation", "linear") == "relu":
+                    nn.init.kaiming_normal_(linear.weight, nonlinearity="relu")
+                else:
+                    nn.init.xavier_normal_(linear.weight)
+                nn.init.zeros_(linear.bias)
         layer_modules[key] = linear
 
     elif lt == "LayerNorm":

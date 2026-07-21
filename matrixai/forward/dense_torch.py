@@ -56,12 +56,21 @@ def dense_network_to_torch_module(network: Any, parameter_set: ParameterSet) -> 
             raise DenseTorchError(f"Cannot determine shape for {w_key!r} (no shape, no values)")
 
         linear = nn.Linear(in_features, out_features)
-        # Si la plantilla trae pesos, se cargan; si vienen None (plantilla de estructura),
-        # se deja el init nativo de torch (Kaiming) — más rápido y se entrena igual.
+        # CONTRATO 60: si la plantilla no trae pesos, NO se deja el default de
+        # nn.Linear (kaiming_uniform_(a=√5) + sesgo aleatorio) — colapsa una
+        # regresión de pocas features (dead-ReLU, R²≈−35 en el caso Kelvin).
+        # Se iguala al esquema stdlib: he_normal/xavier_normal + sesgo cero.
         if W is not None and b is not None:
             with torch.no_grad():
                 linear.weight.copy_(torch.tensor(W, dtype=torch.float32))
                 linear.bias.copy_(torch.tensor(b, dtype=torch.float32))
+        else:
+            with torch.no_grad():
+                if layer.activation == "relu":
+                    nn.init.kaiming_normal_(linear.weight, nonlinearity="relu")
+                else:
+                    nn.init.xavier_normal_(linear.weight)
+                nn.init.zeros_(linear.bias)
 
         linears.append(linear)
         activations.append(layer.activation)
