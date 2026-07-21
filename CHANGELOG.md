@@ -7,7 +7,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
-## [Unreleased]
+## [1.3.0] — 2026-07-21
+
+Feature release: transformer blocks for text classification, model
+generation directly from a real dataset (no prompt required), pluggable
+external data providers, and two correctness fixes for regression training
+(target-scale normalization and a torch/GPU-specific weight-initialization
+bug) discovered and closed against real datasets.
 
 ### Added
 
@@ -25,6 +31,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   columns, target-column candidate detection (classification or regression),
   and generated feature/target name mapping recorded in a provenance trail.
   This is the engine behind MatrixAI Studio's "Create from data" flow.
+- **External data providers** (`matrixai.training.data_provider`) — a
+  pluggable registry for pulling real datasets from third-party APIs
+  instead of a manual CSV upload, with license acceptance tracking and
+  SSRF-hardened fetching (fixed host allowlist, redirect validation,
+  DNS-rebinding protection). Ships an Open-Meteo provider (historical
+  weather / marine data) as the reference implementation.
 
 ### Fixed
 
@@ -35,6 +47,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   normalized with the same range mechanism as the features, and MAE/RMSE
   are rescaled back to the original units for reporting. R² is unaffected
   (scale-invariant). Confirmed on a Celsius→Kelvin dataset: R² −0.0001 → 0.999993.
+- **Regression on the torch/GPU backend now matches the CPU backend** — a
+  dense network built without pre-materialized weights (the common case)
+  kept PyTorch's default `nn.Linear` initialization (`kaiming_uniform_` with
+  `a=√5`, tuned for LeakyReLU, plus a non-zero random bias), which collapsed
+  regression with few input features on GPU (R² as low as −35) while the
+  identical model trained fine on the stdlib/CPU backend. Both backends now
+  initialize with the same scheme (`he_normal`/`xavier_normal` + zero bias).
+  Reproducible without a GPU (torch on CPU already showed the collapse).
 
 ---
 

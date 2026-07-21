@@ -41,6 +41,10 @@ matrixai --help
   schema inference (types, ranges, one-hot categoricals, temporal columns), target-column
   detection (classification or regression) and a trained model in one pass, with target
   normalization so regression targets in any scale (not just `[0, 1]`) actually converge
+- **External data providers**: pluggable registry for pulling real datasets from
+  third-party APIs instead of a manual CSV upload — license acceptance tracking and
+  SSRF-hardened fetching (fixed host allowlist, redirect validation, DNS-rebinding
+  protection). Ships an Open-Meteo provider (historical weather/marine data)
 - **Sequence & Transformer models**: `SEQUENCE` inputs, `BLOCK <name> TRANSFORMER` (multi-head
   attention, feed-forward, layer norm, positional encoding) and a byte-level tokenizer for
   text classification — trained end-to-end on GPU (torch backend) and exported like any
@@ -232,7 +236,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 4733 passed, 19 skipped
+# 4740 passed, 19 skipped
 ```
 
 ---
