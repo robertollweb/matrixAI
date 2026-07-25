@@ -1189,7 +1189,17 @@ def _validate_training_csv(
             csv_path.write_text(csv_text, encoding="utf-8")
             report = TrainingVerifier().verify(training, base_path=tmp)
             if not report.ok:
-                return {"ok": False, "errors": list(report.errors), "warnings": list(report.warnings)}
+                # CONTRATO 61 (auditoría reload→reentrenar): el verificador deja
+                # el detalle en `errors` (lista, p.ej. "row 2 target ... must be
+                # one of [...]") pero antes NO rellenaba `error` — la UI mostraba
+                # "error al cargar" sin causa. Se resume la primera + el conteo
+                # para que siempre haya un mensaje accionable (sin perder la lista).
+                _errs = list(report.errors)
+                _summary = _errs[0] if _errs else "El CSV no supera la validación de entrenamiento."
+                if len(_errs) > 1:
+                    _summary += f" (y {len(_errs) - 1} más)"
+                return {"ok": False, "error": _summary, "errors": _errs,
+                        "warnings": list(report.warnings)}
             # Count rows
             rows = 0
             with csv_path.open(newline="", encoding="utf-8") as fh:
@@ -2313,8 +2323,20 @@ def _run_playground_training(
     training_text: str,
     csv_text: str,
     epochs_override: int | None = None,
+    field_ranges: dict[str, tuple[float, float]] | None = None,
+    target_range: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
-    """Synchronous training — used by tests and /api/train endpoint."""
+    """Synchronous training — used by tests and /api/train endpoint.
+
+    CONTRATO 61 C4: paridad de normalización con `_submit_training_job` /
+    `/api/train-start`. Sin `field_ranges`, un CSV en escala de dominio (p.ej.
+    presión ~1000 junto a seno/coseno ~1) llegaba CRUDO al trainer y la red
+    colapsaba a la clase mayoritaria — el flujo desde-datos por esta ruta
+    entrenaba en un espacio distinto al que usa la inferencia. Se normaliza en
+    la MISMA frontera única (a nivel de CSV, antes de despachar), por lo que
+    las tres rutas de trainer (dense/composite/transformer) y el validador solo
+    ven valores en [0,1]. `/api/train` es ahora equivalente a `/api/train-start`
+    (invariante 10)."""
     # BIBLIOTECA C1 (autoauditoría, sugerencia implementada): normalizar AQUÍ
     # (BOM/delimitador), no solo dentro de `_validate_training_csv` — esa
     # limpia su copia LOCAL, que nunca vuelve a este `csv_text` (los
@@ -2322,6 +2344,12 @@ def _run_playground_training(
     csv_text, _size_error = _normalize_external_csv(csv_text)
     if _size_error:
         return {"ok": False, "error": _size_error}
+    # CONTRATO 61 C4: frontera única de normalización ANTES de validar/despachar
+    # (misma semántica que `_submit_training_job`) — booleanos/one-hot en 0/1 e
+    # índices de embedding quedan intactos porque no llevan rango.
+    normalize_ranges = _compose_normalize_ranges(mxai_text, field_ranges, target_range)
+    if normalize_ranges:
+        csv_text = _normalize_csv_with_ranges(csv_text, normalize_ranges)
     prediction_kind = _get_prediction_kind(mxai_text, training_text)
 
     if prediction_kind == "layer_call":
@@ -2356,12 +2384,19 @@ def _run_playground_training(
         # input) networks are ALSO kind="composite_network" — checked FIRST,
         # or _network_is_composite would misroute them into the plain
         # composite trainer (see _network_is_transformer docstring).
+        # CONTRATO 61 C4: `target_range` se enhebra a los tres trainers de red
+        # (igual que la ruta async en `_submit_training_job`) — sin esto, un
+        # target de regresión normalizado a [0,1] dejaría MAE/RMSE en espacio
+        # normalizado y no se desnormalizaría a la unidad real por la ruta REST.
         if _network_is_transformer(mxai_text):
-            return _run_playground_transformer_training(mxai_text, training_text, csv_text, epochs_override)
+            return _run_playground_transformer_training(
+                mxai_text, training_text, csv_text, epochs_override, target_range=target_range)
         # M2-C2: route composite (P19) networks to the composite trainer
         if _network_is_composite(mxai_text):
-            return _run_playground_composite_training(mxai_text, training_text, csv_text, epochs_override)
-        return _run_playground_dense_training(mxai_text, training_text, csv_text, epochs_override)
+            return _run_playground_composite_training(
+                mxai_text, training_text, csv_text, epochs_override, target_range=target_range)
+        return _run_playground_dense_training(
+            mxai_text, training_text, csv_text, epochs_override, target_range=target_range)
 
     validation = _validate_training_csv(mxai_text, training_text, csv_text)
     if not validation.get("ok"):
@@ -2559,6 +2594,20 @@ def _coerce_field_ranges(raw: Any) -> dict[str, tuple[float, float]]:
     return ranges
 
 
+def _coerce_target_range(raw: Any) -> tuple[float, float] | None:
+    """CONTRATO 59/61 — validate a `[lo, hi]` regression target range from a
+    payload into a `(lo, hi)` tuple (lo < hi). Returns None when absent or
+    malformed — el mismo par que compone el backend del Studio, aquí a nivel de
+    route core para que `/api/train` y `/api/train-start` también lo acepten."""
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        return None
+    try:
+        lo, hi = float(raw[0]), float(raw[1])
+    except (TypeError, ValueError):
+        return None
+    return (lo, hi) if lo < hi else None
+
+
 _S2_FIELD_TYPES = ("number", "integer", "boolean", "text")
 
 
@@ -2667,6 +2716,70 @@ def _normalize_csv_with_ranges(csv_text: str, field_ranges: dict[str, tuple[floa
             row[col] = str(round(min(1.0, max(0.0, norm)), 6))
         writer.writerow(row)
     return out.getvalue()
+
+
+def _compose_normalize_ranges(
+    mxai_text: str,
+    field_ranges: dict[str, tuple[float, float]] | None,
+    target_range: tuple[float, float] | None,
+) -> dict[str, tuple[float, float]]:
+    """Frontera única de normalización compartida por el entrenamiento async
+    (`_submit_training_job`) y el síncrono (`_run_playground_training`).
+
+    Compone el dict que consume `_normalize_csv_with_ranges`: los
+    `field_ranges` de las features más —si es regresión— la columna de salida
+    real (`net.output`, nunca asumida) con su `target_range`. Un `mxai_text`
+    inválido no debe bloquear la normalización de features (el chequeo de
+    validez llega después, en `_validate_training_csv`) — best-effort.
+    """
+    normalize_ranges = dict(field_ranges or {})
+    if target_range is not None:
+        try:
+            _program_for_target = parse_text(mxai_text)
+            _nets_for_target = getattr(_program_for_target, "networks", []) or []
+            if _nets_for_target:
+                normalize_ranges[_nets_for_target[0].output] = target_range
+        except Exception:  # noqa: BLE001
+            pass
+    return normalize_ranges
+
+
+def _normalize_input_with_ranges(
+    input_data: Any, field_ranges: dict[str, tuple[float, float]] | None
+) -> Any:
+    """CONTRATO 61 C4 (inferencia): aplica a un input de dominio la MISMA
+    transformación `(v - lo) / (hi - lo)` recortada a [0,1] que
+    `_normalize_csv_with_ranges` usó al entrenar — sin esto habría desajuste
+    train/serve (el modelo se entrena en [0,1] pero recibiría valores de
+    dominio en inferencia). Acepta la forma anidada `{vector: {campo: valor}}`
+    y la plana `{campo: valor}`. Campos sin rango, no numéricos o rangos
+    degenerados se dejan intactos (booleanos/one-hot/embeddings no llevan
+    rango). Idempotente sobre valores ya en [0,1] solo si el rango es [0,1];
+    por eso el caller decide cuándo aplicarla (input de dominio), nunca se
+    infiere por heurística sobre los valores."""
+    if not field_ranges or not isinstance(input_data, dict):
+        return input_data
+
+    def _norm_one(field: str, value: Any) -> Any:
+        rng = field_ranges.get(field)
+        if rng is None:
+            return value
+        lo, hi = rng
+        if hi == lo:
+            return value
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return value
+        return round(min(1.0, max(0.0, (v - lo) / (hi - lo))), 6)
+
+    out: dict[str, Any] = {}
+    for key, val in input_data.items():
+        if isinstance(val, dict):  # forma anidada {vector: {campo: valor}}
+            out[key] = {f: _norm_one(f, v) for f, v in val.items()}
+        else:  # forma plana {campo: valor}
+            out[key] = _norm_one(key, val)
+    return out
 
 
 _COLLAPSE_TOLERANCE = 1e-6
@@ -2853,15 +2966,7 @@ def _submit_training_job(
     # debe bloquear el target_range (el chequeo real de validez llega justo
     # después, en `_validate_training_csv`) — best-effort, igual que el
     # resto de este bloque.
-    normalize_ranges = dict(field_ranges or {})
-    if target_range is not None:
-        try:
-            _program_for_target = parse_text(mxai_text)
-            _nets_for_target = getattr(_program_for_target, "networks", []) or []
-            if _nets_for_target:
-                normalize_ranges[_nets_for_target[0].output] = target_range
-        except Exception:  # noqa: BLE001
-            pass
+    normalize_ranges = _compose_normalize_ranges(mxai_text, field_ranges, target_range)
 
     # M5: domain-scale CSV → normalized BEFORE validation, so the validator and
     # the three trainer paths only ever see slider-space [0,1] values.
@@ -3044,7 +3149,19 @@ def _cancel_job(job_id: str) -> dict[str, Any]:
     return {"ok": True, "job_id": job_id, "status": job["status"]}
 
 
-def _playground_run_with_params(mxai_text: str, params_json: str, input_json: str) -> dict[str, Any]:
+def _playground_run_with_params(
+    mxai_text: str,
+    params_json: str,
+    input_json: str,
+    field_ranges: dict[str, tuple[float, float]] | None = None,
+) -> dict[str, Any]:
+    """CONTRATO 61 C4 (coherencia train/serve REST): si se pasan `field_ranges`,
+    el `input_json` se interpreta en ESCALA DE DOMINIO y se normaliza a [0,1]
+    con los MISMOS rangos usados al entrenar (`/api/train`/`/api/train-start`) —
+    sin ellos, el input se ejecuta tal cual (espacio-slider [0,1], como envía el
+    Studio). Sin este puente, un usuario REST que entrenó con dominio + rangos y
+    luego infiriera con dominio obtendría una predicción incoherente (incluso
+    otra clase) — incumpliría el invariante 8."""
     if not mxai_text.strip():
         return {"ok": False, "error": "mxai_text es obligatorio"}
     if not params_json.strip():
@@ -3060,6 +3177,7 @@ def _playground_run_with_params(mxai_text: str, params_json: str, input_json: st
         input_data = json.loads(input_json)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"input_json inválido: {exc}"}
+    input_data = _normalize_input_with_ranges(input_data, field_ranges)
     try:
         from matrixai.parser import parse_text as _parse_text
         program = _parse_text(mxai_text)
@@ -4804,11 +4922,16 @@ def _handler_class(guard: Any = None):
             elif self.path == "/api/train":
                 epochs_raw = payload.get("epochs_override")
                 epochs_override = int(epochs_raw) if epochs_raw is not None else None
+                # CONTRATO 61 C4: paridad con /api/train-start — sin field_ranges
+                # un CSV de dominio entrenaba crudo y colapsaba; target_range
+                # normaliza además el target de regresión (desnormaliza MAE/RMSE).
                 result = _run_playground_training(
                     str(payload.get("mxai_text") or ""),
                     str(payload.get("training_text") or ""),
                     str(payload.get("csv_text") or ""),
                     epochs_override,
+                    field_ranges=_coerce_field_ranges(payload.get("field_ranges")) or None,
+                    target_range=_coerce_target_range(payload.get("target_range")),
                 )
                 # C3: el entrenamiento síncrono de un modelo grande devuelve
                 # tensores (best_state_dict) en el result; saneado antes de
@@ -4816,10 +4939,14 @@ def _handler_class(guard: Any = None):
                 self._send_json(_public_training_result(result),
                                 status=200 if result.get("ok") else 422)
             elif self.path == "/api/run-with-params":
+                # CONTRATO 61 C4: coherencia train/serve — con field_ranges el
+                # input_json se interpreta en dominio y se normaliza igual que al
+                # entrenar; sin ellos, se ejecuta en espacio-slider [0,1].
                 result = _playground_run_with_params(
                     str(payload.get("mxai_text") or ""),
                     str(payload.get("params_json") or ""),
                     str(payload.get("input_json") or ""),
+                    field_ranges=_coerce_field_ranges(payload.get("field_ranges")) or None,
                 )
                 self._send_json(result, status=200 if result.get("ok") else 422)
             elif self.path == "/api/train-start":
@@ -4832,6 +4959,7 @@ def _handler_class(guard: Any = None):
                     epochs_override,
                     field_ranges=_coerce_field_ranges(payload.get("field_ranges")) or None,
                     seed=int(payload.get("seed") or 42),
+                    target_range=_coerce_target_range(payload.get("target_range")),
                 )
                 self._send_json(result, status=200 if result.get("ok") else 422)
             elif self.path == "/api/train-cancel":

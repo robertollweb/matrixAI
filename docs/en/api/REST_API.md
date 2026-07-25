@@ -589,9 +589,29 @@ Synchronous training. Times out after 30 seconds, maximum 200 epochs. For longer
   "mxai_text": "...",
   "training_text": "...",
   "csv_text": "...",
-  "epochs_override": 100
+  "epochs_override": 100,
+  "field_ranges": { "pressure": [978.7, 1041.0], "signal": [0.0, 1.0] },
+  "target_range": [263.25, 382.05]
 }
 ```
+
+**Input scale (`field_ranges`) — important.** The model trains on features
+normalized to `[0, 1]`. If your `csv_text` is in **domain scale** (e.g. pressure
+~1000 next to a signal ~1), you must send `field_ranges` (`{column: [min, max]}`)
+so the server applies `(value - min) / (max - min)` at the **single boundary**
+before training. Without `field_ranges`, a domain-scale CSV trains on disparate
+scales and the model can collapse to a single class. Boolean, one-hot and
+embedding-index columns carry **no** range (left untouched). You must use the
+**same `field_ranges` at inference** (see `/api/run-with-params`).
+
+**Output scale (`target_range`) — regression only.** The regression target is also
+normalized to `[0, 1]` with `target_range` (`[min, max]` of the domain, e.g.
+Kelvin). With it, `mae`/`rmse` are returned **in the real unit** and `target_range`
+is echoed in the response; without it, a domain-scale target blows up the MSE and
+the network collapses to predicting the mean. Omitted for classification.
+
+Both `field_ranges` and `target_range` are optional, and `/api/train-start`
+accepts exactly the same fields (same normalization semantics).
 
 **Response:**
 ```json
@@ -618,7 +638,10 @@ Synchronous training. Times out after 30 seconds, maximum 200 epochs. For longer
 
 Start an async training job. Returns immediately with a `job_id` to poll.
 
-**Request:** Same as `/api/train`.
+**Request:** Same as `/api/train`, including `field_ranges` and `target_range`
+(same input- and regression-target normalization semantics). Also accepts `seed`
+(integer, default 42) to re-initialize weights — the actionable retry for a
+collapsed model.
 
 **Response:**
 ```json
@@ -668,18 +691,32 @@ Cancel a running async training job.
 
 Run the model with a specific set of loaded parameters without starting a server.
 
-**Request:**
+**Input scale — train/serve coherence.** The model expects input normalized to
+`[0, 1]` (the same space it trained in). Two ways to call:
+
+- **With `field_ranges`** (recommended if you trained on a domain-scale CSV): send
+  `input_json` in **domain scale** and the server applies the SAME ranges
+  (`(value - min) / (max - min)`) it used to train. Must be the same range dict you
+  passed to `/api/train`.
+- **Without `field_ranges`**: `input_json` runs as-is, so it must already be in
+  `[0, 1]` space.
+
+Sending domain values **without** `field_ranges` yields an incoherent prediction
+(the model trained in `[0, 1]`) — it can even flip the predicted class.
+
+**Request (domain input + ranges):**
 ```json
 {
   "mxai_text": "...",
   "params_json": "{ \"weights\": [...] }",
-  "input_json": "{ \"age\": 35, \"income\": 52000 }"
+  "input_json": "{ \"pressure\": 1020.5, \"signal\": 0.2 }",
+  "field_ranges": { "pressure": [978.7, 1041.0], "signal": [0.0, 1.0] }
 }
 ```
 
 **Response:**
 ```json
-{ "ok": true, "result": { "approved": 0.9998 } }
+{ "ok": true, "result": { "state": { "predicted_class": [0.981, 0.019] }, "trace": [...] } }
 ```
 
 ---

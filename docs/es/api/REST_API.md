@@ -560,9 +560,30 @@ Entrenamiento síncrono. Tiempo máximo de 30 segundos y 200 épocas. Para entre
   "mxai_text": "...",
   "training_text": "...",
   "csv_text": "...",
-  "epochs_override": 100
+  "epochs_override": 100,
+  "field_ranges": { "pressure": [978.7, 1041.0], "signal": [0.0, 1.0] },
+  "target_range": [263.25, 382.05]
 }
 ```
+
+**Escala de entrada (`field_ranges`) — importante.** El modelo entrena con las
+features normalizadas a `[0, 1]`. Si tu `csv_text` está en **escala de dominio**
+(p.ej. presión ~1000 junto a una señal ~1), debes enviar `field_ranges`
+(`{columna: [min, max]}`) para que el servidor aplique
+`(valor - min) / (max - min)` en la **misma frontera única** antes de entrenar.
+Sin `field_ranges`, un CSV de dominio entrena con escalas dispares y el modelo
+puede colapsar a una sola clase. Las columnas booleanas, one-hot y los índices de
+embedding **no** llevan rango (se dejan intactas). Debes usar **los mismos
+`field_ranges` al inferir** (ver `/api/run-with-params`).
+
+**Escala de salida (`target_range`) — solo regresión.** El target de regresión
+también se normaliza a `[0, 1]` con `target_range` (`[min, max]` del dominio, p.ej.
+Kelvin). Con él, `mae`/`rmse` se devuelven **en la unidad real** y `target_range`
+se refleja en la respuesta; sin él, un target en escala de dominio hace explotar
+el MSE y la red colapsa a predecir la media. En clasificación se omite.
+
+Tanto `field_ranges` como `target_range` son opcionales y `/api/train-start`
+acepta exactamente los mismos campos (misma semántica de normalización).
 
 **Respuesta:**
 ```json
@@ -589,7 +610,10 @@ Entrenamiento síncrono. Tiempo máximo de 30 segundos y 200 épocas. Para entre
 
 Inicia un trabajo de entrenamiento asíncrono. Devuelve inmediatamente un `job_id` para consultar el estado.
 
-**Petición:** Igual que `/api/train`.
+**Petición:** Igual que `/api/train`, incluidos `field_ranges` y `target_range`
+(misma semántica de normalización de entrada y de target de regresión). Acepta
+además `seed` (entero, por defecto 42) para reinicializar los pesos — el reintento
+accionable ante un modelo colapsado.
 
 **Respuesta:**
 ```json
@@ -639,18 +663,34 @@ Cancela un trabajo de entrenamiento en ejecución.
 
 Ejecuta el modelo con un conjunto específico de parámetros cargados, sin arrancar un servidor.
 
-**Petición:**
+**Escala de entrada — coherencia train/serve.** El modelo espera la entrada
+normalizada a `[0, 1]` (el mismo espacio en el que se entrenó). Hay dos formas de
+llamar:
+
+- **Con `field_ranges`** (recomendado si entrenaste con CSV de dominio): envía
+  `input_json` en **escala de dominio** y el servidor aplica los MISMOS rangos
+  (`(valor - min) / (max - min)`) que usó al entrenar. Debe ser el mismo dict de
+  rangos que pasaste a `/api/train`.
+- **Sin `field_ranges`**: `input_json` se ejecuta tal cual, así que debe venir ya
+  en espacio `[0, 1]`.
+
+Enviar valores de dominio **sin** `field_ranges` produce una predicción
+incoherente (el modelo entrenó en `[0, 1]`) — puede cambiar incluso la clase
+predicha.
+
+**Petición (entrada de dominio + rangos):**
 ```json
 {
   "mxai_text": "...",
   "params_json": "{ \"weights\": [...] }",
-  "input_json": "{ \"age\": 35, \"income\": 52000 }"
+  "input_json": "{ \"pressure\": 1020.5, \"signal\": 0.2 }",
+  "field_ranges": { "pressure": [978.7, 1041.0], "signal": [0.0, 1.0] }
 }
 ```
 
 **Respuesta:**
 ```json
-{ "ok": true, "result": { "approved": 0.9998 } }
+{ "ok": true, "result": { "state": { "predicted_class": [0.981, 0.019] }, "trace": [...] } }
 ```
 
 ---

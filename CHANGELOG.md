@@ -7,6 +7,51 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.3.1] — 2026-07-25
+
+Patch release: normalization coherence across the REST endpoints. The
+synchronous training route and the parameter-run route did not share the
+normalization boundary the async route has used since 1.2.0, so a REST client
+that trained on a **domain-scale** CSV (e.g. pressure ~1000 next to a signal
+~1) trained in a different space than the one it later ran inference in. The
+Studio product path (`/api/train-start`) was never affected.
+
+### Fixed
+
+- **`/api/train` normalizes like `/api/train-start`** — the synchronous
+  training endpoint now accepts `field_ranges` and `target_range` and applies
+  them at the same single boundary (CSV level, before dispatch, so all three
+  trainer paths — dense, composite, transformer — only ever see `[0, 1]`).
+  Without them a domain-scale CSV reached the trainer raw and the network
+  collapsed to the majority class (measured on a real 2189-row dataset:
+  accuracy 0.646 with a fully degenerate confusion matrix, versus 0.765 /
+  macro-F1 0.720 and both classes predicted through the normalized path).
+  Boolean, one-hot and embedding-index columns carry no range and are left
+  untouched.
+- **`target_range` reaches the network trainers on the synchronous route** —
+  it was accepted but never threaded through, so regression MAE/RMSE came back
+  in normalized space and `target_range` was not echoed. Confirmed on a
+  Celsius→Kelvin dataset: R² −0.0001 / MAE 25.0 → R² 0.99999 / MAE 0.037 K.
+- **`/api/run-with-params` train/serve coherence** — the endpoint ran the input
+  raw. Passing `field_ranges` now applies the same `(v − min) / (max − min)`
+  clamped to `[0, 1]` used at training time, so a domain-scale input predicts
+  what the model actually learned (without ranges the input is still taken as
+  already-normalized slider space, as the Studio sends it). Sending domain
+  values with no ranges could flip the predicted class.
+- **CSV validation failures now carry a readable message** —
+  `_validate_training_csv` returned the detail only in the `errors` list and
+  left `error` empty, so callers surfaced a mute "load failed" with no cause.
+  It now summarizes the first error plus the remaining count, keeping the full
+  list.
+
+### Documentation
+
+- `docs/{en,es}/api/REST_API.md`: input scale (`field_ranges`) and output scale
+  (`target_range`) documented for `/api/train` and `/api/train-start`, plus the
+  input-space contract of `/api/run-with-params` with a domain-scale example.
+
+---
+
 ## [1.3.0] — 2026-07-21
 
 Feature release: transformer blocks for text classification, model
