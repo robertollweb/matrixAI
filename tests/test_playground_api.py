@@ -64,6 +64,8 @@ _EXTERNAL_ALIAS_MAP = {
     "generate_project_from_dataset": (_dataset_project, "generate_project_from_dataset"),
     "generate_temporal_project_from_dataset": (_dataset_project, "generate_temporal_project_from_dataset"),
     "DatasetProjectError": (_dataset_project, "DatasetProjectError"),
+    # CONTRATO 62 C3 — re-preparación de un CSV para un modelo ya generado.
+    "prepare_dataset_from_provenance": (_dataset_project, "prepare_dataset_from_provenance"),
     "get_default_registry": (_data_provider, "get_default_registry"),
     "get_default_acceptance_store": (_data_provider, "get_default_acceptance_store"),
     "DataProviderError": (_data_provider, "DataProviderError"),

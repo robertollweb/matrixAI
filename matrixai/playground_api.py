@@ -32,6 +32,8 @@ from matrixai.training.dataset_project import (
     generate_project_from_dataset,
     generate_temporal_project_from_dataset,
     DatasetProjectError,
+    # CONTRATO 62 C3 — re-preparación de un CSV para un modelo ya generado.
+    prepare_dataset_from_provenance,
     _force_temporal_split as force_temporal_split,
     _extract_seed as extract_seed,
     _read_rows as read_csv_rows,
@@ -120,6 +122,7 @@ __all__ = [
     "generate_project_from_dataset",
     "generate_temporal_project_from_dataset",
     "DatasetProjectError",
+    "prepare_dataset_from_provenance",
     # Contrato 58 C4 — intención local del usuario
     "USER_INTENT_MAX_CHARS",
     "normalize_user_intent",

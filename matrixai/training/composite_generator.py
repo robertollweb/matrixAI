@@ -210,7 +210,11 @@ class CompositeNetworkGenerator:
         output_activation, output_type, output_units, loss_type = _output_config(task, resolved_labels)
         # M17: honra el ancho (units=N) y la profundidad del prompt igual que el generador
         # denso; sin ancho/profundidad explícitos cae a _default_hidden_layers (intacto).
-        resolved_hidden = _dg._extract_hidden_layers(clean, input_dim)
+        # CONTRATO 64: `_extract_hidden_layers` devuelve ahora `(capas, decisión)`.
+        # El generador composite no está en el alcance de la política (el contrato
+        # la acota al denso desde datos), así que descarta la decisión y conserva
+        # su comportamiento anterior.
+        resolved_hidden, _arch_decision = _dg._extract_hidden_layers(clean, input_dim)
         out_name = _output_name(output_activation)
 
         text = _norm(clean).lower()

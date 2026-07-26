@@ -755,9 +755,11 @@ def _generate_synthetic_dataset(
             writer.writerow({col: row[col] for col in columns})
         csv_text = buf.getvalue()
 
-        if _limits.exceeds(len(csv_text.encode()), "max_csv_bytes"):
-            _lim = _limits.get_limit("max_csv_bytes")
-            return {"ok": False, "error": f"Dataset sintetico supera el límite de {_lim // 1000} KB"}
+        # CONTRATO 62 C1: error estructurado (limits.limit_error) en vez de una
+        # frase que el consumidor tendría que parsear para saber qué tope es.
+        _size = len(csv_text.encode())
+        if _limits.exceeds(_size, "max_csv_bytes"):
+            return {"ok": False, **_limits.limit_error("max_csv_bytes", _size)}
 
         result: dict[str, Any] = {
             "ok": True,
@@ -906,9 +908,10 @@ def _generate_synthetic_text_dataset(
         writer.writerow([text, label])
     csv_text = buf.getvalue()
 
-    if _limits.exceeds(len(csv_text.encode()), "max_csv_bytes"):
-        _lim = _limits.get_limit("max_csv_bytes")
-        return {"ok": False, "error": f"Dataset sintetico supera el límite de {_lim // 1000} KB"}
+    # CONTRATO 62 C1: mismo error estructurado que el dataset sintético tabular.
+    _size = len(csv_text.encode())
+    if _limits.exceeds(_size, "max_csv_bytes"):
+        return {"ok": False, **_limits.limit_error("max_csv_bytes", _size)}
 
     fingerprint = "data_" + hashlib.sha256(csv_text.encode()).hexdigest()[:16]
     result: dict[str, Any] = {
@@ -1090,16 +1093,22 @@ def _validate_text_column(csv_text: str, text_column: str, seq_length: int) -> t
     return errors, warnings
 
 
-def _normalize_external_csv(csv_text: str) -> tuple[str, str | None]:
+def _normalize_external_csv(csv_text: str) -> tuple[str, dict | None]:
     """BIBLIOTECA C1 — normalización de un CSV EXTERNO (BOM/delimitador) con
     el límite de tamaño comprobado sobre el texto CRUDO, antes de pagar la
     reescritura O(n) de `normalize_csv_text` (auditoría de las sugerencias:
     en hosted, un payload gigante debe rechazarse ANTES de costar CPU/memoria
-    de normalización, no después). Devuelve `(csv_normalizado, None)` o
-    `(csv_original, error)`."""
-    if _limits.exceeds(len(csv_text.encode()), "max_csv_bytes"):
-        _lim = _limits.get_limit("max_csv_bytes")
-        return csv_text, f"CSV supera el límite de {_lim // 1000} KB"
+    de normalización, no después).
+
+    CONTRATO 62 C1: el segundo elemento pasó de ser una frase a ser el payload
+    estructurado de `limits.limit_error` (que ya incluye su propia clave
+    `error` con el texto de respaldo), para que el caller lo reenvíe entero con
+    `{"ok": False, **payload}` y la SPA pueda localizarlo sin parsear texto.
+
+    Devuelve `(csv_normalizado, None)` o `(csv_original, payload_de_tope)`."""
+    _size = len(csv_text.encode())
+    if _limits.exceeds(_size, "max_csv_bytes"):
+        return csv_text, _limits.limit_error("max_csv_bytes", _size)
     from matrixai.training.data import normalize_csv_text
     return normalize_csv_text(csv_text), None
 
@@ -1119,7 +1128,9 @@ def _validate_training_csv(
     # vista, SÍ la tiene. Límite de tamaño ANTES de la reescritura.
     csv_text, _size_error = _normalize_external_csv(csv_text)
     if _size_error:
-        return {"ok": False, "error": _size_error}
+        # CONTRATO 62 C1: `_size_error` ya es el payload estructurado completo
+        # (incluye su propia clave `error` de respaldo).
+        return {"ok": False, **_size_error}
     try:
         program = parse_text(mxai_text)
     except Exception as exc:  # noqa: BLE001
@@ -1204,8 +1215,12 @@ def _validate_training_csv(
             rows = 0
             with csv_path.open(newline="", encoding="utf-8") as fh:
                 rows = sum(1 for _ in csv.reader(fh)) - 1  # subtract header
+            # CONTRATO 62 C1: este es el sitio exacto donde nacía el error que
+            # `dataset_project` envolvía culpando a la preparación del CSV. Con
+            # el payload estructurado, quien lo recibe sabe que es un tope
+            # configurable y no un fallo de preparación.
             if _limits.exceeds(rows, "max_rows"):
-                return {"ok": False, "error": f"CSV tiene {rows} filas, máximo {_limits.get_limit('max_rows')}"}
+                return {"ok": False, **_limits.limit_error("max_rows", rows)}
             warnings_out = list(report.warnings)
             # SECUENCIAS_PRODUCTO C3: columna presente ya lo comprueba el chequeo
             # de cabecera de arriba; aquí longitudes/codificación — lo que el
@@ -2343,7 +2358,9 @@ def _run_playground_training(
     # trainers de más abajo reciben el ORIGINAL si no se hace aquí también).
     csv_text, _size_error = _normalize_external_csv(csv_text)
     if _size_error:
-        return {"ok": False, "error": _size_error}
+        # CONTRATO 62 C1: `_size_error` ya es el payload estructurado completo
+        # (incluye su propia clave `error` de respaldo).
+        return {"ok": False, **_size_error}
     # CONTRATO 61 C4: frontera única de normalización ANTES de validar/despachar
     # (misma semántica que `_submit_training_job`) — booleanos/one-hot en 0/1 e
     # índices de embedding quedan intactos porque no llevan rango.
@@ -2956,7 +2973,9 @@ def _submit_training_job(
     # `_normalize_csv_with_ranges`, que ya parsea el CSV por columnas.
     csv_text, _size_error = _normalize_external_csv(csv_text)
     if _size_error:
-        return {"ok": False, "error": _size_error}
+        # CONTRATO 62 C1: `_size_error` ya es el payload estructurado completo
+        # (incluye su propia clave `error` de respaldo).
+        return {"ok": False, **_size_error}
 
     # CONTRATO 59 C1: el target se normaliza con el MISMO mecanismo que las
     # features (`_normalize_csv_with_ranges` no distingue target de feature,
@@ -2989,7 +3008,43 @@ def _submit_training_job(
 
     job_id = uuid.uuid4().hex[:8]
     cancel_event = threading.Event()
-    job: dict[str, Any] = {"status": "running", "epochs": [], "result": None, "error": None}
+    # CONTRATO 62 C4 (auditoría 3ª ronda [ALTO]): hash del CSV con el que ESTE
+    # job entrena de verdad. La huella del holdout se derivaba de la procedencia
+    # que mandaba el cliente, no de los datos reales — dos datasets distintos
+    # sin procedencia y con el mismo SPLIT obtenían la misma huella y se
+    # comparaban como si fueran el mismo conjunto. Calculado aquí, en la
+    # frontera del entrenamiento, es autoritativo por construcción.
+    import hashlib as _hashlib
+    import re as _re
+    # CONTRATO 62 C4 — el job guarda TODO lo que determina su conjunto de
+    # evaluación: el hash del CSV con el que entrena y la declaración de SPLIT
+    # de SU training_text.
+    #
+    # AUDITORÍA 7ª RONDA [ALTO]: al hacer el spill, la huella se componía con el
+    # `training_text` del SNAPSHOT guardado, que no tiene por qué ser el que usó
+    # este job — si la re-preparación cambió el SPLIT, la huella mezclaba el CSV
+    # del candidato con el split del modelo anterior y podía declarar comparable
+    # un holdout que no lo era. Guardándolo aquí, en la frontera del
+    # entrenamiento, la huella se compone de datos que vienen del MISMO sitio.
+    _split_match = _re.search(
+        r"SPLIT\s+train=(?P<train>[\d.]+)\s+validation=(?P<val>[\d.]+)"
+        r"(?:\s+(?:seed=(?P<seed>\d+)|mode=(?P<mode>\w+)))?",
+        training_text or "")
+    job: dict[str, Any] = {
+        "status": "running", "epochs": [], "result": None, "error": None,
+        "trained_csv_sha256": _hashlib.sha256(csv_text.encode("utf-8")).hexdigest(),
+        # CONTRATO 64 (reauditoría 4ª ronda) — huella de la ARQUITECTURA que se
+        # está entrenando. Sin ella, unos pesos podían persistirse junto a un
+        # `.mxai` distinto del que los produjo: el job solo probaba que ALGO se
+        # entrenó, no QUÉ. Mismo criterio que `trained_csv_sha256`, y se compone
+        # aquí, en la frontera del entrenamiento, con datos del mismo sitio.
+        "trained_mxai_sha256": _hashlib.sha256(
+            (mxai_text or "").strip().encode("utf-8")).hexdigest(),
+        "trained_split_decl": (
+            f"{_split_match.group('train')}|{_split_match.group('val')}|"
+            f"{_split_match.group('seed') or ''}|{_split_match.group('mode') or ''}"
+            if _split_match else None),
+    }
     _training_jobs[job_id] = job
     # Keep job store bounded
     if len(_training_jobs) > _MAX_JOBS:
@@ -3598,6 +3653,15 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
         # de rango, activación permitida, profundidad acotada — cualquier
         # entrada inválida se convierte en un error CONTROLADO aquí, nunca
         # en una excepción sin capturar que llegaría como HTTP 500.
+        # CONTRATO 64 C2 — filas del dataset con el que se va a entrenar. Solo lo
+        # sabe el flujo desde-datos; por prompt vale 0 y entonces el presupuesto
+        # lo fija únicamente el perfil.
+        try:
+            dataset_rows = max(0, int(payload.get("dataset_rows") or 0))
+        except (TypeError, ValueError):
+            dataset_rows = 0
+        _hidden_layers_origin = "llm"
+
         from matrixai.training.dense_generator import validate_architecture_hints  # noqa: PLC0415
         external_architecture_hints, _hints_error = validate_architecture_hints(
             payload.get("architecture_hints")
@@ -3643,6 +3707,11 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
             # by the schema itself, out of scope for this hint).
             if external_architecture_hints.get("hidden_layers"):
                 llm_kwargs["hidden_layers"] = external_architecture_hints["hidden_layers"]
+                # Los hints EXTERNOS llegan hoy de la interpretación LLM opt-in
+                # de la intención (contrato 58 C5). Un override del Modo experto
+                # entraría por el mismo canal declarando su propio origen.
+                _hidden_layers_origin = str(
+                    payload.get("architecture_source") or "llm").strip() or "llm"
 
             # M2-C3: robustness notices (the downloadable Studio gets unknown prompts)
             gen_warnings: list[str] = []
@@ -3755,7 +3824,18 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     gen_source = "composite_generator"
                     llm_used = bool(comp_kwargs) or bool(llm_categoricals)
                 else:
-                    gen = DenseNetworkGenerator().generate(prompt, **llm_kwargs)
+                    # CONTRATO 64 C2/C3/C4 — `dataset_rows` pone TECHO al
+                    # presupuesto de parámetros (no agranda nada), y
+                    # `hidden_layers_source` dice la verdad sobre el origen de
+                    # una arquitectura que no propuso la política: el generador
+                    # no puede distinguir un hint del LLM de uno del Modo
+                    # experto, pero aquí sí se sabe.
+                    gen = DenseNetworkGenerator().generate(
+                        prompt, rows=dataset_rows,
+                        **({"hidden_layers_source": _hidden_layers_origin}
+                           if llm_kwargs.get("hidden_layers") else {}),
+                        **llm_kwargs,
+                    )
                     gen_source = "dense_generator"
                     llm_used = bool(llm_kwargs)
                 result = _result_from_mxai(
@@ -3818,6 +3898,22 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                                else "default"),
                     "rationale": llm_rationale or "",
                 }
+                # CONTRATO 64 C4 — "la decisión se registra o no existe". La rama
+                # densa deja constancia COMPLETA: con qué entradas se decidió,
+                # contra qué presupuesto, qué candidatas se consideraron, qué
+                # límites se aplicaron y cuántos parámetros salieron. Sin esto
+                # solo quedaba el `kind`/`source`, que no permite responder "¿por
+                # qué esta red y no otra?".
+                _pd = getattr(gen, "architecture_decision", None)
+                if _pd:
+                    result["architecture_decision"]["policy"] = _pd
+                    result["architecture_decision"]["params"] = _pd["params"]
+                    # El origen REAL de la arquitectura densa lo sabe la política
+                    # (política / prompt / LLM / Modo experto); `source` de arriba
+                    # describe de dónde salió el TIPO de red, que es otra cosa.
+                    result["architecture_decision"]["layers_source"] = _pd["source"]
+                    if not result["architecture_decision"]["rationale"]:
+                        result["architecture_decision"]["rationale"] = _pd["rationale"]
                 if llm_rationale:
                     gen_warnings.append(f"Arquitectura ({result['architecture_decision']['kind']}, "
                                         f"propuesta por el LLM): {llm_rationale}")
@@ -3863,13 +3959,31 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     "error": str(exc),
                 }
                 result["llm_schema_used"] = False
-            except DenseNetworkGeneratorError:
-                # Fall back to PromptSupervisor if the generator cannot handle the prompt.
-                report = PromptSupervisor().supervise_prompt(prompt, force_deterministic=not use_llm)
-                result = _result_from_supervision(
-                    mode, report.to_dict(), input_text, "", manifest_text, evaluation_report_text,
-                )
-                result["llm_schema_used"] = False
+            except DenseNetworkGeneratorError as exc:
+                # CONTRATO 64 C1/C3 (reauditoría [ALTO]) — un TOPE superado no es
+                # "el generador no entiende el prompt": es una negativa
+                # deliberada, y caer al supervisor la convertía en un modelo
+                # distinto entregado como si nada. Con `MATRIXAI_MAX_PARAMS=100`
+                # salía `ok: true` sin ningún rastro del límite, y en el flujo
+                # desde-datos acababa como un falso error de preparación del CSV
+                # porque el modelo del fallback no casa con sus columnas.
+                #
+                # El fallback se mantiene para lo que fue pensado: un prompt que
+                # el generador denso no sabe interpretar.
+                _detalles = getattr(exc, "details", None) or {}
+                if _limits.is_limit_error(_detalles):
+                    result = {
+                        "ok": False, "mode": mode, "accepted": False,
+                        "mxai": "", "checks": [], **_detalles,
+                    }
+                    result["llm_schema_used"] = False
+                else:
+                    # Fall back to PromptSupervisor if the generator cannot handle the prompt.
+                    report = PromptSupervisor().supervise_prompt(prompt, force_deterministic=not use_llm)
+                    result = _result_from_supervision(
+                        mode, report.to_dict(), input_text, "", manifest_text, evaluation_report_text,
+                    )
+                    result["llm_schema_used"] = False
         else:
             report = PromptSupervisor().supervise_prompt(prompt, force_deterministic=not use_llm)
             result = _result_from_supervision(

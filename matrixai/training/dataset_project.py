@@ -104,6 +104,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import json
 import math
 import re
 import unicodedata
@@ -121,6 +122,7 @@ from matrixai.training.dataset_analysis import (
     _round_range,
     analyze_dataset_csv,
 )
+from matrixai import limits as _limits
 from matrixai.training.categorical import _build_group_names
 from matrixai.training.dense_generator import _identifier, _ONEHOT_MAX
 from matrixai.training.user_intent import UserIntentError, normalize_user_intent
@@ -157,7 +159,26 @@ _UNSAFE_CATEGORY_CHARS = (",", "]", "\n", "\r")
 
 class DatasetProjectError(ValueError):
     """Esquema/target inválido para generar un proyecto — error accionable
-    (invariante 7 del contrato 57): nunca un proyecto a medias."""
+    (invariante 7 del contrato 57): nunca un proyecto a medias.
+
+    CONTRATO 62 C1: puede transportar el payload estructurado de un tope
+    superado (`limits.limit_error`) en `.details`. Un tope NO es un fallo de
+    esquema, así que el caller necesita distinguirlos sin parsear el texto.
+    `.details` es `None` para el resto de errores de este tipo.
+    """
+
+    def __init__(self, message: str, details: dict | None = None) -> None:
+        super().__init__(message)
+        self.details = details
+
+
+# CONTRATO 62 C3 — versión de la RECETA de preparación. Se sube cuando cambia
+# lo que `_prepare_training_csv` produce para las mismas entradas (orden de
+# columnas, codificación one-hot/embedding, normalización booleana…). No es la
+# versión del paquete: dos versiones distintas de MatrixAI con la misma receta
+# comparten este número, y ese es justo el punto — permite saber si un modelo
+# guardado se puede reproducir byte a byte o solo aproximar.
+PREPARATION_SPEC_VERSION = 1
 
 
 @dataclass
@@ -165,6 +186,12 @@ class _PreparedCSV:
     text: str
     rows_dropped_null_target: int
     operations: list[str] = field(default_factory=list)
+    # CONTRATO 62 C3 — vocabulario REALMENTE usado por columna categórica.
+    # Sin congelarlo no hay reproducción posible: para una categórica sin
+    # override, `_prepare_training_csv` lo calculaba al vuelo con
+    # `_distinct_non_null`, así que un CSV con un valor de más (o de menos)
+    # produciría otras columnas one-hot y otro VECTOR.
+    effective_vocabularies: dict[str, list[str]] = field(default_factory=dict)
 
 
 def generate_project_from_dataset(
@@ -174,6 +201,7 @@ def generate_project_from_dataset(
     column_type_overrides: dict[str, str] | None = None,
     column_range_overrides: dict[str, tuple[float, float]] | None = None,
     column_category_overrides: dict[str, list[str]] | None = None,
+    keep_constant_columns: list[str] | None = None,
     user_intent: str | None = None,
     use_intent_llm: bool = False,
 ) -> dict[str, Any]:
@@ -319,9 +347,67 @@ def generate_project_from_dataset(
     # reservado (ver `_normalize_feature_names`).
     target_header = "predicted_class" if task == "classification" else "predicted_value"
 
+    # CONTRATO 62 C2 — una feature CONSTANTE (un solo valor distinto en todo
+    # el CSV) no aporta información al modelo y además arrastra dos daños
+    # concretos, ambos medidos con el dataset de lluvia de una sola ciudad:
+    # `_propose_margin` le inventa un rango de ±1 (`lat` 43.46 → [42.46,
+    # 44.46]), y con ese rango el panel de inferencia pinta un slider que solo
+    # sirve para sacar al modelo de la distribución en la que se entrenó.
+    # Se excluye por defecto y se dice cuál; conservarla es una decisión
+    # explícita del usuario (`keep_constant_columns`).
+    #
+    # INVARIANTE 3 del contrato: esto es una regla de GENERACIÓN. Re-preparar
+    # un modelo ya existente debe reproducir el esquema con el que nació —
+    # `keep_constant_columns` es justo la palanca que permitirá a C3 replicar
+    # un esquema anterior a este corte sin perder columnas.
+    _keep_constant = {str(c) for c in (keep_constant_columns or [])}
+    constant_columns = [
+        col for col in analysis["column_order"]
+        if col != target_column
+        and columns[col]["type"] not in _NOT_YET_USABLE_FEATURE_TYPES
+        and columns[col].get("constant")
+    ]
+    dropped_constant_columns = [c for c in constant_columns if c not in _keep_constant]
+    kept_constant_columns = [c for c in constant_columns if c in _keep_constant]
+
+    # Conservar una constante NUMÉRICA exige un rango de dominio real
+    # (`min < max`) declarado por el usuario: sin él seguiríamos con el rango
+    # inventado, que es exactamente lo que este corte viene a eliminar.
+    for col in kept_constant_columns:
+        _tipo = columns[col]["type"]
+        if _tipo in ("number", "integer"):
+            override = (column_range_overrides or {}).get(col)
+            if override is None or not (float(override[0]) < float(override[1])):
+                raise DatasetProjectError(
+                    f"La columna {col!r} tiene un único valor en todo el CSV "
+                    f"({columns[col].get('constant_value')!r}). Para conservarla como "
+                    "feature hay que declarar su rango de dominio real (mínimo y "
+                    "máximo, con mínimo < máximo); si no, quítala del modelo."
+                )
+        elif _tipo == "categorical":
+            # AUDITORÍA C2 [ALTO]: conservar una categórica constante decía
+            # "hecho" y luego la columna desaparecía del .mxai y del CSV
+            # preparado, porque one-hot con UN solo valor no tiene sentido
+            # (`len(values) < 2: continue`) — una columna siempre a 1 no es
+            # una feature, es un sesgo. El equivalente al rango de dominio de
+            # una numérica es aquí declarar el VOCABULARIO completo esperado:
+            # con dos o más valores la columna entra de verdad y el modelo
+            # puede aprender de ella cuando lleguen datos con variedad.
+            vocab = (column_category_overrides or {}).get(col)
+            if not vocab or len(vocab) < 2:
+                raise DatasetProjectError(
+                    f"La columna categórica {col!r} tiene un único valor en todo el "
+                    f"CSV ({columns[col].get('constant_value')!r}). Para conservarla "
+                    "hay que declarar su vocabulario completo (al menos dos valores "
+                    "posibles); si no, quítala del modelo: una categórica de un solo "
+                    "valor produce una columna constante que no aporta nada."
+                )
+
     feature_columns = [
         col for col in analysis["column_order"]
-        if col != target_column and columns[col]["type"] not in _NOT_YET_USABLE_FEATURE_TYPES
+        if col != target_column
+        and columns[col]["type"] not in _NOT_YET_USABLE_FEATURE_TYPES
+        and col not in dropped_constant_columns
     ]
     # CONTRATO 59 C2 (hallazgo de auditoría): declarada FUERA del `if` de
     # abajo para que exista (vacía) también cuando la reconsideración ni se
@@ -351,9 +437,22 @@ def generate_project_from_dataset(
             reconsidered_columns.append(col)
         feature_columns = [
             col for col in analysis["column_order"]
-            if col != target_column and columns[col]["type"] not in _NOT_YET_USABLE_FEATURE_TYPES
+            if col != target_column
+            and columns[col]["type"] not in _NOT_YET_USABLE_FEATURE_TYPES
+            and col not in dropped_constant_columns
         ]
     if not feature_columns:
+        # CONTRATO 62 C2: si lo que dejó el proyecto sin features fueron las
+        # constantes, hay que decirlo Y decir cómo conservarlas — el mensaje
+        # genérico de abajo mandaría al usuario a buscar identificadores o
+        # fechas que no existen.
+        if dropped_constant_columns:
+            raise DatasetProjectError(
+                "Ninguna columna es utilizable como feature: "
+                f"{sorted(dropped_constant_columns)} tienen un único valor en "
+                "todo el CSV y no aportan información. Añade columnas que varíen, "
+                "o consérvalas explícitamente declarando su rango de dominio."
+            )
         raise DatasetProjectError(
             "Ninguna columna es utilizable como feature (todas son el target, "
             "identificadores, fechas o columnas vacías) — no hay nada con lo "
@@ -525,6 +624,15 @@ def generate_project_from_dataset(
     from matrixai.playground import analyze_playground_request, _validate_training_csv
     res = analyze_playground_request({
         "mode": "prompt", "prompt": prompt, "use_llm": False,
+        # CONTRATO 64 C2 — las filas que de verdad van a ENTRENAR.
+        #
+        # REAUDITORÍA [MEDIA]: aquí iba `len(rows)`, que cuenta también las filas
+        # sin target — y esas las descarta `_prepare_training_csv` más abajo. Con
+        # 100 filas de las que 90 tienen el target vacío, el presupuesto se
+        # calculaba sobre 100 y no sobre las 10 entrenables: además de falsear la
+        # auditoría, podía elegir una red más ancha de la que los datos sostienen.
+        # Se usa el MISMO criterio (`_is_null`) que la preparación real.
+        "dataset_rows": sum(1 for r in rows if not _is_null(r.get(target_column))),
         **({"architecture_hints": architecture_hints} if architecture_hints else {}),
     })
     if not res.get("ok"):
@@ -535,6 +643,15 @@ def generate_project_from_dataset(
         # accionable. Se extrae el motivo real de `checks` (cada uno trae su
         # propia lista de errores) y, si no hay ninguno, un mensaje corto en
         # vez del dict crudo.
+        # CONTRATO 64 C1 (reauditoría [ALTO]): un tope superado NO es "el prompt
+        # sintetizado no generó un modelo válido" — envolverlo con esa frase
+        # esconde la única acción que lo resuelve (subir el tope o el perfil).
+        # Mismo criterio que el contrato 62 C1 aplicó a `max_rows` más abajo.
+        if _limits.is_limit_error(res):
+            _details = {k: v for k, v in res.items()
+                        if k in ("error_kind", "limit_key", "unit", "actual",
+                                 "maximum", "profile", "configurable")}
+            raise DatasetProjectError(str(res.get("error")), details=_details)
         reason = res.get("error") or "; ".join(
             err for check in (res.get("checks") or []) for err in (check.get("errors") or [])
         ) or "el generador rechazó el prompt sintetizado sin detallar el motivo"
@@ -594,6 +711,13 @@ def generate_project_from_dataset(
         field_ranges=validate_ranges or None,
     )
     if not validation.get("ok"):
+        # CONTRATO 62 C1: un tope superado NO es un hueco de preparación. Antes
+        # se envolvía con la frase de abajo, que afirma justo lo contrario de la
+        # verdad y esconde la acción que lo resuelve (subir el perfil). Ahora se
+        # propaga tal cual, con su payload estructurado.
+        if _limits.is_limit_error(validation):
+            _details = {k: v for k, v in validation.items() if k != "ok"}
+            raise DatasetProjectError(str(validation.get("error")), details=_details)
         raise DatasetProjectError(
             "El CSV preparado no pasa la validación del modelo que acaba de "
             "generarse (esto indica un hueco en la preparación del CSV, no un "
@@ -602,16 +726,52 @@ def generate_project_from_dataset(
 
     excluded_columns = [
         col for col in analysis["column_order"]
-        if col != target_column and columns[col]["type"] in _NOT_YET_USABLE_FEATURE_TYPES
+        if col != target_column and (
+            columns[col]["type"] in _NOT_YET_USABLE_FEATURE_TYPES
+            or col in dropped_constant_columns
+        )
     ]
+    # CONTRATO 62 C2 — motivo ESTRUCTURADO de cada exclusión, y si fue
+    # automática o decisión del usuario. Antes `excluded_columns` era una lista
+    # de nombres a secas: no se podía saber por qué faltaba una columna, ni
+    # reproducir la decisión al re-preparar (C3). `keep_constant_columns`
+    # queda registrado por el mismo motivo.
+    excluded_column_reasons = {
+        col: {
+            "reason": ("constant_feature" if col in dropped_constant_columns
+                       else f"unusable_type:{columns[col]['type']}"),
+            "automatic": True,
+        }
+        for col in excluded_columns
+    }
+
+    # CONTRATO 62 C3 — la RECETA: todo lo que `_prepare_training_csv` necesita
+    # para producir exactamente este mismo CSV preparado a partir del crudo.
+    # Es la diferencia entre "describir" la preparación (lo que hacía
+    # `operations`, cadenas legibles) y poder RE-EJECUTARLA.
+    preparation_spec = {
+        "version": PREPARATION_SPEC_VERSION,
+        "feature_columns": list(feature_columns),
+        "feature_name_map": dict(feature_safe_names),
+        "column_types": {col: columns[col]["type"] for col in feature_columns},
+        "category_vocabularies": dict(prepared.effective_vocabularies),
+        "target_column": target_column,
+        "target_header": target_header,
+        "task": task,
+        "target_label_map": target_label_map,
+        "kept_constant_columns": list(kept_constant_columns),
+    }
 
     provenance = _build_provenance(
+        preparation_spec=preparation_spec,
         csv_text=csv_text,
         prepared_csv=prepared_csv,
         schema_inferred=schema_inferred,
         schema_final=columns,
         target_column=target_column,
         excluded_columns=excluded_columns,
+        excluded_column_reasons=excluded_column_reasons,
+        kept_constant_columns=kept_constant_columns,
         rows_dropped_null_target=prepared.rows_dropped_null_target,
         feature_operations=prepared.operations,
         feature_name_map=feature_safe_names,
@@ -655,6 +815,7 @@ def generate_temporal_project_from_dataset(
     column_type_overrides: dict[str, str] | None = None,
     column_range_overrides: dict[str, tuple[float, float]] | None = None,
     column_category_overrides: dict[str, list[str]] | None = None,
+    keep_constant_columns: list[str] | None = None,
     user_intent: str | None = None,
     use_intent_llm: bool = False,
 ) -> dict[str, Any]:
@@ -828,6 +989,10 @@ def generate_temporal_project_from_dataset(
         column_type_overrides=type_overrides or None,
         column_range_overrides=range_overrides or None,
         column_category_overrides=category_overrides or None,
+        # CONTRATO 62 C2: el camino temporal delega la decisión sobre features
+        # constantes en el generador de siempre (invariante 4, cero caminos
+        # paralelos) — se enhebra tal cual.
+        keep_constant_columns=keep_constant_columns,
         # Contrato 58 C4/C5 — el camino temporal NUNCA ignora la intención (ni
         # su interpretación LLM) en silencio: se enhebran tal cual
         # (normalización/validación/llamada LLM ocurren dentro de
@@ -906,6 +1071,396 @@ def _force_temporal_split(training_text: str) -> str:
         else:
             out_lines.append(line)
     return "\n".join(out_lines)
+
+
+# ---------------------------------------------------------------------------
+# CONTRATO 62 C3 — re-preparación de un CSV para un modelo YA generado
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CompatibilityReport:
+    """Qué pasó al re-preparar, en datos y no en prosa."""
+    ok: bool
+    same_raw_csv: bool
+    prepared_matches: bool | None   # None = no comprobable (crudo distinto)
+    spec_version: int | None
+    legacy_adapter: bool
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "same_raw_csv": self.same_raw_csv,
+            "prepared_matches": self.prepared_matches,
+            "spec_version": self.spec_version,
+            "legacy_adapter": self.legacy_adapter,
+            "warnings": list(self.warnings),
+            "errors": list(self.errors),
+        }
+
+
+@dataclass
+class RePreparedDataset:
+    csv_text: str
+    provenance: dict[str, Any]
+    compatibility: CompatibilityReport
+
+
+_SPEC_REQUIRED_KEYS = (
+    "feature_columns", "feature_name_map", "column_types",
+    "target_column", "target_header", "task",
+)
+
+
+def _validate_preparation_spec(spec: dict[str, Any]) -> None:
+    """AUDITORÍA C3 [MEDIO-ALTO]: una receta incompleta reventaba con
+    `KeyError: 'feature_columns'` y el endpoint la convertía en un 500. Un
+    dato corrupto o de otra versión es un fallo FUNCIONAL del usuario/modelo,
+    no un error interno del servidor: se valida la forma entera y se responde
+    con un mensaje accionable."""
+    faltan = [k for k in _SPEC_REQUIRED_KEYS if not spec.get(k)]
+    if faltan:
+        raise DatasetProjectError(
+            "La receta de preparación de este modelo está incompleta "
+            f"(faltan: {sorted(faltan)}), así que no se puede reproducir su "
+            "dataset. Regenera el proyecto desde el CSV; el modelo guardado "
+            "sigue sirviendo para inferir y exportar."
+        )
+    if not isinstance(spec["feature_columns"], list):
+        raise DatasetProjectError("La receta de preparación tiene `feature_columns` inválido.")
+    if not isinstance(spec["feature_name_map"], dict):
+        raise DatasetProjectError("La receta de preparación tiene `feature_name_map` inválido.")
+    if not isinstance(spec["column_types"], dict):
+        raise DatasetProjectError("La receta de preparación tiene `column_types` inválido.")
+    sin_nombre = [c for c in spec["feature_columns"] if c not in spec["feature_name_map"]]
+    if sin_nombre:
+        raise DatasetProjectError(
+            f"La receta de preparación no sabe cómo llamar a {sorted(sin_nombre)} "
+            "en el modelo. Regenera el proyecto desde el CSV."
+        )
+    vocab = spec.get("category_vocabularies")
+    if vocab is not None and not isinstance(vocab, dict):
+        raise DatasetProjectError("La receta de preparación tiene `category_vocabularies` inválido.")
+
+
+# AUDITORÍA C3 [MEDIO-ALTO]: la versión de receta era NOMINAL — ante una
+# desconocida se avisaba y se ejecutaba igual el preparador actual, que es
+# precisamente lo que la versión existe para impedir. El registro explícito
+# hace que una versión sin preparador NO se ejecute como si fuera compatible.
+def _prepare_v1(
+    rows: list[dict[str, str]], spec: dict[str, Any]
+) -> _PreparedCSV:
+    columns_for_prepare = {
+        col: {"type": spec["column_types"].get(col, "number")}
+        for col in spec["feature_columns"]
+    }
+    return _prepare_training_csv(
+        rows,
+        list(spec["feature_columns"]),
+        columns_for_prepare,
+        dict(spec["feature_name_map"]),
+        spec["target_column"],
+        spec["task"],
+        spec.get("target_label_map"),
+        spec["target_header"],
+        dict(spec.get("category_vocabularies") or {}),
+    )
+
+
+PREPARERS = {1: _prepare_v1}
+
+
+def _spec_from_legacy_provenance(provenance: dict[str, Any]) -> dict[str, Any] | None:
+    """Adaptador para una procedencia anterior a la receta versionada.
+
+    NO inventa nada: deriva la receta de lo que esa procedencia SÍ registraba
+    (`feature_name_map`, `schema_final`, `target_label_map`, `task`…). El
+    vocabulario categórico es el único hueco real —nunca se guardó— y se
+    reconstruye del esquema (`vocabulary`) cuando está; si no, se deja fuera y
+    se recalculará del CSV. Por eso el adaptador **solo vale si el hash del
+    preparado coincide**: esa es su demostración de compatibilidad, no una
+    promesa (invariante 8 del contrato).
+    """
+    feature_map = provenance.get("feature_name_map")
+    schema = provenance.get("schema_final") or provenance.get("schema_inferred")
+    task = provenance.get("task")
+    target_column = provenance.get("target_column")
+    if not feature_map or not schema or not task or not target_column:
+        return None
+    feature_columns = list(feature_map.keys())
+    # El vocabulario NO se toma del esquema: `analyze_dataset_csv` lo guarda
+    # ORDENADO alfabéticamente, mientras que la preparación real usaba
+    # `_distinct_non_null` (orden de aparición en el CSV) para las categóricas
+    # sin override. Derivarlo del esquema cambiaba el orden de las columnas
+    # one-hot y el preparado dejaba de coincidir — lo cazó el propio chequeo de
+    # hash. Lo único autoritativo que la procedencia legacy sí guarda son los
+    # overrides explícitos del usuario; el resto se recalcula igual que
+    # entonces, y la coincidencia del hash es la prueba de que salió bien.
+    vocabularies = {
+        col: list(values)
+        for col, values in (provenance.get("column_category_overrides") or {}).items()
+        if col in feature_columns
+    }
+    return {
+        "version": None,  # legacy: sin versión declarada
+        "feature_columns": feature_columns,
+        "feature_name_map": dict(feature_map),
+        "column_types": {
+            col: schema[col]["type"] for col in feature_columns if col in schema
+        },
+        "category_vocabularies": vocabularies,
+        "target_column": target_column,
+        "target_header": ("predicted_class" if task == "classification"
+                          else "predicted_value"),
+        "task": task,
+        "target_label_map": provenance.get("target_label_map"),
+        "kept_constant_columns": list(provenance.get("kept_constant_columns") or []),
+    }
+
+
+def _replay_temporal_pipeline(
+    rows: list[dict[str, str]], temporal: dict[str, Any]
+) -> list[dict[str, str]]:
+    """Reconstruye el CSV post-pipeline de un modelo temporal desde el bloque
+    ESTRUCTURADO de la procedencia — nunca desde las cadenas de `operations`,
+    que son descriptivas (invariante 2 del contrato).
+
+    `pipeline_operations` guarda cada paso como `{"operation": ..., "params":
+    {...}, ...}`; `run_pipeline` espera `{"op": ..., **params}`. La conversión
+    es exacta porque `params` es literalmente el declarativo de entrada sin su
+    clave `op` (ver `run_pipeline`).
+    """
+    from matrixai.training.dataset_pipeline import PipelineError, run_pipeline
+
+    steps = temporal.get("pipeline_operations") or []
+    if not steps:
+        raise DatasetProjectError(
+            "El modelo es de serie temporal pero su procedencia no guarda las "
+            "operaciones del pipeline: no se puede reconstruir el dataset. "
+            "Regenera el proyecto desde el CSV."
+        )
+    ops = [{"op": step["operation"], **(step.get("params") or {})} for step in steps]
+    try:
+        return run_pipeline(rows, ops).rows
+    except PipelineError as exc:
+        raise DatasetProjectError(f"Serie temporal (reconstrucción): {exc}") from exc
+
+
+def prepare_dataset_from_provenance(
+    raw_csv: str,
+    provenance: dict[str, Any],
+    *,
+    expected_columns: list[str] | None = None,
+    allow_incompatible_spec: bool = False,
+) -> RePreparedDataset:
+    """Prepara un CSV crudo EXACTAMENTE como se preparó al generar el modelo.
+
+    Es la única vía correcta para reimportar el dataset de un modelo
+    desde-datos (invariante 2 del contrato 62): reutiliza la implementación
+    real de preparación con la receta congelada en la procedencia, en vez de
+    imitarla reescribiendo texto —lo que hacía el parche de v1.4, que solo
+    cubría target escalar/binario y se rompía con categóricas o temporal.
+
+    NO regenera arquitectura ni entrenamiento: devuelve CSV preparado,
+    procedencia nueva y un informe de compatibilidad estructurado.
+
+    Política de verificación (invariante 4):
+      - mismo crudo + misma versión de receta + hash preparado distinto → es un
+        bug, se aborta;
+      - mismo crudo + versión DISTINTA (o receta legacy) → no se aborta: se
+        avisa nombrando lo que cambia y el caller decide;
+      - crudo distinto → no se compara contra el hash antiguo; se comprueba
+        compatibilidad de esquema y se emite procedencia nueva referenciando la
+        anterior.
+    """
+    if not isinstance(provenance, dict):
+        raise DatasetProjectError("La procedencia debe ser un objeto.")
+
+    raw_sha = _sha256_text(raw_csv)
+    same_raw = raw_sha == provenance.get("raw_csv_sha256")
+
+    spec = provenance.get("preparation_spec") or None
+    if spec is not None and not isinstance(spec, dict):
+        raise DatasetProjectError("La receta de preparación de este modelo es inválida.")
+    legacy = not spec
+    if legacy:
+        spec = _spec_from_legacy_provenance(provenance)
+        if spec is None:
+            raise DatasetProjectError(
+                "La procedencia de este modelo no tiene receta de preparación ni "
+                "los datos mínimos para deducirla. Regenera el proyecto desde el "
+                "CSV; el modelo guardado sigue sirviendo para inferir y exportar."
+            )
+
+    _validate_preparation_spec(spec)
+
+    warnings: list[str] = []
+    errors: list[str] = []
+    spec_version = spec.get("version")
+
+    # La receta legacy no declara versión: se prepara con la v1, que es la que
+    # existía cuando se guardó (y el hash lo demuestra). Una versión declarada
+    # SIN preparador registrado no se ejecuta con el actual: sería justo lo que
+    # el versionado viene a impedir.
+    preparer = PREPARERS.get(1) if legacy else PREPARERS.get(spec_version)
+    if preparer is None:
+        # Conjuga las dos exigencias: el contrato pide no dejar inservible un
+        # modelo por una actualización (invariante 4) y la auditoría pide no
+        # ejecutar una versión desconocida COMO SI fuera compatible. Por
+        # defecto se aborta con un mensaje accionable; con confirmación
+        # explícita del caller se usa el preparador actual y el aviso queda
+        # registrado en el informe.
+        if not allow_incompatible_spec:
+            raise DatasetProjectError(
+                f"Este modelo se preparó con la receta v{spec_version}, que esta "
+                f"versión de MatrixAI no sabe reproducir (conoce: "
+                f"{sorted(PREPARERS)}). Actualiza MatrixAI, o confirma "
+                "explícitamente que quieres prepararlo con la receta actual "
+                "asumiendo que el resultado puede no ser equivalente. El modelo "
+                "guardado sigue sirviendo para inferir y exportar.",
+                details={"error_kind": "incompatible_preparation_spec",
+                         "spec_version": spec_version,
+                         "known_versions": sorted(PREPARERS)},
+            )
+        preparer = PREPARERS[PREPARATION_SPEC_VERSION]
+        warnings.append(
+            f"Este modelo se preparó con la receta v{spec_version}, desconocida "
+            f"para esta versión: se ha usado la v{PREPARATION_SPEC_VERSION} bajo "
+            "tu confirmación. El resultado puede no ser equivalente."
+        )
+    if legacy:
+        warnings.append(
+            "Este modelo se guardó antes de que la preparación fuese "
+            "reproducible: se ha deducido su receta y solo se puede confiar en "
+            "ella si el CSV preparado sale idéntico."
+        )
+    elif spec_version != PREPARATION_SPEC_VERSION:
+        warnings.append(
+            f"El modelo se preparó con la receta v{spec_version} y esta versión "
+            f"usa la v{PREPARATION_SPEC_VERSION}: se reproduce con el preparador "
+            f"v{spec_version} registrado, pero revisa el resultado antes de "
+            "reentrenar."
+        )
+
+    rows = _read_rows(raw_csv)
+    if not rows:
+        raise DatasetProjectError("El CSV no tiene filas de datos.")
+
+    temporal = provenance.get("temporal")
+    if temporal:
+        rows = _replay_temporal_pipeline(rows, temporal)
+        if not rows:
+            raise DatasetProjectError(
+                "Tras reconstruir la serie temporal no queda ninguna fila."
+            )
+
+    present = set(rows[0].keys())
+    feature_columns = list(spec["feature_columns"])
+    target_column = spec["target_column"]
+
+    # Política de compatibilidad del contrato.
+    missing = [c for c in feature_columns if c not in present]
+    if target_column not in present:
+        missing.append(target_column)
+    if missing:
+        errors.append(
+            f"Al CSV le faltan columnas que este modelo necesita: {sorted(missing)}."
+        )
+    extra = sorted(present - set(feature_columns) - {target_column})
+    if extra:
+        warnings.append(
+            f"El CSV trae columnas que este modelo no usa y se ignoran: {extra}."
+        )
+
+    # Vocabulario congelado: un valor nuevo cambiaría el VECTOR (una columna
+    # one-hot más), así que NUNCA se amplía en silencio.
+    for col, vocab in (spec.get("category_vocabularies") or {}).items():
+        if col not in present:
+            continue
+        observed = _distinct_non_null(rows, col)
+        nuevos = [v for v in observed if v not in vocab]
+        if nuevos:
+            errors.append(
+                f"La columna {col!r} trae valores que el modelo no conoce: "
+                f"{sorted(nuevos)}. El vocabulario quedó fijado al generar el "
+                f"modelo ({sorted(vocab)}); para incorporarlos hay que regenerar "
+                "el proyecto."
+            )
+
+    if errors:
+        report = CompatibilityReport(
+            ok=False, same_raw_csv=same_raw, prepared_matches=None,
+            spec_version=spec_version, legacy_adapter=legacy,
+            warnings=warnings, errors=errors,
+        )
+        raise DatasetProjectError(" ".join(errors), details={"compatibility": report.to_dict()})
+
+    prepared = preparer(rows, spec)
+
+    prepared_sha = _sha256_text(prepared.text)
+    prepared_matches: bool | None = None
+    if same_raw:
+        prepared_matches = prepared_sha == provenance.get("prepared_csv_sha256")
+        if not prepared_matches:
+            if not legacy and spec_version == PREPARATION_SPEC_VERSION:
+                # Mismo crudo, misma receta, resultado distinto: no es un caso
+                # de versionado, es un fallo de reproducibilidad.
+                raise DatasetProjectError(
+                    "La re-preparación del MISMO CSV no reproduce el dataset con "
+                    "el que se entrenó este modelo. Es un fallo de "
+                    "reproducibilidad, no un problema de tus datos: no se "
+                    "reentrena con un dataset que no es el esperado."
+                )
+            warnings.append(
+                "El CSV preparado no coincide byte a byte con el original "
+                "(receta distinta o deducida): revisa el resultado antes de "
+                "reentrenar."
+            )
+
+    if expected_columns is not None:
+        header = prepared.text.split("\n", 1)[0].strip()
+        got = [c.strip() for c in header.split(",")] if header else []
+        if got != list(expected_columns):
+            raise DatasetProjectError(
+                "El CSV preparado no encaja con el modelo cargado. Esperaba las "
+                f"columnas {list(expected_columns)} y salieron {got}."
+            )
+
+    new_provenance = dict(provenance)
+    new_provenance["raw_csv_sha256"] = raw_sha
+    new_provenance["prepared_csv_sha256"] = prepared_sha
+    new_provenance["rows_dropped_null_target"] = prepared.rows_dropped_null_target
+    new_provenance["reprepared_at"] = datetime.now(timezone.utc).isoformat()
+    # REAUDITORÍA [ALTO]: la procedencia se copiaba y solo se cambiaban los
+    # hashes, así que `schema_inferred` (rangos, cardinalidades, fechas) seguía
+    # describiendo el CSV PADRE — para un CSV nuevo con rango [10,15] la
+    # procedencia seguía diciendo [0,5]. No se debe SOBRESCRIBIR el esquema
+    # contractual del modelo (es el congelado, y re-preparar no lo cambia:
+    # invariante 3), pero sí hay que registrar lo OBSERVADO ahora, separado.
+    try:
+        new_provenance["observed_schema"] = analyze_dataset_csv(
+            _rows_to_csv_text(rows))["columns"]
+    except Exception:  # noqa: BLE001
+        # Nunca bloquea la re-preparación: es trazabilidad, no corrección.
+        new_provenance["observed_schema"] = None
+    if not same_raw:
+        # Crudo distinto: procedencia NUEVA que apunta a la anterior, nunca una
+        # procedencia vieja que finge describir datos que ya no son los suyos.
+        new_provenance["parent_provenance_sha256"] = _sha256_text(
+            json.dumps(provenance, sort_keys=True, default=str))
+        warnings.append(
+            "El CSV no es el mismo con el que se generó el modelo: se ha "
+            "comprobado que encaja con su esquema y se registra como origen nuevo."
+        )
+
+    report = CompatibilityReport(
+        ok=True, same_raw_csv=same_raw, prepared_matches=prepared_matches,
+        spec_version=spec_version, legacy_adapter=legacy,
+        warnings=warnings, errors=[],
+    )
+    return RePreparedDataset(
+        csv_text=prepared.text, provenance=new_provenance, compatibility=report)
 
 
 # ---------------------------------------------------------------------------
@@ -1135,6 +1690,7 @@ def _prepare_training_csv(
     # determinista).
     onehot_columns: dict[str, dict[str, str]] = {}  # col -> {valor_crudo: columna_onehot}
     embedding_columns: dict[str, dict[str, int]] = {}  # col -> {valor_crudo: índice}
+    effective_vocabularies: dict[str, list[str]] = {}  # CONTRATO 62 C3
     header: list[str] = []
     operations: list[str] = []
     for col in feature_columns:
@@ -1144,6 +1700,7 @@ def _prepare_training_csv(
             values = category_vocabularies.get(col) or _distinct_non_null(rows, col)
             if len(values) < 2:
                 continue
+            effective_vocabularies[col] = list(values)
             if len(values) > _ONEHOT_MAX:
                 # Auditoría C2 [ALTA] (ver punto 6 del docstring): GEN
                 # enrutó esta columna al composite con EMBEDDING nativo —
@@ -1209,7 +1766,10 @@ def _prepare_training_csv(
         else:
             prepared[target_header] = raw_target
         writer.writerow(prepared)
-    return _PreparedCSV(text=out.getvalue(), rows_dropped_null_target=rows_dropped, operations=operations)
+    return _PreparedCSV(
+        text=out.getvalue(), rows_dropped_null_target=rows_dropped,
+        operations=operations, effective_vocabularies=effective_vocabularies,
+    )
 
 
 def _sha256_text(text: str) -> str:
@@ -1233,6 +1793,9 @@ def _build_provenance(
     target_column: str,
     excluded_columns: list[str],
     rows_dropped_null_target: int,
+    excluded_column_reasons: dict[str, dict[str, Any]] | None = None,
+    kept_constant_columns: list[str] | None = None,
+    preparation_spec: dict[str, Any] | None = None,
     feature_operations: list[str],
     feature_name_map: dict[str, str],
     target_label_map: dict[str, str] | None,
@@ -1278,7 +1841,13 @@ def _build_provenance(
         # Auditoría C2 [MEDIA]: qué se excluyó (identificador/fecha/vacía)
         # y cuántas filas se perdieron por target nulo — antes la
         # procedencia no dejaba rastro de ninguna de las dos cosas.
+        "preparation_spec": preparation_spec or {},
         "excluded_columns": excluded_columns,
+        # CONTRATO 62 C2 — por qué falta cada columna, y qué constantes se
+        # conservaron a propósito (lo que C3 necesita para reproducir el
+        # esquema con el que nació el modelo, invariante 3).
+        "excluded_column_reasons": excluded_column_reasons or {},
+        "kept_constant_columns": list(kept_constant_columns or []),
         "rows_dropped_null_target": rows_dropped_null_target,
         # Auditoría C2 [MEDIA, reauditoría]: mapa cabecera_original ->
         # cabecera_normalizada y valor_crudo -> etiqueta (None en

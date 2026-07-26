@@ -216,7 +216,11 @@ class TestAuditOfSuggestions:
         from matrixai.playground import _validate_training_csv
         r = _validate_training_csv("PROJECT X", "MODEL X", big)
         assert not r.get("ok")
-        assert "límite" in (r.get("error") or "")
+        # CONTRATO 62 C1: se afirma el CONTRATO ESTRUCTURADO, no una subcadena
+        # del texto — el mensaje humano puede cambiar de forma y de idioma, el
+        # `error_kind` no. (Antes: `assert "límite" in error`.)
+        assert r.get("error_kind") == "limit_exceeded"
+        assert r.get("limit_key") == "max_csv_bytes"
         assert not called
 
         from matrixai.training.dataset_analysis import (
@@ -224,6 +228,12 @@ class TestAuditOfSuggestions:
             analyze_dataset_csv,
         )
         import pytest as _pytest
-        with _pytest.raises(DatasetAnalysisError, match="límite"):
+        # CONTRATO 62 C1 (auditoría [MEDIO]): esta ruta también emite ahora el
+        # error estructurado. Se afirma el CONTRATO (`error_kind`/`limit_key`),
+        # no una subcadena del texto — el mensaje puede reescribirse o
+        # traducirse; el dato no.
+        with _pytest.raises(DatasetAnalysisError) as exc_info:
             analyze_dataset_csv(big)
+        assert exc_info.value.details["error_kind"] == "limit_exceeded"
+        assert exc_info.value.details["limit_key"] == "max_csv_bytes"
         assert not called

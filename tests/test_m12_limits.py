@@ -166,8 +166,10 @@ def test_generator_depth_honours_override(monkeypatch):
     from matrixai.training.dense_generator import DenseNetworkGenerator
     gen = DenseNetworkGenerator()
     # default: 40 capas pedidas → topa a 12
-    hidden = gen._extract_hidden_layers("crea una red de 40 capas ocultas", input_dim=8)
+    # CONTRATO 64: devuelve `(capas, decisión)`; la decisión es None porque la
+    # profundidad viene del PROMPT, no de la política.
+    hidden, _ = gen._extract_hidden_layers("crea una red de 40 capas ocultas", input_dim=8)
     assert len(hidden) == 12
     monkeypatch.setenv("MATRIXAI_MAX_DEPTH", "64")
-    hidden2 = gen._extract_hidden_layers("crea una red de 40 capas ocultas", input_dim=8)
+    hidden2, _ = gen._extract_hidden_layers("crea una red de 40 capas ocultas", input_dim=8)
     assert len(hidden2) == 40

@@ -12,6 +12,7 @@ from typing import Any
 from matrixai.ir.schema import DenseLayerSpec, NetworkSpec
 from matrixai import limits as _limits
 from matrixai.generation import parse_field_specs, strip_field_specs
+from matrixai.training import architecture_policy as _architecture_policy
 from matrixai.training.categorical import expand_categoricals
 
 # GEN C2: a declared categorical with at most this many values becomes one-hot
@@ -21,7 +22,14 @@ _ONEHOT_MAX = 12
 
 
 class DenseNetworkGeneratorError(ValueError):
-    pass
+    """Fallo del generador. `details` lleva el payload estructurado cuando el
+    motivo es un tope superado (`limits.limit_error`), para que quien lo capture
+    pueda responder con "qué tope, cuánto te pasas y dónde se sube" en vez de
+    solo un texto."""
+
+    def __init__(self, message: str, details: dict | None = None) -> None:
+        super().__init__(message)
+        self.details = details or {}
 
 
 @dataclass(frozen=True)
@@ -55,6 +63,11 @@ class DenseNetworkGenerationResult:
     # .mxai type stays a bare Scalar (same reasoning as field_ranges). Canonical source
     # for the Studio/export's field_types.
     field_types: dict[str, str] = field(default_factory=dict)
+    # CONTRATO 64 C4 — por qué esta red y no otra: entradas de la regla,
+    # presupuesto, candidatas, límites aplicados y origen. Viaja en el RESULTADO
+    # y no como estado del generador: una instancia compartida entre hilos haría
+    # que dos generaciones simultáneas se pisaran la decisión.
+    architecture_decision: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -168,6 +181,16 @@ class DenseNetworkGenerator:
         network_name: str | None = None,
         input_name: str | None = None,
         hidden_layers: list[tuple[int, str]] | None = None,
+        # CONTRATO 64 C2 — filas del dataset con el que se va a entrenar, si se
+        # conocen. NO agrandan la red: solo ponen techo al presupuesto de
+        # parámetros (diez ejemplos por parámetro). 0 = flujo por prompt, donde
+        # todavía no hay dataset y solo manda el tope del perfil.
+        rows: int = 0,
+        # CONTRATO 64 C3/C4 — quién propuso `hidden_layers`, cuando lo pone el
+        # llamante: 'llm' o 'user_override'. El generador no puede distinguirlos
+        # por sí mismo y la decisión registrada tiene que decir la verdad sobre
+        # su origen.
+        hidden_layers_source: str = "",
     ) -> DenseNetworkGenerationResult:
         clean = " ".join(prompt.strip().split())
         if not clean:
@@ -187,10 +210,48 @@ class DenseNetworkGenerator:
         resolved_entity = input_name or self._extract_entity(clean) or "Input"
 
         output_activation, output_type, output_units, loss_type = _output_config(task, resolved_labels)
-        resolved_hidden = hidden_layers or self._extract_hidden_layers(clean, input_dim)
+
+        # CONTRATO 64 C2 — las categóricas declaradas se resuelven ANTES de decidir
+        # la arquitectura. La expansión one-hot ocurre más abajo, pero la política
+        # necesita la dimensión EFECTIVA de entrada: un campo categórico de 8
+        # valores no entra con un peso por neurona sino con ocho, y dimensionar
+        # por número de campos subestimaría la red justo donde más importa.
+        categoricals = {
+            name: list(specs_by_name[name].values or [])
+            for name in resolved_fields
+            if name in specs_by_name and specs_by_name[name].kind == "categorical"
+            and 2 <= len(specs_by_name[name].values or []) <= _ONEHOT_MAX
+        }
+        effective_dim = _architecture_policy.effective_input_dim(
+            input_dim, one_hot_widths={k: len(v) for k, v in categoricals.items()})
+
+        policy_decision = None
+        if hidden_layers:
+            resolved_hidden = hidden_layers
+        else:
+            resolved_hidden, policy_decision = self._extract_hidden_layers(
+                clean, input_dim, effective_dim=effective_dim,
+                output_units=output_units, task=task, rows=rows)
         # M8-A1: sanitize whatever architecture we got (default / prompt / LLM)
         # so no source can emit a dying-ReLU bottleneck before the output.
         resolved_hidden, sanitizer_notes = sanitize_hidden_layers(resolved_hidden)
+
+        # CONTRATO 64 C1/C3 — el presupuesto de parámetros es un límite DURO y se
+        # aplica DESPUÉS de resolver la arquitectura, venga de donde venga: del
+        # prompt, del LLM, del Modo experto o de la política (invariante 2). Se
+        # ESTRECHA en vez de fallar —mismo criterio que `_limits.cap` con la
+        # profundidad— pero nunca en silencio: quien pidió una red que no cabe se
+        # entera de cuál es el tope y de dónde se sube.
+        resolved_hidden, budget_notes, arch_decision = _apply_param_budget(
+            resolved_hidden,
+            input_dim=effective_dim, output_units=output_units,
+            requested_source=(hidden_layers_source or "caller") if hidden_layers
+                             else ("prompt_override" if policy_decision is None
+                                   else "policy"),
+            policy_decision=policy_decision,
+            task=task, rows=rows,
+        )
+        sanitizer_notes = list(sanitizer_notes) + budget_notes
         epochs = self._extract_epochs(clean)
         early_stop = self._extract_early_stop(clean)
 
@@ -213,12 +274,6 @@ class DenseNetworkGenerator:
         # categoricals (> _ONEHOT_MAX) are left for the embedding/composite path.
         # field_ranges/field_types already resolved by resolve_prompt_fields (C3).
         field_categories: dict[str, list[str]] = {}
-        categoricals = {
-            name: list(specs_by_name[name].values or [])
-            for name in resolved_fields
-            if name in specs_by_name and specs_by_name[name].kind == "categorical"
-            and 2 <= len(specs_by_name[name].values or []) <= _ONEHOT_MAX
-        }
         # GEN C5: a declared categorical beyond one-hot territory needs the embedding
         # (composite) path — the playground dispatch routes it there. A DIRECT dense
         # call leaves it scalar; say so loudly instead of dropping the declaration
@@ -281,9 +336,26 @@ class DenseNetworkGenerator:
             field_categories=field_categories,
             field_ranges=field_ranges,
             field_types=field_types,
+            architecture_decision=_con_estimacion_de_recursos(
+                arch_decision, mxai_text, training_text, rows=rows),
         )
 
-    def _extract_hidden_layers(self, prompt: str, input_dim: int) -> list[tuple[int, str]]:
+    def _extract_hidden_layers(
+        self, prompt: str, input_dim: int, *,
+        effective_dim: int | None = None,
+        output_units: int = 1,
+        task: str = "",
+        rows: int = 0,
+    ) -> tuple[list[tuple[int, str]], Any]:
+        """La arquitectura, por orden de autoridad (CONTRATO 64 C3).
+
+        Lo que el prompt pide EXPLÍCITAMENTE (ancho, profundidad) sigue mandando
+        sobre la política: es la voz de la persona. Lo que cambia con el contrato
+        64 es el último escalón —antes `_default_hidden_layers`, tres tramos por
+        dimensión que saturaban en `128-64-32` para cualquier entrada de más de
+        diez columnas— y que ahora nada de lo anterior puede saltarse el
+        presupuesto duro de parámetros (eso se aplica en `generate`).
+        """
         norm = _norm(prompt)
         width = self._extract_width(norm)
         m = self._DEPTH_RE.search(norm)
@@ -291,13 +363,18 @@ class DenseNetworkGenerator:
             n = _limits.cap(int(m.group(1)), "max_depth")
             # M12: ancho del prompt → capas uniformes de ese ancho; si no, tapering.
             if width is not None:
-                return [(width, "relu")] * n
-            return _hidden_layers_for_depth(n, input_dim)
+                return [(width, "relu")] * n, None
+            return _hidden_layers_for_depth(n, input_dim), None
         if width is not None:
             # Ancho explícito sin profundidad → profundidad por defecto con ese ancho.
             n = len(_default_hidden_layers(input_dim))
-            return [(width, "relu")] * n
-        return _default_hidden_layers(input_dim)
+            return [(width, "relu")] * n, None
+        # CONTRATO 64 C2 — política determinista. Sustituye al tapering fijo como
+        # ORIGEN del tamaño: ahora hay una regla que se puede explicar y auditar.
+        decision = _architecture_policy.propose(
+            input_dim=effective_dim if effective_dim is not None else input_dim,
+            output_units=output_units, task=task, rows=rows)
+        return list(decision.hidden_layers), decision
 
     def _extract_width(self, norm_prompt: str) -> int | None:
         m = self._WIDTH_RE.search(norm_prompt)
@@ -544,6 +621,159 @@ def validate_architecture_hints(hints: Any) -> tuple[dict[str, Any], str | None]
             )
         cleaned.append((int(units), activation))
     return {"hidden_layers": cleaned}, None
+
+
+def _con_estimacion_de_recursos(
+    decision: Any, mxai_text: str, training_text: str, rows: int = 0,
+) -> dict[str, Any] | None:
+    """Adjunta la estimación de recursos a la decisión (CONTRATO 64 C1/C4).
+
+    Es INFORMATIVA, no una puerta: `estimate_model_resources` está definido como
+    orientativo y sin umbral, y tratarlo como límite duro sería inventarse un
+    tope que nadie ha fijado. El límite duro es `max_params`; esto responde
+    "¿cuánta memoria va a necesitar esto?" sin tener que entrenar.
+
+    Nunca hace fallar la generación: si el `.mxai` recién construido no se puede
+    parsear aquí, el modelo sigue siendo válido y la decisión se entrega sin la
+    estimación en vez de perderse entera.
+    """
+    if decision is None:
+        return None
+    datos = decision.to_dict()
+    try:
+        from matrixai.parser import parse_text  # noqa: PLC0415
+        from matrixai.resources import estimate_model_resources  # noqa: PLC0415
+        est = estimate_model_resources(
+            parse_text(mxai_text), rows=rows, training_text=training_text,
+            device="cpu")
+        datos["resource_estimate"] = {
+            # INTRÍNSECOS: dependen solo de la arquitectura, así que valen para
+            # siempre y para cualquier máquina.
+            "param_count": est.param_count,
+            "weights_gib": round(est.weights_gib, 6),
+            # DEPENDIENTES DEL CONTEXTO: la VRAM cambia con el dispositivo y con
+            # el batch efectivo, que a su vez depende de las filas. Aquí se
+            # calcula con supuestos EXPLÍCITOS —el core no detecta hardware— y se
+            # declaran junto al número: sin ellos, "0,000035 GiB" parecía una
+            # verdad sobre la GPU cuando describía una CPU con batch 8.
+            "vram_train_gib": round(est.vram_train_gib, 6),
+            "effective_batch": est.effective_batch,
+            "assumptions": {"device": "cpu", "rows": int(rows or 0),
+                            "batch": est.effective_batch},
+            "orientative": True,
+        }
+    except Exception:  # noqa: BLE001
+        pass
+    return datos
+
+
+def _apply_param_budget(
+    hidden_layers: list[tuple[int, str]],
+    *,
+    input_dim: int,
+    output_units: int,
+    requested_source: str,
+    policy_decision: Any,
+    task: str,
+    rows: int,
+) -> tuple[list[tuple[int, str]], list[str], Any]:
+    """Aplica el tope DURO de parámetros y construye la decisión auditable.
+
+    CONTRATO 64 C1/C3/C4. Si la arquitectura pedida no cabe se estrecha por
+    mitades —la profundidad no se toca: viene de la complejidad de la tarea y
+    quitarla cambia lo que la red puede representar, no solo cuánto— y se emite
+    un aviso que nombra el tope y dónde se sube.
+    """
+    tope = _limits.get_limit("max_params")
+    params = _architecture_policy.param_count(input_dim, hidden_layers, output_units)
+    notas: list[str] = []
+    candidatas: list[dict[str, Any]] = []
+    limites: list[str] = []
+
+    if policy_decision is not None:
+        candidatas = list(policy_decision.candidates)
+        limites = list(policy_decision.limits_applied)
+        if policy_decision.limit_error:
+            # La política ya determinó que ni la red mínima cabe en el tope duro.
+            raise DenseNetworkGeneratorError(
+                policy_decision.limit_error["error"],
+                details=policy_decision.limit_error,
+            )
+
+    original = list(hidden_layers)
+    # REAUDITORÍA [MEDIA-BAJA]: la arquitectura SOLICITADA se registra siempre,
+    # también cuando viene de fuera (prompt, LLM, Modo experto). Antes, una
+    # propuesta externa aceptada dejaba `candidates=[]` y una estrechada empezaba
+    # el registro por el primer recorte, omitiendo lo que se había pedido — justo
+    # el dato que hace falta para entender la decisión.
+    if policy_decision is None:
+        candidatas.append({
+            "hidden_layers": [[u, a] for u, a in original],
+            "params": params,
+            "accepted": tope is None or params <= tope,
+            "reason": f"solicitada ({requested_source})",
+        })
+    while tope is not None and params > tope and max(u for u, _ in hidden_layers) > _MIN_RELU_WIDTH:
+        hidden_layers = [(max(_MIN_RELU_WIDTH, u // 2), a) for u, a in hidden_layers]
+        params = _architecture_policy.param_count(input_dim, hidden_layers, output_units)
+        candidatas.append({"hidden_layers": [[u, a] for u, a in hidden_layers],
+                           "params": params, "accepted": params <= tope,
+                           "reason": "estrechada por el tope de parámetros"})
+
+    # REAUDITORÍA [ALTO] — comprobación FINAL. El bucle de arriba termina al
+    # llegar al suelo de ancho, y hasta ahora nadie volvía a mirar si la red
+    # había quedado dentro del tope: con `max_params=100` salía una red de
+    # cientos de parámetros, sin error y sin nada anotado. `max_params` y
+    # `_MIN_RELU_WIDTH` no se pueden cumplir a la vez; el límite duro manda.
+    if tope is not None and params > tope:
+        raise DenseNetworkGeneratorError(
+            _limits.limit_error("max_params", params)["error"],
+            details=_limits.limit_error("max_params", params),
+        )
+
+    if hidden_layers != original:
+        limites.append("max_params")
+        pedidos = _architecture_policy.param_count(input_dim, original, output_units)
+        _m = _architecture_policy.miles
+        notas.append(
+            f"La arquitectura solicitada ({'-'.join(str(u) for u, _ in original)}, "
+            f"{_m(pedidos)} parámetros) supera el tope del perfil "
+            f"({_m(tope)} parámetros); se ha estrechado a "
+            f"{'-'.join(str(u) for u, _ in hidden_layers)} ({_m(params)} "
+            "parámetros). Puedes subirlo en Ajustes → Límites."
+        )
+
+    if policy_decision is not None and hidden_layers == list(policy_decision.hidden_layers):
+        decision = _architecture_policy.ArchitectureDecision(
+            hidden_layers=list(hidden_layers), params=params,
+            source=policy_decision.source, inputs=dict(policy_decision.inputs),
+            budget=dict(policy_decision.budget), candidates=candidatas,
+            limits_applied=limites, rationale=policy_decision.rationale,
+            warnings=list(policy_decision.warnings),
+        )
+    else:
+        # La arquitectura NO viene de la política (prompt explícito, LLM, Modo
+        # experto). Se registra igual —"la decisión se registra o no existe"— con
+        # su origen real y el presupuesto contra el que se comprobó.
+        decision = _architecture_policy.ArchitectureDecision(
+            hidden_layers=list(hidden_layers), params=params,
+            source=requested_source,
+            inputs={"input_dim": input_dim, "output_units": output_units,
+                    "task": task, "rows": int(rows or 0)},
+            budget=_architecture_policy.budget_for(rows),
+            candidates=candidatas, limits_applied=limites,
+            rationale=(f"arquitectura de origen '{requested_source}': "
+                       + "-".join(str(u) for u, _ in hidden_layers)
+                       + f", {_architecture_policy.miles(params)} parámetros"),
+            warnings=list(policy_decision.warnings) if policy_decision else [],
+        )
+    # Los avisos de la POLÍTICA (hoy: dataset pequeño para su dimensión de
+    # entrada) viajan con los del presupuesto. Sin esto se quedaban dentro de la
+    # decisión, que no la ve nadie salvo en Modo experto — y el aviso más útil
+    # del contrato es precisamente para quien no está en Modo experto.
+    if policy_decision is not None:
+        notas = list(policy_decision.warnings) + notas
+    return hidden_layers, notas, decision
 
 
 def _default_hidden_layers(input_dim: int) -> list[tuple[int, str]]:

@@ -95,7 +95,15 @@ _TARGET_NAME_HINTS = {
 
 
 class DatasetAnalysisError(ValueError):
-    """CSV ilegible o vacío — error accionable (invariante 7 del contrato 57)."""
+    """CSV ilegible o vacío — error accionable (invariante 7 del contrato 57).
+
+    CONTRATO 62 C1: igual que `DatasetProjectError`, puede transportar el
+    payload estructurado de un tope superado en `.details`.
+    """
+
+    def __init__(self, message: str, details: dict | None = None) -> None:
+        super().__init__(message)
+        self.details = details
 
 
 def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
@@ -116,9 +124,14 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
     # orden que `_normalize_external_csv` en playground.py).
     size = len(csv_text.encode("utf-8"))
     if _limits.exceeds(size, "max_csv_bytes"):
-        limit = _limits.get_limit("max_csv_bytes")
+        # AUDITORÍA C1 [MEDIO]: esta era la ÚNICA de las cinco rutas del Studio
+        # que seguía lanzando texto plano — y encima decía "0 MB" con un tope
+        # pequeño, por dividir entre 1.000.000 con enteros. Ahora emite el
+        # mismo payload estructurado que el resto (`limits.limit_error`), que
+        # ya elige la unidad según la magnitud.
         raise DatasetAnalysisError(
-            f"El CSV supera el límite de tamaño ({limit // 1_000_000} MB)."
+            _limits.limit_error("max_csv_bytes", size)["error"],
+            details=_limits.limit_error("max_csv_bytes", size),
         )
 
     # Autoauditoría C1 (sugerencias implementadas): BOM UTF-8 de Excel y
@@ -235,6 +248,9 @@ def _analyze_column(raw_values: list[str | None], rows_analyzed: int) -> dict[st
     if _is_boolean_column(non_null):
         info["type"] = "boolean"
         info["cardinality"] = cardinality
+        if cardinality < 2:  # CONTRATO 62 C2 — ver el bloque numérico
+            info["constant"] = True
+            info["constant_value"] = distinct[0]
         return info
 
     is_identifier_candidate = (
@@ -273,6 +289,15 @@ def _analyze_column(raw_values: list[str | None], rows_analyzed: int) -> dict[st
         info["cardinality"] = cardinality
         info["observed_range"] = _round_range([lo, hi], numeric_kind)
         info["proposed_range"] = _round_range(_propose_margin(lo, hi), numeric_kind)
+        # CONTRATO 62 C2: una columna con un solo valor distinto no aporta
+        # NADA al modelo, y además `_propose_margin` le inventa un rango de
+        # ±1 (`lat` constante 43.46 salía como [42.46, 44.46]) que en el panel
+        # de inferencia se convierte en un slider que solo sirve para sacar al
+        # modelo de su distribución. Se marca aquí; quien decide qué hacer con
+        # ella es `dataset_project` (excluirla por defecto).
+        if cardinality < 2:
+            info["constant"] = True
+            info["constant_value"] = distinct[0]
         return info
 
     if is_identifier_candidate:
@@ -283,6 +308,9 @@ def _analyze_column(raw_values: list[str | None], rows_analyzed: int) -> dict[st
 
     info["type"] = "categorical"
     info["cardinality"] = cardinality
+    if cardinality < 2:  # CONTRATO 62 C2 — ver el bloque numérico
+        info["constant"] = True
+        info["constant_value"] = distinct[0]
     # Auditoría C1 (alineación con el contrato: "vocabulario si categórica
     # (cardinalidad BAJA)"): el vocabulario completo solo viaja en territorio
     # one-hot (≤ _ONEHOT_MAX, el umbral existente) — una categórica de 600

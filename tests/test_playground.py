@@ -355,7 +355,10 @@ class P9TrainingLoopTest(unittest.TestCase):
         big_csv = "x" * (_P9_MAX_CSV_BYTES + 1)
         r = _validate_training_csv(self.MXAI, training_text, big_csv)
         self.assertFalse(r["ok"])
-        self.assertIn("límite", r["error"])
+        # CONTRATO 62 C1: contrato estructurado en vez de subcadena del texto.
+        self.assertEqual(r["error_kind"], "limit_exceeded")
+        self.assertEqual(r["limit_key"], "max_csv_bytes")
+        self.assertEqual(r["actual"], len(big_csv.encode()))
 
     def test_validate_csv_rejects_invalid_training_text(self) -> None:
         from matrixai.playground import _validate_training_csv
@@ -453,12 +456,19 @@ class P9TrainingLoopTest(unittest.TestCase):
         self.assertIn("backend", r)
 
     def test_submit_training_job_returns_job_id(self) -> None:
-        from matrixai.playground import _submit_training_job
+        from matrixai.playground import _cancel_job, _submit_training_job
         training_text = self._get_training_text()
         r = _submit_training_job(self.MXAI, training_text, self.CSV, epochs_override=2)
-        self.assertTrue(r["ok"], r.get("error"))
-        self.assertIn("job_id", r)
-        self.assertIsInstance(r["job_id"], str)
+        try:
+            self.assertTrue(r["ok"], r.get("error"))
+            self.assertIn("job_id", r)
+            self.assertIsInstance(r["job_id"], str)
+        finally:
+            # AUDITORÍA 9ª RONDA: este test dejaba el entrenamiento CORRIENDO en
+            # su hilo (el de al lado sí lo cancela). Un job vivo compite por CPU
+            # con el resto de la suite y puede volver flaky a otros tests.
+            if r.get("job_id"):
+                _cancel_job(r["job_id"])
 
     def test_get_job_status_returns_status_and_epochs(self) -> None:
         import time
