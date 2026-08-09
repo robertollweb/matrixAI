@@ -7,23 +7,23 @@ from typing import Any
 
 _MSGS: dict[str, dict[str, str]] = {
     "no_actions": {
-        "es": "No se activo ninguna accion discreta. El grafo fue evaluado en modo simulado.",
+        "es": "No se activó ninguna acción discreta. El grafo fue evaluado en modo simulado.",
         "en": "No discrete action was triggered. The graph was evaluated in simulation mode.",
     },
     "activated": {
-        "es": "activo",
+        "es": "activada",
         "en": "activated",
     },
     "not_activated": {
-        "es": "no activo",
+        "es": "no activada",
         "en": "not activated",
     },
     "action_status": {
-        "es": "La accion {name} quedo {status} porque {source}={value:.4f} y el umbral era {threshold:.4f}.",
+        "es": "La acción {name} quedó {status} porque {source}={value:.4f} y el umbral era {threshold:.4f}.",
         "en": "Action {name} was {status} because {source}={value:.4f} and the threshold was {threshold:.4f}.",
     },
     "simulated_call": {
-        "es": "La llamada {call} se ejecuto solo como simulacion.",
+        "es": "La llamada {call} se ejecutó solo como simulación.",
         "en": "Call {call} was executed as simulation only.",
     },
     "nodes_evaluated": {
