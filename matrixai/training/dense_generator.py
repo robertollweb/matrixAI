@@ -191,6 +191,19 @@ class DenseNetworkGenerator:
         # por sí mismo y la decisión registrada tiene que decir la verdad sobre
         # su origen.
         hidden_layers_source: str = "",
+        # En que MAQUINA se va a entrenar esto, si quien llama lo sabe.
+        #
+        # La estimacion de recursos iba con `device="cpu"` FIJO, y el
+        # comentario lo justificaba diciendo que «el core no detecta
+        # hardware». Es cierto que no lo detecta AQUI —y sigue sin
+        # hacerlo: se lo dicen—, pero el numero que se adjuntaba
+        # describia una CPU con lote 8 aunque hubiera una GPU delante.
+        # Medido: el mismo modelo estima 0,000008 GiB con lote 8 (cpu) y
+        # 0,003742 GiB con lote 16384 (cuda), x468.
+        #
+        # Por defecto "cpu", que es lo que habia: quien no lo sepa no
+        # cambia de comportamiento.
+        device: str = "cpu",
     ) -> DenseNetworkGenerationResult:
         clean = " ".join(prompt.strip().split())
         if not clean:
@@ -340,7 +353,7 @@ class DenseNetworkGenerator:
             field_ranges=field_ranges,
             field_types=field_types,
             architecture_decision=_con_estimacion_de_recursos(
-                arch_decision, mxai_text, training_text, rows=rows),
+                arch_decision, mxai_text, training_text, rows=rows, device=device),
         )
 
     def _extract_hidden_layers(
@@ -819,6 +832,7 @@ def validate_architecture_hints(hints: Any) -> tuple[dict[str, Any], str | None]
 
 def _con_estimacion_de_recursos(
     decision: Any, mxai_text: str, training_text: str, rows: int = 0,
+    device: str = "cpu",
 ) -> dict[str, Any] | None:
     """Adjunta la estimación de recursos a la decisión (CONTRATO 64 C1/C4).
 
@@ -839,7 +853,7 @@ def _con_estimacion_de_recursos(
         from matrixai.resources import estimate_model_resources  # noqa: PLC0415
         est = estimate_model_resources(
             parse_text(mxai_text), rows=rows, training_text=training_text,
-            device="cpu")
+            device=device)
         datos["resource_estimate"] = {
             # INTRÍNSECOS: dependen solo de la arquitectura, así que valen para
             # siempre y para cualquier máquina.
@@ -852,7 +866,10 @@ def _con_estimacion_de_recursos(
             # verdad sobre la GPU cuando describía una CPU con batch 8.
             "vram_train_gib": round(est.vram_train_gib, 6),
             "effective_batch": est.effective_batch,
-            "assumptions": {"device": "cpu", "rows": int(rows or 0),
+            # El supuesto declarado JUNTO al numero, que es lo que hace
+            # que el numero se pueda juzgar (contrato 64). Ahora dice la
+            # maquina de verdad en vez de decir siempre «cpu».
+            "assumptions": {"device": device, "rows": int(rows or 0),
                             "batch": est.effective_batch},
             "orientative": True,
         }

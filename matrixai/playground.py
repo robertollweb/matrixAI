@@ -3621,8 +3621,58 @@ def _prompt_unsupported_ops(prompt: str) -> list[str]:
     return found
 
 
+# ---------------------------------------------------------------------------
+# Los MARCOS de los avisos del pipeline, en los dos idiomas.
+#
+# Encontrado el 2026-08-09 conduciendo el Studio EN INGLES: con
+# `locale=en` el core ya traducia `understanding.safety_limits` y el
+# veredicto, pero los avisos del pipeline salian SIEMPRE en español —
+# «Arquitectura (dense, propuesta por el LLM): The problem is a binary
+# classification task…», o sea, marco español y contenido ingles en la
+# misma frase.
+#
+# Lo que se traduce es el MARCO. La frase del LLM se deja como viene:
+# son sus palabras, en el idioma en que contesto, y reescribirlas seria
+# cambiar lo que dijo.
+_MARCOS = {
+    "es": {
+        "arquitectura": lambda kind, porque: f"Arquitectura ({kind}, propuesta por el LLM): {porque}",
+        "cat_ignoradas": lambda tope, lista: (
+            f"Categóricas propuestas por el LLM ignoradas (vocab ≤ {tope}, territorio one-hot): {lista}. "
+            "Decláralas en el prompt como Categorical[valores...] para one-hot con valores humanos."),
+        "embeddings": lambda lista: f"Categóricas con EMBEDDING nativo: {lista}.",
+        "origen_prompt": "declarada en el prompt",
+        "origen_llm": "propuesta por el LLM",
+        "origen_heuristica": "auto-detectada por heurística",
+        "contrato_mxtrain": ("Contrato .mxtrain y plantilla CSV generados desde el modelo actual; "
+                             "valida datos reales antes de entrenar."),
+    },
+    "en": {
+        "arquitectura": lambda kind, porque: f"Architecture ({kind}, proposed by the LLM): {porque}",
+        "cat_ignoradas": lambda tope, lista: (
+            f"Categoricals proposed by the LLM ignored (vocab ≤ {tope}, one-hot territory): {lista}. "
+            "Declare them in the prompt as Categorical[values...] for one-hot with human values."),
+        "embeddings": lambda lista: f"Categoricals with native EMBEDDING: {lista}.",
+        "origen_prompt": "declared in the prompt",
+        "origen_llm": "proposed by the LLM",
+        "origen_heuristica": "auto-detected by heuristic",
+        "contrato_mxtrain": ("The .mxtrain contract and CSV template were generated from the current model; "
+                             "validate real data before training."),
+    },
+}
+
+
+def _marcos(locale: Any) -> dict[str, Any]:
+    """Los marcos del idioma pedido; español si no se pide o no se conoce."""
+    return _MARCOS.get(str(locale or "es").strip().lower(), _MARCOS["es"])
+
+
 def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
     mode = str(payload.get("mode") or "prompt").strip().lower()
+    # En que idioma se redactan los avisos del pipeline. Se pide por el
+    # payload, igual que ya se pedia para `understanding`/`executive_result`.
+    _locale = str(payload.get("locale") or "es").strip().lower()
+    _mk = _marcos(_locale)
     prompt = str(payload.get("prompt") or DEFAULT_PROMPT)
     input_text = str(payload.get("input_json") or "").strip()
     training_text = str(payload.get("training_text") or "").strip()
@@ -3724,13 +3774,8 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
             if _low_vocab:
                 llm_categoricals = {f: v for f, v in llm_categoricals.items()
                                     if v > _ONEHOT_MAX}
-                gen_warnings.append(
-                    "Categóricas propuestas por el LLM ignoradas (vocab ≤ "
-                    f"{_ONEHOT_MAX}, territorio one-hot): "
-                    + ", ".join(f"{f} ({v})" for f, v in _low_vocab.items())
-                    + ". Decláralas en el prompt como Categorical[valores...] para "
-                    "one-hot con valores humanos."
-                )
+                gen_warnings.append(_mk["cat_ignoradas"](
+                    _ONEHOT_MAX, ", ".join(f"{f} ({v})" for f, v in _low_vocab.items())))
             # GEN C5 (diferido de C2): a PROMPT-declared categorical beyond one-hot
             # territory (> _ONEHOT_MAX values) needs the embedding path — the dense
             # generator would leave it scalar. Route it to the composite generator,
@@ -3831,7 +3876,11 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     # no puede distinguir un hint del LLM de uno del Modo
                     # experto, pero aquí sí se sabe.
                     gen = DenseNetworkGenerator().generate(
-                        prompt, rows=dataset_rows,
+                        # La MAQUINA de verdad, no «cpu» siempre. Quien la
+                        # sabe es esta capa —`_select_train_backend` ya la
+                        # detecta para entrenar— y el generador no la
+                        # adivina: se la dicen.
+                        prompt, rows=dataset_rows, device=_select_train_backend()[1],
                         **({"hidden_layers_source": _hidden_layers_origin}
                            if llm_kwargs.get("hidden_layers") else {}),
                         **llm_kwargs,
@@ -3847,6 +3896,7 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     evaluation_report_text,
                     training_source_override="generated",
                     dataset_template_text=gen.dataset_template_text,
+                    locale=_locale,
                 )
                 result["supervision_source"] = gen_source
                 result["prompt"] = prompt
@@ -3915,8 +3965,8 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     if not result["architecture_decision"]["rationale"]:
                         result["architecture_decision"]["rationale"] = _pd["rationale"]
                 if llm_rationale:
-                    gen_warnings.append(f"Arquitectura ({result['architecture_decision']['kind']}, "
-                                        f"propuesta por el LLM): {llm_rationale}")
+                    gen_warnings.append(
+                        _mk["arquitectura"](result["architecture_decision"]["kind"], llm_rationale))
                 # M2 v2 C5 / GEN C5 audit: surface the native embeddings WITH their
                 # real origin — an embedding from a prompt-declared Categorical[...]
                 # must not be attributed to the LLM (it fires with use_llm=False).
@@ -3924,14 +3974,12 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     _gen_cats = getattr(gen, "field_categories", {}) or {}
                     _emb_fields = ", ".join(
                         f"{e['field']} (vocab {e['vocab']}, dim {e['dim']}, "
-                        + ("declarada en el prompt" if e["field"] in _gen_cats
-                           else "propuesta por el LLM" if e["field"] in llm_categoricals
-                           else "auto-detectada por heurística") + ")"
+                        + (_mk["origen_prompt"] if e["field"] in _gen_cats
+                           else _mk["origen_llm"] if e["field"] in llm_categoricals
+                           else _mk["origen_heuristica"]) + ")"
                         for e in gen.embeddings
                     )
-                    gen_warnings.append(
-                        "Categóricas con EMBEDDING nativo: " + _emb_fields + "."
-                    )
+                    gen_warnings.append(_mk["embeddings"](_emb_fields))
                 notes = list(gen_warnings)
                 # M8-A1: the generator's own warnings include the architecture
                 # sanitizer notes (widened ReLU bottlenecks) — surface them.
@@ -4007,6 +4055,7 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     report = PromptSupervisor().supervise_prompt(prompt, force_deterministic=not use_llm)
                     result = _result_from_supervision(
                         mode, report.to_dict(), input_text, "", manifest_text, evaluation_report_text,
+                        locale=_locale,
                     )
                     result["llm_schema_used"] = False
         else:
@@ -4018,6 +4067,7 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 "",  # prompt mode: don't carry over stale training_text from previous model
                 manifest_text,
                 evaluation_report_text,
+                locale=_locale,
             )
             result["llm_schema_used"] = False
         result["llm_mode"] = _detect_llm_mode()
@@ -4039,6 +4089,7 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
             training_text,
             manifest_text,
             evaluation_report_text,
+            locale=_locale,
         )
     elif mode == "mxai":
         mxai_text = str(payload.get("mxai_text") or "")
@@ -4049,6 +4100,7 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
             training_text,
             manifest_text,
             evaluation_report_text,
+            locale=_locale,
         )
     else:
         result = {
@@ -4091,6 +4143,8 @@ def _result_from_supervision(
     training_text: str,
     manifest_text: str,
     evaluation_report_text: str,
+    *,
+    locale: str = "es",
 ) -> dict[str, Any]:
     mxai_text = str(report.get("mxai") or "")
     result: dict[str, Any] = {
@@ -4123,6 +4177,7 @@ def _result_from_supervision(
             manifest_text,
             evaluation_report_text,
             generation_prompt=str(report.get("prompt") or ""),
+            locale=locale,
         )
         program_ok = bool(prog_artifacts.get("ok"))
         prog_artifacts["checks"] = supervision_checks + list(prog_artifacts.get("checks", []))
@@ -4154,6 +4209,7 @@ def _result_from_mxai(
     *,
     training_source_override: str = "",
     dataset_template_text: str = "",
+    locale: str = "es",
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
         "ok": False,
@@ -4172,6 +4228,7 @@ def _result_from_mxai(
                 evaluation_report_text,
                 training_source_override=training_source_override,
                 dataset_template_text_override=dataset_template_text,
+                locale=locale,
             )
         )
     except Exception as exc:  # noqa: BLE001
@@ -4241,6 +4298,7 @@ def _program_artifacts(
     *,
     training_source_override: str = "",
     dataset_template_text_override: str = "",
+    locale: str = "es",
 ) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     program = parse_text(mxai_text)
@@ -4330,6 +4388,7 @@ def _program_artifacts(
         training_source,
         mxai_text=mxai_text,
         dataset_template_text=dataset_template_text,
+        locale=locale,
     )
     if generated_training_error and not training_artifacts.get("available"):
         training_artifacts["generation_error"] = generated_training_error
@@ -4730,6 +4789,7 @@ def _training_artifacts(
     *,
     mxai_text: str = "",
     dataset_template_text: str = "",
+    locale: str = "es",
 ) -> dict[str, Any]:
     if not training_text:
         return {
@@ -4759,7 +4819,7 @@ def _training_artifacts(
     manifest_summary = _manifest_summary(manifest_text)
     warnings = []
     if source == "generated":
-        warnings.append("Contrato .mxtrain y plantilla CSV generados desde el modelo actual; valida datos reales antes de entrenar.")
+        warnings.append(_marcos(locale)["contrato_mxtrain"])
     if not manifest_summary:
         warnings.append(
             "Dataset CSV validated, but no dataset manifest was provided for hashes and splits."
