@@ -393,9 +393,18 @@ class DenseNetworkGenerator:
 
     # CONTRATO 70 C1 — conectores que separan el OBJETIVO de las COLUMNAS.
     # "predecir X a partir de Y": lo que se predice es X; Y son features.
+    # AUDITORIA C70 1a pasada: faltaban la forma CON ARTICULO («a partir
+    # del precio») y el «usando» español —estaba solo el «using» ingles—,
+    # y sin conector la frase entera cuenta como objetivo, asi que una
+    # columna volvia a decidir la tarea. Medido: «detectar averias usando
+    # temperatura» salia regresion.
     _CONECTORES_DE_ENTRADA = [
-        " a partir de ", " segun ", " en funcion de ", " basandose en ",
-        " from ", " based on ", " using ", " given ",
+        " a partir de ", " a partir del ", " a partir de la ",
+        " a partir de los ", " a partir de las ",
+        " segun ", " segun el ", " segun la ",
+        " en funcion de ", " en funcion del ", " basandose en ", " mediante ",
+        " usando ", " utilizando ", " con base en ",
+        " from ", " from the ", " based on ", " using ", " given ",
     ]
 
     # CONTRATO 70 C2 — formas que describen un SI/NO, sea cual sea el verbo.
@@ -404,6 +413,49 @@ class DenseNetworkGenerator:
         "predecir si ", "prever si ", "saber si ", "decir si ", "determinar si ",
         "predict if ", "predict whether ", "know if ", "tell if ", "determine whether ",
     ]
+
+    # AUDITORIA C70 1a pasada: la lista de arriba exige que el verbo y el
+    # «si» esten PEGADOS, y «quiero un modelo que me diga si un cliente va
+    # a impagar» tiene cuatro palabras en medio — caia al valor por
+    # defecto, que es regresion. Ir añadiendo conjugaciones («diga»,
+    # «digan», «indique»…) seria perseguir el idioma sin alcanzarlo.
+    #
+    # Asi que se generaliza: un VERBO de prediccion en cualquier parte, y
+    # un marcador de si/no DESPUES de el.
+    _VERBOS_DE_PREDICCION = [
+        "predec", "predic", "prever", "prev", "saber", "sepa", "diga", "dig",
+        "determin", "detect", "estim", "anticip", "adivin",
+        "predict", "know", "tell", "guess", "forecast",
+    ]
+    _MARCADORES_SI_NO = [" si ", " whether ", " if "]
+
+    def _es_pregunta_de_si_o_no(self, text: str) -> bool:
+        """CONTRATO 70 C2 — ¿lo que se pide es un SI o un NO?
+
+        Dos caminos. El primero es la lista literal de formas pegadas
+        («predecir si», «predict whether»), que es la de mas confianza.
+
+        El segundo lo añadio la 1a pasada de auditoria: un verbo de
+        prediccion en cualquier parte y un marcador de si/no DESPUES.
+        «Quiero un modelo que me diga si un cliente va a impagar» tiene
+        cuatro palabras entre el verbo y el «si», y caia al valor por
+        defecto —regresion— por no estar pegados.
+
+        Se exige el ORDEN (verbo antes que marcador) a proposito: en «si
+        tengo datos, predecir el consumo» el «si» es un condicional y no
+        introduce lo que se predice. Sin esa condicion, ese prompt saldria
+        binario.
+        """
+        if _any(text, self._PREGUNTA_SI_NO):
+            return True
+        for verbo in self._VERBOS_DE_PREDICCION:
+            i = text.find(verbo)
+            if i < 0:
+                continue
+            resto = text[i + len(verbo):]
+            if _any(resto, self._MARCADORES_SI_NO):
+                return True
+        return False
 
     def _objetivo_del_prompt(self, text: str) -> str:
         """CONTRATO 70 C1 — la parte del prompt que dice QUE se predice.
@@ -421,12 +473,19 @@ class DenseNetworkGenerator:
 
         Sin conector, se devuelve el prompt entero: cortar por donde no
         hay corte seria inventarse una separacion.
+
+        AUDITORIA C70 2a pasada: se cortaba en el primer conector de LA
+        LISTA, no en el primero del TEXTO. Con dos conectores en la misma
+        frase —«detectar averias USANDO temperatura A PARTIR DEL sensor»—
+        se cortaba en el segundo y la temperatura se colaba en el
+        objetivo: salia regresion. El corte va donde EMPIEZAN las
+        columnas, que es el conector mas temprano.
         """
-        for conector in self._CONECTORES_DE_ENTRADA:
-            i = text.find(conector)
-            if i > 0:
-                return text[:i]
-        return text
+        corte = min(
+            (i for i in (text.find(c) for c in self._CONECTORES_DE_ENTRADA) if i > 0),
+            default=-1,
+        )
+        return text[:corte] if corte > 0 else text
 
     def _porque_esa_tarea(self, prompt: str, labels: list[str] | None, task: str) -> str:
         """CONTRATO 70 C3 — POR QUE se eligio esa tarea, y como cambiarla.
@@ -486,7 +545,7 @@ class DenseNetworkGenerator:
         # C2 — «predecir SI …» es un si/no, sea cual sea el verbo. Va
         # ANTES que las palabras de regresion: «predecir» esta entre
         # ellas, asi que sin esto la pregunta no se llega a leer nunca.
-        if _any(text, self._PREGUNTA_SI_NO):
+        if self._es_pregunta_de_si_o_no(text):
             if labels is not None and len(labels) > 2:
                 return "multiclass"
             return "binary"

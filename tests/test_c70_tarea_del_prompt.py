@@ -178,3 +178,82 @@ BARRIDO_DE_15 = [
 @pytest.mark.parametrize("prompt,esperado", BARRIDO_DE_15)
 def test_el_barrido_de_los_15(gen, prompt, esperado):
     assert gen._detect_task(prompt, None) == esperado
+
+
+# ── Hallazgos de la 1ª pasada de auditoría ────────────────────────────────
+# Cuatro casos que fallaban en el código recién escrito. Van aquí porque un
+# hallazgo sin prueba vuelve.
+
+AUDITORIA_1 = [
+    # El conector CON ARTÍCULO: la lista tenía « a partir de » con espacio
+    # final, así que «a partir del precio» no casaba y el precio volvía a
+    # decidir la tarea.
+    ("detectar fraude a partir del precio de la compra", "binary"),
+    ("detectar fraude a partir de la temperatura del motor", "binary"),
+    # «usando» estaba en inglés («using») y no en español.
+    ("detectar averias usando temperatura y vibracion", "binary"),
+    ("detectar averias utilizando el consumo electrico", "binary"),
+    ("detectar averias mediante el valor del sensor", "binary"),
+    # El verbo y el «si» NO están pegados: cuatro palabras en medio.
+    ("quiero un modelo para mi empresa que me diga si un cliente va a impagar", "binary"),
+    ("necesito saber cuanto antes si una pieza va a fallar", "binary"),
+    # El conector aparece ANTES del «si», así que el objetivo real está
+    # detrás del corte.
+    ("predecir segun el precio si un cliente se va", "binary"),
+]
+
+
+@pytest.mark.parametrize("prompt,esperado", AUDITORIA_1)
+def test_hallazgos_de_la_primera_pasada(gen, prompt, esperado):
+    assert gen._detect_task(prompt, None) == esperado
+
+
+def test_un_SI_CONDICIONAL_no_es_una_pregunta_de_si_o_no(gen):
+    """El riesgo de generalizar la detección del «si».
+
+    Buscar un marcador de sí/no en cualquier parte convertiría «si tengo
+    datos, predecir el consumo» en una binaria. Por eso se exige el ORDEN:
+    el verbo primero, el marcador después.
+    """
+    assert gen._detect_task("si tengo datos, predecir el consumo electrico", None) == "regression"
+    assert gen._detect_task("si es posible, estimar el precio medio", None) == "regression"
+
+
+def test_el_conector_no_convierte_una_magnitud_en_clase(gen):
+    """El otro lado de C1: cortar por el conector no puede hacer que un
+    objetivo que SÍ es una magnitud deje de serlo."""
+    assert gen._detect_task("predecir el consumo utilizando la temperatura exterior", None) == "regression"
+    assert gen._detect_task("estimar el precio a partir del numero de habitaciones", None) == "regression"
+
+
+# ── Hallazgos de la 2ª pasada de auditoría ────────────────────────────────
+
+@pytest.mark.parametrize("prompt,esperado", [
+    # El corte iba al primer conector de LA LISTA, no del TEXTO. Con dos
+    # en la misma frase, la palabra de regresión que había entre ellos se
+    # colaba en el objetivo.
+    ("detectar averias usando temperatura a partir del sensor principal", "binary"),
+    ("detectar fraude segun el importe a partir del precio de venta", "binary"),
+    # Y el otro lado: cortar antes no puede perder un objetivo que SÍ es
+    # una magnitud.
+    ("predecir el consumo a partir del precio usando la temperatura", "regression"),
+    ("estimar el precio usando la superficie a partir del catastro", "regression"),
+])
+def test_el_corte_va_al_conector_mas_TEMPRANO_del_texto(gen, prompt, esperado):
+    assert gen._detect_task(prompt, None) == esperado
+
+
+def test_el_camino_del_LLM_respeta_las_mismas_reglas(gen):
+    """El Studio real pasa `labels` propuestas por el LLM. Ese camino es
+    distinto del determinista y hay que comprobarlo aparte."""
+    assert gen._detect_task("predecir si llovera mañana", ["NO", "SI"]) == "binary"
+    assert gen._detect_task("predecir si llovera mañana", ["NO", "SI", "QUIZA"]) == "multiclass"
+    # Y el invariante del 59 aguanta aunque el LLM proponga etiquetas.
+    assert gen._detect_task("predecir el precio", ["barato", "caro"]) == "regression"
+
+
+@pytest.mark.parametrize("prompt", ["", "   ", "si", "predecir", "a partir de"])
+def test_un_prompt_degenerado_no_revienta(gen, prompt):
+    """No se comprueba QUÉ devuelve —es el valor por defecto, y C3 ya hace
+    que lo declare— sino que no lanza."""
+    assert gen._detect_task(prompt, None) in {"binary", "multiclass", "regression"}
