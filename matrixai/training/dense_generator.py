@@ -221,7 +221,7 @@ class DenseNetworkGenerator:
         # GEN C1/C2/C3: honor explicit field-type declarations from the prompt (shared
         # with the composite generator so both use the SAME policy — invariant 5).
         resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings = \
-            resolve_prompt_fields(self, prompt, input_fields)
+            resolve_prompt_fields(self, prompt, input_fields, locale)
         input_dim = len(resolved_fields)
         resolved_name = network_name or self._extract_name(clean) or _default_network_name(task)
         resolved_entity = input_name or self._extract_entity(clean) or "Input"
@@ -1171,7 +1171,63 @@ def _multiclase_sin_clases(dg, prompt, task, resolved_labels):
     )
 
 
-def resolve_prompt_fields(dg, prompt, input_fields):
+# CONTRATO 71 — un identificador NO es una característica.
+#
+# Nombres que delatan un identificador. La lista es CORTA y explícita a
+# propósito: cada entrada de más es un aviso falso sobre una columna
+# legítima, y un aviso que salta cuando no toca enseña a ignorarlos.
+#
+# Lo que NO entra, y por qué:
+#   · `codigo_postal` — es una categórica de dominio con significado, y el
+#     propio core la trata como EMBEDDING; avisar sería estorbar.
+#   · `orden`, `numero` — describen una posición o una cantidad, no una
+#     identidad.
+_NOMBRES_DE_IDENTIFICADOR = frozenset({
+    'id', 'uuid', 'guid', 'identificador', 'identifier',
+    'dni', 'nif', 'nie', 'ssn', 'matricula', 'serial',
+})
+
+
+def parece_identificador(nombre: str) -> bool:
+    """`True` si el NOMBRE delata un identificador.
+
+    Por el nombre y no por los datos, a propósito: cuando el modelo nace
+    de un prompt no hay CSV que analizar —`dataset_analysis` sí mira los
+    valores cuando los hay— y sin embargo el LLM inventa `customer_id`
+    con toda naturalidad. Medido: «analizar los datos de clientes de una
+    empresa de telefonía» devuelve ocho columnas y la primera es
+    `customer_id`.
+
+    Un identificador como entrada deja al modelo memorizar quién es cada
+    fila en vez de aprender de sus rasgos: acierta en los datos que ha
+    visto y no sirve para nadie nuevo.
+    """
+    n = nombre.strip().lower()
+    if n in _NOMBRES_DE_IDENTIFICADOR:
+        return True
+    # `customer_id`, `id_cliente`. Solo con separador: `valid` o `idea`
+    # no son identificadores, y `_rapidez` tampoco.
+    return n.endswith('_id') or n.startswith('id_')
+
+
+def _aviso_de_identificador(nombre: str, locale: str) -> str:
+    if locale == 'en':
+        return (
+            f"«{nombre}» looks like an identifier, and identifiers are not features: "
+            f"the model can memorise which row is which instead of learning from its "
+            f"traits, so it scores well on the data it has seen and is useless for "
+            f"anyone new. Remove it from the inputs unless you know it carries meaning."
+        )
+    return (
+        f"«{nombre}» parece un identificador, y un identificador no es una "
+        f"característica: el modelo puede memorizar qué fila es cada cual en vez de "
+        f"aprender de sus rasgos, así que acierta en los datos que ha visto y no "
+        f"sirve para nadie nuevo. Quítalo de las entradas salvo que sepas que "
+        f"significa algo."
+    )
+
+
+def resolve_prompt_fields(dg, prompt, input_fields, locale="es"):
     """Field resolution + C3 metadata shared by the dense AND composite generators.
 
     Honors the prompt's explicit type declarations (invariants 1 & 5): the typed
@@ -1222,6 +1278,14 @@ def resolve_prompt_fields(dg, prompt, input_fields):
             resolved_fields.append(n)
     if not resolved_fields:
         resolved_fields = list(dg._extract_fields(" ".join(prompt.split())) or _default_fields())
+
+    # CONTRATO 71 — se AVISA, no se quita. Quitar una columna que alguien
+    # ha pedido, sin decirlo, es decidir por su cuenta sobre sus datos; y
+    # un identificador puede llevar información de verdad (un código de
+    # producto que agrupa familias). Quien lo sabe, decide.
+    for nombre in resolved_fields:
+        if parece_identificador(nombre):
+            warnings.append(_aviso_de_identificador(nombre, locale))
 
     field_ranges: dict[str, tuple[float, float]] = {
         name: specs_by_name[name].range
