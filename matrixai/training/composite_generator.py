@@ -283,8 +283,11 @@ class CompositeNetworkGenerator:
         ]
         warnings: list[str] = list(spec_warnings)  # GEN C1/C3: rango inválido, etc.
         warnings.extend(label_warnings)  # GEN C4: labels= ignorados / bracket recortado
-        if task == "multiclass" and len(resolved_labels) < 2:
-            warnings.append("multiclass task requires at least 2 labels — using defaults")
+        # El aviso viejo decia «using defaults» SIN usar ningun valor por
+        # defecto, y el modelo salia con un softmax de una unidad que el
+        # verificador del core rechaza. Ahora lo arregla —y lo explica—
+        # `_multiclase_sin_clases`, en el resolutor que comparten los tres
+        # generadores, asi que aqui no queda nada que avisar.
         # Only keep vocab for categoricals that actually became embeddings.
         field_categories = {f: v for f, v in field_categories.items() if f in cat_fields_dict}
 

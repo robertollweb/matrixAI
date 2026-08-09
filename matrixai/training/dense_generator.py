@@ -314,8 +314,11 @@ class DenseNetworkGenerator:
         warnings: list[str] = list(sanitizer_notes)
         warnings.extend(spec_warnings)  # GEN C1/C3: rango inválido, categórica <2, etc.
         warnings.extend(label_warnings)  # GEN C4: labels= ignorados / bracket recortado
-        if task == "multiclass" and len(resolved_labels) < 2:
-            warnings.append("multiclass task requires at least 2 labels — using defaults")
+        # El aviso viejo decia «using defaults» SIN usar ningun valor por
+        # defecto, y el modelo salia con un softmax de una unidad que el
+        # verificador del core rechaza. Ahora lo arregla —y lo explica—
+        # `_multiclase_sin_clases`, en el resolutor que comparten los tres
+        # generadores, asi que aqui no queda nada que avisar.
 
         return DenseNetworkGenerationResult(
             prompt=clean,
@@ -526,7 +529,17 @@ class DenseNetworkGenerator:
         # pregunta de si/no gana sobre ella.
         text = _norm(prompt).lower()
         if _any(text, self._STRONG_CLASSIFICATION_KEYWORDS):
-            if labels is not None:
+            # UNA etiqueta no es una multiclase: es que no se sabe cuantas
+            # clases hay. Antes esto era `if labels is not None:` y el
+            # `else` se tragaba el caso de una sola, devolviendo
+            # `multiclass` SIN llegar a leer la frase — que dos lineas mas
+            # abajo habria contestado «binary» para «clasificar SI …».
+            #
+            # Medido el 2026-08-09: 1 de cada 6 generaciones de «clasificar
+            # si un cliente cancela…» salia asi, y acababa en un `softmax`
+            # de una unidad que el verificador del propio core rechaza.
+            # Contar etiquetas solo decide cuando hay etiquetas que contar.
+            if labels is not None and len(labels) >= 2:
                 return "binary" if len(labels) == 2 else "multiclass"
             # CONTRATO 70 C2 — «clasificar SI …» tambien es un si/no. El
             # contrato dice «sea cual sea el verbo», y sin esto caia en
@@ -585,7 +598,7 @@ class DenseNetworkGenerator:
             return bracket if m_labels is None else bracket[:m_labels]
         m = self._LABEL_RE.search(prompt)
         if not m:
-            return []
+            return self._clases_en_prosa(prompt)
         raw = m.group("labels")
         # Drop trailing descriptive prose so it is not swallowed as labels, e.g.
         # "BAJO MEDIO ALTO con una red profunda…" → "BAJO MEDIO ALTO". The connectors
@@ -604,6 +617,45 @@ class DenseNetworkGenerator:
             return []
         m_labels = _limits.get_limit("max_labels")
         return result if m_labels is None else result[:m_labels]
+
+    # «clasificar la incidencia EN critica, media o baja» — la forma normal
+    # de escribirlo, que el extractor NO leia: exige la palabra literal
+    # «clases/categorias/niveles/etiquetas» o un bracket. Medido en la 3a
+    # pasada: ese prompt salia `ProbabilityMap[class_a, class_b, class_c]`.
+    _CLASES_EN_PROSA_RE = re.compile(
+        r"\b(?:en|como|entre|into|as|among)\s+(?P<labels>[^.;\n]+)",
+        re.IGNORECASE,
+    )
+
+    def _clases_en_prosa(self, prompt: str) -> list[str]:
+        """Las clases dichas en prosa, SOLO con separador explicito.
+
+        La guarda importa mas que el patron. «clasificar los pedidos en
+        funcion del peso» no nombra ninguna clase, y sin exigir una coma o
+        un «o» acabaria devolviendo ['funcion', 'del', 'peso'] por el
+        reparto por espacios que usa el camino de arriba — tres clases
+        inventadas de una frase que no habla de clases.
+
+        Por eso aqui: se parte SOLO por separadores explicitos, nunca por
+        espacios, y hacen falta al menos dos partes que sobrevivan.
+        """
+        m = self._CLASES_EN_PROSA_RE.search(prompt)
+        if not m:
+            return []
+        raw = self._LABEL_STOP_RE.sub("", m.group("labels")).strip()
+        partes = [p for p in re.split(r",|;|\s+y\s+|\s+and\s+|\s+o\s+|\s+or\s+", raw,
+                                      flags=re.IGNORECASE) if p.strip()]
+        if len(partes) < 2:
+            return []
+        # Una «clase» de varias palabras casi siempre es prosa colada
+        # («funcion del peso»). Las clases se nombran con una palabra o dos.
+        if any(len(p.split()) > 2 for p in partes):
+            return []
+        resultado = [_identifier(p) for p in partes if _identifier(p)]
+        if len(resultado) < 2:
+            return []
+        m_labels = _limits.get_limit("max_labels")
+        return resultado if m_labels is None else resultado[:m_labels]
 
     def _extract_fields(self, prompt: str, *, min_count: int = 2) -> list[str]:
         m = self._FIELD_RE.search(prompt)
@@ -993,8 +1045,100 @@ def resolve_task_and_labels(dg, prompt, labels):
                 )
             return "multiclass", bracket, warnings
     task = dg._detect_task(prompt, labels)
-    resolved_labels = list(labels or dg._extract_labels(prompt) or _default_labels(task))
+    # De DONDE salen las clases, que no es lo mismo que cuales son.
+    de_ejemplo = False
+    resolved_labels = list(labels or dg._extract_labels(prompt) or [])
+    if not resolved_labels:
+        resolved_labels = _default_labels(task)
+        de_ejemplo = task == "multiclass" and bool(resolved_labels)
+    # Inventarse las clases EN SILENCIO es lo peor de las dos opciones.
+    #
+    # 3a pasada de auditoria, medido: «clasificar el nivel de riesgo del
+    # paciente a partir de la edad y la tension» devolvia
+    # `ProbabilityMap[class_a, class_b, class_c]` con CERO avisos. Nadie
+    # habia nombrado esas clases; son marcadores de posicion, y quien lo
+    # lea se lleva un modelo cuyas salidas no significan nada.
+    #
+    # El aviso viejo no cubria esto: solo saltaba con MENOS de dos
+    # etiquetas, y los valores por defecto son tres. El exportador si lo
+    # advierte («A downloadable model must name its classes») — pero eso
+    # llega despues de entrenar, que es tarde.
+    if de_ejemplo:
+        warnings.append(
+            f"No se han podido leer las clases del prompt, asi que se usan las de ejemplo "
+            f"{resolved_labels}: NO son tus clases, son marcadores de posicion. "
+            f"Nombralas en el prompt —«clasificar en alto, medio o bajo», o "
+            f"ProbabilityMap[alto, medio, bajo]— antes de entrenar."
+        )
+    # Que la propuesta del LLM se descarte NO puede pasar en silencio: es
+    # quien la lea el que tiene que poder decidir si la frase estaba mal
+    # escrita o si el modelo esta mal construido.
+    if labels is not None and 0 < len(labels) < 2:
+        warnings.append(
+            f"El LLM propuso {len(labels)} clase(s) {list(labels)}, y con menos de dos "
+            f"no hay un conjunto de clases: decide la frase, y aqui sale "
+            f"task={task}. Para varias clases, nombralas en el prompt como "
+            f"ProbabilityMap[una, otra, otra_mas]."
+        )
+    task, resolved_labels, aviso = _multiclase_sin_clases(dg, prompt, task, resolved_labels)
+    if aviso is not None:
+        warnings.append(aviso)
     return task, resolved_labels, warnings
+
+
+def _multiclase_sin_clases(dg, prompt, task, resolved_labels):
+    """Una multiclase con MENOS DE DOS clases no es una multiclase.
+
+    Encontrado el 2026-08-09 conduciendo la interfaz por fases, y medido
+    despues por el API: **1 de cada 6** generaciones de «clasificar si un
+    cliente cancela su suscripcion…» devolvia un modelo que el propio
+    verificador del core RECHAZA:
+
+        Verifier Agent  error  softmax output requires units >= 2, got units=1
+        Type Check      error  (el mismo)
+
+    El LLM proponia `multiclass` con UNA etiqueta, y nadie lo corregia:
+    `labels or _extract_labels(...) or _default_labels(task)` solo cae a
+    los valores por defecto cuando la lista viene VACIA, y una lista de un
+    elemento es verdadera. `_output_config` remataba con
+    `units=len(labels)` — un `softmax` de una sola salida, que devuelve
+    siempre 1 y no es una clasificacion de nada.
+
+    Y el aviso que se emitia MENTIA: decia «using defaults» sin usar
+    ningun valor por defecto. Media verdad tranquilizadora.
+
+    Que se hace en su lugar, por orden:
+
+    1. **Si la frase pregunta un SI o un NO** —la deteccion del contrato
+       70, que es la que sabe de esto— se construye una **binaria**. Es la
+       respuesta correcta a la pregunta que se hizo, y sale un modelo
+       valido: un `sigmoid` de una unidad SI significa algo.
+    2. **Si no**, se usan de verdad las clases por defecto, y el aviso lo
+       dice nombrandolas. Inventarse clases es peor que no tenerlas, asi
+       que se declara que son inventadas y que hay que escribirlas.
+
+    Lo que NO se hace es emitir un `softmax` de menos de dos unidades.
+    Ese modelo no es corregible aguas abajo: no hay dato que lo salve.
+    """
+    if task != "multiclass" or len(resolved_labels) >= 2:
+        return task, resolved_labels, None
+
+    tenia = list(resolved_labels)
+    if dg._es_pregunta_de_si_o_no(_norm(prompt)):
+        return "binary", _default_labels("binary"), (
+            f"El LLM propuso una clasificacion multiclase con {len(tenia)} clase(s) "
+            f"{tenia}, y con menos de dos no hay multiclase. La frase pregunta un si "
+            f"o un no, asi que se construye una BINARIA (sigmoid). Para varias clases, "
+            f"nombralas en el prompt: ProbabilityMap[una, otra, otra_mas]."
+        )
+
+    porDefecto = _default_labels("multiclass")
+    return task, porDefecto, (
+        f"El LLM propuso una clasificacion multiclase con {len(tenia)} clase(s) "
+        f"{tenia}, y con menos de dos no hay multiclase. Se usan clases de ejemplo "
+        f"{porDefecto} para que el modelo valide: NO son tus clases. Nombralas en el "
+        f"prompt como ProbabilityMap[una, otra, otra_mas]."
+    )
 
 
 def resolve_prompt_fields(dg, prompt, input_fields):

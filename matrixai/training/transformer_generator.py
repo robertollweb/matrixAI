@@ -215,8 +215,11 @@ class TransformerNetworkGenerator:
         output_activation, output_type, output_units, loss_type = _output_config(
             task, resolved_labels
         )
-        if task == "multiclass" and len(resolved_labels) < 2:
-            warnings.append("multiclass task requires at least 2 labels — using defaults")
+        # El aviso viejo decia «using defaults» SIN usar ningun valor por
+        # defecto, y el modelo salia con un softmax de una unidad que el
+        # verificador del core rechaza. Ahora lo arregla —y lo explica—
+        # `_multiclase_sin_clases`, en el resolutor que comparten los tres
+        # generadores, asi que aqui no queda nada que avisar.
 
         resolved_name = network_name or _dg._extract_name(clean) or _default_network_name(task)
         resolved_seq_name = (
