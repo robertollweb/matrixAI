@@ -209,9 +209,14 @@ class TrainingRunResult:
     final_validation_loss: float
     accuracy: float
     artifacts: dict[str, str]
+    #: El ESFUERZO real del run: con cuántos ejemplos por paso se
+    #: actualizaron los pesos, cuántos pasos tuvo cada época y cuántas
+    #: actualizaciones salieron en total. `None` si el entrenador no lo
+    #: declara. Ver `esfuerzo_de_entrenamiento`.
+    effort: dict[str, int] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "run_id": self.run_id,
             "output_dir": self.output_dir,
             "best_epoch": self.best_epoch,
@@ -221,6 +226,44 @@ class TrainingRunResult:
             "accuracy": self.accuracy,
             "artifacts": dict(self.artifacts),
         }
+        if self.effort is not None:
+            d["effort"] = dict(self.effort)
+        return d
+
+
+def esfuerzo_de_entrenamiento(
+    filas_de_entrenamiento: int, lote: int, epocas: int,
+) -> dict[str, int]:
+    """El esfuerzo REAL de un run: pasos por época y actualizaciones.
+
+    La época NO es una unidad comparable entre máquinas; la actualización
+    de pesos sí. Medido el 2026-08-09 con un millón de filas:
+
+    | camino                        | lote   | pasos por época |
+    |-------------------------------|--------|-----------------|
+    | stdlib (por defecto sin GPU)  |      1 |       1.000.000 |
+    | torch en CPU                  |      8 |         125.000 |
+    | torch en CUDA                 | 16.384 |              62 |
+
+    Dieciséis mil veces entre el camino por defecto y el de GPU. Quien
+    entrena «50 épocas» en su portátil y luego «50 épocas» en Colab NO
+    está repitiendo el experimento, aunque las dos pantallas digan 50.
+
+    Vive aquí —y no en cada entrenador— porque los tres tienen que contar
+    lo mismo: dos sitios calculando esto con reglas distintas es tener uno
+    de los dos mal, y nadie sabría cuál.
+    """
+    lote_seguro = max(1, int(lote or 1))
+    filas = max(0, int(filas_de_entrenamiento or 0))
+    # Techo, no división entera: la última hornada cuenta aunque no llene
+    # el lote. Con 51 filas y lote 8 son SIETE pasos, no seis.
+    pasos = -(-filas // lote_seguro) if filas else 0
+    return {
+        "effective_batch_size": lote_seguro,
+        "train_rows": filas,
+        "steps_per_epoch": pasos,
+        "weight_updates": pasos * max(0, int(epocas or 0)),
+    }
 
 
 @dataclass(frozen=True)

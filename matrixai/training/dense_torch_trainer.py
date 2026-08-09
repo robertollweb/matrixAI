@@ -289,6 +289,10 @@ def train_dense_network_torch(
             "backend": "torch",
             "device": device,
             "batch_size": bs,  # batch efectivo usado (auditable; en CUDA puede subir el del spec)
+            # Las filas con las que se entrena de verdad, para poder
+            # decir cuántos PASOS tuvo cada época. Sin esto habría que
+            # deducirlas fuera, y eso ya salió mal otras veces.
+            "train_rows": len(train_ex),
             "peak_vram_gb": round(peak_vram_gb, 2),
         }
     finally:

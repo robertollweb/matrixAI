@@ -32,6 +32,7 @@ from matrixai.runtime import MatrixAIRuntime
 from matrixai.sandbox import SandboxPolicy
 from matrixai.tooling import diagnose_runtime_compiler, graph_program
 from matrixai.training.dataset_manifest import DatasetManifest, verify_dataset_manifest
+from matrixai.training.spec import esfuerzo_de_entrenamiento as _esfuerzo
 from matrixai.training.generator import TrainingPromptGenerator
 from matrixai.training.parser import parse_training_text
 from matrixai.training.dense_generator import _ONEHOT_MAX
@@ -1356,8 +1357,13 @@ def _collect_training_result(
     task_kind = (training_trace or {}).get("task_kind", "classification")
     is_reg = task_kind == "regression"
     er = evaluation_report or {}
+    # El ESFUERZO del run —pasos por época y actualizaciones de pesos—,
+    # tal como lo declaró el entrenador. Es lo único comparable entre dos
+    # máquinas: la época no lo es.
+    _effort = getattr(run_result, "effort", None)
     return {
         "ok": True,
+        **({"effort": dict(_effort)} if _effort else {}),
         "task_kind": task_kind,
         # CONTRATO 59 C1: eco del rango de dominio del target usado para
         # normalizar (None en clasificación) — fuente auditable para que
@@ -1683,6 +1689,11 @@ def _dense_torch_train_result(
         "evaluation_backend": evaluation_backend,
         "evaluation_warning": evaluation_warning,
         "effective_batch_size": tr.get("batch_size"),
+        # El ESFUERZO, con los mismos numeros que el camino stdlib: la
+        # epoca no es comparable entre maquinas, la actualizacion de
+        # pesos si.
+        "effort": _esfuerzo(
+            int(tr.get("train_rows") or 0), int(tr.get("batch_size") or 1), len(epoch_trace)),
         "epochs": epoch_trace,
         # C3: modelo pequeño → dict de valores (igual que siempre); modelo grande →
         # MARCADOR (sin valores), y los tensores viajan en `best_state_dict` (en

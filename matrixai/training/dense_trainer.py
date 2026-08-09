@@ -19,7 +19,12 @@ from matrixai.parser import parse_file
 from matrixai.training.data import CSVDataAdapter, SupervisedExample, dataset_fingerprint
 from matrixai.training.dense_backprop import dense_train_step, compute_loss
 from matrixai.training.dense_evaluator import DenseEvaluationResult, evaluate_dense_network
-from matrixai.training.spec import EvaluationResult, TrainingRunResult, TrainingSpec
+from matrixai.training.spec import (
+    EvaluationResult,
+    TrainingRunResult,
+    TrainingSpec,
+    esfuerzo_de_entrenamiento,
+)
 
 
 def _resolve_path(value: str, base: Path) -> Path | None:
@@ -227,6 +232,15 @@ class DenseSupervisedTrainer:
                 "parameter_set": str(ps_path),
                 "training_trace": str(trace_path),
             },
+            # El lote REAL de este camino es 1: el bucle actualiza los
+            # pesos ejemplo a ejemplo e IGNORA el `BATCH size=` del spec.
+            # Medido, no leído: 153 actualizaciones para 51 filas × 3
+            # épocas con el spec pidiendo lote 8.
+            #
+            # Se declara en vez de repetir aquí lo que dice el contrato,
+            # porque lo que hay que poder comparar entre dos máquinas es
+            # lo que PASÓ, no lo que se pidió.
+            effort=esfuerzo_de_entrenamiento(len(train_ex), 1, epochs),
         )
 
     def _load_examples(

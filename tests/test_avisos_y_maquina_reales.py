@@ -147,3 +147,100 @@ class TestLaEstimacionDiceDeQueMAQUINA:
             est = ((r.get("architecture_decision") or {}).get("policy") or {}).get("resource_estimate")
             assert est is not None, "sin estimacion no se puede medir nada"
             assert est["assumptions"]["device"] == device, est["assumptions"]
+
+
+class TestElEsfuerzoDelRun:
+    """Recomendacion #1 de Roberto: que el producto DIGA que las mismas
+    «50 epocas» no son lo mismo en CPU y en GPU.
+
+    La epoca no es una unidad comparable entre maquinas; la actualizacion
+    de pesos si. Medido con un millon de filas:
+
+    | camino                       | lote   | pasos por epoca |
+    |------------------------------|--------|-----------------|
+    | stdlib (por defecto sin GPU) |      1 |       1.000.000 |
+    | torch en CPU                 |      8 |         125.000 |
+    | torch en CUDA                | 16.384 |              62 |
+
+    Dieciseis mil veces entre los extremos.
+    """
+
+    def test_la_cuenta_de_pasos_redondea_HACIA_ARRIBA(self):
+        """Con 51 filas y lote 8 son SIETE pasos, no seis: la ultima
+        hornada cuenta aunque no llene el lote."""
+        from matrixai.training.spec import esfuerzo_de_entrenamiento as e
+        assert e(51, 8, 3)["steps_per_epoch"] == 7
+        assert e(51, 8, 3)["weight_updates"] == 21
+
+    def test_los_tres_caminos_del_barrido(self):
+        from matrixai.training.spec import esfuerzo_de_entrenamiento as e
+        filas = 1_000_000
+        assert e(filas, 1, 50)["steps_per_epoch"] == 1_000_000
+        assert e(filas, 8, 50)["steps_per_epoch"] == 125_000
+        assert e(filas, 16384, 50)["steps_per_epoch"] == 62
+
+    def test_los_bordes_no_lanzan_y_no_dividen_por_cero(self):
+        from matrixai.training.spec import esfuerzo_de_entrenamiento as e
+        assert e(0, 8, 3)["steps_per_epoch"] == 0
+        assert e(51, 0, 3)["effective_batch_size"] == 1  # lote 0 no existe
+        assert e(51, 8, 0)["weight_updates"] == 0
+
+    def test_el_camino_stdlib_declara_su_lote_REAL_que_es_1(self, monkeypatch, tmp_path):
+        """Y no el del spec.
+
+        Medido con una sonda antes de escribir esto: 153 actualizaciones
+        para 51 filas y 3 epocas, con el `.mxtrain` pidiendo `BATCH
+        size=8`. El bucle de stdlib actualiza ejemplo a ejemplo e IGNORA
+        el lote declarado — asi que decir el del spec seria mentir sobre
+        lo que paso.
+        """
+        import sys
+        import time
+
+        sys.path.insert(0, "tests")
+        from matrixai.playground import _get_job_status, _submit_training_job
+        from matrixai.training.dense_generator import DenseNetworkGenerator
+        from test_camino_gpu_modelos_del_prompt import _csv_para
+
+        monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", "stdlib")
+        r = DenseNetworkGenerator().generate(
+            "clasificar si un pedido llega tarde a partir de la distancia y el peso")
+        assert "BATCH size=8" in r.training_text
+        env = _submit_training_job(r.mxai_text, r.training_text, _csv_para(r, 64), epochs_override=3)
+        for _ in range(600):
+            st = _get_job_status(env["job_id"])
+            if st.get("status") in ("done", "error"):
+                break
+            time.sleep(0.1)
+        assert st.get("status") == "done"
+        esfuerzo = st.get("effort")
+        assert esfuerzo is not None, "el core no declara el esfuerzo del run"
+        assert esfuerzo["effective_batch_size"] == 1, esfuerzo
+        assert esfuerzo["weight_updates"] == esfuerzo["train_rows"] * 3, esfuerzo
+
+    def test_el_camino_torch_declara_el_SUYO_y_es_distinto(self, monkeypatch):
+        import sys
+        import time
+
+        sys.path.insert(0, "tests")
+        from matrixai.playground import _get_job_status, _submit_training_job
+        from matrixai.training.dense_generator import DenseNetworkGenerator
+        from test_camino_gpu_modelos_del_prompt import _csv_para
+
+        r = DenseNetworkGenerator().generate(
+            "clasificar si un pedido llega tarde a partir de la distancia y el peso")
+        csv = _csv_para(r, 64)
+        esfuerzos = {}
+        for backend in ("stdlib", "torch"):
+            monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", backend)
+            env = _submit_training_job(r.mxai_text, r.training_text, csv, epochs_override=3)
+            for _ in range(600):
+                st = _get_job_status(env["job_id"])
+                if st.get("status") in ("done", "error"):
+                    break
+                time.sleep(0.1)
+            assert st.get("status") == "done", st.get("error")
+            esfuerzos[backend] = st.get("effort")
+        assert esfuerzos["stdlib"] is not None and esfuerzos["torch"] is not None
+        # Lo que hay que poder ver: MISMAS epocas, esfuerzo distinto.
+        assert esfuerzos["stdlib"]["weight_updates"] > esfuerzos["torch"]["weight_updates"]
