@@ -303,3 +303,100 @@ class TestElMotorYLaMaquinaSonDosHechos:
             assert st.get("backend") == motor, st.get("backend")
             # La maquina, SIEMPRE declarada — antes con stdlib no se sabia.
             assert st.get("device") in ("cpu", "cuda"), st.get("device")
+
+
+class TestElCsvPropioQueNoValiaParaReentrenar:
+    """Hallazgo de Roberto (H-7), recargando su CSV de lluvia:
+
+        Faltan: predicted_class. Esperadas: temp_max, temp_min,
+        temp_mean, rain, wind_speed, pressure, pressure_delta, humidity,
+        cloud_cover, dew_point, precip_hours, wind_dir_sin,
+        wind_dir_cos, predicted_class … Encontradas: …, llueve_manana.
+
+    Catorce nombres para decir que sobra uno y falta otro. Y el que falta
+    es un nombre que **se invento el core**: `predicted_class` sale de la
+    activacion de salida, no lo eligio nadie. Su CSV, que es el de
+    verdad, la llama `llueve_manana`.
+    """
+
+    ESPERADAS = [
+        "temp_max", "temp_min", "temp_mean", "rain", "wind_speed", "pressure",
+        "pressure_delta", "humidity", "cloud_cover", "dew_point", "precip_hours",
+        "wind_dir_sin", "wind_dir_cos", "predicted_class",
+    ]
+    SUYAS = ESPERADAS[:-1] + ["llueve_manana"]
+
+    def test_el_caso_de_Roberto_se_dice_en_una_frase(self):
+        from matrixai.playground import diagnostico_de_columnas as d
+        assert d(self.ESPERADAS, self.SUYAS, "predicted_class") == {
+            "falta": "predicted_class", "sobra": "llueve_manana",
+        }
+
+    def test_con_VARIAS_columnas_mal_NO_se_inventa_una_frase_corta(self):
+        """Con dos o mas no hay una frase que sea cierta: se cae a la
+        lista completa, que es lo que habia."""
+        from matrixai.playground import diagnostico_de_columnas as d
+        assert d(self.ESPERADAS, self.SUYAS[:-3] + ["otra"], "predicted_class") is None
+
+    def test_si_la_que_falta_NO_es_el_objetivo_tampoco(self):
+        """Una columna de ENTRADA mal es otro problema: puede que sobre,
+        puede que este mal escrita, y renombrar la que sobra podria
+        entrenar contra el dato equivocado."""
+        from matrixai.playground import diagnostico_de_columnas as d
+        sin_humedad = [c for c in self.ESPERADAS if c != "humidity"] + ["humedad"]
+        assert d(self.ESPERADAS, sin_humedad, "predicted_class") is None
+
+    def test_POR_EL_VALIDADOR_de_verdad_no_solo_por_la_funcion(self):
+        """El revert-restore dejo la suite VERDE con las pruebas de
+        arriba: cubrian la funcion pura y no que el validador la USE.
+
+        Este es el camino del producto — de aqui sale el mensaje que
+        Roberto vio, que empieza por «Validar datos:».
+        """
+        from matrixai.playground import _validate_training_csv
+        from matrixai.training.dense_generator import DenseNetworkGenerator
+
+        r = DenseNetworkGenerator().generate(
+            "clasificar si llovera mañana a partir de la humedad y la presion")
+        cols = r.dataset_template_text.splitlines()[0].split(",")
+        objetivo = cols[-1]
+        # Su CSV: todo igual, la objetivo con OTRO nombre.
+        cab = ",".join([*cols[:-1], "llueve_manana"])
+        csv = cab + "\n" + ",".join(["0.5"] * (len(cols) - 1) + ["1"]) + "\n"
+
+        v = _validate_training_csv(r.mxai_text, r.training_text, csv)
+        assert v["ok"] is False
+        assert "llueve_manana" in v["error"] and objetivo in v["error"]
+        assert "columna objetivo" in v["error"]
+        # Y la lista de catorce nombres YA NO aparece.
+        assert "Esperadas:" not in v["error"], v["error"]
+        # La pista, para que la interfaz pueda ofrecer el renombrado.
+        assert v["rename_hint"] == {"falta": objetivo, "sobra": "llueve_manana"}
+
+    def test_con_varias_mal_el_validador_SIGUE_dando_la_lista(self):
+        """Lo que habia no se pierde: con dos o mas columnas mal, la
+        lista completa es la unica respuesta cierta."""
+        from matrixai.playground import _validate_training_csv
+        from matrixai.training.dense_generator import DenseNetworkGenerator
+
+        r = DenseNetworkGenerator().generate(
+            "clasificar si llovera mañana a partir de la humedad y la presion")
+        cols = r.dataset_template_text.splitlines()[0].split(",")
+        cab = ",".join([*cols[:-2], "otra_cosa", "llueve_manana"])
+        csv = cab + "\n" + ",".join(["0.5"] * (len(cols) - 1) + ["1"]) + "\n"
+
+        v = _validate_training_csv(r.mxai_text, r.training_text, csv)
+        assert v["ok"] is False
+        assert "Esperadas:" in v["error"]
+        assert "rename_hint" not in v
+
+    def test_NO_se_renombra_sola(self):
+        """Se DICE que hay que renombrar; no se hace.
+
+        Entrenar contra una columna que nadie ha confirmado es peor que
+        no entrenar: el nombre que sobra podria ser cualquier cosa.
+        """
+        from matrixai.playground import diagnostico_de_columnas as d
+        r = d(self.ESPERADAS, self.SUYAS, "predicted_class")
+        # Devuelve el diagnostico, no una decision: quien llama decide.
+        assert set(r) == {"falta", "sobra"}

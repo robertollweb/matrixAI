@@ -981,6 +981,38 @@ def _suggest_field_ranges(mxai_text: str, training_text: str) -> dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
+def diagnostico_de_columnas(
+    esperadas: list[str], encontradas: list[str], objetivo: str,
+) -> dict[str, Any] | None:
+    """El caso de UNA sola columna mal, dicho en una frase.
+
+    Roberto, recargando su CSV de lluvia para reentrenar:
+
+        Faltan: predicted_class. Esperadas: temp_max, temp_min,
+        temp_mean, rain, wind_speed, pressure, pressure_delta, humidity,
+        cloud_cover, dew_point, precip_hours, wind_dir_sin, wind_dir_cos,
+        predicted_class … Encontradas: …, llueve_manana.
+
+    Catorce nombres para decir que sobra uno y falta otro. Y el que falta
+    es un nombre que **se invento el core** al generar el modelo desde una
+    frase: `predicted_class` no lo eligio nadie, sale de la activacion de
+    salida. Su CSV, que es el de verdad, la llama `llueve_manana`.
+
+    Cuando falta EXACTAMENTE una y sobra EXACTAMENTE una, y la que falta
+    es la columna OBJETIVO, se puede decir qué hacer en una linea. No se
+    renombra sola: entrenar contra una columna que nadie ha confirmado es
+    peor que no entrenar.
+
+    Devuelve `None` cuando el caso no es ese — con varias columnas mal no
+    hay una frase corta que sea cierta.
+    """
+    faltan = [c for c in esperadas if c not in encontradas]
+    sobran = [c for c in encontradas if c not in esperadas]
+    if len(faltan) != 1 or len(sobran) != 1 or faltan[0] != objetivo:
+        return None
+    return {"falta": faltan[0], "sobra": sobran[0]}
+
+
 def _expected_csv_columns(training: Any) -> tuple[list[str], str]:
     """M16 — columnas que un CSV subido debe CONTENER: features de INPUT FROM COLUMNS + la
     columna target (su nombre semántico del TARGET, p. ej. `estado`). Se leen por nombre:
@@ -1163,6 +1195,9 @@ def _validate_training_csv(
     found_columns = [c.strip() for c in header_line.split(",") if c.strip()]
     missing = [c for c in expected_columns if c not in found_columns]
     if missing:
+        # ¿Es el caso de UNA sola columna mal? Entonces se dice en una
+        # frase, en vez de listar catorce nombres.
+        _una = diagnostico_de_columnas(expected_columns, found_columns, target_column)
         return {
             "ok": False,
             "expected_columns": expected_columns,
@@ -1170,17 +1205,28 @@ def _validate_training_csv(
             "missing_columns": missing,
             "target_column": target_column,
             "error": (
+                f"Tu CSV trae «{_una['sobra']}» donde el modelo espera «{_una['falta']}», "
+                f"que es la columna objetivo. Las demás columnas están bien. Renómbrala "
+                f"en tu CSV, o vuelve a generar el modelo diciendo cómo se llama."
+                if _una is not None else
                 f"El CSV no tiene las columnas esperadas. Faltan: {', '.join(missing)}. "
                 f"Esperadas: {', '.join(expected_columns)} (la columna objetivo es "
                 f"'{target_column}'). Encontradas: {', '.join(found_columns) or '(ninguna)'}. "
                 f"Descarga la plantilla para ver el formato exacto."
             ),
             "error_en": (
+                f"Your CSV has «{_una['sobra']}» where the model expects «{_una['falta']}», "
+                f"which is the target column. Every other column is fine. Rename it in your "
+                f"CSV, or generate the model again saying what it is called."
+                if _una is not None else
                 f"The CSV is missing expected columns. Missing: {', '.join(missing)}. "
                 f"Expected: {', '.join(expected_columns)} (target column is '{target_column}'). "
                 f"Found: {', '.join(found_columns) or '(none)'}. Download the template for the "
                 f"exact format."
             ),
+            # Para que la interfaz pueda ofrecer el renombrado sin volver
+            # a adivinar cuál es cuál.
+            **({"rename_hint": _una} if _una is not None else {}),
             "error_kind": "csv_columns",
         }
 
