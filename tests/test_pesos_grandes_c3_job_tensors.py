@@ -145,7 +145,9 @@ class JobCarriesTensorsTest(unittest.TestCase):
         import torch
         res = self._train("1")
         # el bug de la frontera C2 era caer a stdlib; C3 lo cierra de verdad
-        self.assertEqual(res["backend"], "cuda" if torch.cuda.is_available() else "cpu")
+        # El motor y la maquina, en campos distintos.
+        self.assertEqual(res["backend"], "torch")
+        self.assertEqual(res["device"], "cuda" if torch.cuda.is_available() else "cpu")
 
     def test_large_model_result_without_tensors_is_json_serializable(self) -> None:
         res = self._train("1")

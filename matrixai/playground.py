@@ -1309,6 +1309,37 @@ def _build_spec_with_epochs(training: Any, epochs_override: int | None) -> Any:
     return _dc.replace(training, run=new_run)
 
 
+def motor_y_maquina(motor: str, dispositivo: str) -> dict[str, str]:
+    """Qué MOTOR entrenó y en qué MÁQUINA — dos hechos, dos campos.
+
+    El campo `backend` hablaba dos idiomas: el camino stdlib decía el
+    MOTOR («stdlib») y el de torch decía el DISPOSITIVO («cpu», «cuda»).
+    Juntarlos perdía información en los dos sentidos: con «stdlib» no se
+    sabía la máquina, y con «cpu» no se sabía si había sido torch.
+
+    Se conserva `backend` —lo leen runs guardados y la interfaz— pero
+    ahora significa SIEMPRE el motor, y la máquina va aparte.
+
+    Para lo guardado con la forma vieja está `motor_y_maquina_de`, que
+    deduce: un `backend` que sea «cpu» o «cuda» era torch diciendo su
+    dispositivo.
+    """
+    return {"backend": motor, "device": dispositivo}
+
+
+def motor_y_maquina_de(resultado: dict[str, Any]) -> dict[str, str]:
+    """Lee el motor y la máquina de un resultado, sea de la forma NUEVA o
+    de la vieja. Un run guardado antes de esto solo trae `backend`."""
+    backend = str(resultado.get("backend") or "stdlib")
+    device = resultado.get("device")
+    if device:
+        return {"backend": backend, "device": str(device)}
+    # Forma vieja: si `backend` nombra una máquina, el motor era torch.
+    if backend in ("cpu", "cuda") or backend.startswith("cuda"):
+        return {"backend": "torch", "device": backend}
+    return {"backend": backend, "device": "cpu"}
+
+
 def _collect_training_result(
     tmp: Path, run_result: Any, spec: Any,
     target_range: tuple[float, float] | None = None,
@@ -1400,7 +1431,7 @@ def _collect_training_result(
         "confusion_matrix": er.get("confusion_matrix"),
         "labels": er.get("labels"),
         "per_label": er.get("per_label"),
-        "backend": backend,
+        **motor_y_maquina(backend, "cpu"),
         "epochs": metrics.get("epochs", []),
         "params_best": params_best_data,
         "metrics": metrics,
@@ -1685,7 +1716,7 @@ def _dense_torch_train_result(
         "mae": er.get("mae"),
         "rmse": er.get("rmse"),
         "r2": er.get("r2"),
-        "backend": device,
+        **motor_y_maquina("torch", device),
         "evaluation_backend": evaluation_backend,
         "evaluation_warning": evaluation_warning,
         "effective_batch_size": tr.get("batch_size"),
@@ -2091,7 +2122,8 @@ def _run_playground_composite_training(
             "mae": evaluation_report.get("mae"),
             "rmse": evaluation_report.get("rmse"),
             "r2": evaluation_report.get("r2"),
-            "backend": backend_label,
+            **motor_y_maquina("torch" if backend_label != "stdlib" else "stdlib",
+                              device if backend_label != "stdlib" else "cpu"),
             "evaluation_backend": composite_eval_backend,
             "evaluation_warning": composite_eval_warning,
             "effective_batch_size": effective_batch_size,
@@ -2299,7 +2331,7 @@ def _run_playground_transformer_training(
             "mae": evaluation_report.get("mae"),
             "rmse": evaluation_report.get("rmse"),
             "r2": evaluation_report.get("r2"),
-            "backend": device,
+            **motor_y_maquina("torch", device),
             "evaluation_backend": device,
             "evaluation_warning": None,
             "effective_batch_size": effective_batch_size,
@@ -2596,7 +2628,7 @@ def _run_playground_generic_training(
             "confusion_matrix": (evaluation_report or {}).get("confusion_matrix"),
             "labels": (evaluation_report or {}).get("labels"),
             "per_label": (evaluation_report or {}).get("per_label"),
-            "backend": "stdlib",
+            **motor_y_maquina("stdlib", "cpu"),
             "epochs": epoch_trace,
             "params_best": best_ps.to_dict(),
             "metrics": {"epochs": epoch_trace},

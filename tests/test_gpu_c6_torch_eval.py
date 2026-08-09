@@ -269,7 +269,9 @@ def test_playground_torch_path_reports_metrics(monkeypatch):
     assert r["ok"], r.get("error")
     import torch
     expected_device = "cuda" if torch.cuda.is_available() else "cpu"
-    assert r["backend"] == expected_device
+    # `backend` es el MOTOR; la maquina va en `device`.
+    assert r["backend"] == "torch"
+    assert r["device"] == expected_device
     assert r["evaluation_backend"] == expected_device
     assert r["evaluation_warning"] is None
     assert r["accuracy"] is not None

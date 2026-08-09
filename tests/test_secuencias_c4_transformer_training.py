@@ -114,7 +114,10 @@ class TestSyncTraining:
         assert r["ok"], r.get("error")
         assert r["network_kind"] == "composite_network"
         assert r["params_best"] is not None
-        assert r["backend"] in ("cpu", "cuda")
+        # El MOTOR y la MAQUINA, separados: antes `backend` decia el
+        # dispositivo y no habia forma de saber que el motor era torch.
+        assert r["backend"] == "torch"
+        assert r["device"] in ("cpu", "cuda")
         assert r["epochs"], "no epoch trace recorded"
 
     def test_transformer_exposes_classification_metrics(self):

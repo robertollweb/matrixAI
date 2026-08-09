@@ -244,3 +244,62 @@ class TestElEsfuerzoDelRun:
         assert esfuerzos["stdlib"] is not None and esfuerzos["torch"] is not None
         # Lo que hay que poder ver: MISMAS epocas, esfuerzo distinto.
         assert esfuerzos["stdlib"]["weight_updates"] > esfuerzos["torch"]["weight_updates"]
+
+
+class TestElMotorYLaMaquinaSonDosHechos:
+    """Recomendacion #2 de Roberto, aprobada.
+
+    El campo `backend` hablaba DOS idiomas: el camino stdlib decia el
+    MOTOR («stdlib») y el de torch decia el DISPOSITIVO («cpu», «cuda»).
+    Juntarlos perdia informacion en los dos sentidos — con «stdlib» no se
+    sabia la maquina, y con «cpu» no se sabia si habia sido torch.
+    """
+
+    def test_los_dos_campos_salen_separados(self):
+        from matrixai.playground import motor_y_maquina
+        assert motor_y_maquina("torch", "cuda") == {"backend": "torch", "device": "cuda"}
+        assert motor_y_maquina("stdlib", "cpu") == {"backend": "stdlib", "device": "cpu"}
+
+    def test_un_run_GUARDADO_con_la_forma_vieja_no_se_pierde(self):
+        """Lo importante del cambio: no romper lo que ya existe.
+
+        Un run de antes solo trae `backend`. Si nombra una MAQUINA, el
+        motor era torch — y deducirlo es mejor que perder el dato.
+        """
+        from matrixai.playground import motor_y_maquina_de as leer
+        assert leer({"backend": "cuda"}) == {"backend": "torch", "device": "cuda"}
+        assert leer({"backend": "cpu"}) == {"backend": "torch", "device": "cpu"}
+        assert leer({"backend": "stdlib"}) == {"backend": "stdlib", "device": "cpu"}
+
+    def test_la_forma_nueva_manda_sobre_la_deduccion(self):
+        from matrixai.playground import motor_y_maquina_de as leer
+        assert leer({"backend": "torch", "device": "cuda"})["device"] == "cuda"
+
+    def test_sin_nada_no_se_inventa_una_gpu(self):
+        from matrixai.playground import motor_y_maquina_de as leer
+        assert leer({}) == {"backend": "stdlib", "device": "cpu"}
+
+    def test_por_el_PIPELINE_los_dos_caminos_declaran_las_dos_cosas(self, monkeypatch):
+        import sys
+        import time
+
+        sys.path.insert(0, "tests")
+        from matrixai.playground import _get_job_status, _submit_training_job
+        from matrixai.training.dense_generator import DenseNetworkGenerator
+        from test_camino_gpu_modelos_del_prompt import _csv_para
+
+        r = DenseNetworkGenerator().generate(
+            "clasificar si un pedido llega tarde a partir de la distancia y el peso")
+        csv = _csv_para(r, 64)
+        for backend, motor in (("stdlib", "stdlib"), ("torch", "torch")):
+            monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", backend)
+            env = _submit_training_job(r.mxai_text, r.training_text, csv, epochs_override=2)
+            for _ in range(600):
+                st = _get_job_status(env["job_id"])
+                if st.get("status") in ("done", "error"):
+                    break
+                time.sleep(0.1)
+            assert st.get("status") == "done", st.get("error")
+            assert st.get("backend") == motor, st.get("backend")
+            # La maquina, SIEMPRE declarada — antes con stdlib no se sabia.
+            assert st.get("device") in ("cpu", "cuda"), st.get("device")

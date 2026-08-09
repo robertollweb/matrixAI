@@ -199,15 +199,18 @@ class TestLosDosCaminosLlevanAlMismoSitio:
     def test_cada_uno_declara_el_backend_que_uso_de_verdad(self, clave, monkeypatch):
         """Sin esto no se puede saber cual de los dos caminos se midio.
 
-        OJO al contrato real, medido: el campo `backend` NO usa el mismo
-        vocabulario en los dos caminos. El de stdlib dice el BACKEND
-        («stdlib»); el de torch dice el DISPOSITIVO («cpu» aqui, «cuda» en
-        una maquina con GPU). Es la interfaz quien lo enseña, asi que se
-        fija tal cual es — y queda anotado como divergencia.
+        Esta divergencia se ARREGLO (recomendacion #2 de Roberto): el
+        campo `backend` hablaba dos idiomas — el camino stdlib decia el
+        MOTOR y el de torch decia el DISPOSITIVO, asi que leyendo «cpu»
+        no habia forma de saber si habia sido torch. Ahora son dos
+        campos, y aqui se comprueban los dos.
         """
         r = _modelo(clave)
-        assert _entrenar(r, "stdlib", monkeypatch)["backend"] == "stdlib"
-        assert _entrenar(r, "torch", monkeypatch)["backend"] in ("cpu", "cuda")
+        s = _entrenar(r, "stdlib", monkeypatch)
+        t = _entrenar(r, "torch", monkeypatch)
+        assert (s["backend"], s["device"]) == ("stdlib", "cpu")
+        assert t["backend"] == "torch"
+        assert t["device"] in ("cpu", "cuda")
 
     def test_la_forma_del_resultado_es_la_MISMA(self, clave, monkeypatch):
         """Que las dos digan lo mismo importa tanto como que entrenen: la

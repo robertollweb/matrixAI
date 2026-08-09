@@ -117,7 +117,11 @@ def test_dense_torch_path_through_studio(monkeypatch):
     r = _run_playground_dense_training(DENSE_MXAI, DENSE_TRAIN, _csv(), epochs_override=10)
     assert r["ok"], r.get("error")
     import torch
-    assert r["backend"] == ("cuda" if torch.cuda.is_available() else "cpu")
+    # El campo `backend` ya NO nombra el dispositivo: dice el MOTOR, y la
+    # maquina va en `device`. Se comprueban los DOS, que es mas de lo que
+    # se comprobaba antes — «cpu» a secas no decia si habia sido torch.
+    assert r["backend"] == "torch"
+    assert r["device"] == ("cuda" if torch.cuda.is_available() else "cpu")
     assert r["params_best"] is not None
     assert r["epochs"]                          # epoch trace present
 
@@ -140,7 +144,9 @@ def test_dense_torch_path_above_threshold_does_not_fall_back_to_stdlib(monkeypat
     r = _run_playground_dense_training(DENSE_MXAI, DENSE_TRAIN, _csv(), epochs_override=5)
     assert r["ok"], r.get("error")
     # el síntoma del bug era backend == "stdlib" (fallback tras el crash de to_dict)
-    assert r["backend"] == ("cuda" if torch.cuda.is_available() else "cpu")
+    import torch
+    assert r["backend"] == "torch"
+    assert r["device"] == ("cuda" if torch.cuda.is_available() else "cpu")
     assert r["params_best"] is not None
     # y params_best debe ser un dict usable (lo que to_dict produce), no None
     assert isinstance(r["params_best"], dict)
@@ -153,7 +159,11 @@ def test_composite_torch_path_through_studio(monkeypatch):
     r = _run_playground_composite_training(COMPOSITE_MXAI, COMPOSITE_TRAIN, _csv(), epochs_override=10)
     assert r["ok"], r.get("error")
     import torch
-    assert r["backend"] == ("cuda" if torch.cuda.is_available() else "cpu")
+    # El campo `backend` ya NO nombra el dispositivo: dice el MOTOR, y la
+    # maquina va en `device`. Se comprueban los DOS, que es mas de lo que
+    # se comprobaba antes — «cpu» a secas no decia si habia sido torch.
+    assert r["backend"] == "torch"
+    assert r["device"] == ("cuda" if torch.cuda.is_available() else "cpu")
     assert r["network_kind"] == "composite_network"
     assert r["params_best"] is not None
     expected_batch = 32 if torch.cuda.is_available() else 8
