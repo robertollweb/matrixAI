@@ -305,7 +305,7 @@ class DenseNetworkGenerator:
 
         depth_note = f"depth from prompt ({len(resolved_hidden)} layers)" if self._DEPTH_RE.search(_norm(clean)) else "default depth"
         assumptions = [
-            f"DenseNetworkGenerator inferred task={task}",
+            f"DenseNetworkGenerator inferred task={task} ({self._porque_esa_tarea(clean, resolved_labels or None, task)})",
             f"input_dim={input_dim} from {len(resolved_fields)} fields",
             f"hidden architecture: {resolved_hidden} ({depth_note})",
             f"loss={loss_type}, output_activation={output_activation}",
@@ -391,15 +391,90 @@ class DenseNetworkGenerator:
     def _extract_early_stop(self, prompt: str) -> tuple[int, str] | None:
         return extract_early_stop_from_prompt(prompt)
 
+    # CONTRATO 70 C1 — conectores que separan el OBJETIVO de las COLUMNAS.
+    # "predecir X a partir de Y": lo que se predice es X; Y son features.
+    _CONECTORES_DE_ENTRADA = [
+        " a partir de ", " segun ", " en funcion de ", " basandose en ",
+        " from ", " based on ", " using ", " given ",
+    ]
+
+    # CONTRATO 70 C2 — formas que describen un SI/NO, sea cual sea el verbo.
+    # "predecir si llovera" es una pregunta de si o no, no un numero.
+    _PREGUNTA_SI_NO = [
+        "predecir si ", "prever si ", "saber si ", "decir si ", "determinar si ",
+        "predict if ", "predict whether ", "know if ", "tell if ", "determine whether ",
+    ]
+
+    def _objetivo_del_prompt(self, text: str) -> str:
+        """CONTRATO 70 C1 — la parte del prompt que dice QUE se predice.
+
+        `_REGRESSION_KEYWORDS` contiene `temperatura`, `consumo`, `valor`,
+        `precio`… que son justo los nombres que la gente le pone a las
+        COLUMNAS DE ENTRADA. Medido: «detectar una averia rara a partir de
+        vibracion, temperatura y velocidad del viento» salia REGRESION —
+        tiene "detec" (binaria) en el verbo y "temperatura" en una feature,
+        y ganaba la de regresion porque se miraba antes.
+
+        El propio comentario de este metodo ya lo admitia: «which may
+        match feature names». Ahora se corta por el conector y las
+        palabras de regresion solo cuentan en el objetivo.
+
+        Sin conector, se devuelve el prompt entero: cortar por donde no
+        hay corte seria inventarse una separacion.
+        """
+        for conector in self._CONECTORES_DE_ENTRADA:
+            i = text.find(conector)
+            if i > 0:
+                return text[:i]
+        return text
+
+    def _porque_esa_tarea(self, prompt: str, labels: list[str] | None, task: str) -> str:
+        """CONTRATO 70 C3 — POR QUE se eligio esa tarea, y como cambiarla.
+
+        `assumptions` decia `inferred task=regression`: un resultado sin
+        razon. Quien lee eso no sabe si el core entendio su frase o si
+        cayo en el valor por defecto — y son cosas muy distintas cuando
+        la tarea equivocada devuelve un numero en vez de un si/no.
+        """
+        text = _norm(prompt).lower()
+        if _any(text, self._PREGUNTA_SI_NO) or _any(text, ["clasificar si ", "classify if "]):
+            return "la frase pregunta SI o NO"
+        if _any(text, self._STRONG_CLASSIFICATION_KEYWORDS):
+            return "la frase dice clasificar"
+        if _any(self._objetivo_del_prompt(text), self._REGRESSION_KEYWORDS):
+            return "lo que se predice es una magnitud"
+        if labels is not None:
+            return f"vienen {len(labels)} etiquetas declaradas"
+        if _any(text, self._BINARY_KEYWORDS) or _any(text, self._MULTICLASS_KEYWORDS):
+            return "por el vocabulario de la frase"
+        # El unico caso en que NO se ha entendido nada: hay que decirlo,
+        # y decir como se arregla.
+        return (
+            "POR DEFECTO: la frase no dice si se predice un numero o una clase. "
+            "Escribe «clasificar si …» para un si/no, «clasificar … en A, B, C» "
+            "para varias clases, o nombra la magnitud para una regresion"
+        )
+
     def _detect_task(self, prompt: str, labels: list[str] | None) -> str:
         # Regression keywords in the prompt take priority over LLM-supplied labels,
         # preventing an over-eager LLM from turning "predict price" into a classifier.
         # Exception: explicit classification vocabulary ("clasificación multiclase",
         # "classify") outranks regression keywords, which may match feature names.
+        #
+        # CONTRATO 70: esa prioridad creo el sesgo CONTRARIO. Se conserva
+        # —el caso «predict price» es lo que protege el contrato 59— pero
+        # ahora (C1) solo mira el OBJETIVO, no las columnas, y (C2) una
+        # pregunta de si/no gana sobre ella.
         text = _norm(prompt).lower()
         if _any(text, self._STRONG_CLASSIFICATION_KEYWORDS):
             if labels is not None:
                 return "binary" if len(labels) == 2 else "multiclass"
+            # CONTRATO 70 C2 — «clasificar SI …» tambien es un si/no. El
+            # contrato dice «sea cual sea el verbo», y sin esto caia en
+            # `multiclass` con etiquetas inventadas por defecto: tres
+            # clases para una pregunta de dos.
+            if _any(text, ["clasificar si ", "categorizar si ", "classify if ", "classify whether "]):
+                return "binary"
             # GEN C4 fix: "binari" (stem) catches both "binario" and the
             # feminine-agreement "binaria" ("clasificación binaria"), which the
             # exact word "binario" was silently missing — that miss used to fall
@@ -408,7 +483,15 @@ class DenseNetworkGenerator:
             if _any(text, ["binari", "binary", "dos clases", "two classes"]):
                 return "binary"
             return "multiclass"
-        if _any(text, self._REGRESSION_KEYWORDS):
+        # C2 — «predecir SI …» es un si/no, sea cual sea el verbo. Va
+        # ANTES que las palabras de regresion: «predecir» esta entre
+        # ellas, asi que sin esto la pregunta no se llega a leer nunca.
+        if _any(text, self._PREGUNTA_SI_NO):
+            if labels is not None and len(labels) > 2:
+                return "multiclass"
+            return "binary"
+        # C1 — solo en el OBJETIVO, no en las columnas de entrada.
+        if _any(self._objetivo_del_prompt(text), self._REGRESSION_KEYWORDS):
             return "regression"
         if labels is not None:
             if len(labels) == 2:
