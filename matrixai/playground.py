@@ -3881,6 +3881,7 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                         # detecta para entrenar— y el generador no la
                         # adivina: se la dicen.
                         prompt, rows=dataset_rows, device=_select_train_backend()[1],
+                        locale=_locale,
                         **({"hidden_layers_source": _hidden_layers_origin}
                            if llm_kwargs.get("hidden_layers") else {}),
                         **llm_kwargs,

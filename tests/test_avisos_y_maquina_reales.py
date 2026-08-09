@@ -65,6 +65,39 @@ class TestLosAvisosHablanElIdiomaQueSePide:
         assert any("Contrato .mxtrain" in w for w in avisos), avisos
 
 
+class TestLoQueElGeneradorEXPLICA:
+    """La ultima cadena en español que quedaba en la pantalla inglesa.
+
+    Es un REGISTRO de decision —«arquitectura de origen 'llm': 64-32,
+    2.369 parámetros»— y por eso se traduce en el core y no al pintarlo:
+    reescribirlo en la interfaz seria tener dos versiones de lo que el
+    core decidio.
+
+    Con el aviso de dataset pequeño va el mismo argumento, y ese ademas
+    es de los que sirven para algo: dice que el modelo puede memorizar en
+    vez de aprender.
+    """
+
+    def test_el_porque_de_la_arquitectura_y_el_aviso_de_datos_pequeños(self):
+        gen = DenseNetworkGenerator()
+        es = (gen.generate(PROMPT, rows=40, locale="es").architecture_decision or {})
+        en = (gen.generate(PROMPT, rows=40, locale="en").architecture_decision or {})
+        assert "dimensión efectiva" in es["rationale"]
+        assert "effective input dimension" in en["rationale"]
+        assert any("es pequeño para" in w for w in (es.get("warnings") or []))
+        assert any("is small for" in w for w in (en.get("warnings") or []))
+
+    def test_sin_pedir_idioma_sigue_en_español(self):
+        r = DenseNetworkGenerator().generate(PROMPT, rows=40)
+        assert "dimensión efectiva" in (r.architecture_decision or {})["rationale"]
+
+    def test_por_el_PIPELINE_llega_el_idioma_al_generador(self):
+        """El cableado, que es donde estaba el hueco las dos veces."""
+        r = analyze_playground_request({"mode": "prompt", "prompt": PROMPT, "locale": "en"})
+        porque = ((r.get("architecture_decision") or {}).get("policy") or {}).get("rationale") or ""
+        assert "effective input dimension" in porque, porque
+
+
 class TestLaEstimacionDiceDeQueMAQUINA:
     def test_el_supuesto_declarado_es_la_maquina_que_se_le_dice(self):
         for device in ("cpu", "cuda"):

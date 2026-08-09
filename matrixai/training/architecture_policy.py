@@ -195,18 +195,56 @@ def budget_for(rows: int) -> dict[str, Any]:
     }
 
 
+# Los textos de la POLITICA, en los dos idiomas. Salieron del barrido en
+# ingles: el aviso de dataset pequeño y el porque de la arquitectura eran
+# las ultimas cadenas en español de una pantalla en ingles.
+_TEXTOS = {
+    "es": {
+        "dataset_pequeno": lambda filas, d, params: (
+            f"El dataset ({filas} filas) es pequeño para {d} entradas: la red más pequeña razonable "
+            f"({params} parámetros) ya supera los diez ejemplos por parámetro. Puede memorizar en vez "
+            "de aprender; con más datos, o con menos columnas de entrada, el modelo sería más fiable."),
+        "porque": lambda d, ancho, prof, k, params: (
+            f"dimensión efectiva de entrada {d} → ancho {ancho}; "
+            f"{prof} capas por dimensión {'y clases ' if k > 8 else ''}"
+            f"({k} salida{'s' if k != 1 else ''}); {params} parámetros"),
+        "techo_datos": lambda techo, filas, por_param: (
+            f"; techo por datos {techo} ({filas} filas / {por_param} por parámetro)"),
+    },
+    "en": {
+        "dataset_pequeno": lambda filas, d, params: (
+            f"The dataset ({filas} rows) is small for {d} inputs: the smallest reasonable network "
+            f"({params} parameters) already exceeds ten examples per parameter. It may memorise instead "
+            "of learning; with more data, or with fewer input columns, the model would be more reliable."),
+        "porque": lambda d, ancho, prof, k, params: (
+            f"effective input dimension {d} → width {ancho}; "
+            f"{prof} layers per dimension {'and classes ' if k > 8 else ''}"
+            f"({k} output{'s' if k != 1 else ''}); {params} parameters"),
+        "techo_datos": lambda techo, filas, por_param: (
+            f"; data ceiling {techo} ({filas} rows / {por_param} per parameter)"),
+    },
+}
+
+
+def textos_de(locale: str) -> dict:
+    """Los textos del idioma pedido; español si no se conoce."""
+    return _TEXTOS.get(str(locale or "es").strip().lower(), _TEXTOS["es"])
+
+
 def propose(
     *,
     input_dim: int,
     output_units: int,
     task: str = "",
     rows: int = 0,
+    locale: str = "es",
 ) -> ArchitectureDecision:
     """La arquitectura que propone la política, ya dentro del presupuesto.
 
     Determinista: mismas entradas → misma salida, sin azar ni estado global más
     allá del perfil de límites (invariante 4).
     """
+    _tx = textos_de(locale)
     d = max(1, int(input_dim))
     k = max(1, int(output_units))
     presupuesto = budget_for(rows)
@@ -263,23 +301,13 @@ def propose(
             # El techo que aprieta es el de los DATOS, no el del perfil: cambiar
             # de perfil no arreglaría nada y decir "súbelo en Ajustes" sería
             # desviar a la persona. Lo que falta son filas.
-            avisos.append(
-                f"El dataset ({miles(presupuesto['rows'])} filas) es pequeño para "
-                f"{d} entradas: la red más pequeña razonable ({miles(params)} "
-                "parámetros) ya supera los diez ejemplos por parámetro. Puede "
-                "memorizar en vez de aprender; con más datos, o con menos "
-                "columnas de entrada, el modelo sería más fiable."
-            )
+            avisos.append(_tx["dataset_pequeno"](
+                miles(presupuesto["rows"]), d, miles(params)))
 
-    motivo = (
-        f"dimensión efectiva de entrada {d} → ancho {capas[0][0]}; "
-        f"{profundidad} capas por dimensión {'y clases ' if k > 8 else ''}"
-        f"({k} salida{'s' if k != 1 else ''}); {miles(params)} parámetros"
-    )
+    motivo = _tx["porque"](d, capas[0][0], profundidad, k, miles(params))
     if presupuesto["rows_ceiling"] is not None:
-        motivo += (f"; techo por datos {miles(presupuesto['rows_ceiling'])} "
-                   f"({miles(presupuesto['rows'])} filas / {_SAMPLES_PER_PARAM} "
-                   "por parámetro)")
+        motivo += _tx["techo_datos"](
+            miles(presupuesto["rows_ceiling"]), miles(presupuesto["rows"]), _SAMPLES_PER_PARAM)
 
     return ArchitectureDecision(
         hidden_layers=capas,

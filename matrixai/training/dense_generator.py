@@ -204,6 +204,10 @@ class DenseNetworkGenerator:
         # Por defecto "cpu", que es lo que habia: quien no lo sepa no
         # cambia de comportamiento.
         device: str = "cpu",
+        # En que idioma se redacta lo que el generador EXPLICA (el porque
+        # de la arquitectura y el aviso de dataset pequeño). Por defecto
+        # español, que es lo que habia.
+        locale: str = "es",
     ) -> DenseNetworkGenerationResult:
         clean = " ".join(prompt.strip().split())
         if not clean:
@@ -243,7 +247,7 @@ class DenseNetworkGenerator:
             resolved_hidden = hidden_layers
         else:
             resolved_hidden, policy_decision = self._extract_hidden_layers(
-                clean, input_dim, effective_dim=effective_dim,
+                clean, input_dim, effective_dim=effective_dim, locale=locale,
                 output_units=output_units, task=task, rows=rows)
         # M8-A1: sanitize whatever architecture we got (default / prompt / LLM)
         # so no source can emit a dying-ReLU bottleneck before the output.
@@ -262,7 +266,7 @@ class DenseNetworkGenerator:
                              else ("prompt_override" if policy_decision is None
                                    else "policy"),
             policy_decision=policy_decision,
-            task=task, rows=rows,
+            task=task, rows=rows, locale=locale,
         )
         sanitizer_notes = list(sanitizer_notes) + budget_notes
         epochs = self._extract_epochs(clean)
@@ -358,6 +362,7 @@ class DenseNetworkGenerator:
 
     def _extract_hidden_layers(
         self, prompt: str, input_dim: int, *,
+        locale: str = "es",
         effective_dim: int | None = None,
         output_units: int = 1,
         task: str = "",
@@ -389,7 +394,7 @@ class DenseNetworkGenerator:
         # ORIGEN del tamaño: ahora hay una regla que se puede explicar y auditar.
         decision = _architecture_policy.propose(
             input_dim=effective_dim if effective_dim is not None else input_dim,
-            output_units=output_units, task=task, rows=rows)
+            output_units=output_units, task=task, rows=rows, locale=locale)
         return list(decision.hidden_layers), decision
 
     def _extract_width(self, norm_prompt: str) -> int | None:
@@ -887,6 +892,7 @@ def _apply_param_budget(
     policy_decision: Any,
     task: str,
     rows: int,
+    locale: str = "es",
 ) -> tuple[list[tuple[int, str]], list[str], Any]:
     """Aplica el tope DURO de parámetros y construye la decisión auditable.
 
@@ -973,9 +979,16 @@ def _apply_param_budget(
                     "task": task, "rows": int(rows or 0)},
             budget=_architecture_policy.budget_for(rows),
             candidates=candidatas, limits_applied=limites,
-            rationale=(f"arquitectura de origen '{requested_source}': "
-                       + "-".join(str(u) for u, _ in hidden_layers)
-                       + f", {_architecture_policy.miles(params)} parámetros"),
+            # La ultima cadena en español que quedaba en una pantalla en
+            # ingles. Es un REGISTRO de decision, y por eso se traduce
+            # aqui y no al pintarlo: reescribirlo en la interfaz seria
+            # tener dos versiones de lo que el core decidio.
+            rationale=(
+                (f"arquitectura de origen '{requested_source}': " if locale != "en"
+                 else f"architecture from source '{requested_source}': ")
+                + "-".join(str(u) for u, _ in hidden_layers)
+                + (f", {_architecture_policy.miles(params)} parámetros" if locale != "en"
+                   else f", {_architecture_policy.miles(params)} parameters")),
             warnings=list(policy_decision.warnings) if policy_decision else [],
         )
     # Los avisos de la POLÍTICA (hoy: dataset pequeño para su dimensión de
