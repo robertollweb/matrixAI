@@ -3945,8 +3945,20 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 # Solo esta, no todas: `input_dim=…`, `loss=…` y la lista de
                 # capas ya se ven en otros sitios, y repetirlas aqui seria
                 # ruido que tapa la unica que decide que responde el modelo.
+                #
+                # Y SOLO cuando es una conjetura POR DEFECTO. Reenviarla
+                # siempre marcaba el stage entero como «warning» —lo hace
+                # el bloque de abajo con cualquier nota— asi que TODA
+                # generacion pasaba a tener aviso, y un aviso que sale
+                # siempre deja de ser un aviso. Lo caza un test que ya
+                # existia (`test_dense_pipeline_dense_generator_is_ok`).
+                #
+                # El C3 pide exactamente esto: «cuando la tarea se decide
+                # POR DEFECTO y no por algo explicito de la frase». Si el
+                # prompt dijo que queria, no hay nada que interrumpir; el
+                # motivo sigue en `assumptions` para quien lo mire.
                 for _sup in (getattr(gen, "assumptions", []) or []):
-                    if "inferred task=" in str(_sup):
+                    if "inferred task=" in str(_sup) and "POR DEFECTO" in str(_sup):
                         notes.append(str(_sup))
                         break
                 if llm_warning:
