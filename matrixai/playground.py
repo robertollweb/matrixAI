@@ -3936,6 +3936,19 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 # M8-A1: the generator's own warnings include the architecture
                 # sanitizer notes (widened ReLU bottlenecks) — surface them.
                 notes.extend(getattr(gen, "warnings", []) or [])
+                # CONTRATO 70 C3 — la SUPOSICION DE TAREA, que hasta ahora no
+                # salia del generador. Su cierre dice «un prompt ambiguo lleva
+                # una suposicion legible EN EL PIPELINE», y `assumptions` no se
+                # reenviaba: el motivo existia y no lo veia nadie. Encontrado
+                # auditando por la aplicacion en vez de llamando al generador.
+                #
+                # Solo esta, no todas: `input_dim=…`, `loss=…` y la lista de
+                # capas ya se ven en otros sitios, y repetirlas aqui seria
+                # ruido que tapa la unica que decide que responde el modelo.
+                for _sup in (getattr(gen, "assumptions", []) or []):
+                    if "inferred task=" in str(_sup):
+                        notes.append(str(_sup))
+                        break
                 if llm_warning:
                     notes.append(llm_warning)
                 if notes:

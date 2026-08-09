@@ -257,3 +257,18 @@ def test_un_prompt_degenerado_no_revienta(gen, prompt):
     """No se comprueba QUÉ devuelve —es el valor por defecto, y C3 ya hace
     que lo declare— sino que no lanza."""
     assert gen._detect_task(prompt, None) in {"binary", "multiclass", "regression"}
+
+
+# ── C3, cierre de verdad: la suposición llega AL PIPELINE ─────────────────
+
+def test_la_suposicion_de_tarea_sale_del_generador(gen):
+    """El cierre de C3 dice «en el pipeline», no «en el objeto».
+
+    Auditando por la APLICACIÓN —y no llamando al generador— salió que
+    `assumptions` no se reenviaba: el motivo existía y no lo veía nadie.
+    Este test fija el lado del generador; el reenvío lo hace
+    `_dense_pipeline_stages` en `playground.py`.
+    """
+    r = gen.generate("analizar los datos de mis clientes")
+    tarea = [a for a in r.assumptions if "inferred task=" in a]
+    assert len(tarea) == 1, "una y solo una, para que el reenvío no tenga que elegir"
