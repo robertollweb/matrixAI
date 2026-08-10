@@ -3256,6 +3256,34 @@ def _submit_training_job(
     return {"ok": True, "job_id": job_id}
 
 
+def json_seguro(valor: Any) -> Any:
+    """Deja un objeto listo para `json.dumps`: sin NaN ni infinitos.
+
+    JSON **no tiene** NaN. Python lo escribe igualmente —`json.dumps`
+    produce el literal `NaN`, que no es JSON válido— y cualquier
+    `JSON.parse` del navegador revienta con «Unexpected token 'N'».
+    Lo encontró Roberto entrenando: un run que diverge deja
+    `train_loss: NaN`, y a partir de ese momento CONSULTAR el
+    entrenamiento fallaba entero, así que ni siquiera se podía ver que
+    había divergido.
+
+    Se convierten a `null`, no a `0`: un valor ausente no es un cero, y
+    un cero en la pérdida se leería como el mejor resultado posible
+    justo cuando ha pasado lo contrario. `null` es la respuesta honesta
+    —«aquí no hay número»— y quien pinta ya sabe qué hacer con ella.
+
+    Recursivo por diccionarios y listas porque las pérdidas viven dentro
+    de `epochs`, una lista de diccionarios.
+    """
+    if isinstance(valor, float):
+        return None if valor != valor or valor in (float("inf"), float("-inf")) else valor
+    if isinstance(valor, dict):
+        return {k: json_seguro(v) for k, v in valor.items()}
+    if isinstance(valor, (list, tuple)):
+        return [json_seguro(v) for v in valor]
+    return valor
+
+
 def _get_job_status(job_id: str) -> dict[str, Any]:
     job = _training_jobs.get(job_id)
     if job is None:
@@ -5264,7 +5292,9 @@ def _handler_class(guard: Any = None):
             return
 
         def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
-            body = json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+            # `json_seguro` ANTES de serializar: un NaN suelto en cualquier
+            # respuesta rompe el JSON entero, no solo su campo.
+            body = json.dumps(json_seguro(payload), indent=2, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
