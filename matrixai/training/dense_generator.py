@@ -217,7 +217,7 @@ class DenseNetworkGenerator:
         # 5) — an explicit ProbabilityMap[...]/Label[...] bracket wins over caller
         # labels and task keywords; 2 declared labels mean 2-class softmax, never
         # the 1-unit sigmoid (see resolve_task_and_labels).
-        task, resolved_labels, label_warnings = resolve_task_and_labels(self, clean, labels)
+        task, resolved_labels, label_warnings = resolve_task_and_labels(self, clean, labels, locale)
         # GEN C1/C2/C3: honor explicit field-type declarations from the prompt (shared
         # with the composite generator so both use the SAME policy — invariant 5).
         resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings = \
@@ -1035,7 +1035,7 @@ def _expanded_field_order(fields: list[str], groups: dict[str, list[str]]) -> li
     return out
 
 
-def resolve_task_and_labels(dg, prompt, labels):
+def resolve_task_and_labels(dg, prompt, labels, locale="es"):
     """Task + label resolution shared by the dense AND composite generators
     (invariant 5: same policy in both paths). Returns (task, labels, warnings).
 
@@ -1095,28 +1095,42 @@ def resolve_task_and_labels(dg, prompt, labels):
     # llega despues de entrenar, que es tarde.
     if de_ejemplo:
         warnings.append(
-            f"No se han podido leer las clases del prompt, asi que se usan las de ejemplo "
-            f"{resolved_labels}: NO son tus clases, son marcadores de posicion. "
-            f"Nombralas en el prompt —«clasificar en alto, medio o bajo», o "
-            f"ProbabilityMap[alto, medio, bajo]— antes de entrenar."
+            (
+                f"The classes could not be read from the prompt, so the example ones "
+                f"{resolved_labels} are used: they are NOT your classes, they are "
+                f"placeholders. Name them in the prompt —«classify as high, medium or "
+                f"low», or ProbabilityMap[high, medium, low]— before training."
+            ) if locale == "en" else (
+                f"No se han podido leer las clases del prompt, asi que se usan las de ejemplo "
+                f"{resolved_labels}: NO son tus clases, son marcadores de posicion. "
+                f"Nombralas en el prompt —«clasificar en alto, medio o bajo», o "
+                f"ProbabilityMap[alto, medio, bajo]— antes de entrenar."
+            )
         )
     # Que la propuesta del LLM se descarte NO puede pasar en silencio: es
     # quien la lea el que tiene que poder decidir si la frase estaba mal
     # escrita o si el modelo esta mal construido.
     if labels is not None and 0 < len(labels) < 2:
         warnings.append(
-            f"El LLM propuso {len(labels)} clase(s) {list(labels)}, y con menos de dos "
-            f"no hay un conjunto de clases: decide la frase, y aqui sale "
-            f"task={task}. Para varias clases, nombralas en el prompt como "
-            f"ProbabilityMap[una, otra, otra_mas]."
+            (
+                f"The LLM proposed {len(labels)} class(es) {list(labels)}, and with fewer "
+                f"than two there is no set of classes: the sentence decides, and here it "
+                f"gives task={task}. For several classes, name them in the prompt as "
+                f"ProbabilityMap[one, other, another]."
+            ) if locale == "en" else (
+                f"El LLM propuso {len(labels)} clase(s) {list(labels)}, y con menos de dos "
+                f"no hay un conjunto de clases: decide la frase, y aqui sale "
+                f"task={task}. Para varias clases, nombralas en el prompt como "
+                f"ProbabilityMap[una, otra, otra_mas]."
+            )
         )
-    task, resolved_labels, aviso = _multiclase_sin_clases(dg, prompt, task, resolved_labels)
+    task, resolved_labels, aviso = _multiclase_sin_clases(dg, prompt, task, resolved_labels, locale)
     if aviso is not None:
         warnings.append(aviso)
     return task, resolved_labels, warnings
 
 
-def _multiclase_sin_clases(dg, prompt, task, resolved_labels):
+def _multiclase_sin_clases(dg, prompt, task, resolved_labels, locale="es"):
     """Una multiclase con MENOS DE DOS clases no es una multiclase.
 
     Encontrado el 2026-08-09 conduciendo la interfaz por fases, y medido
@@ -1156,18 +1170,32 @@ def _multiclase_sin_clases(dg, prompt, task, resolved_labels):
     tenia = list(resolved_labels)
     if dg._es_pregunta_de_si_o_no(_norm(prompt)):
         return "binary", _default_labels("binary"), (
-            f"El LLM propuso una clasificacion multiclase con {len(tenia)} clase(s) "
-            f"{tenia}, y con menos de dos no hay multiclase. La frase pregunta un si "
-            f"o un no, asi que se construye una BINARIA (sigmoid). Para varias clases, "
-            f"nombralas en el prompt: ProbabilityMap[una, otra, otra_mas]."
+            (
+                f"The LLM proposed a multiclass classification with {len(tenia)} class(es) "
+                f"{tenia}, and with fewer than two there is no multiclass. The sentence asks "
+                f"a yes or no, so a BINARY model (sigmoid) is built. For several classes, "
+                f"name them in the prompt: ProbabilityMap[one, other, another]."
+            ) if locale == "en" else (
+                f"El LLM propuso una clasificacion multiclase con {len(tenia)} clase(s) "
+                f"{tenia}, y con menos de dos no hay multiclase. La frase pregunta un si "
+                f"o un no, asi que se construye una BINARIA (sigmoid). Para varias clases, "
+                f"nombralas en el prompt: ProbabilityMap[una, otra, otra_mas]."
+            )
         )
 
     porDefecto = _default_labels("multiclass")
     return task, porDefecto, (
-        f"El LLM propuso una clasificacion multiclase con {len(tenia)} clase(s) "
-        f"{tenia}, y con menos de dos no hay multiclase. Se usan clases de ejemplo "
-        f"{porDefecto} para que el modelo valide: NO son tus clases. Nombralas en el "
-        f"prompt como ProbabilityMap[una, otra, otra_mas]."
+        (
+            f"The LLM proposed a multiclass classification with {len(tenia)} class(es) "
+            f"{tenia}, and with fewer than two there is no multiclass. Example classes "
+            f"{porDefecto} are used so the model validates: they are NOT your classes. "
+            f"Name them in the prompt as ProbabilityMap[one, other, another]."
+        ) if locale == "en" else (
+            f"El LLM propuso una clasificacion multiclase con {len(tenia)} clase(s) "
+            f"{tenia}, y con menos de dos no hay multiclase. Se usan clases de ejemplo "
+            f"{porDefecto} para que el modelo valide: NO son tus clases. Nombralas en el "
+            f"prompt como ProbabilityMap[una, otra, otra_mas]."
+        )
     )
 
 
