@@ -33,6 +33,10 @@ matrixai --help
 ## Key features
 
 - **Prompt → model**: `matrixai prompt "..."` generates a runnable `.mxai` program
+- **The task comes from the question, not the verb**: «predict which customers will
+  churn» is a classification even though «predict» reads like regression. The inferred
+  task reaches the pipeline and is stated in the trace, and the assumption is flagged
+  only when it was a default — not when the prompt said it
 - **Typed prompt fields**: declare feature types and ranges in the prompt itself
   (`edad: Scalar en [18, 95]`, `Integer[1, 10]`, `Boolean`, `Categorical[...]` → one-hot,
   `ProbabilityMap[NO, SI]` output) — honoured end-to-end by the generator, the LLM
@@ -236,7 +240,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 4759 passed, 19 skipped
+# 5023 passed, 19 skipped
 ```
 
 ---

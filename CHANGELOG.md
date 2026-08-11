@@ -7,6 +7,47 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.4.0] — 2026-08-11
+
+The task a model solves is decided by the QUESTION, not by a verb; an
+identifier is not a feature; and what the core writes, the core
+translates.
+
+### Added
+
+- **Task detection from the question** (contract 70). «Predict which
+  customers will churn» is a classification even though «predict» reads
+  like a regression verb. The inferred task now reaches the pipeline and
+  is stated in the trace, and the assumption is only flagged when it was
+  a DEFAULT — flagging a decision the prompt made explicitly taught
+  people to ignore the warnings.
+- **Identifiers are not features** (contract 71, first half). A column
+  that looks like an id gets a warning explaining the consequence: the
+  model memorises which row is which instead of learning from its
+  traits, so it scores well on data it has seen and is useless for
+  anyone new.
+- **GPU path validated without a GPU**: prompt-built models train
+  through both backends, with the effort declared in STEPS — the unit
+  that is comparable between machines, unlike epochs (the same «50
+  epochs» is 125,000 steps on CPU and 62 on GPU).
+
+### Fixed
+
+- **A multiclass with fewer than two classes is not a multiclass.** One
+  in six generations produced a one-unit softmax that the core's own
+  verifier rejected. Now the sentence decides: a yes/no question builds
+  a binary model, and example classes are used only when nothing else is
+  available — saying they are examples, not inventing yours.
+- **JSON has no NaN, and we were writing it.** A NaN or an infinity in a
+  metric produced a body that no strict parser accepts. They now travel
+  as `null` — never as 0: an absent value is not a zero.
+- **What the core writes is translated in the core.** Four class
+  warnings were hard-coded in Spanish, so an English UI showed a screen
+  in two languages. Translating them in the interface would have meant
+  two versions of what the product says about its own decision.
+
+---
+
 ## [1.3.1] — 2026-07-25
 
 Patch release: normalization coherence across the REST endpoints. The
