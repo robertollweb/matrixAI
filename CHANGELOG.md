@@ -7,6 +7,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.4.1] — 2026-08-12
+
+Data a template generates must have something to learn; a prompt must
+declare its ranges; and a training job belongs to whoever launched it.
+
+### Added
+
+- **Derived columns in the synthetic provider.** It could only generate
+  INDEPENDENT columns, so a template's target was noise — there was
+  nothing to learn. Three new column types: `linear` (a value derived
+  from another column), `threshold` (a label by bands) and `seasonal` (a
+  series with memory). Measured by training: tabular classification
+  0.438 → 0.950; next-day consumption R² −0.027 → 0.689; synthetic
+  series R² −0.078 → 0.916.
+
+### Fixed
+
+- **Field ranges on the PROMPT route.** Only the CSV route declared
+  `field_ranges`, so the core did not normalise —the family of contract
+  61— and the test screen had no scale to draw. They are now completed
+  with the same mechanism already used to invent the data, without
+  touching what the prompt does declare and without inventing a domain
+  for generic names like `feature_1`.
+- **A training job belongs to whoever launched it.** The job registry is
+  global and the routes only looked at the `job_id`, so on a shared
+  deployment anyone could read or cancel someone else's training by
+  guessing an identifier. The owner is an opaque string, and `None`
+  still means «nobody's» — which is what the downloadable Studio runs,
+  where the machine belongs to whoever uses it.
+
+---
+
 ## [1.4.0] — 2026-08-11
 
 The task a model solves is decided by the QUESTION, not by a verb; an
