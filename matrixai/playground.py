@@ -3033,6 +3033,7 @@ def _submit_training_job(
     seed: int = 42,
     initial_state_dict: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
+    owner: str | None = None,
 ) -> dict[str, Any]:
     """Start async training job. Returns {ok, job_id} immediately.
 
@@ -3134,6 +3135,19 @@ def _submit_training_job(
             f"{_split_match.group('seed') or ''}|{_split_match.group('mode') or ''}"
             if _split_match else None),
     }
+    # DE QUIÉN ES ESTE ENTRENAMIENTO.
+    #
+    # Una cadena OPACA: al core no le importa qué representa —el
+    # producto le pasa el identificador de sesión— y así el motor no
+    # aprende nada de sesiones ni de cookies. `None` significa «de
+    # nadie», que es lo que corre en el Studio descargable: ahí la
+    # máquina es de quien la usa y no hay a quién separar.
+    #
+    # Sin esto, el registro es global y basta con saber un `job_id` para
+    # leer o CANCELAR el entrenamiento de otro. Medido en la demo
+    # pública por una auditoría externa (2026-08-12): la sesión B canceló
+    # el entrenamiento de la sesión A y A lo recibió como `cancelled`.
+    job["owner"] = owner
     _training_jobs[job_id] = job
     # Keep job store bounded
     if len(_training_jobs) > _MAX_JOBS:
@@ -3284,9 +3298,23 @@ def json_seguro(valor: Any) -> Any:
     return valor
 
 
-def _get_job_status(job_id: str) -> dict[str, Any]:
+def _es_de_otro(job: dict[str, Any], owner: str | None) -> bool:
+    """¿Este job es de otro dueño?
+
+    Un job SIN dueño lo puede ver cualquiera —es el Studio descargable,
+    donde no hay a quién separar—. Con dueño, solo él.
+    """
+    suyo = job.get("owner")
+    return suyo is not None and suyo != owner
+
+
+def _get_job_status(job_id: str, owner: str | None = None) -> dict[str, Any]:
     job = _training_jobs.get(job_id)
-    if job is None:
+    # «No encontrado» y no «prohibido», a propósito: contestar
+    # «prohibido» confirmaría que ese job existe, y con ids ajenos eso ya
+    # es información. Para quien pregunta por lo que no es suyo, no
+    # existe.
+    if job is None or _es_de_otro(job, owner):
         return {"ok": False, "error": f"job {job_id!r} no encontrado"}
     result = {
         "ok": True,
@@ -3305,8 +3333,11 @@ def _get_job_status(job_id: str) -> dict[str, Any]:
     return result
 
 
-def _cancel_job(job_id: str) -> dict[str, Any]:
+def _cancel_job(job_id: str, owner: str | None = None) -> dict[str, Any]:
     job = _training_jobs.get(job_id)
+    if job is not None and _es_de_otro(job, owner):
+        _diag(f"cancel: job {job_id!r} es de otra sesión")
+        return {"ok": False, "error": f"job {job_id!r} no encontrado"}
     if job is None:
         # Visible en la consola/celda de Colab: prueba que el POST llegó pero el job
         # no está (id equivocado / registro distinto). Útil para diagnosticar Stop.
@@ -3784,6 +3815,78 @@ def _marcos(locale: Any) -> dict[str, Any]:
     return _MARCOS.get(str(locale or "es").strip().lower(), _MARCOS["es"])
 
 
+#: Nombres que el generador pone cuando NO ha entendido ningún campo
+#: (`feature_1`, `input_3`, `campo_2`…). No nombran nada del mundo, así
+#: que no tienen dominio que deducir.
+_RANGO_SIN_SENTIDO = re.compile(r"^(feature|input|campo|field|col|x)_?\d+$", re.I)
+
+
+def _completar_rangos_del_prompt(result: dict[str, Any], prompt: str) -> None:
+    """Los rangos que el prompt NO declaró con la gramática de corchetes.
+
+    La gramática pide `edad: Scalar en [18, 95]`, y un prompt normal no
+    los escribe: «la distancia en km entre 0 y 3000» sale con
+    `field_ranges` VACÍO. Medido contra el endpoint del Studio el
+    2026-08-11, y **la ruta que sale de un prompt en prosa no es la
+    densa sino la del supervisor**, que no declaraba rangos en absoluto.
+
+    Sin rango declarado el core no normaliza —la familia del contrato
+    61, donde un modelo puede colapsar a la media— y la fase Prueba se
+    queda sin escala que pintar.
+
+    El dato existía y nadie lo recogía: para INVENTAR LOS DATOS este
+    mismo módulo ya le pide al LLM un rango por campo
+    (`_llm_field_ranges`), y ese rango es exactamente el dominio que el
+    modelo va a ver. Aquí se pide para los campos que siguen sin uno,
+    con el prompt como contexto.
+
+    Lo que NO hace, que es la mitad importante:
+
+    · no toca ningún campo que YA tenga rango — lo dicho en el prompt
+      manda siempre sobre lo propuesto;
+    · sin proveedor LLM no inventa nada (`_llm_field_ranges` devuelve
+      `{}` y esto se queda como estaba);
+    · declara de dónde salió cada uno (`field_ranges_source`): un rango
+      propuesto y uno dicho por quien pide el modelo no valen lo mismo,
+      y quien audita tiene que poder distinguirlos.
+
+    Los nombres van PELADOS: `understanding.input_fields` los da con el
+    prefijo del vector (`Envio.distancia_km`) y `field_ranges` se indexa
+    por el nombre de la columna, que es como los busca el Studio. Medido:
+    sin pelarlos, lo propuesto no casaba con ninguno.
+    """
+    declarados_ya = dict(result.get("field_ranges") or {})
+    categoricas = result.get("field_categories") or {}
+    tipos = result.get("field_types") or {}
+    # Los campos salen del PROGRAMA ya compilado (`visual_model.inputs`),
+    # que es lo que hay aquí: `understanding` lo compone el backend del
+    # producto y en el core no existe todavía. Medido con una sonda: mirar
+    # ahí devolvía `None` siempre y esto no hacía nada.
+    campos = [
+        str(e.get("field") or "")
+        for e in ((result.get("visual_model") or {}).get("inputs") or [])
+        if str(e.get("type") or "").strip().lower() == "scalar"
+    ]
+    # Un nombre GENÉRICO no tiene dominio que deducir: pedirle a un LLM el
+    # rango de `feature_1` es pedirle que se lo invente, y un rango
+    # inventado normaliza de verdad. Mejor sin escala que con una falsa.
+    campos = [c for c in campos if c and not _RANGO_SIN_SENTIDO.match(c)]
+    sin_rango = [
+        c for c in campos
+        if c not in declarados_ya and c not in categoricas and tipos.get(c) != "boolean"
+    ]
+    if not sin_rango:
+        return
+    propuestos = {c: r for c, r in _llm_field_ranges(sin_rango, prompt).items() if c in sin_rango}
+    if not propuestos:
+        return
+    result["field_ranges"] = {**declarados_ya, **propuestos}
+    result["field_ranges_source"] = {
+        **{c: "prompt" for c in declarados_ya},
+        **{c: "llm_proposed" for c in propuestos},
+    }
+
+
 def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
     mode = str(payload.get("mode") or "prompt").strip().lower()
     # En que idioma se redactan los avisos del pipeline. Se pide por el
@@ -4188,6 +4291,10 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 locale=_locale,
             )
             result["llm_schema_used"] = False
+        # Vale para las DOS ramas —la densa y la del supervisor— y solo
+        # rellena huecos, así que ponerla aquí evita tener la misma
+        # decisión escrita dos veces.
+        _completar_rangos_del_prompt(result, prompt)
         result["llm_mode"] = _detect_llm_mode()
         # In prompt mode a fresh model is generated — clear any stale training/mxai artefacts
         # so the JS overwrites the textareas rather than echoing stale Email/Risk content.
