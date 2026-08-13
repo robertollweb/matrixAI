@@ -1546,9 +1546,15 @@ def _eval_report_from_dense_result(dense_result: Any, labels: list[str] | None) 
     `r2` con 0.0 incluso en clasificación. Un 0.0 de la tarea que NO aplica
     nunca debe llegar aguas abajo — se discrimina aquí explícitamente."""
     is_reg = dense_result.is_regression()
+    # MISMO criterio que la ruta stdlib (`DenseSupervisedEvaluator`): las
+    # clases que el cálculo usó de verdad. La regla vive en
+    # `dense_evaluator.effective_labels`, no copiada aquí — este sitio y el
+    # otro ya declaraban lo mismo, y era el mismo hueco en los dos.
+    from matrixai.training.dense_evaluator import effective_labels
+    report_labels = [] if is_reg else effective_labels(labels, dense_result)
     per_label: dict[str, dict[str, float]] = {}
-    if not is_reg and labels and dense_result.precision:
-        for lbl in labels:
+    if not is_reg and report_labels and dense_result.precision:
+        for lbl in report_labels:
             per_label[lbl] = {
                 "precision": dense_result.precision.get(lbl, 0.0),
                 "recall": dense_result.recall.get(lbl, 0.0),
@@ -1560,7 +1566,7 @@ def _eval_report_from_dense_result(dense_result: Any, labels: list[str] | None) 
         "accuracy": None if is_reg else dense_result.accuracy,
         "macro_f1": None if is_reg else dense_result.macro_f1,
         "confusion_matrix": None if is_reg else dense_result.confusion_matrix,
-        "labels": None if is_reg else list(labels or []),
+        "labels": None if is_reg else list(report_labels),
         "per_label": None if is_reg else per_label,
         "mae": dense_result.mae if is_reg else None,
         "rmse": dense_result.rmse if is_reg else None,

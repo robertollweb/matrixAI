@@ -272,6 +272,34 @@ def _binary_metrics(
     }
 
 
+def effective_labels(
+    declared: list[str] | None,
+    result: DenseEvaluationResult,
+) -> list[str]:
+    """Las clases que las métricas usaron DE VERDAD, no las que se declararon.
+
+    Una clasificación BINARIA sin bloque LABELS —la que sale de un prompt
+    del tipo «clasificar si un correo es spam o no»— llega aquí con
+    `declared` vacío, y `_binary_metrics` INVENTA «positive»/«negative»
+    para poder construir la matriz de confusión y precision/recall/f1.
+
+    Devolver `[]` mientras la matriz sale con dos clases es el core
+    contradiciéndose, y no es gratis: quien la pinta ordena los ejes por
+    esta lista, así que se queda sin ejes y no la enseña. Medido el
+    2026-08-13 por el API (`/api/train-start` → `/api/train-status`):
+    `labels: []`, `per_label: {}` y `confusion_matrix` con
+    `positive`/`negative` dentro, en la misma respuesta.
+
+    Se prefieren las claves de `precision` porque conservan el orden con
+    el que se calcularon (`[negativa, positiva]`), que es el orden en que
+    se lee una matriz binaria. En REGRESIÓN no hay clases que nombrar y
+    esto sigue devolviendo `[]`, como antes.
+    """
+    if declared:
+        return list(declared)
+    return list(result.precision.keys()) or list(result.confusion_matrix.keys())
+
+
 def _precision_recall_f1(
     cm: dict[str, dict[str, int]],
     labels: list[str],

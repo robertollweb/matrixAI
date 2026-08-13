@@ -18,7 +18,11 @@ from matrixai.parameters.store import program_hash
 from matrixai.parser import parse_file
 from matrixai.training.data import CSVDataAdapter, SupervisedExample, dataset_fingerprint
 from matrixai.training.dense_backprop import dense_train_step, compute_loss
-from matrixai.training.dense_evaluator import DenseEvaluationResult, evaluate_dense_network
+from matrixai.training.dense_evaluator import (
+    DenseEvaluationResult,
+    effective_labels,
+    evaluate_dense_network,
+)
 from matrixai.training.spec import (
     EvaluationResult,
     TrainingRunResult,
@@ -320,9 +324,16 @@ class DenseSupervisedEvaluator:
         mhash = program_hash(program)
         data_fp = dataset_fingerprint(resolved_data) if resolved_data and resolved_data.exists() else ""
 
+        # Las clases REALES del cálculo, no solo las declaradas: una binaria
+        # sin bloque LABELS las lleva inventadas dentro del resultado
+        # (`effective_labels` explica por qué y con qué orden). Sin esto,
+        # `labels` salía `[]` y `per_label` `{}` al lado de una matriz de
+        # confusión con dos clases dentro.
+        report_labels = effective_labels(labels, dense_result)
+
         per_label: dict[str, dict[str, float]] = {}
-        if labels and dense_result.precision:
-            for lbl in labels:
+        if report_labels and dense_result.precision:
+            for lbl in report_labels:
                 per_label[lbl] = {
                     "precision": dense_result.precision.get(lbl, 0.0),
                     "recall": dense_result.recall.get(lbl, 0.0),
@@ -343,7 +354,7 @@ class DenseSupervisedEvaluator:
             rows=dense_result.rows,
             loss=dense_result.loss,
             accuracy=dense_result.accuracy,
-            labels=list(labels),
+            labels=list(report_labels),
             confusion_matrix=dense_result.confusion_matrix,
             per_label=per_label,
             macro_precision=macro_p,

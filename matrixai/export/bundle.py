@@ -343,6 +343,24 @@ class EdgeBundler:
                     work / "model.onnx.data",
                 )
 
+            # EL BYTECODE DE LA PRUEBA DE HUMO NO SE ENTREGA.
+            #
+            # `_run_prediction` importa `predict.py` con importlib para probarlo
+            # aquí mismo, y ese import deja un `__pycache__/` dentro del staging
+            # que luego viajaba entero al bundle. Medido el 2026-08-13 sobre un
+            # export real del Studio: el zip traía
+            # `__pycache__/predict.cpython-312.pyc`, que además NO figura en la
+            # lista `files` de más abajo (solo mira ficheros sueltos) — el
+            # paquete llevaba algo que su propio manifiesto no declaraba, y con
+            # la versión del intérprete de la máquina que lo empaquetó dentro.
+            #
+            # Se limpia AQUÍ, antes de la promoción, y no en quien empaqueta:
+            # las dos rutas de export del Studio (zip por `make_archive` y zip
+            # streaming de pesos grandes) recortaban distinto, así que el mismo
+            # modelo salía con ficheros distintos según su tamaño.
+            for pycache in work.rglob("__pycache__"):
+                shutil.rmtree(str(pycache), ignore_errors=True)
+
             # Atomic promotion: remove stale outdir then rename temp into place
             if outdir.exists():
                 shutil.rmtree(str(outdir))
