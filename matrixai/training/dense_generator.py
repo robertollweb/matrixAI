@@ -987,8 +987,8 @@ def _apply_param_budget(
                 (f"arquitectura de origen '{requested_source}': " if locale != "en"
                  else f"architecture from source '{requested_source}': ")
                 + "-".join(str(u) for u, _ in hidden_layers)
-                + (f", {_architecture_policy.miles(params)} parámetros" if locale != "en"
-                   else f", {_architecture_policy.miles(params)} parameters")),
+                + (f", {_architecture_policy.miles(params, locale)} parámetros" if locale != "en"
+                   else f", {_architecture_policy.miles(params, locale)} parameters")),
             warnings=list(policy_decision.warnings) if policy_decision else [],
         )
     # Los avisos de la POLÍTICA (hoy: dataset pequeño para su dimensión de

@@ -112,14 +112,21 @@ class ArchitectureDecision:
         }
 
 
-def miles(n: int) -> str:
-    """Separador de miles en español (`3.474`).
+def miles(n: int, locale: str = "es") -> str:
+    """Separador de miles SEGÚN EL IDIOMA: `3.474` en español, `3,474` en inglés.
 
     Existe como función porque encadenar `.replace(",", ".")` sobre un f-string
     completo también sustituye las comas que NO son separadores: el aviso del
     presupuesto salía como "512-512-512. 532.481 parámetros".
+
+    El `locale` es nuevo (auditoría, pasada 1): esta función llevaba el
+    separador español fijo y se usaba TAMBIÉN dentro de la rama inglesa de
+    `rationale`, así que un modelo en inglés decía "2.369 parameters" —que en
+    inglés son dos coma tres seis nueve—, y la misma pantalla enseñaba
+    "2,369 parameters" tres líneas más arriba. El mismo número con dos
+    separadores distintos, a la vez.
     """
-    return f"{int(n):,}".replace(",", ".")
+    return f"{int(n):,}" if locale == "en" else f"{int(n):,}".replace(",", ".")
 
 
 def param_count(input_dim: int, hidden_layers: list[tuple[int, str]],
@@ -302,12 +309,12 @@ def propose(
             # de perfil no arreglaría nada y decir "súbelo en Ajustes" sería
             # desviar a la persona. Lo que falta son filas.
             avisos.append(_tx["dataset_pequeno"](
-                miles(presupuesto["rows"]), d, miles(params)))
+                miles(presupuesto["rows"], locale), d, miles(params, locale)))
 
-    motivo = _tx["porque"](d, capas[0][0], profundidad, k, miles(params))
+    motivo = _tx["porque"](d, capas[0][0], profundidad, k, miles(params, locale))
     if presupuesto["rows_ceiling"] is not None:
         motivo += _tx["techo_datos"](
-            miles(presupuesto["rows_ceiling"]), miles(presupuesto["rows"]), _SAMPLES_PER_PARAM)
+            miles(presupuesto["rows_ceiling"], locale), miles(presupuesto["rows"], locale), _SAMPLES_PER_PARAM)
 
     return ArchitectureDecision(
         hidden_layers=capas,
