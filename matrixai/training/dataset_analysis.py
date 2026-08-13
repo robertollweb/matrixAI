@@ -370,6 +370,30 @@ def _numeric_kind(values: list[str]) -> str | None:
 
 
 def _propose_margin(lo: float, hi: float) -> list[float]:
+    """El rango PROPUESTO: el observado con un margen del 10 %.
+
+    El margen existe para que un valor un poco fuera de lo visto no se
+    recorte en inferencia.
+
+    **Cruza el cero, y eso se ve raro en pantalla.** Con la lluvia de
+    Santander (observado 0 → 71,4 mm) sale `[-7.14, 78.54]`, y la fase
+    Prueba lo enseña como el dominio del campo: lluvia negativa. Igual
+    las horas de precipitación (`[-3, 27]`, en un día de 24) y la
+    nubosidad (`[-10, 110]`). Lo cazó una auditoría conduciendo la
+    plantilla (2026-08-13).
+
+    **Se INTENTÓ acotarlo aquí y se deshizo**: acotar el margen al cero
+    rompió el entrenamiento compuesto de Kelvin con «Numerical result
+    out of range». Este número no es un rótulo — la normalización del
+    entrenamiento depende de él, y cambiarlo mueve la escala con la que
+    aprende la red. Un arreglo cosmético que rompe el entrenamiento es
+    peor que el defecto.
+
+    Queda ABIERTO y anotado: el sitio correcto es la PANTALLA, que hoy
+    llama «dominio esperado» a una envolvente, o la ficha de la
+    plantilla, que sí sabe que una humedad no pasa del 100 %. El core no
+    puede saberlo.
+    """
     span = hi - lo
     margin = span * _RANGE_MARGIN_FRACTION if span > 0 else _RANGE_MARGIN_MIN_ABS
     return [lo - margin, hi + margin]
