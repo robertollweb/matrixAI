@@ -62,6 +62,7 @@ _OP_PARAM_KEYS: dict[str, frozenset[str]] = {
     "cast": frozenset({"column", "to"}),
     "lag_window": frozenset({"columns", "window"}),
     "shift_target": frozenset({"column", "horizon", "as"}),
+    "binarize": frozenset({"column", "threshold", "as"}),
     "drop_columns": frozenset({"columns"}),
 }
 _CAST_TYPES = frozenset({"number", "integer", "string"})
@@ -207,6 +208,8 @@ def run_pipeline(
             columns_order = _op_lag_window(current, params, columns_order, column_offsets)
         elif op == "shift_target":
             columns_order = _op_shift_target(current, params, columns_order, column_offsets)
+        elif op == "binarize":
+            columns_order = _op_binarize(current, params, columns_order, column_offsets)
         elif op == "drop_columns":
             columns_order = _op_drop_columns(current, params, columns_order, column_offsets)
 
@@ -520,6 +523,59 @@ def _op_lag_window(
             column_offsets[f"{column}_lag{i}"] = base_offsets[column] - i
 
     return columns_order + new_cols
+
+
+def _op_binarize(
+    rows: list[dict[str, str]], params: dict[str, Any], columns_order: list[str],
+    column_offsets: dict[str, int],
+) -> list[str]:
+    """Convierte una columna numérica en una CLASE: 1 si supera el umbral, 0 si no.
+
+    Roberto, probando la plantilla de lluvia (2026-08-13): «el modelo que
+    yo quiero guardar como plantilla es el que se genera al subir por
+    csv… el resultado da clase 1 o clase 0 con un valor numérico». Su CSV
+    trae la clase ya hecha; la plantilla descargaba milímetros y entrenaba
+    una REGRESIÓN, así que la misma pregunta —¿lloverá mañana?— daba dos
+    modelos distintos según por dónde entraras.
+
+    El umbral es EXPLÍCITO y no se adivina: «llueve» no significa lo mismo
+    con 0 mm que con 1 mm, y elegirlo por su cuenta sería decidir por
+    quien monta la plantilla.
+
+    La columna nueva conserva el desfase temporal de la de origen: si se
+    binariza un objetivo ya desplazado, sigue siendo del día siguiente, y
+    el linaje lo tiene que decir o el verificador de fuga no puede hacer
+    su trabajo.
+    """
+    column = _require_column(params.get("column"), columns_order, "binarize")
+    umbral = params.get("threshold")
+    if isinstance(umbral, bool) or not isinstance(umbral, (int, float)):
+        raise PipelineError(
+            f"binarize: threshold debe ser un número (recibido {umbral!r}) "
+            "— «llueve» no significa lo mismo con 0 mm que con 1 mm, así que "
+            "no se adivina."
+        )
+    as_name = params.get("as") or f"{column}_clase"
+    if not isinstance(as_name, str) or not as_name:
+        raise PipelineError("binarize: 'as' debe ser un nombre de columna no vacío.")
+    if as_name in columns_order:
+        raise PipelineError(f"binarize: la columna {as_name!r} ya existe.")
+    for row in rows:
+        crudo = (row.get(column) or "").strip()
+        if crudo == "":
+            # Un hueco NO es un cero: se deja vacío para que `missing_values`
+            # decida, que es quien tiene esa política. Inventar un 0 aquí
+            # diría «no llovió» de un día del que no se sabe nada.
+            row[as_name] = ""
+            continue
+        try:
+            row[as_name] = "1" if float(crudo) > float(umbral) else "0"
+        except ValueError:
+            raise PipelineError(
+                f"binarize: {column!r} tiene el valor {crudo!r}, que no es un número."
+            ) from None
+    column_offsets[as_name] = column_offsets.get(column, 0)
+    return columns_order + [as_name]
 
 
 def _op_shift_target(
