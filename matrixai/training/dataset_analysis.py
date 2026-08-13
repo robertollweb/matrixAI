@@ -32,11 +32,27 @@ casos ambiguos — el usuario siempre puede corregir en el editor, invariante 8)
     típico, cardinalidad "clasificable") y se devuelven TODOS los candidatos
     viables (excluidas identificador/fecha) ordenados — la UI de C4 propone,
     el usuario elige.
+
+Lo que este módulo RECHAZA además de proponer (auditoría 2026-08-13, las dos
+medidas conduciendo el producto):
+
+  - Un fichero que **no es una tabla** (filas con más o menos campos que la
+    cabecera, una comilla sin cerrar, bytes de control) no sale de aquí con
+    un esquema inventado: `_structural_damage` lo dice con su fila y su
+    evidencia. Antes entraba en silencio. Lo que SÍ sigue entrando es el
+    texto entrecomillado con comas y saltos dentro, que es CSV legítimo.
+  - Un **objetivo que no varía** no es un objetivo: `constant_target_error`
+    da el motivo, para que quien reciba un dataset lo rechace ANTES de
+    construir y entrenar un modelo que llega a pérdida 0 sin haber aprendido
+    nada. Es una función aparte —y no parte de `analyze_dataset_csv`— porque
+    el análisis es agnóstico del target: aquí solo se PROPONEN candidatos, y
+    quién es el objetivo lo decide quien llama.
 """
 from __future__ import annotations
 
 import csv
 import io
+import re
 from typing import Any
 
 from matrixai import limits as _limits
@@ -84,6 +100,17 @@ _IDENTIFIER_MIN_ROWS = 10
 # span 0 — todas las filas igual valor — se usa un margen absoluto mínimo).
 _RANGE_MARGIN_FRACTION = 0.1
 _RANGE_MARGIN_MIN_ABS = 1.0
+
+# Bytes de CONTROL que no pueden estar dentro de una celda de texto. Se dejan
+# fuera el tabulador (raro pero es texto) y `\n`/`\r`, que se miran aparte
+# porque su diagnóstico es OTRO (una celda partida por una comilla sin cerrar,
+# no un fichero binario).
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+# Cuántos daños de estructura se enseñan con nombre y apellidos. El resto se
+# cuenta: una lista de 4.000 filas rotas no es más accionable que tres
+# ejemplos y el total.
+_MAX_DANOS_DETALLADOS = 3
 
 # Nombres típicos de columna objetivo (comparación exacta, minúsculas, tras
 # strip — es una señal más entre tres, no la única, así que no hace falta
@@ -148,7 +175,15 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
         fieldnames = reader.fieldnames
         if not fieldnames:
             raise DatasetAnalysisError("El CSV no tiene fila de cabecera.")
-        rows = list(reader)
+        # La LÍNEA física de cada fila se guarda a la vez que la fila: es lo
+        # que hay que decirle a alguien para que vaya a mirar el fichero, y
+        # `list(reader)` la tiraba. `line_num` es la línea donde ACABA el
+        # registro (una celda con saltos de línea ocupa varias).
+        rows = []
+        row_lines = []
+        for row in reader:
+            rows.append(row)
+            row_lines.append(reader.line_num)
     except csv.Error as exc:
         raise DatasetAnalysisError(f"El CSV es ilegible: {exc}") from exc
 
@@ -184,7 +219,14 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
             f"primeras {max_rows} (perfil de límites actual)."
         )
         rows = rows[:max_rows]
+        row_lines = row_lines[:max_rows]
     rows_analyzed = len(rows)
+
+    # Un fichero que NO es una tabla se rechaza aquí, antes de inventarle un
+    # esquema (ver `_structural_damage`).
+    message = _damage_message(_structural_damage(rows, row_lines, columns, csv_text))
+    if message is not None:
+        raise DatasetAnalysisError(message)
 
     duplicate_rows = _count_duplicate_rows(rows, columns)
 
@@ -209,6 +251,173 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
     if rows_capped_warning:
         result["rows_capped_warning"] = rows_capped_warning
     return result
+
+
+# ---------------------------------------------------------------------------
+# Estructura del fichero
+# ---------------------------------------------------------------------------
+
+def _damage_message(damage: tuple[int, list[str]]) -> str | None:
+    """Los daños, en UN mensaje accionable. `None` si no hay ninguno."""
+    total, examples = damage
+    if total == 0:
+        return None
+    detail = "; ".join(examples)
+    if total > len(examples):
+        detail += f"; y {total - len(examples)} problema(s) más"
+    return (
+        f"El fichero no se puede leer como una tabla: {detail}. Corrige esas "
+        "filas y vuelve a subirlo: leído así, no describiría tus datos."
+    )
+
+
+def structural_damage_error(csv_text: str) -> str | None:
+    """El MISMO veredicto de estructura, para quien recibe un CSV por otra
+    puerta que no pasa por `analyze_dataset_csv`.
+
+    Existe porque hay dos puertas y solo una analizaba. Medido el
+    2026-08-13: `prepare_dataset_from_provenance` (la que usa «traer mis
+    datos» para reentrenar un modelo que ya existe) tragaba el fichero roto
+    de la auditoría y devolvía `ok` con UNA fila preparada de las cinco del
+    fichero, sin decir que se hubieran perdido cuatro. Entrenar con una
+    quinta parte de los datos de alguien sin avisar es peor que rechazarlos.
+
+    Devuelve el motivo o `None`. Nunca lanza: los errores de cabecera, CSV
+    vacío o ilegible los sigue diciendo `analyze_dataset_csv` con su
+    mensaje, y adelantarse aquí sería un segundo sitio diciendo lo mismo.
+    """
+    if not csv_text or not csv_text.strip():
+        return None
+    from matrixai.training.data import normalize_csv_text
+    text = normalize_csv_text(csv_text)
+    try:
+        reader = csv.DictReader(io.StringIO(text))
+        if not reader.fieldnames:
+            return None
+        columns = [str(c) for c in reader.fieldnames if c is not None]
+        rows = []
+        row_lines = []
+        for row in reader:
+            rows.append(row)
+            row_lines.append(reader.line_num)
+    except csv.Error:
+        return None
+    return _damage_message(_structural_damage(rows, row_lines, columns, text))
+
+
+def _structural_damage(
+    rows: list[dict[str, Any]],
+    row_lines: list[int],
+    columns: list[str],
+    csv_text: str,
+) -> tuple[int, list[str]]:
+    """CUÁNTOS daños de ESTRUCTURA tiene el fichero, y los primeros con su
+    evidencia.
+
+    Un CSV roto entraba sin decir palabra, y eso es peor que rechazarlo.
+    Medido el 2026-08-13 contra el backend real con un fichero de seis
+    líneas (una comilla sin cerrar, una fila de 2 campos, bytes binarios y
+    una fila de 5): el análisis contestaba `ok` con «2 filas · 3 columnas»
+    y un esquema donde `b` y `c` salían «constantes al 50 % de vacíos» —
+    pero esas celdas NO estaban vacías en el fichero: es que sus filas
+    nunca llegaron a leerse. Con eso, «Construir modelo» se encendía y
+    fallaba al pulsarlo, con un error del core sobre algo que la pantalla
+    ya sabía. Lo que se sabe se dice ANTES.
+
+    Se RECHAZA en vez de avisar, por el mismo criterio con el que ya se
+    rechaza una cabecera con nombres repetidos: no es una preferencia del
+    usuario, es que el resultado del análisis no describiría su fichero.
+    Los cuatro daños que se miran son hechos comprobables, no heurísticas:
+
+    - **Sobran campos**: `DictReader` mete lo que no cabe bajo la clave
+      `None` y nadie lo mira nunca — datos tirados en silencio.
+    - **Faltan campos**: `DictReader` rellena con `restval` (`None`), que
+      el análisis cuenta como celda vacía. Un campo que no está no es un
+      campo vacío (un valor ausente no es un cero).
+    - **Comilla sin cerrar**: una celda que ACABA en salto de línea. El
+      fichero se terminó dentro de un campo entrecomillado, así que el
+      salto que separaba dos filas se leyó como parte del valor.
+      «Contiene un salto» no vale como criterio y se probó: un CSV real
+      trae texto entrecomillado con comas y saltos DENTRO, y eso está
+      soportado a propósito (`test_comas_y_saltos_entre_comillas` de
+      `test_repreparacion_c62_c3`, que se puso rojo con la primera
+      versión de esta regla). «ACABA en salto» distingue las dos cosas —
+      medido con los cuatro casos: comilla sin cerrar, multilínea
+      legítima intermedia, multilínea legítima al final, y el único falso
+      positivo que queda (un valor que de verdad termina en `\\n` justo
+      antes de su comilla de cierre).
+    - **Celda binaria**: contiene bytes de control. Eso no es un CSV de
+      texto.
+
+    Coste: las dos primeras son O(1) por fila (`DictReader` rellena por la
+    IZQUIERDA, así que a una fila corta le falta SIEMPRE la última
+    columna). Las dos últimas recorrerían celda a celda, así que primero se
+    mira el texto entero de una pasada en C: sin comillas no puede haber
+    una celda partida, y sin bytes de control no hay ninguna celda binaria.
+    MEDIDO sobre un CSV de 200.000 filas × 8 columnas (12,7 MB): 0,19 s por
+    la vía rápida y 0,41 s cuando el fichero SÍ lleva comillas legítimas,
+    sobre los 3,25 s que ya costaba el análisis entero.
+
+    Se devuelve el TOTAL y solo los `_MAX_DANOS_DETALLADOS` primeros textos:
+    un fichero de un millón de filas todas cortas generaba un millón de
+    frases en memoria para enseñar tres. El total sigue siendo exacto — decir
+    «y muchos más» cuando se sabe el número sería redondear a peor.
+    """
+    total = 0
+    examples: list[str] = []
+
+    def note(text: str) -> None:
+        nonlocal total
+        total += 1
+        if len(examples) < _MAX_DANOS_DETALLADOS:
+            examples.append(text)
+
+    if not columns:
+        return total, examples
+    last_column = columns[-1]
+
+    def where(i: int) -> str:
+        if i < len(row_lines):
+            return f"la fila de datos {i + 1} (línea {row_lines[i]})"
+        return f"la fila de datos {i + 1}"
+
+    for i, row in enumerate(rows):
+        extra = row.get(None)
+        if extra:
+            note(
+                f"{where(i)} tiene {len(columns) + len(extra)} campos y la cabecera "
+                f"{len(columns)}: sobra(n) {list(extra)!r}, que se estaba(n) "
+                "tirando en silencio"
+            )
+        if row.get(last_column, "") is None:
+            missing = [c for c in columns if row.get(c, "") is None]
+            note(
+                f"{where(i)} se queda sin la(s) columna(s) {missing!r}: no están "
+                "vacías, es que la fila tiene menos campos que la cabecera"
+            )
+
+    has_quotes = '"' in csv_text
+    has_control = _CONTROL_RE.search(csv_text) is not None
+    if has_quotes or has_control:
+        for i, row in enumerate(rows):
+            for col in columns:
+                value = row.get(col)
+                if not isinstance(value, str):
+                    continue
+                if has_quotes and value.endswith(("\n", "\r")):
+                    note(
+                        f"{where(i)}, columna {col!r}: la celda se ha tragado el "
+                        "salto de línea que separaba las filas — hay una comilla "
+                        "sin cerrar y el fichero se acaba dentro de esa celda"
+                    )
+                if has_control:
+                    found = _CONTROL_RE.search(value)
+                    if found is not None:
+                        note(
+                            f"{where(i)}, columna {col!r}: la celda contiene bytes de "
+                            f"control ({found.group()!r}) — esto no es un CSV de texto"
+                        )
+    return total, examples
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +613,109 @@ def _round_range(range_pair: list[float], numeric_kind: str) -> list[float | int
         import math
         return [int(math.floor(range_pair[0])), int(math.ceil(range_pair[1]))]
     return [round(range_pair[0], 4), round(range_pair[1], 4)]
+
+
+# ---------------------------------------------------------------------------
+# El objetivo
+# ---------------------------------------------------------------------------
+
+def constant_target_error(csv_text: str, target_column: str) -> str | None:
+    """Por qué esta columna no puede ser el OBJETIVO por no variar, o `None`.
+
+    El caso, medido conduciendo el producto el 2026-08-13: un CSV de 300
+    filas con `y = 7` en todas, elegido como objetivo. El modelo se
+    construye, entrena hasta `Pérdida 0.000` / `Error de validación
+    0.000`, el raíl dice «Entrenamiento completado», la auditoría «6
+    pasan» y el despliegue queda disponible. Nadie miente en ninguna de
+    esas pantallas por separado, y el resultado es un modelo inservible
+    con boletín de notas perfecto.
+
+    **Se RECHAZA, no se avisa**, y por dos razones que ya están escritas
+    en el propio producto:
+
+    1. Es el MISMO criterio que ya se aplica a las features. Una columna
+       constante se excluye por defecto (`constant` se marca en
+       `_analyze_column`) y, si no queda ninguna otra, `dataset_project`
+       aborta: «Ninguna columna es utilizable como feature: [...] tienen
+       un único valor en todo el CSV y no aportan información». Que el
+       mismo hecho —una columna que no varía— bloquee como feature y pase
+       como objetivo era la incoherencia.
+    2. El core YA rechaza el objetivo constante cuando la tarea es de
+       CLASIFICACIÓN («no hay nada que clasificar»), sin escape ninguno.
+       Lo que quedaba abierto era la puerta de REGRESIÓN, que es la que
+       toma un objetivo numérico de cardinalidad 1. No hay nada que
+       conservar aquí, así que tampoco hay palanca de «consérvalo igual»:
+       a diferencia de una feature constante —que se puede querer en el
+       esquema declarando su rango de dominio real— un objetivo que no
+       varía no es un problema de aprendizaje difícil, es que no hay
+       problema.
+
+    Coste, MEDIDO sobre un CSV de 200.000 filas y 12,7 MB: 0,24 s, y casi
+    todo se va en `normalize_csv_text` (una reescritura O(n) del texto que
+    hace falta para que el `;` de Excel no esconda la columna). El recorrido
+    de filas para en cuanto aparece el segundo valor distinto, así que en un
+    dataset normal son dos o tres filas; la pasada completa solo se paga
+    cuando la columna es de verdad constante, que es justo cuando se va a
+    rechazar.
+
+    Devuelve `None` —y no un error— si la columna no existe o si no tiene
+    ningún valor: esos dos casos ya tienen su propio mensaje aguas abajo
+    («no es un target válido»), y dos mensajes para lo mismo acaban
+    divergiendo.
+
+    Y devuelve `None` también en cuanto el fichero da señales de NO ser una
+    tabla (una fila a la que le falta o le sobra un campo, una celda que se
+    tragó el salto de línea, bytes de control). Sin eso, el CSV roto de la
+    auditoría —seis líneas, una comilla sin cerrar— salía por aquí con «la
+    columna 'c' tiene un único valor ('3')», que es una conclusión sacada de
+    un fichero que no se ha podido leer entero: el diagnóstico correcto lo da
+    `analyze_dataset_csv`, y taparlo con éste sería mandar a alguien a
+    cambiar de columna cuando lo que tiene que arreglar es el fichero.
+    """
+    if not csv_text or not csv_text.strip() or not target_column:
+        return None
+
+    from matrixai.training.data import normalize_csv_text
+    reader = csv.DictReader(io.StringIO(normalize_csv_text(csv_text)))
+    try:
+        if not reader.fieldnames or target_column not in reader.fieldnames:
+            return None
+        # Se mira la ÚLTIMA columna aunque el objetivo sea otra: `DictReader`
+        # rellena por la izquierda, así que a una fila corta le falta siempre
+        # la última — y un fichero con filas cortas no se diagnostica aquí ni
+        # aunque el objetivo esté entre las columnas que sí llegaron.
+        last_column = str(reader.fieldnames[-1])
+        distinct: set[str] = set()
+        for row in reader:
+            if None in row:
+                return None  # a esa fila le sobran campos: el fichero está roto
+            if row.get(last_column, "") is None:
+                return None  # a esa fila le FALTAN campos (no es una celda vacía)
+            value = row.get(target_column)
+            if value is None:
+                return None
+            if _is_null(value):
+                continue
+            if value.endswith(("\n", "\r")) or _CONTROL_RE.search(value):
+                return None  # comilla sin cerrar o celda binaria: no es una tabla
+            distinct.add(value.strip())
+            if len(distinct) > 1:
+                return None
+    except csv.Error:
+        # Un CSV ilegible no es cosa de esta comprobación: `analyze_dataset_
+        # csv` lo dice con su propio error, y adelantarse aquí lo taparía.
+        return None
+
+    if len(distinct) != 1:
+        return None
+    only = next(iter(distinct))
+    return (
+        f"La columna objetivo {target_column!r} tiene un único valor en todo el "
+        f"CSV ({only!r}): no hay nada que aprender. Un modelo entrenado contra un "
+        "objetivo que no varía llega a pérdida 0 acertando siempre lo mismo, y ese "
+        "0 se lee como un acierto perfecto. Elige una columna que varíe, o trae "
+        "datos en los que el resultado cambie."
+    )
 
 
 # ---------------------------------------------------------------------------
