@@ -7,6 +7,54 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.4.2] — 2026-08-13
+
+A binary classifier now names the classes it actually used, and the
+downloadable bundle stops shipping its own build artefacts.
+
+### Added
+- `binarize` dataset operation: turns a continuous measurement into a
+  class with an **explicit** threshold, so a numeric column can become a
+  yes/no target without leaving the declared pipeline. There is no
+  default threshold — a default would silently decide what counts as
+  "yes". An empty dataset stays empty and the column offset is
+  inherited.
+
+### Changed
+- Thousands separators are written in the reader's language. The number
+  was already measured correctly; only its presentation moved.
+
+### Fixed
+- **A binary classification without a `LABELS` block used to report
+  `labels: []` and an empty `per_label`**, while still computing
+  `macro_precision`/`macro_recall` from the very per-class values it had
+  dropped — a response that contradicted itself. The evaluator now
+  returns the labels it actually used (`negative`/`positive`), at both
+  sites that declared the same rule (stdlib and torch). Consumers that
+  fall back with `??` never recovered from this, because `??` does not
+  fall back on an empty array: the confusion matrix, full of data, was
+  never drawn.
+- A constant target is rejected where it is detected, with the reason
+  written out. A column with a single distinct value gives the network
+  nothing to learn, and training used to run to completion reporting a
+  near-zero loss for a model that can only repeat that constant.
+- A corrupt CSV is rejected with its reason instead of entering
+  silently.
+- The downloadable model bundle no longer ships the `__pycache__` left
+  by its own packaging smoke test — bytecode carrying the build
+  machine's interpreter version, present in the zip but absent from the
+  manifest. The large-weights streaming path already filtered it and the
+  normal path did not, so the same model shipped different files
+  depending on its size.
+
+### Notes
+- `_propose_margin` is deliberately unchanged: clamping the proposed
+  range margin at zero breaks Kelvin training ("Numerical result out of
+  range"). The reason is written next to the code so the next reader
+  does not "fix" it again.
+
+---
+
 ## [1.4.1] — 2026-08-12
 
 Data a template generates must have something to learn; a prompt must
