@@ -17,13 +17,18 @@ que C4 lo pinte en el editor de esquema.
 
 Diseño deliberado (documentado porque toda heurística de datos reales tiene
 casos ambiguos — el usuario siempre puede corregir en el editor, invariante 8):
-  - El TIPO de una columna se infiere de sus VALORES, nunca de su nombre (a
-    diferencia de `_suggest_field_types`, heurística de nombre que sigue
-    existiendo para el editor manual). Orden de comprobación: fecha → boolean
-    → numérico (entero/decimal) → identificador (alta unicidad) → categórica
-    (todo lo demás). El orden importa: una columna de fechas únicas no debe
-    caer en "identificador", y "0"/"1" puros se leen como boolean antes que
-    como entero (mismos tokens que `predict_template.py`).
+  - El TIPO de una columna se infiere de sus VALORES (a diferencia de
+    `_suggest_field_types`, heurística de nombre que sigue existiendo para el
+    editor manual). Orden de comprobación: fecha → boolean → numérico
+    (entero/decimal) → identificador (alta unicidad) → categórica (todo lo
+    demás). El orden importa: una columna de fechas únicas no debe caer en
+    "identificador", y "0"/"1" puros se leen como boolean antes que como
+    entero (mismos tokens que `predict_template.py`).
+    ÚNICA excepción, y va dicha porque antes esta línea decía "nunca de su
+    nombre": para separar un ENTERO casi-único que es un id de uno que es
+    una medida, el nombre entra como segunda señal junto a la forma de los
+    valores (ver `_IDENTIFIER_RUN_DENSITY`). Solo puede AÑADIR
+    identificadores que la forma no ve, nunca quitar los que sí ve.
   - "categórica" cubre TANTO baja como alta cardinalidad — la cardinalidad
     viaja en el resultado para que C2 decida one-hot vs embedding
     (`_ONEHOT_MAX`, el mismo umbral que ya usan los generadores), esto no es
@@ -57,7 +62,7 @@ import statistics
 from typing import Any
 
 from matrixai import limits as _limits
-from matrixai.training.dense_generator import _ONEHOT_MAX
+from matrixai.training.dense_generator import _ONEHOT_MAX, parece_identificador
 
 # Tokens boolean — mismo vocabulario que `matrixai/export/predict_template.py`
 # (_TRUE/_FALSE), para que "lo que el usuario ve como booleano en un CSV" sea
@@ -96,6 +101,34 @@ _DATE_FORMATS = (
 # nada — ver test de bordes).
 _IDENTIFIER_UNIQUE_RATIO = 0.98
 _IDENTIFIER_MIN_ROWS = 10
+
+# ENTERO casi-único: hace falta MÁS que la unicidad para llamarlo id.
+#
+# La intención escrita aquí siempre fue «el clásico id secuencial
+# 1,2,3,...,N», pero la condición implementada era solo «entero + casi todo
+# distinto», y eso se traga cualquier MEDIDA de dominio con rango ancho. Un
+# `salario` declarado `Scalar en [15000, 120000]` sale entero (el redondeo a
+# escala de dominio no deja decimales cuando el span es grande), 198 de 200
+# valores distintos → `identifier` → `_NEVER_FEATURE_TYPES` lo saca del
+# modelo EN SILENCIO. No es cosa del dato sintético: un CSV real de 300
+# sueldos enteros se pierde igual (medido 2026-08-14).
+#
+# Lo que de verdad distingue a un id secuencial es que sus valores son un
+# TRAMO: ocupan casi todos los enteros entre el mínimo y el máximo. Medido
+# con los dos lados delante — densidad = valores distintos / (max - min + 1):
+#
+#   id 1..15          1.0000  |  salario [15000, 120000], 200 filas  0.0019
+#   id 0..49          1.0000  |  empleado_id aleatorio de 8 cifras   0.0000
+#   centigrados 0..99 1.0000  |
+#   P1000..P1014      1.0000  |
+#
+# Los dos grupos no se rozan, así que el umbral va en medio y no en el borde
+# de ninguno. Y como un id ESPARCIDO (un número de empleado aleatorio) no
+# forma tramo, se conserva la otra señal que ya existe y que no mira los
+# valores: el NOMBRE (`parece_identificador`, contrato 71). Las dos juntas
+# cubren los dos lados — sin ellas, arreglar el sesgo del salario habría
+# creado el contrario.
+_IDENTIFIER_RUN_DENSITY = 0.5
 
 # TEXTO LIBRE dentro de un identificador — lo que distingue una columna de
 # reseñas de una de DNIs, medido con los dos lados delante (2026-08-14).
@@ -267,7 +300,7 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
     column_infos: dict[str, dict[str, Any]] = {}
     for col in columns:
         raw_values = [row.get(col) for row in rows]
-        column_infos[col] = _analyze_column(raw_values, rows_analyzed)
+        column_infos[col] = _analyze_column(raw_values, rows_analyzed, col)
 
     target_candidates = _rank_target_candidates(columns, column_infos)
     temporal_columns = [c for c in columns if column_infos[c]["type"] == "date"]
@@ -464,7 +497,24 @@ def _is_null(value: str | None) -> bool:
     return value.strip().lower() in _NULL_TOKENS
 
 
-def _analyze_column(raw_values: list[str | None], rows_analyzed: int) -> dict[str, Any]:
+def _integer_run_density(values: list[str]) -> float:
+    """Cuánto TRAMO ocupan estos enteros: distintos / (max - min + 1).
+
+    1.0 es `1,2,3,...,N` sin huecos (el id secuencial); una medida de
+    dominio con rango ancho (un sueldo) se queda en milésimas. Devuelve la
+    medida, no un veredicto — quien decide es `_analyze_column`, y quien
+    audita tiene que poder ver el número con el que se afirmó.
+    """
+    enteros = [int(float(v)) for v in values]
+    span = max(enteros) - min(enteros) + 1
+    if span <= 0:
+        return 1.0
+    return len(set(enteros)) / span
+
+
+def _analyze_column(
+    raw_values: list[str | None], rows_analyzed: int, column_name: str = "",
+) -> dict[str, Any]:
     non_null = [v.strip() for v in raw_values if not _is_null(v)]
     null_count = rows_analyzed - len(non_null)
     info: dict[str, Any] = {
@@ -521,10 +571,18 @@ def _analyze_column(raw_values: list[str | None], rows_analyzed: int) -> dict[st
     # por esta vía sola (una medida continua es normal que salga casi única
     # incluso sin ser un id; ver test_numeric_looking_strings_are_numeric).
     if numeric_kind == "integer" and is_identifier_candidate:
-        info["type"] = "identifier"
-        info["cardinality"] = cardinality
-        info["unique_ratio"] = round(unique_ratio, 4)
-        return info
+        # Casi-único NO basta (ver `_IDENTIFIER_RUN_DENSITY`): o los valores
+        # forman un TRAMO —el id secuencial que esta rama siempre dijo
+        # buscar— o lo dice el NOMBRE, que es la señal que cubre al id
+        # esparcido. Si no es ninguna de las dos, es una medida de dominio y
+        # sigue por la rama numérica de abajo con su rango.
+        densidad = _integer_run_density(non_null)
+        if densidad >= _IDENTIFIER_RUN_DENSITY or parece_identificador(column_name):
+            info["type"] = "identifier"
+            info["cardinality"] = cardinality
+            info["unique_ratio"] = round(unique_ratio, 4)
+            info["run_density"] = round(densidad, 4)
+            return info
     if numeric_kind is not None:
         values = [float(v) for v in non_null]
         lo, hi = min(values), max(values)

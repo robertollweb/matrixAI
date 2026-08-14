@@ -12,12 +12,15 @@ disfrazada de texto), determinismo, y CSV ilegible → error accionable
 """
 from __future__ import annotations
 
+import random
+
 import pytest
 
 from matrixai.training.dataset_analysis import (
     DatasetAnalysisError,
     analyze_dataset_csv,
 )
+from matrixai.training.dataset_project import generate_project_from_dataset
 from matrixai.training.dense_generator import _ONEHOT_MAX
 
 
@@ -230,6 +233,59 @@ class TestTypeDetection:
         r = analyze_dataset_csv("\n".join(rows))
         candidate_cols = {c["column"] for c in r["target_candidates"]}
         assert "id" not in candidate_cols
+
+    # --- Un entero casi-único que NO es un identificador -------------------
+    # El defecto: «entero + casi todo distinto» se tragaba cualquier MEDIDA de
+    # dominio con rango ancho, y `identifier` está en `_NEVER_FEATURE_TYPES`,
+    # así que la columna se caía del modelo sin decir nada. Los dos lados van
+    # probados: el sueldo tiene que salvarse Y el id secuencial tiene que
+    # seguir descartándose (arreglar un sesgo puede crear el contrario).
+
+    def test_salario_entero_casi_unico_no_es_identificador(self):
+        """Un sueldo con 200 valores enteros distintos es una medida, no un
+        id: sus valores están ESPARCIDOS (densidad 0.002), no forman tramo."""
+        rng = random.Random(1)
+        rows = ["salario,se_va"] + [
+            f"{rng.randint(15000, 120000)},{'si' if i % 2 else 'no'}" for i in range(200)
+        ]
+        r = analyze_dataset_csv("\n".join(rows))
+        salario = r["columns"]["salario"]
+        assert salario["type"] == "integer"
+        # Y con su rango: sin él, quien lo pinte no tiene dominio que enseñar.
+        assert salario["observed_range"][0] >= 15000
+        assert salario["observed_range"][1] <= 120000
+
+    def test_salario_declarado_en_el_prompt_llega_al_modelo(self):
+        """Probar el PRODUCTO, no la función: la columna rescatada tiene que
+        acabar siendo una FEATURE del modelo generado desde el CSV."""
+        rng = random.Random(1)
+        rows = ["salario,edad,se_va"] + [
+            f"{rng.randint(15000, 120000)},{rng.randint(22, 64)},"
+            f"{'si' if rng.random() < 0.3 else 'no'}"
+            for _ in range(300)
+        ]
+        proj = generate_project_from_dataset("\n".join(rows), "se_va")
+        assert "salario" in proj["provenance"]["feature_name_map"]
+        assert "salario: Scalar" in proj["mxai"]
+
+    def test_id_secuencial_sigue_siendo_identificador(self):
+        """El otro lado: 1..200 sin huecos (densidad 1.0) es el id clásico."""
+        rows = ["id,valor"] + [f"{i},{i * 2}" for i in range(1, 201)]
+        r = analyze_dataset_csv("\n".join(rows))
+        assert r["columns"]["id"]["type"] == "identifier"
+        assert r["columns"]["id"]["run_density"] == 1.0
+
+    def test_id_esparcido_sigue_siendo_identificador_por_el_nombre(self):
+        """Un número de empleado aleatorio de 8 cifras NO forma tramo
+        (densidad 0.0) — lo salva la otra señal, el NOMBRE. Sin ella, el
+        arreglo del sueldo habría creado el sesgo contrario."""
+        rng = random.Random(2)
+        rows = ["empleado_id,edad"] + [
+            f"{rng.randint(10000000, 99999999)},{rng.randint(20, 60)}" for _ in range(200)
+        ]
+        r = analyze_dataset_csv("\n".join(rows))
+        assert r["columns"]["empleado_id"]["type"] == "identifier"
+        assert r["columns"]["empleado_id"]["run_density"] < 0.5
 
     def test_categorical_low_cardinality(self):
         csv_text = "color\nrojo\nverde\nazul\nrojo\nverde\n"
