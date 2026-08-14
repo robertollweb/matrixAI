@@ -7,6 +7,32 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.4.3] — 2026-08-14
+
+Two numbers on the same screen that did not add up.
+
+### Fixed
+- **Accuracy and the confusion matrix now measure the same thing.** A
+  training result reported accuracy from the **validation** split while
+  the confusion matrix, macro-F1 and per-class figures came from a
+  *later* evaluation that scores the **whole dataset**, training rows
+  included. Summing the matrix therefore gave a different — and higher —
+  percentage than the accuracy shown beside it. The code already knew:
+  «confirmed they differ in practice; the source is left alone so as not
+  to change a value the user already sees».
+
+  The obvious fix would have been the wrong one. The inflated figure is
+  the one computed over data the model was trained on; aligning accuracy
+  to it would have turned a visible contradiction into a coherent lie.
+  Validation wins instead. `DenseSupervisedTrainer` already computed that
+  matrix and threw it away, keeping only the accuracy; it now travels in
+  `TrainingRunResult.validation_metrics`, and the reported classification
+  metrics come from there. The whole-dataset report remains as a
+  **fallback** for runs stored before this change: it degrades, it does
+  not break.
+
+---
+
 ## [1.4.2] — 2026-08-13
 
 A binary classifier now names the classes it actually used, and the
