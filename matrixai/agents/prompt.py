@@ -17,6 +17,17 @@ class PromptSynthesis:
     inferred_mode: str = ""
     inferred_entity: str = ""
     selected_fields: list[str] = field(default_factory=list)
+    #: `True` cuando NINGÚN campo salió de la descripción y `selected_fields`
+    #: son los de relleno de la plantilla (`priority`, `trust`, `topic_a`…).
+    #:
+    #: No es un detalle interno: significa que el modelo entregado habla de
+    #: cosas que quien lo pidió no ha nombrado. Medido el 2026-08-14 con
+    #: `use_llm=False` —una instalación recién hecha, sin clave—: «clasifica
+    #: reseñas por sentimiento» devuelve un `VECTOR Item[5]` de
+    #: `priority/trust/topic_a/topic_b/confidence`, y se entregaba sin decir
+    #: palabra. `_extract_fields` solo reconoce la sintaxis «campos: a, b»,
+    #: así que esto es CIERTO para casi cualquier petición en prosa.
+    fields_invented: bool = False
     goals: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
     agent_chain: list[str] = field(default_factory=list)
@@ -182,7 +193,12 @@ class PromptAgent:
         resolved["entity"] = self._extract_named_identifier(
             clean_prompt, self._ENTITY_RE, template["entity"], title_case=True
         )
-        resolved["fields"] = self._extract_fields(clean_prompt) or list(template["fields"])
+        # De dónde salen los campos: de la descripción, o de la plantilla.
+        # La distinción se CONSERVA en vez de perderse dentro del `or`,
+        # porque es lo que permite decir después «esto no lo has dicho tú».
+        campos_del_prompt = self._extract_fields(clean_prompt)
+        resolved["fields"] = campos_del_prompt or list(template["fields"])
+        campos_inventados = not campos_del_prompt
         if template_name == "generic_regression":
             self._specialize_regression_template(clean_prompt, resolved)
         self._append_trace(
@@ -229,6 +245,7 @@ class PromptAgent:
                 inferred_mode="regression",
                 inferred_entity=resolved["entity"],
                 selected_fields=resolved["fields"],
+                fields_invented=campos_inventados,
                 goals=goals,
                 assumptions=assumptions,
                 agent_chain=[
@@ -276,6 +293,7 @@ class PromptAgent:
             inferred_mode=resolved["mode"],
             inferred_entity=resolved["entity"],
             selected_fields=resolved["fields"],
+            fields_invented=campos_inventados,
             goals=goals,
             assumptions=assumptions,
             agent_chain=[

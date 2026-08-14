@@ -4045,6 +4045,61 @@ _AVISO_TEXTO_ESCALAR = {
 }
 
 
+_CAMPOS_INVENTADOS = {
+    "es": lambda campos: (
+        f"Estos campos NO los has dicho tú: {campos}. Tu descripción no nombra "
+        "ninguna entrada, así que el core ha puesto los de una plantilla genérica "
+        "— y la plantilla de datos que viene detrás te los va a pedir tal cual. "
+        "Si tus datos son otros, nómbralos en la descripción con «campos: "
+        "columna_a, columna_b»; y si alguno es texto libre, decláralo con "
+        "«columna_a: Text»."
+    ),
+    "en": lambda campos: (
+        f"You did NOT name these fields: {campos}. Your description names no "
+        "inputs, so the core used a generic template's — and the data template "
+        "that follows will ask you for exactly those. If your data is different, "
+        "name your columns in the description with «fields: column_a, column_b»; "
+        "and if any of them is free text, declare it with «column_a: Text»."
+    ),
+}
+
+
+def campos_inventados_warning(report: dict[str, Any], locale: str = "es") -> str | None:
+    """Los campos del modelo NO salieron de la descripción — dilo.
+
+    MEDIDO el 2026-08-14 con `use_llm=False`, que es lo que tiene una
+    instalación recién hecha sin clave de LLM: «clasifica reseñas por
+    sentimiento» devuelve un `VECTOR Item[5]` con `priority`, `trust`,
+    `topic_a`, `topic_b` y `confidence` —cinco campos que no tienen nada
+    que ver con lo pedido— y se entregaba **sin decir palabra**.
+
+    La causa no es el texto: `PromptAgent._extract_fields` solo reconoce
+    la sintaxis «campos: a, b», así que CASI CUALQUIER petición en prosa
+    acaba con los campos de relleno de una plantilla. El texto es un caso
+    particular de esto.
+
+    NO ES UNA HEURÍSTICA, y esa es la diferencia con «esto huele a
+    texto»: `fields_invented` es un HECHO que el propio generador conoce
+    —usó la plantilla porque no extrajo nada—, así que este aviso no
+    puede dar un falso positivo. Por eso se dice esto y no «tu
+    descripción menciona texto», que exigiría una lista de palabras de
+    dominio y acusaría a «predecir el NÚMERO de reseñas», que es tabular.
+
+    Roberto lo puso en su lista de prioridades: «no sabe qué dataset
+    necesita, recibe un modelo inesperado — ése es el roadmap».
+    """
+    sintesis = report.get("synthesis")
+    if not isinstance(sintesis, dict) or not sintesis.get("fields_invented"):
+        return None
+    campos = [str(c) for c in (sintesis.get("selected_fields") or [])]
+    # Sin campos que nombrar no hay nada que decir: un aviso que no puede
+    # señalar qué revisar es ruido.
+    if not campos:
+        return None
+    redactar = _CAMPOS_INVENTADOS.get(str(locale or "es").strip().lower(), _CAMPOS_INVENTADOS["es"])
+    return redactar(", ".join(campos))
+
+
 def text_left_scalar_warning(
     result: dict[str, Any],
     prompt: str,
@@ -4634,9 +4689,10 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     result["llm_schema_used"] = False
         else:
             report = PromptSupervisor().supervise_prompt(prompt, force_deterministic=not use_llm)
+            _informe = report.to_dict()
             result = _result_from_supervision(
                 mode,
-                report.to_dict(),
+                _informe,
                 input_text,
                 "",  # prompt mode: don't carry over stale training_text from previous model
                 manifest_text,
@@ -4658,6 +4714,14 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
         )
         if _aviso_texto:
             _anotar_avisos(result, [_aviso_texto])
+        # Y si los campos NO salieron de la descripción, decirlo. Va aquí,
+        # al lado del aviso del texto, porque es el mismo momento —acabas
+        # de recibir el modelo— y el mismo canal. `_informe` solo existe
+        # en la rama del supervisor; la densa deriva sus campos del
+        # esquema del LLM y no de una plantilla de relleno.
+        _aviso_campos = campos_inventados_warning(locals().get("_informe") or {}, _locale)
+        if _aviso_campos:
+            _anotar_avisos(result, [_aviso_campos])
         result["llm_mode"] = _detect_llm_mode()
         # In prompt mode a fresh model is generated — clear any stale training/mxai artefacts
         # so the JS overwrites the textareas rather than echoing stale Email/Risk content.
