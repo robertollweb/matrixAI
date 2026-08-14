@@ -216,6 +216,58 @@ class _PreparedCSV:
     effective_vocabularies: dict[str, list[str]] = field(default_factory=dict)
 
 
+# ---------------------------------------------------------------------------
+# LOS RECHAZOS DE «NINGUNA COLUMNA UTILIZABLE», EN LOS DOS IDIOMAS.
+#
+# Estaban en español fijo, y son de los pocos mensajes de este módulo que
+# ve alguien de FUERA: es lo que recibe quien sube su primer CSV y no
+# sale nada. Medido el 2026-08-14 con `locale=en`: la aplicación en
+# inglés y el rechazo en español. Media aplicación traducida se ve peor
+# que ninguna — y este es justo el momento en el que alguien decide si
+# el producto le sirve.
+#
+# Se traduce AQUÍ porque lo redacta el core, misma regla que `_MARCOS`
+# en `playground.py`. Los tres van juntos porque son el mismo momento
+# —«no hay con qué entrenar»— y arreglar uno solo dejaría a su vecino
+# contestando en otro idioma en la pantalla de al lado.
+#
+# El español sigue siendo el de por defecto: quien no pase `locale`
+# recibe exactamente lo de antes, palabra por palabra.
+_SIN_FEATURES: dict[str, dict[str, Any]] = {
+    "es": {
+        "constantes": lambda cols: (
+            f"Ninguna columna es utilizable como feature: {cols} tienen un único valor en "
+            "todo el CSV y no aportan información. Añade columnas que varíen, "
+            "o consérvalas explícitamente declarando su rango de dominio."),
+        "texto": lambda cols: (
+            f"Ninguna columna es utilizable como feature: {cols} "
+            "contiene(n) TEXTO escrito por una persona, y el camino desde datos "
+            "todavía no construye modelos de texto (solo columnas numéricas, "
+            "categóricas o booleanas). Para un modelo de texto, créalo desde una "
+            f"descripción declarando el campo así: «{cols[0]}: Text» "
+            "— entrena con esa columna tal cual, sin convertirla a números."),
+        "nada": ("Ninguna columna es utilizable como feature (todas son el target, "
+                 "identificadores, fechas o columnas vacías) — no hay nada con lo "
+                 "que entrenar."),
+    },
+    "en": {
+        "constantes": lambda cols: (
+            f"No column can be used as a feature: {cols} hold a single value across "
+            "the whole CSV and carry no information. Add columns that vary, or keep "
+            "them explicitly by declaring their domain range."),
+        "texto": lambda cols: (
+            f"No column can be used as a feature: {cols} hold(s) TEXT written by a "
+            "person, and the from-data path does not build text models yet (numeric, "
+            "categorical or boolean columns only). For a text model, create it from a "
+            f"description declaring the field like this: «{cols[0]}: Text» — it trains "
+            "on that column as it is, without turning it into numbers."),
+        "nada": ("No column can be used as a feature (they are all the target, "
+                 "identifiers, dates or empty columns) — there is nothing to train "
+                 "with."),
+    },
+}
+
+
 def generate_project_from_dataset(
     csv_text: str,
     target_column: str,
@@ -478,31 +530,16 @@ def generate_project_from_dataset(
         # constantes, hay que decirlo Y decir cómo conservarlas — el mensaje
         # genérico de abajo mandaría al usuario a buscar identificadores o
         # fechas que no existen.
+        textos = _SIN_FEATURES.get(str(locale or "es").strip().lower(), _SIN_FEATURES["es"])
         if dropped_constant_columns:
-            raise DatasetProjectError(
-                "Ninguna columna es utilizable como feature: "
-                f"{sorted(dropped_constant_columns)} tienen un único valor en "
-                "todo el CSV y no aportan información. Añade columnas que varíen, "
-                "o consérvalas explícitamente declarando su rango de dominio."
-            )
+            raise DatasetProjectError(textos["constantes"](sorted(dropped_constant_columns)))
         if free_text_columns:
             # Este CSV no está vacío de información: trae TEXTO. Mandar a su
             # dueño a buscar identificadores y fechas que no existen es la
             # media verdad tranquilizadora de siempre — y encima el producto
             # SÍ sabe hacer este modelo, solo que por la otra puerta.
-            raise DatasetProjectError(
-                f"Ninguna columna es utilizable como feature: {sorted(free_text_columns)} "
-                "contiene(n) TEXTO escrito por una persona, y el camino desde datos "
-                "todavía no construye modelos de texto (solo columnas numéricas, "
-                "categóricas o booleanas). Para un modelo de texto, créalo desde una "
-                f"descripción declarando el campo así: «{sorted(free_text_columns)[0]}: Text» "
-                "— entrena con esa columna tal cual, sin convertirla a números."
-            )
-        raise DatasetProjectError(
-            "Ninguna columna es utilizable como feature (todas son el target, "
-            "identificadores, fechas o columnas vacías) — no hay nada con lo "
-            "que entrenar."
-        )
+            raise DatasetProjectError(textos["texto"](sorted(free_text_columns)))
+        raise DatasetProjectError(textos["nada"])
 
     # Auditoría C2 [ALTA] (ver punto 5 del docstring): nombres de campo
     # saneados por adelantado y colisión detectada como error accionable —
