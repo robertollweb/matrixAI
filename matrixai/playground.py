@@ -2263,6 +2263,66 @@ def _network_is_transformer(mxai_text: str) -> bool:
         return False
 
 
+_AVISO_TEXTO_SIN_TORCH = {
+    "es": {
+        "falta": ("Este paquete no puede ENTRENAR modelos de texto: no trae el motor "
+                  "torch, que es el que necesitan los bloques TRANSFORMER. El paquete "
+                  "con GPU sí lo incluye."),
+        "forzado": ("No se pueden entrenar modelos de texto con MATRIXAI_TRAIN_BACKEND="
+                    "'stdlib': los bloques TRANSFORMER solo corren sobre torch. Quita "
+                    "ese ajuste (o ponlo en 'auto') para entrenarlo."),
+    },
+    "en": {
+        "falta": ("This package cannot TRAIN text models: it does not ship the torch "
+                  "engine that TRANSFORMER blocks need. The GPU package does include "
+                  "it."),
+        "forzado": ("Text models cannot be trained with MATRIXAI_TRAIN_BACKEND='stdlib': "
+                    "TRANSFORMER blocks only run on torch. Remove that setting (or set "
+                    "it to 'auto') to train it."),
+    },
+}
+
+
+def text_training_blocked(mxai_text: str, locale: str = "es") -> str | None:
+    """Por qué ESTA instalación no podría entrenar ESTE modelo de texto, o None.
+
+    Existe para poder decirlo **al generar** y no al entrenar. Medido el
+    2026-08-14 conduciendo la imagen publicada `matrixai-studio:v1.8`: el
+    paquete CPU no lleva torch, así que se puede construir un modelo de
+    texto, preparar los datos y pulsar Entrenar — y solo entonces sale el
+    error. Roberto: «en cpu lo que tenemos es que avisar si se pide una red
+    de transformers».
+
+    NO DECLARA NADA POR SU CUENTA, y eso es a propósito:
+      · si el modelo es de texto lo dice `_network_is_transformer`, que es
+        el MISMO criterio con el que el dispatch enruta al trainer;
+      · si esta instalación puede, lo dice `_select_transformer_train_device`,
+        que es el MISMO juez que usa el entrenamiento.
+    Aquí solo se juntan y se redactan. Dos sitios declarando lo mismo acaban
+    divergiendo, y este aviso tiene que decir exactamente lo que va a pasar
+    al pulsar Entrenar — si no, sería una media verdad tranquilizadora.
+
+    Se traduce AQUÍ porque lo redacta el core (misma regla que `_MARCOS`).
+
+    OJO CON LA REDACCIÓN: lo que falta es **torch**, no una GPU. En un
+    servidor sin GPU pero con torch de CPU este mismo modelo entrena a
+    accuracy 1,0 — medido. Por eso el texto habla del motor y del paquete
+    que lo trae, no de tener tarjeta.
+    """
+    if not _network_is_transformer(mxai_text):
+        return None
+    use_torch, _device = _select_transformer_train_device()
+    if use_torch:
+        return None
+    textos = _AVISO_TEXTO_SIN_TORCH.get(
+        str(locale or "es").strip().lower(), _AVISO_TEXTO_SIN_TORCH["es"]
+    )
+    # El motivo NO es el mismo, y mezclarlos mandaría a instalar torch a
+    # quien ya lo tiene y solo ha forzado el backend.
+    forzado = os.environ.get("MATRIXAI_TRAIN_BACKEND", "auto").strip().lower() == "stdlib"
+    return textos["forzado"] if forzado else textos["falta"]
+
+
 def _run_playground_transformer_training(
     mxai_text: str,
     training_text: str,
