@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from matrixai import limits as _limits
-from matrixai.generation import parse_field_specs, strip_field_specs
+from matrixai.generation import FieldSpec, parse_field_specs, strip_field_specs
 from matrixai.text.tokenizer import ByteTokenizer
 from matrixai.training.dense_generator import (
     DenseNetworkGenerator,
@@ -72,12 +72,46 @@ class TransformerNetworkGenerationResult:
     # nunca se pierde en export/import (viaja en inference_spec.json en C5).
     field_types: dict[str, str] = field(default_factory=dict)
     field_seq: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # De DÓNDE salió el campo de texto: "prompt" cuando lo declaró la
+    # gramática (`campo: Text`) o "proposed" cuando lo propuso un caller
+    # (hoy: el LLM leyendo la PROSA). No es lo mismo y quien audita tiene
+    # que poder distinguirlo — misma regla que `field_ranges_source`.
+    text_field_source: str = "prompt"
     # playground.analyze_playground_request lo lee vía getattr para
     # architecture_decision.kind — nunca "residual"/"composite"/"dense".
     is_transformer: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def _specs_from_proposed(proposed: dict[str, int | None]) -> list[FieldSpec]:
+    """Los campos de texto PROPUESTOS por un caller, con la misma forma que
+    los declarados — para que el resto del generador no sepa de dónde vienen.
+
+    Se sanean como cualquier nombre de campo (`_identifier`) y se descarta
+    lo inservible: un nombre vacío o una longitud que no es un entero
+    positivo. La longitud inválida NO tumba la propuesta —se cae al valor
+    por defecto, igual que hace `_parse_text_length` con un `Text[abc]` del
+    prompt—, pero un nombre inservible sí la descarta: sin nombre no hay
+    columna que pedirle a nadie.
+    """
+    specs: list[FieldSpec] = []
+    vistos: set[str] = set()
+    for raw_name, raw_length in (proposed or {}).items():
+        name = _identifier(str(raw_name or ""))
+        if not name or name in vistos:
+            continue
+        vistos.add(name)
+        length: int | None
+        try:
+            length = int(raw_length) if raw_length is not None else None
+        except (TypeError, ValueError):
+            length = None
+        if length is not None and length < 1:
+            length = None
+        specs.append(FieldSpec(name=name, kind="text", length=length))
+    return specs
 
 
 def _pick_heads(dim: int, preferred: int = _DEFAULT_HEADS) -> int:
@@ -101,7 +135,20 @@ class TransformerNetworkGenerator:
         labels: list[str] | None = None,
         network_name: str | None = None,
         input_name: str | None = None,
+        proposed_text_fields: dict[str, int | None] | None = None,
     ) -> TransformerNetworkGenerationResult:
+        """`proposed_text_fields` ({nombre: longitud|None}) es el campo de
+        texto que alguien ha DEDUCIDO de la prosa — hoy el LLM del schema,
+        que es quien lee «a partir del texto de la reseña» (el prompt no
+        trae ninguna declaración `campo: Text` que parsear).
+
+        Solo se mira cuando el prompt NO declara ningún Text: una
+        declaración explícita gana siempre (invariante GEN 1), igual que
+        gana sobre `input_fields`. Todo lo demás —un único campo, sin
+        mezclar con tabulares, tope de longitud— se valida IGUAL que un
+        campo declarado: el camino propuesto no es una puerta trasera con
+        menos comprobaciones, y por eso se comparte el mismo cuerpo.
+        """
         clean = " ".join(prompt.strip().split())
         if not clean:
             raise TransformerNetworkGeneratorError(
@@ -123,6 +170,14 @@ class TransformerNetworkGenerator:
             conflict for conflict in parsed.conflicts
             if conflict.first.kind == "text" or conflict.duplicate.kind == "text"
         ]
+        # El campo PROPUESTO solo entra cuando el prompt no declaró NINGÚN
+        # Text — ni siquiera uno contradictorio (`declares_kind` ve también
+        # los duplicados): si el prompt habló de Text, la ambigüedad es suya
+        # y se resuelve abajo con su error, no tapándola con una propuesta.
+        text_field_source = "prompt"
+        if not parsed.declares_kind("text") and proposed_text_fields:
+            text_fields = _specs_from_proposed(proposed_text_fields)
+            text_field_source = "proposed"
         if not text_fields:
             if _text_conflicts:
                 raise TransformerNetworkGeneratorError(
@@ -134,8 +189,9 @@ class TransformerNetworkGenerator:
                 "TransformerNetworkGenerator requires a Text field declared in the prompt"
             )
         if len(text_fields) > 1:
+            _origen = "declarados" if text_field_source == "prompt" else "propuestos"
             raise TransformerNetworkGeneratorError(
-                "Solo se admite un campo Text por modelo (v1); declarados: "
+                f"Solo se admite un campo Text por modelo (v1); {_origen}: "
                 f"{[f.name for f in text_fields]}. Varios campos Text por modelo "
                 "queda fuera de alcance de este contrato."
             )
@@ -188,6 +244,19 @@ class TransformerNetworkGenerator:
         # Invariante GEN 1: el campo Text del prompt gana — un input_fields de
         # caller/LLM que lo contradiga se ignora, con aviso (nunca en silencio).
         if input_fields and list(input_fields) != [text_field.name]:
+            _otros = [f for f in input_fields if _identifier(str(f)) != text_field.name]
+            if text_field_source == "proposed" and _otros:
+                # Aquí NO hay ningún campo del prompt que pueda ganar: el
+                # texto y los demás campos vienen del MISMO sitio (el LLM
+                # leyendo la prosa), así que descartarlos sería tirar la
+                # mitad de lo que dijo. Y v1 no admite texto + tabular en el
+                # mismo modelo: es un error accionable, y quien llama decide
+                # (hoy: se queda tabular Y se avisa del campo de texto).
+                raise TransformerNetworkGeneratorError(
+                    f"Mezclar el campo de texto propuesto ({text_field.name!r}) con "
+                    f"campos tabulares ({_otros!r}) en el mismo modelo no está "
+                    "soportado (v1, decisión 3 del contrato SECUENCIAS_PRODUCTO)."
+                )
             warnings.append(
                 f"input_fields {list(input_fields)!r} (LLM/caller) ignorado: el "
                 f"campo Text {text_field.name!r} del prompt gana (invariante 1)."
@@ -262,6 +331,9 @@ class TransformerNetworkGenerator:
 
         assumptions = [
             f"TransformerNetworkGenerator inferred task={task}",
+            f"Text field {text_field.name!r}: source={text_field_source} "
+            + ("(declared in the prompt)" if text_field_source == "prompt"
+               else "(PROPOSED by the caller from the prose, not declared)"),
             f"Text field {text_field.name!r}: length={length} (byte_v1 tokenizer, "
             f"vocab_size={vocab_size})",
             f"transformer: layers={layers}, heads={heads}, dim={dim}",
@@ -289,6 +361,7 @@ class TransformerNetworkGenerator:
             dataset_template_text=dataset_template_text,
             assumptions=assumptions,
             warnings=warnings,
+            text_field_source=text_field_source,
             field_types=field_types,
             field_seq=field_seq,
         )

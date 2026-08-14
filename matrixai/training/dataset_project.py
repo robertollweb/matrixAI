@@ -147,6 +147,28 @@ _NEVER_FEATURE_TYPES = {"identifier", "unknown"}
 # `temporal_columns` (C1) mientras tanto.
 _NOT_YET_USABLE_FEATURE_TYPES = _NEVER_FEATURE_TYPES | {"date"}
 
+# El aviso de la columna de TEXTO que se queda fuera. Lo redacta el core, así
+# que se traduce en el core (misma regla que `_MARCOS` en playground.py).
+#
+# Dice las TRES cosas, porque las tres son la noticia: qué columna, que se ha
+# quedado fuera del modelo, y por dónde SÍ se puede hacer lo que quería. Un
+# aviso que solo dijera «excluida» dejaría a su dueño pensando que el
+# producto no sabe leer texto — y sabe.
+_AVISO_COLUMNA_TEXTO = {
+    "es": lambda columnas, ejemplo: (
+        f"La(s) columna(s) {columnas} contiene(n) TEXTO escrito por una persona y se "
+        "ha(n) dejado fuera del modelo: el camino desde datos solo usa columnas "
+        "numéricas, categóricas o booleanas. Para aprovechar ese texto, crea el modelo "
+        f"desde una descripción declarando el campo así: «{ejemplo}: Text» — entrena con "
+        "la columna tal cual, sin convertirla a números."),
+    "en": lambda columnas, ejemplo: (
+        f"Column(s) {columnas} hold(s) TEXT written by a person and were left out of the "
+        "model: the from-data path only uses numeric, categorical or boolean columns. To "
+        "use that text, create the model from a description declaring the field as "
+        f"«{ejemplo}: Text» — it trains on the column as-is, without turning it into "
+        "numbers."),
+}
+
 _CLASSIFICATION_TARGET_TYPES = {"boolean", "categorical"}
 _REGRESSION_TARGET_TYPES = {"number", "integer"}
 
@@ -204,6 +226,7 @@ def generate_project_from_dataset(
     keep_constant_columns: list[str] | None = None,
     user_intent: str | None = None,
     use_intent_llm: bool = False,
+    locale: str = "es",
 ) -> dict[str, Any]:
     """Genera un proyecto MatrixAI completo A PARTIR de datos reales.
 
@@ -409,6 +432,15 @@ def generate_project_from_dataset(
         and columns[col]["type"] not in _NOT_YET_USABLE_FEATURE_TYPES
         and col not in dropped_constant_columns
     ]
+    # Las columnas que C1 ha visto como TEXTO ESCRITO POR UNA PERSONA. Se
+    # excluyen exactamente igual que antes —el camino desde datos no
+    # construye modelos de texto: eso lo hace el generador de transformers
+    # desde un prompt con `campo: Text`— pero llamarlas «identificador» era
+    # falso, y era justo la columna que le importaba a quien subió el CSV.
+    free_text_columns = [
+        col for col in analysis["column_order"]
+        if col != target_column and columns[col].get("looks_like_free_text")
+    ]
     # CONTRATO 59 C2 (hallazgo de auditoría): declarada FUERA del `if` de
     # abajo para que exista (vacía) también cuando la reconsideración ni se
     # dispara — se pasa siempre a `_build_provenance` más abajo.
@@ -452,6 +484,19 @@ def generate_project_from_dataset(
                 f"{sorted(dropped_constant_columns)} tienen un único valor en "
                 "todo el CSV y no aportan información. Añade columnas que varíen, "
                 "o consérvalas explícitamente declarando su rango de dominio."
+            )
+        if free_text_columns:
+            # Este CSV no está vacío de información: trae TEXTO. Mandar a su
+            # dueño a buscar identificadores y fechas que no existen es la
+            # media verdad tranquilizadora de siempre — y encima el producto
+            # SÍ sabe hacer este modelo, solo que por la otra puerta.
+            raise DatasetProjectError(
+                f"Ninguna columna es utilizable como feature: {sorted(free_text_columns)} "
+                "contiene(n) TEXTO escrito por una persona, y el camino desde datos "
+                "todavía no construye modelos de texto (solo columnas numéricas, "
+                "categóricas o booleanas). Para un modelo de texto, créalo desde una "
+                f"descripción declarando el campo así: «{sorted(free_text_columns)[0]}: Text» "
+                "— entrena con esa columna tal cual, sin convertirla a números."
             )
         raise DatasetProjectError(
             "Ninguna columna es utilizable como feature (todas son el target, "
@@ -624,6 +669,12 @@ def generate_project_from_dataset(
     from matrixai.playground import analyze_playground_request, _validate_training_csv
     res = analyze_playground_request({
         "mode": "prompt", "prompt": prompt, "use_llm": False,
+        # El IDIOMA de los avisos del pipeline. No llegaba: esta rama los
+        # pedía sin `locale`, así que un CSV subido con la aplicación en
+        # inglés devolvía «El dataset (120 filas) es pequeño para 2
+        # entradas…» en español. El dato ya existía en la otra puerta
+        # (`/api/analyze` lo pide desde 2026-08-09) y aquí no se usaba.
+        "locale": locale,
         # CONTRATO 64 C2 — las filas que de verdad van a ENTRENAR.
         #
         # REAUDITORÍA [MEDIA]: aquí iba `len(rows)`, que cuenta también las filas
@@ -741,9 +792,27 @@ def generate_project_from_dataset(
             "reason": ("constant_feature" if col in dropped_constant_columns
                        else f"unusable_type:{columns[col]['type']}"),
             "automatic": True,
+            # El motivo REAL cuando el tipo dice `identifier` porque cada fila
+            # es distinta, pero lo que hay dentro es prosa. La clave se añade
+            # solo cuando es cierto: `reason` no cambia —quien lo lea seguirá
+            # viendo el tipo con el que se excluyó— pero deja de ser toda la
+            # historia. Un `False` aquí sería afirmar algo sobre columnas que
+            # ni se han mirado con este criterio.
+            **({"looks_like_free_text": True} if col in free_text_columns else {}),
         }
         for col in excluded_columns
     }
+    # El aviso VISIBLE, por el mismo canal que el resto de avisos de
+    # generación (la etapa del generador) — `excluded_columns` ya lo
+    # registraba para quien programa contra la API, pero eso no es
+    # decírselo a quien acaba de subir su CSV.
+    _texto_excluido = [c for c in free_text_columns if c in excluded_columns]
+    if _texto_excluido:
+        from matrixai.playground import _anotar_avisos  # noqa: PLC0415
+        _marco = _AVISO_COLUMNA_TEXTO.get(
+            str(locale or "es").strip().lower(), _AVISO_COLUMNA_TEXTO["es"])
+        _anotar_avisos(res, [_marco(", ".join(repr(c) for c in _texto_excluido),
+                                   _texto_excluido[0])])
 
     # CONTRATO 62 C3 — la RECETA: todo lo que `_prepare_training_csv` necesita
     # para producir exactamente este mismo CSV preparado a partir del crudo.
@@ -818,6 +887,7 @@ def generate_temporal_project_from_dataset(
     keep_constant_columns: list[str] | None = None,
     user_intent: str | None = None,
     use_intent_llm: bool = False,
+    locale: str = "es",
 ) -> dict[str, Any]:
     """C4 — flujo A, caso serie temporal: "columna temporal + ventana +
     horizonte → operaciones de C3" (contrato 57). Envoltorio DELGADO
@@ -999,6 +1069,9 @@ def generate_temporal_project_from_dataset(
         # `generate_project_from_dataset`, un solo sitio).
         user_intent=user_intent,
         use_intent_llm=use_intent_llm,
+        # El idioma también aquí: el camino temporal es un envoltorio, y un
+        # envoltorio que se come un parámetro deja media aplicación traducida.
+        locale=locale,
     )
 
     feature_columns = list(result["provenance"]["feature_name_map"].keys())

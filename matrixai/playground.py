@@ -3638,6 +3638,31 @@ _DENSE_SCHEMA_SYSTEM = (
     "exactly these lines — no extra text:\n\n"
     "FIELDS: comma-separated input feature names (snake_case, domain-specific; "
     "include EVERY input feature the user explicitly lists, up to 32 — only invent 4-8 when none are given)\n"
+    # LA CASILLA DEL TEXTO. Sin ella el LLM no tenía DÓNDE decirlo: medido
+    # el 2026-08-14 contra el backend real, «clasificar una reseña a partir
+    # del TEXTO de la reseña» salía con `review_text: Scalar` mientras su
+    # propio RATIONALE hablaba de «text data» — sabía que era texto y el
+    # formulario no tenía casilla para escribirlo, así que se perdía.
+    #
+    # Se pide por lo que DIJO quien escribe el prompt, nunca por el nombre
+    # del campo: un detector por parecido de nombres acusaría a
+    # `last_year_salary` y absolvería a un `q3` que sí es texto (lección
+    # del contrato 71). El LLM es justo el que ya ha leído la prosa.
+    # La REDACCIÓN va medida, no escrita a ojo. La primera versión decía
+    # «include a field ONLY when… — NEVER guess it from the field name» y el
+    # aviso era tan severo que el modelo se callaba: con «clasificar una
+    # reseña a partir del TEXTO de la reseña» declaraba la casilla 0 de 4
+    # veces (y 4 de 4 con el mismo prompt en inglés — media puerta abierta).
+    # Esta lo dice al revés: primero DÓNDE está la evidencia (las palabras
+    # de quien pide el modelo) y luego lo que no vale. Medido 2026-08-14
+    # con gpt-4o-mini, 4 intentos por prompt: 4/4 en los tres prompts de
+    # texto (es y en) y 0/4 en el tabular, que es la otra mitad del acierto.
+    "TEXT: comma-separated names of the FIELDS above whose value is FREE-FORM NATURAL "
+    "LANGUAGE written by a person — the body of a review, an email, a comment, a "
+    "medical note. The evidence is the user's OWN WORDS: if they say the model reads "
+    "\"the text of the review\", \"free text\", \"what the customer wrote\" or similar, "
+    "that field goes here. Do NOT infer it from the field name alone (a field called "
+    "text_id is not text). Omit the line when the user describes no written text.\n"
     "LABELS: comma-separated class names (for classification, use the user's class names verbatim; omit line for regression)\n"
     "NAME: PascalCase model class name (no spaces)\n"
     "ENTITY: PascalCase entity name being scored (no spaces, e.g. LoanApplicant)\n"
@@ -3702,6 +3727,26 @@ def _parse_dense_schema(text: str) -> dict[str, Any]:
                         cats[m.group(1)] = vocab
             if cats:
                 result["categorical_fields"] = cats
+        elif line.startswith("TEXT:"):
+            # Campos de TEXTO LIBRE que el LLM ha leído en la prosa. Se
+            # admite "campo" y "campo:longitud" (misma forma que
+            # CATEGORICALS). Una longitud no válida no tira el campo: el
+            # generador aplica su valor por defecto — perder el AVISO de
+            # que hay texto sería mucho peor que perder una longitud.
+            textos: dict[str, int | None] = {}
+            for item in line[len("TEXT:"):].split(","):
+                m = re.match(r"^\s*(\w+)\s*(?::\s*(\d+)\s*)?$", item)
+                if not m:
+                    continue
+                name = m.group(1)
+                # "TEXT: none" / "TEXT: ninguno" es la forma en que un LLM
+                # dice que NO hay ninguno; tomarlo por un campo crearía una
+                # columna llamada `none` de la nada.
+                if name.lower() in ("none", "ninguno", "ninguna", "na", "n_a", "null", "sin"):
+                    continue
+                textos[name] = int(m.group(2)) if m.group(2) else None
+            if textos:
+                result["text_fields"] = textos
         elif line.startswith("RATIONALE:"):
             rationale = line[len("RATIONALE:"):].strip()
             if rationale:
@@ -3872,6 +3917,32 @@ def _prompt_has_text_field(prompt: str) -> bool:
     return parse_field_specs(prompt).declares_kind("text")
 
 
+# Lo que alguien ESCRIBE cuando su problema lleva texto dentro. Son las
+# palabras del prompt, NO nombres de campo: el nombre no dice nada
+# (`review_text` sí es texto y `text_id` no), y decidir por parecido de
+# nombres es justo la trampa del contrato 71.
+#
+# `\b` protege lo que parece y no es: en «contexto» o «pretexto» no hay
+# frontera antes de «texto», así que no casan.
+_TEXTO_EN_PROSA_RE = re.compile(
+    r"\b(?:textos?|textuales?|lenguaje\s+natural|prosa|escrito\s+por|"
+    r"texts?|textual|natural\s+language|free[-\s]?form|prose|written\s+by)\b",
+    re.IGNORECASE,
+)
+
+
+def _prompt_mentions_free_text(prompt: str) -> bool:
+    """¿La DESCRIPCIÓN habla de texto? — la red de seguridad del aviso.
+
+    La casilla `TEXT:` del esquema es una heurística del LLM y puede
+    fallar (o no haber LLM en absoluto: `use_llm=False`, proveedor caído,
+    respuesta sin esa línea). Esto no decide ningún tipo ni genera nada:
+    solo sirve para no callarse. Un `Scalar` mudo que el entrenamiento
+    rechaza fila a fila después es peor que un aviso de más al generar.
+    """
+    return bool(_TEXTO_EN_PROSA_RE.search(prompt or ""))
+
+
 def _prompt_unsupported_ops(prompt: str) -> list[str]:
     text = prompt.lower()
     found: list[str] = []
@@ -3901,6 +3972,12 @@ _MARCOS = {
             f"Categóricas propuestas por el LLM ignoradas (vocab ≤ {tope}, territorio one-hot): {lista}. "
             "Decláralas en el prompt como Categorical[valores...] para one-hot con valores humanos."),
         "embeddings": lambda lista: f"Categóricas con EMBEDDING nativo: {lista}.",
+        "texto_propuesto": lambda campo, largo: (
+            f"Campo de TEXTO detectado en tu descripción: {campo!r} (propuesto por el LLM, "
+            "no declarado en el prompt). Se genera un modelo de texto (transformer) que lee "
+            f"la columna {campo!r} tal cual, con los primeros {largo} caracteres de cada "
+            f"fila. Escribe «{campo}: Text[N]» en el prompt para fijar el campo y otra "
+            "longitud."),
         "origen_prompt": "declarada en el prompt",
         "origen_llm": "propuesta por el LLM",
         "origen_heuristica": "auto-detectada por heurística",
@@ -3913,6 +3990,11 @@ _MARCOS = {
             f"Categoricals proposed by the LLM ignored (vocab ≤ {tope}, one-hot territory): {lista}. "
             "Declare them in the prompt as Categorical[values...] for one-hot with human values."),
         "embeddings": lambda lista: f"Categoricals with native EMBEDDING: {lista}.",
+        "texto_propuesto": lambda campo, largo: (
+            f"TEXT field detected in your description: {campo!r} (proposed by the LLM, not "
+            "declared in the prompt). A text model (transformer) is generated that reads the "
+            f"{campo!r} column as-is, taking the first {largo} characters of each row. Write "
+            f"«{campo}: Text[N]» in the prompt to pin the field down with another length."),
         "origen_prompt": "declared in the prompt",
         "origen_llm": "proposed by the LLM",
         "origen_heuristica": "auto-detected by heuristic",
@@ -3925,6 +4007,114 @@ _MARCOS = {
 def _marcos(locale: Any) -> dict[str, Any]:
     """Los marcos del idioma pedido; español si no se pide o no se conoce."""
     return _MARCOS.get(str(locale or "es").strip().lower(), _MARCOS["es"])
+
+
+# EL AVISO DE QUE EL TEXTO SE HA QUEDADO EN `Scalar`.
+#
+# Se traduce AQUÍ porque lo redacta el core (misma regla que `_MARCOS` y
+# que `_AVISO_TEXTO_SIN_TORCH`).
+_AVISO_TEXTO_ESCALAR = {
+    "es": {
+        "campos": lambda campos: (
+            f"Tu descripción dice que {campos} lleva(n) TEXTO, pero el modelo ha salido "
+            "todo numérico: sus entradas quedan como Scalar y el entrenamiento rechaza "
+            "una fila con texto en un campo numérico («field ... must be numeric»)."),
+        "prosa": (
+            "Tu descripción menciona texto, pero el modelo ha salido todo numérico: sus "
+            "entradas quedan como Scalar y el entrenamiento rechaza una fila con texto en "
+            "un campo numérico («field ... must be numeric»)."),
+        "salida": lambda campo: (
+            f" Declara el campo en el prompt como «{campo}: Text» (un único campo de texto "
+            "por modelo, sin mezclar con campos numéricos) y se generará un modelo de texto."),
+        "motivo": lambda porque: f" Motivo: {porque}",
+    },
+    "en": {
+        "campos": lambda campos: (
+            f"Your description says {campos} hold(s) TEXT, but the model came out fully "
+            "numeric: its inputs stay Scalar and training rejects a row with text in a "
+            "numeric field («field ... must be numeric»)."),
+        "prosa": (
+            "Your description mentions text, but the model came out fully numeric: its "
+            "inputs stay Scalar and training rejects a row with text in a numeric field "
+            "(«field ... must be numeric»)."),
+        "salida": lambda campo: (
+            f" Declare the field in the prompt as «{campo}: Text» (one single text field "
+            "per model, not mixed with numeric fields) and a text model will be generated."),
+        "motivo": lambda porque: f" Reason: {porque}",
+    },
+}
+
+
+def text_left_scalar_warning(
+    result: dict[str, Any],
+    prompt: str,
+    locale: str = "es",
+    proposed_fields: Any = (),
+    reason: str = "",
+) -> str | None:
+    """Por qué este modelo va a rechazar el texto al entrenar, o None.
+
+    La otra mitad del arreglo, y la que no es opcional: enrutar la prosa al
+    generador de texto es una HEURÍSTICA (la casilla `TEXT:` del esquema la
+    rellena un LLM, que puede callarse, equivocarse o no estar), y una
+    heurística que falla en silencio deja exactamente el defecto de partida
+    — `review_text: Scalar`, cero avisos, y un `/api/train-start` que
+    rechaza fila por fila «field ... must be numeric».
+
+    NO INVENTA NINGÚN TIPO: no toca el modelo, no cambia un campo a Text,
+    no adivina cuál de ellos es el texto. Solo mira dos cosas que ya
+    existen —lo que se DIJO (la casilla del LLM o la propia prosa) y lo que
+    SALIÓ (un modelo sin ningún campo de texto)— y lo dice.
+
+    Devuelve None cuando el modelo SÍ es de texto, cuando la generación no
+    salió bien (ahí ya hay un error, y dos mensajes contradictorios son
+    peores que uno) y cuando nada en la descripción habla de texto.
+    """
+    if not result.get("ok"):
+        return None
+    mxai = result.get("mxai") or ""
+    if isinstance(mxai, dict):
+        mxai = mxai.get("text", "") or ""
+    # ¿Salió un modelo de texto? Lo dicen los MISMOS jueces que ya usa el
+    # resto del core: la metadata del tokenizador que emite el generador y
+    # el criterio de enrutado del entrenamiento. Aquí no se decide nada.
+    if result.get("field_seq") or _network_is_transformer(str(mxai)):
+        return None
+    nombres = [str(n).strip() for n in (proposed_fields or ()) if str(n).strip()]
+    if not nombres and not _prompt_mentions_free_text(prompt):
+        return None
+    textos = _AVISO_TEXTO_ESCALAR.get(
+        str(locale or "es").strip().lower(), _AVISO_TEXTO_ESCALAR["es"]
+    )
+    aviso = textos["campos"](", ".join(nombres)) if nombres else textos["prosa"]
+    if reason:
+        aviso += textos["motivo"](reason)
+    # El ejemplo lleva un nombre REAL cuando se sabe cuál es; si no se sabe,
+    # no se inventa uno: va el marcador genérico del propio marco.
+    aviso += textos["salida"](nombres[0] if nombres else ("campo" if textos is
+                              _AVISO_TEXTO_ESCALAR["es"] else "field"))
+    return aviso
+
+
+def _anotar_avisos(result: dict[str, Any], notas: list[str]) -> None:
+    """Cuelga avisos de generación de la etapa que los explica.
+
+    Una sola función porque la elección de etapa es UNA decisión: la del
+    generador cuando la hay, y si no la primera del pipeline (la rama del
+    supervisor no tiene etapa de generador y sus avisos se quedaban sin
+    sitio donde salir).
+    """
+    etapas = result.get("pipeline_stages") or []
+    if not notas or not etapas:
+        return
+    objetivo = next(
+        (s for s in etapas if s.get("name") in (
+            "dense_generator", "composite_generator", "transformer_generator")),
+        etapas[0],
+    )
+    objetivo.setdefault("warnings", []).extend(notas)
+    if objetivo.get("status") != "error":
+        objetivo["status"] = "warning"
 
 
 #: Nombres que el generador pone cuando NO ha entendido ningún campo
@@ -4013,6 +4203,12 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
 
     if mode == "prompt":
         use_llm = bool(payload.get("use_llm", False))
+        # Los campos de TEXTO que alguien ha leído en la prosa y qué pasó con
+        # ellos. Se declaran aquí —no dentro de la rama neural— porque el
+        # aviso del final vale para las DOS ramas: la del supervisor también
+        # entrega VECTORes numéricos para un problema de texto.
+        llm_text_fields: dict[str, int | None] = {}
+        llm_text_rechazado = ""
         # Contrato 58 C5 — hints de arquitectura ya decididos por un caller
         # EXTERNO (hoy: la interpretación LLM opt-in de la intención local
         # del flujo "desde datos", `matrixai/training/intent_llm.py`) —
@@ -4080,6 +4276,11 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
             # M2 v2 C5: the LLM may declare high-cardinality categoricals for native
             # EMBEDDING. They route to the composite generator (embeddings need it).
             llm_categoricals = llm_schema.pop("categorical_fields", None) or {}
+            # La casilla TEXT del esquema: campos de texto libre que el LLM
+            # ha leído en la PROSA (lo que dijo quien pide el modelo), no en
+            # el nombre del campo. Fuera de `llm_kwargs`: no es un kwarg de
+            # ningún generador, enruta.
+            llm_text_fields = llm_schema.pop("text_fields", None) or {}
             llm_kwargs: dict[str, Any] = llm_schema
             # Contrato 58 C5: only `hidden_layers` is honored from the
             # external channel — anything else in that dict is ignored
@@ -4125,8 +4326,44 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
             # kept a different first-wins effective spec. The transformer
             # generator then surfaces the structured conflict actionably.
             want_transformer = _prompt_parse.declares_kind("text")
+            # EL ENRUTADO DE LO QUE EL LLM YA SABÍA. El prompt manda: una
+            # declaración `campo: Text` gana siempre (invariante 1), así que
+            # la propuesta solo se mira cuando no hay ninguna.
+            #
+            # Y se INTENTA generar aquí en vez de decidir "por si acaso":
+            # quien sabe si ese texto cabe en un modelo v1 —un solo campo,
+            # sin mezclar con tabulares, dentro del tope de longitud— es el
+            # propio generador, que es quien tiene esas reglas. Preguntarle
+            # evita tenerlas escritas por segunda vez, y su negativa es
+            # justo el motivo que hay que contar en el aviso.
+            _llm_trans_gen = None
+            if not want_transformer and llm_text_fields:
+                try:
+                    _llm_trans_gen = TransformerNetworkGenerator().generate(
+                        prompt,
+                        # QUÉ campo es texto, y SOLO eso. La longitud no se
+                        # honra aunque el LLM la escriba: no está en las
+                        # palabras de quien pide el modelo, y la atención
+                        # escala O(L²) — medido el 2026-08-14, el LLM
+                        # propuso 2000 para una reseña, que en este servidor
+                        # (sin swap) es una bomba de memoria que nadie pidió.
+                        # Sin longitud declarada, el generador aplica su
+                        # default (decisión 6 del contrato), que es la MISMA
+                        # política que para un `campo: Text` a secas.
+                        proposed_text_fields=dict.fromkeys(llm_text_fields),
+                        **{k: v for k, v in llm_kwargs.items()
+                           if k in ("input_fields", "labels", "network_name", "input_name")},
+                    )
+                except (TransformerNetworkGeneratorError, DenseNetworkGeneratorError) as exc:
+                    # Un campo de texto PROPUESTO que no cabe no puede tumbar
+                    # la generación: nadie pidió un transformer. El modelo se
+                    # queda tabular y el aviso del final dice qué pasó — que
+                    # es lo que impide el `Scalar` mudo.
+                    _llm_trans_gen = None
+                    llm_text_rechazado = str(exc)
+            _texto_enrutado = want_transformer or _llm_trans_gen is not None
             is_seq = _prompt_is_sequence(prompt)
-            if is_seq and not want_transformer:
+            if is_seq and not _texto_enrutado:
                 # SECUENCIAS_PRODUCTO C2 (auditoría [BAJA]): un prompt Text que
                 # además mencione "secuencia"/"serie temporal" en prosa SÍ genera
                 # el transformer (decisión 4: el aviso es solo para el camino
@@ -4137,7 +4374,7 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     "se genera un modelo tabular."
                 )
             unsupported = _prompt_unsupported_ops(prompt)
-            if want_transformer and "transformer" in unsupported:
+            if _texto_enrutado and "transformer" in unsupported:
                 # "transformer" ya no es una operación omitida: el campo Text lo
                 # enruta al generador real (contrato A). El resto de operaciones
                 # no soportadas (atención suelta, RNN/LSTM/GRU, conv...) sigue
@@ -4167,6 +4404,13 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     gen = TransformerNetworkGenerator().generate(prompt, **trans_kwargs)
                     gen_source = "transformer_generator"
                     llm_used = bool(trans_kwargs)
+                elif _llm_trans_gen is not None:
+                    # El modelo de TEXTO que sale de la prosa. Ya está
+                    # generado (y validado) arriba; aquí solo se adopta.
+                    gen = _llm_trans_gen
+                    gen_source = "transformer_generator"
+                    llm_used = True
+                    gen_warnings.append(_mk["texto_propuesto"](gen.field_name, gen.length))
                 elif want_composite:
                     from matrixai.training.composite_generator import (  # noqa: PLC0415
                         CompositeNetworkGenerator,
@@ -4272,10 +4516,14 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                     # GEN C5 audit: "prompt_types" = routed composite because the
                     # PROMPT declared a high-cardinality categorical (no LLM, no
                     # residual hints) — before, this showed up as "default".
-                    # SECUENCIAS_PRODUCTO C2: a Text field is ALWAYS "prompt_types"
-                    # (the LLM never participates in transformer routing — invariant 1).
+                    # SECUENCIAS_PRODUCTO C2: a PROMPT-DECLARED Text field is ALWAYS
+                    # "prompt_types" (the LLM never participates in that routing —
+                    # invariant 1). A text field the LLM read in the PROSE is "llm",
+                    # and it says so even if the LLM proposed no architecture at all:
+                    # attributing it to the prompt would be a lie about who decided.
                     "source": ("prompt_types" if want_transformer
-                               else "llm" if (llm_architecture or llm_categoricals)
+                               else "llm" if (_llm_trans_gen is not None
+                                              or llm_architecture or llm_categoricals)
                                else "prompt_hints" if _prompt_wants_composite(prompt)
                                else "prompt_types" if _prompt_highcard
                                else "default"),
@@ -4344,14 +4592,7 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                         break
                 if llm_warning:
                     notes.append(llm_warning)
-                if notes:
-                    for stage in result["pipeline_stages"]:
-                        if stage.get("name") in (
-                            "dense_generator", "composite_generator", "transformer_generator",
-                        ):
-                            stage.setdefault("warnings", []).extend(notes)
-                            stage["status"] = "warning"
-                            break
+                _anotar_avisos(result, notes)
             except TransformerNetworkGeneratorError as exc:
                 # SECUENCIAS_PRODUCTO C2 (decisión 3): mezclar Text con tabular, o
                 # varios campos Text, es un error de usuario accionable — NUNCA se
@@ -4407,6 +4648,16 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
         # rellena huecos, así que ponerla aquí evita tener la misma
         # decisión escrita dos veces.
         _completar_rangos_del_prompt(result, prompt)
+        # EL AVISO DEL TEXTO QUE SE QUEDÓ EN `Scalar`, por el mismo motivo:
+        # las dos ramas pueden entregar un VECTOR numérico para un problema
+        # de texto (la del supervisor ni siquiera pasa por el generador), y
+        # el fallo era el silencio, no la rama.
+        _aviso_texto = text_left_scalar_warning(
+            result, prompt, _locale,
+            proposed_fields=tuple(llm_text_fields), reason=llm_text_rechazado,
+        )
+        if _aviso_texto:
+            _anotar_avisos(result, [_aviso_texto])
         result["llm_mode"] = _detect_llm_mode()
         # In prompt mode a fresh model is generated — clear any stale training/mxai artefacts
         # so the JS overwrites the textareas rather than echoing stale Email/Risk content.

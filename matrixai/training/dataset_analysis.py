@@ -53,6 +53,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+import statistics
 from typing import Any
 
 from matrixai import limits as _limits
@@ -95,6 +96,39 @@ _DATE_FORMATS = (
 # nada — ver test de bordes).
 _IDENTIFIER_UNIQUE_RATIO = 0.98
 _IDENTIFIER_MIN_ROWS = 10
+
+# TEXTO LIBRE dentro de un identificador — lo que distingue una columna de
+# reseñas de una de DNIs, medido con los dos lados delante (2026-08-14).
+#
+# Las dos comparten lo único que hoy se mira, `unique_ratio == 1.0`: cada
+# fila es distinta. Por eso un CSV de 120 reseñas salía como `identifier` y
+# la columna que le importaba al usuario se caía del modelo. Pero un texto
+# escrito por una persona tiene forma propia, y ninguna de estas señales
+# mira el NOMBRE de la columna (lección del contrato 71):
+#
+#   · varias PALABRAS separadas por espacios — un UUID, un DNI, un email,
+#     una URL, una ruta o un SKU no tienen ninguno;
+#   · palabras DE LETRAS, no trozos alfanuméricos — `SKU-000123-XZ` tiene
+#     guiones, no vocabulario;
+#   · valores LARGOS;
+#   · y la que de verdad separa: el vocabulario SE REPITE entre filas («el»,
+#     «pedido», «llegó»…). En una columna de identificadores cada token
+#     aparece una sola vez, así que la proporción de palabras distintas se
+#     va a ~1,0; en texto real cae por debajo de 0,1.
+#
+# Medido con 19 columnas de los dos lados: las 7 de texto (reseñas es/en,
+# notas clínicas, descripciones, frases cortas) dan SÍ; las 12 de código
+# (id secuencial, UUID, DNI, email, matrícula, nombre completo, SKU, código
+# con guiones, URL, JSON, ruta de fichero, base64) dan NO. La única que
+# cambia de lado es una DIRECCIÓN POSTAL, que también es prosa escrita por
+# una persona y que se excluye igual — solo cambia lo que se dice de ella.
+_TEXT_MIN_ROWS = 8
+_TEXT_MIN_TOKENS = 4          # mediana de tokens separados por espacios
+_TEXT_MIN_WORDS = 4           # mediana de palabras de LETRAS (>= 2 letras)
+_TEXT_MIN_CHARS = 25          # mediana de longitud
+_TEXT_MAX_VOCAB_RATIO = 0.5   # palabras distintas / palabras totales
+_TEXT_SAMPLE = 200            # techo de valores mirados (coste acotado)
+_WORD_RE = re.compile(r"[^\W\d_]{2,}", re.UNICODE)
 
 # Margen del rango PROPUESTO sobre el rango OBSERVADO (10% del span; con
 # span 0 — todas las filas igual valor — se usa un margen absoluto mínimo).
@@ -513,6 +547,19 @@ def _analyze_column(raw_values: list[str | None], rows_analyzed: int) -> dict[st
         info["type"] = "identifier"
         info["cardinality"] = cardinality
         info["unique_ratio"] = round(unique_ratio, 4)
+        # El TIPO no cambia, y es a propósito: `identifier` viaja por la API
+        # de análisis a TRES interfaces —una de ellas la clásica, que no se
+        # toca— y sus listas de tipos son cerradas (`SchemaRowType` y la
+        # unión de `api/client.ts` en el Studio, `_VALID_COLUMN_TYPES` en el
+        # backend, que RECHAZARÍA un tipo nuevo al validar una plantilla).
+        # Inventar aquí un tipo `text` rompería a quien no puede arreglarse.
+        # Lo que sí se puede es DECIR lo que se ve: una clave añadida que
+        # quien no la conoce ignora, y que quien decide (dataset_project)
+        # usa para no llamar «identificador» a una columna de reseñas.
+        evidencia = _free_text_evidence(non_null)
+        if evidencia is not None:
+            info["looks_like_free_text"] = True
+            info["free_text_evidence"] = evidencia
         return info
 
     info["type"] = "categorical"
@@ -533,6 +580,46 @@ def _analyze_column(raw_values: list[str | None], rows_analyzed: int) -> dict[st
         info["vocabulary_sample"] = distinct[:_ONEHOT_MAX]
         info["vocabulary_truncated"] = True
     return info
+
+
+def _free_text_evidence(values: list[str]) -> dict[str, Any] | None:
+    """La EVIDENCIA de que esta columna es texto escrito por una persona, o None.
+
+    Devuelve los números con los que se afirma, no un `True` pelado: quien
+    audita tiene que poder ver por qué se dijo, y un umbral sin su medida al
+    lado no se puede discutir. No mira el nombre de la columna ni decide
+    ningún tipo — solo describe la forma de los valores.
+
+    Los cinco criterios son AND: basta que uno falle para que la columna
+    siga siendo lo que era. Es deliberado que el sesgo caiga de ese lado —
+    marcar un identificador como texto estropearía el caso que hoy funciona
+    bien, mientras que no marcar un texto solo deja las cosas como estaban.
+    """
+    muestra = [v.strip() for v in values if v and v.strip()][:_TEXT_SAMPLE]
+    if len(muestra) < _TEXT_MIN_ROWS:
+        return None
+    tokens = statistics.median([len(v.split()) for v in muestra])
+    if tokens < _TEXT_MIN_TOKENS:
+        return None
+    palabras_por_valor = [len(_WORD_RE.findall(v)) for v in muestra]
+    palabras = statistics.median(palabras_por_valor)
+    if palabras < _TEXT_MIN_WORDS:
+        return None
+    caracteres = statistics.median([len(v) for v in muestra])
+    if caracteres < _TEXT_MIN_CHARS:
+        return None
+    todas = [w.lower() for v in muestra for w in _WORD_RE.findall(v)]
+    if not todas:
+        return None
+    reuso = len(set(todas)) / len(todas)
+    if reuso > _TEXT_MAX_VOCAB_RATIO:
+        return None
+    return {
+        "median_words": palabras,
+        "median_chars": caracteres,
+        "distinct_word_ratio": round(reuso, 4),
+        "values_sampled": len(muestra),
+    }
 
 
 def _detect_date_format(values: list[str]) -> str | None:
