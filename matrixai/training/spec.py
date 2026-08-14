@@ -214,6 +214,20 @@ class TrainingRunResult:
     #: actualizaciones salieron en total. `None` si el entrenador no lo
     #: declara. Ver `esfuerzo_de_entrenamiento`.
     effort: dict[str, int] | None = None
+    #: Las métricas de CLASIFICACIÓN de la misma evaluación que produjo
+    #: `accuracy` — es decir, sobre la partición de VALIDACIÓN.
+    #:
+    #: Existen porque sin ellas no cuadraban dos números de la misma
+    #: pantalla: la exactitud salía de aquí (validación, datos que el
+    #: modelo no vio) y la matriz de confusión de una evaluación
+    #: POSTERIOR que puntúa el dataset ENTERO, filas de entrenamiento
+    #: incluidas. Sumar esa matriz daba otro porcentaje, y el más alto
+    #: —el inflado— era además el que parecía más halagüeño.
+    #:
+    #: `None` cuando el entrenador no las declara (runs anteriores, y el
+    #: camino de regresión, donde no hay clases que contar): quien lo
+    #: lea tiene que poder distinguir «no las hay» de «son cero».
+    validation_metrics: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = {
@@ -228,6 +242,8 @@ class TrainingRunResult:
         }
         if self.effort is not None:
             d["effort"] = dict(self.effort)
+        if self.validation_metrics is not None:
+            d["validation_metrics"] = dict(self.validation_metrics)
         return d
 
 

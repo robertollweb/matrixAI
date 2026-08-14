@@ -56,9 +56,24 @@ class TestSyncTrainingMetrics:
         cm = r["confusion_matrix"]
         assert set(cm.keys()) == {"low", "mid", "high"}
         assert set(cm["low"].keys()) == {"low", "mid", "high"}
-        # la matriz cubre todas las filas del dataset
+        # La matriz cubre las filas EVALUADAS —la partición de
+        # validación—, no el dataset entero.
+        #
+        # Esta prueba exigía las 60 filas, y ese aserto documentaba un
+        # defecto: la matriz venía de una evaluación que puntúa TODO,
+        # filas de entrenamiento incluidas, mientras la exactitud de al
+        # lado se medía sólo sobre validación. Los dos números salían en
+        # la misma pantalla y no cuadraban — lo destapó una captura del
+        # manual público (2026-08-14), y el inflado era además el más
+        # halagüeño. La intención de la prueba no cambia: la matriz
+        # existe, tiene las tres clases y cubre lo que se evaluó.
         total = sum(sum(row.values()) for row in cm.values())
-        assert total == 60
+        assert 0 < total <= 60
+        # Y lo que de verdad importa: cuadra con la exactitud.
+        aciertos = sum(cm[c].get(c, 0) for c in cm)
+        assert abs(r["accuracy"] - aciertos / total) < 1e-9, (
+            f"la matriz suma {aciertos}/{total} y la exactitud dice {r['accuracy']}"
+        )
         # per_label con precision/recall/f1 por clase
         assert set(r["per_label"]["mid"].keys()) == {"precision", "recall", "f1"}
 
@@ -68,8 +83,20 @@ class TestSyncTrainingMetrics:
         assert r["ok"], r.get("error")
         ev = r["evaluation_report"]
         assert ev is not None
-        assert ev["macro_f1"] == r["macro_f1"]
-        assert ev["confusion_matrix"] == r["confusion_matrix"]
+        # El informe SIGUE ahí y sigue trayendo sus métricas: es la
+        # evaluación sobre el dataset completo, y como tal vale.
+        assert isinstance(ev["macro_f1"], float)
+        assert ev["confusion_matrix"]
+        # Pero lo que se PINTA ya no sale de ahí, sino de la validación
+        # —la misma evaluación que la exactitud—, así que las dos cifras
+        # pueden diferir. Antes esta prueba exigía que fueran iguales, y
+        # esa igualdad era precisamente el defecto: obligaba a que la
+        # pantalla enseñara la matriz inflada.
+        evaluadas = sum(sum(f.values()) for f in r["confusion_matrix"].values())
+        completas = sum(sum(f.values()) for f in ev["confusion_matrix"].values())
+        assert evaluadas <= completas, (
+            "la matriz que se pinta mide la validación; la del informe, todo"
+        )
 
     def test_binary_classification_has_metrics(self):
         from matrixai.playground import _run_playground_training

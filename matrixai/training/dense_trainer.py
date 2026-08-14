@@ -192,12 +192,33 @@ class DenseSupervisedTrainer:
                 break
 
         accuracy = 0.0
+        validation_metrics: dict[str, Any] | None = None
         if val_ex:
             eval_result = evaluate_dense_network(net, best_ps, val_ex, loss_fn, labels=labels or None)
             if eval_result.is_regression():
                 accuracy = max(0.0, min(1.0, eval_result.r2))
             else:
                 accuracy = eval_result.accuracy
+                # Y LA MATRIZ DE ESA MISMA EVALUACIÓN, que hasta ahora se
+                # tiraba.
+                #
+                # Se conservaba sólo `accuracy` y quien pintaba la pantalla
+                # tenía que sacar la matriz de otra evaluación —la que
+                # puntúa el dataset entero— así que los dos números no
+                # cuadraban: sumar la matriz daba un porcentaje distinto
+                # del que decía la exactitud, y encima más alto, porque
+                # incluía las filas con las que el modelo había entrenado.
+                # Aquí van las dos juntas, medidas sobre lo mismo.
+                validation_metrics = {
+                    "rows": eval_result.rows,
+                    "accuracy": eval_result.accuracy,
+                    "confusion_matrix": eval_result.confusion_matrix,
+                    "macro_f1": eval_result.macro_f1,
+                    "labels": list(effective_labels(labels, eval_result)),
+                    "precision": dict(eval_result.precision or {}),
+                    "recall": dict(eval_result.recall or {}),
+                    "f1": dict(eval_result.f1 or {}),
+                }
 
         run_id = str(uuid.uuid4())[:8]
         ps_path = out / "parameter_set.json"
@@ -232,6 +253,7 @@ class DenseSupervisedTrainer:
             final_train_loss=train_loss,
             final_validation_loss=best_val_loss,
             accuracy=accuracy,
+            validation_metrics=validation_metrics,
             artifacts={
                 "parameter_set": str(ps_path),
                 "training_trace": str(trace_path),

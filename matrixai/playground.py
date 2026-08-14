@@ -1386,6 +1386,40 @@ def motor_y_maquina_de(resultado: dict[str, Any]) -> dict[str, str]:
     return {"backend": backend, "device": "cpu"}
 
 
+def _metricas_de_clasificacion(rd: dict[str, Any], er: dict[str, Any]) -> dict[str, Any]:
+    """Matriz, macro-F1 y por-clase, de la MISMA evaluación que la exactitud.
+
+    `validation_metrics` la declara el entrenador desde 2026-08-14 y mide
+    sobre la partición de validación, igual que `accuracy`. Cuando no
+    está —un run guardado antes— se cae a `er`, que puntúa el dataset
+    entero: peor, pero es lo único que hay, y devolver `None` borraría
+    una matriz que ese run sí tiene.
+    """
+    vm = rd.get("validation_metrics")
+    if not isinstance(vm, dict):
+        return {
+            "macro_f1": er.get("macro_f1"),
+            "confusion_matrix": er.get("confusion_matrix"),
+            "labels": er.get("labels"),
+            "per_label": er.get("per_label"),
+        }
+    etiquetas = list(vm.get("labels") or [])
+    por_clase = {
+        lbl: {
+            "precision": (vm.get("precision") or {}).get(lbl, 0.0),
+            "recall": (vm.get("recall") or {}).get(lbl, 0.0),
+            "f1": (vm.get("f1") or {}).get(lbl, 0.0),
+        }
+        for lbl in etiquetas
+    }
+    return {
+        "macro_f1": vm.get("macro_f1"),
+        "confusion_matrix": vm.get("confusion_matrix"),
+        "labels": etiquetas,
+        "per_label": por_clase,
+    }
+
+
 def _collect_training_result(
     tmp: Path, run_result: Any, spec: Any,
     target_range: tuple[float, float] | None = None,
@@ -1473,10 +1507,22 @@ def _collect_training_result(
         # M3: classification metrics flattened for the client — `er` ya
         # discrimina por tarea (EvaluationResult.to_dict()), `.get()`
         # devuelve None de verdad en regresión, nunca 0.0/[]/{}.
-        "macro_f1": er.get("macro_f1"),
-        "confusion_matrix": er.get("confusion_matrix"),
-        "labels": er.get("labels"),
-        "per_label": er.get("per_label"),
+        # UNA SOLA FUENTE para todo lo de clasificación (2026-08-14).
+        #
+        # `accuracy` salía de la evaluación sobre VALIDACIÓN y la matriz
+        # de `er`, que puntúa el dataset ENTERO —filas de entrenamiento
+        # incluidas—. El comentario de arriba ya avisaba de que «difieren
+        # en la práctica» y se dejó así para no mover un número que el
+        # usuario ya veía; pero el resultado era peor que un número
+        # movido: dos cifras en la misma pantalla que no cuadran, y la
+        # más halagüeña era la inflada. Medido con un run real: exactitud
+        # 50,0 % contra una matriz que sumaba 55,5 % sobre 200 filas
+        # cuando la validación eran 40.
+        #
+        # Ahora todas salen de `validation_metrics`, la evaluación que
+        # produjo `accuracy`. `er` queda de RESPALDO para los runs
+        # anteriores, que no la traen — se degrada, no se rompe.
+        **_metricas_de_clasificacion(rd, er),
         **motor_y_maquina(backend, "cpu"),
         "epochs": metrics.get("epochs", []),
         "params_best": params_best_data,
