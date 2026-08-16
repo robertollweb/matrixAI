@@ -68,6 +68,16 @@ class DenseNetworkGenerationResult:
     # y no como estado del generador: una instancia compartida entre hilos haría
     # que dos generaciones simultáneas se pisaran la decisión.
     architecture_decision: dict[str, Any] | None = None
+    #: Los campos de entrada, por su nombre y en su orden. `input_dim` decía
+    #: CUÁNTOS pero no CUÁLES, y el aviso de campos inventados tiene que
+    #: nombrarlos: sacarlos del `.mxai` a base de regex sería leer al revés
+    #: lo que este generador acaba de decidir.
+    input_fields: list[str] = field(default_factory=list)
+    #: `True` cuando NINGÚN campo salió del prompt y `input_fields` es el
+    #: relleno `feature_1..4`. Lo mismo que `PromptSynthesis.fields_invented`
+    #: en la rama del supervisor, y por el mismo motivo: el modelo entregado
+    #: habla de cosas que quien lo pidió no ha nombrado.
+    fields_invented: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -220,8 +230,8 @@ class DenseNetworkGenerator:
         task, resolved_labels, label_warnings = resolve_task_and_labels(self, clean, labels, locale)
         # GEN C1/C2/C3: honor explicit field-type declarations from the prompt (shared
         # with the composite generator so both use the SAME policy — invariant 5).
-        resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings = \
-            resolve_prompt_fields(self, prompt, input_fields, locale)
+        resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings, \
+            campos_inventados = resolve_prompt_fields(self, prompt, input_fields, locale)
         input_dim = len(resolved_fields)
         resolved_name = network_name or self._extract_name(clean) or _default_network_name(task)
         resolved_entity = input_name or self._extract_entity(clean) or "Input"
@@ -358,6 +368,8 @@ class DenseNetworkGenerator:
             field_types=field_types,
             architecture_decision=_con_estimacion_de_recursos(
                 arch_decision, mxai_text, training_text, rows=rows, device=device),
+            input_fields=list(resolved_fields),
+            fields_invented=campos_inventados,
         )
 
     def _extract_hidden_layers(
@@ -1268,9 +1280,18 @@ def resolve_prompt_fields(dg, prompt, input_fields, locale="es"):
     VECTOR and crash the parser downstream, so it is normalized with `_identifier`
     (or dropped if nothing survives), with a warning. Valid names pass verbatim.
 
-    Returns ``(resolved_fields, specs_by_name, field_ranges, field_types, warnings)``.
+    Returns ``(resolved_fields, specs_by_name, field_ranges, field_types, warnings,
+    fields_invented)``.
     field_ranges/field_types are METADATA only (never written into the .mxai VECTOR;
     training data is [0,1]-normalized — see GENERACION_TIPOS_PROMPT_CONTRACT.md C3).
+
+    ``fields_invented`` es `True` cuando NADA salió de la descripción y los campos
+    son el relleno de `_default_fields()` (`feature_1..4`). Se devuelve desde aquí
+    —y no se deduce después mirando los nombres— porque es el único punto que
+    conoce el hecho: mirar `feature_1` desde fuera acusaría a quien de verdad
+    llame a su columna así. Es la MISMA distinción que `PromptSynthesis.
+    fields_invented` guarda en la rama del supervisor (invariante 5: una sola
+    política para las dos), y la usa el aviso de `playground`.
     """
     parsed = parse_field_specs(prompt)
     specs_by_name = parsed.by_name()
@@ -1304,8 +1325,15 @@ def resolve_prompt_fields(dg, prompt, input_fields, locale="es"):
     for n in caller_fields + typed_names + bare_names:
         if n not in resolved_fields:
             resolved_fields.append(n)
+    # De dónde salen los campos: de la descripción, o del relleno. La
+    # distinción se CONSERVA en vez de perderse dentro del `or` —igual que
+    # en `PromptAgent._resolve`— porque es lo que permite decir después
+    # «esto no lo has dicho tú».
+    campos_inventados = False
     if not resolved_fields:
-        resolved_fields = list(dg._extract_fields(" ".join(prompt.split())) or _default_fields())
+        del_prompt = dg._extract_fields(" ".join(prompt.split()))
+        resolved_fields = list(del_prompt or _default_fields())
+        campos_inventados = not del_prompt
 
     # CONTRATO 71 — se AVISA, no se quita. Quitar una columna que alguien
     # ha pedido, sin decirlo, es decidir por su cuenta sobre sus datos; y
@@ -1330,7 +1358,7 @@ def resolve_prompt_fields(dg, prompt, input_fields, locale="es"):
             field_types[name] = "boolean"
         elif spec.kind == "scalar" and spec.integer:
             field_types[name] = "integer"
-    return resolved_fields, specs_by_name, field_ranges, field_types, warnings
+    return resolved_fields, specs_by_name, field_ranges, field_types, warnings, campos_inventados
 
 
 def _default_network_name(task: str) -> str:

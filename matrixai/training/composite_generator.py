@@ -100,6 +100,12 @@ class CompositeNetworkGenerationResult:
     field_categories: dict[str, list[str]] = field(default_factory=dict)
     field_ranges: dict[str, tuple[float, float]] = field(default_factory=dict)
     field_types: dict[str, str] = field(default_factory=dict)
+    #: Los campos de entrada por su nombre, y si son el relleno del generador
+    #: en vez de algo que dijera el prompt. Misma política y mismo nombre que
+    #: en el denso y en `PromptSynthesis` (invariante 5): esta rama comparte
+    #: `resolve_prompt_fields`, así que compartía también el agujero.
+    input_fields: list[str] = field(default_factory=list)
+    fields_invented: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -147,8 +153,8 @@ class CompositeNetworkGenerator:
         task, resolved_labels, label_warnings = resolve_task_and_labels(_dg, clean, labels)
         # GEN C1/C2/C3: honor explicit field-type declarations from the prompt, SAME
         # policy as the dense generator (invariant 5): clean typed names, prompt wins.
-        resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings = \
-            resolve_prompt_fields(_dg, prompt, input_fields)
+        resolved_fields, specs_by_name, field_ranges, field_types, spec_warnings, \
+            campos_inventados = resolve_prompt_fields(_dg, prompt, input_fields)
 
         cat_fields_dict: dict[str, int] = {}
         field_categories: dict[str, list[str]] = {}
@@ -190,6 +196,13 @@ class CompositeNetworkGenerator:
                         cat_fields_dict[f] = v
                         if f not in resolved_fields:
                             resolved_fields.append(f)
+                            # Ya NO son solo los de relleno: alguien nombró esta
+                            # columna. Decir «no has dicho tú estos campos» y
+                            # colar dentro el que sí dijo sería una acusación
+                            # falsa, y un aviso falso enseña a ignorar los
+                            # verdaderos (el motivo por el que este aviso mide
+                            # un hecho y no una sospecha).
+                            campos_inventados = False
                     else:
                         spec_warnings.append(
                             f"categorical_fields[{f!r}] (vocab {v} ≤ {_ONEHOT_MAX}) "
@@ -314,6 +327,8 @@ class CompositeNetworkGenerator:
             field_categories=field_categories,
             field_ranges=field_ranges,
             field_types=field_types,
+            input_fields=list(resolved_fields),
+            fields_invented=campos_inventados,
         )
 
 

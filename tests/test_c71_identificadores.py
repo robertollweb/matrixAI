@@ -51,7 +51,9 @@ class TestAvisoAlResolverCampos(unittest.TestCase):
         self.dg = DenseNetworkGenerator()
 
     def _avisos(self, campos, locale="es"):
-        _, _, _, _, w = resolve_prompt_fields(self.dg, "clasificar clientes", campos, locale)
+        # El 6º es `fields_invented` (si los campos son el relleno del
+        # generador); aquí siempre se le pasan campos, así que no aplica.
+        _, _, _, _, w, _ = resolve_prompt_fields(self.dg, "clasificar clientes", campos, locale)
         return w
 
     def test_avisa_del_identificador(self):
@@ -72,7 +74,7 @@ class TestAvisoAlResolverCampos(unittest.TestCase):
         decidir por su cuenta sobre sus datos. Y un identificador puede
         llevar información de verdad (un código de producto que agrupa
         familias). Quien lo sabe, decide."""
-        campos, _, _, _, _ = resolve_prompt_fields(self.dg, "clasificar clientes", ["customer_id", "edad"])
+        campos, *_ = resolve_prompt_fields(self.dg, "clasificar clientes", ["customer_id", "edad"])
         self.assertIn("customer_id", campos)
 
     def test_avisa_de_cada_uno(self):

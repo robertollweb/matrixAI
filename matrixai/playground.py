@@ -4048,7 +4048,7 @@ _AVISO_TEXTO_ESCALAR = {
 _CAMPOS_INVENTADOS = {
     "es": lambda campos: (
         f"Estos campos NO los has dicho tú: {campos}. Tu descripción no nombra "
-        "ninguna entrada, así que el core ha puesto los de una plantilla genérica "
+        "ninguna entrada, así que el core ha puesto unos de relleno "
         "— y la plantilla de datos que viene detrás te los va a pedir tal cual. "
         "Si tus datos son otros, nómbralos en la descripción con «campos: "
         "columna_a, columna_b»; y si alguno es texto libre, decláralo con "
@@ -4056,7 +4056,7 @@ _CAMPOS_INVENTADOS = {
     ),
     "en": lambda campos: (
         f"You did NOT name these fields: {campos}. Your description names no "
-        "inputs, so the core used a generic template's — and the data template "
+        "inputs, so the core filled in generic placeholders — and the data template "
         "that follows will ask you for exactly those. If your data is different, "
         "name your columns in the description with «fields: column_a, column_b»; "
         "and if any of them is free text, declare it with «column_a: Text»."
@@ -4091,7 +4091,23 @@ def campos_inventados_warning(report: dict[str, Any], locale: str = "es") -> str
     sintesis = report.get("synthesis")
     if not isinstance(sintesis, dict) or not sintesis.get("fields_invented"):
         return None
-    campos = [str(c) for c in (sintesis.get("selected_fields") or [])]
+    return aviso_de_campos_inventados(sintesis.get("selected_fields"), locale)
+
+
+def aviso_de_campos_inventados(campos: Any, locale: str = "es") -> str | None:
+    """El aviso, ya sabido el hecho — lo comparten las DOS ramas.
+
+    La rama del supervisor lo lee de su síntesis (`campos_inventados_warning`,
+    arriba) y la del generador denso/compuesto de `gen.fields_invented`. El
+    TEXTO se redacta aquí una sola vez: escribirlo por segunda vez en la otra
+    rama es exactamente cómo dos sitios que dicen lo mismo acaban divergiendo.
+
+    Añadido el 2026-08-14, al cerrar el agujero que el propio arreglo dejó
+    dicho: «classify reviews by sentiment» —en inglés— no entra por el
+    supervisor sino por el generador denso, que devuelve un `VECTOR Input[4]`
+    de `feature_1..feature_4`. Igual de inventados, y ahí el aviso no llegaba.
+    """
+    campos = [str(c) for c in (campos or [])]
     # Sin campos que nombrar no hay nada que decir: un aviso que no puede
     # señalar qué revisar es ruido.
     if not campos:
@@ -4264,6 +4280,11 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
         # entrega VECTORes numéricos para un problema de texto.
         llm_text_fields: dict[str, int | None] = {}
         llm_text_rechazado = ""
+        # Los campos que el GENERADOR puso de relleno (`feature_1..4`) porque
+        # no extrajo ninguno del prompt. Se declara aquí, junto al anterior y
+        # por el mismo motivo: el aviso del final vale para las DOS ramas, y
+        # la densa no tiene `_informe` donde dejar el hecho.
+        _campos_de_relleno: list[str] = []
         # Contrato 58 C5 — hints de arquitectura ya decididos por un caller
         # EXTERNO (hoy: la interpretación LLM opt-in de la intención local
         # del flujo "desde datos", `matrixai/training/intent_llm.py`) —
@@ -4548,6 +4569,12 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 # campo Text ({campo: {"length": L, "tokenizer": "byte_v1"}}) —
                 # vacío para dense/composite (getattr por defecto {}).
                 result["field_seq"] = dict(getattr(gen, "field_seq", {}) or {})
+                # EL HECHO, tal como lo sabe quien lo hizo: el generador usó su
+                # relleno porque no extrajo ningún campo del prompt. `getattr`
+                # con defecto porque el generador de transformers no lo tiene
+                # (un `campo: Text` es, por definición, un campo nombrado).
+                if getattr(gen, "fields_invented", False):
+                    _campos_de_relleno = list(getattr(gen, "input_fields", []) or [])
                 # M8-B1: record who chose the architecture + the LLM's rationale,
                 # for auditability. The deterministic sanitizer (A1) still governs.
                 _emitted_embeddings = bool(getattr(gen, "embeddings", []))
@@ -4682,8 +4709,14 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 else:
                     # Fall back to PromptSupervisor if the generator cannot handle the prompt.
                     report = PromptSupervisor().supervise_prompt(prompt, force_deterministic=not use_llm)
+                    # El informe se GUARDA, igual que en la rama de abajo: por
+                    # aquí también se entrega un modelo con los campos de una
+                    # plantilla, y sin esto el aviso se lo saltaba justo cuando
+                    # el generador se ha rendido — que es cuando más probable
+                    # es que los campos no sean los de quien pidió el modelo.
+                    _informe = report.to_dict()
                     result = _result_from_supervision(
-                        mode, report.to_dict(), input_text, "", manifest_text, evaluation_report_text,
+                        mode, _informe, input_text, "", manifest_text, evaluation_report_text,
                         locale=_locale,
                     )
                     result["llm_schema_used"] = False
@@ -4716,10 +4749,19 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
             _anotar_avisos(result, [_aviso_texto])
         # Y si los campos NO salieron de la descripción, decirlo. Va aquí,
         # al lado del aviso del texto, porque es el mismo momento —acabas
-        # de recibir el modelo— y el mismo canal. `_informe` solo existe
-        # en la rama del supervisor; la densa deriva sus campos del
-        # esquema del LLM y no de una plantilla de relleno.
-        _aviso_campos = campos_inventados_warning(locals().get("_informe") or {}, _locale)
+        # de recibir el modelo— y el mismo canal.
+        #
+        # LAS DOS RAMAS, desde 2026-08-14. Lo de antes («la densa deriva sus
+        # campos del esquema del LLM») era falso sin LLM, que es lo que tiene
+        # una instalación recién hecha: «classify reviews by sentiment» —en
+        # inglés— no entra por el supervisor sino por el generador denso, y
+        # sale un `VECTOR Input[4]` de `feature_1..feature_4`. Igual de
+        # inventados. El hecho lo pone cada rama en su sitio (`_informe` /
+        # `fields_invented` del generador) y el texto se redacta UNA vez.
+        _aviso_campos = (
+            campos_inventados_warning(locals().get("_informe") or {}, _locale)
+            or aviso_de_campos_inventados(_campos_de_relleno, _locale)
+        )
         if _aviso_campos:
             _anotar_avisos(result, [_aviso_campos])
         result["llm_mode"] = _detect_llm_mode()
