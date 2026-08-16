@@ -1138,6 +1138,37 @@ class _ProgramTypeChecker:
             field_type = field_types.get(field, SCALAR)
             self.symbols.setdefault(field, field_type)
 
+    def _warn_unknown_calls(self, function: Any, semantic: Any) -> None:
+        """Warn when a FUNCTION calls something with no semantics behind it.
+
+        Decided by Roberto (2026-08-16) after measuring this: a made-up call
+        like ``mifuncion(x)`` passes the parser, this type checker and the
+        verifier with zero findings, and then ``CallNode.eval`` returns
+        ``0.0`` — a silent constant dressed up as a computation. The model
+        trains, predicts and exports, and the number means nothing.
+
+        A WARNING and not an error, on purpose: a name may still resolve at
+        run time from the evaluation environment (pre-computed state values,
+        ``call_layer``), so refusing it would break ``.mxai`` files that work
+        today. What is not defensible is saying nothing.
+
+        The known set is deliberately WIDE — the two catalogues that carry
+        meaning plus everything this program declares. A warning that accuses
+        a legitimate function is worse than no warning at all: it teaches
+        people to ignore warnings, and then the real one goes unread too.
+        """
+        ast = (semantic.parameters or {}).get("ast")
+        if not isinstance(ast, dict):
+            return
+        known = set(NATIVE_FUNCTION_SIGNATURES) | set(_EVAL_BUILTIN_NAMES) | set(self.symbols)
+        known |= {f.name for f in getattr(self.program, "functions", []) or []}
+        for name in sorted(_called_names(ast)):
+            if name not in known:
+                self.warnings.append(
+                    f"FUNCTION {function.name} calls '{name}', which has no known "
+                    f"implementation: it will evaluate to 0.0 at run time"
+                )
+
     def _register_function(self, function: Any) -> None:
         semantic = function.semantic
         if semantic.kind == "unknown":
@@ -1147,6 +1178,7 @@ class _ProgramTypeChecker:
             root = source.split(".", 1)[0]
             if root not in self.symbols:
                 self.errors.append(f"FUNCTION {function.name} references unknown symbol '{source}'")
+        self._warn_unknown_calls(function, semantic)
         inferred = semantic_kind_output_type(semantic.kind, semantic.parameters)
         declared = getattr(function, "output_type", None)
         if declared is not None and not type_is_compatible(inferred, declared):
@@ -1250,6 +1282,34 @@ class _MXTypeChecker:
                 return ANY
             return signature.return_type
         return ANY
+
+
+def _called_names(node: Any) -> set[str]:
+    """Every function name called anywhere inside a parsed expression AST.
+
+    The AST arrives as plain dicts from the parser (``semantic.parameters
+    ['ast']``), so this walks dicts and lists rather than typed nodes.
+    """
+    nombres: set[str] = set()
+    if isinstance(node, dict):
+        if node.get("type") == "call":
+            func = node.get("func")
+            if isinstance(func, str):
+                nombres.add(func)
+        for value in node.values():
+            nombres |= _called_names(value)
+    elif isinstance(node, list):
+        for item in node:
+            nombres |= _called_names(item)
+    return nombres
+
+
+#: The names ``CallNode.eval`` implements for real (``matrixai/ir/expr.py``).
+#: Imported lazily by name to avoid a cycle: this module is below ``ir``.
+_EVAL_BUILTIN_NAMES = (
+    "abs", "clip", "max", "min", "normalize",
+    "scale", "sigmoid", "sigmoid_or", "sigmoid_product",
+)
 
 
 def _is_number(value: str) -> bool:
