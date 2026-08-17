@@ -119,6 +119,7 @@ class EdgeBundler:
         labels: list[str] | None = None,
         example_input: dict[str, Any] | None = None,
         target_range: tuple[float, float] | None = None,
+        data_recipe: str | None = None,
     ) -> EdgeBundleResult:
         """PESOS_GRANDES C7b: `state_dict` (tensores torch crudos de un modelo
         grande guardado en `.mxw`) es la alternativa a un `parameter_set` con
@@ -317,6 +318,20 @@ class EdgeBundler:
             else:
                 _write_export_manifest_no_eq(export_result, work / "export_manifest.json")
 
+            # 5b. LA RECETA DE LOS DATOS (contrato 80-C3).
+            #
+            # Un paquete dice hoy con qué modelo se predice, pero no CON QUÉ
+            # DATOS se entrenó. Si esos datos se generaron con una receta,
+            # va aquí en texto llano: quien recibe el paquete puede volver a
+            # generar el mismo dataset —misma receta, misma semilla, mismas
+            # filas— y comprobar por su cuenta lo que decimos.
+            #
+            # Es lo que separa «créenos» de «compruébalo», y es la mitad que
+            # hacía falta para publicar un caso reproducible.
+            if data_recipe and data_recipe.strip():
+                (work / "data_recipe.txt").write_text(
+                    data_recipe.strip() + "\n", encoding="utf-8")
+
             # 6. README.md — refleja los ficheros REALES del bundle (BAJA C7
             # auditoría): con external-data lista `model.onnx.data`; sin
             # `params.best.json` cuando se omitió (grande); sin
@@ -409,6 +424,7 @@ def create_edge_bundle(
     labels: list[str] | None = None,
     example_input: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
+    data_recipe: str | None = None,
 ) -> EdgeBundleResult:
     return EdgeBundler().bundle(
         program, parameter_set, mxai_path, params_path, outdir,
@@ -423,6 +439,7 @@ def create_edge_bundle(
         labels=labels,
         example_input=example_input,
         target_range=target_range,
+        data_recipe=data_recipe,
     )
 
 
