@@ -3921,6 +3921,59 @@ def _llm_domain_rules(prompt: str, features: list[str], labels: list[str]):
         return None
 
 
+def _sin_tildes(texto: str) -> str:
+    """Minúsculas y sin tildes. «Predicción» y «prediccion» son la misma
+    palabra para quien la escribe, y hasta el 2026-08-18 no lo eran para
+    este router: la lista estaba sin tildes y el texto no se normalizaba,
+    así que «predicción» no casaba con «prediccion»."""
+    import unicodedata  # noqa: PLC0415
+    plano = unicodedata.normalize("NFKD", texto.lower())
+    return "".join(c for c in plano if not unicodedata.combining(c))
+
+
+# RAÍCES, no infinitivos (2026-08-18).
+#
+# QUÉ PASABA, medido: la lista llevaba «predecir», «clasificar»,
+# «estimar»… y en español nadie escribe así un encargo. Roberto escribió
+# «predice si un cliente impaga…» y el router lo mandó al agente
+# genérico: un modelo SIN bloque NETWORK y SIN capas, con cuatro campos
+# inventados (severity, confidence, history, context). Por eso el
+# diagrama dejó de enseñar capas, activaciones y parámetros — no es que
+# el diagrama cambiara: es que el modelo ya no era una red.
+#
+# Y lo que lo convierte en un fallo grave y no en un matiz: **los propios
+# ejemplos del producto fallaban**. El marcador de la caja de fases dice
+# «Predice qué clientes van a impagar el crédito…» y el manual del texto
+# usa «clasifica reseñas por sentimiento». Los dos iban al agente. Los
+# tres ejemplos EN INGLÉS de la portada sí funcionaban, así que el
+# producto parecía roto solo en español.
+#
+# `\b` delante para no cazar dentro de otra palabra, y el `(?!ad[oa])` de
+# «estim» para no confundir un «Estimado cliente…» con una estimación.
+_NEURAL_TASK_STEMS = (
+    r"\bpredic",            # predice, predecir, predicción, predictivo
+    r"\bclasific",          # clasifica, clasificar, clasificación
+    r"\bcategoriz",         # categoriza, categorizar
+    r"\bdetect",            # detecta, detectar, detect, detection
+    r"\bestim(?!ad[oa])",   # estima, estimar, estimación, estimate
+    r"\bidentific",         # identifica, identificar
+    r"\bidentify",
+    r"\bpronostic",         # pronostica, pronosticar, pronóstico
+    r"\bforecast",
+    r"\bclassif",           # classify, classification
+    r"\bpuntu",             # puntúa, puntuar
+    r"\bscor",              # score, scoring
+    r"\banaliz",            # analiza, analizar
+    r"riesgo de\b",
+    r"probabilidad de\b",
+    r"risk of\b",
+    r"probability of\b",
+    r"risk score\b",
+)
+
+_NEURAL_TASK_RE = re.compile("|".join(_NEURAL_TASK_STEMS))
+
+
 def _is_neural_prompt(prompt: str) -> bool:
     """Return True when the prompt requests a predictive/classification model.
 
@@ -3929,12 +3982,16 @@ def _is_neural_prompt(prompt: str) -> bool:
     2. Explicit neural vocabulary → True.
     3. Common predictive/classification task verbs → True.
     """
-    text = prompt.lower()
-    if any(kw in text for kw in _WORKFLOW_KEYWORDS):
+    text = _sin_tildes(prompt)
+    if any(_sin_tildes(kw) in text for kw in _WORKFLOW_KEYWORDS):
         return False
-    if any(kw in text for kw in _NEURAL_INTENT_KEYWORDS):
+    if any(_sin_tildes(kw) in text for kw in _NEURAL_INTENT_KEYWORDS):
         return True
-    return any(kw in text for kw in _NEURAL_TASK_KEYWORDS)
+    # Las raíces primero; la lista vieja de infinitivos se conserva porque
+    # trae expresiones que no son verbos («mlp», «deep learning»).
+    if _NEURAL_TASK_RE.search(text):
+        return True
+    return any(_sin_tildes(kw) in text for kw in _NEURAL_TASK_KEYWORDS)
 
 
 # M2-C3 — composite/sequence/unsupported detection in the prompt.

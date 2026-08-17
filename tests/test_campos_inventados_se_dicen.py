@@ -95,7 +95,24 @@ class LosCamposQueNadieNombroSeDicen(unittest.TestCase):
         self.assertIn("NO los has dicho", cuerpo)
         # Nombrarlos es lo que hace útil el aviso: sin la lista, «revisa
         # los campos» no dice cuáles.
-        for campo in ("priority", "trust", "topic_a"):
+        #
+        # LOS NOMBRES SE LEEN DEL MODELO, no se fijan aquí (2026-08-18).
+        # Estaban escritos a mano —`priority`, `trust`, `topic_a`, los de
+        # la plantilla del AGENTE— y al arreglar el router del prompt esa
+        # frase pasó a construir una RED, cuyos campos de relleno se
+        # llaman `feature_1…`. La prueba se puso roja por el nombre, no
+        # por la intención: lo que vigila es que el aviso NOMBRE los
+        # campos que el modelo se inventó, sean cuales sean.
+        respuesta = json.loads(cuerpo)
+        # `fields` es una lista de NOMBRES, no de objetos: medido en la
+        # respuesta real antes de escribirlo.
+        inventados = [
+            campo
+            for vector in respuesta["program"]["vectors"]
+            for campo in vector.get("fields", [])
+        ]
+        self.assertTrue(inventados, "el modelo no declara campos: no hay nada que comprobar")
+        for campo in inventados:
             self.assertIn(campo, cuerpo)
         # Y la salida: la sintaxis que SÍ funciona, incluida la del texto.
         self.assertIn("campos:", cuerpo)
