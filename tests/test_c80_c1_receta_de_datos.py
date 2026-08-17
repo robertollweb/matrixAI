@@ -361,3 +361,110 @@ class TestLaRecetaDeRegresion:
         assert "0.5*metros" in (r.get("domain_rules") or "")
         # Y la nota NO se lo atribuye al LLM, que no ha intervenido.
         assert "LLM" not in (r.get("domain_notice") or "")
+
+
+# ---------------------------------------------------------------------------
+# Contrato 80-C4 — el reparto de clases
+# ---------------------------------------------------------------------------
+
+MXAI_TRES = """PROJECT Riesgo
+
+VECTOR P[3]
+  edad: Scalar
+  tension: Scalar
+  glucosa: Scalar
+END
+
+NETWORK N
+  INPUT P
+  LAYER Dense units=8 activation=relu
+  LAYER Dense units=3 activation=softmax
+  OUTPUT riesgo: Label[BAJO, MEDIO, ALTO]
+END
+
+GRAPH
+  P -> N
+END
+"""
+
+TRAIN_TRES = """MODEL model.mxai
+
+DATASET D
+  SOURCE csv("d.csv")
+  INPUT P FROM COLUMNS [edad, tension, glucosa]
+  TARGET riesgo: Label[BAJO, MEDIO, ALTO]
+END
+
+LOSS L
+  TYPE cross_entropy
+  PREDICTION riesgo
+  TARGET riesgo
+END
+
+OPTIMIZER O
+  TYPE sgd
+  LEARNING_RATE 0.1
+  UPDATE N.*
+END
+
+RUN
+  EPOCHS 20
+END
+"""
+
+REGLA_TRES = "ALTO: glucosa > 0.8\nMEDIO: glucosa > 0.5\nDEFAULT: BAJO"
+
+
+def _reparto(receta: str, filas: int = 500) -> dict[str, float]:
+    r = _generate_synthetic_dataset(MXAI_TRES, TRAIN_TRES, rows=filas, seed=7,
+                                    mode="coherent", use_llm=False, recipe_text=receta)
+    assert r["ok"] is True, r.get("error")
+    lineas = [l.strip().split(",") for l in r["csv_text"].strip().split("\n")]
+    cab, datos = lineas[0], lineas[1:]
+    i = len(cab) - 1
+    total = len(datos)
+    cuenta: dict[str, int] = {}
+    for f in datos:
+        cuenta[f[i]] = cuenta.get(f[i], 0) + 1
+    return {k: v / total for k, v in cuenta.items()}
+
+
+class TestElRepartoDeClases:
+    """Que la clase rara sea rara, como en la vida."""
+
+    def test_el_idioma_admite_porcentajes_y_proporciones(self):
+        a = parse_domain_rules(REGLA_TRES + "\nBALANCE: ALTO=10%")
+        b = parse_domain_rules(REGLA_TRES + "\nBALANCE: ALTO=0.1")
+        assert dict(a.balance) == dict(b.balance) == {"ALTO": 0.1}
+        assert "BALANCE: ALTO=0.1" in a.to_text()
+
+    def test_el_reparto_pedido_se_cumple(self):
+        """Criterio de cierre de 80-C4: ±2 puntos."""
+        natural = _reparto(REGLA_TRES)
+        pedido = _reparto(REGLA_TRES + "\nBALANCE: ALTO=0.1")
+        # El reparto natural NO es el pedido: si lo fuera, esta prueba
+        # pasaría sin que el mecanismo existiera.
+        assert abs(natural.get("ALTO", 0) - 0.1) > 0.05
+        assert abs(pedido.get("ALTO", 0) - 0.1) <= 0.02, pedido
+
+    def test_las_filas_SIGUEN_obedeciendo_la_regla(self):
+        """La invariante que hace honesto el mecanismo.
+
+        El reparto se cumple RESEMBRANDO filas, no reetiquetándolas. Si se
+        reetiquetara, el dataset contradiría la regla que su propia receta
+        publica — y esa receta se exporta para que alguien la reproduzca.
+        """
+        r = _generate_synthetic_dataset(
+            MXAI_TRES, TRAIN_TRES, rows=400, seed=7, mode="coherent",
+            use_llm=False, recipe_text=REGLA_TRES + "\nBALANCE: ALTO=0.1",
+        )
+        lineas = [l.strip().split(",") for l in r["csv_text"].strip().split("\n")]
+        cab, datos = lineas[0], lineas[1:]
+        idx = {c: i for i, c in enumerate(cab)}
+        for f in datos:
+            glucosa = float(f[idx["glucosa"]])
+            esperada = "ALTO" if glucosa > 0.8 else "MEDIO" if glucosa > 0.5 else "BAJO"
+            assert f[idx[cab[-1]]] == esperada, (
+                f"fila con glucosa={glucosa} etiquetada {f[idx[cab[-1]]]}: "
+                "el reparto ha reetiquetado en vez de resembrar"
+            )

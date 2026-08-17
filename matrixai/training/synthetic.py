@@ -105,6 +105,34 @@ class SyntheticDataGenerator:
         # correlación monótona, también sin red). Se retiró el etiquetado por runtime/torch.
         self.coherent_fallback_count = 0  # se conserva (=0) por compatibilidad de la API
 
+        def _muestrear_fila() -> dict[str, Any]:
+            """Una fila de ENTRADAS, sin etiqueta.
+
+            Extraída para que la resiembra del reparto (80-C4) use el mismo
+            muestreo que el bucle principal: con dos copias, las filas
+            resembradas seguirían otra distribución y el dataset tendría
+            dos poblaciones distintas sin decirlo."""
+            fila: dict[str, Any] = {}
+            for col in input_columns:
+                col_type = vector_spec.field_types.get(col)
+                if not col_type:
+                    fila[col] = round(self.rng.uniform(0.0, 1.0), 4)
+                else:
+                    fila[col] = self._sample_type(col_type, col)
+                if self.field_types.get(col) == "boolean":
+                    try:
+                        fila[col] = 1.0 if float(fila[col]) >= 0.5 else 0.0
+                    except (TypeError, ValueError):
+                        pass
+            for members in self.one_hot_groups.values():
+                present = [m for m in members if m in fila]
+                if not present:
+                    continue
+                active = self.rng.choice(present)
+                for m in present:
+                    fila[m] = 1 if m == active else 0
+            return fila
+
         generated_rows: list[dict[str, Any]] = []
         for _ in range(self.rows):
             row_dict: dict[str, Any] = {}
@@ -209,6 +237,66 @@ class SyntheticDataGenerator:
                 raise ValueError(f"Unsupported mode: {self.mode}")
 
             generated_rows.append(row_dict)
+
+        # ── 80-C4 · EL REPARTO DE CLASES PEDIDO ──
+        #
+        # `BALANCE: 1=0.1` quiere que la clase rara sea rara, como en la
+        # vida: el impago, el fallo, el reingreso. Un dataset donde la
+        # minoría no es minoría enseña un problema que no se parece al de
+        # nadie, y encima esconde lo que hace difícil aprenderla.
+        #
+        # SE CUMPLE RESEMBRANDO, NO REETIQUETANDO. Cambiar la etiqueta de
+        # una fila la haría contradecir la regla que la propia receta
+        # publica — el dataset diría una cosa y su receta otra, y esto se
+        # exporta para que alguien lo reproduzca. Se vuelven a sortear las
+        # filas sobrantes hasta que la regla, ella sola, dé el reparto.
+        #
+        # Con un tope de intentos, y si no se llega SE DICE: hay recetas
+        # que no admiten el reparto pedido (una regla que casi siempre da
+        # la misma clase no puede producir un 50/50 sin cambiar la regla o
+        # los rangos), y callarlo dejaría un dataset que no cumple lo que
+        # su receta declara.
+        self.balance_no_alcanzado: dict[str, float] = {}
+        _balance = dict(getattr(self.domain_rules, "balance", ()) or ())
+        if _balance and self.domain_rules is not None and target_labels and generated_rows:
+            objetivo_filas = {
+                etq: int(round(parte * len(generated_rows))) for etq, parte in _balance.items()
+            }
+            for _ in range(40):  # pasadas; cada una resiembra lo que sobra
+                actuales: dict[str, int] = {}
+                for f in generated_rows:
+                    k = str(f[target_name])
+                    actuales[k] = actuales.get(k, 0) + 1
+                sobran = [e for e, n in objetivo_filas.items() if actuales.get(e, 0) > n]
+                if not sobran:
+                    break
+                cambiada = False
+                for i, f in enumerate(generated_rows):
+                    etiqueta_actual = str(f[target_name])
+                    if etiqueta_actual not in sobran:
+                        continue
+                    if actuales.get(etiqueta_actual, 0) <= objetivo_filas[etiqueta_actual]:
+                        continue
+                    for _intento in range(25):
+                        nueva = _muestrear_fila()
+                        etq = str(self.domain_rules.label_for(nueva))
+                        if etq != etiqueta_actual:
+                            nueva[target_name] = etq
+                            generated_rows[i] = nueva
+                            actuales[etiqueta_actual] = actuales.get(etiqueta_actual, 0) - 1
+                            actuales[etq] = actuales.get(etq, 0) + 1
+                            cambiada = True
+                            break
+                if not cambiada:
+                    break
+            finales: dict[str, int] = {}
+            for f in generated_rows:
+                k = str(f[target_name])
+                finales[k] = finales.get(k, 0) + 1
+            for etq, pedido in objetivo_filas.items():
+                real = finales.get(etq, 0)
+                if abs(real - pedido) > max(2, 0.02 * len(generated_rows)):
+                    self.balance_no_alcanzado[etq] = round(real / len(generated_rows), 4)
 
         # ── 80-C2 · el ruido de la regresión, en una segunda pasada ──
         #

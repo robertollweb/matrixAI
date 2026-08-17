@@ -74,6 +74,19 @@ class DomainRules:
     rules: tuple[Rule, ...]
     default_label: str
     features: tuple[str, ...] = field(default_factory=tuple)
+    #: Contrato 80-C4 — EL REPARTO DE CLASES PEDIDO.
+    #:
+    #: `BALANCE: 1=0.1` dice «que el 10 % de las filas sean de clase 1».
+    #: Sin esto, el reparto es el que salga de la regla y los rangos, y un
+    #: dataset donde la clase rara NO es rara enseña un problema que no se
+    #: parece al de nadie: en la vida, el impago, el fallo y el reingreso
+    #: son minoría, y es justo lo que hace difícil aprenderlos.
+    #:
+    #: NO se cumple reetiquetando —eso rompería la regla y el dataset
+    #: dejaría de obedecer a lo que dice su propia receta—: se resiembran
+    #: las filas sobrantes hasta que la regla, por sí sola, dé el reparto
+    #: pedido. Si no se llega, se DICE.
+    balance: tuple[tuple[str, float], ...] = ()
     #: Contrato 80-C1 — RUIDO DECLARADO, y por qué existe.
     #:
     #: Una regla determinista sin ruido produce un dataset perfectamente
@@ -110,6 +123,8 @@ class DomainRules:
             lines.append(f"DEFAULT: {self.default_label}")
         # El ruido se ESCRIBE en el texto auditable: si no sale aquí, quien
         # lea la receta no puede reproducir el dataset.
+        for etiqueta, parte in self.balance:
+            lines.append(f"BALANCE: {etiqueta}={parte}")
         if self.noise > 0:
             # NOISE y no RUIDO: la palabra canónica de este idioma es la
             # inglesa, como `DEFAULT`, `AND` y `OR` — que ya lo eran. Se
@@ -144,8 +159,10 @@ class DomainRules:
             Rule(r.label, Clause(tuple(norm(c) for c in r.clause.conditions), r.clause.combiner))
             for r in self.rules
         )
-        # El ruido NO se normaliza: es una proporción de filas, no un umbral.
-        return DomainRules(new_rules, self.default_label, self.features, self.noise)
+        # Ni el ruido ni el reparto se normalizan: son proporciones de
+        # filas, no umbrales.
+        return DomainRules(new_rules, self.default_label, self.features,
+                           self.balance, self.noise)
 
     def validate(self, allowed_features: list[str], allowed_labels: list[str]) -> list[str]:
         """Return a list of problems; empty means the rules are usable."""
@@ -201,6 +218,7 @@ def parse_domain_rules(text: str) -> DomainRules:
     rules: list[Rule] = []
     default_label = ""
     noise = 0.0
+    balance: list[tuple[str, float]] = []
     for raw in (text or "").splitlines():
         line = raw.strip()
         # Contrato 80-C1: una receta la escribe una PERSONA, así que se
@@ -216,6 +234,21 @@ def parse_domain_rules(text: str) -> DomainRules:
             continue
         if head.upper() == "DEFAULT":
             default_label = body.split()[0] if body.split() else ""
+            continue
+        # 80-C4: `BALANCE: 1=0.1` o `BALANCE: 1=0.1, 0=0.9` (o `1=10%`).
+        if head.upper() in ("BALANCE", "REPARTO"):
+            for trozo in body.replace(";", ",").split(","):
+                if "=" not in trozo:
+                    continue
+                etq, _, valor = trozo.partition("=")
+                try:
+                    parte = float(valor.strip().rstrip("%"))
+                except ValueError:
+                    continue
+                if "%" in valor:
+                    parte /= 100.0
+                if 0.0 < parte <= 1.0 and etq.strip():
+                    balance.append((etq.strip(), parte))
             continue
         # Contrato 80-C1: `RUIDO: 0.1` (o `NOISE: 0.1`). Fuera de [0,1] se
         # ignora en vez de reventar: el resto de este parser es tolerante a
@@ -237,7 +270,7 @@ def parse_domain_rules(text: str) -> DomainRules:
         clause = _parse_clause(body)
         if clause is not None:
             rules.append(Rule(head, clause))
-    return DomainRules(tuple(rules), default_label, (), noise)
+    return DomainRules(tuple(rules), default_label, (), tuple(balance), noise)
 
 
 # ---------------------------------------------------------------------------

@@ -877,6 +877,21 @@ def _generate_synthetic_dataset(
             )
         if domain_degenerate_warning:
             result["domain_degenerate_warning"] = domain_degenerate_warning
+        # 80-C4: el reparto pedido que NO se pudo cumplir. Hay recetas que
+        # no lo admiten —una regla que casi siempre da la misma clase no
+        # puede producir un 10 % de la otra sin cambiar la regla o los
+        # rangos— y callarlo dejaría un dataset que no cumple lo que su
+        # propia receta declara, que es justo lo que se exporta para que
+        # alguien lo reproduzca.
+        _sin_reparto = getattr(generator, "balance_no_alcanzado", None)
+        if _sin_reparto:
+            result["balance_warning"] = (
+                "No se ha podido alcanzar el reparto pedido "
+                + ", ".join(f"{k}: {v:.1%} real" for k, v in sorted(_sin_reparto.items()))
+                + ". La regla y los rangos no lo permiten: ajusta el umbral o el rango "
+                "de las columnas que decide."
+            )
+            result["balance_real"] = _sin_reparto
         # M8 v2: declared classes absent from the generated data → the model can't
         # learn them and macro F1 will be low. Honest warning (not a block: ≥2 are
         # present; the single-class case is already handled by the degeneracy fallback).
