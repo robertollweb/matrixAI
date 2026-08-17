@@ -675,6 +675,7 @@ def _generate_synthetic_dataset(
         # plausible signal. Only for multiclass classification in coherent mode with the
         # LLM active; invalid/absent rules → fall back to the toy coherent labelling.
         domain_rules = None
+        regression_recipe = None
         domain_rules_text = ""
         target_type = training.dataset.target.type
         dr_labels = list(target_type.parameters.get("labels")
@@ -700,10 +701,22 @@ def _generate_synthetic_dataset(
         if (recipe_text or "").strip():
             from matrixai.training.domain_rules import parse_domain_rules  # noqa: PLC0415
             if is_regression:
-                # Honestidad por delante: una receta de regresión es otra
-                # cosa (una expresión numérica) y llega en 80-C2. Decirlo
-                # es mejor que ignorarla en silencio y devolver ruido.
-                recipe_errors = ["regression recipes arrive in 80-C2"]
+                # ── 80-C2 · la receta de un objetivo continuo ──
+                # No es una regla de clases: es una expresión numérica. El
+                # alcance está cerrado (suma de términos + constante +
+                # ruido) por decisión de Roberto.
+                from matrixai.training.domain_rules import parse_regression_recipe  # noqa: PLC0415
+                _rr = parse_regression_recipe(recipe_text)
+                if _rr is None:
+                    # Se escribió una regla de clases sobre un objetivo
+                    # continuo: no se ignora en silencio, porque el dataset
+                    # saldría aleatorio con aspecto de dataset bueno.
+                    recipe_errors = ["a continuous target needs an expression, not class rules"]
+                else:
+                    recipe_errors = _rr.validate(typeable)
+                    if not recipe_errors:
+                        regression_recipe = _rr.normalizada(field_ranges)
+                        domain_rules_text = _rr.to_text()
             else:
                 _labels_receta = dr_labels or (["0", "1"] if is_probability_target else [])
                 _dr = parse_domain_rules(recipe_text)
@@ -731,7 +744,11 @@ def _generate_synthetic_dataset(
         # las ETIQUETAS usan reglas de dominio del LLM si las hay, y si no, random. Así
         # 'coherent' sin reglas pasa a "valores realistas + etiquetas aleatorias" en vez
         # de etiquetas derivadas de un forward de la red.
-        effective_mode = "random" if (mode == "coherent" and domain_rules is None) else mode
+        effective_mode = (
+            "random"
+            if (mode == "coherent" and domain_rules is None and regression_recipe is None)
+            else mode
+        )
 
         generator = SyntheticDataGenerator(
             program=program,
@@ -746,6 +763,7 @@ def _generate_synthetic_dataset(
             field_types=types or None,
             one_hot_groups=one_hot_groups or None,
             domain_rules=domain_rules,
+            regression_recipe=regression_recipe,
         )
         adapter = generator.generate()
 
@@ -836,9 +854,22 @@ def _generate_synthetic_dataset(
             result["label_origin"] = "synthetic_domain"
             result["domain_rules"] = domain_rules_text
             result["domain_notice"] = (
-                "Etiquetas generadas por reglas de dominio propuestas por el LLM "
-                "(sintéticas pero plausibles, no de juguete). Sube datos reales para "
-                "producción."
+                # 80-C1/C2: la nota dice QUIÉN escribió la regla. Decir «del
+                # LLM» cuando la escribió una persona sería atribuirle a la
+                # máquina una decisión que tomó ella — y al revés, peor.
+                (
+                    "Objetivo calculado con la receta de regresión declarada "
+                    "(datos sintéticos con relación real). Sube datos reales para "
+                    "producción."
+                    if regression_recipe is not None else
+                    "Etiquetas generadas por reglas de dominio propuestas por el LLM "
+                    "(sintéticas pero plausibles, no de juguete). Sube datos reales para "
+                    "producción."
+                    if not (recipe_text or "").strip() else
+                    "Etiquetas generadas con la receta declarada (sintéticas, con "
+                    "relación real entre entradas y objetivo). Sube datos reales para "
+                    "producción."
+                )
             )
         else:
             result["label_origin"] = (

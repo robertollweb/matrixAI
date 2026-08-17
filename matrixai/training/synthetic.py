@@ -25,7 +25,12 @@ class SyntheticDataGenerator:
         field_types: dict[str, str] | None = None,
         one_hot_groups: dict[str, list[str]] | None = None,
         domain_rules: Any = None,
+        regression_recipe: Any = None,
     ):
+        #: Contrato 80-C2 · la receta de REGRESIÓN, ya normalizada a [0,1].
+        #: Sin ella un objetivo continuo se rellenaba con `uniform(lo, hi)`:
+        #: ruido puro, medido en 0,054 de correlación máxima.
+        self.regression_recipe = regression_recipe
         self.program = program
         self.training = training
         self.seed = seed
@@ -127,7 +132,19 @@ class SyntheticDataGenerator:
                 for m in present:
                     row_dict[m] = 1 if m == active else 0
 
-            if self.mode == "random":
+            if self.regression_recipe is not None and is_regression:
+                # ── 80-C2 · el objetivo se CALCULA de las entradas ──
+                #
+                # La receta llega normalizada, así que se evalúa sobre la
+                # fila tal cual está (en [0,1]) y produce el valor en la
+                # escala del dominio — que es donde vive un objetivo de
+                # regresión: el conversor de más abajo no toca el objetivo.
+                # El ruido NO se aplica aquí: hace falta el recorrido REAL
+                # de lo calculado, y eso solo se sabe con todas las filas
+                # hechas. Se hace en una segunda pasada, más abajo.
+                row_dict[target_name] = self.regression_recipe.valor_para(row_dict)
+                self.domain_rules_used += 1
+            elif self.mode == "random":
                 if is_regression:
                     lo, hi = regression_range
                     row_dict[target_name] = round(self.rng.uniform(lo, hi), 4)
@@ -192,6 +209,30 @@ class SyntheticDataGenerator:
                 raise ValueError(f"Unsupported mode: {self.mode}")
 
             generated_rows.append(row_dict)
+
+        # ── 80-C2 · el ruido de la regresión, en una segunda pasada ──
+        #
+        # Se calcula sobre el RECORRIDO REAL de lo generado, no sobre el
+        # rango declarado del objetivo. Primero se hizo al revés y el ruido
+        # no mordía: sin `RANGE` declarado el recorrido por omisión es
+        # (-1, 1), así que un `NOISE: 0.05` sobre valores de cientos
+        # desviaba ±0,1 — nada. La correlación salía 1,000 y el R² habría
+        # salido perfecto, que es justo el número que este contrato quiere
+        # evitar.
+        if self.regression_recipe is not None and is_regression and generated_rows:
+            _ruido = getattr(self.regression_recipe, "noise", 0.0)
+            if _ruido > 0:
+                _valores = [float(f[target_name]) for f in generated_rows]
+                _recorrido = max(_valores) - min(_valores)
+                if _recorrido > 0:
+                    _amplitud = _recorrido * _ruido
+                    for f in generated_rows:
+                        f[target_name] = round(
+                            float(f[target_name]) + self.rng.uniform(-_amplitud, _amplitud), 4
+                        )
+            else:
+                for f in generated_rows:
+                    f[target_name] = round(float(f[target_name]), 4)
 
         # Rebalance classification labels when the distribution is too skewed.
         # Threshold: any class with < (rows / n_classes) * 0.4 rows triggers rebalance.

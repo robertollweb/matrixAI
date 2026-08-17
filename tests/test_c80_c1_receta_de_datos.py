@@ -223,3 +223,141 @@ class TestLoQueLaRecetaNOHaceTodavia:
         # origen de las etiquetas NO puede decir que hubo reglas.
         assert r["ok"] is True
         assert r.get("label_origin") != "synthetic_domain"
+
+
+# ---------------------------------------------------------------------------
+# Contrato 80-C2 — la receta de REGRESIÓN
+# ---------------------------------------------------------------------------
+
+MXAI_REGRESION = """PROJECT Consumo
+
+VECTOR Casa[3]
+  metros: Scalar
+  habitantes: Scalar
+  antiguedad: Scalar
+END
+
+NETWORK N
+  INPUT Casa
+  LAYER Dense units=8 activation=relu
+  LAYER Dense units=1 activation=linear
+  OUTPUT consumo: Scalar
+END
+
+GRAPH
+  Casa -> N
+END
+"""
+
+TRAIN_REGRESION = """MODEL model.mxai
+
+DATASET D
+  SOURCE csv("d.csv")
+  INPUT Casa FROM COLUMNS [metros, habitantes, antiguedad]
+  TARGET consumo: Scalar
+END
+
+LOSS L
+  TYPE mse
+  PREDICTION consumo
+  TARGET consumo
+END
+
+OPTIMIZER O
+  TYPE sgd
+  LEARNING_RATE 0.1
+  UPDATE N.*
+END
+
+RUN
+  EPOCHS 30
+END
+"""
+
+RECETA_REG = "consumo = 0.5*metros + 20*habitantes - 0.3*antiguedad + 10"
+
+
+def _genera_reg(receta: str | None, filas: int = 400):
+    return _generate_synthetic_dataset(
+        MXAI_REGRESION, TRAIN_REGRESION, rows=filas, seed=7,
+        mode="coherent", use_llm=False, recipe_text=receta,
+    )
+
+
+def _r2_de_la_mejor_recta(cab: list[str], cols: dict[str, list[float]]) -> float:
+    """R² de la mejor recta simple. Basta para decir si el objetivo
+    depende de las entradas o es ruido: no se está midiendo un modelo,
+    se está midiendo el DATASET."""
+    obj = cols[cab[-1]]
+    n = len(obj)
+    my = sum(obj) / n
+    ss_tot = sum((y - my) ** 2 for y in obj)
+    mejor = 0.0
+    for c in cab[:-1]:
+        x = cols[c]
+        mx = sum(x) / n
+        sxx = sum((a - mx) ** 2 for a in x)
+        if sxx == 0 or ss_tot == 0:
+            continue
+        b1 = sum((a - mx) * (y - my) for a, y in zip(x, obj)) / sxx
+        b0 = my - b1 * mx
+        ss_res = sum((y - (b0 + b1 * a)) ** 2 for a, y in zip(x, obj))
+        mejor = max(mejor, 1 - ss_res / ss_tot)
+    return mejor
+
+
+class TestLaRecetaDeRegresion:
+    """Un objetivo continuo se CALCULA, no se elige de una lista."""
+
+    def test_el_parser_lee_terminos_constante_y_ruido(self):
+        from matrixai.training.domain_rules import parse_regression_recipe
+        r = parse_regression_recipe("# comentario\ny = 0.4*edad - 0.5*deuda + 12\nNOISE: 0.1")
+        assert r is not None
+        assert r.objetivo == "y"
+        assert r.coeficientes == (("edad", 0.4), ("deuda", -0.5))
+        assert r.constante == pytest.approx(12.0)
+        assert r.noise == pytest.approx(0.1)
+
+    def test_una_regla_de_clases_NO_es_una_receta_de_regresion(self):
+        """Devuelve `None` en vez de inventarse una expresión: escribir
+        reglas de clase sobre un objetivo continuo es un error de quien
+        escribe, y hay que decírselo."""
+        from matrixai.training.domain_rules import parse_regression_recipe
+        assert parse_regression_recipe("1: a > 1\nDEFAULT: 0") is None
+
+    def test_normalizar_conserva_el_resultado(self):
+        """Los coeficientes se escriben en la escala del dominio y el
+        generador muestrea en [0,1]: la conversión no puede cambiar el
+        valor que sale."""
+        from matrixai.training.domain_rules import parse_regression_recipe
+        r = parse_regression_recipe("y = 2*edad + 5")
+        assert r is not None
+        n = r.normalizada({"edad": (0.0, 100.0)})
+        # edad = 40 años → normalizada 0,4 → las dos dan 85.
+        assert r.valor_para({"edad": 40.0}) == pytest.approx(n.valor_para({"edad": 0.4}))
+
+    def test_sin_receta_la_regresion_sigue_siendo_ruido(self):
+        cab, cols = _columnas(_genera_reg(None))
+        assert _r2_de_la_mejor_recta(cab, cols) < 0.05
+
+    def test_con_receta_el_objetivo_depende_de_las_entradas(self):
+        """El criterio de cierre de 80-C2: R² > 0,9 sin LLM."""
+        cab, cols = _columnas(_genera_reg(RECETA_REG + "\nNOISE: 0.05"))
+        assert _r2_de_la_mejor_recta(cab, cols) > 0.9
+
+    def test_el_ruido_de_la_regresion_muerde(self):
+        """Y muerde sobre el recorrido REAL de lo calculado. Primero se
+        hizo sobre el rango declarado del objetivo —(-1, 1) cuando nadie
+        lo declara— y un `NOISE: 0.05` desviaba ±0,1 sobre valores de
+        cientos: el ruido no existía y el R² salía perfecto."""
+        limpio = _r2_de_la_mejor_recta(*reversed(list(reversed(_columnas(_genera_reg(RECETA_REG))))))
+        sucio = _r2_de_la_mejor_recta(*reversed(list(reversed(_columnas(_genera_reg(RECETA_REG + "\nNOISE: 0.3"))))))
+        assert limpio > 0.99
+        assert sucio < 0.9, f"con 30 % de ruido el R² debería caer, y es {sucio}"
+
+    def test_la_receta_de_regresion_viaja_de_vuelta(self):
+        r = _genera_reg(RECETA_REG + "\nNOISE: 0.05")
+        assert r["label_origin"] == "synthetic_domain"
+        assert "0.5*metros" in (r.get("domain_rules") or "")
+        # Y la nota NO se lo atribuye al LLM, que no ha intervenido.
+        assert "LLM" not in (r.get("domain_notice") or "")
