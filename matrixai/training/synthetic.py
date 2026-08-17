@@ -143,7 +143,32 @@ class SyntheticDataGenerator:
                     # M8 v2: deterministic domain-rule labelling (plausible signal).
                     # Rules are pre-normalized to [0,1]; row_dict is still normalized
                     # here (domain-scale conversion happens later).
-                    row_dict[target_name] = self.domain_rules.label_for(row_dict)
+                    etiqueta = self.domain_rules.label_for(row_dict)
+                    # ── Contrato 80-C1 · EL RUIDO DECLARADO ──
+                    #
+                    # Una de cada `noise` filas contradice la regla. Sin
+                    # esto el dataset es perfectamente separable y el
+                    # modelo entrena al 100 %: funciona, pero es el número
+                    # que hubo que retirar del tour por no sostenerse.
+                    #
+                    # Sale del MISMO `rng` que las columnas, así que la
+                    # semilla sigue mandando: misma receta + misma semilla
+                    # = mismo CSV, que es lo que promete la huella.
+                    ruido = getattr(self.domain_rules, "noise", 0.0)
+                    if ruido > 0 and self.rng.random() < ruido:
+                        alternativas = [
+                            e for e in (target_labels or []) if e != etiqueta
+                        ] or (["0", "1"] if is_probability else [])
+                        if alternativas:
+                            etiqueta = self.rng.choice(alternativas)
+                    # 80-C1: un objetivo binario guarda 0/1, no la palabra.
+                    if is_probability:
+                        try:
+                            row_dict[target_name] = float(str(etiqueta).strip())
+                        except ValueError:
+                            row_dict[target_name] = float(self.rng.randint(0, 1))
+                    else:
+                        row_dict[target_name] = etiqueta
                     self.domain_rules_used += 1
                 elif is_probability:
                     row_dict[target_name] = float(self.rng.randint(0, 1))

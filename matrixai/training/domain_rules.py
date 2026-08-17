@@ -74,6 +74,18 @@ class DomainRules:
     rules: tuple[Rule, ...]
     default_label: str
     features: tuple[str, ...] = field(default_factory=tuple)
+    #: Contrato 80-C1 — RUIDO DECLARADO, y por qué existe.
+    #:
+    #: Una regla determinista sin ruido produce un dataset perfectamente
+    #: separable: el modelo entrena hasta el 100 % de exactitud y ese
+    #: número no se sostiene delante de nadie técnico —ya hubo que
+    #: retirar una captura del tour por exactamente eso—. Con `RUIDO: 0.1`
+    #: una de cada diez filas contradice la regla, como en la vida.
+    #:
+    #: Es una PROPORCIÓN [0,1], no una desviación: se elige así porque se
+    #: explica en una frase («una de cada diez filas no sigue la regla»)
+    #: y porque vale igual para dos clases que para cinco.
+    noise: float = 0.0
 
     def label_for(self, row: dict[str, float]) -> str:
         for rule in self.rules:
@@ -96,6 +108,10 @@ class DomainRules:
             lines.append(f"{rule.label}: {conds}")
         if self.default_label:
             lines.append(f"DEFAULT: {self.default_label}")
+        # El ruido se ESCRIBE en el texto auditable: si no sale aquí, quien
+        # lea la receta no puede reproducir el dataset.
+        if self.noise > 0:
+            lines.append(f"RUIDO: {self.noise}")
         return "\n".join(lines)
 
     def normalized(self, ranges: dict[str, tuple[float, float]]) -> DomainRules:
@@ -121,7 +137,8 @@ class DomainRules:
             Rule(r.label, Clause(tuple(norm(c) for c in r.clause.conditions), r.clause.combiner))
             for r in self.rules
         )
-        return DomainRules(new_rules, self.default_label, self.features)
+        # El ruido NO se normaliza: es una proporción de filas, no un umbral.
+        return DomainRules(new_rules, self.default_label, self.features, self.noise)
 
     def validate(self, allowed_features: list[str], allowed_labels: list[str]) -> list[str]:
         """Return a list of problems; empty means the rules are usable."""
@@ -176,8 +193,14 @@ def parse_domain_rules(text: str) -> DomainRules:
     Returns a (possibly empty/invalid) DomainRules — the caller validates."""
     rules: list[Rule] = []
     default_label = ""
+    noise = 0.0
     for raw in (text or "").splitlines():
         line = raw.strip()
+        # Contrato 80-C1: una receta la escribe una PERSONA, así que se
+        # admiten comentarios. Sin esto, explicar una regla obliga a
+        # explicarla fuera del fichero — y ahí es donde se pierde.
+        if line.startswith("#"):
+            continue
         if not line or ":" not in line:
             continue
         head, _, body = line.partition(":")
@@ -187,9 +210,24 @@ def parse_domain_rules(text: str) -> DomainRules:
         if head.upper() == "DEFAULT":
             default_label = body.split()[0] if body.split() else ""
             continue
-        if not re.match(r"^[A-Za-z_]\w*$", head):
-            continue  # label names are simple identifiers
+        # Contrato 80-C1: `RUIDO: 0.1` (o `NOISE: 0.1`). Fuera de [0,1] se
+        # ignora en vez de reventar: el resto de este parser es tolerante a
+        # propósito —lo escribe una persona— y una receta con un ruido
+        # imposible sigue siendo una receta útil.
+        if head.upper() in ("RUIDO", "NOISE"):
+            try:
+                v = float(body.split()[0])
+            except (ValueError, IndexError):
+                continue
+            if 0.0 <= v <= 1.0:
+                noise = v
+            continue
+        # Contrato 80-C1: un objetivo binario (`Probability`) tiene por
+        # etiquetas «1» y «0», que no son identificadores. Se admiten los
+        # dos: `ALTO` y `1`.
+        if not re.match(r"^([A-Za-z_]\w*|\d+)$", head):
+            continue  # ni identificador ni número: no es una etiqueta
         clause = _parse_clause(body)
         if clause is not None:
             rules.append(Rule(head, clause))
-    return DomainRules(tuple(rules), default_label)
+    return DomainRules(tuple(rules), default_label, (), noise)
