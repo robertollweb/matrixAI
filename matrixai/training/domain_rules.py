@@ -111,7 +111,14 @@ class DomainRules:
         # El ruido se ESCRIBE en el texto auditable: si no sale aquí, quien
         # lea la receta no puede reproducir el dataset.
         if self.noise > 0:
-            lines.append(f"RUIDO: {self.noise}")
+            # NOISE y no RUIDO: la palabra canónica de este idioma es la
+            # inglesa, como `DEFAULT`, `AND` y `OR` — que ya lo eran. Se
+            # escribió «RUIDO» primero y saltó al ver la receta devuelta
+            # en una pantalla inglesa: media línea en cada idioma, que es
+            # el defecto que este proyecto ya ha pagado tres veces hoy.
+            # `RUIDO` se sigue ACEPTANDO al leer: quien la escribió así no
+            # tiene por qué reescribirla.
+            lines.append(f"NOISE: {self.noise}")
         return "\n".join(lines)
 
     def normalized(self, ranges: dict[str, tuple[float, float]]) -> DomainRules:

@@ -117,9 +117,14 @@ class TestElIdiomaDeLaReceta:
 
     def test_el_ruido_se_escribe_en_el_texto_auditable(self):
         """Si el ruido no sale en `to_text()`, la receta publicada no
-        reproduce el dataset — y la reproducibilidad es el contrato."""
-        r = parse_domain_rules(RECETA + "\nRUIDO: 0.25")
-        assert "RUIDO: 0.25" in r.to_text()
+        reproduce el dataset — y la reproducibilidad es el contrato.
+
+        Se ESCRIBE en inglés (`NOISE`) aunque se acepten las dos: el resto
+        del idioma ya era inglés (`DEFAULT`, `AND`, `OR`), y una receta
+        mitad en cada idioma es el defecto que este proyecto ya ha pagado
+        varias veces."""
+        assert "NOISE: 0.25" in parse_domain_rules(RECETA + "\nRUIDO: 0.25").to_text()
+        assert "NOISE: 0.25" in parse_domain_rules(RECETA + "\nNOISE: 0.25").to_text()
 
     def test_un_ruido_imposible_se_ignora_en_vez_de_reventar(self):
         """Este parser lo alimenta una persona: es tolerante a propósito."""
@@ -158,7 +163,7 @@ class TestLosDatosTienenSenal:
     def test_la_regla_viaja_de_vuelta_para_poder_auditarla(self):
         r = _genera(RECETA + "\nRUIDO: 0.1")
         assert "deuda > 0.6" in (r.get("domain_rules") or "")
-        assert "RUIDO: 0.1" in (r.get("domain_rules") or "")
+        assert "NOISE: 0.1" in (r.get("domain_rules") or "")
 
 
 class TestElRuidoMuerde:
