@@ -772,11 +772,23 @@ def _generate_synthetic_dataset(
         # Fall back to coherent labelling honestly instead of shipping it as "domain".
         domain_degenerate_warning = ""
         if domain_rules is not None and generator.domain_rules_degenerate:
-            domain_degenerate_warning = (
+            # 80 · QUIÉN escribió la regla. Este mensaje decía «propuestas
+            # por el LLM» siempre, y desde que una persona puede escribir
+            # la receta eso es falso justo cuando más importa: quien
+            # escribió `deuda > 0.6` sobre una columna en euros lee que
+            # el fallo fue de la máquina, y no toca el número que sí es
+            # suyo. Medido el 2026-08-18: rango 0..100.000, umbral 0,6 →
+            # todas las filas en una clase → etiquetas aleatorias.
+            _de_quien = (
+                "Tu receta no discriminó sobre los datos generados (casi todas las "
+                "filas cayeron en una sola clase); se usaron etiquetas aleatorias. "
+                "Revisa los umbrales: van en las unidades de tus datos."
+                if (recipe_text or "").strip() else
                 "Las reglas de dominio propuestas por el LLM no discriminaron sobre los "
                 "datos generados (casi todas las filas cayeron en una sola clase); se usaron "
                 "etiquetas aleatorias. Ajusta el prompt o sube datos reales."
             )
+            domain_degenerate_warning = _de_quien
             domain_rules = None
             domain_rules_text = ""
             # Opción A: sin reglas válidas no se ejecuta la red → etiquetas aleatorias.

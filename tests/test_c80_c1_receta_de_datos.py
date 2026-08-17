@@ -468,3 +468,33 @@ class TestElRepartoDeClases:
                 f"fila con glucosa={glucosa} etiquetada {f[idx[cab[-1]]]}: "
                 "el reparto ha reetiquetado en vez de resembrar"
             )
+
+
+def test_una_receta_que_no_discrimina_no_se_le_echa_al_LLM() -> None:
+    """El aviso de degeneración dice de QUIÉN era la regla.
+
+    MEDIDO conduciendo el 2026-08-18: con `deuda` de 0 a 100.000 y la
+    receta ``deuda > 0.6`` —la forma del ejemplo que el propio producto
+    sugiere— todas las filas caen en la misma clase, el core se pasa a
+    etiquetas aleatorias (bien) y avisaba de que «las reglas de dominio
+    propuestas por el LLM no discriminaron».
+
+    Quien escribió esa regla es una persona, y el número que hay que
+    tocar es suyo: leer que el fallo fue de la máquina es exactamente lo
+    que impide arreglarlo. El caso sin receta sigue hablando del LLM,
+    porque ahí sí es verdad.
+    """
+    rangos = {"edad": (18, 90), "ingresos": (0, 120000), "deuda": (0, 100000)}
+    r = _generate_synthetic_dataset(
+        MXAI_BINARIO, TRAIN_BINARIO, rows=200, seed=7, mode="coherent", use_llm=False,
+        field_ranges_override=rangos, recipe_text="1: deuda > 0.6\nDEFAULT: 0",
+    )
+
+    assert r["ok"] is True
+    # La honestidad de fondo no cambia: sin señal, etiquetas aleatorias.
+    assert r["label_origin"] == "synthetic_random"
+    aviso = r.get("domain_degenerate_warning", "")
+    assert "no discriminó" in aviso, aviso
+    assert "LLM" not in aviso, "se le atribuye al LLM la receta que escribió una persona"
+    # Y con la salida: el umbral va en las unidades de los datos.
+    assert "unidades" in aviso, aviso
