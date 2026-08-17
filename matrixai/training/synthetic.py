@@ -156,9 +156,18 @@ class SyntheticDataGenerator:
                     # = mismo CSV, que es lo que promete la huella.
                     ruido = getattr(self.domain_rules, "noise", 0.0)
                     if ruido > 0 and self.rng.random() < ruido:
-                        alternativas = [
-                            e for e in (target_labels or []) if e != etiqueta
-                        ] or (["0", "1"] if is_probability else [])
+                        # La alternativa NO puede incluir la etiqueta que
+                        # ya tocaba: si la incluye, la mitad de las veces
+                        # «cambiar» deja lo mismo y el ruido REAL sale la
+                        # mitad del declarado. Medido al escribir esto:
+                        # con `RUIDO: 0.1` solo el 6,5 % de las filas
+                        # contradecía la regla. Una receta que declara un
+                        # 10 % y produce un 6,5 % es una receta que miente,
+                        # y esta receta se publica.
+                        candidatas = [
+                            str(e) for e in (target_labels or (["0", "1"] if is_probability else []))
+                        ]
+                        alternativas = [e for e in candidatas if e != str(etiqueta)]
                         if alternativas:
                             etiqueta = self.rng.choice(alternativas)
                     # 80-C1: un objetivo binario guarda 0/1, no la palabra.

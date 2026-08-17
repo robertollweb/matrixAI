@@ -543,6 +543,7 @@ def _generate_synthetic_dataset(
     field_types: dict[str, str] | None = None,
     field_categories: dict[str, list[str]] | None = None,
     field_identifiers: list[str] | None = None,
+    recipe_text: str | None = None,
 ) -> dict[str, Any]:
     if not mxai_text.strip() or not training_text.strip():
         return {"ok": False, "error": "mxai_text y training_text son obligatorios"}
@@ -681,7 +682,37 @@ def _generate_synthetic_dataset(
         is_multiclass = (target_type.name not in {"Scalar", "Integer"}
                          and target_type.name.lower() != "probability"
                          and len(dr_labels) >= 2)
-        if (mode == "coherent" and use_llm and is_multiclass
+        # 80-C1: el binario ya no está excluido de tener receta.
+        is_probability_target = target_type.name.lower() == "probability"
+        is_regression = target_type.name in {"Scalar", "Integer"}
+        # ── Contrato 80-C1 · LA RECETA DE LA PERSONA MANDA ──
+        #
+        # Precedencia receta > LLM > nada, la misma que ya rige en los
+        # rangos (M6). Y aquí está el punto del contrato: esta rama NO
+        # mira si hay LLM ni si el objetivo es multiclase — un objetivo
+        # binario tiene dos etiquetas («1» y «0») y el evaluador siempre
+        # supo trabajar con dos. Lo que faltaba era permiso.
+        #
+        # Sin clave de LLM, ésta es la ÚNICA forma de que los datos
+        # generados tengan relación con lo que se predice: hasta hoy, un
+        # Studio recién instalado solo sabía etiquetar al azar.
+        recipe_errors: list[str] = []
+        if (recipe_text or "").strip():
+            from matrixai.training.domain_rules import parse_domain_rules  # noqa: PLC0415
+            if is_regression:
+                # Honestidad por delante: una receta de regresión es otra
+                # cosa (una expresión numérica) y llega en 80-C2. Decirlo
+                # es mejor que ignorarla en silencio y devolver ruido.
+                recipe_errors = ["regression recipes arrive in 80-C2"]
+            else:
+                _labels_receta = dr_labels or (["0", "1"] if is_probability_target else [])
+                _dr = parse_domain_rules(recipe_text)
+                recipe_errors = _dr.validate(typeable, _labels_receta)
+                if not recipe_errors:
+                    domain_rules = _dr.normalized(field_ranges)
+                    domain_rules_text = _dr.to_text()
+
+        if (domain_rules is None and mode == "coherent" and use_llm and is_multiclass
                 and _detect_llm_mode().get("active", False)):
             project = re.search(r"^\s*PROJECT\s+(\S+)", mxai_text, re.MULTILINE)
             context = project.group(1) if project else ""
