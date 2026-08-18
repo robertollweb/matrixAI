@@ -258,30 +258,55 @@ class SyntheticDataGenerator:
         # su receta declara.
         self.balance_no_alcanzado: dict[str, float] = {}
         _balance = dict(getattr(self.domain_rules, "balance", ()) or ())
-        if _balance and self.domain_rules is not None and target_labels and generated_rows:
+        # Las etiquetas de un objetivo `Probability` NO están en
+        # `target_labels` —son 0 y 1, no identificadores—, igual que en el
+        # ruido de arriba. Sin esta caída, `BALANCE` se ignoraba ENTERO en
+        # el caso binario, que es justo el del ejemplo que ofrece la caja
+        # de la receta: una línea escrita por una persona que se tiraba
+        # sin decir nada. Medido el 2026-08-18: reparto pedido 50/50,
+        # real 1 %, y ni un aviso.
+        _etiquetas = [str(e) for e in (target_labels or (["0", "1"] if is_probability else []))]
+
+        def _clave(valor: object) -> str:
+            # Y las filas guardan 1.0/0.0 en binario, así que comparar
+            # `str(valor)` contra «1» no casaba NUNCA: el bucle se daba
+            # por satisfecho con cero filas de la clase pedida.
+            texto = str(valor)
+            if is_probability:
+                try:
+                    return str(int(float(texto)))
+                except ValueError:
+                    return texto
+            return texto
+
+        if _balance and self.domain_rules is not None and _etiquetas and generated_rows:
             objetivo_filas = {
                 etq: int(round(parte * len(generated_rows))) for etq, parte in _balance.items()
             }
             for _ in range(40):  # pasadas; cada una resiembra lo que sobra
                 actuales: dict[str, int] = {}
                 for f in generated_rows:
-                    k = str(f[target_name])
+                    k = _clave(f[target_name])
                     actuales[k] = actuales.get(k, 0) + 1
                 sobran = [e for e, n in objetivo_filas.items() if actuales.get(e, 0) > n]
                 if not sobran:
                     break
                 cambiada = False
                 for i, f in enumerate(generated_rows):
-                    etiqueta_actual = str(f[target_name])
+                    etiqueta_actual = _clave(f[target_name])
                     if etiqueta_actual not in sobran:
                         continue
                     if actuales.get(etiqueta_actual, 0) <= objetivo_filas[etiqueta_actual]:
                         continue
                     for _intento in range(25):
                         nueva = _muestrear_fila()
-                        etq = str(self.domain_rules.label_for(nueva))
+                        etq = _clave(self.domain_rules.label_for(nueva))
                         if etq != etiqueta_actual:
-                            nueva[target_name] = etq
+                            # Se guarda en la MISMA forma que el resto de
+                            # las filas: 1.0/0.0 en binario, la palabra en
+                            # multiclase. Guardar «1» aquí dejaba un CSV
+                            # con dos formas para la misma clase.
+                            nueva[target_name] = float(etq) if is_probability else etq
                             generated_rows[i] = nueva
                             actuales[etiqueta_actual] = actuales.get(etiqueta_actual, 0) - 1
                             actuales[etq] = actuales.get(etq, 0) + 1
@@ -291,7 +316,7 @@ class SyntheticDataGenerator:
                     break
             finales: dict[str, int] = {}
             for f in generated_rows:
-                k = str(f[target_name])
+                k = _clave(f[target_name])
                 finales[k] = finales.get(k, 0) + 1
             for etq, pedido in objetivo_filas.items():
                 real = finales.get(etq, 0)

@@ -498,3 +498,58 @@ def test_una_receta_que_no_discrimina_no_se_le_echa_al_LLM() -> None:
     assert "LLM" not in aviso, "se le atribuye al LLM la receta que escribió una persona"
     # Y con la salida: el umbral va en las unidades de los datos.
     assert "unidades" in aviso, aviso
+
+
+def test_el_reparto_pedido_tambien_manda_en_un_objetivo_binario() -> None:
+    """`BALANCE` se ignoraba ENTERO en el caso binario (80-C4).
+
+    MEDIDO el 2026-08-18: con `Probability` como objetivo, pedir
+    ``BALANCE: 1=0.3, 0=0.7`` daba un 38 % de unos y NI UN AVISO. Dos
+    cosas se juntaban: las etiquetas de un objetivo binario no están en
+    `target_labels` —son 0 y 1, no identificadores, igual que ya sabía el
+    ruido— y las filas guardan `1.0`, que nunca casaba con «1». Así que
+    el bucle de reparto se daba por satisfecho sin haber movido una fila,
+    y el aviso de «no se ha podido» tampoco salía: una línea escrita por
+    una persona se tiraba sin decir nada, que es peor que no ofrecerla.
+
+    El caso binario es el del EJEMPLO que ofrece la propia caja de la
+    receta, o sea el que más gente va a escribir.
+    """
+    rangos = {"edad": (18, 90), "ingresos": (0, 120000), "deuda": (0, 100000)}
+    r = _generate_synthetic_dataset(
+        MXAI_BINARIO, TRAIN_BINARIO, rows=400, seed=7, mode="coherent", use_llm=False,
+        field_ranges_override=rangos,
+        recipe_text="1: deuda > 60000\nDEFAULT: 0\nBALANCE: 1=0.3, 0=0.7",
+    )
+    # `splitlines()` y celdas con `strip()`: el CSV va con `\r\n`, así
+    # que partir por «\n» deja la última columna llamándose «impaga\r» y
+    # `.index()` no la encuentra. Era el aserto, no el producto.
+    filas = r["csv_text"].strip().splitlines()
+    columna = [c.strip() for c in filas[0].split(",")].index("impaga")
+    unos = sum(1 for f in filas[1:] if float(f.split(",")[columna]) >= 0.5)
+    parte = unos / (len(filas) - 1)
+    assert 0.27 <= parte <= 0.33, f"se pidió el 30 % de unos y salió el {parte:.0%}"
+    # Y sin aviso: el reparto SÍ se pudo cumplir, así que decir que no
+    # sería el ruido contrario.
+    assert r.get("balance_warning") is None
+
+
+def test_un_reparto_que_la_regla_no_permite_se_dice() -> None:
+    """Y cuando de verdad no se puede, se declara (80-C4).
+
+    Una regla que casi nunca dispara no puede dar un 40 % de esa clase
+    por muchas filas que se resiembren. Callarlo dejaría un dataset que
+    no cumple lo que su propia receta declara — y esa receta se exporta
+    con el modelo para que alguien la rehaga.
+    """
+    rangos = {"deuda": (0, 100000), "edad": (18, 90), "ingresos": (0, 120000)}
+    r = _generate_synthetic_dataset(
+        MXAI_BINARIO, TRAIN_BINARIO, rows=400, seed=7, mode="coherent", use_llm=False,
+        field_ranges_override=rangos,
+        recipe_text="1: deuda > 99990\nDEFAULT: 0\nBALANCE: 1=0.4, 0=0.6",
+    )
+    aviso = r.get("balance_warning") or ""
+    assert "No se ha podido alcanzar el reparto pedido" in aviso, aviso
+    # Con los números REALES dentro: «no se pudo» sin decir cuánto salió
+    # deja a quien lo lee sin saber si falló por poco o por todo.
+    assert "1: 0" in aviso, aviso
