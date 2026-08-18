@@ -33,6 +33,13 @@ matrixai --help
 ## Key features
 
 - **Prompt → model**: `matrixai prompt "..."` generates a runnable `.mxai` program
+- **A data recipe you write yourself**: synthetic data used to have no relationship
+  between inputs and target (measured correlation 0.049 against a 0.098 chance
+  threshold), so a model trained on it could not learn. A recipe —
+  `1: debt > 60000 OR income < 20000` / `DEFAULT: 0` / `NOISE: 0.1` /
+  `BALANCE: 1=0.3` — is parsed and evaluated deterministically, with no LLM in the
+  loop, works for continuous targets too (`usage = 0.05*sqm + 1.2*people + 5`),
+  travels with the model and ships inside the exported bundle as `data_recipe.txt`
 - **The task comes from the question, not the verb**: «predict which customers will
   churn» is a classification even though «predict» reads like regression. The inferred
   task reaches the pipeline and is stated in the trace, and the assumption is flagged
@@ -240,7 +247,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 5120 passed, 19 skipped
+# 5244 passed, 19 skipped
 ```
 
 ---

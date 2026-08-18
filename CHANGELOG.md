@@ -7,6 +7,53 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.5.0] — 2026-08-18
+
+Generated data that a model can actually learn from — and a prompt in
+Spanish that builds a network again.
+
+### Added
+- **The data recipe.** Synthetic datasets had no relationship between
+  inputs and target: measured, the correlation was 0.049 against a
+  chance threshold of 0.098 for 200 rows. Whoever trained on them saw
+  50 % accuracy and a collapse warning, and concluded the product does
+  not work. A recipe is a small text a **person** writes —
+  `1: debt > 60000 OR income < 20000`, `DEFAULT: 0`, `NOISE: 0.1`,
+  `BALANCE: 1=0.3` — parsed and evaluated deterministically, with no LLM
+  in the loop: that was the only way a freshly installed Studio with no
+  API key could produce a learnable dataset at all.
+- **Recipes for continuous targets** (`usage = 0.05*sqm + 1.2*people +
+  5`, plus its noise). A `Scalar` target used to be filled with
+  `uniform(lo, hi)` — pure noise, maximum correlation 0.054 — so a
+  regression model could not learn anything.
+- **The recipe travels with the model** (`data_recipe`) and ships inside
+  the exported bundle as `data_recipe.txt`: the dataset that trained a
+  model can be rebuilt by whoever receives it. Same recipe and seed give
+  the same fingerprint, which is the sha256 of the CSV.
+- **A requested class split** (`BALANCE: 1=0.3, 0=0.7`), and an explicit
+  warning when the rule and the ranges cannot deliver it.
+
+### Fixed
+- **A prompt written in Spanish builds a NETWORK again.** The task-verb
+  list held bare infinitives without accents (`predecir`, `clasificar`),
+  matched as substrings against the raw text. Nobody writes that way in
+  Spanish: people write `predice`, `clasifica`, `predicción`. Those
+  prompts fell through to the generic agent — no `NETWORK`, no `LAYER`,
+  invented fields — so the product looked broken **only in Spanish**,
+  including for the examples the interface itself suggests.
+- **`BALANCE` was ignored for binary targets**, which is the most common
+  case: the labels of a `Probability` target are not in `target_labels`,
+  and rows store `1.0`, which never matched `"1"`. A line written by a
+  person was dropped without a word.
+- **The degeneracy warning says whose rule it was.** When a recipe does
+  not discriminate the core falls back to random labels — correct — but
+  it blamed «domain rules proposed by the LLM» even when a person wrote
+  them, and did not say the thresholds go in the data's own units.
+- **Declared noise is the noise you get.** The alternative label could be
+  the current one, so `NOISE: 0.1` produced 6.5 % of contradicting rows.
+
+---
+
 ## [1.4.3] — 2026-08-14
 
 Two numbers on the same screen that did not add up.
