@@ -368,7 +368,10 @@ class TestTransformerEdgeBundle(unittest.TestCase):
             # This transformer is a 2-class softmax with no declared labels, so the
             # inference_spec is (correctly) skipped: base P15 bundle, 6 files.
             expected = {"README.md", "export_manifest.json", "model.mxai",
-                        "model.onnx", "model_manifest.json", "params.best.json"}
+                        "model.onnx", "model_manifest.json", "params.best.json",
+                        # 82-C1: `reproduce.json` viaja en TODO paquete
+                        # (sin receta, con `reproducible: false` y su motivo).
+                        "reproduce.json"}
             self.assertEqual(set(result.files), expected)
             self.assertIsNotNone(result.inference_spec_skipped_reason)
 

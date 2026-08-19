@@ -27,6 +27,10 @@ from matrixai.export.inference_spec import (
 # The standalone predict.py shipped inside every usable bundle (copied verbatim).
 _PREDICT_TEMPLATE = str(Path(__file__).resolve().parent / "predict_template.py")
 _REQUIREMENTS = "numpy>=1.24\nonnxruntime>=1.16\n"
+from matrixai.export.reproduce import (
+    TRAINING_ARTIFACT_NAME,
+    write_reproduce_manifest,
+)
 from matrixai.export.equivalence import (
     OnnxEquivalenceResult,
     OnnxEquivalenceValidator,
@@ -65,6 +69,11 @@ class EdgeBundleResult:
     # en que deben concatenarse en el `.data` (offsets del grafo). `None` en el
     # modo normal/state_dict (el `.onnx.data` ya está en `bundle_dir`).
     external_data_layout: list[dict] | None = None
+    # Contrato 82-C1: el `reproduce.json` que se escribió, tal cual. Se
+    # devuelve entero (y no solo un booleano) para que el llamante pueda
+    # enseñar el motivo de un `reproducible: false` sin volver a leer el
+    # fichero — y para que no haya un segundo sitio decidiendo qué falta.
+    reproduce: dict[str, Any] | None = None
 
     @property
     def equivalence_passed(self) -> bool:
@@ -84,6 +93,7 @@ class EdgeBundleResult:
             "export": self.export_result.to_dict(),
             "inference_spec_skipped_reason": self.inference_spec_skipped_reason,
             "equivalence_skipped_reason": self.equivalence_skipped_reason,
+            "reproduce": self.reproduce,
         }
         if self.equivalence_result is not None:
             d["equivalence_check"] = self.equivalence_result.to_dict()
@@ -120,6 +130,11 @@ class EdgeBundler:
         example_input: dict[str, Any] | None = None,
         target_range: tuple[float, float] | None = None,
         data_recipe: str | None = None,
+        mxtrain_path: str | Path | None = None,
+        dataset_sha256: str | None = None,
+        dataset_rows: int | None = None,
+        generation: dict[str, Any] | None = None,
+        metrics: list[dict[str, Any]] | None = None,
     ) -> EdgeBundleResult:
         """PESOS_GRANDES C7b: `state_dict` (tensores torch crudos de un modelo
         grande guardado en `.mxw`) es la alternativa a un `parameter_set` con
@@ -175,6 +190,22 @@ class EdgeBundler:
             shutil.copy2(str(mxai_path), str(work / "model.mxai"))
             if params_path is not None:
                 shutil.copy2(str(params_path), str(work / "params.best.json"))
+
+            # 1b. EL CONTRATO DE ENTRENAMIENTO (contrato 82-C1).
+            #
+            # El `.mxai` dice qué es el modelo; el `.mxtrain` dice cómo se
+            # entrenó —dataset, split, pérdida, optimizador, épocas, backend—.
+            # Sin él el paquete se puede USAR y no se puede REHACER: quien lo
+            # recibe puede predecir, pero no reentrenar ni comprobar que las
+            # métricas publicadas son ciertas.
+            #
+            # Entra con nombre FIJO (`model.mxtrain`), como el `.mxai`: el
+            # nombre del fichero de origen es del proyecto de quien exporta y
+            # no tiene por qué viajar dentro del paquete.
+            training_filename: str | None = None
+            if mxtrain_path is not None:
+                shutil.copy2(str(mxtrain_path), str(work / TRAINING_ARTIFACT_NAME))
+                training_filename = TRAINING_ARTIFACT_NAME
 
             # 2. Export ONNX
             onnx_dest = work / "model.onnx"
@@ -328,9 +359,29 @@ class EdgeBundler:
             #
             # Es lo que separa «créenos» de «compruébalo», y es la mitad que
             # hacía falta para publicar un caso reproducible.
+            recipe_filename: str | None = None
             if data_recipe and data_recipe.strip():
                 (work / "data_recipe.txt").write_text(
                     data_recipe.strip() + "\n", encoding="utf-8")
+                recipe_filename = "data_recipe.txt"
+
+            # 5c. EL MANIFIESTO REPRODUCIBLE (contrato 82-C1).
+            #
+            # Se escribe SIEMPRE, tenga receta o no: un paquete que calla no
+            # dice «esto no se puede reproducir», dice nada. Sin receta sale
+            # con `reproducible: false` y su motivo (§6.2) — y no se le
+            # fabrica ninguna, porque un modelo entrenado con datos reales no
+            # tiene receta que compartir y fingir que sí es lo único peor que
+            # no poder reproducirlo.
+            reproduce_manifest = write_reproduce_manifest(
+                work,
+                training_filename=training_filename,
+                recipe_filename=recipe_filename,
+                dataset_sha256=dataset_sha256,
+                dataset_rows=dataset_rows,
+                generation=generation,
+                metrics=metrics,
+            )
 
             # 6. README.md — refleja los ficheros REALES del bundle (BAJA C7
             # auditoría): con external-data lista `model.onnx.data`; sin
@@ -342,7 +393,10 @@ class EdgeBundler:
                               example_input=example_record,
                               has_params_json=params_path is not None,
                               external_data=export_result.external_data,
-                              smoke_test_skipped=smoke_test_skipped),
+                              smoke_test_skipped=smoke_test_skipped,
+                              has_mxtrain=training_filename is not None,
+                              has_recipe=recipe_filename is not None,
+                              reproduce=reproduce_manifest),
                 encoding="utf-8",
             )
 
@@ -399,6 +453,7 @@ class EdgeBundler:
             inference_spec_skipped_reason=spec_skipped_reason,
             equivalence_skipped_reason=eq_skipped_reason,
             external_data_layout=external_data_layout,
+            reproduce=reproduce_manifest,
         )
 
 
@@ -425,6 +480,11 @@ def create_edge_bundle(
     example_input: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
     data_recipe: str | None = None,
+    mxtrain_path: str | Path | None = None,
+    dataset_sha256: str | None = None,
+    dataset_rows: int | None = None,
+    generation: dict[str, Any] | None = None,
+    metrics: list[dict[str, Any]] | None = None,
 ) -> EdgeBundleResult:
     return EdgeBundler().bundle(
         program, parameter_set, mxai_path, params_path, outdir,
@@ -440,6 +500,11 @@ def create_edge_bundle(
         example_input=example_input,
         target_range=target_range,
         data_recipe=data_recipe,
+        mxtrain_path=mxtrain_path,
+        dataset_sha256=dataset_sha256,
+        dataset_rows=dataset_rows,
+        generation=generation,
+        metrics=metrics,
     )
 
 
@@ -594,6 +659,9 @@ def _build_readme(
     has_params_json: bool = True,
     external_data: bool = False,
     smoke_test_skipped: bool = False,
+    has_mxtrain: bool = False,
+    has_recipe: bool = False,
+    reproduce: dict[str, Any] | None = None,
 ) -> str:
     project = program.project
     out_name = export_result.output_name
@@ -668,6 +736,40 @@ def _build_readme(
         if external_data else ""
     )
 
+    # Contrato 82-C1: la tabla sigue listando los ficheros REALES (misma
+    # regla que `params.best.json`/`model.onnx.data` arriba). `reproduce.json`
+    # va siempre; el `.mxtrain` y la receta, solo si de verdad viajan.
+    mxtrain_row = (
+        "| `model.mxtrain` | Training contract: dataset, split, loss, optimizer, epochs |\n"
+        if has_mxtrain else ""
+    )
+    recipe_row = (
+        "| `data_recipe.txt` | The recipe the training data was generated from |\n"
+        if has_recipe else ""
+    )
+    reproduce_row = (
+        "| `reproduce.json` | What it takes to rebuild this model, with a digest per artifact |\n"
+    )
+    # Y el estado se DECLARA, no se deduce del README: un paquete sin receta
+    # dice que no se puede reproducir y por qué, en vez de callar (§6.2).
+    reproduce_note = ""
+    if reproduce is not None:
+        if reproduce.get("reproducible"):
+            reproduce_note = (
+                "\nThis package is **reproducible**: `reproduce.json` carries the recipe, "
+                "the training contract, the expected dataset sha256 and the exact "
+                "environment. It proves internal consistency, not authorship.\n"
+            )
+        else:
+            # El motivo se imprime TAL CUAL lo escribió `reproduce.json` (ya es
+            # una frase entera): componer aquí una segunda versión sería el
+            # segundo sitio redactando lo mismo, y se leía repetido
+            # («not reproducible. Not reproducible: …»).
+            reproduce_note = (
+                f"\n> {reproduce.get('reproducible_reason', '')} "
+                f"See `reproduce.json`.\n"
+            )
+
     return f"""# {project} Edge Bundle
 
 MatrixAI model exported for edge/production inference.
@@ -678,11 +780,11 @@ Actions remain `simulate_only`. This bundle only provides predictions.
 | File | Description |
 |------|-------------|
 | `model.mxai` | MatrixAI model definition (source of truth) |
-{params_row}| `model.onnx` | ONNX model, opset {export_result.opset_version} |
+{mxtrain_row}{params_row}| `model.onnx` | ONNX model, opset {export_result.opset_version} |
 {onnx_data_row}| `model_manifest.json` | Model metadata, hashes and backend contract |
 | `export_manifest.json` | Export metadata, tolerance and equivalence check |
-{usable_files}| `README.md` | This file |
-
+{recipe_row}{reproduce_row}{usable_files}| `README.md` | This file |
+{reproduce_note}
 ## Model info
 
 - Project: `{project}`

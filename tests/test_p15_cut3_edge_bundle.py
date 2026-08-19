@@ -34,8 +34,12 @@ _FALL_RISK_MXAI = _BASE / "examples" / "fall-risk.mxai"
 
 # Base bundle (P15). A flat-VECTOR model that yields a usable spec also carries the
 # self-usable prediction artifacts (EXPORT C1+C2); unlabelled classification does not.
+# Contrato 82-C1: `reproduce.json` va en TODO paquete, tenga o no con qué
+# reproducirse — sin receta sale con `reproducible: false` y su motivo. Un
+# paquete que calla no dice «esto no se puede reproducir», no dice nada.
 _BUNDLE_FILES = {"README.md", "export_manifest.json", "model.mxai",
-                 "model.onnx", "model_manifest.json", "params.best.json"}
+                 "model.onnx", "model_manifest.json", "params.best.json",
+                 "reproduce.json"}
 _BUNDLE_FILES_WITH_SPEC = _BUNDLE_FILES | {
     "inference_spec.json", "predict.py", "requirements.txt",
     "example_input.json", "expected_output.json"}
@@ -202,7 +206,11 @@ class TestEmailAgentBundle(unittest.TestCase):
         d = self.result.to_dict()
         expected = {"bundle_dir", "files", "model_hash", "parameter_set_id",
                     "equivalence_passed", "export", "equivalence_check",
-                    "inference_spec_skipped_reason", "equivalence_skipped_reason"}
+                    "inference_spec_skipped_reason", "equivalence_skipped_reason",
+                    # 82-C1: el manifiesto reproducible entero, para que el
+                    # llamante no tenga que releer el fichero ni decidir por
+                    # su cuenta qué le falta al paquete.
+                    "reproduce"}
         self.assertEqual(set(d.keys()), expected)
 
 

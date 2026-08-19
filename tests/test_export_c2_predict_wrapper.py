@@ -259,9 +259,12 @@ class BatchAndCliTest(_ModelHarness):
 
 @unittest.skipUnless(_onnx_available() and _ort_available(), "onnx/onnxruntime not installed")
 class IntegrationC2Test(unittest.TestCase):
+    # 82-C1 añade `reproduce.json`, que viaja SIEMPRE (con
+    # `reproducible: false` y su motivo cuando el modelo no tiene receta).
     _USABLE = {"model.mxai", "params.best.json", "model.onnx", "model_manifest.json",
                "export_manifest.json", "README.md", "inference_spec.json", "predict.py",
-               "requirements.txt", "example_input.json", "expected_output.json"}
+               "requirements.txt", "example_input.json", "expected_output.json",
+               "reproduce.json"}
 
     def setUp(self):
         from matrixai.parser import parse_file

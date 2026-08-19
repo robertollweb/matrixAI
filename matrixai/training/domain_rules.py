@@ -16,6 +16,16 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+#: Contrato 82-C1 — versión del IDIOMA de la receta (`ALTO: edad > 65 OR ...`,
+#: `DEFAULT: ...`, `BALANCE: 1=0.1`, y la expresión numérica de 80-C2).
+#:
+#: Viaja en el `reproduce.json` del paquete porque la receta se entrega en
+#: texto llano y hay que saber con qué gramática leerla: si mañana este parser
+#: entiende una construcción nueva, un `reproduce.json` viejo tiene que poder
+#: decir «yo me escribí con la v1» en vez de dejar que se interprete con reglas
+#: que no existían. Se sube al cambiar la gramática, no al arreglar un fallo.
+RECIPE_FORMAT_VERSION = "matrixai.recipe.v1"
+
 # Comparison operators, longest-first so ">=" is matched before ">".
 _OPS = ("<=", ">=", "==", "<", ">", "=")
 _OP_FUNCS = {

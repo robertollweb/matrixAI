@@ -289,7 +289,10 @@ class TestSequenceTransformerEdgeBundle(unittest.TestCase):
                 validate=True,
             )
             expected = {"README.md", "export_manifest.json", "model.mxai",
-                        "model.onnx", "model_manifest.json", "params.best.json"}
+                        "model.onnx", "model_manifest.json", "params.best.json",
+                        # 82-C1: `reproduce.json` viaja en TODO paquete
+                        # (sin receta, con `reproducible: false` y su motivo).
+                        "reproduce.json"}
             self.assertEqual(set(result.files), expected)
             self.assertTrue(result.equivalence_passed)
 

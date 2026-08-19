@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, TextIO
@@ -543,6 +544,34 @@ def main() -> int:
             "(predict.py + inference_spec.json). Keys: field_ranges {col:[lo,hi]}, "
             "field_categories {col:[values]}, field_types {col:number|integer|boolean}, "
             "labels [..], example_input {..}. Labels also flow from the .mxai ProbabilityMap."
+        ),
+    )
+    export_bundle_parser.add_argument(
+        "--training",
+        help=(
+            "The .mxtrain training contract to ship inside the bundle (as model.mxtrain). "
+            "Without it the package can be USED but not REBUILT: no retraining, "
+            "no checking the published metrics."
+        ),
+    )
+    export_bundle_parser.add_argument(
+        "--data-recipe",
+        help=(
+            "Text file with the recipe the training data was generated from "
+            "(contract 80). It ships as data_recipe.txt. A model trained on real "
+            "data has no recipe and must not be given one: leave this out and the "
+            "package says so instead of pretending."
+        ),
+    )
+    export_bundle_parser.add_argument(
+        "--reproduce-metadata",
+        help=(
+            "JSON sidecar with what it takes to regenerate the training data "
+            "(contract 82-C1). Keys: dataset_sha256 (full 64-hex, not the short "
+            "fingerprint), dataset_rows, generation {mode, seeds {dataset, split, init}, "
+            "field_ranges, field_types, field_categories, one_hot_groups, "
+            "excluded_identifiers, backend, device, deterministic_options}, "
+            "metrics [{name, value, split, dataset_sha256, ...}]."
         ),
     )
     export_bundle_parser.add_argument("--json", action="store_true", help="Print bundle result as JSON")
@@ -2390,11 +2419,82 @@ def _load_inference_metadata(path: str) -> dict:
     return kwargs
 
 
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _load_reproduce_metadata(path: str) -> dict:
+    """Lee + valida ESTRICTAMENTE el sidecar --reproduce-metadata (82-C1).
+
+    Estricto por el mismo motivo que `_load_inference_metadata`: aquí una
+    coerción silenciosa produce un paquete que dice ser reproducible y no lo
+    es, que es peor que uno que declara que no puede serlo.
+
+    El `dataset_sha256` se exige COMPLETO (64 hex minúsculas) a propósito
+    (§6.6 del contrato): la huella que enseña el producto es
+    `"data_" + sha256(...)[:16]` —64 bits— y vale como identificador visual,
+    no como prueba de integridad. Aceptarla aquí sería colar un identificador
+    donde el contrato pide una prueba.
+    """
+    with open(path, encoding="utf-8") as fh:
+        raw = json.load(fh)
+    if not isinstance(raw, dict):
+        raise ValueError("reproduce-metadata must be a JSON object")
+
+    kwargs: dict = {}
+
+    if "dataset_sha256" in raw:
+        value = raw["dataset_sha256"]
+        if not isinstance(value, str) or not _SHA256_HEX.match(value):
+            raise ValueError(
+                "dataset_sha256 must be the FULL sha256 of the dataset "
+                "(64 lowercase hex chars), not the short 'data_...' fingerprint"
+            )
+        kwargs["dataset_sha256"] = value
+
+    if "dataset_rows" in raw:
+        value = raw["dataset_rows"]
+        # `type(...) is not int` y no `isinstance`: un `True` es un `int` para
+        # `isinstance` y no es un número de filas.
+        if type(value) is not int or value < 1:
+            raise ValueError(f"dataset_rows must be a positive integer, got {value!r}")
+        kwargs["dataset_rows"] = value
+
+    if "generation" in raw:
+        gen = raw["generation"]
+        if not isinstance(gen, dict):
+            raise ValueError("generation must be an object")
+        seeds = gen.get("seeds", {})
+        if not isinstance(seeds, dict):
+            raise ValueError("generation.seeds must be an object of {dataset, split, init}")
+        for name, value in seeds.items():
+            # Una semilla ausente es `null` y se declara como tal; lo que no
+            # vale es una semilla que no es un entero.
+            if value is not None and type(value) is not int:
+                raise ValueError(f"generation.seeds[{name!r}] must be an integer or null")
+        kwargs["generation"] = gen
+
+    if "metrics" in raw:
+        metrics = raw["metrics"]
+        if not isinstance(metrics, list):
+            raise ValueError("metrics must be a list of objects")
+        kwargs["metrics"] = metrics
+
+    return kwargs
+
+
 def _cmd_export_bundle(args) -> int:
     try:
         meta_kwargs: dict = {}
         if getattr(args, "inference_metadata", None):
             meta_kwargs = _load_inference_metadata(args.inference_metadata)
+        # Contrato 82-C1: el `.mxtrain` y la metadata de reproducción van por
+        # el mismo camino que el resto de kwargs del bundle.
+        if getattr(args, "reproduce_metadata", None):
+            meta_kwargs.update(_load_reproduce_metadata(args.reproduce_metadata))
+        if getattr(args, "training", None):
+            meta_kwargs["mxtrain_path"] = args.training
+        if getattr(args, "data_recipe", None):
+            meta_kwargs["data_recipe"] = Path(args.data_recipe).read_text(encoding="utf-8")
         program = parse_file(args.file)
         validation_code = _print_validation(program, quiet=True)
         if validation_code != 0:
@@ -2473,6 +2573,14 @@ def _cmd_export_bundle(args) -> int:
             print("Self-usable: yes (predict.py + inference_spec.json included)")
         else:
             print(f"Self-usable: no — {result.inference_spec_skipped_reason}")
+        # 82-C1: se dice SIEMPRE, y cuando es que no, con su motivo. Callarlo
+        # dejaría a quien exporta creyendo que el paquete lleva algo que no
+        # lleva justo hasta que alguien de fuera intenta reproducirlo.
+        if result.reproduce is not None:
+            if result.reproduce.get("reproducible"):
+                print("Reproducible: yes (reproduce.json)")
+            else:
+                print(f"Reproducible: no — {result.reproduce.get('reproducible_reason')}")
     return 0
 
 

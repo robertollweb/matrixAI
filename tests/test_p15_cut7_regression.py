@@ -356,8 +356,11 @@ class TestAllArchetypesEdgeBundle(unittest.TestCase):
     models are out of scope for the spec and keep the base 6-file bundle.
     """
 
+    # 82-C1: `reproduce.json` viaja en TODO paquete (sin receta, con
+    # `reproducible: false` y su motivo — un paquete que calla no dice nada).
     _EXPECTED_FILES = {"model.mxai", "params.best.json", "model.onnx",
-                       "model_manifest.json", "export_manifest.json", "README.md"}
+                       "model_manifest.json", "export_manifest.json", "README.md",
+                       "reproduce.json"}
     _EXPECTED_FILES_WITH_SPEC = _EXPECTED_FILES | {
         "inference_spec.json", "predict.py", "requirements.txt",
         "example_input.json", "expected_output.json"}

@@ -16,6 +16,19 @@ from matrixai.training.data import dataset_fingerprint
 DATASET_MANIFEST_VERSION = "matrixai.dataset_manifest.v1"
 SYNTHETIC_GENERATOR_VERSION = "matrixai.synthetic.v1"
 
+#: Contrato 82-C1 — CÓMO se convierten las filas en el CSV que se digiere.
+#:
+#: Va aparte de `SYNTHETIC_GENERATOR_VERSION` porque son dos cosas que pueden
+#: cambiar por separado: el generador decide QUÉ filas salen, esto decide qué
+#: BYTES tienen. Y el sha256 del dataset (§6.6) es sobre los bytes, así que un
+#: cambio aquí rompe la comparación aunque las filas sean idénticas.
+#:
+#: `v1` es lo medido hoy: `csv.DictWriter` de la stdlib con sus valores por
+#: defecto — fila de cabecera, columnas en el orden del esquema (entradas y
+#: luego el objetivo), comas, comillas sólo cuando hacen falta y terminador de
+#: línea `\r\n` (medido: `csv.excel.lineterminator == '\r\n'`).
+CSV_SERIALIZATION_VERSION = "matrixai.csv.v1"
+
 
 @dataclass(frozen=True)
 class GeneratorSpec:
