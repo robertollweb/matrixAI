@@ -3204,6 +3204,48 @@ def _public_training_result(result: Any) -> Any:
     return {k: v for k, v in result.items() if k not in _NON_PUBLIC_TRAINING_KEYS}
 
 
+#: Versión del bloque `run_provenance` que guarda cada run. Un consumidor que
+#: no reconozca esta versión debe negarse a interpretarlo, no adivinar.
+RUN_PROVENANCE_SCHEMA_VERSION = "1.0"
+
+
+def _contar_filas_csv(csv_text: str) -> int:
+    """Filas de DATOS de un CSV (sin la cabecera), contadas como registros.
+
+    No vale `splitlines()`: un campo entrecomillado puede llevar saltos de
+    línea dentro —los modelos de texto (BLOCK TRANSFORMER) entrenan con
+    reseñas, que los tienen— y entonces una fila contaría como varias. Se
+    cuenta con `csv.reader`, que es quien sabe de comillas; misma herramienta
+    que ya usa el recuento de `playground.py:1353`.
+
+    Se cuenta sobre el CSV **CRUDO**, que puede venir con delimitador `;`:
+    para CONTAR REGISTROS da igual el delimitador (cada registro es un
+    registro), y las comillas se respetan igual.
+    """
+    try:
+        filas = sum(1 for _ in csv.reader(io.StringIO(csv_text)))
+    except Exception:  # noqa: BLE001
+        # Un CSV ilegible no debe tumbar el envío del entrenamiento: la
+        # validación de verdad llega después y dirá qué pasa. Aquí, 0.
+        return 0
+    return max(0, filas - 1)
+
+
+def _maquina_declarada(resultado: Any) -> tuple[str | None, str | None]:
+    """El motor y la máquina que el run DECLARÓ, o `(None, None)`.
+
+    `motor_y_maquina_de` existe para PINTAR y por eso RELLENA («stdlib»/«cpu»)
+    cuando el resultado no dice nada. Para la procedencia eso no vale: un
+    `backend` deducido convierte un paquete irreproducible en uno que PARECE
+    reproducible y falla al comprobarlo. Si el entrenamiento no lo declaró,
+    aquí va `null`, que es una respuesta.
+    """
+    if not isinstance(resultado, dict) or resultado.get("backend") is None:
+        return None, None
+    mm = motor_y_maquina_de(resultado)
+    return mm.get("backend"), mm.get("device")
+
+
 def _evict_old_large_states() -> None:
     """PESOS_GRANDES C3: liberar los tensores `best_state_dict` de los jobs grandes
     más antiguos, conservando solo los `_LARGE_STATE_RETENTION` más recientes.
@@ -3235,6 +3277,10 @@ def _submit_training_job(
     initial_state_dict: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
     owner: str | None = None,
+    recipe_text: str | None = None,
+    dataset_seed: int | None = None,
+    generator_version: str | None = None,
+    csv_serialization_version: str | None = None,
 ) -> dict[str, Any]:
     """Start async training job. Returns {ok, job_id} immediately.
 
@@ -3254,10 +3300,34 @@ def _submit_training_job(
     explotar el MSE con los defaults de entrenamiento y la red colapsa a
     predecir la media (59_REGRESION_QUE_APRENDE_CONTRACT.md). También se
     enhebra a los 3 caminos de entrenamiento (dense/composite/transformer)
-    para reescalar MAE/RMSE a la unidad real."""
+    para reescalar MAE/RMSE a la unidad real.
+
+    CONTRATO 82 — `recipe_text`, `dataset_seed`, `generator_version` y
+    `csv_serialization_version` son las cuatro cosas que el ENTRENADOR no
+    puede saber: quién generó esos datos y con qué. Llegan de quien sí lo
+    sabe (el que generó el dataset) y se guardan en `run_provenance` tal
+    cual. Lo que no llegue se queda en `null` **a propósito**: una semilla
+    inventada convierte un paquete irreproducible en uno que parece
+    reproducible y falla al comprobarlo. Todas son opcionales y van al
+    final, así que ningún llamante actual se rompe (medido: todos pasan
+    `csv_text` como último posicional y el resto por nombre)."""
     # Enforce 1 concurrent run (contract P9 §Límites operativos)
     if any(j["status"] == "running" for j in _training_jobs.values()):
         return {"ok": False, "error": "Ya hay un entrenamiento en curso. Espera a que termine o pulsa Detener."}
+
+    # CONTRATO 82 — el CSV **CRUDO**, tal como llega, antes de que lo toque
+    # nadie. Es el que alguien REGENERARÍA con la receta y la semilla, y por
+    # tanto el único contra el que se puede comparar; el que ya existe
+    # (`trained_csv_sha256`) se calcula después de normalizar y es otro
+    # fichero. Medido el 2026-08-19 con el CSV Kelvin de 100 filas:
+    # crudo `30e16e64cad4b8ab…`, preparado `bae119faf9293b7b…`, y la primera
+    # fila pasa de `0,273.15` a `0.0,0.083333`.
+    #
+    # Aquí solo se guarda la REFERENCIA; el digest se calcula abajo, al
+    # componer el job. Hacerlo ya costaría un sha256 sobre payloads que el
+    # tope de tamaño va a rechazar en la línea siguiente — justo el gasto
+    # que `_normalize_external_csv` evita a propósito.
+    csv_text_crudo = csv_text
 
     # BIBLIOTECA C1 (autoauditoría, sugerencia implementada): BOM/delimitador
     # ANTES que nada más toque `csv_text` — en particular antes de
@@ -3321,21 +3391,79 @@ def _submit_training_job(
         r"SPLIT\s+train=(?P<train>[\d.]+)\s+validation=(?P<val>[\d.]+)"
         r"(?:\s+(?:seed=(?P<seed>\d+)|mode=(?P<mode>\w+)))?",
         training_text or "")
+    # CONTRATO 82 — cada digest se calcula UNA vez y se reusa. Dos sitios
+    # hasheando «lo mismo» acaban divergiendo (p.ej. uno con `.strip()` y otro
+    # sin él), y entonces la procedencia se contradice a sí misma.
+    _sha_csv_preparado = _hashlib.sha256(csv_text.encode("utf-8")).hexdigest()
+    _sha_mxai = _hashlib.sha256((mxai_text or "").strip().encode("utf-8")).hexdigest()
     job: dict[str, Any] = {
         "status": "running", "epochs": [], "result": None, "error": None,
-        "trained_csv_sha256": _hashlib.sha256(csv_text.encode("utf-8")).hexdigest(),
+        "trained_csv_sha256": _sha_csv_preparado,
         # CONTRATO 64 (reauditoría 4ª ronda) — huella de la ARQUITECTURA que se
         # está entrenando. Sin ella, unos pesos podían persistirse junto a un
         # `.mxai` distinto del que los produjo: el job solo probaba que ALGO se
         # entrenó, no QUÉ. Mismo criterio que `trained_csv_sha256`, y se compone
         # aquí, en la frontera del entrenamiento, con datos del mismo sitio.
-        "trained_mxai_sha256": _hashlib.sha256(
-            (mxai_text or "").strip().encode("utf-8")).hexdigest(),
+        "trained_mxai_sha256": _sha_mxai,
         "trained_split_decl": (
             f"{_split_match.group('train')}|{_split_match.group('val')}|"
             f"{_split_match.group('seed') or ''}|{_split_match.group('mode') or ''}"
             if _split_match else None),
     }
+    # LA CAPTURA DEL RUN (contrato 82).
+    #
+    # Hasta hoy el paquete exportado se armaba con lo que mandaba la PANTALLA
+    # en el momento de exportar. Medido con sondas: cambiando BATCH, EPOCHS,
+    # receta, filas, digest y semilla, el manifiesto seguía declarándose
+    # reproducible y esos valores viajaban al paquete — describía otro dataset
+    # y otro contrato que los pesos que llevaba dentro.
+    #
+    # Esto es la única fuente autoritativa: se compone AQUÍ, en la frontera
+    # del entrenamiento, con datos que vienen todos del MISMO sitio y del
+    # MISMO run. Quien exporte construye el manifiesto SOLO desde aquí; lo
+    # que llegue por la petición sirve para DETECTAR CONTRADICCIÓN y
+    # declararla, nunca para rellenar.
+    #
+    # Los dos digests del dataset son dos preguntas distintas y por eso van
+    # los dos: el CRUDO es contra el que se compara un dataset regenerado
+    # (R1, «byte a byte»), y el PREPARADO es el que ata estos pesos, porque
+    # es el fichero con el que la red entrenó de verdad.
+    #
+    # `mxtrain_text` viaja ENTERO y su digest es el de ese mismo texto: el par
+    # se verifica solo, sin depender de cómo lo escriba quien empaqueta.
+    _receta = recipe_text if (recipe_text and recipe_text.strip()) else None
+    _split = getattr(training.dataset, "split", None)
+    job["run_provenance"] = {
+        "schema_version": RUN_PROVENANCE_SCHEMA_VERSION,
+        "mxai_sha256": _sha_mxai,
+        "mxtrain_sha256": _hashlib.sha256((training_text or "").encode("utf-8")).hexdigest(),
+        "mxtrain_text": training_text,
+        "recipe_sha256": (
+            _hashlib.sha256(_receta.encode("utf-8")).hexdigest() if _receta else None),
+        "recipe_text": _receta,
+        "dataset_sha256_raw": _hashlib.sha256(csv_text_crudo.encode("utf-8")).hexdigest(),
+        "dataset_sha256_prepared": _sha_csv_preparado,
+        "dataset_rows": _contar_filas_csv(csv_text_crudo),
+        # La semilla del SPLIT sale del contrato YA PARSEADO (`parse_training_text`,
+        # unas líneas arriba), no de la regex de `trained_split_decl`: esa solo
+        # captura `seed` O `mode`, así que un `SPLIT ... mode=x seed=7` le
+        # perdería la semilla. Si el contrato no la declara, `null` — no se
+        # inventa la que el trainer usaría por defecto.
+        "seeds": {
+            "dataset": dataset_seed,
+            "split": getattr(_split, "seed", None),
+            "init": seed,
+        },
+        # El motor y la máquina NO se saben todavía: los decide el trainer
+        # (dense/composite/transformer eligen distinto, y composite puede caer a
+        # stdlib si torch falla). Se anotan al terminar, DESDE EL RESULTADO REAL
+        # (`_maquina_declarada`), nunca prediciéndolos aquí.
+        "backend": None,
+        "device": None,
+        "generator_version": generator_version,
+        "csv_serialization_version": csv_serialization_version,
+    }
+
     # DE QUIÉN ES ESTE ENTRENAMIENTO.
     #
     # Una cadena OPACA: al core no le importa qué representa —el
@@ -3447,6 +3575,20 @@ def _submit_training_job(
         finally:
             if watchdog is not None:
                 watchdog.cancel()
+            # CONTRATO 82 — el motor y la máquina, DESDE EL RESULTADO REAL.
+            #
+            # Aquí y no en cada camino: los tres (dense/composite/transformer)
+            # eligen backend por su cuenta y composite puede caer a stdlib si
+            # torch falla, así que predecirlo al enviar el job sería declarar
+            # una máquina que quizá no entrenó. En el `finally` se anota pase lo
+            # que pase; si el run murió o no lo declaró, se quedan en `null`.
+            try:
+                _motor, _maquina = _maquina_declarada(job.get("result"))
+                if _motor is not None:
+                    job["run_provenance"]["backend"] = _motor
+                    job["run_provenance"]["device"] = _maquina
+            except Exception:  # noqa: BLE001
+                pass
             # PESOS_GRANDES C3: acotar la RAM retenida por tensores de jobs grandes
             # (solo los _LARGE_STATE_RETENTION más recientes conservan best_state_dict).
             try:
@@ -5991,6 +6133,12 @@ def _handler_class(guard: Any = None):
             elif self.path == "/api/train-start":
                 epochs_raw = payload.get("epochs_override")
                 epochs_override = int(epochs_raw) if epochs_raw is not None else None
+                # CONTRATO 82 — lo que el entrenador no sabe y sí sabe quien
+                # generó los datos. AUSENTE ES `null`, no un valor razonable:
+                # `int(x or 42)` habría convertido «no me lo dijeron» en «la
+                # semilla fue 42», que es justo la mentira que hace que un
+                # paquete se declare reproducible y no reproduzca.
+                _semilla_datos = payload.get("dataset_seed")
                 result = _submit_training_job(
                     str(payload.get("mxai_text") or ""),
                     str(payload.get("training_text") or ""),
@@ -5999,6 +6147,15 @@ def _handler_class(guard: Any = None):
                     field_ranges=_coerce_field_ranges(payload.get("field_ranges")) or None,
                     seed=int(payload.get("seed") or 42),
                     target_range=_coerce_target_range(payload.get("target_range")),
+                    recipe_text=(str(payload["recipe_text"])
+                                 if payload.get("recipe_text") else None),
+                    dataset_seed=(int(_semilla_datos)
+                                  if _semilla_datos is not None else None),
+                    generator_version=(str(payload["generator_version"])
+                                       if payload.get("generator_version") else None),
+                    csv_serialization_version=(
+                        str(payload["csv_serialization_version"])
+                        if payload.get("csv_serialization_version") else None),
                 )
                 self._send_json(result, status=200 if result.get("ok") else 422)
             elif self.path == "/api/train-cancel":

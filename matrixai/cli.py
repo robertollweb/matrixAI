@@ -13,6 +13,7 @@ import math
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -2419,21 +2420,20 @@ def _load_inference_metadata(path: str) -> dict:
     return kwargs
 
 
-_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
-
-
 def _load_reproduce_metadata(path: str) -> dict:
-    """Lee + valida ESTRICTAMENTE el sidecar --reproduce-metadata (82-C1).
+    """Lee el sidecar --reproduce-metadata (82-C1) y lo valida EN EL CORE.
 
-    Estricto por el mismo motivo que `_load_inference_metadata`: aquí una
-    coerción silenciosa produce un paquete que dice ser reproducible y no lo
-    es, que es peor que uno que declara que no puede serlo.
+    Aquí NO se reimplementa qué es válido: se llama a
+    `build_reproduce_manifest`, que es quien firma el manifiesto. Este fichero
+    tenía su propia copia de las reglas —64 hex, entero positivo, semilla
+    entera— y el core no las tenía, así que el mismo sidecar pasaba por el
+    CLI y colaba por cualquier otro llamante. Dos sitios declarando lo mismo
+    acabaron divergiendo, que es exactamente lo que había que arreglar.
 
-    El `dataset_sha256` se exige COMPLETO (64 hex minúsculas) a propósito
-    (§6.6 del contrato): la huella que enseña el producto es
-    `"data_" + sha256(...)[:16]` —64 bits— y vale como identificador visual,
-    no como prueba de integridad. Aceptarla aquí sería colar un identificador
-    donde el contrato pide una prueba.
+    Lo que sí es de este sitio es CUÁNDO se valida: antes de empezar a
+    escribir el paquete. El manifiesto se escribe al final del bundle, así
+    que dejar que salte allí dejaría un `outdir` a medias en disco por un
+    sidecar mal escrito.
     """
     with open(path, encoding="utf-8") as fh:
         raw = json.load(fh)
@@ -2441,44 +2441,17 @@ def _load_reproduce_metadata(path: str) -> dict:
         raise ValueError("reproduce-metadata must be a JSON object")
 
     kwargs: dict = {}
+    for clave in ("dataset_sha256", "dataset_rows", "generation", "metrics"):
+        if clave in raw:
+            kwargs[clave] = raw[clave]
 
-    if "dataset_sha256" in raw:
-        value = raw["dataset_sha256"]
-        if not isinstance(value, str) or not _SHA256_HEX.match(value):
-            raise ValueError(
-                "dataset_sha256 must be the FULL sha256 of the dataset "
-                "(64 lowercase hex chars), not the short 'data_...' fingerprint"
-            )
-        kwargs["dataset_sha256"] = value
-
-    if "dataset_rows" in raw:
-        value = raw["dataset_rows"]
-        # `type(...) is not int` y no `isinstance`: un `True` es un `int` para
-        # `isinstance` y no es un número de filas.
-        if type(value) is not int or value < 1:
-            raise ValueError(f"dataset_rows must be a positive integer, got {value!r}")
-        kwargs["dataset_rows"] = value
-
-    if "generation" in raw:
-        gen = raw["generation"]
-        if not isinstance(gen, dict):
-            raise ValueError("generation must be an object")
-        seeds = gen.get("seeds", {})
-        if not isinstance(seeds, dict):
-            raise ValueError("generation.seeds must be an object of {dataset, split, init}")
-        for name, value in seeds.items():
-            # Una semilla ausente es `null` y se declara como tal; lo que no
-            # vale es una semilla que no es un entero.
-            if value is not None and type(value) is not int:
-                raise ValueError(f"generation.seeds[{name!r}] must be an integer or null")
-        kwargs["generation"] = gen
-
-    if "metrics" in raw:
-        metrics = raw["metrics"]
-        if not isinstance(metrics, list):
-            raise ValueError("metrics must be a list of objects")
-        kwargs["metrics"] = metrics
-
+    # El ensayo en seco: un directorio vacío basta para que el core valide
+    # todo lo que el sidecar declara sin escribir nada todavía. Los artefactos
+    # no están, así que saldrá `reproducible: false` — da igual: lo que se
+    # busca aquí es la excepción, no el veredicto.
+    from matrixai.export.reproduce import build_reproduce_manifest
+    with tempfile.TemporaryDirectory() as seco:
+        build_reproduce_manifest(seco, **kwargs)
     return kwargs
 
 

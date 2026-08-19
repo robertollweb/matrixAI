@@ -135,6 +135,7 @@ class EdgeBundler:
         dataset_rows: int | None = None,
         generation: dict[str, Any] | None = None,
         metrics: list[dict[str, Any]] | None = None,
+        run_provenance: dict[str, Any] | None = None,
     ) -> EdgeBundleResult:
         """PESOS_GRANDES C7b: `state_dict` (tensores torch crudos de un modelo
         grande guardado en `.mxw`) es la alternativa a un `parameter_set` con
@@ -373,6 +374,14 @@ class EdgeBundler:
             # fabrica ninguna, porque un modelo entrenado con datos reales no
             # tiene receta que compartir y fingir que sí es lo único peor que
             # no poder reproducirlo.
+            #
+            # `run_provenance` es LA CAPTURA que el core guardó en el run al
+            # entrenar, y es lo único desde lo que el manifiesto AFIRMA (82-C2).
+            # Lo demás —`dataset_sha256`, `dataset_rows`, `generation`— es lo
+            # que manda quien exporta: sirve para detectar que la pantalla dice
+            # una cosa y el run dijo otra, nunca para rellenar. Sin captura el
+            # paquete sale `reproducible: false` diciendo exactamente eso: no
+            # puede demostrar su relación con los pesos que lleva.
             reproduce_manifest = write_reproduce_manifest(
                 work,
                 training_filename=training_filename,
@@ -381,6 +390,7 @@ class EdgeBundler:
                 dataset_rows=dataset_rows,
                 generation=generation,
                 metrics=metrics,
+                run_provenance=run_provenance,
             )
 
             # 6. README.md — refleja los ficheros REALES del bundle (BAJA C7
@@ -485,6 +495,7 @@ def create_edge_bundle(
     dataset_rows: int | None = None,
     generation: dict[str, Any] | None = None,
     metrics: list[dict[str, Any]] | None = None,
+    run_provenance: dict[str, Any] | None = None,
 ) -> EdgeBundleResult:
     return EdgeBundler().bundle(
         program, parameter_set, mxai_path, params_path, outdir,
@@ -505,6 +516,7 @@ def create_edge_bundle(
         dataset_rows=dataset_rows,
         generation=generation,
         metrics=metrics,
+        run_provenance=run_provenance,
     )
 
 
@@ -748,17 +760,39 @@ def _build_readme(
         if has_recipe else ""
     )
     reproduce_row = (
-        "| `reproduce.json` | What it takes to rebuild this model, with a digest per artifact |\n"
+        # La fila describe el fichero, no lo que el paquete consigue: en un
+        # paquete sin receta `reproduce.json` NO lleva «lo que hace falta para
+        # rehacer el modelo», lleva lo que falta. Un dibujo afirma por
+        # omisión, y una tabla también.
+        "| `reproduce.json` | Whether this model can be rebuilt, and the digest of each "
+        "artifact that travels |\n"
     )
     # Y el estado se DECLARA, no se deduce del README: un paquete sin receta
     # dice que no se puede reproducir y por qué, en vez de callar (§6.2).
     reproduce_note = ""
     if reproduce is not None:
         if reproduce.get("reproducible"):
+            # Y con el mismo criterio, al revés: «reproducible» NO quiere decir
+            # que todo se pueda comprobar. Si falta lo que solo hace falta para
+            # R3 —la semilla de inicialización, el motor, o una métrica con su
+            # tolerancia— se dice aquí. Un aviso a medias que tranquiliza es
+            # peor que callar, y quien descarga esto lo lee antes que el JSON.
+            r3 = (reproduce.get("verifiable") or {}).get("r3") or {}
+            aviso_r3 = ""
+            if r3 and not r3.get("possible", True):
+                aviso_r3 = f"\n> {r3.get('reason', '')} See `reproduce.json`.\n"
+            # Y se dice DE DÓNDE sale lo que afirma. «Reproducible» sin eso
+            # se leía como «alguien escribió estos valores en la pantalla de
+            # exportar y salieron bien»: lo que lo convierte en una prueba es
+            # que cada artefacto casa con la captura que el core guardó
+            # mientras entrenaba, no que los campos estén rellenos.
             reproduce_note = (
                 "\nThis package is **reproducible**: `reproduce.json` carries the recipe, "
                 "the training contract, the expected dataset sha256 and the exact "
-                "environment. It proves internal consistency, not authorship.\n"
+                "environment, all of it taken from the capture the core recorded "
+                "while training this model — and every artifact here matches it. "
+                "It proves internal consistency, not authorship.\n"
+                f"{aviso_r3}"
             )
         else:
             # El motivo se imprime TAL CUAL lo escribió `reproduce.json` (ya es

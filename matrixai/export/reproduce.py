@@ -41,7 +41,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import platform
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -103,8 +105,201 @@ _CORE_OWNED_GENERATION_KEYS = (
 )
 
 
+#: Vocabularios CERRADOS, tomados de lo que el producto acepta de verdad
+#: —no inventados aquí—:
+#:   * `mode`: `_generate_synthetic_dataset` (playground.py:561) coerce
+#:     cualquier otra cosa a "random". Un manifiesto que declare
+#:     "coherent-plus" estaría prometiendo un modo que no existe.
+#:   * `backend`: `_VALID_TARGETS` de `training/spec.py:154`.
+#:   * `split`: los que el producto sabe medir. "full" es el dataset ENTERO,
+#:     que es sobre lo que mide `evaluation_report` — medido el 2026-08-19:
+#:     `macro_f1` sale de `validation_metrics` o de `evaluation_report`, y son
+#:     particiones distintas. Sin nombre, las dos cifras se confunden, que es
+#:     justo el hallazgo que ya costó este producto (§5 bis).
+_GENERATION_MODES = ("random", "coherent")
+_TRAINING_BACKENDS = ("stdlib", "torch")
+_METRIC_SPLITS = ("train", "validation", "test", "full")
+_METRIC_DIRECTIONS = ("higher_is_better", "lower_is_better")
+
+#: Qué necesita una métrica para que R3 pueda CONTRASTARLA (no para publicarla).
+#: Sin `split` no es la misma cifra; sin `dataset_sha256` no se sabe sobre QUÉ
+#: datos se midió; sin `direction` no se puede decir si desviarse es mejor o
+#: peor; y sin tolerancia no hay umbral — y §5 bis prohíbe fabricarlo, porque
+#: sale de repetir en la matriz de entornos, no de dos ejecuciones.
+#: `evaluator`, `evaluator_version` y `aggregation` NO entran aquí: dicen QUIÉN
+#: midió, no cómo comparar. Faltan igual y se declaran en `incomplete`.
+_METRIC_R3_FIELDS = ("split", "dataset_sha256", "direction")
+
+#: Claves de una métrica que decide el CORE, no quien exporta: si el llamante
+#: manda `comparable: true` sobre una métrica sin tolerancia, gana el core.
+_CORE_OWNED_METRIC_KEYS = ("comparable", "incomplete")
+
+
+#: Versiones del bloque `run_provenance` que ESTE módulo sabe interpretar.
+#: La escribe el core al entrenar (`playground.py::RUN_PROVENANCE_SCHEMA_VERSION`,
+#: hoy "1.0"). No se importa de allí a propósito: `playground` importa `export`,
+#: y el import al revés cerraría el círculo. Una versión desconocida se RECHAZA
+#: en vez de interpretarse a medias — adivinar qué significa un campo nuevo es
+#: justo lo que el `schema_version` existe para evitar.
+_RUN_PROVENANCE_SCHEMA_VERSIONS = ("1.0",)
+
+#: Lo que la captura declara y el manifiesto publica como parámetro efectivo.
+#: Son las mismas claves que `build_generation_block` normaliza: la captura es
+#: la fuente autoritativa de todas ellas, así que se validan con la MISMA
+#: función y no con una segunda copia de las reglas.
+_RUN_PROVENANCE_GENERATION_KEYS = (
+    "mode", "field_ranges", "field_types", "field_categories", "one_hot_groups",
+    "excluded_identifiers", "deterministic_options",
+)
+
+#: Claves de la captura que NO son parámetros de generación (identidad del run,
+#: digests y textos). Todo lo demás que traiga se trata como parámetro efectivo
+#: y viaja a `generation`: descartar en silencio un parámetro que este core aún
+#: no conoce por nombre perdería justo lo que hace falta para regenerar.
+_RUN_PROVENANCE_CORE_KEYS = (
+    "schema_version", "mxai_sha256", "mxtrain_sha256", "mxtrain_text",
+    "recipe_sha256", "recipe_text", "dataset_sha256_raw",
+    "dataset_sha256_prepared", "dataset_rows", "seeds", "backend", "device",
+    "generator_version", "csv_serialization_version",
+)
+
+# `\Z` y NO `$`: en Python `$` casa TAMBIÉN antes de un salto de línea
+# final, así que `"0"*64 + "\n"` —65 caracteres— pasaba por un sha256
+# válido y viajaba al manifiesto con su `\n` dentro. R1 compara digests
+# completos, y ese valor no puede igualar a ninguno calculado jamás: el
+# paquete prometía una comparación imposible. Lo destapó una auditoría
+# adversarial el 2026-08-19, y el banco del supervisor tampoco lo veía
+# porque probaba `"0"*65` (rechazado) y no `"0"*64 + "\n"`.
+_SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")
+
+
 class ReproduceManifestError(ValueError):
     pass
+
+
+# ---------------------------------------------------------------------------
+# Validación de forma (82-C1, bloqueante medido el 2026-08-19)
+# ---------------------------------------------------------------------------
+#
+# POR QUÉ ESTO VIVE EN EL CORE Y NO EN EL LLAMANTE. Medido antes de tocar nada:
+#
+#     build_reproduce_manifest(..., dataset_sha256="not-a-sha", dataset_rows=-4,
+#                              generation={"seeds": {"dataset": "42"}})
+#     -> reproducible: True | missing: []
+#
+# El paquete PROMETÍA reproducirse con un digest que no es un digest, filas
+# negativas y una semilla que es texto. La única validación estricta que
+# existía estaba en dos llamantes —`cli.py::_load_reproduce_metadata` y
+# `endpoints.py::_reproduccion_para_el_bundle`—, así que cualquier tercero la
+# esquivaba. Y las dos ya estaban divergiendo (el CLI exigía 64 hex y el core
+# no), que es el segundo sitio declarando lo mismo de siempre.
+#
+# POR QUÉ EXCEPCIÓN Y NO `reproducible: false`. Son dos situaciones distintas
+# y mezclarlas pierde información:
+#
+#   * Un valor AUSENTE es una respuesta legítima (§6.2): el modelo del
+#     hospital no tiene receta que compartir. Eso sigue siendo
+#     `reproducible: false` con su motivo, y el paquete se escribe igual.
+#   * Un valor IMPOSIBLE no es una respuesta: es un fallo de cableado de quien
+#     exporta. Publicarlo como «no reproducible» sería declarar algo FALSO
+#     sobre el modelo —que no se puede rehacer— cuando lo cierto es que el
+#     dato llegó mal y probablemente sí se puede. Y el paquete saldría por la
+#     puerta con el fallo dentro, en un campo que ya nadie vuelve a mirar.
+#
+# Quien recibe el paquete queda mejor protegido con la excepción: un paquete
+# que no llega a existir no puede mentirle, y quien exporta se entera en el
+# sitio donde todavía se puede arreglar. Es la misma decisión que ya tomaba
+# `_studio_model_save` al rechazar un `job_architecture_mismatch` en vez de
+# guardar el modelo con una nota.
+
+
+def _require_int(value: Any, what: str) -> int:
+    """Un entero DE VERDAD.
+
+    `type(...) is not int` y no `isinstance`: en Python `True` es un `int` para
+    `isinstance` (medido: `isinstance(True, int) is True`), y `True` no es una
+    semilla. Un `42.0` tampoco: viene de un JSON que perdió el tipo.
+    """
+    if type(value) is not int:
+        raise ReproduceManifestError(f"{what} must be an integer or null, got {value!r}")
+    return value
+
+
+def _require_positive_int(value: Any, what: str) -> int:
+    if type(value) is not int or value < 1:
+        raise ReproduceManifestError(f"{what} must be a positive integer, got {value!r}")
+    return value
+
+
+def _require_full_sha256(value: Any, what: str) -> str:
+    """64 hex minúsculas, §6.6.
+
+    La huella que enseña el producto es `"data_" + sha256(...)[:16]`: 64 bits,
+    cómoda de leer y NO una prueba de integridad. Aceptarla aquí colaría un
+    identificador donde el contrato pide una prueba.
+    """
+    if not isinstance(value, str) or not _SHA256_HEX.match(value):
+        raise ReproduceManifestError(
+            f"{what} must be the FULL sha256 (64 lowercase hex chars), "
+            f"not the short 'data_...' fingerprint, got {value!r}"
+        )
+    return value
+
+
+def _require_real(value: Any, what: str, *, minimum: float | None = None) -> float:
+    """Un número real y FINITO.
+
+    Lo de finito no es teoría: `json.dumps` escribe `NaN` e `Infinity`, que no
+    son JSON válido — un manifiesto con eso dentro no lo puede leer quien lo
+    recibe, y encima su `manifest_sha256` cubriría un fichero ilegible.
+    """
+    if type(value) not in (int, float):
+        raise ReproduceManifestError(f"{what} must be a number, got {value!r}")
+    if not math.isfinite(value):
+        raise ReproduceManifestError(f"{what} must be a finite number, got {value!r}")
+    if minimum is not None and value < minimum:
+        raise ReproduceManifestError(f"{what} must be >= {minimum}, got {value!r}")
+    return value
+
+
+def _require_text(value: Any, what: str, *, choices: tuple[str, ...] | None = None) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ReproduceManifestError(f"{what} must be a non-empty string, got {value!r}")
+    if choices is not None and value not in choices:
+        raise ReproduceManifestError(
+            f"{what} must be one of {list(choices)}, got {value!r}"
+        )
+    return value
+
+
+def _require_plain_filename(value: Any, what: str) -> str:
+    """Un nombre de fichero DENTRO del paquete, sin ruta.
+
+    Un `../../etc/passwd` en `artifacts.*.path` haría que el manifiesto
+    apuntara fuera del paquete, y quien lo verifique (C2) lo seguiría. El
+    sandbox completo es del contrato 81, pero escribir aquí una ruta que sale
+    del paquete es una forma imposible y se rechaza en origen.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ReproduceManifestError(f"{what} must be a non-empty filename, got {value!r}")
+    if value != Path(value).name or value in (".", ".."):
+        raise ReproduceManifestError(
+            f"{what} must be a plain filename inside the package "
+            f"(no directories, no '..'), got {value!r}"
+        )
+    return value
+
+
+def _require_mapping(value: Any, what: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ReproduceManifestError(f"{what} must be an object, got {value!r}")
+    return value
+
+
+def _require_str_list(value: Any, what: str) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
+        raise ReproduceManifestError(f"{what} must be a list of strings, got {value!r}")
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +428,107 @@ def _split_seed_from_training(training_text: str) -> tuple[int | None, bool]:
     return getattr(split, "seed", None), True
 
 
+def _validate_generation_shapes(caller: dict[str, Any]) -> None:
+    """La forma de los parámetros efectivos de `generation` (§5-C1).
+
+    No se exige que estén —lo que no se sepa va `null` y se ve—, pero lo que
+    llegue tiene que poder USARSE al regenerar. Los nombres del manifiesto no
+    son los del generador (medido: `field_ranges` es `field_ranges_override`,
+    `excluded_identifiers` es `field_identifiers`), así que quien reproduzca
+    los va a traducir: si la forma no cuadra, falla ahí y no aquí.
+
+    `one_hot_groups` NO se le exige nada más que la forma porque en el
+    generador es una SALIDA, no una entrada (playground.py:853): viaja para
+    poder comparar, no para reinyectarlo.
+
+    `mode` no entra en los requisitos de R1 a propósito. Medido el 2026-08-19
+    con `fall-risk` + receta, 30 filas, semilla 42: `random` y `coherent`
+    dieron el MISMO csv (sha256 `551b392465a377c2…` los dos). No hay medida
+    que diga que cambia el resultado, así que exigirlo declararía
+    irreproducibles paquetes que sí lo son, por suposición.
+    """
+    if "mode" in caller and caller["mode"] is not None:
+        _require_text(caller["mode"], "generation.mode", choices=_GENERATION_MODES)
+    if "backend" in caller and caller["backend"] is not None:
+        _require_text(caller["backend"], "generation.backend", choices=_TRAINING_BACKENDS)
+    if "device" in caller and caller["device"] is not None:
+        # `device` no lleva vocabulario cerrado: el producto escribe "cpu",
+        # "cuda" y también "cuda:0". Cerrarlo aquí rechazaría un dispositivo
+        # real por no estar en una lista escrita a mano.
+        _require_text(caller["device"], "generation.device")
+    if "field_ranges" in caller and caller["field_ranges"] is not None:
+        rangos = _require_mapping(caller["field_ranges"], "generation.field_ranges")
+        for campo, valor in rangos.items():
+            if (not isinstance(valor, (list, tuple)) or len(valor) != 2
+                    or not all(type(x) in (int, float) and math.isfinite(x) for x in valor)):
+                raise ReproduceManifestError(
+                    f"generation.field_ranges[{campo!r}] must be a [min, max] pair "
+                    f"of finite numbers, got {valor!r}"
+                )
+            if valor[0] > valor[1]:
+                # Un rango del revés no recorta nada: el generador no sabría
+                # sacar ningún valor de él, y el paquete diría que sí.
+                raise ReproduceManifestError(
+                    f"generation.field_ranges[{campo!r}] has min > max: {valor!r}"
+                )
+    if "field_types" in caller and caller["field_types"] is not None:
+        tipos = _require_mapping(caller["field_types"], "generation.field_types")
+        for campo, valor in tipos.items():
+            _require_text(valor, f"generation.field_types[{campo!r}]")
+    for clave in ("field_categories", "one_hot_groups"):
+        if clave in caller and caller[clave] is not None:
+            grupos = _require_mapping(caller[clave], f"generation.{clave}")
+            for campo, valor in grupos.items():
+                _require_str_list(valor, f"generation.{clave}[{campo!r}]")
+    if "excluded_identifiers" in caller and caller["excluded_identifiers"] is not None:
+        _require_str_list(caller["excluded_identifiers"], "generation.excluded_identifiers")
+    if ("deterministic_options" in caller
+            and caller["deterministic_options"] is not None):
+        _require_mapping(caller["deterministic_options"], "generation.deterministic_options")
+
+
+def validate_generation_payload(
+    caller: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Qué es un `generation` POSIBLE. Devuelve `(resto, semillas)`.
+
+    Vive suelta porque hay DOS sitios que lo necesitan y solo puede haber una
+    definición: el bloque que se construye desde la captura, y el `generation`
+    que manda quien exporta —que ya no rellena nada (82-C2) pero se sigue
+    validando igual—.
+
+    Medido el 2026-08-19, y por eso está aquí: al pasar a construir el bloque
+    SOLO desde la captura, el `generation` del payload dejó de tocar esta
+    función y un `seeds: {"dataset": "42"}` pasó de excepción a colarse sin
+    mirar. Salía `reproducible: false` por otro motivo, así que el banco
+    adversarial no lo veía; el CLI, que valida el sidecar llamando a este
+    core, sí lo habría dejado pasar.
+
+    Un valor AUSENTE es una respuesta legítima («no hubo override») y un valor
+    IMPOSIBLE es un fallo de cableado de quien exporta: lo primero viaja como
+    `null`, lo segundo se corta aquí.
+    """
+    if caller is not None and not isinstance(caller, dict):
+        raise ReproduceManifestError(f"generation must be an object, got {caller!r}")
+    caller = dict(caller or {})
+    seeds_in = caller.pop("seeds", None) or {}
+    _require_mapping(seeds_in, "generation.seeds")
+
+    # LAS SEMILLAS, VALIDADAS. Medido antes de tocar nada: un `"42"` de texto
+    # entraba tal cual y el paquete salía `reproducible: true`. Quien lo
+    # recibiera intentaría sembrar con una cadena y obtendría otro dataset —o
+    # un error— con el manifiesto diciéndole que debería salir el mismo.
+    for nombre, valor in seeds_in.items():
+        if valor is not None:
+            _require_int(valor, f"generation.seeds[{nombre!r}]")
+
+    # El resto de parámetros efectivos: se valida la FORMA, no se exige su
+    # presencia. Un `null` aquí sigue siendo una respuesta legítima; lo que no
+    # vale es un rango que no es un rango.
+    _validate_generation_shapes(caller)
+    return caller, seeds_in
+
+
 def build_generation_block(
     caller: dict[str, Any] | None,
     *,
@@ -253,10 +549,7 @@ def build_generation_block(
     `rows` NO va aquí: vive en `artifacts.dataset.rows` (§5-C1). Repetirlo
     sería el segundo sitio declarando lo mismo.
     """
-    caller = dict(caller or {})
-    seeds_in = caller.pop("seeds", None) or {}
-    if not isinstance(seeds_in, dict):
-        raise ReproduceManifestError("generation.seeds must be an object")
+    caller, seeds_in = validate_generation_payload(caller)
 
     split_seed = seeds_in.get("split")
     if split_seed is None and training_text is not None:
@@ -304,30 +597,261 @@ def build_generation_block(
 # ---------------------------------------------------------------------------
 
 def _normalize_metrics(metrics: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Valida las métricas del §5 bis y declara cuáles puede usar R3.
+
+    DOS COSAS DISTINTAS, y mezclarlas fue el defecto medido el 2026-08-19:
+
+    * **Forma imposible → excepción.** Entraban sin mirar `value: "muy alta"`,
+      `tolerance_abs: -5`, `direction: "hacia-arriba"` y
+      `dataset_sha256: "data_49219efba673b8d0"` (¡la huella corta que el §6.6
+      prohíbe expresamente!). Una métrica así no se puede contrastar con nada:
+      publicarla es afirmar que se midió algo que no se midió.
+    * **Forma INCOMPLETA → se declara, no se rechaza ni se disimula.** El
+      §5 bis pide diez campos y hoy el producto no tiene tres de ellos
+      (`evaluator_version` no existe en el core —medido con grep— y las dos
+      tolerancias salen de repetir en la matriz de entornos, que no se ha
+      hecho). Rechazarlas dejaría el paquete sin métricas; rellenarlas sería
+      fabricar lo que el core no ha dicho. Así que cada métrica dice qué le
+      falta (`incomplete`) y si R3 puede contrastarla (`comparable`).
+    """
     if metrics is None:
         return []
     if not isinstance(metrics, list):
         raise ReproduceManifestError("metrics must be a list of objects")
     out: list[dict[str, Any]] = []
+    vistas: set[tuple[str, Any]] = set()
     for i, raw in enumerate(metrics):
         if not isinstance(raw, dict):
             raise ReproduceManifestError(f"metrics[{i}] must be an object")
-        if not str(raw.get("name") or "").strip():
+        nombre = raw.get("name")
+        if not isinstance(nombre, str) or not nombre.strip():
             raise ReproduceManifestError(f"metrics[{i}] requires a non-empty 'name'")
         if raw.get("value") is None:
             # Una métrica sin valor no es una métrica; y un `null` aquí no es
             # «cero», es que no se midió — así que se rechaza en vez de
             # publicarla como si fuera un número.
             raise ReproduceManifestError(f"metrics[{i}] requires a 'value'")
+        # Un `True` pasaría por número (`isinstance(True, int)`) y se
+        # publicaría como una exactitud de 1.0.
+        _require_real(raw["value"], f"metrics[{i}].value")
+
+        if raw.get("split") is not None:
+            _require_text(raw["split"], f"metrics[{i}].split", choices=_METRIC_SPLITS)
+        if raw.get("dataset_sha256") is not None:
+            # §6.6 otra vez, y aquí se colaba: el CLI exige 64 hex para el
+            # `dataset_sha256` del manifiesto y NO lo exigía para el de dentro
+            # de cada métrica, que es donde el §5 bis dice «sobre QUÉ datos se
+            # midió».
+            _require_full_sha256(raw["dataset_sha256"], f"metrics[{i}].dataset_sha256")
+        if raw.get("direction") is not None:
+            _require_text(raw["direction"], f"metrics[{i}].direction",
+                          choices=_METRIC_DIRECTIONS)
+        for campo in ("evaluator", "evaluator_version", "aggregation"):
+            if raw.get(campo) is not None:
+                _require_text(raw[campo], f"metrics[{i}].{campo}")
+        for campo in ("tolerance_abs", "tolerance_rel"):
+            if raw.get(campo) is not None:
+                # Una tolerancia negativa no es «más estricta»: es un umbral
+                # que ninguna diferencia puede cumplir, así que convertiría
+                # cualquier reproducción exacta en una discrepancia.
+                _require_real(raw[campo], f"metrics[{i}].{campo}", minimum=0.0)
+
+        clave = (nombre, raw.get("split"))
+        if clave in vistas:
+            # Dos `accuracy` de validación con valores distintos no son dos
+            # métricas: son una contradicción, y quien verifique tendría que
+            # elegir cuál cree.
+            raise ReproduceManifestError(
+                f"metrics[{i}] repeats name={nombre!r} split={raw.get('split')!r}; "
+                f"a package cannot publish two different values for the same metric"
+            )
+        vistas.add(clave)
+
         # Los campos que falten quedan a `null` y VISIBLES: una tolerancia
         # ausente se ve, una clave que no está se pasa por alto.
         entry = {field: raw.get(field) for field in _METRIC_FIELDS}
         for key, value in raw.items():
-            if key not in entry:
+            if key not in entry and key not in _CORE_OWNED_METRIC_KEYS:
                 entry[str(key)] = value
+
+        faltan = [c for c in _METRIC_FIELDS if entry.get(c) is None]
+        if entry["tolerance_abs"] is None and entry["tolerance_rel"] is None:
+            faltan_r3 = [c for c in _METRIC_R3_FIELDS if entry.get(c) is None]
+            faltan_r3.append("tolerance_abs|tolerance_rel")
+        else:
+            faltan_r3 = [c for c in _METRIC_R3_FIELDS if entry.get(c) is None]
+        entry["incomplete"] = faltan
+        entry["comparable"] = not faltan_r3
         out.append(entry)
     return out
 
+
+# ---------------------------------------------------------------------------
+# LA CAPTURA DEL RUN (`run_provenance`) — 82-C2
+# ---------------------------------------------------------------------------
+#
+# POR QUÉ EXISTE. Hasta hoy el manifiesto se construía con lo que mandaba la
+# PANTALLA en el momento de exportar. Medido con sondas el 2026-08-19:
+# cambiando BATCH, EPOCHS, receta, filas, digest y semilla, el paquete salía
+# con esos valores dentro y `reproducible: true` igual — un `reproduce.json`
+# podía describir OTRO dataset y OTRO contrato que los pesos que viajaban a su
+# lado, y nada en el fichero lo delataba.
+#
+# La captura es la única fuente autoritativa: la escribe el core AL ENTRENAR
+# (`playground.py`, `job["run_provenance"]`), con datos que salen todos del
+# mismo run. De ahí las tres reglas de este corte:
+#
+#   1. `reproduce.json` se construye SOLO desde la captura.
+#   2. Lo que llegue por el payload del export sirve para DETECTAR CONFLICTO y
+#      declararlo, NUNCA para rellenar. Si discrepan, manda la captura.
+#   3. Sin captura no hay `reproducible: true`, y el motivo lo dice entero: el
+#      paquete no puede demostrar su relación con los pesos que lleva.
+#
+# La 3 es la que cierra el hallazgo que quedaba abierto. Antes `reproducible`
+# dependía de CINCO PRESENCIAS (`.mxtrain`, receta, digest, filas y semilla):
+# estando las cinco, daba igual de dónde vinieran.
+
+
+def _normalize_run_provenance(raw: Any) -> dict[str, Any] | None:
+    """Valida la captura del run y la devuelve normalizada (o `None` si no hay).
+
+    Mismo criterio que el resto del módulo, y por el mismo motivo: un valor
+    AUSENTE es una respuesta legítima —el run puede no saber el motor todavía,
+    o no haber tenido receta— y un valor IMPOSIBLE es un fallo de cableado de
+    quien entrena, que se corta aquí y no viaja dentro de un paquete.
+
+    Lo que se exige SIEMPRE es la identidad del run: los digests del `.mxai` y
+    del `.mxtrain` y el texto del contrato. Sin eso no hay captura que valga —
+    es justo lo que ata el manifiesto a unos pesos concretos—, y aceptar una a
+    medias devolvería el problema que este corte cierra.
+    """
+    if raw is None:
+        return None
+    cap = dict(_require_mapping(raw, "run_provenance"))
+
+    version = cap.get("schema_version")
+    if version not in _RUN_PROVENANCE_SCHEMA_VERSIONS:
+        raise ReproduceManifestError(
+            f"run_provenance.schema_version must be one of "
+            f"{list(_RUN_PROVENANCE_SCHEMA_VERSIONS)}, got {version!r}; a capture "
+            f"this core does not know how to read is not interpreted half-way"
+        )
+
+    for clave in ("mxai_sha256", "mxtrain_sha256"):
+        _require_full_sha256(cap.get(clave), f"run_provenance.{clave}")
+    _require_text(cap.get("mxtrain_text"), "run_provenance.mxtrain_text")
+
+    # Receta: o las dos cosas o ninguna. Un digest sin texto no se puede
+    # recomputar y un texto sin digest no se puede contrastar; publicar media
+    # receta sería media verdad tranquilizadora.
+    receta_sha, receta_txt = cap.get("recipe_sha256"), cap.get("recipe_text")
+    if receta_sha is not None:
+        _require_full_sha256(receta_sha, "run_provenance.recipe_sha256")
+    if receta_txt is not None:
+        _require_text(receta_txt, "run_provenance.recipe_text")
+    if (receta_sha is None) != (receta_txt is None):
+        raise ReproduceManifestError(
+            "run_provenance must carry recipe_sha256 and recipe_text together "
+            "or neither: a digest without its text cannot be recomputed, and a "
+            "text without its digest cannot be contrasted"
+        )
+
+    for clave in ("dataset_sha256_raw", "dataset_sha256_prepared"):
+        if cap.get(clave) is not None:
+            _require_full_sha256(cap[clave], f"run_provenance.{clave}")
+    if cap.get("dataset_rows") is not None:
+        _require_positive_int(cap["dataset_rows"], "run_provenance.dataset_rows")
+
+    semillas = dict(_require_mapping(cap.get("seeds") or {}, "run_provenance.seeds"))
+    for nombre, valor in semillas.items():
+        if valor is not None:
+            _require_int(valor, f"run_provenance.seeds[{nombre!r}]")
+    cap["seeds"] = semillas
+
+    if cap.get("backend") is not None:
+        _require_text(cap["backend"], "run_provenance.backend",
+                      choices=_TRAINING_BACKENDS)
+    if cap.get("device") is not None:
+        _require_text(cap["device"], "run_provenance.device")
+    for clave in ("generator_version", "csv_serialization_version"):
+        if cap.get(clave) is not None:
+            _require_text(cap[clave], f"run_provenance.{clave}")
+
+    # Los parámetros efectivos que traiga se validan con la MISMA función que
+    # los del payload: dos sitios declarando qué es un rango válido acabarían
+    # divergiendo, y este producto ya lleva catorce huecos de cableado.
+    _validate_generation_shapes(
+        {k: v for k, v in cap.items() if k not in _RUN_PROVENANCE_CORE_KEYS})
+
+    # Una captura que no es JSON no se puede digerir ni escribir: fallaría al
+    # volcar el manifiesto, ya con el paquete medio hecho.
+    try:
+        canonical_json(cap)
+    except (TypeError, ValueError) as exc:
+        raise ReproduceManifestError(
+            f"run_provenance must be JSON-serialisable: {exc}") from exc
+    return cap
+
+
+def _capture_digest(cap: dict[str, Any]) -> str:
+    """Digest de la captura ENTERA, para nombrarla sin copiarla.
+
+    El manifiesto no repite `mxtrain_text` ni `recipe_text` —ya viajan como
+    ficheros con su propio digest, y repetirlos sería el segundo sitio
+    declarando lo mismo—, pero sí dice de QUÉ captura salió, y eso necesita un
+    nombre que no se pueda falsificar.
+    """
+    return hashlib.sha256(canonical_json(cap).encode("utf-8")).hexdigest()
+
+
+def _file_digest_variants(path: Path) -> set[str]:
+    """Los digests con los que un MISMO artefacto puede presentarse.
+
+    MEDIDO el 2026-08-19, y por eso esto no es una comparación cruda:
+
+      * la captura digiere el `.mxai` ya `.strip()`eado
+        (`playground.py:3398`), mientras que el bundle copia el fichero BYTE A
+        BYTE (`test_bundle_ships_the_mxtrain_byte_for_byte`);
+      * la receta se escribe en el paquete como `receta.strip() + "\n"`
+        (`bundle.py`), y la captura guarda el texto tal como llegó.
+
+    O sea que un salto de línea final —que no cambia el programa ni la receta—
+    daría dos digests distintos. Declararlo «conflicto» sería una falsa alarma
+    en TODOS los paquetes reales, y una alarma que salta siempre no avisa de
+    nada. Se comparan las dos formas: el fichero tal cual y su texto sin
+    espacios de borde. Un artefacto de verdad distinto no casa con ninguna.
+    """
+    variantes = {sha256_file(path)}
+    try:
+        variantes.add(sha256_text(path.read_text(encoding="utf-8").strip()))
+    except (OSError, UnicodeDecodeError):
+        # Un artefacto binario no tiene «texto sin espacios»: se queda con su
+        # digest de bytes, que es el que corresponde.
+        pass
+    return variantes
+
+
+def _text_digest_variants(text: str | None) -> set[str]:
+    """Lo mismo por el otro lado: los digests del texto que guardó la captura."""
+    if text is None:
+        return set()
+    return {sha256_text(text), sha256_text(text.strip())}
+
+
+def _conflict(field: str, source: str, captured: Any, received: Any) -> dict[str, Any]:
+    """Un conflicto declarado: el campo, de dónde salió el otro valor, y los dos.
+
+    Se declaran LOS DOS valores a propósito. Decir solo «no coinciden» obliga a
+    quien recibe el paquete a adivinar cuál es cuál, y el que manda —el
+    capturado— es justo el que no está en ninguna otra parte del fichero.
+    """
+    return {"field": field, "source": source, "captured": captured, "received": received}
+
+
+#: De dónde vino el valor que contradice a la captura. No es decorativo: un
+#: fichero del paquete que no casa con la captura y una pantalla que manda otro
+#: número se arreglan en sitios distintos.
+_CONFLICT_SOURCES = ("bundle_file", "export_payload", "running_core")
 
 # ---------------------------------------------------------------------------
 # El manifiesto
@@ -343,20 +867,73 @@ def build_reproduce_manifest(
     dataset_rows: int | None = None,
     generation: dict[str, Any] | None = None,
     metrics: list[dict[str, Any]] | None = None,
+    run_provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Construye el `reproduce.json` de un bundle YA escrito en `bundle_dir`.
 
-    Los digests se calculan sobre los ficheros REALES del paquete, no sobre lo
-    que el llamante diga que puso: un manifiesto que repite lo que le cuentan
-    no verifica nada.
+    `run_provenance` es LA CAPTURA que el core guardó en el run al entrenar, y
+    es la única fuente de lo que el manifiesto AFIRMA: dataset, semillas,
+    motor, máquina y versiones salen de ahí y de ningún otro sitio.
+
+    El resto de argumentos (`dataset_sha256`, `dataset_rows`, `generation`) son
+    lo que manda quien exporta. Se validan igual —un valor imposible es un
+    fallo de cableado y se corta aquí— pero NO rellenan nada: sirven para
+    detectar que la pantalla dice una cosa y el run dijo otra, y entonces el
+    manifiesto lo declara en `conflicts` y manda la captura.
+
+    Los digests de los artefactos se calculan sobre los ficheros REALES del
+    paquete, no sobre lo que el llamante diga que puso: un manifiesto que
+    repite lo que le cuentan no verifica nada.
     """
     bundle_dir = Path(bundle_dir)
+
+    # ── VALIDACIÓN, ANTES DE PROMETER NADA ────────────────────────────────
+    # Aquí se corta lo imposible venga de donde venga. A partir de esta línea,
+    # «hay un dataset_sha256» ya significa «hay un sha256 que sirve» — y eso
+    # vale tanto para lo que manda la pantalla como para lo que guardó el run.
+    if dataset_sha256 is not None:
+        _require_full_sha256(dataset_sha256, "dataset_sha256")
+    if dataset_rows is not None:
+        # Cero filas no es un dataset y las negativas no existen. Y ojo con el
+        # `type is int`: `dataset_rows=True` habría publicado «1 fila».
+        _require_positive_int(dataset_rows, "dataset_rows")
+    for etiqueta, valor in (("model_filename", model_filename),
+                            ("training_filename", training_filename),
+                            ("recipe_filename", recipe_filename)):
+        if valor is not None:
+            _require_plain_filename(valor, etiqueta)
+
+    # El `generation` del payload se valida AUNQUE no rellene nada. Que ya no
+    # se publique no lo convierte en inofensivo: quien exporta se merece
+    # enterarse de que su semilla es una cadena en el sitio donde todavía se
+    # puede arreglar, y el CLI valida su sidecar llamando aquí (ensayo en seco
+    # sobre un directorio vacío, `cli.py::_load_reproduce_metadata`).
+    validate_generation_payload(generation)
+
+    capture = _normalize_run_provenance(run_provenance)
 
     def _artifact(kind: str, filename: str | None) -> dict[str, Any] | None:
         if not filename:
             return None
         path = bundle_dir / filename
         if not path.is_file():
+            return None
+        # UN FICHERO VACÍO NO ES UN ARTEFACTO (2026-08-19).
+        #
+        # Se comprobaba `is_file()` y nada más, así que un `.mxtrain` de
+        # CERO BYTES viajaba en el paquete y el manifiesto decía
+        # `reproducible: yes`. Medido con el CLI: reentrenar con esos
+        # bytes exactos responde «mxai_text y training_text son
+        # obligatorios» (`playground.py`), o sea que el paquete prometía
+        # algo que su propio contenido no permite. Lo destapó una
+        # auditoría adversarial.
+        #
+        # Se mira que tenga contenido REAL —no solo espacios—: un fichero
+        # con un salto de línea tampoco es un contrato de entrenamiento.
+        try:
+            if not path.read_text(encoding="utf-8", errors="replace").strip():
+                return None
+        except OSError:
             return None
         return {
             "path": filename,
@@ -368,34 +945,273 @@ def build_reproduce_manifest(
     training = _artifact("training", training_filename)
     recipe = _artifact("recipe", recipe_filename)
 
+    conflicts: list[dict[str, Any]] = []
+    ignorados: list[str] = []
+
+    # ── ¿SON ESTOS LOS ARTEFACTOS DEL RUN? ────────────────────────────────
+    # Esta es la comprobación que da sentido a todo lo demás: el paquete lleva
+    # unos pesos y un manifiesto, y sin esto nada ata lo uno a lo otro. Un
+    # `.mxai` distinto del que entrenó, o una receta que el run no usó, se
+    # declaran aquí y dejan el paquete en `reproducible: false`.
+    for kind, art, sha_cap, txt_cap in (
+        ("model", model, (capture or {}).get("mxai_sha256"), None),
+        ("training", training, (capture or {}).get("mxtrain_sha256"),
+         (capture or {}).get("mxtrain_text")),
+        ("recipe", recipe, (capture or {}).get("recipe_sha256"),
+         (capture or {}).get("recipe_text")),
+    ):
+        if art is None:
+            continue
+        if capture is None:
+            # `null` y no `false`: sin captura no es que NO case, es que no hay
+            # con qué comparar. Un valor ausente no es un cero.
+            art["matches_capture"] = None
+            continue
+        esperados = ({sha_cap} if sha_cap else set()) | _text_digest_variants(txt_cap)
+        casa = bool(esperados & _file_digest_variants(bundle_dir / art["path"]))
+        art["matches_capture"] = casa
+        if not casa:
+            # `captured=None` con un fichero presente NO es un descuido: dice
+            # que el run no tuvo ese artefacto y el paquete lo lleva igual
+            # —una receta añadida al exportar sobre un modelo entrenado con
+            # datos reales—, que es de las peores mentiras que puede contar.
+            conflicts.append(_conflict(f"artifacts.{kind}.sha256", "bundle_file",
+                                       sha_cap, art["sha256"]))
+
     training_text: str | None = None
     if training is not None:
         training_text = (bundle_dir / training["path"]).read_text(encoding="utf-8")
 
-    generation_block = build_generation_block(generation, training_text=training_text)
+    # ── `generation`: SOLO desde la captura ───────────────────────────────
+    # Sin captura no se publica un solo parámetro efectivo del run: lo que
+    # mandó la pantalla no es una respuesta sobre lo que PASÓ. Se conserva
+    # aparte, en `provenance.unverified_payload`, para no perderlo en silencio.
+    if capture is not None:
+        fuente_gen = {k: v for k, v in capture.items()
+                      if k not in _RUN_PROVENANCE_CORE_KEYS}
+        fuente_gen["seeds"] = dict(capture["seeds"])
+        fuente_gen["backend"] = capture.get("backend")
+        fuente_gen["device"] = capture.get("device")
+        # El contrato de la CAPTURA, no el fichero del paquete: si el `.mxtrain`
+        # que viaja fuese otro, ya está declarado como conflicto arriba, y la
+        # semilla del split tiene que salir del que entrenó de verdad.
+        texto_contrato = capture["mxtrain_text"]
+    else:
+        fuente_gen = None
+        # La semilla del SPLIT sí se lee del `.mxtrain` que viaja: no es un
+        # dato del payload, es un dato del ARTEFACTO, y su digest está en este
+        # mismo manifiesto — quien recibe el paquete puede rederivarla.
+        texto_contrato = training_text
 
-    # El dataset va por su valor ESPERADO, no como fichero: §6.4 —el paquete
-    # no incrusta datos cuya licencia prohíba redistribuirlos— y aquí es
-    # gratis, porque se empaqueta la regla que los produce.
+    generation_block = build_generation_block(fuente_gen, training_text=texto_contrato)
+
+    # Las versiones que deciden el resultado las escribe el core... pero la que
+    # importa es la que CORRIÓ, no la que este proceso tiene hoy. Si el run se
+    # capturó con otro generador y el core se ha actualizado desde entonces,
+    # regenerar aquí no da lo mismo: manda la captura y la diferencia se
+    # declara. Una nota vieja miente igual que un dato falso.
+    if capture is not None:
+        for clave in ("generator_version", "csv_serialization_version"):
+            capturado = capture.get(clave)
+            if capturado is None:
+                continue
+            del_core = generation_block[clave]
+            generation_block[clave] = capturado
+            if capturado != del_core:
+                conflicts.append(
+                    _conflict(f"generation.{clave}", "running_core", capturado, del_core))
+
+    # ── El dataset, por su valor ESPERADO ─────────────────────────────────
+    # §6.4: el paquete no incrusta datos cuya licencia prohíba redistribuirlos,
+    # y aquí es gratis porque se empaqueta la regla que los produce.
+    #
+    # Van los DOS digests porque son dos preguntas distintas (medido el
+    # 2026-08-19, y no coinciden): el CRUDO es el del CSV tal como llega, que
+    # es contra el que se compara un dataset regenerado (R1, «byte a byte»); el
+    # PREPARADO es el del fichero con el que la red entrenó de verdad, después
+    # de `_normalize_external_csv` y `_normalize_csv_with_ranges`, y es el que
+    # ata estos pesos.
     dataset: dict[str, Any] | None = None
-    if dataset_sha256 is not None or dataset_rows is not None:
-        dataset = {"sha256": dataset_sha256, "rows": dataset_rows}
+    esperados_ds: set[str] = set()
+    if capture is not None:
+        esperados_ds = {d for d in (capture.get("dataset_sha256_raw"),
+                                    capture.get("dataset_sha256_prepared")) if d}
+        if esperados_ds or capture.get("dataset_rows") is not None:
+            dataset = {
+                "sha256": capture.get("dataset_sha256_raw"),
+                "sha256_prepared": capture.get("dataset_sha256_prepared"),
+                "rows": capture.get("dataset_rows"),
+            }
 
-    # ── Qué falta para poder reproducir (§3: son CINCO cosas) ──
+    metrics_block = _normalize_metrics(metrics)
+
+    # ── LO QUE MANDÓ LA PANTALLA: contrastar, nunca rellenar ──────────────
+    if capture is not None:
+        if dataset_sha256 is not None:
+            if not esperados_ds:
+                ignorados.append("dataset_sha256")
+            elif dataset_sha256 not in esperados_ds:
+                # Se acepta el crudo O el preparado. No es laxitud: medido el
+                # 2026-08-19, lo que el producto manda hoy por el payload
+                # (`trained_csv_sha256`) es el PREPARADO, así que exigir el
+                # crudo declararía un conflicto en todos los paquetes reales —
+                # y una alarma que salta siempre no avisa de nada. Cualquier
+                # otro valor es otro dataset.
+                conflicts.append(_conflict("artifacts.dataset.sha256", "export_payload",
+                                           capture.get("dataset_sha256_raw"),
+                                           dataset_sha256))
+        if dataset_rows is not None:
+            capturadas = capture.get("dataset_rows")
+            if capturadas is None:
+                ignorados.append("dataset_rows")
+            elif capturadas != dataset_rows:
+                conflicts.append(_conflict("artifacts.dataset.rows", "export_payload",
+                                           capturadas, dataset_rows))
+
+        payload_gen = dict(generation or {})
+        for nombre, valor in dict(payload_gen.pop("seeds", None) or {}).items():
+            if valor is None:
+                continue
+            capturado = generation_block["seeds"].get(nombre)
+            if capturado is None:
+                ignorados.append(f"generation.seeds.{nombre}")
+            elif capturado != valor:
+                conflicts.append(_conflict(f"generation.seeds.{nombre}",
+                                           "export_payload", capturado, valor))
+        for clave, valor in payload_gen.items():
+            if valor is None:
+                continue
+            capturado = generation_block.get(clave)
+            if capturado is None:
+                # La captura no declara este parámetro: no hay con qué
+                # discrepar, y rellenarlo con lo que diga la pantalla es
+                # justo lo que este corte prohíbe. Se declara ignorado para
+                # que se VEA que llegó y no se publicó.
+                ignorados.append(f"generation.{clave}")
+            elif capturado != valor:
+                conflicts.append(_conflict(f"generation.{clave}", "export_payload",
+                                           capturado, valor))
+
+        # Una métrica dice sobre QUÉ datos se midió. Si ese digest no es el del
+        # run, la cifra es de otra medición y compararla con esta no significa
+        # nada — R3 estaría contrastando dos cosas distintas.
+        if esperados_ds:
+            for i, metrica in enumerate(metrics_block):
+                medida_en = metrica.get("dataset_sha256")
+                if medida_en is not None and medida_en not in esperados_ds:
+                    conflicts.append(
+                        _conflict(f"metrics[{i}].dataset_sha256", "export_payload",
+                                  capture.get("dataset_sha256_raw"), medida_en))
+
+    # ── Qué falta, y PARA QUÉ ETAPA falta (§5-C1 y §5-C2) ─────────────────
     # `model.mxai` siempre está. Del resto se declara EXACTAMENTE lo que
     # falta, con un código estable por hueco: el motivo en prosa es para
     # quien lee y los códigos son para quien traduce o automatiza.
-    missing: list[str] = []
+    #
+    # Y se reparte por etapas, con los nombres de C2 —`R1`, `training`,
+    # `R3`— para que el manifiesto y el verificador hablen el mismo idioma.
+    #
+    # `run_provenance` va PRIMERO cuando falta porque no es un hueco más: sin
+    # la captura, todo lo que hay debajo lo dijo quien exportó, y podría
+    # describir otro dataset y otro contrato que los pesos que viajan al lado.
+    #
+    # `R1` = regenerar el dataset y comprobar su sha256. Medido: el generador
+    # (`playground.py:535::_generate_synthetic_dataset`) recibe `training_text`
+    # como argumento OBLIGATORIO, así que sin `.mxtrain` tampoco hay R1 — no
+    # es solo cosa de reentrenar.
+    r1_missing: list[str] = []
+    if capture is None:
+        r1_missing.append("run_provenance")
     if training is None:
-        missing.append("training")
+        r1_missing.append("training")
     if recipe is None:
-        missing.append("recipe")
-    if not dataset_sha256:
-        missing.append("dataset_sha256")
-    if dataset_rows is None:
-        missing.append("dataset_rows")
+        r1_missing.append("recipe")
+    if not (dataset and dataset.get("sha256")):
+        r1_missing.append("dataset_sha256")
+    if not (dataset and dataset.get("rows")):
+        r1_missing.append("dataset_rows")
     if generation_block["seeds"]["dataset"] is None:
-        missing.append("seed_dataset")
+        r1_missing.append("seed_dataset")
+
+    # `training` = el reentrenamiento llega a término. Necesita el `.mxtrain` y
+    # los datos, y los datos salen de R1: por eso su lista es la misma. No se
+    # inventa un hueco propio para que parezca que aporta algo.
+    training_missing = list(r1_missing)
+
+    # `R3` = contrastar las métricas publicadas. Pide todo lo anterior MÁS:
+    #   * la semilla de inicialización —sin ella el reentrenamiento parte de
+    #     otros pesos y las cifras no tienen por qué coincidir—,
+    #   * el motor y el dispositivo (§6.5): el contrato 60 existió porque
+    #     torch y stdlib NO daban lo mismo, así que «mismas métricas» sin
+    #     declarar el motor no se puede afirmar de nadie,
+    #   * y al menos una métrica que se pueda contrastar (§5 bis).
+    r3_missing = list(training_missing)
+    if generation_block["seeds"]["init"] is None:
+        r3_missing.append("seed_init")
+    if generation_block.get("backend") is None:
+        r3_missing.append("backend")
+    if generation_block.get("device") is None:
+        r3_missing.append("device")
+    if not any(m.get("comparable") for m in metrics_block):
+        r3_missing.append("metrics")
+
+    # `reproducible` sigue significando lo mismo que en §3 —las CINCO cosas—
+    # más la captura que las respalda. Lo que solo hace falta para R3 NO lo
+    # pone en falso; se declara aparte, que es lo contrario de callarlo.
+    missing = list(training_missing)
+
+    # UN CONFLICTO DECLARADO NO PUEDE DAR `reproducible: true`. No falta nada:
+    # sobra: hay dos versiones de lo mismo y una de ellas es falsa. Y bloquea
+    # las tres etapas, no solo la suya, porque un paquete que se contradice no
+    # se puede contrastar por ninguna parte — quien verificara sabría que algo
+    # no cuadra, pero no cuál de las dos versiones estaba mirando.
+    campos_en_conflicto = [c["field"] for c in conflicts]
+
+    verifiable = {
+        # `manifest` no depende del contenido: el manifiesto y su digest
+        # viajan siempre, así que esta etapa siempre se puede intentar.
+        "manifest": {"possible": True, "missing": [], "conflicts": [], "reason": None},
+        "r1": _stage(
+            "r1", r1_missing, campos_en_conflicto,
+            "regenerate the dataset from the recipe and compare its full sha256"),
+        "training": _stage(
+            "training", training_missing, campos_en_conflicto,
+            "retrain the model to completion"),
+        "r3": _stage(
+            "r3", r3_missing, campos_en_conflicto,
+            "contrast the published metrics against their tolerance"),
+    }
+
+    reproducible = not missing and not conflicts
+
+    # Lo que llegó por el payload y no se publicó. Va entero y con su nombre:
+    # tirarlo en silencio perdería la pista de por qué el paquete no dice lo
+    # que quien exportó creía que iba a decir.
+    sin_verificar: dict[str, Any] | None = None
+    if capture is None:
+        sin_verificar = {
+            "dataset_sha256": dataset_sha256,
+            "dataset_rows": dataset_rows,
+            "generation": generation or None,
+        }
+        if not any(v is not None for v in sin_verificar.values()):
+            sin_verificar = None
+
+    provenance = {
+        # De dónde salió lo que este manifiesto afirma. Es la primera pregunta
+        # que hay que poder contestar mirando el fichero.
+        "source": "run_capture" if capture is not None else "export_payload_only",
+        "run_capture": {
+            "present": capture is not None,
+            "schema_version": capture.get("schema_version") if capture else None,
+            # Nombra la captura sin copiarla: `mxtrain_text` y `recipe_text` ya
+            # viajan como ficheros con su digest, y repetirlos aquí sería el
+            # segundo sitio declarando lo mismo.
+            "sha256": _capture_digest(capture) if capture else None,
+        },
+        "unverified_payload": sin_verificar,
+        "ignored_payload_fields": sorted(set(ignorados)),
+    }
 
     manifest: dict[str, Any] = {
         "schema_version": REPRODUCE_SCHEMA_VERSION,
@@ -403,14 +1219,45 @@ def build_reproduce_manifest(
         # receta, manifiesto y métricas de forma coherente obtiene un paquete
         # coherente. Las firmas son del contrato 81, y prometerlas aquí sería
         # la «falsa sensación de garantía» que ese contrato identifica.
+        #
+        # Y SE RAMIFICA EN TRES. El texto era fijo y luego fueron dos, pero
+        # «no reproducible» y «no hay con qué demostrar de qué run sale esto»
+        # no son lo mismo, y el segundo es el que hay que decir entero: lo que
+        # se pierde no es una comprobación, es la relación del paquete con los
+        # pesos que lleva dentro.
         "claim": (
-            "This manifest proves the package is internally consistent and "
-            "reproducible. It does NOT prove authorship or authenticity: "
-            "signatures are out of scope here."
+            (
+                "This manifest proves the package is internally consistent and "
+                "reproducible: every artifact needed to rebuild this model "
+                "travels here with its digest, and each one matches the "
+                "authoritative capture the core recorded while training it."
+                if reproducible else
+                "This manifest proves the package is internally consistent: the "
+                "artifacts that do travel here match their declared digests, and "
+                "what it declares about the run comes from the capture the core "
+                "recorded while training. It does NOT prove the model can be "
+                "reproduced — see `reproducible_reason`."
+                if capture is not None else
+                "This manifest proves the package is internally consistent: the "
+                "artifacts that do travel here match their declared digests. It "
+                "does NOT prove the model can be reproduced, and it cannot tie "
+                "this package to the weights it carries: no authoritative run "
+                "capture was recorded while training, so anything else stated "
+                "about the run came from whoever exported it — see "
+                "`reproducible_reason`."
+            )
+            + " It does NOT prove authorship or authenticity: signatures are "
+              "out of scope here."
         ),
-        "reproducible": not missing,
-        "reproducible_reason": None if not missing else _missing_reason(missing),
+        "reproducible": reproducible,
+        "reproducible_reason": (
+            None if reproducible else _not_reproducible_reason(missing, conflicts)),
         "missing": missing,
+        # Lo que sobra, no lo que falta: dos versiones del mismo dato, cuál
+        # mandó y cuál se descartó.
+        "conflicts": conflicts,
+        "provenance": provenance,
+        "verifiable": verifiable,
         "artifacts": {
             "model": model,
             "training": training,
@@ -419,7 +1266,7 @@ def build_reproduce_manifest(
         },
         "generation": generation_block,
         "environment": build_environment(),
-        "metrics": _normalize_metrics(metrics),
+        "metrics": metrics_block,
     }
     manifest["manifest_canonicalization"] = MANIFEST_CANONICALIZATION
     manifest["manifest_sha256"] = manifest_digest(manifest)
@@ -427,6 +1274,14 @@ def build_reproduce_manifest(
 
 
 _MISSING_REASONS = {
+    # EL HUECO QUE CIERRA EL HALLAZGO. Y se dice entero: no es «falta un
+    # campo», es que el paquete no puede demostrar de qué entrenamiento sale.
+    "run_provenance": (
+        "no authoritative run capture travels with this model, so the package "
+        "cannot demonstrate its relation to the weights it carries: everything "
+        "else declared here was supplied by whoever exported it and may describe "
+        "a different dataset or a different training contract"
+    ),
     "training": (
         "no .mxtrain travels in this package, so the model cannot be retrained"
     ),
@@ -440,18 +1295,70 @@ _MISSING_REASONS = {
     ),
     "dataset_rows": "the expected row count is unknown",
     "seed_dataset": "the dataset generation seed is unknown",
+    # Los tres siguientes NO impiden reproducir: impiden CONTRASTAR (R3).
+    "seed_init": (
+        "the weight-initialisation seed is unknown, so a retrained model does "
+        "not have to land on the same numbers"
+    ),
+    "backend": (
+        "the training backend is not declared, and stdlib and torch do not "
+        "produce the same numbers"
+    ),
+    "device": "the training device is not declared",
+    "metrics": (
+        "no published metric carries what a comparison needs (split, the "
+        "dataset sha256 it was measured on, a direction and a tolerance)"
+    ),
 }
 
 
-def _missing_reason(missing: list[str]) -> str:
-    """El motivo en prosa, listando lo que falta y por qué eso impide reproducir.
+def _stage(name: str, missing: list[str], conflicts: list[str],
+           what: str) -> dict[str, Any]:
+    """Una etapa de `matrixai verify` (§5-C2), tal como la deja este paquete.
 
-    En inglés como el resto de lo que se descarga (README, `predict.py`): este
-    texto lo lee quien recibe el paquete, que puede estar en cualquier sitio.
-    Quien quiera enseñarlo traducido tiene los códigos de `missing`.
+    `possible` NO es `PASS`: dice si la etapa se puede siquiera INTENTAR con
+    lo que viaja aquí. Quién gana o pierde lo dice C2 al ejecutarla; este
+    manifiesto solo declara con qué se cuenta, para que un `NOT_RUN` allí
+    tenga su motivo escrito aquí y no haya que adivinarlo.
+
+    Los conflictos bloquean igual que lo que falta, y por un motivo distinto:
+    no es que no haya con qué intentarlo, es que hay DOS versiones del mismo
+    dato. Intentar la etapa con una de ellas mediría algo que no es lo que el
+    paquete dice ser.
     """
-    parts = [_MISSING_REASONS.get(item, item) for item in missing]
-    return "Not reproducible: " + "; ".join(parts) + "."
+    if not missing and not conflicts:
+        return {"possible": True, "missing": [], "conflicts": [], "reason": None}
+    partes = [_MISSING_REASONS.get(item, item) for item in missing]
+    if conflicts:
+        partes.append(
+            "the export contradicts the run capture on " + ", ".join(conflicts)
+            + ", and a package that states two versions of the same value cannot "
+              "be contrasted against either"
+        )
+    return {
+        "possible": False,
+        "missing": missing,
+        "conflicts": conflicts,
+        "reason": f"Cannot {what}: " + "; ".join(partes) + ".",
+    }
+
+
+def _not_reproducible_reason(missing: list[str],
+                             conflicts: list[dict[str, Any]]) -> str:
+    """El motivo entero: lo que falta Y lo que se contradice.
+
+    Los dos en la misma frase a propósito. Separarlos dejaría un paquete con
+    todo presente y un conflicto dentro diciendo «Not reproducible: » y nada
+    más — media verdad, que en este fichero es peor que callar.
+    """
+    partes = [_MISSING_REASONS.get(item, item) for item in missing]
+    for c in conflicts:
+        partes.append(
+            f"{c['field']} was captured as {c['captured']!r} and the "
+            f"{c['source']} says {c['received']!r}; the capture is what counts, "
+            f"and a package that carries both cannot promise either"
+        )
+    return "Not reproducible: " + "; ".join(partes) + "."
 
 
 def write_reproduce_manifest(bundle_dir: str | Path, **kwargs: Any) -> dict[str, Any]:
