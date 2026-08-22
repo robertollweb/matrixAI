@@ -71,17 +71,37 @@ def _captura(*, recipe_text=_RECIPE, dataset_sha256=_DATASET_SHA,
     semillas = dict(semillas) if isinstance(semillas, dict) else {}
     contrato = _FALL_RISK_MXTRAIN.read_text(encoding="utf-8")
     cap = {
-        "schema_version": "1.0",
+        # 1.2 desde el cierre de A2 (2026-08-20): el caso HONESTO declara
+        # ahora que su procedencia se comprobó. Sin ese campo, una captura con
+        # receta ya no sostiene un `reproducible: true` — que es justo lo que
+        # A2 cierra— y los casos de este fichero, que miden OTRAS cosas
+        # (épocas, rangos, warm start, pesos), saldrían todos en rojo por un
+        # motivo que no es el suyo. El caso «sin comprobar» tiene su propio
+        # fichero: `test_c82_a2_procedencia_verificada.py`.
+        "schema_version": "1.2",
         "mxai_sha256": _sha(_FALL_RISK_MXAI.read_text(encoding="utf-8")),
         "mxtrain_sha256": _sha(contrato),
         "mxtrain_text": contrato,
         "recipe_sha256": _sha(recipe_text) if recipe_text else None,
+        "recipe_verification": ({"verified": True, "code": "regenera_el_dataset"}
+                                if recipe_text else None),
         "recipe_text": recipe_text,
         "dataset_sha256_raw": dataset_sha256,
         "dataset_sha256_prepared": None,
         "dataset_rows": dataset_rows,
         "seeds": {"dataset": semillas.get("dataset"), "split": semillas.get("split"),
                   "init": semillas.get("init")},
+        # 82-C3 · lo que el `.mxtrain` no puede decir, con los nombres exactos
+        # de la captura "1.1" (leídos de `playground.py` el 2026-08-19, no
+        # inventados aquí). El caso honesto: las épocas que corrieron son las
+        # que declara el contrato de ejemplo (`EPOCHS 30`), las filas que
+        # entrenaron son las del fichero, y el run partió de la inicialización.
+        "dataset_rows_used": dataset_rows,
+        "epochs_effective": 30,
+        "epochs_ran": 30,
+        "field_ranges": None,
+        "target_range": None,
+        "warm_start": False,
         "backend": gen.pop("backend", None),
         "device": gen.pop("device", None),
         "generator_version": None,
@@ -121,6 +141,11 @@ class ReproduceManifestUnitTest(unittest.TestCase):
             dataset_sha256=_DATASET_SHA,
             dataset_rows=300,
             generation={"mode": "coherent", "seeds": {"dataset": 42, "init": 42}},
+            # 82-C3: el caso honesto declara que los pesos que viajan SON los
+            # del entrenamiento. Sin esto el manifiesto no puede decir
+            # `reproducible: true` —«no consta» no es «entrenado»—, que es
+            # justo lo que prueba `WeightsStateTest`.
+            weights_source="trained",
         )
         kwargs.update(over)
         # Los ficheros se ponen SOLO si el caso los pide: si el paquete no
@@ -167,8 +192,13 @@ class ReproduceManifestUnitTest(unittest.TestCase):
         # (medido el 2026-08-19): el CRUDO es contra el que se compara un
         # dataset regenerado —R1, «byte a byte»— y el PREPARADO es el del
         # fichero con el que la red entrenó, que es el que ata estos pesos.
+        # `rows` son las filas del CSV CRUDO —lo que hay que regenerar para
+        # R1— y `rows_used` las que el entrenamiento consumió del preparado:
+        # dos preguntas, como los dos digests, y publicarlas por separado hace
+        # visible el día que dejen de coincidir.
         self.assertEqual(m["artifacts"]["dataset"],
-                         {"sha256": _DATASET_SHA, "sha256_prepared": None, "rows": 300})
+                         {"sha256": _DATASET_SHA, "sha256_prepared": None,
+                          "rows": 300, "rows_used": 300})
         self.assertNotIn("path", m["artifacts"]["dataset"])
         self.assertFalse((self.td / "dataset.csv").exists())
 
@@ -490,6 +520,10 @@ class BundleShipsTheReproduciblePackageTest(unittest.TestCase):
             # no la pase ya ha pasado CATORCE veces en este producto.
             run_provenance=_captura(dataset_sha256=_DATASET_SHA, dataset_rows=300,
                                     generation=gen),
+            # 82-C3: y quien empaqueta dice QUÉ PESOS ha metido. Es lo único
+            # que la captura no puede saber —se compone al empezar el run— y
+            # sin ello el paquete no puede declararse reproducible.
+            weights_source="trained",
         )
         bd = Path(r.bundle_dir)
         self.assertEqual(
@@ -532,6 +566,7 @@ class BundleShipsTheReproduciblePackageTest(unittest.TestCase):
             data_recipe=_RECIPE, dataset_sha256=_DATASET_SHA, dataset_rows=300,
             generation={"seeds": {"dataset": 42}},
             run_provenance=_captura(generation={"seeds": {"dataset": 42}}),
+            weights_source="trained",
         ).bundle_dir) / "README.md"
         texto = con.read_text()
         self.assertIn("`model.mxtrain`", texto)
@@ -549,6 +584,54 @@ class BundleShipsTheReproduciblePackageTest(unittest.TestCase):
         self.assertNotIn("`data_recipe.txt`", texto)
         self.assertIn("`reproduce.json`", texto)
         self.assertIn("no data recipe", texto)
+
+    def test_the_untrained_warning_travels_inside_the_package(self):
+        """82-C3 · el aviso de los pesos, DENTRO del ZIP y no solo en el HTTP.
+
+        Medido por el supervisor el 2026-08-19: exportando un job antes de que
+        terminara de entrenar, la respuesta HTTP decía `weights_source:
+        untrained` y el paquete no lo llevaba en ninguna parte
+        —`export_manifest.json` no tiene esa clave— mientras `reproduce.json`
+        se declaraba reproducible. La respuesta HTTP no acompaña al fichero.
+        """
+        r = self._bundle(
+            name="b_sin_entrenar", mxtrain_path=str(_FALL_RISK_MXTRAIN),
+            data_recipe=_RECIPE, dataset_sha256=_DATASET_SHA, dataset_rows=300,
+            generation={"seeds": {"dataset": 42}},
+            run_provenance=_captura(generation={"seeds": {"dataset": 42}}),
+            weights_source="untrained",
+        )
+        bd = Path(r.bundle_dir)
+        m = json.loads((bd / "reproduce.json").read_text())
+        self.assertEqual(m["weights"]["source"], "untrained")
+        self.assertFalse(m["reproducible"])
+        self.assertIn("weights_untrained", m["missing"])
+        # Y el README, que es lo que se lee antes que el JSON: el aviso va
+        # ARRIBA, antes del «quick start» que empieza con «This model is
+        # self-usable», y la tabla deja de llamar «Trained» a unos pesos que
+        # no lo son (un dibujo afirma por omisión, y una tabla también).
+        texto = (bd / "README.md").read_text()
+        self.assertIn("random initialisation", texto)
+        self.assertLess(texto.index("random initialisation"),
+                        texto.index("## Quick start"))
+        self.assertNotIn("| `params.best.json` | Trained parameter weights |", texto)
+
+    def test_a_trained_package_carries_no_warning(self):
+        # Un aviso que sale siempre no avisa de nada.
+        r = self._bundle(
+            name="b_entrenado", mxtrain_path=str(_FALL_RISK_MXTRAIN),
+            data_recipe=_RECIPE, dataset_sha256=_DATASET_SHA, dataset_rows=300,
+            generation={"seeds": {"dataset": 42}},
+            run_provenance=_captura(generation={"seeds": {"dataset": 42}}),
+            weights_source="trained",
+        )
+        bd = Path(r.bundle_dir)
+        self.assertEqual(
+            json.loads((bd / "reproduce.json").read_text())["weights"]["source"],
+            "trained")
+        texto = (bd / "README.md").read_text()
+        self.assertNotIn("random initialisation", texto)
+        self.assertIn("| `params.best.json` | Trained parameter weights |", texto)
 
     def test_the_bundle_manifest_verifies_itself(self):
         from matrixai.export import verify_manifest_digest
@@ -711,6 +794,7 @@ class ElManifiestoNoPuedeMentirTest(unittest.TestCase):
             dataset_sha256=_DATASET_SHA,
             dataset_rows=300,
             generation={"seeds": {"dataset": 42}},
+            weights_source="trained",
         )
         kwargs.update(over)
         if provenance == "auto":
@@ -883,11 +967,51 @@ class ElManifiestoNoPuedeMentirTest(unittest.TestCase):
         m = self._build(metrics=[{"name": "macro_f1", "value": 0.551227}])
         metrica = m["metrics"][0]
         self.assertFalse(metrica["comparable"])
-        for campo in ("split", "dataset_sha256", "evaluator", "evaluator_version",
-                      "aggregation", "direction", "tolerance_abs", "tolerance_rel"):
+        for campo in ("split", "dataset_sha256", "evaluator", "evaluator_version"):
             self.assertIn(campo, metrica["incomplete"], campo)
+        # `tolerance_abs` tampoco le falta ya: está MEDIDA (5 pasadas del
+        # entrenador supervisado y 3 del denso, rango 0.000e+00) y viaja
+        # SIEMPRE con su alcance. Este `0.0` no es el cero inventado que el
+        # contrato rechaza: la diferencia entre los dos ceros es justo el
+        # alcance que va escrito al lado.
+        self.assertEqual(metrica["tolerance_abs"], 0.0)
+        self.assertEqual(metrica["tolerance_scope"], "same_environment_same_seed")
         self.assertNotIn("name", metrica["incomplete"])
         self.assertNotIn("value", metrica["incomplete"])
+        # `direction` y `aggregation` SÍ las sabe el core desde 2026-08-20:
+        # son del NOMBRE de la métrica, no del run, y las rellena
+        # `metric_identity`. Ya no le faltan a `macro_f1`.
+        self.assertEqual(metrica["direction"], "higher_is_better")
+        self.assertEqual(metrica["aggregation"], "macro")
+
+    def test_una_metrica_que_el_core_NO_conoce_sigue_diciendo_lo_que_le_falta(self):
+        """La otra mitad de lo mismo: el catálogo es CERRADO y no adivina.
+        Deducir la dirección por el sufijo acertaría casi siempre, y el casi
+        convierte una mejora en un `FAIL` de R3."""
+        m = self._build(metrics=[{"name": "kappa_de_cohen", "value": 0.42}])
+        metrica = m["metrics"][0]
+        self.assertIsNone(metrica["direction"])
+        self.assertIsNone(metrica["aggregation"])
+        self.assertIn("direction", metrica["incomplete"])
+        self.assertIn("aggregation", metrica["incomplete"])
+        self.assertFalse(metrica["comparable"])
+
+    def test_una_perdida_declara_direccion_pero_NO_agregacion(self):
+        """Cómo promedia cada entrenador su pérdida no está medido, y
+        ponerle «mean» porque lo normal sea eso sería inventarlo."""
+        metrica = self._build(
+            metrics=[{"name": "final_train_loss", "value": 0.13}])["metrics"][0]
+        self.assertEqual(metrica["direction"], "lower_is_better")
+        self.assertIsNone(metrica["aggregation"])
+        self.assertIn("aggregation", metrica["incomplete"])
+
+    def test_lo_que_DECLARA_quien_exporta_manda_sobre_el_catalogo(self):
+        """El catálogo RELLENA, no pisa: si alguien mide una `accuracy` en
+        la que menos es mejor, sabrá por qué — y el paquete lo dice."""
+        metrica = self._build(metrics=[{
+            "name": "accuracy", "value": 0.6, "direction": "lower_is_better",
+        }])["metrics"][0]
+        self.assertEqual(metrica["direction"], "lower_is_better")
 
     def test_a_metric_is_comparable_only_when_r3_could_actually_use_it(self):
         completa = {
@@ -896,18 +1020,50 @@ class ElManifiestoNoPuedeMentirTest(unittest.TestCase):
             "tolerance_abs": 0.0,
         }
         self.assertTrue(self._build(metrics=[completa])["metrics"][0]["comparable"])
-        for quitar in ("split", "dataset_sha256", "direction"):
+        # `direction` ya no entra en el bucle: el core la sabe de `accuracy`
+        # y la repone, así que quitarla del llamante no deja la métrica coja.
+        # Su caso vive abajo, con una métrica que el catálogo NO conoce.
+        for quitar in ("split", "dataset_sha256"):
             with self.subTest(quitar=quitar):
                 recortada = {k: v for k, v in completa.items() if k != quitar}
                 m = self._build(metrics=[recortada])
                 self.assertFalse(m["metrics"][0]["comparable"])
                 self.assertIn(quitar, m["metrics"][0]["incomplete"])
         # Sin NINGUNA tolerancia no hay umbral, y §5 bis prohíbe inventarlo.
+        # La tolerancia ya no entra aquí por lo mismo que `direction`: el
+        # core la sabe MEDIDA para `accuracy` y la repone con su alcance.
+        # El caso de la que NO se puede reponer va justo debajo.
         sin_tolerancia = {k: v for k, v in completa.items() if k != "tolerance_abs"}
-        self.assertFalse(self._build(metrics=[sin_tolerancia])["metrics"][0]["comparable"])
-        # Con la relativa en vez de la absoluta, sí.
+        repuesta = self._build(metrics=[sin_tolerancia])["metrics"][0]
+        self.assertTrue(repuesta["comparable"])
+        self.assertEqual(repuesta["tolerance_scope"], "same_environment_same_seed")
+        # Y con la relativa en vez de la absoluta, también.
         sin_tolerancia["tolerance_rel"] = 0.001
         self.assertTrue(self._build(metrics=[sin_tolerancia])["metrics"][0]["comparable"])
+
+    def test_una_metrica_DESCONOCIDA_sigue_sin_tolerancia_que_reponer(self):
+        """El catálogo no inventa: declarar una tolerancia para una métrica
+        cuya repetibilidad nadie ha medido sería el cero inventado otra vez,
+        solo que con más letra pequeña."""
+        m = self._build(metrics=[{
+            "name": "kappa_de_cohen", "value": 0.42, "split": "validation",
+            "dataset_sha256": _DATASET_SHA, "direction": "higher_is_better",
+        }])["metrics"][0]
+        self.assertIsNone(m["tolerance_abs"])
+        self.assertIsNone(m.get("tolerance_scope"))
+        self.assertFalse(m["comparable"])
+        self.assertIn("tolerance_abs", m["incomplete"])
+        self.assertIn("tolerance_rel", m["incomplete"])
+
+    def test_la_tolerancia_del_llamante_MANDA_sobre_la_medida(self):
+        """Quien mide su propia repetibilidad sabe más que este catálogo."""
+        m = self._build(metrics=[{
+            "name": "accuracy", "value": 0.6, "split": "validation",
+            "dataset_sha256": _DATASET_SHA, "tolerance_abs": 0.05,
+            "tolerance_scope": "matriz de entornos v1",
+        }])["metrics"][0]
+        self.assertEqual(m["tolerance_abs"], 0.05)
+        self.assertEqual(m["tolerance_scope"], "matriz de entornos v1")
 
     def test_the_caller_cannot_declare_its_own_metric_comparable(self):
         m = self._build(metrics=[{"name": "a", "value": 0.9, "comparable": True,
@@ -1092,6 +1248,10 @@ class LaCapturaMandaTest(unittest.TestCase):
         from matrixai.export import build_reproduce_manifest
         if provenance == "auto":
             provenance = _captura(generation={"seeds": {"dataset": 42}})
+        # Lo que esta clase mide es de dónde salen los DATOS del manifiesto, no
+        # el estado de los pesos: el caso honesto lo declara para que un `false`
+        # aquí signifique siempre lo que la prueba dice medir.
+        over.setdefault("weights_source", "trained")
         return build_reproduce_manifest(
             self.td, training_filename="model.mxtrain",
             recipe_filename="data_recipe.txt", run_provenance=provenance, **over)
@@ -1161,7 +1321,11 @@ class LaCapturaMandaTest(unittest.TestCase):
         m = self._build(provenance=cap)
         firma = m["provenance"]["run_capture"]
         self.assertTrue(firma["present"])
-        self.assertEqual(firma["schema_version"], "1.0")
+        # La versión que declare LA CAPTURA, no un literal: lo que se mide
+        # es que el manifiesto nombre su origen, no en qué versión estamos
+        # hoy. Escrito así tras el salto a 1.2 (A2), que rompió este aserto
+        # sin que nada del producto estuviera mal.
+        self.assertEqual(firma["schema_version"], cap["schema_version"])
         self.assertEqual(len(firma["sha256"]), 64)
         self.assertNotIn(cap["mxtrain_text"], json.dumps(m))
         # Y cambia con la captura: dos runs distintos no firman igual.
@@ -1382,12 +1546,16 @@ class LaCapturaMandaTest(unittest.TestCase):
         m = self._build(metrics=[{"name": "accuracy", "value": 0.61,
                                   "split": "validation"}])
         metrica = m["metrics"][0]
-        self.assertIn("tolerance_abs", metrica["incomplete"])
+        # Lo que sigue faltando y NO bloquea a R3: el evaluador no existe en
+        # ningún registro. `direction` y la tolerancia sí las sabe el core.
         self.assertIn("evaluator_version", metrica["incomplete"])
-        self.assertIn("direction", metrica["incomplete"])
+        self.assertEqual(metrica["direction"], "higher_is_better")
+        self.assertEqual(metrica["tolerance_abs"], 0.0)
+        self.assertEqual(metrica["tolerance_scope"], "same_environment_same_seed")
+        # Lo único que la deja fuera de R3 ahora es el `dataset_sha256`: sin
+        # saber SOBRE QUÉ se midió, no hay nada contra lo que contrastar.
+        self.assertIn("dataset_sha256", metrica["incomplete"])
         self.assertFalse(metrica["comparable"])
-        self.assertIsNone(metrica["tolerance_abs"])
-        self.assertIsNone(metrica["tolerance_rel"])
         self.assertFalse(m["verifiable"]["r3"]["possible"])
         self.assertIn("metrics", m["verifiable"]["r3"]["missing"])
         # Y no lo pone en falso: reproducir y contrastar son cosas distintas.
@@ -1414,6 +1582,338 @@ class LaCapturaMandaTest(unittest.TestCase):
         self.assertEqual(m["conflicts"], [])
         self.assertTrue(m["metrics"][0]["comparable"])
         self.assertTrue(m["reproducible"])
+
+
+class ElManifiestoNoSellaLoQueNoSabeTest(unittest.TestCase):
+    """82-C3 · el manifiesto conoce el ESTADO DE LOS PESOS y lo que no se ve
+    en el `.mxtrain`.
+
+    EL HALLAZGO, verificado por el supervisor el 2026-08-19 exportando un job
+    ANTES de que terminara de entrenar: la respuesta HTTP decía
+    `weights_source: untrained`, `reproduce.json` decía `reproducible: true`
+    sin un motivo en contra, y `weights_source` NO viajaba dentro del ZIP
+    —`export_manifest.json` no tiene esa clave—. El aviso vivía solo en la
+    respuesta HTTP, que no acompaña al paquete: quien lo recibiera leía un
+    modelo declarado reproducible cuyos pesos son ruido de la inicialización.
+
+    Y los tres huecos que el `.mxtrain` no puede tapar por su cuenta:
+
+      * las ÉPOCAS EFECTIVAS —`_apply_epoch_cap` recorta con el tope del
+        operador o con el override del cliente y el contrato sigue diciendo
+        `EPOCHS 50` mientras corrieron 4—,
+      * los RANGOS, que deciden con qué datos se entrenó de verdad,
+      * las FILAS que el entrenamiento usó, que no son las del CSV crudo,
+      * y el WARM START: con torch se midió loss 1.102227 desde cero contra
+        1.094253 reanudado, con la MISMA captura byte a byte.
+    """
+
+    def setUp(self):
+        self.td = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, str(self.td), True)
+        shutil.copy2(_FALL_RISK_MXAI, self.td / "model.mxai")
+        shutil.copy2(_FALL_RISK_MXTRAIN, self.td / "model.mxtrain")
+        (self.td / "data_recipe.txt").write_text(_RECIPE, encoding="utf-8")
+
+    def _build(self, *, captura=None, **over):
+        """El caso honesto: captura coherente y pesos declarados entrenados."""
+        from matrixai.export import build_reproduce_manifest
+        over.setdefault("weights_source", "trained")
+        return build_reproduce_manifest(
+            self.td, training_filename="model.mxtrain",
+            recipe_filename="data_recipe.txt",
+            run_provenance=_captura(generation={"seeds": {"dataset": 42}},
+                                    **(captura or {})),
+            **over)
+
+    # ── B1 · unos pesos sin entrenar no son «el modelo» ────────────────
+
+    def test_untrained_weights_cannot_be_declared_reproducible(self):
+        m = self._build(weights_source="untrained")
+        self.assertFalse(m["reproducible"])
+        self.assertEqual(m["missing"][0], "weights_untrained")
+        self.assertIn("random initialisation", m["reproducible_reason"])
+
+    def test_not_stated_is_not_trained(self):
+        # Lo que el manifiesto NO sabe no puede sellarlo. Un paquete que calla
+        # sobre sus pesos no está diciendo que estén entrenados.
+        m = self._build(weights_source=None)
+        self.assertFalse(m["reproducible"])
+        self.assertEqual(m["missing"][0], "weights_source")
+        self.assertIsNone(m["weights"]["source"])
+        self.assertIn("'not stated' is not 'trained'", m["reproducible_reason"])
+
+    def test_the_state_of_the_weights_travels_in_the_manifest(self):
+        # Que viaje DENTRO es la mitad del hallazgo: el aviso existía solo en
+        # la respuesta HTTP del export, que no acompaña al ZIP.
+        for estado in ("trained", "untrained"):
+            with self.subTest(estado=estado):
+                self.assertEqual(self._build(weights_source=estado)["weights"],
+                                 {"source": estado})
+
+    def test_the_claim_opens_with_the_warning_when_the_weights_are_random(self):
+        # El `claim` es la frase que resume el fichero: si estos pesos no han
+        # aprendido nada, eso va ANTES que ninguna otra cosa.
+        m = self._build(weights_source="untrained")
+        self.assertTrue(m["claim"].startswith("WARNING:"), m["claim"][:80])
+        self.assertIn("predicts nothing that was learned", m["claim"])
+        self.assertNotIn("internally consistent and reproducible", m["claim"])
+        # Y con el caso honesto NO aparece: un aviso que sale siempre no avisa.
+        self.assertNotIn("WARNING", self._build()["claim"])
+
+    def test_a_weights_state_that_is_not_one_is_refused(self):
+        # Un valor imposible es un fallo de cableado de quien empaqueta y se
+        # corta aquí; publicarlo como `null` lo confundiría con «no consta».
+        from matrixai.export import ReproduceManifestError
+        for basura in ("magia", "", "  ", "Trained", True, 1, ["trained"]):
+            with self.subTest(basura=basura):
+                with self.assertRaises(ReproduceManifestError):
+                    self._build(weights_source=basura)
+
+    def test_the_capture_can_deny_the_weights_but_never_vouch_for_them(self):
+        # La captura se compone al EMPEZAR el run: no puede testificar sobre
+        # unos bytes que alguien eligió después (por eso mismo sobrevivía al
+        # borrado de los pesos). Puede desmentir a quien empaqueta, no avalarlo.
+        m = self._build(captura={"weights_source": "untrained"},
+                        weights_source="trained")
+        self.assertFalse(m["reproducible"])
+        conflicto = [c for c in m["conflicts"] if c["field"] == "weights.source"]
+        self.assertEqual(len(conflicto), 1)
+        self.assertEqual(conflicto[0]["captured"], "untrained")
+        self.assertEqual(conflicto[0]["received"], "trained")
+        # Y lo que se PUBLICA es el desmentido, no lo que dice quien empaqueta:
+        # el conflicto por sí solo ya dejaría el paquete en `false`, así que sin
+        # esto la regla no se estaría midiendo (medido con revert-restore: al
+        # quitarla, esta prueba seguía verde).
+        self.assertEqual(m["weights"]["source"], "untrained")
+        self.assertIn("weights_untrained", m["missing"])
+        # Al revés no: que el run acabara con pesos no dice qué se empaquetó.
+        m = self._build(captura={"weights_source": "trained"}, weights_source=None)
+        self.assertFalse(m["reproducible"])
+        self.assertIn("weights_source", m["missing"])
+
+    def test_untrained_weights_do_not_pretend_r1_is_impossible(self):
+        # Declarar de más en la otra dirección también es mentir: con unos
+        # pesos sin entrenar el dataset se sigue pudiendo regenerar y el
+        # modelo se sigue pudiendo reentrenar. Lo que no se puede es
+        # contrastar las métricas de un modelo que no salió de este run.
+        m = self._build(weights_source="untrained")
+        self.assertTrue(m["verifiable"]["r1"]["possible"])
+        self.assertTrue(m["verifiable"]["training"]["possible"])
+        self.assertFalse(m["verifiable"]["r3"]["possible"])
+        self.assertIn("weights_untrained", m["verifiable"]["r3"]["missing"])
+
+    # ── A1 · las épocas que corrieron, no las que declara el contrato ──
+
+    def test_the_contract_that_travels_has_to_be_the_one_that_ran(self):
+        # Medido: con `MATRIXAI_MAX_EPOCHS=3` y un `.mxtrain` que declara 50
+        # corrieron 3 y el paquete seguía llevando el contrato con su «EPOCHS
+        # 50» y `reproducible: true`. Quien reentrenara con ese contrato
+        # correría 50 y no llegaría a estos pesos. El contrato de ejemplo
+        # declara 30, así que un run de 3 lo contradice.
+        m = self._build(captura={"epochs_effective": 3, "epochs_ran": 3})
+        self.assertEqual(m["generation"]["epochs_declared"], 30)
+        self.assertEqual(m["generation"]["epochs_effective"], 3)
+        conflicto = [c for c in m["conflicts"] if c["field"] == "generation.epochs"]
+        self.assertEqual(len(conflicto), 1)
+        self.assertEqual(conflicto[0]["source"], "training_contract")
+        self.assertEqual((conflicto[0]["captured"], conflicto[0]["received"]), (3, 30))
+        self.assertFalse(m["reproducible"])
+
+    def test_the_same_epochs_are_not_a_contradiction(self):
+        # Un banco con dientes muerde solo lo malo: sin tope, las dos cifras
+        # coinciden y el paquete sigue siendo reproducible.
+        m = self._build()
+        self.assertEqual(m["conflicts"], [])
+        self.assertTrue(m["reproducible"])
+
+    def test_stopping_early_is_not_a_contradiction(self):
+        # MEDIDO por el core con `EARLY_STOP patience=1`: `effective` 50 y
+        # `ran` 20 sin que ningún tope tocara nada. Eso SÍ se reproduce —el
+        # early stop lo declara el propio contrato— así que declararlo
+        # contradicción sería una falsa alarma, y una alarma que salta en
+        # paquetes honestos no avisa de nada.
+        m = self._build(captura={"epochs_effective": 30, "epochs_ran": 12})
+        self.assertEqual(m["generation"]["epochs_ran"], 12)
+        self.assertEqual(m["conflicts"], [])
+        self.assertTrue(m["reproducible"])
+
+    def test_epochs_the_run_could_not_have_executed_are_refused(self):
+        from matrixai.export import ReproduceManifestError
+        for basura in (0, -3, "30", 30.0, True):
+            with self.subTest(effective=basura):
+                with self.assertRaises(ReproduceManifestError):
+                    self._build(captura={"epochs_effective": basura})
+        # `ran: 0` SÍ es un hecho —un run cancelado antes de terminar la
+        # primera época—, y confundirlo con un imposible tiraría una captura
+        # honesta.
+        self.assertEqual(
+            self._build(captura={"epochs_ran": 0})["generation"]["epochs_ran"], 0)
+        for basura in (-1, "0", 1.0, True):
+            with self.subTest(ran=basura):
+                with self.assertRaises(ReproduceManifestError):
+                    self._build(captura={"epochs_ran": basura})
+
+    def test_running_more_epochs_than_the_run_was_configured_for_is_impossible(self):
+        """Correr MÁS de lo que el run se configuró a correr no puede pasar.
+
+        `epochs_effective` es el tope ya aplicado y `epochs_ran` lo que
+        cupo dentro: `ran <= effective`, siempre. Lo contrario no lo
+        produce el core —`epochs_ran` es `len(job["epochs"])` de ESE run,
+        no un acumulado—, y el contrato ya decidió qué hacer con un valor
+        imposible: es un fallo de cableado de quien entrena, se corta
+        aquí y no viaja dentro de un paquete.
+
+        Sin esto, una captura escrita a mano con `effective: 3` y
+        `ran: 10000` salía `reproducible: true` (medido 2026-08-19).
+        """
+        from matrixai.export import ReproduceManifestError
+        with self.assertRaises(ReproduceManifestError) as caja:
+            self._build(captura={"epochs_effective": 3, "epochs_ran": 10000})
+        # El mensaje NOMBRA las dos cifras: «imposible» a secas obliga a
+        # quien lo recibe a adivinar cuál de las dos está mal.
+        texto = str(caja.exception)
+        self.assertIn("3", texto)
+        self.assertIn("10000", texto)
+
+        # Y el borde NO es un imposible: correrlas TODAS es lo normal.
+        # Las 30 son las que declara el `.mxtrain` del fixture — con otra
+        # cifra saltaría el conflicto `generation.epochs`, que es un aviso
+        # verdadero y no lo que este caso mide.
+        m = self._build(captura={"epochs_effective": 30, "epochs_ran": 30})
+        self.assertEqual(m["conflicts"], [])
+        self.assertTrue(m["reproducible"])
+
+    def test_a_capture_that_does_not_count_epochs_invents_nothing(self):
+        # Ausente no es cero, y tampoco «las que dice el contrato». Sin las
+        # efectivas no hay con qué contrastar, y no se inventa un conflicto.
+        m = self._build(captura={"epochs_effective": None, "epochs_ran": None})
+        self.assertEqual(m["generation"]["epochs_declared"], 30)
+        self.assertIsNone(m["generation"]["epochs_effective"])
+        self.assertEqual(m["conflicts"], [])
+
+    # ── A3 · los rangos deciden con qué datos se entrenó ───────────────
+
+    def test_the_ranges_that_decided_the_prepared_csv_travel(self):
+        m = self._build(captura={"field_ranges": {"age": [40, 95]},
+                                 "target_range": [0, 100]})
+        self.assertEqual(m["generation"]["field_ranges"], {"age": [40, 95]})
+        self.assertEqual(m["generation"]["target_range"], [0, 100])
+        self.assertTrue(m["reproducible"])
+
+    def test_a_range_that_cannot_be_used_is_refused(self):
+        from matrixai.export import ReproduceManifestError
+        for basura in ([100, 0], [1], "0-100", [0, float("inf")], {"min": 0}):
+            with self.subTest(basura=basura):
+                with self.assertRaises(ReproduceManifestError):
+                    self._build(captura={"target_range": basura})
+
+    def test_no_ranges_is_still_a_legitimate_answer(self):
+        m = self._build()
+        self.assertIsNone(m["generation"]["target_range"])
+        self.assertIsNone(m["generation"]["field_ranges"])
+        self.assertTrue(m["reproducible"])
+
+    # ── M1 · las filas del fichero y las que entrenaron ────────────────
+
+    def test_both_row_counts_travel_because_they_answer_two_questions(self):
+        # Medido: cinco líneas en blanco daban 305 para unos pesos entrenados
+        # con 300 —con el MISMO `sha256_prepared` que el CSV limpio—, así que
+        # regenerar ese número no daba el dataset del run.
+        m = self._build(captura={"dataset_rows": 305, "dataset_rows_used": 300})
+        self.assertEqual(m["artifacts"]["dataset"]["rows"], 305)
+        self.assertEqual(m["artifacts"]["dataset"]["rows_used"], 300)
+
+    def test_the_payload_may_report_either_count(self):
+        # Quien exporta manda una de las dos según de dónde la saque: tratar la
+        # otra como contradicción haría saltar la alarma en paquetes honestos.
+        for filas in (305, 300):
+            with self.subTest(filas=filas):
+                m = self._build(captura={"dataset_rows": 305,
+                                         "dataset_rows_used": 300},
+                                dataset_rows=filas)
+                self.assertEqual(m["conflicts"], [])
+        m = self._build(captura={"dataset_rows": 305, "dataset_rows_used": 300},
+                        dataset_rows=299)
+        self.assertIn("artifacts.dataset.rows", [c["field"] for c in m["conflicts"]])
+        self.assertFalse(m["reproducible"])
+
+    def test_row_counts_that_no_run_can_have_are_refused(self):
+        from matrixai.export import ReproduceManifestError
+        for basura in (0, -1, "300", 300.0, True):
+            with self.subTest(basura=basura):
+                with self.assertRaises(ReproduceManifestError):
+                    self._build(captura={"dataset_rows_used": basura})
+
+    # ── B3 · de dónde arrancaron los pesos ─────────────────────────────
+
+    def test_a_warm_started_run_cannot_promise_the_same_numbers(self):
+        # El `initial_state_dict` no está en el `.mxtrain` ni en las semillas:
+        # medido con torch, desde cero loss 1.102227 y reanudado 1.094253 con
+        # la MISMA captura. Los pesos iniciales no viajan en el paquete.
+        m = self._build(captura={"warm_start": {"sha256": "c" * 64,
+                                                "tensors": 4, "params": 1282}})
+        self.assertFalse(m["reproducible"])
+        self.assertIn("warm_start", m["missing"])
+        self.assertIn("warm start", m["reproducible_reason"])
+        # Y la huella viaja: quien tenga el paquete anterior puede recomputarla.
+        self.assertEqual(m["generation"]["warm_start"]["sha256"], "c" * 64)
+
+    def test_weights_offered_and_ignored_are_not_a_warm_start(self):
+        # La mitad silenciosa: el camino stdlib IGNORA los pesos ofrecidos
+        # —misma loss exacta que sin ellos—, y el core resuelve eso a `false`
+        # al terminar. Ese run SÍ partió de la inicialización, y declararlo
+        # irreproducible sería la mentira del otro lado.
+        m = self._build(captura={"warm_start": False})
+        self.assertTrue(m["reproducible"], m["reproducible_reason"])
+
+    def test_offered_weights_the_run_never_ruled_on_do_not_pass(self):
+        # `null` = llegaron pesos y el run no llegó a decir si los usó. No se
+        # puede distinguir de uno que sí, y los dos no dan los mismos números.
+        m = self._build(captura={"warm_start": None})
+        self.assertFalse(m["reproducible"])
+        self.assertIn("warm_start_undecided", m["missing"])
+
+    def test_a_cold_start_is_declared_and_does_not_block(self):
+        m = self._build()
+        self.assertIs(m["generation"]["warm_start"], False)
+        self.assertTrue(m["reproducible"])
+
+    def test_a_capture_that_does_not_say_where_the_weights_started_is_a_hole(self):
+        # Una captura "1.0" —un modelo guardado antes de este corte— no lo
+        # declara. «No consta» no es «partió de cero»: nada descarta que este
+        # modelo se reentrenara sobre otro cuyos pesos no viajan aquí.
+        from matrixai.export import build_reproduce_manifest
+        vieja = _captura(generation={"seeds": {"dataset": 42}})
+        vieja["schema_version"] = "1.0"
+        for clave in ("warm_start", "epochs_effective", "epochs_ran",
+                      "dataset_rows_used"):
+            vieja.pop(clave)
+        m = build_reproduce_manifest(
+            self.td, training_filename="model.mxtrain",
+            recipe_filename="data_recipe.txt", run_provenance=vieja,
+            weights_source="trained")
+        self.assertFalse(m["reproducible"])
+        self.assertIn("warm_start_unknown", m["missing"])
+        # Y lo que esa captura no traía se declara `null`, no cero.
+        self.assertIsNone(m["generation"]["epochs_effective"])
+        self.assertIsNone(m["artifacts"]["dataset"]["rows_used"])
+
+    def test_a_warm_start_that_says_nothing_is_refused(self):
+        from matrixai.export import ReproduceManifestError
+        # `true` a secas diría que hubo warm start sin decir de qué pesos, y
+        # eso no se puede contrastar con nada.
+        for basura in ("si", 1, ["a"], 0.5, True,
+                       {"sha256": "corto"}, {"sha256": "c" * 64, "tensors": 0}):
+            with self.subTest(basura=basura):
+                with self.assertRaises(ReproduceManifestError):
+                    self._build(captura={"warm_start": basura})
+
+    def test_a_capture_version_this_core_cannot_read_is_still_refused(self):
+        from matrixai.export import ReproduceManifestError
+        for version in ("9.9", "2.0", "1", None, 1.1):
+            with self.subTest(version=version):
+                with self.assertRaises(ReproduceManifestError):
+                    self._build(captura={"schema_version": version})
 
 
 if __name__ == "__main__":

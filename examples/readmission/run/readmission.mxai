@@ -1,0 +1,43 @@
+PROJECT ReadmissionRisk
+
+# DEMOSTRACIÓN. Datos sintéticos. NO validado clínicamente y NO apto para
+# decisiones asistenciales: es un sistema de apoyo, y no sustituye al
+# profesional. Contrato 81-C6, §16.2.
+#
+# La entrada es EXACTAMENTE el vector que produce la fusión del caso
+# (20 columnas: 9 tabulares + 11 de la nota). Los nombres
+# salen de `readmission_datos.columnas()`, no escritos a mano: dos sitios
+# nombrando las mismas columnas acaban perdiendo una.
+VECTOR CaseFeatures[20]
+  edad: Score
+  ingresos_previos_12m: Score
+  dias_de_estancia: Score
+  servicio_medicina_interna: Score
+  servicio_cardiologia: Score
+  servicio_neumologia: Score
+  servicio_cirugia: Score
+  alta_voluntaria: Score
+  alta_voluntaria__ausente: Score
+  nota_disnea: Score
+  nota_edema: Score
+  nota_fiebre: Score
+  nota_dolor: Score
+  nota_caida: Score
+  nota_confusion: Score
+  nota_oxigeno: Score
+  nota_diuretico: Score
+  nota_insulina: Score
+  nota_reingreso: Score
+  nota_soledad: Score
+END
+
+NETWORK ReadmissionHead
+  INPUT CaseFeatures
+  LAYER Dense units=8 activation=relu
+  LAYER Dense units=2 activation=softmax
+  OUTPUT riesgo: Tensor
+END
+
+GRAPH
+  CaseFeatures -> ReadmissionHead
+END

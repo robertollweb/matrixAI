@@ -1,0 +1,41 @@
+{
+  "accuracy": 0.8575,
+  "confusion_matrix": {
+    "no_reingreso": {
+      "no_reingreso": 234,
+      "reingreso": 42
+    },
+    "reingreso": {
+      "no_reingreso": 15,
+      "reingreso": 109
+    }
+  },
+  "dataset": "examples/readmission/data/train.csv",
+  "dataset_fingerprint": "data_0fd195df2daadc62",
+  "dataset_schema": {},
+  "labels": [
+    "no_reingreso",
+    "reingreso"
+  ],
+  "loss": 0.3516915245711186,
+  "macro_f1": 0.842078,
+  "macro_precision": 0.8308065,
+  "macro_recall": 0.863429,
+  "model": "examples/readmission/readmission.mxai",
+  "model_hash": "mxai_da787a542e8154ca",
+  "parameter_schema_hash": "params_730985905827a840",
+  "parameter_set_id": "ReadmissionHead_initial",
+  "per_label": {
+    "no_reingreso": {
+      "f1": 0.891429,
+      "precision": 0.939759,
+      "recall": 0.847826
+    },
+    "reingreso": {
+      "f1": 0.792727,
+      "precision": 0.721854,
+      "recall": 0.879032
+    }
+  },
+  "rows": 400
+}

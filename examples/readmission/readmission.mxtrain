@@ -1,0 +1,54 @@
+MODEL examples/readmission/readmission.mxai
+
+DATASET ReadmissionSet
+  SOURCE csv("examples/readmission/data/train.csv")
+  INPUT CaseFeatures FROM COLUMNS [
+    edad,
+    ingresos_previos_12m,
+    dias_de_estancia,
+    servicio_medicina_interna,
+    servicio_cardiologia,
+    servicio_neumologia,
+    servicio_cirugia,
+    alta_voluntaria,
+    alta_voluntaria__ausente,
+    nota_disnea,
+    nota_edema,
+    nota_fiebre,
+    nota_dolor,
+    nota_caida,
+    nota_confusion,
+    nota_oxigeno,
+    nota_diuretico,
+    nota_insulina,
+    nota_reingreso,
+    nota_soledad
+  ]
+  TARGET etiqueta: Label[no_reingreso, reingreso]
+  SPLIT train=0.8 validation=0.2 seed=42
+  BATCH size=16 shuffle=true
+END
+
+LOSS ReadmissionLoss
+  TYPE cross_entropy
+  PREDICTION riesgo
+  TARGET etiqueta
+END
+
+OPTIMIZER ReadmissionOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.3
+  UPDATE W1, b1, W2, b2
+END
+
+METRIC Accuracy
+  TYPE accuracy
+  PREDICTION riesgo
+  TARGET etiqueta
+END
+
+RUN
+  EPOCHS 200
+  EARLY_STOP patience=30 metric=validation_loss
+  SAVE_BEST true
+END

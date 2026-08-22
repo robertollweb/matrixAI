@@ -1,0 +1,6 @@
+{
+  "entry_hash": "sha256:66e11739f0b4d0486d1f2ffcf19a53f6b2b7fa1c6bc6e356a58b6dbdf20bf96a",
+  "signature": "hmac-sha256:bd2725750a6f822dca41b60faecc7fa954171416c4e3da6fe9d7809092a8ea2f",
+  "signed_at": "2026-08-20T12:54:11.390268+00:00",
+  "signing_key_fingerprint": "sha256:06c7aab01bea53bf"
+}

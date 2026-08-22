@@ -1398,6 +1398,22 @@ def _composite_types_compatible(src: dict[str, Any], dst: dict[str, Any]) -> boo
         dst_shape = dst.get("shape", [])
         if src_shape and dst_shape and list(src_shape) != list(dst_shape):
             return False
+    if src_kind == "VECTOR":
+        # La TALLA, simétrico a la forma de `Tensor`. Un `VECTOR[2]` casaba
+        # con un `VECTOR[30]` (medido 2026-08-20): mientras los manifiestos
+        # salían vacíos daba igual —no había talla que comparar—, pero desde
+        # que `push_run_dir` la publica, ignorarla convierte el `Typecheck
+        # OK` en una media verdad tranquilizadora.
+        #
+        # `is not None` y no `if src_size`: `0` es falsy en Python y es un
+        # DATO, no un hueco. Y si a uno de los dos lados no le consta la
+        # talla no se inventa un desencaje — es el caso de todo lo publicado
+        # antes de este corte, y declararlo roto tiraría compuestos que hoy
+        # funcionan.
+        src_size = src.get("size")
+        dst_size = dst.get("size")
+        if src_size is not None and dst_size is not None and src_size != dst_size:
+            return False
     return True
 
 
@@ -1406,7 +1422,16 @@ def _node_output_type(node: str, program: Any, entries: dict[str, Any]) -> dict[
         return entries[node].output_type or {}
     for v in getattr(program, "vectors", []):
         if v.name == node:
-            return {"kind": "VECTOR", "name": v.name}
+            # Con su TALLA: sin ella la comparación de arriba no tiene qué
+            # comparar y un `VECTOR[2]` entraba en una pieza que declara
+            # `VECTOR[30]` con un `Typecheck OK` (medido 2026-08-20).
+            # `size` solo si es un entero de verdad: un valor raro aquí
+            # inventaría un desencaje en vez de callarse.
+            talla = getattr(v, "size", None)
+            tipo = {"kind": "VECTOR", "name": v.name}
+            if type(talla) is int:
+                tipo["size"] = talla
+            return tipo
     for net in getattr(program, "networks", []):
         if net.name == node:
             return {"kind": net.output_type_str}

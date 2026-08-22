@@ -12,7 +12,7 @@ Este módulo escribe la pieza que faltaba: un manifiesto versionado donde
 cada artefacto va **por referencia con su digest**, para que verificar y
 cargar sean la misma operación (§5-C1 del contrato).
 
-Tres decisiones que no son de estilo:
+Cuatro decisiones que no son de estilo:
 
 * **El sha256 va COMPLETO** (§6.6), y no es solo por la longitud. La
   huella que enseña el producto es `"data_" + sha256(...)[:16]` —64 bits,
@@ -31,6 +31,17 @@ Tres decisiones que no son de estilo:
   motivo. No se le fabrica una receta: los modelos entrenados con datos
   reales —el caso del hospital— no tienen ninguna que compartir, y fingir
   que sí es peor que no poder reproducirlos.
+* **El manifiesto no puede sellar lo que no sabe.** Medido el 2026-08-19
+  exportando un job antes de que terminara de entrenar: la respuesta HTTP
+  decía `weights_source: untrained` y `reproduce.json` decía
+  `reproducible: true`, porque el manifiesto no sabía NADA de los pesos y el
+  aviso vivía solo en esa respuesta —que no acompaña al ZIP—. Ahora el estado
+  de los pesos entra como dato (`weights_source`), viaja dentro del paquete
+  (`weights.source`) y **«no consta» no es «entrenado»**: sin él no hay
+  `reproducible: true`. Lo mismo con lo que el `.mxtrain` no puede decir —las
+  épocas que de verdad corrieron, los rangos que decidieron el CSV preparado,
+  las filas que se usaron y si el run arrancó de unos pesos que ya existían—:
+  se publica lo que el run capturó, y lo que se contradiga se declara.
 * **El entorno va CERRADO**. Medido el 2026-08-19: el `requirements.txt`
   del bundle es `numpy>=1.24` / `onnxruntime>=1.16`, que sirve para
   INFERIR y no para reproducir un número —esta máquina tiene numpy 2.4.4 y
@@ -54,6 +65,10 @@ from matrixai.training.dataset_manifest import (
     SYNTHETIC_GENERATOR_VERSION,
 )
 from matrixai.training.domain_rules import RECIPE_FORMAT_VERSION
+from matrixai.training.metric_identity import (
+    identidad_de_metrica,
+    tolerancia_medida,
+)
 
 #: Versión del formato de ESTE manifiesto (§5-C1 del contrato lo fija en "1.0").
 #: Un consumidor que no la reconozca debe negarse a interpretarlo, no adivinar.
@@ -121,6 +136,17 @@ _TRAINING_BACKENDS = ("stdlib", "torch")
 _METRIC_SPLITS = ("train", "validation", "test", "full")
 _METRIC_DIRECTIONS = ("higher_is_better", "lower_is_better")
 
+#: De dónde salen LOS PESOS QUE VIAJAN EN ESTE PAQUETE. Vocabulario del
+#: producto, no inventado aquí: `endpoints.py:5471` lo calcula como
+#: `"trained" if has_weights else "untrained"` y la interfaz lo lee con ese
+#: mismo par (`studio/src/api/client.ts:1102`).
+#:
+#: No es un dato del RUN y por eso no sale de la captura: la captura se compone
+#: al EMPEZAR a entrenar y no puede testificar sobre los bytes que alguien
+#: empaquetó después. Lo declara quien empaqueta, que es el único que los ha
+#: visto.
+_WEIGHTS_SOURCES = ("trained", "untrained")
+
 #: Qué necesita una métrica para que R3 pueda CONTRASTARLA (no para publicarla).
 #: Sin `split` no es la misma cifra; sin `dataset_sha256` no se sabe sobre QUÉ
 #: datos se midió; sin `direction` no se puede decir si desviarse es mejor o
@@ -141,7 +167,19 @@ _CORE_OWNED_METRIC_KEYS = ("comparable", "incomplete")
 #: y el import al revés cerraría el círculo. Una versión desconocida se RECHAZA
 #: en vez de interpretarse a medias — adivinar qué significa un campo nuevo es
 #: justo lo que el `schema_version` existe para evitar.
-_RUN_PROVENANCE_SCHEMA_VERSIONS = ("1.0",)
+#: "1.1" (2026-08-19) es ADITIVA sobre "1.0" y la escribe el core desde este
+#: corte: los mismos campos obligatorios más `epochs_effective`, `epochs_ran`,
+#: `dataset_rows_used`, `field_ranges`, `target_range` y `warm_start`. Se
+#: aceptan LAS DOS porque las dos existen en disco —los modelos guardados antes
+#: de hoy llevan capturas "1.0"—, y la versión es justo lo que permite
+#: distinguir AUSENTE de FALSO: una captura "1.0" no dice que el run partiera
+#: de cero, dice que no lo sabe, y eso no se rellena con un `false`.
+#: 1.2 añade `recipe_verification`: si la receta y la semilla que declara la
+#: captura REGENERAN el dataset, o no se pudo comprobar. Antes de esto una
+#: captura comprobada y una sin comprobar producían bloques `provenance`
+#: idénticos, y el veredicto vivía solo en la respuesta HTTP de train-start —
+#: que no acompaña al paquete, el mismo patrón que este fichero ya reprocha.
+_RUN_PROVENANCE_SCHEMA_VERSIONS = ("1.0", "1.1", "1.2")
 
 #: Lo que la captura declara y el manifiesto publica como parámetro efectivo.
 #: Son las mismas claves que `build_generation_block` normaliza: la captura es
@@ -150,6 +188,27 @@ _RUN_PROVENANCE_SCHEMA_VERSIONS = ("1.0",)
 _RUN_PROVENANCE_GENERATION_KEYS = (
     "mode", "field_ranges", "field_types", "field_categories", "one_hot_groups",
     "excluded_identifiers", "deterministic_options",
+    # Los de la captura "1.1". Los nombres NO se eligen aquí: son los que
+    # `playground.py` escribe, leídos el 2026-08-19.
+    #   * `epochs_effective`: las que el spec se configuró a correr YA con el
+    #     tope aplicado (`_apply_epoch_cap`). El tope del operador
+    #     (`MATRIXAI_MAX_EPOCHS`, que traen los perfiles) recorta sin tocar el
+    #     contrato, así que el paquete puede llevar un `EPOCHS 50` y unos pesos
+    #     de 3 épocas.
+    #   * `epochs_ran`: las que CORRIERON. No sustituye a la anterior: medido
+    #     con `EARLY_STOP patience=1`, `effective` 50 y `ran` 20 sin que ningún
+    #     tope tocara nada — y eso SÍ se reproduce, porque el early stop lo
+    #     declara el propio contrato.
+    #   * `target_range`: la escala del objetivo. Decide con qué datos se
+    #     entrenó de verdad (`_normalize_csv_with_ranges`), igual que
+    #     `field_ranges`: sin él no se rehace el CSV preparado.
+    #   * `warm_start`: de qué pesos PARTIÓ el run. `false` = de la
+    #     inicialización; un objeto = de unos pesos que ya existían, con su
+    #     huella; `null` = llegaron pesos y el run no llegó a decir si los usó.
+    #     No está en el `.mxai`, ni en el `.mxtrain`, ni en las semillas: con
+    #     torch se midió loss 1.102227 desde cero y 1.094253 reanudado, con la
+    #     MISMA captura byte a byte.
+    "epochs_effective", "epochs_ran", "target_range", "warm_start",
 )
 
 #: Claves de la captura que NO son parámetros de generación (identidad del run,
@@ -160,7 +219,17 @@ _RUN_PROVENANCE_CORE_KEYS = (
     "schema_version", "mxai_sha256", "mxtrain_sha256", "mxtrain_text",
     "recipe_sha256", "recipe_text", "dataset_sha256_raw",
     "dataset_sha256_prepared", "dataset_rows", "seeds", "backend", "device",
-    "generator_version", "csv_serialization_version",
+    "generator_version", "csv_serialization_version", "recipe_verification",
+    # `dataset_rows_used` va con el dataset (`artifacts.dataset.rows_used`), no
+    # con los parámetros de generación: `rows` son las filas del CSV CRUDO —lo
+    # que hay que regenerar para R1— y `rows_used` las que el entrenamiento
+    # consumió del preparado. Dos preguntas distintas, como los dos digests del
+    # dataset, y por eso no se funden en una.
+    "dataset_rows_used",
+    # `weights_source` no se publica desde aquí (lo declara quien empaqueta,
+    # ver `_WEIGHTS_SOURCES`), pero se reconoce como clave de la captura para
+    # que no se cuele en `generation` como si fuera un parámetro del run.
+    "weights_source",
 )
 
 # `\Z` y NO `$`: en Python `$` casa TAMBIÉN antes de un salto de línea
@@ -279,6 +348,18 @@ def _require_plain_filename(value: Any, what: str) -> str:
     apuntara fuera del paquete, y quien lo verifique (C2) lo seguiría. El
     sandbox completo es del contrato 81, pero escribir aquí una ruta que sale
     del paquete es una forma imposible y se rechaza en origen.
+
+    **AUDITORÍA 1ª pasada (2026-08-20): esta función estaba bien y no
+    bastaba.** El párrafo de arriba decía «quien lo verifique lo seguiría»
+    —y era literalmente cierto: `verify` lo seguía—. Rechazar aquí protege
+    contra construir un paquete raro **con esta función**; no protege de
+    nada contra un paquete que llega de fuera, porque quien lo fabrica no
+    pasa por aquí. La mitad que de verdad protege es la del verificador
+    (`_ruta_fuera_del_paquete`), y faltaba.
+
+    La lección, que vale más que el arreglo: **validar en la escritura no
+    valida la lectura**. Cuando el dato viene de fuera, el que tiene que
+    comprobar es quien lo lee.
     """
     if not isinstance(value, str) or not value.strip():
         raise ReproduceManifestError(f"{what} must be a non-empty filename, got {value!r}")
@@ -333,6 +414,55 @@ def sha256_file(path: str | Path) -> str:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+#: El manifiesto no puede llevar su propio digest dentro, así que se
+#: excluye del inventario. Su integridad la cubre `manifest_sha256`.
+_FUERA_DEL_INVENTARIO = ("reproduce.json",)
+
+
+def añadir_inventario_de_ficheros(bundle_dir: str | Path) -> dict[str, Any]:
+    """Registra el digest de **TODO lo que viaja**, no solo de lo declarado.
+
+    REFUTACIÓN (2026-08-20) [BLOQUEANTE]: `reproduce.json` declaraba
+    cuatro artefactos —`model`, `training`, `recipe`, `dataset`— y el
+    paquete llevaba **catorce ficheros**. Medido: sustituyendo
+    `model.onnx`, `predict.py` y `params.best.json`, `matrixai verify`
+    contestaba **`manifest PASS`**, idéntico al del paquete honesto. Y el
+    Space del C4 ejecuta ese `predict.py` justo después de decir que el
+    paquete está íntegro.
+
+    El README del propio paquete prometía «the digest of each artifact
+    that travels», y era falso. *Se comprobaba lo que el manifiesto
+    DECLARA, no lo que el paquete LLEVA* — media limpieza, que es el
+    criterio con el que este mismo contrato rechazó el `continue` mudo de
+    los artefactos sin `sha256`.
+
+    Se llama **al final** de armar el paquete, cuando ya está todo dentro:
+    el `space/` y el `README.md` se escriben después del manifiesto, así
+    que hacerlo antes dejaría fuera justo lo que se ejecuta.
+    """
+    raiz = Path(bundle_dir)
+    manifiesto_path = raiz / "reproduce.json"
+    if not manifiesto_path.is_file():
+        return {}
+    manifest = json.loads(manifiesto_path.read_text(encoding="utf-8"))
+
+    ficheros: dict[str, str] = {}
+    for fichero in sorted(raiz.rglob("*")):
+        if not fichero.is_file() or fichero.is_symlink():
+            continue
+        relativa = fichero.relative_to(raiz).as_posix()
+        if relativa in _FUERA_DEL_INVENTARIO:
+            continue
+        ficheros[relativa] = hashlib.sha256(fichero.read_bytes()).hexdigest()
+
+    manifest["files"] = ficheros
+    manifest["files_covered"] = len(ficheros)
+    manifest["manifest_sha256"] = manifest_digest(manifest)
+    manifiesto_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=True), encoding="utf-8")
+    return manifest
 
 
 def manifest_digest(manifest: dict[str, Any]) -> str:
@@ -428,6 +558,53 @@ def _split_seed_from_training(training_text: str) -> tuple[int | None, bool]:
     return getattr(split, "seed", None), True
 
 
+def _require_range_pair(valor: Any, what: str) -> None:
+    """Un `[min, max]` que se pueda USAR al rehacer los datos.
+
+    Vive suelto porque lo piden `field_ranges` (uno por campo) y
+    `target_range` (uno para el objetivo), y las reglas son las mismas: dos
+    números finitos y en orden. Escribirlas dos veces es como acaban
+    divergiendo — este producto ya lleva catorce huecos de cableado.
+    """
+    if (not isinstance(valor, (list, tuple)) or len(valor) != 2
+            or not all(type(x) in (int, float) and math.isfinite(x) for x in valor)):
+        raise ReproduceManifestError(
+            f"{what} must be a [min, max] pair of finite numbers, got {valor!r}")
+    if valor[0] > valor[1]:
+        # Un rango del revés no recorta nada: ni el generador sabría sacar un
+        # valor de él ni el normalizador reescalar con él, y el paquete diría
+        # que sí.
+        raise ReproduceManifestError(f"{what} has min > max: {valor!r}")
+
+
+def _epochs_from_training(training_text: str | None) -> int | None:
+    """Las épocas que DECLARA el `.mxtrain`, leídas del contrato.
+
+    Mismo criterio que `_split_seed_from_training`, y por el mismo motivo: es
+    un dato del ARTEFACTO —quien recibe el paquete puede rederivarlo del
+    fichero que lleva al lado, cuyo digest está en este mismo manifiesto—, así
+    que la captura no lo copia y aquí no se pide que nadie lo declare. Dos
+    sitios declarando lo mismo acaban divergiendo.
+
+    Se lee para poder CONTRASTARLO con las épocas que el run se configuró a
+    correr. Medido el 2026-08-19: `_apply_epoch_cap` (playground.py:1430)
+    recorta con el tope del operador (`MATRIXAI_MAX_EPOCHS`, que traen los
+    perfiles) o con el override del cliente, y el `.mxtrain` sigue diciendo
+    `EPOCHS 50` mientras corrieron 3. Quien reentrenara con el contrato del
+    paquete correría 50 y no llegaría a estos pesos.
+    """
+    if training_text is None:
+        return None
+    try:
+        from matrixai.training.parser import parse_training_text
+        spec = parse_training_text(training_text)
+    except Exception:  # noqa: BLE001 — un .mxtrain que no parsea no invalida el paquete
+        return None
+    run = getattr(spec, "run", None)
+    epocas = getattr(run, "epochs", None) if run is not None else None
+    return epocas if type(epocas) is int else None
+
+
 def _validate_generation_shapes(caller: dict[str, Any]) -> None:
     """La forma de los parámetros efectivos de `generation` (§5-C1).
 
@@ -459,18 +636,58 @@ def _validate_generation_shapes(caller: dict[str, Any]) -> None:
     if "field_ranges" in caller and caller["field_ranges"] is not None:
         rangos = _require_mapping(caller["field_ranges"], "generation.field_ranges")
         for campo, valor in rangos.items():
-            if (not isinstance(valor, (list, tuple)) or len(valor) != 2
-                    or not all(type(x) in (int, float) and math.isfinite(x) for x in valor)):
-                raise ReproduceManifestError(
-                    f"generation.field_ranges[{campo!r}] must be a [min, max] pair "
-                    f"of finite numbers, got {valor!r}"
-                )
-            if valor[0] > valor[1]:
-                # Un rango del revés no recorta nada: el generador no sabría
-                # sacar ningún valor de él, y el paquete diría que sí.
-                raise ReproduceManifestError(
-                    f"generation.field_ranges[{campo!r}] has min > max: {valor!r}"
-                )
+            _require_range_pair(valor, f"generation.field_ranges[{campo!r}]")
+    if "target_range" in caller and caller["target_range"] is not None:
+        # LOS RANGOS DECIDEN CON QUÉ DATOS SE ENTRENÓ, no cómo se dibujan.
+        # Medido el 2026-08-19: el MISMO CSV crudo con y sin rangos da un
+        # `prepared` distinto y una pérdida distinta, porque
+        # `_normalize_csv_with_ranges` reescribe las columnas. Sin ellos,
+        # rehacer R1 con lo publicado no casa.
+        _require_range_pair(caller["target_range"], "generation.target_range")
+    if "epochs_effective" in caller and caller["epochs_effective"] is not None:
+        # Las que el run se CONFIGURÓ a correr, ya con el tope. Cero épocas no
+        # es un entrenamiento y `True` no es un número de épocas (en Python
+        # `isinstance(True, int)` es True), que es lo que corta este require.
+        _require_positive_int(caller["epochs_effective"], "generation.epochs_effective")
+    if "epochs_ran" in caller and caller["epochs_ran"] is not None:
+        # `0` SÍ es un hecho aquí —un run cancelado antes de terminar la
+        # primera época—, así que se pide entero NO NEGATIVO y no positivo:
+        # confundirlo con un valor imposible tiraría una captura honesta.
+        _require_int(caller["epochs_ran"], "generation.epochs_ran")
+        if caller["epochs_ran"] < 0:
+            raise ReproduceManifestError(
+                f"generation.epochs_ran must be >= 0, got {caller['epochs_ran']!r}")
+        # Y no se puede correr MÁS de lo que el run se configuró a correr:
+        # `epochs_effective` es el tope ya aplicado y `epochs_ran` lo que cupo
+        # dentro. El core no lo produce —`epochs_ran` es `len(job["epochs"])`
+        # de ESE run, no un acumulado—, así que un `ran > effective` solo llega
+        # de una captura escrita a mano, y sin este corte salía
+        # `reproducible: true` (medido 2026-08-19). Se nombran las DOS cifras:
+        # «imposible» a secas obliga a adivinar cuál de ellas está mal.
+        efectivas = caller.get("epochs_effective")
+        if type(efectivas) is int and caller["epochs_ran"] > efectivas:
+            raise ReproduceManifestError(
+                f"generation.epochs_ran ({caller['epochs_ran']}) cannot exceed "
+                f"generation.epochs_effective ({efectivas}): the run cannot have "
+                f"executed more epochs than it was configured to run")
+    if "warm_start" in caller and caller["warm_start"] is not None:
+        # DE QUÉ PESOS PARTIÓ, con la forma que escribe el core: `false` (de la
+        # inicialización), un objeto con la huella de los pesos de partida, o
+        # `null` (llegaron pesos y el run no llegó a decir si los usó). `true`
+        # a secas NO vale: diría que hubo warm start sin decir de qué pesos, y
+        # eso no se puede contrastar con nada.
+        warm = caller["warm_start"]
+        if warm is True or not isinstance(warm, (bool, dict)):
+            raise ReproduceManifestError(
+                "generation.warm_start must be false (started from the "
+                "initialisation) or an object identifying the weights the run "
+                f"started from, got {warm!r}")
+        if isinstance(warm, dict):
+            if warm.get("sha256") is not None:
+                _require_full_sha256(warm["sha256"], "generation.warm_start.sha256")
+            for clave in ("tensors", "params"):
+                if warm.get(clave) is not None:
+                    _require_positive_int(warm[clave], f"generation.warm_start.{clave}")
     if "field_types" in caller and caller["field_types"] is not None:
         tipos = _require_mapping(caller["field_types"], "generation.field_types")
         for campo, valor in tipos.items():
@@ -564,7 +781,23 @@ def build_generation_block(
         "recipe_format_version": RECIPE_FORMAT_VERSION,
         "csv_serialization_version": CSV_SERIALIZATION_VERSION,
         "mode": caller.pop("mode", None),
+        # LAS ÉPOCAS, TRES CIFRAS Y NINGUNA SUSTITUYE A OTRA. `declared` sale
+        # del `.mxtrain` que viaja (la captura no lo copia: se rederiva del
+        # artefacto), `effective` es lo que el run se configuró a correr ya con
+        # el tope, y `ran` lo que corrió. Resumirlas en una es justo lo que
+        # dejaba pasar un paquete con «EPOCHS 50» en el contrato y unos pesos
+        # de 3 épocas.
+        "epochs_declared": _epochs_from_training(training_text),
+        "epochs_effective": caller.pop("epochs_effective", None),
+        "epochs_ran": caller.pop("epochs_ran", None),
         "field_ranges": caller.pop("field_ranges", None),
+        # Los rangos del objetivo van con los de las entradas: los dos deciden
+        # el CSV preparado con el que la red entrenó.
+        "target_range": caller.pop("target_range", None),
+        # De dónde arrancaron los pesos: `false` = de la inicialización, un
+        # objeto = de unos pesos que ya existían (con su huella), `null` = no
+        # consta. Y ausente NO es `false`: una captura "1.0" no lo declaraba.
+        "warm_start": caller.pop("warm_start", None),
         "field_types": caller.pop("field_types", None),
         "field_categories": caller.pop("field_categories", None),
         "one_hot_groups": caller.pop("one_hot_groups", None),
@@ -670,6 +903,33 @@ def _normalize_metrics(metrics: list[dict[str, Any]] | None) -> list[dict[str, A
         # Los campos que falten quedan a `null` y VISIBLES: una tolerancia
         # ausente se ve, una clave que no está se pasa por alto.
         entry = {field: raw.get(field) for field in _METRIC_FIELDS}
+
+        # `direction` y `aggregation` NO son del run: son del NOMBRE de la
+        # métrica, y el core las sabe. Que las pusiera quien exporta sería
+        # un segundo sitio declarando lo mismo — y sin `direction` R3 no
+        # puede comparar, porque «se ha movido 0,03» no dice si mejoró o
+        # empeoró. Lo que declare el llamante MANDA: esto rellena, no pisa.
+        # Y una métrica que el catálogo no conoce se queda sin ellas y lo
+        # dice en `incomplete`, en vez de deducirlas por el sufijo.
+        identidad = identidad_de_metrica(nombre)
+        if identidad:
+            for campo in ("direction", "aggregation"):
+                if entry.get(campo) is None and identidad.get(campo) is not None:
+                    entry[campo] = identidad[campo]
+
+        # LA TOLERANCIA, medida y CON SU ALCANCE (decisión de Roberto,
+        # 2026-08-20). Las dos cosas juntas o ninguna: una tolerancia sin
+        # alcance haría que un `PASS` de R3 se leyera como «reproduce igual
+        # en cualquier sitio» cuando lo medido es «reproduce igual AQUÍ».
+        #
+        # Solo si el llamante no declaró NINGUNA: quien mide su propia
+        # repetibilidad sabe más que este catálogo, y pisarle la suya sería
+        # decidir por él.
+        if entry.get("tolerance_abs") is None and entry.get("tolerance_rel") is None:
+            medida = tolerancia_medida(nombre)
+            if medida and not entry.get("tolerance_scope"):
+                entry["tolerance_abs"] = medida["tolerance_abs"]
+                entry["tolerance_scope"] = medida["tolerance_scope"]
         for key, value in raw.items():
             if key not in entry and key not in _CORE_OWNED_METRIC_KEYS:
                 entry[str(key)] = value
@@ -741,6 +1001,28 @@ def _normalize_run_provenance(raw: Any) -> dict[str, Any] | None:
         _require_full_sha256(cap.get(clave), f"run_provenance.{clave}")
     _require_text(cap.get("mxtrain_text"), "run_provenance.mxtrain_text")
 
+    # ¿Se COMPROBÓ que esa receta y esa semilla regeneran el dataset? El
+    # vocabulario del código no se define aquí: es el de quien comprueba (el
+    # backend usa `regenera_el_dataset`, `no_regenera_el_dataset`,
+    # `no_se_ha_podido_comprobar`). El core decide con el BOOLEANO y publica el
+    # código tal cual — dos sitios declarando el mismo vocabulario acabarían
+    # divergiendo, y este producto ya lleva dieciséis huecos de cableado.
+    verificacion = cap.get("recipe_verification")
+    if verificacion is not None:
+        v = _require_mapping(verificacion, "run_provenance.recipe_verification")
+        if type(v.get("verified")) is not bool:
+            raise ReproduceManifestError(
+                "run_provenance.recipe_verification.verified must be a boolean "
+                f"(true/false), got {v.get('verified')!r}: a verdict that is not "
+                "yes or no cannot sustain a reproducibility claim")
+        if v.get("code") is not None:
+            _require_text(v["code"], "run_provenance.recipe_verification.code")
+        if v["verified"] and cap.get("recipe_text") is None:
+            raise ReproduceManifestError(
+                "run_provenance.recipe_verification says the recipe was verified, "
+                "but the capture carries no recipe_text: there is nothing that "
+                "could have been verified")
+
     # Receta: o las dos cosas o ninguna. Un digest sin texto no se puede
     # recomputar y un texto sin digest no se puede contrastar; publicar media
     # receta sería media verdad tranquilizadora.
@@ -761,6 +1043,19 @@ def _normalize_run_provenance(raw: Any) -> dict[str, Any] | None:
             _require_full_sha256(cap[clave], f"run_provenance.{clave}")
     if cap.get("dataset_rows") is not None:
         _require_positive_int(cap["dataset_rows"], "run_provenance.dataset_rows")
+    # Las filas que el entrenamiento CONSUMIÓ, aparte de las del fichero crudo.
+    # Medido el 2026-08-19: cinco líneas en blanco daban 305 para unos pesos
+    # entrenados con 300, y regenerar 305 no da ese dataset.
+    if cap.get("dataset_rows_used") is not None:
+        _require_positive_int(cap["dataset_rows_used"],
+                              "run_provenance.dataset_rows_used")
+    # Si la captura llega a declarar el estado de los pesos, se valida con el
+    # MISMO vocabulario que usa quien empaqueta. No decide nada por su cuenta
+    # (ver `_WEIGHTS_SOURCES`): sirve para contrastar y declarar la
+    # contradicción si el paquete dice otra cosa.
+    if cap.get("weights_source") is not None:
+        _require_text(cap["weights_source"], "run_provenance.weights_source",
+                      choices=_WEIGHTS_SOURCES)
 
     semillas = dict(_require_mapping(cap.get("seeds") or {}, "run_provenance.seeds"))
     for nombre, valor in semillas.items():
@@ -851,7 +1146,11 @@ def _conflict(field: str, source: str, captured: Any, received: Any) -> dict[str
 #: De dónde vino el valor que contradice a la captura. No es decorativo: un
 #: fichero del paquete que no casa con la captura y una pantalla que manda otro
 #: número se arreglan en sitios distintos.
-_CONFLICT_SOURCES = ("bundle_file", "export_payload", "running_core")
+#: `training_contract` es el `.mxtrain` (el que la captura guardó, que es el
+#: mismo que viaja salvo que ya haya un conflicto de digest declarado sobre él):
+#: lo que ese contrato DECLARA frente a lo que el run hizo de verdad.
+_CONFLICT_SOURCES = ("bundle_file", "export_payload", "running_core",
+                     "training_contract")
 
 # ---------------------------------------------------------------------------
 # El manifiesto
@@ -868,6 +1167,7 @@ def build_reproduce_manifest(
     generation: dict[str, Any] | None = None,
     metrics: list[dict[str, Any]] | None = None,
     run_provenance: dict[str, Any] | None = None,
+    weights_source: str | None = None,
 ) -> dict[str, Any]:
     """Construye el `reproduce.json` de un bundle YA escrito en `bundle_dir`.
 
@@ -880,6 +1180,14 @@ def build_reproduce_manifest(
     fallo de cableado y se corta aquí— pero NO rellenan nada: sirven para
     detectar que la pantalla dice una cosa y el run dijo otra, y entonces el
     manifiesto lo declara en `conflicts` y manda la captura.
+
+    `weights_source` es el ESTADO DE LOS PESOS que van en este paquete
+    (`"trained"` o `"untrained"`), y lo declara quien empaqueta porque es el
+    único que los ha visto: la captura se compone al empezar a entrenar y no
+    puede testificar sobre unos bytes elegidos después. Sin él no se puede
+    decir `reproducible: true` — «no consta» no es «entrenado»—, y lo que se
+    declare viaja DENTRO del paquete, en `weights.source`: hasta hoy el aviso
+    vivía solo en la respuesta HTTP del export, que no acompaña al ZIP.
 
     Los digests de los artefactos se calculan sobre los ficheros REALES del
     paquete, no sobre lo que el llamante diga que puso: un manifiesto que
@@ -897,6 +1205,11 @@ def build_reproduce_manifest(
         # Cero filas no es un dataset y las negativas no existen. Y ojo con el
         # `type is int`: `dataset_rows=True` habría publicado «1 fila».
         _require_positive_int(dataset_rows, "dataset_rows")
+    if weights_source is not None:
+        # Un estado que no está en el vocabulario no es «desconocido»: es un
+        # fallo de cableado de quien empaqueta, y se corta aquí — publicarlo
+        # como `null` lo confundiría con «no consta», que es otra cosa.
+        _require_text(weights_source, "weights_source", choices=_WEIGHTS_SOURCES)
     for etiqueta, valor in (("model_filename", model_filename),
                             ("training_filename", training_filename),
                             ("recipe_filename", recipe_filename)):
@@ -1021,6 +1334,22 @@ def build_reproduce_manifest(
                 conflicts.append(
                     _conflict(f"generation.{clave}", "running_core", capturado, del_core))
 
+    # ── LAS ÉPOCAS QUE DICE EL CONTRATO Y LAS QUE CORRIERON ───────────────
+    # Medido el 2026-08-19: `_apply_epoch_cap` recorta con el tope del operador
+    # (`MATRIXAI_MAX_EPOCHS`, que traen los perfiles) o con el override del
+    # cliente, y el `.mxtrain` del paquete sigue diciendo `EPOCHS 50` mientras
+    # corrieron 1, 4 o 50. Quien reentrene con ese contrato correrá 50 y no
+    # llegará a estos pesos: el paquete lleva DOS versiones de la misma cifra y
+    # no puede prometer ninguna. La captura manda —es lo que PASÓ— y la
+    # diferencia se declara en vez de callarse.
+    if capture is not None:
+        _declaradas = generation_block.get("epochs_declared")
+        _efectivas = generation_block.get("epochs_effective")
+        if (_declaradas is not None and _efectivas is not None
+                and _declaradas != _efectivas):
+            conflicts.append(_conflict("generation.epochs", "training_contract",
+                                       _efectivas, _declaradas))
+
     # ── El dataset, por su valor ESPERADO ─────────────────────────────────
     # §6.4: el paquete no incrusta datos cuya licencia prohíba redistribuirlos,
     # y aquí es gratis porque se empaqueta la regla que los produce.
@@ -1036,11 +1365,20 @@ def build_reproduce_manifest(
     if capture is not None:
         esperados_ds = {d for d in (capture.get("dataset_sha256_raw"),
                                     capture.get("dataset_sha256_prepared")) if d}
-        if esperados_ds or capture.get("dataset_rows") is not None:
+        if (esperados_ds or capture.get("dataset_rows") is not None
+                or capture.get("dataset_rows_used") is not None):
             dataset = {
                 "sha256": capture.get("dataset_sha256_raw"),
                 "sha256_prepared": capture.get("dataset_sha256_prepared"),
+                # DOS RECUENTOS, como los dos digests y por lo mismo: `rows`
+                # son las filas del CSV CRUDO —lo que hay que regenerar para
+                # R1— y `rows_used` las que el entrenamiento consumió del
+                # preparado. Medido el 2026-08-19: hoy coinciden en todos los
+                # casos probados, y publicarlos por separado hace VISIBLE el
+                # día que dejen de coincidir en vez de taparlo. `null` en
+                # `rows_used` dice «esta captura no lo contó», no «las mismas».
                 "rows": capture.get("dataset_rows"),
+                "rows_used": capture.get("dataset_rows_used"),
             }
 
     metrics_block = _normalize_metrics(metrics)
@@ -1061,12 +1399,18 @@ def build_reproduce_manifest(
                                            capture.get("dataset_sha256_raw"),
                                            dataset_sha256))
         if dataset_rows is not None:
-            capturadas = capture.get("dataset_rows")
-            if capturadas is None:
+            # Se acepta el recuento del CRUDO o el del PREPARADO, por el mismo
+            # motivo medido que con los dos digests: quien exporta manda una de
+            # las dos cifras según de dónde la saque, y declarar conflicto por
+            # la otra haría saltar la alarma en paquetes honestos. Cualquier
+            # tercera cifra es otro dataset.
+            esperadas = {n for n in (capture.get("dataset_rows"),
+                                     capture.get("dataset_rows_used")) if n is not None}
+            if not esperadas:
                 ignorados.append("dataset_rows")
-            elif capturadas != dataset_rows:
+            elif dataset_rows not in esperadas:
                 conflicts.append(_conflict("artifacts.dataset.rows", "export_payload",
-                                           capturadas, dataset_rows))
+                                           capture.get("dataset_rows"), dataset_rows))
 
         payload_gen = dict(generation or {})
         for nombre, valor in dict(payload_gen.pop("seeds", None) or {}).items():
@@ -1103,6 +1447,68 @@ def build_reproduce_manifest(
                         _conflict(f"metrics[{i}].dataset_sha256", "export_payload",
                                   capture.get("dataset_sha256_raw"), medida_en))
 
+    # ── ¿SON ESTOS PESOS EL RESULTADO DE ESE ENTRENAMIENTO? ───────────────
+    #
+    # EL HALLAZGO QUE CIERRA ESTE CORTE. Medido el 2026-08-19 exportando un job
+    # ANTES de que terminara de entrenar: la respuesta HTTP decía
+    # `weights_source: untrained` y `reproduce.json` decía `reproducible: true`
+    # sin un motivo en contra — porque el manifiesto no sabía nada de los
+    # pesos—. El aviso vivía solo en la respuesta HTTP, que no acompaña al ZIP:
+    # quien recibiera el paquete leía un modelo que se declara reproducible y
+    # predice ruido de la inicialización aleatoria.
+    #
+    # La captura NO decide esto y por eso no basta con ella: se compone al
+    # EMPEZAR el run y no puede testificar sobre unos bytes que se eligieron
+    # después (por eso mismo `run_provenance` sobrevivía al borrado de los
+    # pesos). Lo declara quien empaqueta... con un matiz: si la captura llega a
+    # declararlo, solo puede DESMENTIR, nunca avalar — un run que dice que no
+    # produjo pesos entrenados no se arregla porque quien exporta diga que sí,
+    # y la contradicción se declara aparte.
+    capturado_ws = capture.get("weights_source") if capture is not None else None
+    if (capturado_ws is not None and weights_source is not None
+            and capturado_ws != weights_source):
+        conflicts.append(_conflict("weights.source", "export_payload",
+                                   capturado_ws, weights_source))
+    estado_pesos = "untrained" if capturado_ws == "untrained" else weights_source
+
+    # Lo que impide llamar a esto «el modelo entrenado», con su código propio.
+    # Va aparte de lo que falta para R1 porque no es lo mismo: el dataset se
+    # puede regenerar y el modelo se puede reentrenar igual —esas etapas siguen
+    # siendo posibles—; lo que no se puede es presentar ESTOS pesos como el
+    # resultado del run que el manifiesto describe.
+    weights_missing: list[str] = []
+    if estado_pesos is None:
+        # «No consta» NO es «entrenado». Es el hueco que hay que decir entero.
+        weights_missing.append("weights_source")
+    elif estado_pesos != "trained":
+        weights_missing.append("weights_untrained")
+
+    # DE DÓNDE ARRANCARON LOS PESOS (warm start). Medido el 2026-08-19 con
+    # torch: entrenar desde cero dio loss 1.102227 y reanudar sobre un modelo
+    # guardado 1.094253, con la MISMA captura byte a byte — el `.mxtrain`, las
+    # semillas y los datos no determinan el resultado si se partió de otros
+    # pesos, y esos pesos iniciales no viajan en el paquete.
+    #
+    # Tres respuestas y tres códigos, porque se arreglan en sitios distintos:
+    #   * la captura NO LO DECLARA (una "1.0", de antes de que el core lo
+    #     supiera): no consta, y no consta no es «partió de cero»;
+    #   * `null`: llegaron pesos y el run no llegó a decir si los usó — no se
+    #     puede distinguir de uno que sí, y los dos no dan los mismos números;
+    #   * un OBJETO: partió de unos pesos que no viajan en el paquete.
+    # `false` es la única que no bloquea, y es una afirmación del core, no un
+    # hueco: medido, el camino stdlib ignora unos pesos ofrecidos y ese run sí
+    # partió de la inicialización — declararlo irreproducible sería la mentira
+    # del otro lado.
+    if capture is not None:
+        if "warm_start" not in capture:
+            weights_missing.append("warm_start_unknown")
+        else:
+            _warm = capture["warm_start"]
+            if _warm is None:
+                weights_missing.append("warm_start_undecided")
+            elif _warm is not False:
+                weights_missing.append("warm_start")
+
     # ── Qué falta, y PARA QUÉ ETAPA falta (§5-C1 y §5-C2) ─────────────────
     # `model.mxai` siempre está. Del resto se declara EXACTAMENTE lo que
     # falta, con un código estable por hueco: el motivo en prosa es para
@@ -1132,6 +1538,17 @@ def build_reproduce_manifest(
         r1_missing.append("dataset_rows")
     if generation_block["seeds"]["dataset"] is None:
         r1_missing.append("seed_dataset")
+    # Y que alguien haya COMPROBADO que esa receta con esa semilla regenera el
+    # dataset. R1 es exactamente eso, así que sin la comprobación R1 no es una
+    # promesa demostrada sino una declaración del cliente: medido el
+    # 2026-08-20, el core acepta por HTTP una receta que no regenera el CSV y
+    # el manifiesto salía `reproducible: true`. Solo se exige si HAY receta:
+    # sin ella no hay nada que comprobar y un modelo entrenado con datos
+    # propios es un caso honesto.
+    if recipe is not None:
+        _verif = (capture or {}).get("recipe_verification")
+        if not (isinstance(_verif, dict) and _verif.get("verified") is True):
+            r1_missing.append("recipe_verification")
 
     # `training` = el reentrenamiento llega a término. Necesita el `.mxtrain` y
     # los datos, y los datos salen de R1: por eso su lista es la misma. No se
@@ -1145,7 +1562,12 @@ def build_reproduce_manifest(
     #     torch y stdlib NO daban lo mismo, así que «mismas métricas» sin
     #     declarar el motor no se puede afirmar de nadie,
     #   * y al menos una métrica que se pueda contrastar (§5 bis).
-    r3_missing = list(training_missing)
+    # Los pesos van PRIMERO: sin ellos no hay nada que contrastar, se pueda o
+    # no reentrenar. R1 y `training` no los llevan a propósito —regenerar el
+    # dataset y reentrenar siguen siendo posibles con unos pesos sin entrenar
+    # dentro del paquete—; lo que no se puede es comparar métricas contra un
+    # modelo que no salió de este run.
+    r3_missing = list(weights_missing) + list(training_missing)
     if generation_block["seeds"]["init"] is None:
         r3_missing.append("seed_init")
     if generation_block.get("backend") is None:
@@ -1156,9 +1578,14 @@ def build_reproduce_manifest(
         r3_missing.append("metrics")
 
     # `reproducible` sigue significando lo mismo que en §3 —las CINCO cosas—
-    # más la captura que las respalda. Lo que solo hace falta para R3 NO lo
-    # pone en falso; se declara aparte, que es lo contrario de callarlo.
-    missing = list(training_missing)
+    # más la captura que las respalda y unos pesos que sean los del run. Lo que
+    # solo hace falta para R3 NO lo pone en falso; se declara aparte, que es lo
+    # contrario de callarlo.
+    #
+    # El estado de los pesos va DELANTE de todo lo demás en el motivo: si lo
+    # que viaja no es el modelo entrenado, lo primero que hay que leer no es
+    # que falte una semilla.
+    missing = list(weights_missing) + list(training_missing)
 
     # UN CONFLICTO DECLARADO NO PUEDE DAR `reproducible: true`. No falta nada:
     # sobra: hay dos versiones de lo mismo y una de ellas es falsa. Y bloquea
@@ -1209,9 +1636,30 @@ def build_reproduce_manifest(
             # segundo sitio declarando lo mismo.
             "sha256": _capture_digest(capture) if capture else None,
         },
+        # El veredicto viaja DENTRO del paquete, que es lo que este corte
+        # cierra: `null` cuando la captura no lo declara — «no consta» no es
+        # «comprobado».
+        "recipe_verification": (capture or {}).get("recipe_verification"),
         "unverified_payload": sin_verificar,
         "ignored_payload_fields": sorted(set(ignorados)),
     }
+
+    # LO PRIMERO QUE SE LEE. El `claim` es la frase que resume el fichero, y
+    # con unos pesos que no son los del run lo que hay que decir antes que nada
+    # no es que falte una semilla: es que este modelo no ha aprendido nada.
+    # Media verdad tranquilizadora es peor que callar.
+    aviso_pesos = ""
+    if "weights_untrained" in weights_missing:
+        aviso_pesos = (
+            "WARNING: the weights in this package are random initialisation, not "
+            "the result of a training run — this model predicts nothing that was "
+            "learned. "
+        )
+    elif "weights_source" in weights_missing:
+        aviso_pesos = (
+            "WARNING: this package does not state whether the weights it carries "
+            "come from a training run, and 'not stated' is not 'trained'. "
+        )
 
     manifest: dict[str, Any] = {
         "schema_version": REPRODUCE_SCHEMA_VERSION,
@@ -1225,7 +1673,7 @@ def build_reproduce_manifest(
         # no son lo mismo, y el segundo es el que hay que decir entero: lo que
         # se pierde no es una comprobación, es la relación del paquete con los
         # pesos que lleva dentro.
-        "claim": (
+        "claim": aviso_pesos + (
             (
                 "This manifest proves the package is internally consistent and "
                 "reproducible: every artifact needed to rebuild this model "
@@ -1264,6 +1712,13 @@ def build_reproduce_manifest(
             "recipe": recipe,
             "dataset": dataset,
         },
+        # EL ESTADO DE LOS PESOS, DENTRO DEL PAQUETE. Hasta hoy solo existía en
+        # la respuesta HTTP del export —`weights_source: untrained`—, que no
+        # acompaña al ZIP: quien recibía el fichero no tenía cómo saber que los
+        # pesos eran aleatorios, y `export_manifest.json` tampoco lo llevaba.
+        # `null` significa «no consta», que no es «entrenado»; el motivo entero
+        # está en `reproducible_reason`.
+        "weights": {"source": estado_pesos},
         "generation": generation_block,
         "environment": build_environment(),
         "metrics": metrics_block,
@@ -1281,6 +1736,37 @@ _MISSING_REASONS = {
         "cannot demonstrate its relation to the weights it carries: everything "
         "else declared here was supplied by whoever exported it and may describe "
         "a different dataset or a different training contract"
+    ),
+    # Los pesos: no es que falte una pieza para rehacer el modelo, es que el
+    # que viaja no es el modelo.
+    "weights_source": (
+        "this package does not state whether the weights it carries come from a "
+        "training run, and 'not stated' is not 'trained': a package whose weights "
+        "may be random initialisation cannot be presented as the model described "
+        "here"
+    ),
+    "weights_untrained": (
+        "the weights in this package are random initialisation, not the result of "
+        "the training described here — exporting before the run finished, or after "
+        "the weights were cleared, produces exactly this: the model can still be "
+        "rebuilt by retraining, but the one that travels is not it"
+    ),
+    "warm_start": (
+        "this run started from weights that already existed (warm start) and those "
+        "initial weights do not travel here, so retraining from the contract, the "
+        "data and the seeds in this package does not have to land on these numbers "
+        "— measured with torch: 1.102227 from scratch against 1.094253 resumed, "
+        "with the same capture byte for byte"
+    ),
+    "warm_start_undecided": (
+        "this run was given weights to start from and never got to state whether "
+        "the trainer used them, so it cannot be told apart from a run that started "
+        "from scratch — and those two do not produce the same numbers"
+    ),
+    "warm_start_unknown": (
+        "the run capture does not say where the weights started from, so nothing "
+        "here rules out that this model was retrained on top of another one whose "
+        "initial weights do not travel in the package"
     ),
     "training": (
         "no .mxtrain travels in this package, so the model cannot be retrained"
@@ -1330,10 +1816,16 @@ def _stage(name: str, missing: list[str], conflicts: list[str],
         return {"possible": True, "missing": [], "conflicts": [], "reason": None}
     partes = [_MISSING_REASONS.get(item, item) for item in missing]
     if conflicts:
+        # Ni «el export» ni «la pantalla»: la contradicción puede venir de un
+        # fichero del paquete, de lo que mandó quien exporta, de este core, o
+        # del propio contrato de entrenamiento (las épocas que declara frente a
+        # las que corrieron). Decir siempre «el export» mandaría a arreglarlo
+        # al sitio equivocado.
         partes.append(
-            "the export contradicts the run capture on " + ", ".join(conflicts)
-            + ", and a package that states two versions of the same value cannot "
-              "be contrasted against either"
+            "the package carries two versions of " + ", ".join(conflicts)
+            + " (see `conflicts` for where each one came from), and a package "
+              "that states two versions of the same value cannot be contrasted "
+              "against either"
         )
     return {
         "possible": False,

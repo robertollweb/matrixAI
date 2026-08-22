@@ -292,7 +292,11 @@ class TestSequenceTransformerEdgeBundle(unittest.TestCase):
                         "model.onnx", "model_manifest.json", "params.best.json",
                         # 82-C1: `reproduce.json` viaja en TODO paquete
                         # (sin receta, con `reproducible: false` y su motivo).
-                        "reproduce.json"}
+                        "reproduce.json",
+                        # 82-C4: y la plantilla del Space, que viaja en todo
+                        # paquete: el paquete DECLARA lo que lleva.
+                        "space/app.py", "space/README.md", "space/requirements.txt",
+                        }
             self.assertEqual(set(result.files), expected)
             self.assertTrue(result.equivalence_passed)
 

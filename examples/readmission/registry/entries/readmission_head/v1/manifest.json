@@ -1,0 +1,26 @@
+{
+  "name": "readmission_head",
+  "version": "v1",
+  "entry_hash": "sha256:66e11739f0b4d0486d1f2ffcf19a53f6b2b7fa1c6bc6e356a58b6dbdf20bf96a",
+  "model_hash": "sha256:98c7f69eec405521a4c781d6b63113c509c3d68634cb69c0976d948459dd1513",
+  "parameter_schema_hash": "params_730985905827a840",
+  "parameter_set_id": "ReadmissionHead_initial",
+  "input_type": {
+    "name": "CaseFeatures",
+    "kind": "VECTOR",
+    "size": 20
+  },
+  "output_type": {
+    "name": "riesgo",
+    "kind": "Tensor"
+  },
+  "metrics": {},
+  "matrixai_version": "1.5.0",
+  "created_at": "2026-08-20T12:54:11.389021+00:00",
+  "training_dataset_fingerprint": "",
+  "interpretability_level": "full",
+  "training_trace_hash": "sha256:711b4a3cc7a517b5a25c84701e9a7a4a7f1d320703a6c334dc62899daa9ec36d",
+  "evaluation_report_hash": "sha256:1b24596be6e77bae1f89667805c34da6b51731d8f2aa182cc2b2083aaf681b0a",
+  "params_content_hash": "sha256:74685593421206b23ee6230a464d103124de534c8101fec201bb53ea7685fbad",
+  "blockers": []
+}

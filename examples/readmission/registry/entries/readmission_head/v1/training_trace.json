@@ -1,0 +1,8 @@
+{
+  "run_id": "245a992b",
+  "epochs": 200,
+  "best_epoch": 14,
+  "best_val_loss": 0.28877001388824547,
+  "network": "ReadmissionHead",
+  "task_kind": "classification"
+}

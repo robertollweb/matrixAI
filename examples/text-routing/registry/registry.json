@@ -1,15 +1,15 @@
 {
-  "version": "0.21.0",
+  "version": "1.0.0",
   "entries": [
     {
       "name": "feature_extractor",
       "version": "v1",
-      "entry_hash": "sha256:18baae3b26e25519de3eb11f96e02b4167e52d4556c876551ef21037108455d4"
+      "entry_hash": "sha256:5313e8921c240bcbe298503465494599005140400d23876947ad5f6f4878f840"
     },
     {
       "name": "route_classifier",
       "version": "v1",
-      "entry_hash": "sha256:f628823298aefc2d6c3ea9322288576b2f2a7736e4be8939f621ccc9a8d63205"
+      "entry_hash": "sha256:25ad175355880db6320a00c6176f405476b4ecd25ecfe5e128b3036b0f388dcd"
     }
   ]
 }

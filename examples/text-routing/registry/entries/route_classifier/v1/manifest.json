@@ -1,19 +1,26 @@
 {
   "name": "route_classifier",
   "version": "v1",
-  "entry_hash": "sha256:f628823298aefc2d6c3ea9322288576b2f2a7736e4be8939f621ccc9a8d63205",
+  "entry_hash": "sha256:25ad175355880db6320a00c6176f405476b4ecd25ecfe5e128b3036b0f388dcd",
   "model_hash": "sha256:fb6a9c931f8eaa236ae53b2ae544257379f18ebcbc589b48043b6227e828e094",
   "parameter_schema_hash": "params_927678e698367f45",
   "parameter_set_id": "Classify_initial",
-  "input_type": {},
-  "output_type": {},
+  "input_type": {
+    "name": "Signal",
+    "kind": "VECTOR",
+    "size": 1
+  },
+  "output_type": {
+    "name": "probs",
+    "kind": "Tensor"
+  },
   "metrics": {},
-  "matrixai_version": "0.21.0",
-  "created_at": "2026-05-26T12:23:07.198628+00:00",
+  "matrixai_version": "1.5.0",
+  "created_at": "2026-08-20T19:06:06.719123+00:00",
   "training_dataset_fingerprint": "",
   "interpretability_level": "full",
-  "training_trace_hash": "sha256:8316d6771d1b986069fd4199899c04a8c955920827febc678d5fe5453c772e9c",
-  "evaluation_report_hash": "sha256:c7e6f8c15c59a0fa619f9b4b80a6941d94d5b7305ef07cb62837bedd664a3603",
+  "training_trace_hash": "sha256:cf048fd8e0884eb438182ed326ef59febc1bb56f07fe5d37fbc80b067940432d",
+  "evaluation_report_hash": "sha256:bbfb94f9b140f83c5be8ecaaeb022c6e6b2e2b47b1228e37fcda599d585d8bbc",
   "params_content_hash": "sha256:a51b92efd221fd07f91a4aecf4b1926f92cb02293c039ec68f7530d993c177d7",
   "blockers": []
 }

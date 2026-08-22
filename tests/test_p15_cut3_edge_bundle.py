@@ -37,9 +37,19 @@ _FALL_RISK_MXAI = _BASE / "examples" / "fall-risk.mxai"
 # Contrato 82-C1: `reproduce.json` va en TODO paquete, tenga o no con qué
 # reproducirse — sin receta sale con `reproducible: false` y su motivo. Un
 # paquete que calla no dice «esto no se puede reproducir», no dice nada.
+# Contrato 82-C4: la plantilla del Space viaja en TODO paquete, como el
+# README. Es texto y no crea nada en la cuenta de nadie; publicarla es una
+# casilla aparte, apagada por defecto. Se añade a la lista porque el
+# paquete tiene que DECLARAR lo que lleva: llevar ficheros que su propia
+# lista no nombra es la omisión que el 82 combate.
+#: Y sus REQUISITOS (82-C4, 2026-08-20): el Space importa `gradio` y
+#: ejecuta `python -m matrixai verify`, y ninguno de los dos iba en el
+#: `requirements.txt` del paquete —que es el de PREDECIR—. Lo cazó
+#: Roberto probando la publicación.
+_SPACE_FILES = {"space/app.py", "space/README.md", "space/requirements.txt"}
 _BUNDLE_FILES = {"README.md", "export_manifest.json", "model.mxai",
                  "model.onnx", "model_manifest.json", "params.best.json",
-                 "reproduce.json"}
+                 "reproduce.json"} | _SPACE_FILES
 _BUNDLE_FILES_WITH_SPEC = _BUNDLE_FILES | {
     "inference_spec.json", "predict.py", "requirements.txt",
     "example_input.json", "expected_output.json"}
@@ -346,7 +356,12 @@ class TestCliBundleCommand(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(bundle_dir.exists())
-            actual_files = {p.name for p in bundle_dir.iterdir()}
+            # RECURSIVO y con ruta relativa, como el resto de este
+            # fichero: con `p.name` de `iterdir()` no se ve dentro de
+            # `space/` y el paquete podría llevar cosas que este test no
+            # mira — que es justo lo que no puede pasar aquí.
+            actual_files = {p.relative_to(bundle_dir).as_posix()
+                            for p in bundle_dir.rglob("*") if p.is_file()}
             self.assertEqual(actual_files, _BUNDLE_FILES)
 
     @unittest.skipUnless(_onnx_available() and _ort_available(), "onnx/onnxruntime not installed")

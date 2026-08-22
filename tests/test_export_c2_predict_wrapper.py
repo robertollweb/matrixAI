@@ -264,7 +264,11 @@ class IntegrationC2Test(unittest.TestCase):
     _USABLE = {"model.mxai", "params.best.json", "model.onnx", "model_manifest.json",
                "export_manifest.json", "README.md", "inference_spec.json", "predict.py",
                "requirements.txt", "example_input.json", "expected_output.json",
-               "reproduce.json"}
+               "reproduce.json",
+               # 82-C4: la plantilla del Space viaja en todo paquete, y la
+               # lista tiene que nombrarla — un paquete que lleva dentro
+               # cosas que no declara es la omisión que el 82 combate.
+               "space/app.py", "space/README.md", "space/requirements.txt"}
 
     def setUp(self):
         from matrixai.parser import parse_file

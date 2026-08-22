@@ -453,7 +453,13 @@ def main() -> None:
     # ── Step 6: Tamper detection ──────────────────────────────────────────────
     _separator("Step 6 — Tamper detection: modifying TextEmbedder breaks pipeline")
     te_params = REGISTRY_PATH / "entries" / "feature_extractor" / "v1" / "params.json"
-    original = json.loads(te_params.read_text())
+    # Se guardan los BYTES, no el objeto. El hash de integridad cubre el
+    # fichero tal cual está en disco, así que restaurar re-serializando no
+    # restaura: deja los mismos valores con otro formato y la entrada
+    # queda rota para siempre. Medido: así es como el registry de este
+    # ejemplo llegó a publicarse fallando su propia verificación.
+    original_bytes = te_params.read_bytes()
+    original = json.loads(original_bytes)
     tampered = json.loads(json.dumps(original))
     for k, v in tampered.get("parameters", {}).items():
         if isinstance(v, dict) and "values" in v and isinstance(v["values"], list):
@@ -472,7 +478,15 @@ def main() -> None:
         print(f"  Tamper detected — VerificationError: {e}")
         print("  + Cryptographic chain caught modification of TextEmbedder")
 
-    te_params.write_text(json.dumps(original))
+    te_params.write_bytes(original_bytes)
+
+    # Una restauración que nadie comprueba es una restauración que nadie
+    # sabe que ha fallado. Se comprueba AQUÍ, que es donde se puede decir.
+    try:
+        registry.verify("feature_extractor", "v1")
+        print("  + Restored: the entry verifies again")
+    except VerificationError as e:  # pragma: no cover — no debería ocurrir
+        print(f"  ERROR: the entry did NOT come back intact — {e}")
 
     # ── Summary ───────────────────────────────────────────────────────────────
     _separator("Summary")

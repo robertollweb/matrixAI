@@ -27,6 +27,12 @@ from matrixai.export.inference_spec import (
 # The standalone predict.py shipped inside every usable bundle (copied verbatim).
 _PREDICT_TEMPLATE = str(Path(__file__).resolve().parent / "predict_template.py")
 _REQUIREMENTS = "numpy>=1.24\nonnxruntime>=1.16\n"
+from matrixai.export.space import (
+    SPACE_DIR,
+    space_app_py,
+    space_readme_md,
+    space_requirements_txt,
+)
 from matrixai.export.reproduce import (
     TRAINING_ARTIFACT_NAME,
     write_reproduce_manifest,
@@ -136,6 +142,7 @@ class EdgeBundler:
         generation: dict[str, Any] | None = None,
         metrics: list[dict[str, Any]] | None = None,
         run_provenance: dict[str, Any] | None = None,
+        weights_source: str | None = None,
     ) -> EdgeBundleResult:
         """PESOS_GRANDES C7b: `state_dict` (tensores torch crudos de un modelo
         grande guardado en `.mxw`) es la alternativa a un `parameter_set` con
@@ -391,12 +398,48 @@ class EdgeBundler:
                 generation=generation,
                 metrics=metrics,
                 run_provenance=run_provenance,
+                # EL ESTADO DE LOS PESOS QUE ACABAMOS DE EMPAQUETAR. Lo declara
+                # quien empaqueta porque es el único que los ha visto: la
+                # captura se compone al empezar el run y no sabe qué bytes
+                # eligió alguien después. Sin esto el manifiesto no puede decir
+                # `reproducible: true` — «no consta» no es «entrenado»— y el
+                # aviso se quedaba fuera del ZIP, solo en la respuesta HTTP.
+                weights_source=weights_source,
             )
 
             # 6. README.md — refleja los ficheros REALES del bundle (BAJA C7
             # auditoría): con external-data lista `model.onnx.data`; sin
             # `params.best.json` cuando se omitió (grande); sin
             # `expected_output.json` si el smoke-test se saltó.
+            # 82-C4 · LA PLANTILLA DEL SPACE, dentro del paquete.
+            #
+            # Es TEXTO y está ahí para quien la quiera: no crea nada en la
+            # cuenta de nadie. Publicar el Space es una casilla al
+            # publicar, nunca un efecto de exportar — crear repositorios
+            # porque sí es lo que este proyecto evita en todo lo demás.
+            _space = work / SPACE_DIR
+            _space.mkdir(parents=True, exist_ok=True)
+            (_space / "app.py").write_text(space_app_py(), encoding="utf-8")
+            (_space / "README.md").write_text(
+                space_readme_md(getattr(program, "name", None) or "matrixai-model"),
+                encoding="utf-8")
+            # Y SUS REQUISITOS, que NO son los del paquete.
+            #
+            # El `requirements.txt` de la raíz lleva lo que hace falta
+            # para PREDECIR (`numpy`, `onnxruntime`). El Space además
+            # importa `gradio` y ejecuta `python -m matrixai verify`, y
+            # ninguno de los dos viajaba: el botón «Is this package
+            # intact?» —criterio de cierre del 82-C4— no podía contestar
+            # nunca. Lo cazó Roberto probándolo (2026-08-20).
+            #
+            # Va en `space/` y no en la raíz porque al publicar el Space
+            # su contenido sube A LA RAÍZ y pisa al del paquete: quien se
+            # descargue el paquete sigue viendo los requisitos mínimos de
+            # `predict.py`, sin arrastrar gradio para predecir en su
+            # máquina.
+            (_space / "requirements.txt").write_text(
+                space_requirements_txt(_matrixai_version()), encoding="utf-8")
+
             (work / "README.md").write_text(
                 _build_readme(program, export_result, eq_result,
                               inference_spec=inference_spec,
@@ -443,9 +486,37 @@ class EdgeBundler:
             # Atomic promotion: remove stale outdir then rename temp into place
             if outdir.exists():
                 shutil.rmtree(str(outdir))
+            # EL INVENTARIO, AL FINAL: cuando ya está todo dentro. El
+            # `space/` y el `README.md` se escriben después del
+            # manifiesto, así que hacerlo antes dejaría fuera justo el
+            # `predict.py` que el Space ejecuta. (Refutación 2026-08-20.)
+            from matrixai.export.reproduce import añadir_inventario_de_ficheros
+
+            # Y EL RESULTADO SE QUEDA CON EL MANIFIESTO DE VERDAD, el que
+            # va dentro del paquete. Devolver el de antes del inventario
+            # dejaba al llamante con una copia que ya no coincide con el
+            # fichero —otro `manifest_sha256`, sin `files`—, o sea dos
+            # manifiestos distintos para el mismo paquete. Lo cazó
+            # `test_the_full_package_is_declared_reproducible`, que
+            # compara lo devuelto contra el disco, y tenía razón.
+            reproduce_manifest = añadir_inventario_de_ficheros(work)
             shutil.copytree(str(work), str(outdir))
 
-        files = sorted(str(p.relative_to(outdir)) for p in outdir.iterdir() if p.is_file())
+        # RECURSIVO, no solo el primer nivel. Con `iterdir()` los ficheros
+        # de `space/` viajaban en el ZIP y la lista NO los declaraba: un
+        # paquete que lleva dentro cosas que su propio manifiesto no
+        # nombra es justo la omisión que este contrato combate. Lo cazó
+        # `test_bundle_no_entrega_bytecode`, que compara disco contra
+        # declaración — y tenía razón.
+        #
+        # Las rutas van con `/` siempre: en Windows saldrían `space\\app.py`
+        # y no casarían con lo que declara el manifiesto ni con lo que
+        # busca quien abra el paquete.
+        files = sorted(
+            p.relative_to(outdir).as_posix()
+            for p in outdir.rglob("*")
+            if p.is_file() and "__pycache__" not in p.parts
+        )
         if using_mxw_streaming:
             files = sorted(set(files) | {"model.onnx.data"})
 
@@ -496,6 +567,7 @@ def create_edge_bundle(
     generation: dict[str, Any] | None = None,
     metrics: list[dict[str, Any]] | None = None,
     run_provenance: dict[str, Any] | None = None,
+    weights_source: str | None = None,
 ) -> EdgeBundleResult:
     return EdgeBundler().bundle(
         program, parameter_set, mxai_path, params_path, outdir,
@@ -517,6 +589,7 @@ def create_edge_bundle(
         generation=generation,
         metrics=metrics,
         run_provenance=run_provenance,
+        weights_source=weights_source,
     )
 
 
@@ -614,6 +687,100 @@ def _write_export_manifest_no_eq(export_result: OnnxExportResult, path: Path) ->
         "exported_at": datetime.now(timezone.utc).isoformat(),
     }
     path.write_text(json.dumps(data, indent=2, ensure_ascii=True), encoding="utf-8")
+
+
+def readme_reproducing_section(reproduce: dict[str, Any] | None) -> str:
+    """La sección «Reproducing this» del README (contrato 82-C3).
+
+    Criterio de cierre del contrato: **quien llega al repositorio sabe en
+    un minuto qué ejecutar y qué debería salir**. Por eso lleva las dos
+    cosas —el comando Y el resultado esperado—: un comando sin resultado
+    esperado deja a quien lo corre sin saber si lo que ve está bien.
+
+    Devuelve cadena VACÍA si el paquete no trae manifiesto: un ONNX suelto
+    no tiene nada que reproducir, y escribir una sección hueca parecería
+    un dato que falta en vez de algo que no aplica.
+
+    Y **no promete lo que el paquete no puede cumplir**: si el manifiesto
+    dice que no es reproducible, la sección lo dice PRIMERO, con el motivo
+    que redactó el core, en vez de invitar a ejecutar algo que no va a
+    salir. Mandar a alguien a perder una tarde es peor que no decir nada.
+    """
+    if not isinstance(reproduce, dict) or not reproduce:
+        return ""
+
+    artefactos = reproduce.get("artifacts") or {}
+    generacion = reproduce.get("generation") or {}
+    entorno = reproduce.get("environment") or {}
+
+    def _fila(etiqueta: str, clave: str) -> str | None:
+        art = artefactos.get(clave)
+        if not isinstance(art, dict) or not art.get("path"):
+            return None
+        huella = str(art.get("sha256") or "")
+        return f"| {etiqueta} | `{art['path']}` | `{huella[:16]}…` |"
+
+    lineas = ["## Reproducing this", ""]
+
+    if not reproduce.get("reproducible"):
+        motivo = reproduce.get("reproducible_reason") or "This package is not reproducible."
+        lineas += [
+            f"**This package is not reproducible.** {motivo}",
+            "",
+            "You can still download it, inspect it and run it — what you "
+            "cannot do is rebuild its data and check that the same numbers "
+            "come out.",
+            "",
+        ]
+    else:
+        lineas += [
+            "Everything needed to rebuild this model's data and check it "
+            "travels inside the package:",
+            "",
+        ]
+
+    filas = [f for f in (_fila("model", "model"),
+                         _fila("training contract", "training"),
+                         _fila("data recipe", "recipe")) if f]
+    if filas:
+        lineas += ["| What | File | sha256 |", "|---|---|---|", *filas, ""]
+
+    dataset = artefactos.get("dataset")
+    if isinstance(dataset, dict) and dataset.get("sha256"):
+        filas_ds = f"- **dataset**: {dataset.get('rows')} rows, sha256 `{str(dataset['sha256'])[:16]}…`"
+        lineas.append(filas_ds)
+    semillas = generacion.get("seeds") or {}
+    if semillas.get("dataset") is not None:
+        lineas.append(f"- **generation seed**: `{semillas['dataset']}`")
+    if generacion.get("mode"):
+        lineas.append(f"- **generation mode**: `{generacion['mode']}`")
+    if entorno:
+        # El entorno, porque sin él una diferencia de versión parece una
+        # manipulación en vez de lo que es.
+        piezas = ", ".join(f"{k} {v}" for k, v in sorted(entorno.items()) if v)
+        if piezas:
+            lineas.append(f"- **trained with**: {piezas}")
+    lineas.append("")
+
+    if reproduce.get("reproducible"):
+        lineas += [
+            "```bash",
+            "matrixai verify .              # integrity + rebuild the dataset",
+            "matrixai verify . --retrain    # …and train again (slow)",
+            "matrixai verify . --json       # same report, machine readable",
+            "```",
+            "",
+            "**What you should see:** `manifest PASS` and `R1 PASS`. With "
+            "`--retrain`, also `training PASS`. `R3` reports `INCOMPARABLE` "
+            "unless the package publishes metrics with their tolerance — that "
+            "is a missing datum, not a failure.",
+            "",
+            "Exit codes: `0` nothing failed · `2` something does not match · "
+            "`3` it could not be checked.",
+            "",
+        ]
+
+    return "\n".join(lineas)
 
 
 def _readme_quickstart(inference_spec: dict[str, Any], example_input: dict[str, Any] | None,
@@ -723,6 +890,16 @@ def _build_readme(
 
     quickstart = ""
     usable_files = ""
+    # 82-C3 · «Reproducing this» se compone AQUÍ, FUERA del condicional, y
+    # se inyecta en el README. Dos motivos:
+    #  1. Escribir la función y no llamarla es el hueco de cableado que
+    #     este proyecto lleva repitiendo dieciséis veces.
+    #  2. Dentro del `if` quedaba SIN DEFINIR en el otro camino y el README
+    #     reventaba con `UnboundLocalError` — lo cazó la prueba del
+    #     paquete sin `inference_spec`, que es justo el caso que un ONNX
+    #     suelto produce.
+    _seccion = readme_reproducing_section(reproduce)
+    _reproducing = f"{_seccion}\n" if _seccion else ""
     if inference_spec is not None:
         quickstart = _readme_quickstart(inference_spec, example_input, smoke_test_skipped)
         usable_files = (
@@ -742,7 +919,42 @@ def _build_readme(
     # BAJA C7: `params.best.json` solo se lista si de verdad va en el zip
     # (se omite para un modelo grande — el ONNX lleva los pesos); con
     # external-data, además hay un `model.onnx.data` que hay que listar.
-    params_row = "| `params.best.json` | Trained parameter weights |\n" if has_params_json else ""
+    # DE DÓNDE SALEN LOS PESOS, en la tabla y arriba del todo.
+    #
+    # La fila decía «Trained parameter weights» pasara lo que pasara, y un
+    # paquete exportado antes de terminar de entrenar —o después de borrar los
+    # pesos— la llevaba igual: un dibujo afirma por omisión, y una tabla
+    # también. Lo que se escribe aquí sale del manifiesto (`weights.source`),
+    # que es quien lo sabe; no se vuelve a deducir, porque dos sitios
+    # declarando lo mismo acaban divergiendo.
+    pesos = ((reproduce or {}).get("weights") or {}).get("source")
+    if not has_params_json:
+        params_row = ""
+    elif reproduce is None or pesos == "trained":
+        params_row = "| `params.best.json` | Trained parameter weights |\n"
+    elif pesos == "untrained":
+        params_row = ("| `params.best.json` | Parameter weights — **random "
+                      "initialisation, NOT trained** |\n")
+    else:
+        params_row = ("| `params.best.json` | Parameter weights — this package does "
+                      "not state whether they were trained |\n")
+
+    # Y el aviso va ANTES del «quick start», que empieza diciendo «This model is
+    # self-usable»: quien descarga esto lee el README antes que el JSON, y
+    # enterarse después de haber ejecutado la predicción no sirve de nada.
+    aviso_pesos = ""
+    if pesos == "untrained":
+        aviso_pesos = (
+            "\n> **WARNING — the weights in this package are random initialisation, "
+            "not the result of a training run.** Anything it predicts comes from an "
+            "untrained model: nothing here was learned. See `reproduce.json`.\n"
+        )
+    elif reproduce is not None and pesos is None:
+        aviso_pesos = (
+            "\n> **This package does not state whether its weights come from a "
+            "training run**, and \"not stated\" is not \"trained\". See "
+            "`reproduce.json`.\n"
+        )
     onnx_data_row = (
         "| `model.onnx.data` | ONNX external weights (loaded automatically next to model.onnx) |\n"
         if external_data else ""
@@ -808,7 +1020,7 @@ def _build_readme(
 
 MatrixAI model exported for edge/production inference.
 Actions remain `simulate_only`. This bundle only provides predictions.
-{quickstart}
+{aviso_pesos}{quickstart}
 ## Files
 
 | File | Description |
@@ -817,7 +1029,8 @@ Actions remain `simulate_only`. This bundle only provides predictions.
 {mxtrain_row}{params_row}| `model.onnx` | ONNX model, opset {export_result.opset_version} |
 {onnx_data_row}| `model_manifest.json` | Model metadata, hashes and backend contract |
 | `export_manifest.json` | Export metadata, tolerance and equivalence check |
-{recipe_row}{reproduce_row}{usable_files}| `README.md` | This file |
+{recipe_row}{reproduce_row}{usable_files}| `space/` | A Hugging Face Space template — yours to publish, or to ignore |
+| `README.md` | This file |
 {reproduce_note}
 ## Model info
 
@@ -839,7 +1052,7 @@ import numpy as np
 {inference_snippet}
 ```
 
-## Verifying integrity
+{_reproducing}## Verifying integrity
 
 ```python
 import json

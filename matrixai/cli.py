@@ -212,6 +212,46 @@ def main() -> int:
         help="Allow @latest and other mutable tags in IMPORT declarations"
     )
 
+    replay_parser = subparsers.add_parser(
+        "replay", help="Reproduce and verify a package INSIDE an isolated sandbox (81-C5)")
+    replay_parser.add_argument("package", help="Directory of the package to reproduce")
+    replay_parser.add_argument("--json", action="store_true", help="Print the report as JSON")
+    replay_parser.add_argument(
+        "--compare-reference", metavar="RECEIPT",
+        help="Compare the new reproduction receipt against a reference one (§15.6)")
+    replay_parser.add_argument(
+        "--receipt-out", metavar="FILE",
+        help="Write the reproduction receipt here (it is always produced)")
+    replay_parser.add_argument(
+        "--no-retrain", action="store_true",
+        help="Only check integrity and regenerate; skip retraining (training and R3 stay NOT_RUN)")
+
+    receipt_parser = subparsers.add_parser(
+        "receipt", help="Inspect, verify or compare .mxreceipt files (81-C4)")
+    receipt_sub = receipt_parser.add_subparsers(dest="receipt_command", required=True)
+    r_inspect = receipt_sub.add_parser("inspect", help="Show what a receipt says (verifies nothing)")
+    r_inspect.add_argument("file")
+    r_verify = receipt_sub.add_parser("verify", help="Verify a receipt and say what could NOT be checked")
+    r_verify.add_argument("file")
+    r_verify.add_argument("--key", help="Hex or utf-8 key to check the signature with")
+    r_verify.add_argument("--offline", action="store_true",
+                          help="Do not reach the network for trust material (today: always offline)")
+    r_compare = receipt_sub.add_parser("compare", help="Diff two receipts by content")
+    r_compare.add_argument("a")
+    r_compare.add_argument("b")
+    receipt_parser.add_argument("--json", action="store_true", help="Print the report as JSON")
+
+    verify_parser = subparsers.add_parser(
+        "verify",
+        help="Verify a reproducible package (82-C2): manifest integrity, R1, training and R3",
+    )
+    verify_parser.add_argument("package", help="Directory of the unpacked package (with reproduce.json)")
+    verify_parser.add_argument("--json", action="store_true", help="Print the report as JSON")
+    verify_parser.add_argument(
+        "--retrain", action="store_true",
+        help="Also retrain and compare (slow: minutes to hours)",
+    )
+
     permissions_parser = subparsers.add_parser(
         "permissions", help="Review sandbox permissions for MatrixAI actions"
     )
@@ -1070,6 +1110,15 @@ def main() -> int:
     if args.command == "typecheck":
         return _cmd_typecheck(args)
 
+    if args.command == "replay":
+        return _cmd_replay(args)
+
+    if args.command == "receipt":
+        return _cmd_receipt(args)
+
+    if args.command == "verify":
+        return _cmd_verify(args)
+
     if args.command == "permissions":
         return _cmd_permissions(args)
 
@@ -1396,6 +1445,229 @@ def _cmd_lint(args) -> int:
     if args.strict and report.has_warnings:
         return 1
     return 0
+
+
+def _cmd_replay(args) -> int:
+    """`matrixai replay <paquete>` — el C5, conducible desde el producto.
+
+    Existía la función y **no había forma de invocarla**: probar la
+    función no es probar el producto, y un sandbox al que solo se llega
+    importando un módulo no protege a nadie.
+
+    Los tres códigos de salida dicen cosas distintas y **no se colapsan**:
+
+    * `0` — se reprodujo dentro del aislamiento y todo cuadró;
+    * `2` — se reprodujo y **algo no cuadra** (alguien lo tocó, o hay
+      discrepancia);
+    * `3` — **no se pudo comprobar**: no hay con qué aislar, falta la
+      imagen, o el matrixai de la imagen no sabe verificar. Un fallo por
+      falta de acceso no es una manipulación, y darles el mismo código
+      obligaría a leer el informe para distinguirlos.
+    """
+    from matrixai.pipelines.sandbox import SinAislamiento, replay_and_verify
+
+    try:
+        informe = replay_and_verify(args.package,
+                                    reentrenar=not getattr(args, "no_retrain", False))
+    except SinAislamiento as exc:
+        if getattr(args, "json", False):
+            print(json.dumps({"checked": False, "reason": str(exc)}, indent=2))
+        else:
+            print(f"replay: NOT CHECKED — {exc}", file=sys.stderr)
+        return 3
+
+    # El recibo se ESCRIBE si lo piden: un recibo que solo vive en la
+    # salida del comando no se puede archivar ni comparar mañana.
+    destino = getattr(args, "receipt_out", None)
+    if destino:
+        try:
+            with open(destino, "w", encoding="utf-8") as fh:
+                json.dump(informe["receipt"], fh, indent=2, default=str)
+        except OSError as exc:
+            print(f"replay: no se pudo escribir el recibo en {destino}: {exc}",
+                  file=sys.stderr)
+            return 3
+
+    comparacion = None
+    referencia = getattr(args, "compare_reference", None)
+    if referencia:
+        from matrixai.pipelines.sandbox import comparar_con_referencia
+
+        try:
+            with open(referencia, encoding="utf-8") as fh:
+                recibo_ref = json.load(fh)
+        except (OSError, ValueError) as exc:
+            print(f"replay: no se pudo leer el recibo de referencia: {exc}",
+                  file=sys.stderr)
+            return 3
+        comparacion = comparar_con_referencia(informe["receipt"], recibo_ref)
+        informe["comparison"] = comparacion
+
+    if getattr(args, "json", False):
+        print(json.dumps(informe, indent=2, default=str))
+    else:
+        aisl = informe["isolation"]
+        print(f"isolation  {aisl['backend']} {aisl['version']} · image {aisl['image']}")
+        # Los límites, a la vista: decir «aislado» sin decir con cuáles es
+        # medio dato, y un sandbox sin tope de memoria no protege de lo
+        # que más pasa.
+        limites = aisl["limits"]
+        print(f"limits     network={limites['network']} cpu={limites['cpu']} "
+              f"memory={limites['memory']} timeout={limites['timeout_s']}s")
+        # Reproducir sin reentrenar deja `training` y `R3` sin ejecutar, y
+        # eso NO es una reproducción completa: se dice en la cabecera, no
+        # enterrado en el JSON.
+        print(f"retrain    {'yes' if informe.get('retrained') else 'NO — training and R3 stay NOT_RUN'}")
+        # El veredicto lo decide el RECIBO, no este `if`: tenerlo en dos
+        # sitios ya costó que `rc=3` se imprimiera como `FAIL` aquí
+        # mientras el recibo decía `not_fully_checked`. Un `FAIL` acusa, y
+        # «no se pudo comprobar del todo» no acusa a nadie.
+        veredicto = {
+            "reproduced": "PASS",
+            "mismatch": "FAIL — something does not match what the package declares",
+            "not_fully_checked": "NOT FULLY CHECKED — some stage could not be compared",
+            "not_checked": f"NOT CHECKED — {informe['result'].get('reason')}",
+        }.get(informe["receipt"]["output"]["outcome"], "?")
+        print(f"replay     {veredicto}")
+        salida = informe["result"].get("stdout")
+        if salida:
+            print(salida.rstrip())
+        if comparacion is not None:
+            if not comparacion["comparable"]:
+                print(f"compare    NOT COMPARABLE — {comparacion['reason']}")
+            else:
+                igual = "same" if comparacion["same_outcome"] else "DIFFERENT"
+                print(f"compare    outcome {igual}: "
+                      f"{comparacion['outcome']['reference']} → "
+                      f"{comparacion['outcome']['new']}")
+                for etapa, valores in comparacion["stages_differing"].items():
+                    print(f"           {etapa}: {valores['reference']} → {valores['new']}")
+                # El aviso de los dos entornos, SIEMPRE: coincidir en el
+                # mismo entorno prueba repetibilidad, no reproducibilidad.
+                print(f"           {comparacion['note']}")
+
+    return {"reproduced": 0, "mismatch": 2,
+            "not_fully_checked": 3, "not_checked": 3}.get(
+                informe["receipt"]["output"]["outcome"], 3)
+
+
+def _cmd_receipt(args) -> int:
+    """`matrixai receipt inspect|verify|compare` — el verificador del 81-C4.
+
+    Vive en el CLI pero NO depende del runtime: quien recibe un recibo no
+    tiene por qué ejecutar el motor que lo produjo.
+    """
+    from matrixai.pipelines.verifier import (
+        comparar_recibos, inspeccionar_recibo, verificar_sobre,
+    )
+
+    def _leer(ruta: str):
+        try:
+            with open(ruta, encoding="utf-8") as fh:
+                return json.load(fh)
+        except (OSError, ValueError) as exc:
+            print(f"receipt: no se pudo leer {ruta}: {exc}", file=sys.stderr)
+            return None
+
+    sub = args.receipt_command
+    if sub == "compare":
+        a, b = _leer(args.a), _leer(args.b)
+        if a is None or b is None:
+            return 1
+        informe = comparar_recibos(a, b)
+        print(json.dumps(informe, indent=2, ensure_ascii=False))
+        return 0 if informe["identical"] else 1
+
+    sobre = _leer(args.file)
+    if sobre is None:
+        return 1
+
+    if sub == "inspect":
+        print(json.dumps(inspeccionar_recibo(sobre), indent=2, ensure_ascii=False))
+        return 0
+
+    clave = None
+    if getattr(args, "key", None):
+        try:
+            clave = bytes.fromhex(args.key)
+        except ValueError:
+            clave = args.key.encode("utf-8")
+    informe = verificar_sobre(sobre, clave=clave)
+    if getattr(args, "json", False):
+        print(json.dumps(informe, indent=2, ensure_ascii=False))
+    else:
+        _nivel = informe["assurance_level"]
+        if informe.get("assurance_is_claimed_not_checked"):
+            # Un `assurance: A1` con la firma sin comprobar se lee como un
+            # aprobado si no se dice que no lo es. Y solo cuando NO se
+            # comprobó: decirlo sobre una firma que se comprobó y se
+            # rechazó era el etiquetado falso de H6.
+            _nivel += "  (lo que el recibo SOSTIENE; la firma no se ha comprobado)"
+        print(f"assurance: {_nivel}")
+        print(f"verified:  {', '.join(informe['verified']) or '(nada)'}")
+        if informe.get("signature_checked") and not informe.get("signature_valid"):
+            # La firma SÍ se comprobó, y falló. Sin esta línea quedaba
+            # dicho entre los PROBLEM, mezclada con lo demás.
+            print("signature: COMPROBADA y RECHAZADA")
+        for que, porque in informe["unverified"].items():
+            print(f"NOT verified · {que}: {porque}")
+        for problema in informe["problems"]:
+            print(f"PROBLEM · {problema}")
+        for aviso in informe["disclaimers"]:
+            print(f"note · {aviso}")
+    return _salida_de_receipt(informe)
+
+
+def _salida_de_receipt(informe: dict) -> int:
+    """Los MISMOS tres códigos que `matrixai verify` (82-C2), y por lo mismo.
+
+    H6 del refutador (2026-08-20): esto era `0 if ok else 2`, así que un
+    recibo verificado SIN CLAVE —firma sin comprobar, identidad sin
+    comprobar— salía con el mismo `0` que uno íntegro y firmado. Quien
+    encadene `receipt verify && desplegar` trataba un recibo **no
+    comprobado** como comprobado; el 82 registró exactamente ese
+    bloqueante para `verify` y aquí seguía sin arreglar.
+
+    * `0` — se comprobó todo lo que hay que comprobar y salió bien;
+    * `2` — algo FALLÓ: firma mala, esquema roto, campos ambiguos;
+    * `3` — no se pudo comprobar (sin clave, o sin raíces de confianza).
+      No es un aprobado y no es una acusación.
+    """
+    from matrixai.export.verify import SALIDAS
+
+    if informe.get("problems"):
+        return SALIDAS["fail"]
+    if not informe.get("fully_checked", True):
+        return SALIDAS["incomparable"]
+    return SALIDAS["ok"]
+
+
+def _cmd_verify(args) -> int:
+    """`matrixai verify <paquete>` — el informe POR ETAPAS del 82-C2.
+
+    Devuelve el código de salida del informe, no un 0/1: un guion tiene
+    que poder distinguir «no se pudo comprobar» de «alguien lo tocó» sin
+    leer el JSON. Ver `SALIDAS` en `export/verify.py`.
+    """
+    from matrixai.export.verify import verify_package
+
+    informe = verify_package(args.package, run_training=bool(getattr(args, "retrain", False)))
+
+    if getattr(args, "json", False):
+        print(json.dumps(informe, indent=2, ensure_ascii=False))
+        return int(informe["exit_code"])
+
+    # En texto: una línea por etapa, con su motivo cuando no es PASS. Un
+    # informe que solo diga «FAIL» obliga a repetirlo con --json.
+    ancho = max(len(n) for n in informe["stages"])
+    for nombre, etapa in informe["stages"].items():
+        linea = f"{nombre.ljust(ancho)}  {etapa['status']}"
+        if etapa.get("reason"):
+            linea += f"  — {etapa['reason']}"
+        print(linea)
+        for roto in etapa.get("artifacts", []) or []:
+            print(f"{' ' * (ancho + 2)}  · {roto.get('artifact')}: {roto.get('problem')}")
+    return int(informe["exit_code"])
 
 
 def _cmd_permissions(args) -> int:

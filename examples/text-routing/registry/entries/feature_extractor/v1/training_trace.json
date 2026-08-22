@@ -1,7 +1,8 @@
 {
-  "run_id": "9016891f",
+  "run_id": "1789da73",
   "epochs": 120,
   "best_epoch": 7,
   "best_val_loss": 0.3368133263194635,
-  "network": "TextEncoder"
+  "network": "TextEncoder",
+  "task_kind": "classification"
 }

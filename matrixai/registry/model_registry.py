@@ -41,7 +41,14 @@ class ModelRegistry:
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
         self.layout = RegistryLayout(self.path)
-        self._ensure_structure()
+        # NO se crea la estructura aquí: construir un registry para
+        # PREGUNTAR qué hay no debe dejar un directorio en la carpeta de
+        # quien pregunta. Medido el 2026-08-20: `matrixai registry list`
+        # en una carpeta vacía contestaba `(no entries)` con rc=1 y aun
+        # así creaba `matrixai_registry/` — así apareció uno dentro del
+        # repositorio del core. La lectura no la necesita (`_load_index`
+        # devuelve `[]` si no hay índice); la escritura la crea al
+        # escribir.
 
     def _ensure_structure(self) -> None:
         self.layout.entries_dir.mkdir(parents=True, exist_ok=True)
@@ -52,6 +59,7 @@ class ModelRegistry:
     # ── push ──────────────────────────────────────────────────────────────────
 
     def push(self, entry: RegistryEntry) -> None:
+        self._ensure_structure()
         if not entry.evaluation_report_hash:
             raise ModelRegistryError(
                 f"Cannot push {entry.name}@{entry.version}: evaluation_report_hash is required"
@@ -107,6 +115,7 @@ class ModelRegistry:
     # ── tag ───────────────────────────────────────────────────────────────────
 
     def tag(self, name: str, version: str, tag_name: str) -> None:
+        self._ensure_structure()
         self.get(name, version)  # validates entry exists
         tag_path = self.layout.tag_path(name, tag_name)
         tag_path.parent.mkdir(parents=True, exist_ok=True)
@@ -321,6 +330,34 @@ class ModelRegistry:
         model_path: Path | None = next(run_dir.glob("*.mxai"), None)
         model_hash = sha256_bytes(model_path.read_bytes()) if model_path else "sha256:" + "0" * 64
 
+        # LOS TIPOS DE INTERFAZ, del propio modelo que se publica.
+        #
+        # Se deducen AQUÍ y no en el CLI a propósito: `push_run_dir` ya
+        # aceptaba los dos parámetros y ningún llamante los pasaba, así que
+        # todos los manifiestos salían con `{}` y
+        # `check_composite_program_types` —que hace `if not dst_in: continue`—
+        # no podía fallar nunca. Arreglarlo en un llamante habría dejado a los
+        # demás igual, que es la lección que ya costó un `matrixai_registry/`
+        # dentro del repositorio.
+        #
+        # Lo que declara quien publica MANDA: deducir es la ayuda, no la ley.
+        # Y si la interfaz es ambigua no se inventa nada — la entrada se
+        # publica sin tipos y quien la lea lo verá dicho.
+        if model_path is not None and (input_type is None or output_type is None):
+            try:
+                from matrixai.parser.parser import parse_file
+                from matrixai.registry.interface_types import deducir_tipos_de_interfaz
+                deducida_in, deducida_out = deducir_tipos_de_interfaz(parse_file(str(model_path)))
+            except Exception:  # noqa: BLE001
+                # Un `.mxai` que no parsea no impide publicar el run: los
+                # tipos son una ayuda para componer, no un requisito para
+                # registrar lo que ya se entrenó.
+                deducida_in = deducida_out = None
+            if input_type is None:
+                input_type = deducida_in
+            if output_type is None:
+                output_type = deducida_out
+
         # Optional: parameter set (prefer params.best.json, fallback params.json,
         # then parameter_set.json — TRANSFORMER C6: dense_trainer.py and
         # transformer_trainer.py both write this modern name via
@@ -531,6 +568,8 @@ class ModelRegistry:
         return data.get("entries", [])
 
     def _save_index(self, entries: list[dict]) -> None:
+        # Su propia carpeta, porque ya no la garantiza el constructor.
+        self.layout.index_path.parent.mkdir(parents=True, exist_ok=True)
         self.layout.index_path.write_text(
             json.dumps(
                 {"version": MATRIXAI_REGISTRY_SCHEMA_VERSION, "entries": entries},

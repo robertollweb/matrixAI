@@ -77,15 +77,26 @@ def _make_entry_no_eval(**overrides) -> RegistryEntry:
 
 # ── structure ─────────────────────────────────────────────────────────────────
 
+# Lo que estas dos miden es la FORMA del registry —su layout y el formato
+# de su índice—, no el momento en que nace. Construir el objeto era solo
+# la vía más corta de provocarlo.
+#
+# Desde el 2026-08-20 la estructura ya no se crea al construir: leer un
+# registry no debe escribir en la carpeta de quien pregunta (`matrixai
+# registry list` dejaba un `matrixai_registry/` allí donde se ejecutara).
+# La intención se conserva provocando la creación explícitamente; lo que
+# se comprueba después es exactamente lo de antes.
+
 def test_registry_initializes_directory_structure(tmp_path):
     reg = ModelRegistry(tmp_path / "reg")
+    reg._ensure_structure()
     assert (tmp_path / "reg" / "entries").is_dir()
     assert (tmp_path / "reg" / "tags").is_dir()
     assert (tmp_path / "reg" / "registry.json").exists()
 
 
 def test_registry_index_file_has_correct_format(tmp_path):
-    ModelRegistry(tmp_path)
+    ModelRegistry(tmp_path)._ensure_structure()
     data = json.loads((tmp_path / "registry.json").read_text())
     assert "entries" in data
     assert data["version"] == MATRIXAI_REGISTRY_SCHEMA_VERSION

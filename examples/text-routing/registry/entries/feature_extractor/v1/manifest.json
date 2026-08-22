@@ -1,19 +1,26 @@
 {
   "name": "feature_extractor",
   "version": "v1",
-  "entry_hash": "sha256:18baae3b26e25519de3eb11f96e02b4167e52d4556c876551ef21037108455d4",
+  "entry_hash": "sha256:5313e8921c240bcbe298503465494599005140400d23876947ad5f6f4878f840",
   "model_hash": "sha256:b07292717a00f0ad2f116ca2b7f7023436e75027919e82a9d4ad7db10e5c1177",
   "parameter_schema_hash": "params_1864e5cfd8ade94e",
   "parameter_set_id": "TextEncoder_initial",
-  "input_type": {},
-  "output_type": {},
+  "input_type": {
+    "name": "TicketBOW",
+    "kind": "VECTOR",
+    "size": 30
+  },
+  "output_type": {
+    "name": "routing_signal",
+    "kind": "Score"
+  },
   "metrics": {},
-  "matrixai_version": "0.21.0",
-  "created_at": "2026-05-26T12:23:07.167689+00:00",
+  "matrixai_version": "1.5.0",
+  "created_at": "2026-08-20T19:06:06.660555+00:00",
   "training_dataset_fingerprint": "",
   "interpretability_level": "full",
-  "training_trace_hash": "sha256:91d2f400383d68a0b57b3ddacd7a6e82945159b4d15480610bfbb1dc2acad1e6",
-  "evaluation_report_hash": "sha256:88794fe03e9f07907d7415715ffab3eadd042441157eb808a0b581a192a2a650",
+  "training_trace_hash": "sha256:8dcf972c071eee6c1f0c0a29ac0411b548f4c3534c949a89053493a30e7fc92c",
+  "evaluation_report_hash": "sha256:d627ab3ea8f7f494b84d60671a4d754f3edd5006f3afb11c75e785d414be741d",
   "params_content_hash": "sha256:1f7f03bdf9b0a8bd8e187c88d1133cf68453c1c170e612d3925c76c6d9f524c6",
   "blockers": []
 }

@@ -1491,6 +1491,12 @@ def _metricas_de_clasificacion(rd: dict[str, Any], er: dict[str, Any]) -> dict[s
             "confusion_matrix": er.get("confusion_matrix"),
             "labels": er.get("labels"),
             "per_label": er.get("per_label"),
+            # SOBRE QUÉ se midió, dicho aquí y no supuesto después. `er`
+            # puntúa el dataset ENTERO —filas de entrenamiento incluidas—.
+            # Caer de una partición a otra sin dejar rastro es lo que hacía
+            # imposible declarar el `split` del §5 bis del contrato 82: dos
+            # números con la misma clave y dos particiones distintas.
+            "macro_f1_split": "full",
         }
     etiquetas = list(vm.get("labels") or [])
     por_clase = {
@@ -1506,6 +1512,7 @@ def _metricas_de_clasificacion(rd: dict[str, Any], er: dict[str, Any]) -> dict[s
         "confusion_matrix": vm.get("confusion_matrix"),
         "labels": etiquetas,
         "per_label": por_clase,
+        "macro_f1_split": "validation",
     }
 
 
@@ -1561,6 +1568,10 @@ def _collect_training_result(
     # tal como lo declaró el entrenador. Es lo único comparable entre dos
     # máquinas: la época no lo es.
     _effort = getattr(run_result, "effort", None)
+    # UNA sola llamada: la de abajo se llamaba otra vez solo para leer su
+    # partición, y dos llamadas a la misma función son dos respuestas que
+    # pueden dejar de coincidir.
+    _clasificacion = _metricas_de_clasificacion(rd, er)
     return {
         "ok": True,
         **({"effort": dict(_effort)} if _effort else {}),
@@ -1611,7 +1622,22 @@ def _collect_training_result(
         # Ahora todas salen de `validation_metrics`, la evaluación que
         # produjo `accuracy`. `er` queda de RESPALDO para los runs
         # anteriores, que no la traen — se degrada, no se rompe.
-        **_metricas_de_clasificacion(rd, er),
+        **_clasificacion,
+        # SOBRE QUÉ PARTICIÓN se midió cada número (§5 bis del contrato 82).
+        # Se declara AQUÍ, que es donde se elige de dónde sale cada uno:
+        # deducirlo al exportar sería adivinar, y adivinar mal convierte una
+        # comparación de R3 en una discrepancia falsa. `macro_f1` es la única
+        # que puede venir de dos sitios, y lo dice ella misma.
+        "metric_splits": {
+            "accuracy": None if is_reg else "validation",
+            "macro_f1": _clasificacion.get("macro_f1_split"),
+            # `er` puntúa el dataset entero, filas de entrenamiento incluidas.
+            "mae": "full" if is_reg else None,
+            "rmse": "full" if is_reg else None,
+            "r2": "full" if is_reg else None,
+            "final_train_loss": "train",
+            "best_validation_loss": "validation",
+        },
         **motor_y_maquina(backend, "cpu"),
         "epochs": metrics.get("epochs", []),
         "params_best": params_best_data,
@@ -1907,6 +1933,13 @@ def _dense_torch_train_result(
         "evaluation_backend": evaluation_backend,
         "evaluation_warning": evaluation_warning,
         "effective_batch_size": tr.get("batch_size"),
+        # CONTRATO 82 (warm start): este es el ÚNICO camino que arranca desde
+        # unos pesos dados —`train_dense_network_torch` construye el módulo con
+        # `dense_network_to_torch_module_from_state`—, así que se declara aquí,
+        # donde ocurre. Si el intento torch falla, el fallback stdlib devuelve
+        # un resultado SIN esta clave y la captura dirá `applied: false`, que es
+        # lo que pasó: los pesos llegaron y no se usaron.
+        "warm_start_applied": bool(initial_state_dict),
         # El ESFUERZO, con los mismos numeros que el camino stdlib: la
         # epoca no es comparable entre maquinas, la actualizacion de
         # pesos si.
@@ -3206,29 +3239,122 @@ def _public_training_result(result: Any) -> Any:
 
 #: Versión del bloque `run_provenance` que guarda cada run. Un consumidor que
 #: no reconozca esta versión debe negarse a interpretarlo, no adivinar.
-RUN_PROVENANCE_SCHEMA_VERSION = "1.0"
+#:
+#: "1.1" (2026-08-19) es ADITIVA sobre "1.0": los mismos campos obligatorios más
+#: `epochs_effective`, `epochs_ran`, `dataset_rows_used`, `field_ranges`,
+#: `target_range` y `warm_start`, que son lo que faltaba para que la captura
+#: describiera el entrenamiento QUE OCURRIÓ y no el que se pidió. Se sube la
+#: versión porque una captura "1.0" NO trae esos campos y leerlos como «no
+#: hubo tope», «no hubo rangos» o «partió de cero» sería fabricar hechos: con
+#: la versión declarada, quien lee sabe distinguir ausente de falso.
+#:
+#: COMPROBADO antes de subirla, porque una versión que nadie acepta es un
+#: apagón (el paquete se queda sin captura y nada sale reproducible): los dos
+#: lectores admiten ya las dos versiones —`matrixai/export/reproduce.py`
+#: (`_RUN_PROVENANCE_SCHEMA_VERSIONS`) y el backend del Studio
+#: (`endpoints.py::_CAPTURA_SCHEMA`)—.
+RUN_PROVENANCE_SCHEMA_VERSION = "1.2"
 
 
-def _contar_filas_csv(csv_text: str) -> int:
-    """Filas de DATOS de un CSV (sin la cabecera), contadas como registros.
+def _contar_filas_usadas(csv_text: str) -> int:
+    """Filas que el ENTRENAMIENTO usa de un CSV, no líneas del fichero.
 
     No vale `splitlines()`: un campo entrecomillado puede llevar saltos de
     línea dentro —los modelos de texto (BLOCK TRANSFORMER) entrenan con
     reseñas, que los tienen— y entonces una fila contaría como varias. Se
-    cuenta con `csv.reader`, que es quien sabe de comillas; misma herramienta
-    que ya usa el recuento de `playground.py:1353`.
+    cuenta con el módulo `csv`, que es quien sabe de comillas.
 
-    Se cuenta sobre el CSV **CRUDO**, que puede venir con delimitador `;`:
-    para CONTAR REGISTROS da igual el delimitador (cada registro es un
-    registro), y las comillas se respetan igual.
+    Y NO SE CUENTAN LAS LÍNEAS EN BLANCO. Medido el 2026-08-19 sobre el CSV
+    Kelvin de 20 filas: añadiéndole 5 líneas vacías, `csv.reader` cuenta 25 y
+    el entrenamiento carga 20 EJEMPLOS —con el mismo `sha256_prepared` que el
+    CSV limpio—. El paquete declaraba entonces más filas de las que entrenaron,
+    y quien regenerase ese número no obtendría el dataset del run.
+
+    `if fila` es exactamente el criterio de `csv.DictReader`, que es el lector
+    con el que `CSVDataAdapter._load_examples` (`training/data.py`) carga los
+    ejemplos: salta el registro vacío y no toca ningún otro. Se hace con
+    `csv.reader` y no con `DictReader` porque construir un dict por fila cuesta
+    de más en los CSV grandes y aquí solo se cuenta. Comprobado contra el
+    adaptador caso a caso (blancos al final, intercalados, CRLF, sin salto
+    final, BOM+`;`, solo cabecera, vacío y comillas multilínea): mismo número.
+
+    Se usa sobre los DOS ficheros del run, porque la pregunta es la misma en
+    los dos: sobre el CRUDO da `dataset_rows` (cuántas filas hay que regenerar)
+    y sobre el PREPARADO da `dataset_rows_used` (cuántas consumió el
+    entrenamiento). Medido: hoy coinciden —la preparación reescribe celdas, no
+    añade ni quita filas—, y por eso se publican por separado en vez de
+    suponerlo para siempre.
     """
     try:
-        filas = sum(1 for _ in csv.reader(io.StringIO(csv_text)))
+        filas = sum(1 for fila in csv.reader(io.StringIO(csv_text)) if fila)
     except Exception:  # noqa: BLE001
         # Un CSV ilegible no debe tumbar el envío del entrenamiento: la
         # validación de verdad llega después y dirá qué pasa. Aquí, 0.
         return 0
     return max(0, filas - 1)
+
+
+def _huella_de_pesos(state: dict[str, Any] | None) -> dict[str, Any]:
+    """Identidad de unos pesos de PARTIDA: sha256, nº de tensores y nº de parámetros.
+
+    Es lo que permite a la captura decir DE QUÉ pesos partió un
+    reentrenamiento. Un identificador de modelo no serviría: el mismo modelo se
+    reentrena muchas veces y sus pesos cambian en cada pasada, mientras que el
+    digest lo puede RECOMPUTAR quien tenga el paquete anterior.
+
+    Se digiere, en orden de clave, el nombre + el dtype + la forma + los BYTES
+    de cada tensor: dos state_dict con los mismos números insertados en otro
+    orden dan el mismo digest, y misma forma con otros valores da otro.
+
+    Coste MEDIDO (torch 2.11 CPU, este servidor): 50 MB de tensores en 37 ms
+    (~1,4 GB/s), digiriendo los bytes por `memoryview` —sin `.tolist()`, que es
+    justo el O(#params) que PESOS_GRANDES quitó del camino—. Un modelo de 2 GB
+    añade ~1,5 s UNA vez por job.
+
+    Si algún tensor no se deja leer como buffer, el sha se queda en `None`: «no
+    supe identificar estos pesos» es una respuesta, y un digest de la mitad de
+    los tensores sería peor —no casaría con nada y parecería una comprobación—.
+    """
+    if not state:
+        # Ni ceros ni digest vacío: no hubo pesos de partida, así que no hay
+        # nada que identificar. Quien lee esto lo sabe por `warm_start.offered`.
+        return {"sha256": None, "tensors": None, "params": None}
+    import hashlib as _hashlib
+    h = _hashlib.sha256()
+    tensores = 0
+    parametros = 0
+    entero = True          # se pudieron digerir TODOS los tensores
+    contados = True        # ...y todos dijeron cuántos números llevan
+    for clave in sorted(state, key=str):
+        valor = state[clave]
+        tensores += 1
+        try:
+            # `.detach().cpu().contiguous()` sobre un tensor CPU ya contiguo no
+            # copia nada, y `.numpy()` comparte la memoria: el `memoryview` lee
+            # los bytes del propio tensor.
+            arr = valor.detach().cpu().contiguous().numpy() if hasattr(valor, "detach") else valor
+            datos = memoryview(arr).cast("B")
+            h.update(str(clave).encode("utf-8"))
+            h.update(str(getattr(arr, "dtype", "")).encode("utf-8"))
+            h.update(str(getattr(arr, "shape", "")).encode("utf-8"))
+            h.update(datos)
+        except Exception:  # noqa: BLE001
+            entero = False
+            contados = False
+            continue
+        # `.size` (numpy) es el número de elementos. Un buffer que no lo
+        # declare deja el recuento en `null`: contarlo como 0 diría que esos
+        # pesos no tienen parámetros, y un valor ausente no es un cero.
+        n = getattr(arr, "size", None)
+        if isinstance(n, int):
+            parametros += n
+        else:
+            contados = False
+    return {
+        "sha256": h.hexdigest() if entero else None,
+        "tensors": tensores,
+        "params": parametros if (entero and contados) else None,
+    }
 
 
 def _maquina_declarada(resultado: Any) -> tuple[str | None, str | None]:
@@ -3279,6 +3405,7 @@ def _submit_training_job(
     owner: str | None = None,
     recipe_text: str | None = None,
     dataset_seed: int | None = None,
+    recipe_verification: dict | None = None,
     generator_version: str | None = None,
     csv_serialization_version: str | None = None,
 ) -> dict[str, Any]:
@@ -3366,6 +3493,28 @@ def _submit_training_job(
           f"{'GPU (red densa)' if prediction_kind == 'network_call' else 'CPU (camino genérico/stdlib)'}")
     epochs_override = _apply_epoch_cap(training, epochs_override)
     spec = _build_spec_with_epochs(training, epochs_override)
+    # CONTRATO 82 — LAS ÉPOCAS EFECTIVAS: las del SPEC QUE SE VA A ENTRENAR, ya
+    # con el tope del operador y el override del cliente aplicados
+    # (`_apply_epoch_cap` acaba de machacar `epochs_override` justo arriba).
+    # Leerlas del `training` parseado daría las del papel, que es exactamente
+    # lo que el paquete declaraba de más.
+    #
+    # `null` —y no un número inventado— cuando el contrato no declara RUN: cada
+    # trainer tiene su propio defecto (10 el genérico, 50 el denso) y escribir
+    # aquí el de uno describiría un run que quizá fue por otro camino. Lo que
+    # corrió de verdad se mide al terminar (`epochs_ran`).
+    epocas_efectivas = getattr(getattr(spec, "run", None), "epochs", None)
+    epocas_efectivas = int(epocas_efectivas) if epocas_efectivas is not None else None
+    # LA HUELLA DE LOS PESOS DE PARTIDA SE TOMA AQUÍ, ANTES DE ENTRENAR, y no
+    # en el `finally` donde se resuelve `warm_start`. Medido el 2026-08-19: hoy
+    # el camino torch NO muta los tensores del llamante —misma huella antes y
+    # después del run (`2562e75375a590ff…`), porque el módulo los COPIA—, así
+    # que al final daría lo mismo. Pero eso es una propiedad del trainer de
+    # hoy, no del contrato, y lo que este campo promete es la huella de los
+    # pesos DE PARTIDA: tomada aquí no depende de que nadie los conserve.
+    # Cuesta lo medido en `_huella_de_pesos` (~1,4 GB/s) y guarda tres
+    # escalares, no los tensores.
+    huella_pesos_iniciales = _huella_de_pesos(initial_state_dict)
 
     job_id = uuid.uuid4().hex[:8]
     cancel_event = threading.Event()
@@ -3441,9 +3590,111 @@ def _submit_training_job(
         "recipe_sha256": (
             _hashlib.sha256(_receta.encode("utf-8")).hexdigest() if _receta else None),
         "recipe_text": _receta,
+        # ¿COMPROBÓ ALGUIEN que esa receta con esa semilla regenera el CSV?
+        #
+        # El entrenador no puede saberlo —igual que no sabe quién generó los
+        # datos—, así que llega de quien sí lo comprobó y se guarda tal cual.
+        # `None` cuando no consta, y «no consta» NO es «comprobado»: sin este
+        # campo el manifiesto no sostiene un `reproducible: true` sobre una
+        # receta, porque R1 es exactamente eso — regenerar y comparar.
+        #
+        # Solo si HAY receta: declarar que se comprobó una receta que no viaja
+        # es una contradicción, y el manifiesto la rechaza.
+        "recipe_verification": recipe_verification if _receta else None,
         "dataset_sha256_raw": _hashlib.sha256(csv_text_crudo.encode("utf-8")).hexdigest(),
         "dataset_sha256_prepared": _sha_csv_preparado,
-        "dataset_rows": _contar_filas_csv(csv_text_crudo),
+        # LAS FILAS, Y NO LAS LÍNEAS. Medido el 2026-08-19 con el Kelvin de 20
+        # filas más 5 líneas vacías: se declaraban 25 para unos pesos
+        # entrenados con 20 —y con el MISMO `sha256_prepared` que el CSV
+        # limpio—. Ese 25 no servía para nada: quien regenerase 25 filas no
+        # obtendría este dataset, y el entrenamiento nunca vio 25.
+        #
+        # Van los DOS recuentos porque son dos preguntas, igual que los dos
+        # digests: sobre el CRUDO, cuántas filas tiene el dataset que hay que
+        # REGENERAR; sobre el PREPARADO, cuántas CONSUMIÓ el entrenamiento.
+        # Medido: hoy coinciden en todos los casos probados —la preparación
+        # reescribe celdas, no añade ni quita filas: BOM, `;`, comillas con
+        # saltos dentro y líneas en blanco—, y publicarlos por separado hace
+        # VISIBLE el día que dejen de coincidir en vez de taparlo.
+        "dataset_rows": _contar_filas_usadas(csv_text_crudo),
+        "dataset_rows_used": _contar_filas_usadas(csv_text),
+        # LAS ÉPOCAS QUE DESCRIBEN ESTE RUN, no las que dice el papel.
+        #
+        # Medido el 2026-08-19: con `MATRIXAI_MAX_EPOCHS=3` y un `.mxtrain` que
+        # declara `EPOCHS 50`, corrieron 3 y el paquete seguía llevando el
+        # contrato con su «EPOCHS 50» y `reproducible: true`. Pasa sin que el
+        # cliente pida nada: basta el tope del operador, que traen los perfiles.
+        #
+        # VAN DOS CIFRAS PORQUE SON DOS HECHOS y ninguno sustituye al otro:
+        #   * `epochs_effective`: las que el spec se configuró a correr, ya con
+        #     el tope aplicado (`_apply_epoch_cap`). Es lo que habría que
+        #     reproducir.
+        #   * `epochs_ran`: las que CORRIERON. Se mide al terminar, en el
+        #     `finally` del worker. Medido con un dataset de ruido y
+        #     `EARLY_STOP patience=1`: `effective` 50 y `ran` 20 sin que ningún
+        #     tope tocara nada. Cancelar y el watchdog paran igual de pronto.
+        #
+        # Lo que DECLARA el `.mxtrain` no se copia aquí: el contrato viaja
+        # entero en la captura y quien lea puede rederivarlo de él (así lo hace
+        # ya `export/reproduce.py::_epochs_from_training`). Dos sitios
+        # declarando lo mismo acaban divergiendo.
+        #
+        # Y EL `.mxtrain` NO SE REESCRIBE con las épocas aplicadas, a propósito.
+        # Su digest y su texto viajan juntos para que el par se verifique solo
+        # contra el fichero que el usuario tiene; reescribirlo declararía un
+        # contrato que nadie envió. Además ningún número único serviría: el
+        # tope recorta, pero el early stop y el Cancelar paran ANTES incluso de
+        # esa cifra, así que un «EPOCHS n» seguiría mintiendo por el otro lado.
+        "epochs_effective": epocas_efectivas,
+        "epochs_ran": None,
+        # LO QUE DECIDE EL CSV PREPARADO, aparte del CSV crudo.
+        #
+        # `field_ranges` y `target_range` no son adorno: reescriben el fichero
+        # con el que entrena la red (`_normalize_csv_with_ranges`, llamado unas
+        # líneas más arriba). Sin ellos, el mismo CSV crudo produce OTRO
+        # `dataset_sha256_prepared` y otra loss, y rehacer el preparado solo
+        # con lo publicado no casa.
+        #
+        # Se guardan los dos TAL COMO LLEGARON y no el dict ya compuesto
+        # (`_compose_normalize_ranges`): el compuesto mete la columna del
+        # target dentro de `field_ranges`, y ese campo viaja al manifiesto como
+        # los rangos que recibió EL GENERADOR —añadirle una columna que el
+        # generador no vio sería declarar otra cosa—. La composición es
+        # determinista a partir del `.mxai`, cuyo digest está en esta misma
+        # captura, así que quien reproduzca puede rehacerla.
+        "field_ranges": (
+            {str(c): [float(lo), float(hi)] for c, (lo, hi) in field_ranges.items()}
+            if field_ranges else None),
+        # Además de normalizar la columna objetivo, reescala MAE/RMSE a la
+        # unidad real (contrato 59): sin él las métricas del paquete están en
+        # espacio [0,1] y no significan lo que parecen.
+        "target_range": (
+            [float(target_range[0]), float(target_range[1])]
+            if target_range is not None else None),
+        # DE QUÉ PESOS PARTIÓ (warm start).
+        #
+        # Reentrenar un modelo guardado NO es el mismo run que entrenarlo desde
+        # cero, y la captura no los distinguía: medido con torch, desde cero
+        # loss 1.102227 y reanudado 1.094253 con la MISMA captura byte a byte.
+        # El warm start no está en el `.mxai`, ni en el `.mxtrain`, ni en las
+        # semillas: es un cuarto insumo del run, y sin él el paquete promete
+        # unos pesos que no salen de lo que publica.
+        #
+        # Tres respuestas distintas, y ninguna es «cero»:
+        #   * `false` — arrancó de la inicialización (no llegaron pesos).
+        #   * un objeto — arrancó de UNOS pesos, y los identifica por su
+        #     digest, que quien tenga el paquete anterior puede recomputar.
+        #   * `null` — llegaron pesos y este run todavía no ha dicho si los
+        #     usó (o murió antes de decirlo).
+        #
+        # Se resuelve AL TERMINAR y no aquí porque el warm start solo lo honra
+        # el camino dense+torch. Composite y transformer ni siquiera reciben
+        # los pesos (mira el `_run` de aquí abajo: `initial_state_dict` solo
+        # viaja a `_run_playground_dense_training`), y el fallback stdlib SÍ
+        # los recibe y los ignora —medido: la misma loss exacta con y sin
+        # ellos—. Declararlo al enviar el job diría que partió de unos pesos
+        # que quizá no llegó a usar.
+        "warm_start": None if initial_state_dict else False,
         # La semilla del SPLIT sale del contrato YA PARSEADO (`parse_training_text`,
         # unas líneas arriba), no de la regex de `trained_split_decl`: esa solo
         # captura `seed` O `mode`, así que un `SPLIT ... mode=x seed=7` le
@@ -3587,6 +3838,30 @@ def _submit_training_job(
                 if _motor is not None:
                     job["run_provenance"]["backend"] = _motor
                     job["run_provenance"]["device"] = _maquina
+            except Exception:  # noqa: BLE001
+                pass
+            # CONTRATO 82 — LO QUE PASÓ, no lo que se pidió: las épocas que
+            # corrieron y si el warm start se usó de verdad. Ninguno de los dos
+            # se sabe al enviar el job (el tope recorta, el early stop y el
+            # Cancelar paran antes, y el warm start solo lo honra dense+torch),
+            # y por eso se anotan aquí, en el `finally`: pase lo que pase.
+            #
+            # En un job cancelado o muerto, `ran` son las que alcanzaron a
+            # correr — un dato, no un hueco. Va en su propio `try` para que un
+            # fallo aquí no se lleve por delante el motor/máquina de arriba.
+            try:
+                job["run_provenance"]["epochs_ran"] = len(job["epochs"])
+                _res = job.get("result")
+                if isinstance(_res, dict) and _res.get("ok"):
+                    # `warm_start_applied` lo declara el ÚNICO camino que lo
+                    # honra (`_dense_torch_train_result`). Que no esté = arrancó
+                    # de la inicialización, aunque le hubieran ofrecido pesos:
+                    # eso es lo que PASÓ. Si el run no llegó a dar resultado, el
+                    # campo se queda como estaba (`null` cuando había pesos
+                    # ofrecidos): no se sabe, y eso también es la verdad.
+                    job["run_provenance"]["warm_start"] = (
+                        dict(huella_pesos_iniciales)
+                        if _res.get("warm_start_applied") else False)
             except Exception:  # noqa: BLE001
                 pass
             # PESOS_GRANDES C3: acotar la RAM retenida por tensores de jobs grandes

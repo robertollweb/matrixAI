@@ -78,6 +78,15 @@ class VerifierAgent:
         nodes.update(distribution.name for distribution in program.distributions)
         nodes.update(action.name for action in program.actions)
         nodes.update(network.name for network in getattr(program, "networks", []))
+        # COMPOSICIÓN (contrato 83): el alias de una pieza importada del
+        # registry es un nodo del GRAPH tan declarado como un VECTOR — es
+        # justo lo que `IMPORT Enc FROM registry x@v1 FROZEN` declara.
+        # Faltaba desde que existe `IMPORT`, y hacía que `validate` y
+        # `lint` rechazaran TODO programa compuesto, incluidos los
+        # ejemplos de este repositorio. Mismo caso que el de SEQUENCE de
+        # arriba, y vivió tanto por lo mismo: ningún test pasaba el
+        # verificador sobre un programa con imports.
+        nodes.update(imp.alias for imp in getattr(program, "imports", []))
         return nodes
 
     def _has_cycle(self, program: MatrixAIProgram) -> bool:
