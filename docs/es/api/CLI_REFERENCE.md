@@ -993,6 +993,85 @@ matrixai refine <prompt...> [--audit <json>] [--evaluation <json>] [--mxai <fich
 
 ---
 
+## Paquetes, recibos y reproducción
+
+Añadidos en la 1.6.0. Todos ellos dicen lo que **no** han podido
+comprobar con la misma claridad que lo que sí: un verificador que solo
+cuenta los aciertos no sirve para decidir nada.
+
+### matrixai verify
+
+Verifica un paquete extraído: firma, manifiesto, lo que el propio modelo
+declara y el entorno que dice haber usado. Cuatro etapas, cada una con su
+resultado.
+
+```
+matrixai verify <paquete> [--json] [--retrain]
+```
+
+| Opción | Por defecto | Descripción |
+|------|---------|-------------|
+| `paquete` | — | Directorio del paquete extraído (contiene `reproduce.json`) |
+| `--json` | — | Imprime el informe como JSON |
+| `--retrain` | — | Reentrena y compara además (lento: de minutos a horas) |
+
+Un paquete hecho en OTRO entorno devuelve `INCOMPARABLE`, no `FAIL`: ni
+acusa ni aprueba gratis.
+
+### matrixai replay
+
+Reproduce un paquete y emite un recibo de reproducción. El recibo se
+escribe **pase lo que pase**: uno que solo existe cuando todo va bien no
+sirve para archivar lo que ocurrió.
+
+```
+matrixai replay <paquete> [--json] [--compare-reference <recibo>] [--receipt-out <fichero>] [--no-retrain]
+```
+
+| Opción | Por defecto | Descripción |
+|------|---------|-------------|
+| `paquete` | — | Directorio del paquete a reproducir |
+| `--compare-reference` | — | Compara con un recibo de referencia: **nombra las etapas que difieren** |
+| `--receipt-out` | — | Dónde escribir el recibo de reproducción |
+| `--no-retrain` | — | No reentrenar |
+| `--json` | — | Imprime el informe como JSON |
+
+La comparación dice **siempre** si los dos entornos eran el mismo:
+coincidir dentro del mismo prueba repetibilidad, no reproducibilidad, y
+por eso el §15.6 pide dos.
+
+### matrixai receipt inspect
+
+Enseña lo que dice un recibo. **No verifica nada**, y lo dice.
+
+```
+matrixai receipt inspect <fichero>
+```
+
+### matrixai receipt verify
+
+Verifica la firma y el contenido de un recibo, y declara lo que no ha
+podido comprobarse.
+
+```
+matrixai receipt verify <fichero> [--key <hex|utf-8>] [--offline]
+```
+
+| Opción | Por defecto | Descripción |
+|------|---------|-------------|
+| `--key` | — | Clave hex o utf-8 con la que comprobar la firma |
+| `--offline` | — | No sale a la red a por material de confianza (hoy: siempre offline) |
+
+### matrixai receipt compare
+
+Compara dos recibos por CONTENIDO, no por los bytes del fichero.
+
+```
+matrixai receipt compare <a> <b>
+```
+
+---
+
 ## Variables de entorno
 
 | Variable | Usada por | Descripción |

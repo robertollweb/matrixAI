@@ -7,6 +7,72 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.6.0] — 2026-08-23
+
+Pipelines that leave a receipt, packages that can prove they reproduce,
+and a composite that finally passes its own verifier.
+
+### Added
+- **Verifiable pipelines** (`matrixai.pipelines`). A pipeline is a JSON
+  policy — deterministic, fail-closed, and it *names the rule that
+  fired* — plus an engine that resolves every component **by digest**,
+  verifies it **before** running it, and never fills in what is missing.
+  What did not start is said out loud instead of being silently skipped.
+- **Decision receipts** (`.mxreceipt`, DSSE-signed). Assurance levels
+  A0–A4 are **deduced from what was actually checked**, never declared,
+  and the independent verifier reports what it could *not* verify as
+  prominently as what it could.
+- **`matrixai replay`** — re-run a receipt, with `--compare-reference`
+  and `--receipt-out`. The comparison **names the stages that differ**
+  («something changed» forces you to open both receipts side by side)
+  and always says whether the two environments were the same one:
+  matching inside the same environment proves repeatability, not
+  reproducibility.
+- **`matrixai receipt inspect | verify | compare`**. `inspect` verifies
+  nothing and says so.
+- **`matrixai verify`** and a reproducible export (`export/reproduce.py`,
+  `export/verify.py`): the bundle now carries what it needs to reproduce
+  itself, and `verify` runs four stages and reports each one. A run in a
+  different environment returns `INCOMPARABLE` — it neither accuses nor
+  approves for free.
+- **A dependency and licence inventory** in the reproduction receipt. A
+  licence that cannot be established is reported as `null` and counted
+  apart: inventing one would be worse than not having it, because
+  somebody would use it to decide.
+- **Sandboxed reproduction** that **fails closed** when there is nothing
+  to isolate with, and reproduces *inside* the isolation.
+- **A Hugging Face Space template** (`export/space.py`) that shows the
+  result of `verify` **before** inviting anyone to try the model.
+- **Supervised continual learning** (`continual/supervision.py`,
+  `continual/policy_view.py`): accepting a suggestion creates a
+  **candidate**, never a deployment. Promoting stays a separate, human
+  act.
+- **A reference case** (`matrixai.reference.readmission`) that runs the
+  whole thing end to end on real registry models.
+- **Interface types when publishing** (`registry/interface_types.py`).
+  `registry push` used to write `input_type: {}` / `output_type: {}`, so
+  the composite type check **could never fail**: an impossible connection
+  returned `Typecheck OK`. Types are now derived from the model itself,
+  and what cannot be determined without ambiguity is published **without
+  types** and shown as such — an invented type is worse than none.
+
+### Fixed
+- **`validate` and `lint` rejected every composite program.** The
+  verifier did not count `IMPORT` aliases as declared nodes, so the two
+  official composite examples shipped in this repository failed their own
+  verifier. Same omission its own comment documented for `SEQUENCE`.
+- **The two ends of the composite type check spoke different
+  vocabularies.** The consumer's input was published normalised
+  (`{kind: "VECTOR", size: n}`) and the producer's output raw — the
+  annotation string as written in the `.mxai`. `"Vector[1]"` did not even
+  match a `VECTOR`, so **no pair published by `registry push` could ever
+  fit**. Outputs are now described in the same vocabulary; the rule
+  itself is unchanged, and a `Score` still does not fit a `VECTOR[1]`.
+- **Sizes are compared for vectors**, symmetrically to tensor shapes. A
+  `VECTOR[2]` used to fit a `VECTOR[30]`: harmless while manifests were
+  empty, a reassuring half-truth once they carry the size.
+- **The provenance of a run outranks whatever the screen says.**
+
 ## [1.5.0] — 2026-08-18
 
 Generated data that a model can actually learn from — and a prompt in

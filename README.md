@@ -66,9 +66,25 @@ matrixai --help
   detection, pre-training resource estimator (VRAM/RAM/disk/time), torch/GPU end-to-end
   (train, evaluate, infer, resume) and streamed ONNX external-data export — validated
   with a 2.95B-parameter dense model on an A100
-- **Model registry**: versioned, signed, verifiable — `matrixai registry push/pull/verify`
+- **Verifiable pipelines**: a pipeline is a deterministic, fail-closed JSON policy that
+  **names the rule that fired**, plus an engine that resolves every component **by digest**
+  and verifies it *before* running it. What did not start is said, not silently skipped
+- **Decision receipts**: every run leaves a DSSE-signed `.mxreceipt` whose assurance level
+  (A0–A4) is **deduced from what was actually checked**, never declared. `matrixai receipt
+  inspect | verify | compare` — and `inspect` verifies nothing and says so
+- **Reproducible packages**: `matrixai verify` runs four stages and reports each one, and
+  `matrixai replay --compare-reference` **names the stages that differ** instead of saying
+  «something changed». It always states whether both runs used the same environment:
+  matching inside one environment proves repeatability, not reproducibility. A run
+  elsewhere returns `INCOMPARABLE` — it neither accuses nor approves for free
+- **Model registry**: versioned, signed, verifiable — `matrixai registry push/pull/verify`,
+  with interface types derived from the model itself, so composing two components is
+  **checked** instead of assumed (what cannot be determined is published without types
+  and shown as such: an invented type is worse than none)
 - **Real actions**: `.mxact` contracts with HMAC-signed traces, dry-run and rollback
-- **Continual learning**: `.mxcontinual` policies with drift detection and automatic versioning
+- **Continual learning**: `.mxcontinual` policies with drift detection and automatic
+  versioning — accepting a suggestion creates a **candidate**, never a deployment;
+  promoting stays a separate, human act
 - **HTTP server**: `/predict`, `/metrics` (Prometheus), `/execute-action`, `/feedback` with API key auth
 - **ONNX / WASM export**: edge deployment bundles and browser-ready WASM packages — for
   dense **and composite** networks (residual blocks, LayerNorm, embeddings, concat), with
@@ -247,7 +263,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 5244 passed, 19 skipped
+# 5873 passed, 21 skipped
 ```
 
 ---

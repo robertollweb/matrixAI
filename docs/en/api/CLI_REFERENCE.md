@@ -990,6 +990,85 @@ matrixai refine <prompt...> [--audit <json>] [--evaluation <json>] [--mxai <file
 
 ---
 
+## Packages, receipts and reproduction
+
+Added in 1.6.0. Every one of these says what it could **not** check as
+plainly as what it could: a verifier that only reports successes is a
+verifier you cannot act on.
+
+### matrixai verify
+
+Verify an unpacked package: signature, manifest, the model's own
+declarations and the environment it claims. Four stages, each reported
+separately.
+
+```
+matrixai verify <package> [--json] [--retrain]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `package` | — | Directory of the unpacked package (contains `reproduce.json`) |
+| `--json` | — | Print the report as JSON |
+| `--retrain` | — | Also retrain and compare (slow: minutes to hours) |
+
+A package produced in a different environment comes back `INCOMPARABLE`
+rather than `FAIL`: it neither accuses nor approves for free.
+
+### matrixai replay
+
+Reproduce a package and emit a reproduction receipt. The receipt is
+written **whatever happens** — one that only exists when everything went
+well is no use for archiving what happened.
+
+```
+matrixai replay <package> [--json] [--compare-reference <receipt>] [--receipt-out <file>] [--no-retrain]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `package` | — | Directory of the package to reproduce |
+| `--compare-reference` | — | Compare against a reference receipt: **names the stages that differ** |
+| `--receipt-out` | — | Where to write the reproduction receipt |
+| `--no-retrain` | — | Skip retraining |
+| `--json` | — | Print the report as JSON |
+
+The comparison always states whether both runs used the **same**
+environment. Matching inside one environment proves repeatability, not
+reproducibility — which is why §15.6 asks for two.
+
+### matrixai receipt inspect
+
+Show what a receipt says. **Verifies nothing**, and says so.
+
+```
+matrixai receipt inspect <file>
+```
+
+### matrixai receipt verify
+
+Verify a receipt's signature and content, and report what could not be
+checked.
+
+```
+matrixai receipt verify <file> [--key <hex|utf-8>] [--offline]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--key` | — | Hex or utf-8 key to check the signature with |
+| `--offline` | — | Do not reach the network for trust material (today: always offline) |
+
+### matrixai receipt compare
+
+Diff two receipts by content, not by file bytes.
+
+```
+matrixai receipt compare <a> <b>
+```
+
+---
+
 ## Environment variables
 
 | Variable | Used by | Description |
