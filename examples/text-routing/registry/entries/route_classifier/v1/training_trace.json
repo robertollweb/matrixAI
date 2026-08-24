@@ -1,5 +1,5 @@
 {
-  "run_id": "bef95d8a",
+  "run_id": "9c28e06a",
   "epochs": 80,
   "best_epoch": 80,
   "best_val_loss": 0.1796726357871706,

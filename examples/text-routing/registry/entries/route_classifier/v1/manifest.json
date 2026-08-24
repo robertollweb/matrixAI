@@ -1,7 +1,7 @@
 {
   "name": "route_classifier",
   "version": "v1",
-  "entry_hash": "sha256:25ad175355880db6320a00c6176f405476b4ecd25ecfe5e128b3036b0f388dcd",
+  "entry_hash": "sha256:5badedcdceef0b2b6ed321a2f0f1a715d3d4a89d8d87121304aabaeae8275f68",
   "model_hash": "sha256:fb6a9c931f8eaa236ae53b2ae544257379f18ebcbc589b48043b6227e828e094",
   "parameter_schema_hash": "params_927678e698367f45",
   "parameter_set_id": "Classify_initial",
@@ -16,11 +16,11 @@
   },
   "metrics": {},
   "matrixai_version": "1.5.0",
-  "created_at": "2026-08-20T19:06:06.719123+00:00",
+  "created_at": "2026-08-24T08:23:57.422944+00:00",
   "training_dataset_fingerprint": "",
   "interpretability_level": "full",
-  "training_trace_hash": "sha256:cf048fd8e0884eb438182ed326ef59febc1bb56f07fe5d37fbc80b067940432d",
-  "evaluation_report_hash": "sha256:bbfb94f9b140f83c5be8ecaaeb022c6e6b2e2b47b1228e37fcda599d585d8bbc",
+  "training_trace_hash": "sha256:96acf7e18def338a144470ff377e228a65bf516899e8b046f1549a39963c9ce8",
+  "evaluation_report_hash": "sha256:c55887f4864aed0bf0ebc0ce6f4eb7c3c8ab5184fa7403310029546b960e543b",
   "params_content_hash": "sha256:a51b92efd221fd07f91a4aecf4b1926f92cb02293c039ec68f7530d993c177d7",
   "blockers": []
 }

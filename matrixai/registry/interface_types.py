@@ -45,6 +45,53 @@ def _tipo_de_entrada(program: Any, nodo: str) -> dict | None:
     return None
 
 
+def _describir_salida(nombre: str, anotacion: str) -> dict | None:
+    """La anotación del DSL, dicha en el MISMO vocabulario que la entrada.
+
+    POR QUÉ EXISTE (2026-08-23). Los dos extremos se describían en
+    alfabetos distintos: la entrada normalizada —`{kind: "VECTOR", size:
+    n}`, sacada del nodo por el que entra el grafo— y la salida en CRUDO,
+    la cadena tal cual la escribió el `.mxai` (`"Score"`, `"Vector[1]"`,
+    `"Tensor[3]"`). `_composite_types_compatible` compara `kind` con
+    `kind`, así que **`"Vector[1]"` no casaba ni con un `VECTOR`**, y
+    ninguna pareja publicada por `registry push` podía encajar jamás:
+    medido sobre `examples/text-routing`, que enruta con 100 % de acierto
+    y su propio verificador rechazaba.
+
+    Esto NO afloja la comprobación —un `Score` sigue sin entrar en un
+    `VECTOR[1]`, y las tallas se siguen comparando—: solo hace que los
+    dos lados hablen el mismo idioma, que es la condición para que
+    comparar signifique algo.
+
+    Y no inventa: una anotación que no se sabe leer devuelve `None`, y
+    entonces la entrada se publica **sin tipos** y quien la lea lo verá
+    dicho, que es lo que ya hacía este módulo con lo ambiguo.
+    """
+    from ..types import parse_type_spec
+
+    try:
+        spec = parse_type_spec(anotacion)
+    except ValueError:
+        return None
+    if spec.name == "Vector":
+        dim = spec.parameters.get("dim")
+        tipo: dict = {"name": nombre, "kind": "VECTOR"}
+        if isinstance(dim, int):
+            tipo["size"] = dim
+        return tipo
+    if spec.name == "Tensor":
+        forma = spec.parameters.get("shape")
+        tipo = {"name": nombre, "kind": "Tensor"}
+        if isinstance(forma, list) and forma:
+            tipo["shape"] = list(forma)
+        return tipo
+    # El resto se queda con su nombre CANÓNICO —`Score`, `Probability`,
+    # `ProbabilityMap`—: sin los corchetes, que son las etiquetas y no el
+    # tipo, y por eso hacían que dos salidas del mismo tipo con distintas
+    # etiquetas se leyeran como tipos distintos.
+    return {"name": nombre, "kind": spec.name}
+
+
 def _tipo_de_salida(program: Any, nodo: str) -> dict | None:
     for red in getattr(program, "networks", []) or []:
         if red.name == nodo:
@@ -52,7 +99,7 @@ def _tipo_de_salida(program: Any, nodo: str) -> dict | None:
             tipo = getattr(red, "output_type_str", None)
             if not salida or not tipo:
                 return None
-            return {"name": salida, "kind": tipo}
+            return _describir_salida(salida, tipo)
     return None
 
 

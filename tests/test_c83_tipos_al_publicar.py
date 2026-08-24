@@ -45,9 +45,15 @@ class TestSeDeducenDelModeloQueSePublica:
         assert entry.input_type["kind"] == "VECTOR"
         assert entry.input_type["size"] == 30
 
-        # La SALIDA es la que declara la red, con su tipo escrito.
+        # La SALIDA es la que declara la red, DICHA EN EL MISMO
+        # VOCABULARIO que la entrada (2026-08-23). El ejemplo declara
+        # `OUTPUT routing_signal: Vector[1]` porque es lo que un
+        # `Dense(1)` emite y es lo que el siguiente modelo consume; antes
+        # decía `Score` y su propio `typecheck` rechazaba un pipeline que
+        # acierta 9 de 9.
         assert entry.output_type["name"] == "routing_signal"
-        assert entry.output_type["kind"] == "Score"
+        assert entry.output_type["kind"] == "VECTOR"
+        assert entry.output_type["size"] == 1
 
     def test_viajan_en_el_manifiesto_que_se_escribe(self, tmp_path):
         """En el objeto no basta: lo que lee el compositor es el fichero."""
@@ -58,7 +64,7 @@ class TestSeDeducenDelModeloQueSePublica:
         manifest = json.loads(
             (tmp_path / "reg" / "entries" / "text_encoder" / "v1" / "manifest.json").read_text())
         assert manifest["input_type"]["size"] == 30
-        assert manifest["output_type"]["kind"] == "Score"
+        assert manifest["output_type"]["kind"] == "VECTOR"
 
 
 class TestNoSeInventaNada:
@@ -207,3 +213,60 @@ class TestPorElPRODUCTONoSoloPorLaFUNCION:
         # Sin excepción: si este caso también fallara, el arreglo no
         # comprobaría nada, solo rompería.
         self._typecheck(self._compuesto(30), registry)
+
+
+class TestLosDosExtremosHablanElMismoIdioma:
+    """La entrada salía normalizada (`{kind: VECTOR, size: n}`) y la
+    salida en CRUDO, la cadena tal cual la escribió el `.mxai`. Medido el
+    2026-08-23: `"Vector[1]"` no casaba ni con un `VECTOR`, así que
+    **ninguna pareja publicada por `registry push` podía encajar jamás** —
+    el ejemplo `text-routing`, que acierta 9 de 9, era rechazado por su
+    propio verificador.
+
+    Esto NO afloja nada: un `Score` sigue sin entrar en un `VECTOR[1]`, y
+    las tallas se siguen comparando. Solo hace comparables las dos
+    descripciones."""
+
+    def test_un_vector_se_dice_como_se_dice_en_la_entrada(self):
+        from matrixai.registry.interface_types import _describir_salida
+        assert _describir_salida("s", "Vector[1]") == {"name": "s", "kind": "VECTOR", "size": 1}
+
+    def test_un_tensor_lleva_su_forma(self):
+        from matrixai.registry.interface_types import _describir_salida
+        assert _describir_salida("p", "Tensor[3]") == {"name": "p", "kind": "Tensor", "shape": [3]}
+
+    def test_un_escalar_se_queda_como_estaba(self):
+        """Lo que no es contenedor no cambia: `Score` sigue siendo `Score`,
+        y por eso sigue SIN encajar en un `VECTOR[1]`."""
+        from matrixai.registry.interface_types import _describir_salida
+        from matrixai.types import _composite_types_compatible
+        assert _describir_salida("s", "Score") == {"name": "s", "kind": "Score"}
+        assert not _composite_types_compatible({"kind": "Score"}, {"kind": "VECTOR", "size": 1})
+
+    def test_las_etiquetas_no_son_el_tipo(self):
+        """`ProbabilityMap[a,b]` y `ProbabilityMap[c,d]` son el mismo tipo
+        con distintas etiquetas: en crudo se leían como tipos distintos."""
+        from matrixai.registry.interface_types import _describir_salida
+        uno = _describir_salida("p", "ProbabilityMap[billing,tech]")
+        otro = _describir_salida("p", "ProbabilityMap[a,b]")
+        assert uno == otro == {"name": "p", "kind": "ProbabilityMap"}
+
+    def test_lo_que_no_se_sabe_leer_no_se_inventa(self):
+        from matrixai.registry.interface_types import _describir_salida
+        assert _describir_salida("x", "NoSoyUnTipo") is None
+
+
+class TestElEjemploPasaSuPropioVerificador:
+    """La regresión exacta: `examples/text-routing` viaja publicado en el
+    repo y su `typecheck` fallaba. Se comprueba contra el registry
+    COMMITEADO, que es lo que se descarga cualquiera."""
+
+    def test_el_pipeline_del_ejemplo_typechequea(self):
+        from matrixai.parser import parse_file
+        from matrixai.registry import ModelRegistry
+        from matrixai.types import check_composite_program_types
+
+        raiz = EJEMPLOS / "text-routing"
+        programa = parse_file(raiz / "text_routing_pipeline.mxai")
+        registro = ModelRegistry(raiz / "registry")
+        assert check_composite_program_types(programa, registro).errors == []

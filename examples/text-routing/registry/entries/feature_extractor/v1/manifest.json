@@ -1,8 +1,8 @@
 {
   "name": "feature_extractor",
   "version": "v1",
-  "entry_hash": "sha256:5313e8921c240bcbe298503465494599005140400d23876947ad5f6f4878f840",
-  "model_hash": "sha256:b07292717a00f0ad2f116ca2b7f7023436e75027919e82a9d4ad7db10e5c1177",
+  "entry_hash": "sha256:ac2f1106d11d1719b040bd5094f23449dfdb829d006ec1192da946a14b6ba491",
+  "model_hash": "sha256:5af1df3b9076813fb6c41d0d62d2318476fc5a034b07d1e8303ad2130ca4013e",
   "parameter_schema_hash": "params_1864e5cfd8ade94e",
   "parameter_set_id": "TextEncoder_initial",
   "input_type": {
@@ -12,15 +12,16 @@
   },
   "output_type": {
     "name": "routing_signal",
-    "kind": "Score"
+    "kind": "VECTOR",
+    "size": 1
   },
   "metrics": {},
   "matrixai_version": "1.5.0",
-  "created_at": "2026-08-20T19:06:06.660555+00:00",
+  "created_at": "2026-08-24T08:23:57.355929+00:00",
   "training_dataset_fingerprint": "",
   "interpretability_level": "full",
-  "training_trace_hash": "sha256:8dcf972c071eee6c1f0c0a29ac0411b548f4c3534c949a89053493a30e7fc92c",
-  "evaluation_report_hash": "sha256:d627ab3ea8f7f494b84d60671a4d754f3edd5006f3afb11c75e785d414be741d",
-  "params_content_hash": "sha256:1f7f03bdf9b0a8bd8e187c88d1133cf68453c1c170e612d3925c76c6d9f524c6",
+  "training_trace_hash": "sha256:f764eefb96cdc8471f792aba2b4cfff913e2509c1f9c66f87b81114eb250d490",
+  "evaluation_report_hash": "sha256:8d9455aa7c8c262ce40a6526daceba67e5156d319e7de6f1915852791f589d31",
+  "params_content_hash": "sha256:d0e9c46dc3b69dee8a3df6844f894a5feeb23c8c30e7c7dc6b746fae55c67a89",
   "blockers": []
 }

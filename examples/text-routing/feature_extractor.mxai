@@ -39,11 +39,23 @@ END
 # Two-layer dense network: BoW[30] -> Dense(8,relu) -> Dense(1,sigmoid)
 # The 8-unit hidden layer is the learned text projection (text embedding).
 # Output routing_signal in [0,1]: billing ~ 0.1, technical ~ 0.5, sales ~ 0.9.
+#
+# The output is declared Vector[1] and not Score, and that is the whole
+# point of this example being a *composite*: the next model in the
+# pipeline (route_classifier) takes `VECTOR Signal[1]`, and a Dense(1)
+# layer emits exactly that — one element. Declared as `Score`, the
+# published interface said `kind: Score` where the consumer said
+# `kind: VECTOR`, and `matrixai typecheck` rejected a pipeline that
+# routes 9 out of 9 tickets correctly. The fix is to say what it emits,
+# not to teach the checker that a Score and a VECTOR[1] are the same
+# thing: that would weaken the check for every other composite.
+# The [0,1] meaning is not lost — the consumer declares the field as
+# `routing_signal: Score` inside its own vector.
 NETWORK TextEncoder
   INPUT TicketBOW
   LAYER Dense units=8 activation=relu
   LAYER Dense units=1 activation=sigmoid
-  OUTPUT routing_signal: Score
+  OUTPUT routing_signal: Vector[1]
 END
 
 GRAPH

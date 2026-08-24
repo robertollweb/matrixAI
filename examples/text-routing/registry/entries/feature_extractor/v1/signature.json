@@ -1,6 +1,6 @@
 {
-  "entry_hash": "sha256:5313e8921c240bcbe298503465494599005140400d23876947ad5f6f4878f840",
-  "signature": "hmac-sha256:1addd6a4ac827a70ff8f28352340103abf8adba3800cc302b92b5d8b14b920a0",
-  "signed_at": "2026-08-20T19:06:06.661563+00:00",
-  "signing_key_fingerprint": "sha256:c7235baf8d227630"
+  "entry_hash": "sha256:ac2f1106d11d1719b040bd5094f23449dfdb829d006ec1192da946a14b6ba491",
+  "signature": "hmac-sha256:24b801a7cc2af061dde1dc9ff87274efaeb0ae10ddf4ff731fdd108931b067cf",
+  "signed_at": "2026-08-24T08:23:57.356970+00:00",
+  "signing_key_fingerprint": "sha256:ee66031fe54c4611"
 }
