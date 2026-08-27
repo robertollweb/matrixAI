@@ -27,7 +27,11 @@ import json
 import re
 from typing import Any
 
-from matrixai.pipelines.receipt import nivel_del_recibo, verificar_recibo
+from matrixai.pipelines.receipt import (
+    nivel_del_recibo,
+    payload_del_sobre,
+    verificar_recibo,
+)
 
 __all__ = ["inspeccionar_recibo", "verificar_sobre", "comparar_recibos"]
 
@@ -45,14 +49,29 @@ _AVISOS = (
 )
 
 
-def _payload(sobre: Any) -> dict[str, Any] | None:
-    if not isinstance(sobre, dict) or not isinstance(sobre.get("payload"), str):
-        return None
+def _payload(sobre: Any) -> tuple[dict[str, Any] | None, str | None]:
+    """El recibo que el sobre lleva dentro, o EL MOTIVO de que no.
+
+    Devuelve el motivo y no solo `None` porque quien lea esto necesita
+    saber si el sobre está roto, si es del formato anterior al 86-C1 o si
+    lo que hay dentro no es un recibo: «el sobre no lleva un recibo
+    legible», a secas, manda a mirar el fichero entero.
+
+    **El base64 lo decodifica `payload_del_sobre`, del emisor** (86-C1):
+    si el verificador tuviera su propia idea de qué es un payload válido,
+    un día leería lo que el emisor no produce, o al revés.
+    """
+    crudo, motivo = payload_del_sobre(sobre)
+    if crudo is None:
+        return None, motivo
     try:
-        datos = json.loads(sobre["payload"])
-    except ValueError:
-        return None
-    return datos if isinstance(datos, dict) else None
+        datos = json.loads(crudo)
+    except ValueError as exc:
+        return None, (f"el payload del sobre no es JSON ({exc}): se "
+                      "decodificó el base64 y lo de dentro no es un recibo")
+    if not isinstance(datos, dict):
+        return None, "el payload del sobre no es un objeto: un recibo lo es"
+    return datos, None
 
 
 def _esquema_invalido(sobre: dict[str, Any], recibo: dict[str, Any]) -> list[str]:
@@ -132,9 +151,9 @@ def inspeccionar_recibo(sobre: Any) -> dict[str, Any]:
     Sin ese aviso, alguien leería un `inspect` limpio como un `verify`
     bueno — y son cosas distintas.
     """
-    recibo = _payload(sobre)
+    recibo, motivo = _payload(sobre)
     if recibo is None:
-        return {"ok": False, "reason": "el sobre no lleva un recibo legible",
+        return {"ok": False, "reason": motivo,
                 "note": "inspect NO verifica nada: solo enseña el contenido"}
     return {
         "ok": True,
@@ -160,12 +179,25 @@ def verificar_sobre(sobre: Any, *, clave: bytes | None) -> dict[str, Any]:
     sin_verificar: dict[str, str] = {}
     problemas: list[str] = []
 
-    recibo = _payload(sobre)
+    recibo, motivo = _payload(sobre)
     if recibo is None:
+        # Y CON SU MOTIVO. Un sobre del formato anterior al 86-C1 se
+        # rechaza diciendo que lo es y que hay que volver a emitirlo: si
+        # saliera «el sobre no lleva un recibo legible» a secas, quien lo
+        # reciba se pondría a buscar una corrupción que no existe.
         return {"ok": False, "verified": [], "assurance_level": "A0",
-                "unverified": {"schema": "el sobre no lleva un recibo legible"},
-                "problems": ["el sobre no lleva un recibo legible"],
-                "disclaimers": list(_AVISOS)}
+                "unverified": {"schema": motivo},
+                "problems": [motivo],
+                "disclaimers": list(_AVISOS),
+                # Los mismos campos que la salida normal: quien encadene
+                # esto en un guion no puede encontrarse un informe con la
+                # mitad de las claves según por dónde salga.
+                "assurance_is_claimed_not_checked": False,
+                "signature_checked": False,
+                "signature_valid": False,
+                "fully_checked": False,
+                "unchecked": ["schema", "signature"],
+                "standing_limitation": "key_identity"}
 
     # AUDITORÍA EXTERNA (2026-08-20) [BLOQUEANTE]: aquí se añadía "schema"
     # a lo VERIFICADO por el mero hecho de que el JSON se pudiera
@@ -250,6 +282,18 @@ def verificar_sobre(sobre: Any, *, clave: bytes | None) -> dict[str, Any]:
     }
 
 
+def _payload_o_recibo(objeto: Any) -> tuple[dict[str, Any] | None, str | None]:
+    """El recibo, venga dentro de un sobre o pelado.
+
+    Un recibo sin firmar **no tiene sobre**, y es exactamente el caso que ve
+    quien no ha configurado clave. Exigir sobre aquí dejaba fuera de la
+    comparación justo a quien más la necesita.
+    """
+    if isinstance(objeto, dict) and "payload" not in objeto and "schema_version" in objeto:
+        return dict(objeto), None
+    return _payload(objeto)
+
+
 def comparar_recibos(uno: Any, otro: Any) -> dict[str, Any]:
     """En qué se diferencian dos recibos.
 
@@ -257,9 +301,15 @@ def comparar_recibos(uno: Any, otro: Any) -> dict[str, Any]:
     firmados con claves distintas siguen diciendo lo mismo, y decir que
     difieren mandaría a buscar una diferencia que no existe.
     """
-    a, b = _payload(uno), _payload(otro)
+    # ACEPTA UN SOBRE **O** UN RECIBO PELADO (2026-08-25). La pantalla del
+    # 85-C3 tiene el recibo, no siempre su sobre —un recibo sin firmar no lo
+    # tiene—, y sin esto comparar desde la interfaz era imposible. Se resuelve
+    # AQUÍ, en el único sitio que decide qué es comparar dos recibos: hacerlo
+    # en el backend habría sido un segundo sitio con su propia idea.
+    (a, motivo_a), (b, motivo_b) = _payload_o_recibo(uno), _payload_o_recibo(otro)
     if a is None or b is None:
-        return {"identical": False, "differences": ["alguno de los dos no es legible"]}
+        return {"identical": False,
+                "differences": [m for m in (motivo_a, motivo_b) if m]}
     diferencias: list[dict[str, Any]] = []
     for clave in sorted(set(a) | set(b)):
         if a.get(clave) != b.get(clave):

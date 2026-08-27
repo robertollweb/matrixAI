@@ -27,8 +27,10 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-__all__ = ["EntradaAmbigua", "ModeloAlterado", "ModeloCambiado", "SinRecetaDeEnlace",
-           "TipoDeEntradaIncompatible", "ejecutor_de_modelos", "mapa_del_registry"]
+__all__ = ["EntradaAmbigua", "ModeloAjenoNoDisponible", "ModeloAlterado",
+           "ModeloCambiado", "SinRecetaDeEnlace",
+           "TipoDeEntradaIncompatible", "ejecutor_de_modelos", "ejecutor_onnx",
+           "mapa_del_registry"]
 
 
 class ModeloCambiado(RuntimeError):
@@ -45,6 +47,10 @@ class EntradaAmbigua(ValueError):
 
 class TipoDeEntradaIncompatible(ValueError):
     """Lo que llega no encaja con lo que el modelo declara esperar."""
+
+
+class ModeloAjenoNoDisponible(RuntimeError):
+    """No se puede ejecutar un ONNX aquí, y se dice por qué."""
 
 
 class SinRecetaDeEnlace(ValueError):
@@ -230,6 +236,19 @@ def ejecutor_de_modelos(
                     "integridad: un modelo tocado no ejecuta, porque su salida "
                     "saldría con recibo")
 
+        # UNA ENTRADA QUE NO SE PUEDE EJECUTAR SE DICE, no revienta (hallazgo 15
+        # del E2E del 87, decisión de Roberto: publicarla marcada). El registry
+        # acepta un run **sin `.mxai`** —publicar solo métricas tiene usos
+        # legítimos— y aquí eso salía como un `FileNotFoundError` crudo, que no
+        # dice qué falta ni de quién es el problema.
+        if not entrada_reg.es_ejecutable():
+            raise ModeloAlterado(
+                f"{nombre}@{version} se publicó SIN su modelo (`model.mxai`), así "
+                "que no se puede ejecutar: la entrada trae sus métricas y sus "
+                "huellas, y eso se puede leer, pero no hay red que correr. Quien "
+                "la publicó tiene que volver a hacerlo desde un run que incluya "
+                "el modelo.")
+
         directorio = Path(registry.layout.entry_dir(nombre, version))
         texto = (directorio / "model.mxai").read_text(encoding="utf-8")
         parametros: dict[str, Any] = {}
@@ -256,5 +275,138 @@ def ejecutor_de_modelos(
             })
 
         return MatrixAIRuntime().run(parse_text(texto), dato, parameters=parametros)
+
+    return ejecutar
+
+
+def ejecutor_onnx(*, raiz: Any = None, comprobar_integridad: bool = True):
+    """Un ejecutor para modelos que **NO ha entrenado MatrixAI** (87-C1).
+
+    El motor recibe un mapa `kind → función` y hasta hoy solo había un ejecutor:
+    el del registry de P21. O sea que **para auditarse con MatrixAI había que
+    abandonar la herramienta con la que se trabaja**, que es la barrera de
+    entrada real de este producto.
+
+    Las reglas son las mismas que las del ejecutor de casa, y por los mismos
+    motivos:
+
+    * **El digest se comprueba AL EJECUTAR**, no solo al planificar: entre la
+      comprobación previa y el nodo pueden pasar minutos, y el fichero está en
+      un disco que no controlamos.
+    * **Las formas se contrastan si el modelo las declara**, y si no, **se
+      dice**: un ONNX con ejes dinámicos no se puede contrastar, y afirmar que
+      sí sería el defecto que este repositorio lleva años quitando.
+    * **Lo que no se puede ejecutar no se ejecuta a medias**: sin
+      `onnxruntime`, sin fichero o con un digest que no cuadra, se levanta el
+      error con su motivo.
+
+    Y lo que este ejecutor **no** demuestra, que va escrito aquí y en el
+    contrato: correr un ONNX ajeno atestigua **la evaluación, el entorno y las
+    entradas**. NO es prueba de que ese modelo se entrenara como dice nadie.
+    """
+    import hashlib
+
+    base = Path(raiz) if raiz is not None else None
+
+    def ejecutar(*, entradas: dict[str, Any], nodo: dict[str, Any],
+                 contexto: dict[str, Any]) -> Any:
+        node_id = str(nodo.get("id") or "?")
+        ruta_declarada = str(nodo.get("model") or "").strip()
+        if not ruta_declarada:
+            raise ModeloAjenoNoDisponible(
+                f"el nodo {node_id!r} no dice qué fichero ONNX ejecutar")
+        ruta = Path(ruta_declarada)
+        if base is not None and not ruta.is_absolute():
+            ruta = base / ruta
+        # Un pipeline no elige ficheros fuera de su raíz: es la misma regla que
+        # cerró el bloqueante del 82 (`verify` abría lo que el manifiesto
+        # dijera). Mirar primero y preguntar después ya sería haberlo leído.
+        if base is not None:
+            try:
+                ruta.resolve().relative_to(Path(base).resolve())
+            except ValueError as exc:
+                raise ModeloAjenoNoDisponible(
+                    f"el nodo {node_id!r} apunta a {ruta_declarada!r}, que cae fuera "
+                    f"de la raíz declarada: un pipeline no elige qué fichero se abre "
+                    f"en la máquina de quien lo corre") from exc
+        if not ruta.is_file():
+            raise ModeloAjenoNoDisponible(
+                f"el nodo {node_id!r} declara {ruta_declarada!r} y ahí no hay fichero")
+
+        declarado = str(nodo.get("entry_hash") or "").strip()
+        if comprobar_integridad:
+            if not declarado:
+                raise ModeloAjenoNoDisponible(
+                    f"el nodo {node_id!r} no declara `entry_hash`: sin él, la traza "
+                    f"diría que corrió «un onnx», no CUÁL")
+            real = hashlib.sha256(ruta.read_bytes()).hexdigest()
+            esperado = declarado.removeprefix("sha256:")
+            if real != esperado:
+                raise ModeloCambiado(
+                    f"el nodo {node_id!r} declaró {esperado} y el fichero tiene "
+                    f"{real}: seguir produciría una traza que describe otro modelo")
+
+        try:
+            import onnxruntime  # noqa: PLC0415
+        except ImportError as exc:
+            raise ModeloAjenoNoDisponible(
+                "onnxruntime no está instalado, así que un modelo ONNX no se puede "
+                "ejecutar aquí: `pip install \"matrixai-core[export]\"`") from exc
+
+        entrada = _entrada_del_nodo(nodo, entradas)
+        sesion = onnxruntime.InferenceSession(str(ruta), providers=["CPUExecutionProvider"])
+        metas = sesion.get_inputs()
+        if len(metas) != 1:
+            raise TipoDeEntradaIncompatible(
+                f"el nodo {node_id!r} corre un ONNX con {len(metas)} entradas y este "
+                f"ejecutor sabe alimentar una: mapear varias por su cuenta sería "
+                f"adivinar cuál es cuál")
+        meta = metas[0]
+        vector = list(entrada) if isinstance(entrada, (list, tuple)) else [entrada]
+
+        # LA FORMA, SIN CONFUNDIR EL LOTE CON LAS CARACTERÍSTICAS.
+        #
+        # Auditoría externa del 2026-08-25 (hallazgo 2): un modelo válido que
+        # declara `[1, "features"]` con tres valores **se rechazaba diciendo que
+        # esperaba uno**. La versión anterior se quedaba con los ejes que son
+        # enteros —aquí solo el lote, `1`— y comparaba ése con el número de
+        # características. El eje del lote no es una característica.
+        # LA FORMA Y EL TIPO, DECIDIDOS EN UN SOLO SITIO (`matrixai.onnx_entrada`).
+        # Antes esto vivía aquí y `matrixai attest` tenía su propia copia —con
+        # los defectos que aquí ya estaban arreglados—: dos sitios decidiendo
+        # cómo se alimenta un modelo acaban divergiendo, y habían divergido.
+        from matrixai.onnx_entrada import (  # noqa: PLC0415
+            EntradaOnnxIncompatible, caracteristicas_declaradas, tensor_para)
+
+        esperado, comprobacion = caracteristicas_declaradas(meta)
+        if esperado is not None:
+            if esperado != len(vector):
+                raise TipoDeEntradaIncompatible(
+                    f"el nodo {node_id!r} recibe {len(vector)} valores y su modelo "
+                    f"declara {esperado}")
+        else:
+            # Ejes dinámicos: no se puede contrastar, y decir «comprobado»
+            # igualmente sería afirmar por omisión.
+            comprobacion = "no declarada"
+
+        # EL TIPO QUE EL MODELO DECLARA, CONTRASTADO DE VERDAD (mismo hallazgo).
+        #
+        # El ejecutor decía en su cabecera que «los tipos se comprueban si están
+        # declarados» y **convertía todo a float**. Medido: un modelo `int64`
+        # aceptó `3.7`, ONNX Runtime lo truncó **en silencio** a 3 y devolvió 6.
+        # Un valor que se pierde por el camino no puede acabar en un recibo como
+        # si fuera el que se dio.
+        try:
+            tensor = tensor_para(meta, vector, f"el nodo {node_id!r}")
+        except EntradaOnnxIncompatible as exc:
+            raise TipoDeEntradaIncompatible(str(exc)) from None
+        salida = sesion.run(None, {meta.name: tensor})
+        valores = salida[0]
+        try:
+            valores = valores.tolist()
+        except AttributeError:
+            valores = list(valores)
+        return {"values": valores[0] if valores and isinstance(valores[0], list) else valores,
+                "input_shape_check": comprobacion}
 
     return ejecutar

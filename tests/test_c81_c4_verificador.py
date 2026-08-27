@@ -183,12 +183,17 @@ class ElVERIFICADORNoAprueba_LoQueNoHaMiradoTest(unittest.TestCase):
 
         from matrixai.pipelines.receipt import PAYLOAD_TYPE
 
-        payload = json.dumps(recibo)
+        payload = json.dumps(recibo).encode("utf-8")
+        # El PAE va sobre los BYTES CRUDOS y el sobre lleva el base64
+        # (86-C1): son las dos mitades de la misma regla, y forjarlo mal
+        # aquí probaría el rechazo del formato anterior en vez de lo que
+        # esta clase quiere probar.
         pae = (b"DSSEv1 " + str(len(PAYLOAD_TYPE)).encode() + b" "
                + PAYLOAD_TYPE.encode() + b" "
-               + str(len(payload.encode())).encode() + b" " + payload.encode())
+               + str(len(payload)).encode() + b" " + payload)
         firma = hmac.new(_CLAVE, pae, hashlib.sha256).digest()
-        return {"payloadType": PAYLOAD_TYPE, "payload": payload,
+        return {"payloadType": PAYLOAD_TYPE,
+                "payload": base64.b64encode(payload).decode("ascii"),
                 "signatures": [{"keyid": "k1", "sig": base64.b64encode(firma).decode()}]}
 
     def test_un_recibo_sin_las_secciones_de_14_2_NO_sale_verificado(self):

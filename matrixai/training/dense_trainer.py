@@ -223,6 +223,20 @@ class DenseSupervisedTrainer:
         run_id = str(uuid.uuid4())[:8]
         ps_path = out / "parameter_set.json"
         write_parameter_set(ps_path, best_ps)
+        # Y CON EL NOMBRE QUE TODO EL MUNDO CONOCE (2026-08-25).
+        #
+        # Medido: el entrenador de los modelos FUNCTION escribe
+        # `params.best.json` —y lo declara en su manifiesto como
+        # `selected_parameter_set`—, y éste escribía solo `parameter_set.json`.
+        # Dos nombres para la misma cosa según por dónde entres: quien entrena
+        # una RED y sigue el QUICKSTART se lleva un `No such file or
+        # directory`, porque la documentación (correctamente) enseña el del
+        # otro camino.
+        #
+        # Se escriben los DOS y no se retira el suyo: hay guardado y export que
+        # ya buscan `parameter_set.json`, y renombrar rompería lo que funciona
+        # para arreglar un nombre.
+        write_parameter_set(out / "params.best.json", best_ps)
 
         trace_path = out / "training_trace.json"
         trace_path.write_text(
@@ -241,6 +255,19 @@ class DenseSupervisedTrainer:
                 # Mismo criterio que ya usa el camino torch (is_reg = loss_fn
                 # == "mse").
                 "task_kind": "regression" if loss_fn == "mse" else "classification",
+                # LA EXACTITUD, ESCRITA Y NO SOLO IMPRESA (2026-08-25).
+                #
+                # El CLI la enseñaba por pantalla (`Accuracy: 0.968750`) y no
+                # constaba en ningún fichero, así que **no podía viajar al
+                # paquete ni contrastarse en R3**: un número que no está en
+                # disco no se puede comparar después. Y estaba calculada aquí
+                # mismo, a cuatro líneas del sitio donde se escribe la traza.
+                #
+                # Va con las métricas de clasificación que este mismo camino ya
+                # calcula, por su nombre: `validation_metrics` es lo que la
+                # pantalla y el export saben leer.
+                "accuracy": accuracy,
+                "validation_metrics": validation_metrics or None,
             }, indent=2),
             encoding="utf-8",
         )
@@ -276,23 +303,49 @@ class DenseSupervisedTrainer:
         training: TrainingSpec,
         data_path: Path | None,
     ) -> list[tuple[list[float], list[float]]]:
-        if data_path is None or not data_path.exists():
-            return []
-        vector_map = {v.name: v for v in program.vectors}
-        vector = vector_map.get(net.input)
-        if vector is None:
-            return []
-        loss_fn = training.loss.type if training.loss else "mse"
-        labels = _labels_from_spec(training)
-        target_col = training.dataset.target.name
-        adapter = CSVDataAdapter(
-            data_path,
-            vector.name,
-            list(vector.fields),
-            target_col,
-            labels if labels else None,
-        )
-        return _examples_to_xy(adapter.examples(), loss_fn, labels)
+        ejemplos, aplicados = _cargar_ejemplos(program, net, training, data_path)
+        self.rangos_aplicados = aplicados
+        return ejemplos
+
+
+def _cargar_ejemplos(
+    program: Any, net: Any, training: TrainingSpec, data_path: Path | None,
+) -> tuple[list[tuple[list[float], list[float]]], dict[str, tuple[float, float]]]:
+    """Los ejemplos del CSV, **normalizados por los rangos que el modelo declara**.
+
+    VIVE UNA SOLA VEZ A PROPÓSITO. Este cuerpo estaba duplicado literalmente en
+    el entrenador y en el evaluador, y al añadir la normalización (hallazgo 13,
+    decisión de Roberto del 2026-08-25) esa duplicación pasaba de fea a
+    peligrosa: normalizar solo en uno haría que el modelo se entrenara con
+    valores escalados y se puntuara con los crudos, y el número que saliera no
+    describiría nada.
+
+    Devuelve también **los rangos aplicados**, porque quien exporta tiene que
+    meterlos en el `inference_spec`: normalizar al entrenar y no al predecir
+    produce un paquete que parece bueno y predice mal.
+    """
+    if data_path is None or not data_path.exists():
+        return [], {}
+    vector_map = {v.name: v for v in program.vectors}
+    vector = vector_map.get(net.input)
+    if vector is None:
+        return [], {}
+    loss_fn = training.loss.type if training.loss else "mse"
+    labels = _labels_from_spec(training)
+    target_col = training.dataset.target.name
+    adapter = CSVDataAdapter(
+        data_path, vector.name, list(vector.fields), target_col,
+        labels if labels else None,
+    )
+    xs_ys = _examples_to_xy(adapter.examples(), loss_fn, labels)
+
+    from matrixai.training.normalizacion import (  # noqa: PLC0415
+        normalizar_filas, rangos_declarados_del_vector)
+
+    xs = [x for x, _ in xs_ys]
+    xs, aplicados = normalizar_filas(
+        xs, list(vector.fields), rangos_declarados_del_vector(vector))
+    return [(x, y) for x, (_, y) in zip(xs, xs_ys)], aplicados
 
 
 class DenseSupervisedEvaluator:
@@ -395,20 +448,6 @@ class DenseSupervisedEvaluator:
         training: TrainingSpec,
         data_path: Path | None,
     ) -> list[tuple[list[float], list[float]]]:
-        if data_path is None or not data_path.exists():
-            return []
-        vector_map = {v.name: v for v in program.vectors}
-        vector = vector_map.get(net.input)
-        if vector is None:
-            return []
-        loss_fn = training.loss.type if training.loss else "mse"
-        labels = _labels_from_spec(training)
-        target_col = training.dataset.target.name
-        adapter = CSVDataAdapter(
-            data_path,
-            vector.name,
-            list(vector.fields),
-            target_col,
-            labels if labels else None,
-        )
-        return _examples_to_xy(adapter.examples(), loss_fn, labels)
+        ejemplos, aplicados = _cargar_ejemplos(program, net, training, data_path)
+        self.rangos_aplicados = aplicados
+        return ejemplos

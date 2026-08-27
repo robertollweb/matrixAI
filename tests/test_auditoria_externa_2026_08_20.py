@@ -18,6 +18,7 @@ comparación con el de referencia y dos entornos, y `replay` no hacía
 ninguna de las tres.
 """
 
+import base64
 import json
 import math
 import unittest
@@ -36,6 +37,21 @@ _EJ = {"t": lambda *, entradas, nodo, contexto: "x"}
 
 def _corrido(**kw):
     return ejecutar_pipeline(_PIPE, registry=_REG, ejecutores=_EJ, **kw)
+
+
+def _dentro(sobre):
+    """El recibo que va dentro del sobre, decodificando el base64.
+
+    86-C1: el `payload` viaja en base64 como manda DSSE. Estas pruebas
+    manipulan el CONTENIDO —una `schema_version` inventada, un recibo sin
+    pasos— y necesitan abrirlo; leerlo como texto plano probaría el
+    rechazo del formato anterior, que es otra cosa.
+    """
+    return json.loads(base64.b64decode(sobre["payload"], validate=True))
+
+
+def _reempaqueta(recibo):
+    return base64.b64encode(json.dumps(recibo).encode("utf-8")).decode("ascii")
 
 
 class H1_JCS_EscribeComoECMAScriptTest(unittest.TestCase):
@@ -150,18 +166,18 @@ class H4_ElVerificadorCompruebaElESQUEMATest(unittest.TestCase):
 
     def test_una_schema_version_DESCONOCIDA_tampoco(self):
         sobre = dict(self._sobre())
-        payload = json.loads(sobre["payload"])
+        payload = _dentro(sobre)
         payload["schema_version"] = "999"
-        sobre["payload"] = json.dumps(payload)
+        sobre["payload"] = _reempaqueta(payload)
         v = verificar_sobre(sobre, clave=None)
         self.assertFalse(v["ok"])
         self.assertTrue(any("999" in p for p in v["problems"]))
 
     def test_un_recibo_SIN_pasos_no_atestigua_nada(self):
         sobre = dict(self._sobre())
-        payload = json.loads(sobre["payload"])
+        payload = _dentro(sobre)
         payload["steps"] = []
-        sobre["payload"] = json.dumps(payload)
+        sobre["payload"] = _reempaqueta(payload)
         self.assertFalse(verificar_sobre(sobre, clave=None)["ok"])
 
 
@@ -303,7 +319,9 @@ class H7_ElPaqueteSeCOMPRUEBA_EnteroTest(unittest.TestCase):
         d = self._tocar(self._paquete(),
                         lambda m: m["artifacts"].__setitem__(
                             "training", {"path": "training.mxtrain"}))
-        etapa = verify_package(d)["stages"]["manifest"]
+        # `locale="en"` FIJADO (85-C2b): el aserto mide que el `problem`
+        # DIGA que falta el sha256, y para eso hay que elegir idioma.
+        etapa = verify_package(d, locale="en")["stages"]["manifest"]
         self.assertEqual(etapa["status"], "FAIL")
         self.assertIn("no sha256", etapa["artifacts"][0]["problem"])
 
@@ -319,7 +337,7 @@ class H7_ElPaqueteSeCOMPRUEBA_EnteroTest(unittest.TestCase):
         self._tocar(d, lambda m: m["artifacts"].__setitem__("model", {
             "path": "enlace.mxai",
             "sha256": hashlib.sha256((d / "model.mxai").read_bytes()).hexdigest()}))
-        etapa = verify_package(d)["stages"]["manifest"]
+        etapa = verify_package(d, locale="en")["stages"]["manifest"]
         self.assertEqual(etapa["status"], "FAIL")
         self.assertIn("symlink", etapa["artifacts"][0]["problem"])
 

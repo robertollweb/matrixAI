@@ -14,7 +14,14 @@ from typing import Any
 from matrixai.ir import MatrixAIProgram
 from matrixai.parameters.store import ParameterSet
 
-_SUPPORTED_KINDS = frozenset({"softmax_linear", "sigmoid_linear", "layer_call"})
+# QUÉ SE PUEDE EXPORTAR SE DECLARA EN UN SOLO SITIO (2026-08-25).
+#
+# Había TRES listas diciendo lo mismo —ésta, `_SUPPORTED_KINDS` del exportador y
+# la selección de funciones dentro de `export_onnx`— y al añadir la regresión
+# lineal fui descubriéndolas de una en una, cada vez con el mismo error y un
+# comando distinto. Es la regla que este proyecto lleva escrita desde el
+# principio: dos sitios declarando lo mismo acaban divergiendo.
+from matrixai.export.onnx_exporter import _SUPPORTED_KINDS  # noqa: E402
 _DEFAULT_ATOL = 1e-5
 _DEFAULT_RTOL = 1e-4
 _DEFAULT_N_SAMPLES = 20

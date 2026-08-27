@@ -63,7 +63,13 @@ class UnPaqueteNoEligeQueFicheroSeABRETest(unittest.TestCase):
         man["artifacts"]["model"] = {"path": ruta, "sha256": self.sha_fuera}
         man["manifest_sha256"] = manifest_digest(man)
         (self.bundle / "reproduce.json").write_text(json.dumps(man))
-        return verify_package(self.bundle)["stages"]["manifest"]
+        # `locale="en"` FIJADO (85-C2b): lo que estos tres asertos miden es
+        # que el `problem` NOMBRE la fuga —«escapes», «absolute», «outside»—,
+        # y eso solo se puede escribir en un idioma concreto. Que la misma
+        # frase exista en español lo mide el barrido del 85-C2b; aquí se
+        # sigue midiendo la fuga, que es lo que este fichero existe para
+        # medir.
+        return verify_package(self.bundle, locale="en")["stages"]["manifest"]
 
     def test_el_paquete_HONESTO_sigue_pasando(self):
         """Lo primero: que el arreglo no acuse a quien no ha hecho nada."""

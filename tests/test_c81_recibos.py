@@ -19,6 +19,7 @@ raíces, rotación, revocación— no está: por eso un recibo firmado aquí
 demuestra **consistencia**, no autenticidad, y el nivel lo dice.
 """
 
+import base64
 import unittest
 
 from matrixai.pipelines.receipt import (
@@ -119,7 +120,14 @@ class LaFirmaSeVerificaSobreLosBYTESTest(unittest.TestCase):
 
     def test_cambiar_UNA_letra_lo_invalida(self):
         firmado = firmar_recibo(_recibo(), clave=_CLAVE, key_id="k1")
-        firmado["payload"] = firmado["payload"].replace("clasificar", "otra_cosa")
+        # 86-C1: el payload viaja en base64, así que se toca LO DE DENTRO
+        # y se vuelve a codificar. Reemplazar sobre la cadena base64 a
+        # pelo no cambiaría el recibo —«clasificar» ya no está ahí— y la
+        # prueba pasaría sin haber tocado nada.
+        crudo = base64.b64decode(firmado["payload"], validate=True)
+        self.assertIn(b"clasificar", crudo, "si no está, no se cambia nada")
+        firmado["payload"] = base64.b64encode(
+            crudo.replace(b"clasificar", b"otra_cosa")).decode("ascii")
         r = verificar_recibo(firmado, clave=_CLAVE)
         self.assertFalse(r["ok"])
         self.assertIn("firma", r["reason"].lower())

@@ -13,7 +13,7 @@ from typing import Any
 from matrixai.registry.entry_hash import compute_entry_hash
 from matrixai.registry.layout import RegistryLayout
 from matrixai import __version__ as _MATRIXAI_VERSION
-from matrixai.registry.schema import MATRIXAI_REGISTRY_SCHEMA_VERSION, RegistryEntry
+from matrixai.registry.schema import HASH_SIN_MODELO, MATRIXAI_REGISTRY_SCHEMA_VERSION, RegistryEntry
 from matrixai.registry.signing import (
     build_signature_record,
     get_signing_key,
@@ -328,7 +328,11 @@ class ModelRegistry:
 
         # Optional: model source
         model_path: Path | None = next(run_dir.glob("*.mxai"), None)
-        model_hash = sha256_bytes(model_path.read_bytes()) if model_path else "sha256:" + "0" * 64
+        # SIN `.mxai` la entrada se publica igual —solo métricas tiene usos
+        # legítimos— pero queda MARCADA: este relleno es lo que responde
+        # `RegistryEntry.es_ejecutable()`, y por eso va por su constante y no
+        # por un literal más (hallazgo 15 del E2E del 87).
+        model_hash = sha256_bytes(model_path.read_bytes()) if model_path else HASH_SIN_MODELO
 
         # LOS TIPOS DE INTERFAZ, del propio modelo que se publica.
         #

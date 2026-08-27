@@ -49,7 +49,8 @@ class TrazaDeEjecucion:
         self._orden: list[str] = []
 
     def abrir_nodo(self, node_id: str, *, modelo: str, input_digest: str | None = None,
-                   efectos: bool = False, idempotente: bool = False) -> None:
+                   efectos: bool = False, idempotente: bool = False,
+                   model_digest: str | None = None) -> None:
         if node_id in self._nodos:
             raise ValueError(
                 f"el nodo {node_id!r} ya está en esta traza: dos nodos con el "
@@ -58,6 +59,12 @@ class TrazaDeEjecucion:
             "root_id": self.root_id,      # cada nodo atado a su raíz
             "node_id": node_id,
             "model": modelo,
+            # QUÉ MODELO ERA, no solo cómo se llamaba (87-C1). Para una entrada
+            # del registry el nombre+versión se resuelve a un digest; para un
+            # FICHERO ajeno el nombre no dice nada — mañana ese `ajeno.onnx`
+            # puede ser otro. Sin esto, el recibo de un modelo de fuera
+            # describiría «un fichero que se llamaba así».
+            "model_digest": model_digest,
             "runtime": self.runtime,
             "started_at": _ahora(),
             "ended_at": None,

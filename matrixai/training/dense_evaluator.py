@@ -170,6 +170,26 @@ def compute_accuracy(
     targets: list[list[float]],
     threshold: float = 0.5,
 ) -> float:
+    # DOS FORMAS QUE NO CASAN NO PRODUCEN UNA MÉTRICA (2026-08-25).
+    #
+    # Medido con el caso de lluvia de la galería: un modelo con `Dense units=2
+    # activation=softmax` contra un objetivo cargado como escalar daba
+    # **`accuracy: 1.000000`** — porque `_argmax` de un vector de UN elemento es
+    # siempre 0, así que al modelo le bastaba con predecir siempre la clase 0
+    # para «acertar» todo. Un número que parece un éxito perfecto y que no mide
+    # nada es peor que no dar número.
+    #
+    # La causa de fondo estaba en el contrato (`Label[0, 1]` se lee como un
+    # RANGO y las clases se pierden), pero esta función tiene que negarse igual:
+    # no puede saber por qué le llegan formas distintas, y solo puede decir que
+    # no las va a comparar.
+    for pred, tgt in zip(predictions, targets):
+        if len(pred) != len(tgt) and not (len(pred) == 1 and len(tgt) == 1):
+            raise ValueError(
+                f"no se puede medir la exactitud: el modelo devuelve {len(pred)} "
+                f"valores y el objetivo trae {len(tgt)}. Suele significar que las "
+                f"clases no llegaron al entrenamiento — `Label[0, 1]` se lee como "
+                f"un RANGO, no como dos clases: nómbralas (`Label[no, si]`)")
     correct = 0
     for pred, tgt in zip(predictions, targets):
         if len(pred) == 1:
@@ -214,6 +234,40 @@ def _multiclass_metrics(
     targets: list[list[float]],
     labels: list[str],
 ) -> dict[str, Any]:
+    # DOS FORMAS QUE NO CASAN NO PRODUCEN UNA MÉTRICA (2026-08-25).
+    #
+    # Medido con el caso de lluvia: un modelo `Dense units=2 activation=softmax`
+    # contra objetivos cargados como ESCALAR daba **`accuracy: 1.000000`** con
+    # la matriz de confusión vacía y `macro_f1: 0.0` — porque `_argmax` de un
+    # vector de un elemento es siempre 0, así que bastaba con predecir siempre
+    # la clase 0 para «acertarlo» todo.
+    #
+    # Un 1,0 que no mide nada es peor que no dar número: se lee como un éxito
+    # perfecto. La causa de fondo está en el contrato —`Label[0, 1]` se lee como
+    # un RANGO y las clases se pierden— pero esta función se niega igual, porque
+    # no puede saber por qué le llegan formas distintas.
+    _formas = {(len(p), len(t)) for p, t in zip(predictions, targets)}
+    for _lp, _lt in _formas:
+        if _lp != _lt:
+            raise ValueError(
+                f"no se puede medir la clasificación: el modelo devuelve {_lp} "
+                f"valores y el objetivo trae {_lt}. Suele significar que las "
+                f"clases no llegaron al entrenamiento — `Label[0, 1]` se lee "
+                f"como un RANGO, no como dos clases: nómbralas, p. ej. "
+                f"`Label[no, si]`")
+        if _lp < 2 or _lt < 2:
+            # Y ÉSTE ERA EL CASO DE VERDAD, medido con el de lluvia: vectores de
+            # UN elemento a los dos lados. `_argmax` de uno solo es SIEMPRE 0,
+            # así que todas las filas «aciertan» y sale **accuracy 1,0** con la
+            # matriz de confusión vacía y `macro_f1: 0.0` — un éxito perfecto
+            # que no ha comparado nada.
+            raise ValueError(
+                "no se puede medir la clasificación: cada fila trae un solo "
+                "valor, así que no hay clases que comparar y cualquier "
+                "resultado saldría perfecto. Suele significar que las clases no "
+                "llegaron: `Label[0, 1]` y `ProbabilityMap[0, 1]` se leen como "
+                "un RANGO, no como dos clases — nómbralas, p. ej. "
+                "`Label[no, si]`")
     n = len(predictions)
     correct = 0
     cm: dict[str, dict[str, int]] = {}
@@ -246,6 +300,19 @@ def _binary_metrics(
     labels: list[str],
     threshold: float = 0.5,
 ) -> dict[str, Any]:
+    # LA MISMA REGLA QUE ARRIBA, y ÉSTE era el camino del caso de lluvia: con
+    # `Label[0, 1]` las clases se pierden (se lee como un RANGO), el objetivo
+    # llega como escalar y el modelo tiene DOS salidas. Aquí se miraba
+    # `pred[0] >= 0.5` contra un objetivo de otra forma, y salía
+    # **`accuracy: 1.000000`** con la matriz de confusión vacía.
+    _formas = {(len(p), len(t)) for p, t in zip(predictions, targets)}
+    for _lp, _lt in _formas:
+        if _lp != _lt:
+            raise ValueError(
+                f"no se puede medir la clasificación binaria: el modelo devuelve "
+                f"{_lp} valores y el objetivo trae {_lt}. Suele significar que las "
+                f"clases no llegaron al entrenamiento — `Label[0, 1]` se lee como "
+                f"un RANGO, no como dos clases: nómbralas, p. ej. `Label[no, si]`")
     n = len(predictions)
     correct = 0
     pos_label = labels[1] if len(labels) >= 2 else "positive"

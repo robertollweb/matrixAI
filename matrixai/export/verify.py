@@ -23,11 +23,20 @@ haber descargado el ZIP de cualquier sitio, así que **nada que venga
 dentro del paquete se ejecuta** para decidir si el paquete es bueno: se
 leen ficheros y se comparan digests. El `.mxtrain` y la receta son datos
 aquí, no programas.
+
+**85-C2b — los motivos van en el idioma que se pida.** Este informe ya se
+pinta en la interfaz por fases, y *lo que redacta el core se traduce en el
+core, no al pintarlo*. Las frases viven en `verify_textos.py`, en los dos
+idiomas; aquí solo se eligen. Lo que NO cambia de idioma: los cuatro
+`status`, los nombres de etapa y lo que un motivo interpola —una ruta, una
+huella, un número—, porque son valores y hay quien los lee por programa.
 """
 
 from __future__ import annotations
 
 import json
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +45,7 @@ from matrixai.export.reproduce import (
     manifest_digest,
     sha256_file,
 )
+from matrixai.export.verify_textos import IDIOMA_POR_DEFECTO, motivo
 
 __all__ = ["ESTADOS", "SALIDAS", "verify_package"]
 
@@ -69,21 +79,27 @@ def _etapa(status: str, reason: str | None = None, **extra: Any) -> dict[str, An
     return out
 
 
-def _leer_manifiesto(bundle: Path) -> tuple[dict[str, Any] | None, str | None]:
+def _leer_manifiesto(
+    bundle: Path, *, locale: str = IDIOMA_POR_DEFECTO,
+) -> tuple[dict[str, Any] | None, str | None]:
     ruta = bundle / REPRODUCE_FILENAME
     if not ruta.is_file():
-        return None, f"the package carries no {REPRODUCE_FILENAME}"
+        return None, motivo("sin_reproduce", locale, fichero=REPRODUCE_FILENAME)
     try:
         datos = json.loads(ruta.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        return None, f"{REPRODUCE_FILENAME} is not readable JSON: {exc}"
+        # El mensaje de la excepción va CITADO: lo escribe la biblioteca
+        # estándar, en inglés, y no es prosa de este verificador.
+        return None, motivo("reproduce_ilegible", locale,
+                            fichero=REPRODUCE_FILENAME, error=exc)
     if not isinstance(datos, dict):
-        return None, f"{REPRODUCE_FILENAME} is not an object"
+        return None, motivo("reproduce_no_es_objeto", locale,
+                            fichero=REPRODUCE_FILENAME)
     return datos, None
 
 
 def _comprobar_inventario(
-    bundle: Path, manifiesto: dict[str, Any]
+    bundle: Path, manifiesto: dict[str, Any], *, locale: str = IDIOMA_POR_DEFECTO,
 ) -> tuple[list[dict[str, str]], list[str]]:
     """Comprueba TODO lo que viaja: los digests y **lo que sobra**.
 
@@ -112,26 +128,27 @@ def _comprobar_inventario(
     rotos: list[dict[str, str]] = []
     for relativa, esperado in sorted(declarados.items()):
         fichero = bundle / relativa
-        problema = _ruta_fuera_del_paquete(bundle, relativa)
+        problema = _ruta_fuera_del_paquete(bundle, relativa, locale=locale)
         if problema is not None:
             rotos.append({"artifact": relativa, "path": relativa, "problem": problema})
             continue
         if not fichero.is_file() or fichero.is_symlink():
             rotos.append({"artifact": relativa, "path": relativa,
-                          "problem": "declared in the manifest but missing "
-                                     "from the package"})
+                          "problem": motivo("p_declarado_pero_ausente", locale)})
             continue
         real = sha256_file(fichero)
         if real != esperado:
             rotos.append({"artifact": relativa, "path": relativa,
-                          "problem": "sha256 mismatch", "expected": esperado,
-                          "found": real})
+                          "problem": motivo("p_sha256_no_cuadra", locale),
+                          "expected": esperado, "found": real})
     # Lo que SOBRA: está en el paquete y el manifiesto no lo nombra.
     sin_cubrir = sorted(set(presentes) - set(declarados))
     return rotos, sin_cubrir
 
 
-def _ruta_fuera_del_paquete(bundle: Path, ruta: str) -> str | None:
+def _ruta_fuera_del_paquete(
+    bundle: Path, ruta: str, *, locale: str = IDIOMA_POR_DEFECTO,
+) -> str | None:
     """El motivo por el que una ruta declarada NO está dentro, o `None`.
 
     Un paquete describe **sus** artefactos. Una ruta absoluta o con `..`
@@ -145,25 +162,27 @@ def _ruta_fuera_del_paquete(bundle: Path, ruta: str) -> str | None:
     ruta real antes de comparar.
     """
     if not ruta or ruta.strip() != ruta:
-        return "path is empty or padded with spaces"
+        return motivo("p_ruta_vacia", locale)
     candidata = Path(ruta)
     if candidata.is_absolute():
-        return "path is absolute, and a package only describes its own files"
+        return motivo("p_ruta_absoluta", locale)
     if ".." in candidata.parts:
-        return "path escapes the package with '..'"
+        return motivo("p_ruta_escapa", locale)
     try:
         raiz = bundle.resolve(strict=False)
         destino = (bundle / candidata).resolve(strict=False)
     except OSError as exc:  # pragma: no cover — rutas imposibles del sistema
-        return f"path cannot be resolved: {exc}"
+        return motivo("p_ruta_irresoluble", locale, error=exc)
     if raiz != destino and raiz not in destino.parents:
         # Cubre el enlace simbólico que apunta fuera: la ruta escrita
         # parece de dentro y el fichero real no lo es.
-        return "path resolves outside the package (symlink?)"
+        return motivo("p_ruta_fuera", locale)
     return None
 
 
-def _verificar_manifiesto(bundle: Path, manifiesto: dict[str, Any]) -> dict[str, Any]:
+def _verificar_manifiesto(
+    bundle: Path, manifiesto: dict[str, Any], *, locale: str = IDIOMA_POR_DEFECTO,
+) -> dict[str, Any]:
     """Integridad del manifiesto Y de cada artefacto que declara.
 
     Las dos cosas, y no solo la primera: un `manifest_sha256` correcto
@@ -171,14 +190,14 @@ def _verificar_manifiesto(bundle: Path, manifiesto: dict[str, Any]) -> dict[str,
     """
     declarado = manifiesto.get("manifest_sha256")
     if not isinstance(declarado, str) or not declarado:
-        return _etapa("FAIL", "the manifest declares no manifest_sha256")
+        return _etapa("FAIL", motivo("m_sin_digest", locale))
     if declarado != manifest_digest(manifiesto):
-        return _etapa("FAIL", "the manifest does not match its own manifest_sha256",
+        return _etapa("FAIL", motivo("m_digest_no_cuadra", locale),
                       field="manifest_sha256")
 
     artefactos = manifiesto.get("artifacts")
     if not isinstance(artefactos, dict):
-        return _etapa("FAIL", "the manifest declares no artifacts")
+        return _etapa("FAIL", motivo("m_sin_artefactos", locale))
 
     # AUDITORÍA EXTERNA (2026-08-20) [BLOQUEANTE]: la versión de esquema
     # no se miraba. Medido: un manifiesto con `schema_version: "999.0"`
@@ -187,9 +206,8 @@ def _verificar_manifiesto(bundle: Path, manifiesto: dict[str, Any]) -> dict[str,
     version = manifiesto.get("schema_version")
     if version not in _ESQUEMAS_CONOCIDOS:
         return _etapa("INCOMPARABLE",
-                      f"the manifest declares schema_version {version!r} and this "
-                      f"verifier reads {list(_ESQUEMAS_CONOCIDOS)}: a format it "
-                      "does not know is not interpreted halfway")
+                      motivo("m_esquema_desconocido", locale, version=repr(version),
+                             conocidos=list(_ESQUEMAS_CONOCIDOS)))
 
     rotos: list[dict[str, str]] = []
     comprobados: list[str] = []
@@ -208,8 +226,7 @@ def _verificar_manifiesto(bundle: Path, manifiesto: dict[str, Any]) -> dict[str,
             # mira sale igual que uno comprobado, y el informe dice PASS.
             # Media limpieza es peor que ninguna.
             rotos.append({"artifact": nombre, "path": "?",
-                          "problem": "the artifact entry is neither an object nor "
-                                     "a declared absence (null)"})
+                          "problem": motivo("p_entrada_invalida", locale)})
             continue
         ruta, esperado = art.get("path"), art.get("sha256")
         # Un digest DECLARADO SIN fichero es legítimo: el paquete dice
@@ -228,10 +245,9 @@ def _verificar_manifiesto(bundle: Path, manifiesto: dict[str, Any]) -> dict[str,
             # no trae con qué comprobarlo. Saltárselo en silencio lo
             # dejaba pasar con `PASS`, que es media limpieza.
             rotos.append({"artifact": nombre, "path": str(ruta),
-                          "problem": ("the artifact ships a file with no sha256 to "
-                                      "check it against" if isinstance(ruta, str)
-                                      else "the artifact declares neither a path "
-                                           "nor a sha256")})
+                          "problem": motivo(
+                              "p_sin_sha256" if isinstance(ruta, str)
+                              else "p_sin_ruta_ni_sha256", locale)})
             continue
 
         # AUDITORÍA 1ª pasada (2026-08-20) [BLOQUEANTE]: un paquete podía
@@ -243,7 +259,7 @@ def _verificar_manifiesto(bundle: Path, manifiesto: dict[str, Any]) -> dict[str,
         # No basta con que el manifiesto esté firmado consigo mismo: quien
         # fabrica el paquete calcula ese `manifest_sha256` sin esfuerzo. Lo
         # que hay que comprobar es que el artefacto **está dentro**.
-        problema = _ruta_fuera_del_paquete(bundle, ruta)
+        problema = _ruta_fuera_del_paquete(bundle, ruta, locale=locale)
         if problema is not None:
             rotos.append({"artifact": nombre, "path": ruta, "problem": problema})
             continue
@@ -255,15 +271,16 @@ def _verificar_manifiesto(bundle: Path, manifiesto: dict[str, Any]) -> dict[str,
             # mismo manifiesto puede describir dos ficheros distintos
             # según a dónde apunte el enlace mañana.
             rotos.append({"artifact": nombre, "path": ruta,
-                          "problem": "the artifact is a symlink; an integrity "
-                                     "artifact must be a regular file"})
+                          "problem": motivo("p_enlace_simbolico", locale)})
             continue
         if not fichero.is_file():
-            rotos.append({"artifact": nombre, "path": ruta, "problem": "missing"})
+            rotos.append({"artifact": nombre, "path": ruta,
+                          "problem": motivo("p_ausente", locale)})
             continue
         real = sha256_file(fichero)
         if real != esperado:
-            rotos.append({"artifact": nombre, "path": ruta, "problem": "sha256 mismatch",
+            rotos.append({"artifact": nombre, "path": ruta,
+                          "problem": motivo("p_sha256_no_cuadra", locale),
                           "expected": esperado, "found": real})
         else:
             comprobados.append(nombre)
@@ -271,31 +288,31 @@ def _verificar_manifiesto(bundle: Path, manifiesto: dict[str, Any]) -> dict[str,
     if rotos:
         # Se nombra QUÉ artefacto: «algo no cuadra» obliga a abrir el ZIP
         # y comparar a mano los cinco ficheros.
-        return _etapa("FAIL", "at least one artifact does not match its declared sha256",
+        return _etapa("FAIL", motivo("m_artefacto_no_cuadra", locale),
                       artifacts=rotos)
 
     # REFUTACIÓN (2026-08-20) [BLOQUEANTE]: hasta aquí se comprobaba lo que
     # el manifiesto DECLARA —cuatro artefactos— y el paquete LLEVA catorce
     # ficheros. Sustituyendo `model.onnx`, `predict.py` y los pesos, esto
     # contestaba `PASS`. Y el Space ejecuta ese `predict.py` justo después.
-    rotos_del_inventario, sin_cubrir = _comprobar_inventario(bundle, manifiesto)
+    rotos_del_inventario, sin_cubrir = _comprobar_inventario(
+        bundle, manifiesto, locale=locale)
     if rotos_del_inventario:
-        return _etapa("FAIL",
-                      "at least one file in the package does not match its declared sha256",
+        return _etapa("FAIL", motivo("m_fichero_no_cuadra", locale),
                       artifacts=rotos_del_inventario)
     if sin_cubrir:
         # NO es `FAIL`: el paquete no miente, es que no cubre esos
         # ficheros — y decir `PASS` sería afirmar sobre lo que no se ha
         # mirado. Los paquetes anteriores a este inventario caen aquí.
-        return _etapa("INCOMPARABLE",
-                      "the package ships files the manifest does not cover, so "
-                      "their integrity cannot be checked",
+        return _etapa("INCOMPARABLE", motivo("m_ficheros_sin_cubrir", locale),
                       uncovered_files=sin_cubrir, checked=comprobados)
     return _etapa("PASS", checked=comprobados,
                   files_checked=len(manifiesto.get("files") or {}))
 
 
-def _verificar_r1(bundle: Path, manifiesto: dict[str, Any]) -> dict[str, Any]:
+def _verificar_r1(
+    bundle: Path, manifiesto: dict[str, Any], *, locale: str = IDIOMA_POR_DEFECTO,
+) -> dict[str, Any]:
     """Regenerar el dataset desde la receta y comparar su sha256 COMPLETO.
 
     Lo que impide compararlo NO es un fallo del paquete: sin receta, sin
@@ -309,7 +326,13 @@ def _verificar_r1(bundle: Path, manifiesto: dict[str, Any]) -> dict[str, Any]:
         # El propio manifiesto ya dice que no se puede, y por qué. No se
         # repite el análisis: se cita, que para eso lo redactó quien
         # empaquetó.
-        return _etapa("INCOMPARABLE", str(r1.get("reason") or "R1 is not possible for this package"),
+        # Lo que redactó quien empaquetó se CITA entre comillas y no se
+        # reescribe: es un dato del paquete, como una huella o una ruta, y
+        # traducirlo aquí sería poner en su boca algo que no dijo.
+        suyo = r1.get("reason")
+        return _etapa("INCOMPARABLE",
+                      motivo("r1_no_posible_segun_el_paquete", locale, cita=suyo)
+                      if suyo else motivo("r1_no_posible", locale),
                       missing=r1.get("missing") or [])
 
     generacion = manifiesto.get("generation")
@@ -327,8 +350,7 @@ def _verificar_r1(bundle: Path, manifiesto: dict[str, Any]) -> dict[str, Any]:
                              ("dataset_sha256", esperado)) if not v]
     if faltan:
         return _etapa("INCOMPARABLE",
-                      "cannot regenerate the dataset and compare its sha256: "
-                      + ", ".join(faltan) + " unknown",
+                      motivo("r1_faltan_datos", locale, faltan=", ".join(faltan)),
                       missing=faltan)
 
     # TODO lo que decidió aquel CSV viaja en el manifiesto: `mode`,
@@ -338,19 +360,18 @@ def _verificar_r1(bundle: Path, manifiesto: dict[str, Any]) -> dict[str, Any]:
     # vez de mirar el `generation` que produce el manifiesto.)
     modelo = artefactos.get("model") if isinstance(artefactos, dict) else None
     if not isinstance(modelo, dict) or not modelo.get("path"):
-        return _etapa("INCOMPARABLE", "the package carries no model to regenerate from",
+        return _etapa("INCOMPARABLE", motivo("r1_sin_modelo", locale),
                       missing=["model"])
     entrenamiento = artefactos.get("training") if isinstance(artefactos, dict) else None
     if not isinstance(entrenamiento, dict) or not entrenamiento.get("path"):
         # El generador exige el `.mxtrain`: sin él no hay R1, y eso es una
         # ausencia, no una manipulación.
-        return _etapa("INCOMPARABLE",
-                      "the package carries no .mxtrain, which the generator requires",
+        return _etapa("INCOMPARABLE", motivo("r1_sin_mxtrain", locale),
                       missing=["training"])
 
     filas = dataset.get("rows") if isinstance(dataset, dict) else None
     if not isinstance(filas, int) or filas <= 0:
-        return _etapa("INCOMPARABLE", "the package does not declare how many rows to generate",
+        return _etapa("INCOMPARABLE", motivo("r1_sin_filas", locale),
                       missing=["dataset_rows"])
 
     try:
@@ -358,7 +379,8 @@ def _verificar_r1(bundle: Path, manifiesto: dict[str, Any]) -> dict[str, Any]:
         training_text = (bundle / str(entrenamiento["path"])).read_text(encoding="utf-8")
         recipe_text = (bundle / str(receta["path"])).read_text(encoding="utf-8")
     except OSError as exc:
-        return _etapa("INCOMPARABLE", f"the package artifacts cannot be read: {exc}")
+        return _etapa("INCOMPARABLE",
+                      motivo("r1_artefactos_ilegibles", locale, error=exc))
 
     # EL MODO NO SE INVENTA. Mi primera versión ponía `"deterministic"`
     # de respaldo —que además ni siquiera es un modo válido: son `random`
@@ -367,9 +389,7 @@ def _verificar_r1(bundle: Path, manifiesto: dict[str, Any]) -> dict[str, Any]:
     # honesto. Sin modo declarado, no hay con qué comparar.
     modo = generacion.get("mode") if isinstance(generacion, dict) else None
     if not modo:
-        return _etapa("INCOMPARABLE",
-                      "the package does not declare which generation mode produced "
-                      "its dataset, and guessing one would rebuild a different one",
+        return _etapa("INCOMPARABLE", motivo("r1_sin_modo", locale),
                       missing=["mode"])
     rangos = generacion.get("field_ranges") if isinstance(generacion, dict) else None
     tipos = generacion.get("field_types") if isinstance(generacion, dict) else None
@@ -394,13 +414,14 @@ def _verificar_r1(bundle: Path, manifiesto: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 — el generador puede negarse por mil motivos
         # No poder regenerar NO es una manipulación del paquete: se dice
         # qué pasó y se deja en INCOMPARABLE.
-        return _etapa("INCOMPARABLE", f"the dataset could not be regenerated: {exc}")
+        return _etapa("INCOMPARABLE",
+                      motivo("r1_no_regenerable", locale, error=exc))
 
     # `csv_text`, no `csv`: es la clave que el generador devuelve de
     # verdad (medida, después de suponer la otra y comerme un KeyError).
     csv = generado.get("csv_text") if isinstance(generado, dict) else None
     if not isinstance(csv, str) or csv == "":
-        return _etapa("INCOMPARABLE", "the generator returned no CSV")
+        return _etapa("INCOMPARABLE", motivo("r1_sin_csv", locale))
 
     import hashlib
     obtenido = hashlib.sha256(csv.encode("utf-8")).hexdigest()
@@ -409,13 +430,66 @@ def _verificar_r1(bundle: Path, manifiesto: dict[str, Any]) -> dict[str, Any]:
     # AQUÍ sí es FAIL: el paquete dijo qué debía salir y ha salido otra
     # cosa. Se enseñan los DOS digests: «no coincide» a secas no deja
     # comprobar nada a quien lo lea.
-    return _etapa("FAIL",
-                  "the regenerated dataset does not have the sha256 the package declares",
+    return _etapa("FAIL", motivo("r1_digest_distinto", locale),
                   expected=esperado, found=obtenido)
+
+
+def _ruta_del_dataset(fuente: Any) -> Path:
+    """Dónde escribir el dataset regenerado para que el contrato lo encuentre.
+
+    La ruta la escribe el `.mxtrain` **del paquete**, así que no se obedece a
+    ciegas: una absoluta o con `..` elegiría un fichero de la máquina de quien
+    verifica, y verificar no escribe fuera de su taller. En ese caso se cae al
+    nombre a secas y el entrenamiento dirá lo que tenga que decir; lo que no se
+    hace es escribir donde el paquete mande.
+    """
+    if not fuente:
+        return Path("dataset.csv")
+    candidata = Path(str(fuente))
+    if candidata.is_absolute() or ".." in candidata.parts:
+        return Path(candidata.name)
+    return candidata
+
+
+def _reparto_del_dataset(fuente: str, csv: str) -> dict[str, str]:
+    """Qué fichero —o ficheros— hay que escribir para reentrenar el mismo run.
+
+    EL CSV ENTERO NO ES EL DATASET DE ENTRENAMIENTO cuando el paquete se hizo
+    con `generate-dataset`: ese comando parte las filas en train (80 %) y eval
+    (20 %) y el `.mxtrain` cita **el de train**. Esto escribía el csv completo
+    ahí, así que reentrenaba con 300 filas un run hecho con 240 — y R3 daba
+    `FAIL` por una diferencia que había puesto el verificador.
+
+    Medido el 2026-08-26 con el paquete kelvin de la galería: publicado
+    `mae 6.505213034913027e-17`, `verify --retrain` daba `6.499430623326438e-17`,
+    y rehacerlo a mano con `generate-dataset` + `train` devolvía el publicado
+    hasta el último dígito. La tolerancia de esa métrica está medida en 0,0: la
+    diferencia no era ruido.
+
+    Con un CSV que **no** sigue esa convención no hay nada que suponer y se
+    escribe entero, como antes.
+    """
+    from matrixai.training.particion_sintetica import (  # noqa: PLC0415
+        corte_train_eval, nombres_del_dataset)
+
+    nombres = nombres_del_dataset(fuente)
+    if nombres is None:
+        return {fuente: csv}
+    lineas = csv.splitlines(keepends=True)
+    if len(lineas) < 3:
+        # Cabecera y una fila: no hay dos partes que hacer, y partirlo dejaría
+        # un fichero vacío que el entrenador leería como un dataset sin filas.
+        return {fuente: csv}
+    cabecera, filas = lineas[0], lineas[1:]
+    corte = corte_train_eval(len(filas))
+    ruta_train, ruta_eval = nombres
+    return {ruta_train: cabecera + "".join(filas[:corte]),
+            ruta_eval: cabecera + "".join(filas[corte:])}
 
 
 def _verificar_training(
     bundle: Path, manifiesto: dict[str, Any], r1: dict[str, Any],
+    *, locale: str = IDIOMA_POR_DEFECTO,
 ) -> dict[str, Any]:
     """¿El entrenamiento llega a término con lo que el paquete lleva?
 
@@ -428,18 +502,17 @@ def _verificar_training(
     Confundirlos daría un `PASS` que promete más de lo que ha mirado.
     """
     if r1.get("status") != "PASS":
-        return _etapa("INCOMPARABLE",
-                      "the dataset could not be regenerated, so there is nothing to train on")
+        return _etapa("INCOMPARABLE", motivo("t_sin_dataset", locale))
 
     csv = r1.get("csv_text")
     if not isinstance(csv, str) or not csv:
-        return _etapa("INCOMPARABLE", "the regenerated dataset was not kept for training")
+        return _etapa("INCOMPARABLE", motivo("t_dataset_no_guardado", locale))
 
     artefactos = manifiesto.get("artifacts") or {}
     entrenamiento = artefactos.get("training") if isinstance(artefactos, dict) else None
     modelo = artefactos.get("model") if isinstance(artefactos, dict) else None
     if not isinstance(entrenamiento, dict) or not isinstance(modelo, dict):
-        return _etapa("INCOMPARABLE", "the package carries no .mxtrain to retrain from")
+        return _etapa("INCOMPARABLE", motivo("t_sin_mxtrain", locale))
 
     import shutil
     import tempfile
@@ -466,11 +539,29 @@ def _verificar_training(
 
         # El `.mxtrain` cita su CSV por RUTA, y esa ruta no existe fuera de
         # la máquina donde se entrenó. Se escribe el dataset regenerado
-        # justo donde el contrato lo busca.
+        # justo donde el contrato lo busca — **con su carpeta**.
+        #
+        # AQUÍ ESTABA EL DEFECTO (2ª auditoría externa del 2026-08-25,
+        # hallazgo 2 residual). Esto escribía `taller/<nombre>` con
+        # `Path(fuente).name`, o sea TIRANDO la carpeta, mientras el contrato
+        # seguía diciendo `datos/…csv`. Con un contrato que cita el CSV dentro
+        # de una carpeta —los que escribe `generate-dataset`, que es la mayoría
+        # de los paquetes reales— el entrenador respondía «DATASET source not
+        # found» y la etapa salía INCOMPARABLE **por culpa del verificador**.
+        #
+        # No se notó porque se probó desde el directorio donde se había
+        # construido el paquete: allí `datos/` existía en el disco y el
+        # entrenamiento tiraba de ÉL. Medido el 2026-08-26 desde un ZIP recién
+        # descomprimido —que es lo que hace quien se lo descarga—: el paquete
+        # kelvin de la galería daba `training INCOMPARABLE` y la página
+        # anunciaba `training PASS`.
         fuente = getattr(getattr(spec, "dataset", None), "source", None)
-        destino = taller / (Path(str(fuente)).name if fuente else "dataset.csv")
+        destino = taller / _ruta_del_dataset(fuente)
         destino.parent.mkdir(parents=True, exist_ok=True)
-        destino.write_text(csv, encoding="utf-8")
+        for relativa, texto in _reparto_del_dataset(str(fuente or ""), csv).items():
+            escrito = taller / _ruta_del_dataset(relativa)
+            escrito.parent.mkdir(parents=True, exist_ok=True)
+            escrito.write_text(texto, encoding="utf-8")
 
         # EL ENTRENADOR SE ELIGE COMO LO ELIGE EL CLI, no a dedo: una red
         # densa con `SupervisedTrainer` responde «P4 supervised trainer
@@ -489,13 +580,46 @@ def _verificar_training(
         else:
             from matrixai.training.trainer import SupervisedTrainer
             entrenador = SupervisedTrainer()
+        # LA CONFIGURACIÓN DEL RUN SE APLICA **ANTES** DE ENTRENAR, y ése era
+        # el segundo defecto: esto se calculaba DESPUÉS de `train(...)`, así
+        # que mutar `spec.epochs` no podía cambiar un entrenamiento que ya
+        # había corrido, por mucho que el comentario dijera «se aplica de
+        # verdad».
+        #
+        # Si el entrenador admite semilla se le pasa por su nombre —se mira su
+        # firma en vez de suponerlo: el de los modelos FUNCTION no la tiene, y
+        # llamarlo con `seed=` reventaría—.
+        import inspect  # noqa: PLC0415
+        admite_semilla = "seed" in inspect.signature(entrenador.train).parameters
+        # EN QUÉ MÁQUINA CORRE ESTE REENTRENAMIENTO, cuando se puede saber.
+        # Los dos entrenadores de la biblioteca estándar son CPU por
+        # construcción —no hay torch por medio—, así que ahí es un HECHO. Con
+        # torch depende del entorno y no se afirma: `None` significa «no lo sé»
+        # y deja `device` sin aplicar, como estaba.
+        _maquina = "cpu" if entrenador.__class__.__name__ in (
+            "SupervisedTrainer", "DenseSupervisedTrainer") else None
+        # ¿NO ADMITE SEMILLA ES UNA LIMITACIÓN, O ES QUE NO APLICA? Lo declara
+        # el entrenador: los FUNCTION arrancan siempre de los mismos valores
+        # (medido: `W1 = [0.05]`, `b1 = 0.0`, dos veces seguidas). Suponerlo
+        # aquí sería adivinar por él.
+        _determinista = bool(getattr(entrenador, "inicializacion_determinista", False))
+        aplicadas, sin_aplicar, del_run, spec = _configuracion_del_run(
+            manifiesto, spec, admite_semilla=admite_semilla, maquina=_maquina,
+            inicializacion_determinista=_determinista)
         resultado = entrenador.train(
             spec, output_dir=str(taller / "out"), base_path=taller,
-            training_path=ruta_train)
+            training_path=ruta_train, **del_run)
+        # LAS MÉTRICAS QUE EL ENTRENADOR DEJA EN DISCO, leídas ANTES de borrar
+        # el taller. El camino FUNCTION no las devuelve en su `TrainingRunResult`
+        # —ahí van `accuracy` y las pérdidas— pero escribe un `metrics.json` con
+        # `r2` y `mae`, que son justo las que ese tipo de paquete publica. Sin
+        # esto, R3 decía «ninguna de las métricas comparables la reportó el
+        # reentrenamiento» sobre un fichero que las tenía delante.
+        _del_disco = _metricas_del_taller(taller / "out")
     except Exception as exc:  # noqa: BLE001 — el entrenador se niega por mil motivos
         # Que no se pueda entrenar AQUÍ no prueba que el paquete mienta:
         # otro entorno, otro backend, una dependencia que falta.
-        return _etapa("INCOMPARABLE", f"retraining could not run: {exc}")
+        return _etapa("INCOMPARABLE", motivo("t_no_arranca", locale, error=exc))
     finally:
         shutil.rmtree(taller, ignore_errors=True)
 
@@ -510,14 +634,12 @@ def _verificar_training(
     # Lo que se puede aplicar, se aplica; lo que no, **se declara**, y R3
     # lo mira antes de comparar. Callarlo dejaría a R3 comparando peras
     # con manzanas y llamándolo veredicto.
-    aplicadas, sin_aplicar = _configuracion_del_run(manifiesto, spec)
-
     epocas = getattr(resultado, "best_epoch", None)
     # LOS NOMBRES SON LOS DEL RESULTADO, medidos: `TrainingRunResult` no
     # tiene un `metrics` —lo supuse y salía siempre vacío—, tiene
     # `validation_metrics` (las que declara el `.mxtrain`, por su nombre),
     # `accuracy` y las pérdidas.
-    medidas: dict[str, Any] = {}
+    medidas: dict[str, Any] = dict(_del_disco)
     validacion = getattr(resultado, "validation_metrics", None)
     if isinstance(validacion, dict):
         medidas.update({str(k): v for k, v in validacion.items()})
@@ -527,12 +649,39 @@ def _verificar_training(
         if isinstance(valor, (int, float)):
             medidas.setdefault(campo, valor)
     return _etapa("PASS", best_epoch=epocas, metrics=medidas,
-                  note="training completed; matching the published metrics is R3",
+                  note=motivo("t_nota", locale),
                   applied_from_capture=aplicadas,
                   not_applied_from_capture=sin_aplicar)
 
 
-def _verificar_r3(manifiesto: dict[str, Any], training: dict[str, Any]) -> dict[str, Any]:
+def _metricas_del_taller(salida: Path) -> dict[str, Any]:
+    """Las métricas que el entrenador dejó EN DISCO al reentrenar.
+
+    El camino FUNCTION no las devuelve en su `TrainingRunResult` —ahí van
+    `accuracy` y las pérdidas— pero escribe un `metrics.json` con `r2` y `mae`,
+    que son justo las que publica un paquete de regresión. Sin leerlo, R3 decía
+    «ninguna de las métricas comparables la reportó el reentrenamiento» con el
+    fichero delante.
+
+    Solo números: lo que no lo sea no se compara, y meterlo aquí obligaría a
+    quien compara a distinguirlo después.
+    """
+    fichero = Path(salida) / "metrics.json"
+    if not fichero.is_file():
+        return {}
+    try:
+        crudo = json.loads(fichero.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(crudo, dict):
+        return {}
+    return {str(k): v for k, v in crudo.items() if isinstance(v, (int, float))}
+
+
+def _verificar_r3(
+    manifiesto: dict[str, Any], training: dict[str, Any],
+    *, locale: str = IDIOMA_POR_DEFECTO,
+) -> dict[str, Any]:
     """¿Las métricas del reentrenamiento caen dentro de su tolerancia?
 
     Tres estados, y son tres cosas distintas:
@@ -562,17 +711,16 @@ def _verificar_r3(manifiesto: dict[str, Any], training: dict[str, Any]) -> dict[
         # motivo que hay que enseñar. *Arreglar el mensaje no es arreglar
         # el fallo* — salvo cuando el mensaje ES el fallo, como aquí.
         if training.get("status") == "NOT_RUN":
-            return _etapa("NOT_RUN",
-                          "metrics can only be contrasted against a fresh training "
-                          "run (use --retrain)")
-        porque = training.get("reason") or "training did not pass"
+            return _etapa("NOT_RUN", motivo("r3_sin_reentrenamiento", locale))
+        # El motivo de `training` YA viene redactado en este idioma: se
+        # arrastra tal cual, no se vuelve a traducir.
+        porque = training.get("reason") or motivo("r3_training_no_paso", locale)
         return _etapa("NOT_RUN",
-                      f"the retraining run did not complete, so there is no fresh "
-                      f"value to contrast: {porque}")
+                      motivo("r3_reentrenamiento_incompleto", locale, porque=porque))
 
     metricas = manifiesto.get("metrics")
     if not isinstance(metricas, list) or not metricas:
-        return _etapa("INCOMPARABLE", "the package publishes no metrics to contrast")
+        return _etapa("INCOMPARABLE", motivo("r3_sin_metricas", locale))
 
     comparables = [m for m in metricas if isinstance(m, dict) and m.get("comparable")]
     if not comparables:
@@ -583,21 +731,21 @@ def _verificar_r3(manifiesto: dict[str, Any], training: dict[str, Any]) -> dict[
         for m in metricas:
             if isinstance(m, dict):
                 falta.extend(str(x) for x in (m.get("incomplete") or []))
-        return _etapa("INCOMPARABLE",
-                      "no published metric carries what a comparison needs",
+        return _etapa("INCOMPARABLE", motivo("r3_metricas_incompletas", locale),
                       missing=sorted(set(falta)))
 
     obtenidas = training.get("metrics")
     if not isinstance(obtenidas, dict) or not obtenidas:
         return _etapa("INCOMPARABLE",
-                      "the retraining did not report metrics to contrast")
+                      motivo("r3_reentrenamiento_sin_metricas", locale))
 
     # LA TOLERANCIA SOLO VALE DONDE SE MIDIÓ. Si el paquete declara una de
     # alcance «mismo entorno» y aquí el entorno es OTRO, esa tolerancia no
     # se midió para esta máquina: comparar contra ella daría `FAIL` a un
     # paquete honesto por estar verificándolo en otro sitio. Un fallo por
     # falta de acceso no es una manipulación, y esto es lo mismo.
-    fuera_de_alcance = _fuera_del_alcance_de_la_tolerancia(manifiesto, comparables)
+    fuera_de_alcance = _fuera_del_alcance_de_la_tolerancia(
+        manifiesto, comparables, locale=locale)
     if fuera_de_alcance:
         return _etapa("INCOMPARABLE", fuera_de_alcance)
 
@@ -607,10 +755,8 @@ def _verificar_r3(manifiesto: dict[str, Any], training: dict[str, Any]) -> dict[
     sin_aplicar = training.get("not_applied_from_capture") or []
     if sin_aplicar:
         return _etapa("INCOMPARABLE",
-                      "the retraining could not apply part of the captured "
-                      f"configuration ({', '.join(sin_aplicar)}), so its metrics "
-                      "do not describe the same run and a difference would not "
-                      "prove the package wrong",
+                      motivo("r3_configuracion_sin_aplicar", locale,
+                             claves=", ".join(sin_aplicar)),
                       not_applied=sin_aplicar)
 
     fuera: list[dict[str, Any]] = []
@@ -634,12 +780,11 @@ def _verificar_r3(manifiesto: dict[str, Any], training: dict[str, Any]) -> dict[
                           "tolerance": limite})
 
     if not dentro and not fuera:
-        return _etapa("INCOMPARABLE",
-                      "none of the comparable metrics was reported by the retraining")
+        return _etapa("INCOMPARABLE", motivo("r3_ninguna_comparable", locale))
     if fuera:
         # Con los DOS valores y la tolerancia: «fuera de rango» a secas no
         # deja ver si se pasó por poco o por un orden de magnitud.
-        return _etapa("FAIL", "at least one metric falls outside its tolerance",
+        return _etapa("FAIL", motivo("r3_fuera_de_tolerancia", locale),
                       metrics=fuera)
     return _etapa("PASS", checked=dentro)
 
@@ -658,9 +803,35 @@ _CONFIG_QUE_CAMBIA_EL_RESULTADO = (
 )
 
 
+def _spec_con_epocas(spec: Any, epocas: Any) -> Any:
+    """Otro `spec` con las épocas del run, o `None` si no se puede.
+
+    `TrainingSpec` y `RunSpec` son `frozen`, así que «aplicar» aquí es
+    construir, no asignar. Se devuelve `None` cuando el contrato no declara
+    `RUN` o el valor no es un entero: entonces no se ha aplicado nada y quien
+    llama tiene que DECIRLO, no fingir que sí.
+    """
+    import dataclasses  # noqa: PLC0415
+
+    run = getattr(spec, "run", None)
+    if run is None or not dataclasses.is_dataclass(run):
+        return None
+    try:
+        n = int(epocas)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0:
+        return None
+    try:
+        return dataclasses.replace(spec, run=dataclasses.replace(run, epochs=n))
+    except (TypeError, ValueError):
+        return None
+
+
 def _configuracion_del_run(
-    manifiesto: dict[str, Any], spec: Any
-) -> tuple[dict[str, Any], list[str]]:
+    manifiesto: dict[str, Any], spec: Any, *, admite_semilla: bool = False,
+    maquina: str | None = None, inicializacion_determinista: bool = False,
+) -> tuple[dict[str, Any], list[str], dict[str, Any], Any]:
     """Qué se pudo aplicar de la captura al reentrenar, y qué no.
 
     Devuelve las dos listas porque las dos importan: lo aplicado explica
@@ -668,43 +839,94 @@ def _configuracion_del_run(
     qué podría no hacerlo** — y sin eso R3 acusaría a un paquete honesto
     de haber cambiado.
     """
-    captura = manifiesto.get("run_provenance")
-    if not isinstance(captura, dict):
-        return {}, []
+    # DE DÓNDE SE LEE, y esto era el primero de los tres defectos (medido el
+    # 2026-08-24): esta función leía `manifiesto["run_provenance"]`, **que no
+    # existe en el manifiesto**. La raíz tiene `provenance`, y dentro
+    # `provenance.run_capture` es solo `{present, schema_version, sha256}` — un
+    # resumen, no la captura. Así que devolvía `({}, [])` SIEMPRE, y un
+    # «no aplicado» vacío junto a un «aplicado» vacío se lee como «se aplicó
+    # todo». Afirmaba por omisión.
+    #
+    # Los parámetros efectivos del run SÍ están publicados, y están en
+    # `generation`: es el bloque que el manifiesto compone desde la captura.
+    generacion = manifiesto.get("generation")
+    if not isinstance(generacion, dict):
+        return {}, [], {}, spec
 
     aplicadas: dict[str, Any] = {}
     sin_aplicar: list[str] = []
+    para_el_entrenador: dict[str, Any] = {}
     for clave in _CONFIG_QUE_CAMBIA_EL_RESULTADO:
-        valor = captura.get(clave)
+        valor = generacion.get(clave)
         if valor is None:
             continue
-        if clave == "epochs_effective" and hasattr(spec, "epochs"):
-            # Se aplica de verdad: el `.mxtrain` del paquete puede llevar
-            # otras épocas que las que el run usó.
-            try:
-                spec.epochs = int(valor)
+        if clave == "epochs_effective":
+            # LAS ÉPOCAS VIVEN EN `spec.run.epochs`, Y LOS DOS SON `frozen`.
+            # El código anterior hacía `spec.epochs = …` sobre un atributo que
+            # NO EXISTE —`hasattr` daba False y la rama no entraba nunca—, así
+            # que las épocas del run no se aplicaban jamás. Con dataclasses
+            # congeladas la forma de aplicarlas es construir otro spec.
+            nuevas = _spec_con_epocas(spec, valor)
+            if nuevas is not None:
+                spec = nuevas
                 aplicadas[clave] = int(valor)
                 continue
-            except (TypeError, ValueError, AttributeError):
-                pass
-        if clave == "seeds" and isinstance(valor, dict) and hasattr(spec, "seed"):
-            semilla = valor.get("training")
-            if isinstance(semilla, int):
-                try:
-                    spec.seed = semilla
-                    aplicadas["seeds.training"] = semilla
-                    continue
-                except AttributeError:
-                    pass
+        if clave == "seeds" and isinstance(valor, dict):
+            # LA SEMILLA DE INICIALIZACIÓN, y era el tercer defecto: esto
+            # buscaba `seeds["training"]`, una clave que el manifiesto no
+            # publica. Las que hay son `dataset`, `split` e `init`, y la que
+            # cambia el resultado de reentrenar es **`init`**: de qué pesos
+            # arranca. `dataset` ya la usó R1 para regenerar y `split` viaja
+            # dentro del propio `.mxtrain`.
+            semilla = valor.get("init")
+            if isinstance(semilla, int) and admite_semilla:
+                # No se toca el `spec`: la semilla de inicialización es un
+                # argumento del ENTRENADOR (`train(..., seed=)`), no del
+                # contrato. Se devuelve para que la aplique quien entrena.
+                para_el_entrenador["seed"] = semilla
+                aplicadas["seeds.init"] = semilla
+                continue
+            if isinstance(semilla, int) and not admite_semilla and inicializacion_determinista:
+                # NO APLICA, que no es lo mismo que NO SE PUDO. Este entrenador
+                # arranca SIEMPRE de los mismos valores, así que el
+                # reentrenamiento reproduce esa inicialización aunque nadie le
+                # pase la semilla. Contarlo como «sin aplicar» dejaba a R3 sin
+                # veredicto **para siempre** en un paquete que sí se reproduce.
+                aplicadas["seeds.init"] = "no aplica: inicialización determinista"
+                continue
+            if isinstance(semilla, int) and not admite_semilla:
+                # Este entrenador no admite semilla —los modelos FUNCTION no
+                # la reciben—, así que se DICE en vez de callarlo.
+                sin_aplicar.append("seeds.init")
+                continue
+        if clave == "device" and maquina is not None:
+            # NO SE IMPONE, SE COMPARA. Forzar el entorno de quien verifica
+            # sería prometer algo que no se controla; comprobar que coincide es
+            # un hecho. Y si NO coincide, sigue sin aplicarse — que es la
+            # verdad: sus métricas no describen la misma ejecución.
+            if str(valor).strip().lower() == maquina:
+                aplicadas[clave] = maquina
+                continue
+            sin_aplicar.append(clave)
+            continue
+        if clave == "warm_start" and valor is False:
+            # `false` significa «este run arrancó de la inicialización», que es
+            # EXACTAMENTE lo que hace reentrenar aquí. Contarlo como «no
+            # aplicado» dejaba a R3 en INCOMPARABLE por una condición que sí se
+            # cumple — y un INCOMPARABLE de más también miente, en la otra
+            # dirección.
+            aplicadas[clave] = False
+            continue
         # Lo que este verificador no sabe imponer se DICE. `engine` y
         # `device` son del entorno de quien verifica, no del `.mxtrain`:
         # forzarlos aquí sería prometer un entorno que no controlamos.
         sin_aplicar.append(clave)
-    return aplicadas, sin_aplicar
+    return aplicadas, sin_aplicar, para_el_entrenador, spec
 
 
 def _fuera_del_alcance_de_la_tolerancia(
-    manifiesto: dict[str, Any], comparables: list[dict[str, Any]]
+    manifiesto: dict[str, Any], comparables: list[dict[str, Any]],
+    *, locale: str = IDIOMA_POR_DEFECTO,
 ) -> str | None:
     """El motivo por el que la tolerancia no aplica aquí, o `None`.
 
@@ -720,46 +942,99 @@ def _fuera_del_alcance_de_la_tolerancia(
 
     desconocidos = sorted(a for a in alcances if a not in _ALCANCES)
     if desconocidos:
-        return (f"the package declares tolerance scopes this verifier does not "
-                f"know ({', '.join(desconocidos)}), so it cannot tell whether "
-                "they apply here")
+        return motivo("tol_alcance_desconocido", locale,
+                      alcances=", ".join(desconocidos))
 
     if "same_environment_same_seed" not in alcances:
         return None
 
     declarado = (manifiesto.get("environment") or {}).get("environment_sha256")
     if not isinstance(declarado, str) or not declarado:
-        return ("the package declares an environment-scoped tolerance but no "
-                "environment digest, so there is no way to tell whether this "
-                "is the environment it was measured in")
+        return motivo("tol_sin_digest_de_entorno", locale)
 
     from matrixai.export.reproduce import build_environment
     actual = build_environment().get("environment_sha256")
     if actual == declarado:
         return None
     # Los DOS digests: «otro entorno» a secas no deja ver en qué se diferencia.
-    return (f"the tolerance was measured for the package's own environment "
-            f"({declarado[:16]}…) and this one is different ({str(actual)[:16]}…), "
-            "so a difference here would not prove the package wrong")
+    return motivo("tol_otro_entorno", locale,
+                  declarado=declarado[:16], actual=str(actual)[:16])
 
 
-def verify_package(bundle_dir: str | Path, *, run_training: bool = False) -> dict[str, Any]:
+class PaqueteZipRechazado(ValueError):
+    """El ZIP no se abre, y se dice por qué en vez de mirar dentro igualmente."""
+
+
+def _extraer_paquete(zip_path: Path, destino: Path) -> Path:
+    """Descomprime el ZIP en `destino` y devuelve la raíz del paquete.
+
+    **Un ZIP viene de fuera.** Una entrada con `..` o con ruta absoluta escribe
+    donde el archivo mande —el zip-slip de siempre—, así que se rechaza el
+    archivo ENTERO en vez de saltarse esa entrada: un paquete que intenta eso no
+    es un paquete al que se le vaya a dar un informe.
+
+    Si todo cuelga de una sola carpeta —lo que escribe `export-bundle`—, la raíz
+    es esa carpeta; si no, es `destino`.
+    """
+    with zipfile.ZipFile(zip_path) as z:
+        nombres = z.namelist()
+        for nombre in nombres:
+            candidata = Path(nombre)
+            if candidata.is_absolute() or ".." in candidata.parts or nombre.startswith("/"):
+                raise PaqueteZipRechazado(
+                    f"the archive contains an entry that escapes it ({nombre!r}): "
+                    "extracting it would write outside the package, so it is not "
+                    "unpacked at all")
+        z.extractall(destino)
+    cimas = {Path(n).parts[0] for n in nombres if Path(n).parts}
+    if len(cimas) == 1:
+        unica = destino / next(iter(cimas))
+        if unica.is_dir():
+            return unica
+    return destino
+
+
+def verify_package(bundle_dir: str | Path, *, run_training: bool = False,
+                   locale: str = IDIOMA_POR_DEFECTO) -> dict[str, Any]:
     """Verifica un paquete y devuelve el informe por etapas.
 
     `run_training=False` por defecto a propósito: reentrenar cuesta
     minutos u horas y no se impone a quien solo quería comprobar la
     integridad. No haberlo hecho se DICE (`NOT_RUN`), que no es lo mismo
     que haberlo hecho y que saliera bien.
+
+    `locale` manda sobre TODO lo que este informe redacta —los motivos de
+    cada etapa, la nota del entrenamiento y el `problem` de cada artefacto
+    roto—, y sobre nada más: los `status`, los nombres de etapa y lo que
+    un motivo interpola son valores y no cambian de idioma (85-C2b).
+    Español por defecto, como el resto del core.
     """
     bundle = Path(bundle_dir)
-    manifiesto, problema = _leer_manifiesto(bundle)
+    # UN ZIP ES LO QUE LA GENTE SE DESCARGA. Esto solo sabía abrir directorios y
+    # un `.zip` caía en «el paquete no lleva reproduce.json» — que es falso: lo
+    # lleva dentro, y el verificador nunca lo abrió. Medido el 2026-08-26 sobre
+    # los tres paquetes de la galería: los tres decían eso, y los tres lo traían.
+    if bundle.is_file() and zipfile.is_zipfile(bundle):
+        with tempfile.TemporaryDirectory(prefix="matrixai-zip-") as tmp:
+            try:
+                extraido = _extraer_paquete(bundle, Path(tmp))
+            except PaqueteZipRechazado as exc:
+                return {"ok": False, "fully_checked": False,
+                        "unchecked_stages": ["manifest", "R1", "training", "R3"],
+                        "stages": {n: _etapa("INCOMPARABLE", str(exc))
+                                   for n in ("manifest", "R1", "training", "R3")},
+                        "exit_code": SALIDAS["incomparable"]}
+            return verify_package(extraido, run_training=run_training, locale=locale)
+
+    manifiesto, problema = _leer_manifiesto(bundle, locale=locale)
 
     if manifiesto is None:
+        sin_manifiesto = motivo("sin_manifiesto_que_comparar", locale)
         etapas = {
             "manifest": _etapa("INCOMPARABLE", problema),
-            "R1": _etapa("INCOMPARABLE", "no manifest to compare against"),
-            "training": _etapa("INCOMPARABLE", "no manifest to compare against"),
-            "R3": _etapa("INCOMPARABLE", "no manifest to compare against"),
+            "R1": _etapa("INCOMPARABLE", sin_manifiesto),
+            "training": _etapa("INCOMPARABLE", sin_manifiesto),
+            "R3": _etapa("INCOMPARABLE", sin_manifiesto),
         }
         # La MISMA forma que la salida normal: al añadir `fully_checked`
         # y `unchecked_stages` este camino se quedó sin ellas, y quien
@@ -770,22 +1045,40 @@ def verify_package(bundle_dir: str | Path, *, run_training: bool = False) -> dic
                 "stages": etapas, "exit_code": SALIDAS["incomparable"]}
 
     etapas: dict[str, dict[str, Any]] = {}
-    etapas["manifest"] = _verificar_manifiesto(bundle, manifiesto)
+    etapas["manifest"] = _verificar_manifiesto(bundle, manifiesto, locale=locale)
 
     if etapas["manifest"]["status"] != "PASS":
         # Sin integridad, comparar lo demás no dice nada: los artefactos
         # que se compararían no son los que el manifiesto describe.
-        motivo = "the package integrity check did not pass, so nothing else can be trusted"
+        sin_integridad = motivo("sin_integridad", locale)
         for etapa in ("R1", "training", "R3"):
-            etapas[etapa] = _etapa("INCOMPARABLE", motivo)
+            etapas[etapa] = _etapa("INCOMPARABLE", sin_integridad)
     else:
-        etapas["R1"] = _verificar_r1(bundle, manifiesto)
-        etapas["training"] = (
-            _etapa("NOT_RUN", "retraining was not requested (use --retrain)")
-            if not run_training else
-            _verificar_training(bundle, manifiesto, etapas["R1"])
-        )
-        etapas["R3"] = _verificar_r3(manifiesto, etapas["training"])
+        etapas["R1"] = _verificar_r1(bundle, manifiesto, locale=locale)
+        # LO QUE NO SE PUEDE HACER NO SE DICE COMO «NO SE PIDIÓ» (87-C3).
+        #
+        # Medido el 2026-08-25 sobre un paquete sin `.mxtrain`: sin `--retrain`
+        # el informe decía «retraining was not requested», que apunta al
+        # usuario cuando el obstáculo es del paquete — pedirlo no habría
+        # servido de nada. Y CON `--retrain` culpaba al dataset, que es el
+        # SEGUNDO obstáculo: sin contrato no hay con qué entrenar aunque los
+        # datos estuvieran.
+        #
+        # `NOT_RUN` es una elección de quien verifica; `INCOMPARABLE` es un
+        # límite del paquete. Aquí es lo segundo, y por eso cuenta como etapa
+        # sin comprobar.
+        _artefactos = manifiesto.get("artifacts")
+        _contrato = (_artefactos or {}).get("training") if isinstance(_artefactos, dict) else None
+        if not _contrato:
+            etapas["training"] = _etapa("INCOMPARABLE", motivo("t_sin_mxtrain", locale),
+                                        missing=["training"])
+        else:
+            etapas["training"] = (
+                _etapa("NOT_RUN", motivo("t_no_pedido", locale))
+                if not run_training else
+                _verificar_training(bundle, manifiesto, etapas["R1"], locale=locale)
+            )
+        etapas["R3"] = _verificar_r3(manifiesto, etapas["training"], locale=locale)
 
     ordenadas = {n: etapas[n] for n in _ORDEN}
     # AUDITORÍA EXTERNA (2026-08-20) [ALTO]: solo se miraba `FAIL`, así

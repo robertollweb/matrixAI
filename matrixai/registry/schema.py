@@ -12,6 +12,15 @@ MATRIXAI_REGISTRY_SCHEMA_VERSION = "1.0.0"
 MATRIXAI_REGISTRY_VERSION = MATRIXAI_REGISTRY_SCHEMA_VERSION
 
 
+#: EL HASH QUE SIGNIFICA «AQUÍ NO HAY MODELO».
+#:
+#: `push_run_dir` acepta un run **sin `.mxai`** —publicar solo métricas tiene
+#: usos legítimos— y en ese caso escribe este relleno. Vivía como literal en
+#: cuatro sitios de `model_registry.py`, así que nadie podía preguntar «¿esta
+#: entrada trae modelo?» sin repetir la constante una quinta vez.
+HASH_SIN_MODELO = "sha256:" + "0" * 64
+
+
 @dataclass(frozen=True)
 class RegistryEntry:
     """Immutable record for a single versioned model in the registry."""
@@ -36,6 +45,22 @@ class RegistryEntry:
                                      # covers weights above the materialization threshold);
                                      # enables file-level tamper detection
     blockers: list[str] = field(default_factory=list)  # non-empty → propagated as errors by BackendContractAnalyzer
+
+    def es_ejecutable(self) -> bool:
+        """¿Se puede EJECUTAR esta entrada, o solo leer lo que publica?
+
+        Una entrada sin `.mxai` se publica —publicar solo métricas tiene usos
+        legítimos— pero **no se puede correr**: el ejecutor va a buscar
+        `model.mxai` al directorio y no está. Medido montando el E2E del 87
+        (hallazgo 15): el motor lo declaraba honestamente (`status: failed`) y
+        el recibo también, pero en la lista las dos entradas se veían IGUAL, así
+        que no había forma de saber cuál se podía correr sin intentarlo.
+
+        Se DEDUCE del `model_hash` en vez de guardar un campo nuevo: el
+        `entry_hash` cubre los campos de identidad, y añadir uno rompería la
+        cadena de entradas ya publicadas. Un dato que ya está no se duplica.
+        """
+        return self.model_hash != HASH_SIN_MODELO
 
     def to_manifest(self) -> dict[str, Any]:
         return {

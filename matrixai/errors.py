@@ -82,6 +82,43 @@ Or see QUICKSTART.md for a full walkthrough.
 """
 
 
+def error_training_diverged(epoch: int, target_scale: str = "") -> str:
+    """Training blew up instead of converging.
+
+    Measured on 2026-08-24 with the repository's own Kelvin example and the
+    `.mxtrain` that `matrixai generate-training` writes: an `OverflowError:
+    (34, 'Numerical result out of range')` and a Python traceback. That is the
+    least actionable message a first-time user can get, and PR1-C4 says every
+    frequent error names its correction.
+
+    The wording states WHAT happened and WHAT to try — and does not promise
+    that any of it will fix it: which one applies depends on the data.
+    """
+    # La escala va en su PROPIA línea: interpolada dentro del párrafo, un
+    # rango largo rompía el ajuste y la frase salía descuadrada — medido.
+    escala = f"\nYour targets run from {target_scale}.\n" if target_scale else ""
+    return f"""\
+Error: training diverged at epoch {epoch} — the numbers grew past what a float can hold
+
+The model is not learning: each step overshoots and the next one overshoots
+more, until the loss stops being a number. It is not a bug in your data, and
+rerunning it unchanged will do the same thing.
+{escala}
+What usually causes it, and what to try:
+  1. The learning rate is too large for the scale of your values.
+     In your .mxtrain, lower it by a factor of ten and train again:
+       OPTIMIZER ...
+         LEARNING_RATE 0.0001
+  2. The target is not in a normalised range. Declaring its range lets
+     MatrixAI scale it before training:
+       TARGET my_target: Scalar[0, 1000]
+  3. Inputs of very different magnitudes (0-1 next to 0-100000) push the
+     first steps far away. Declare their ranges too, or scale them.
+
+None of the three is guaranteed: which one applies depends on your data.
+"""
+
+
 def error_params_not_found(params_path: str) -> str:
     """Trained parameters file not found."""
     return f"""\

@@ -438,7 +438,7 @@ matrixai generate-supervised <prompt...> -o <output_dir> [--stem <name>] [--epoc
 Generate a reproducible synthetic dataset from a `.mxai` + `.mxtrain` spec.
 
 ```
-matrixai generate-dataset <mxai_file> --training <mxtrain_file> [-o <output_dir>] [--rows <n>] [--seed <n>] [--mode <mode>] [--json]
+matrixai generate-dataset <mxai_file> --training <mxtrain_file> [-o <output_dir>] [--rows <n>] [--seed <n>] [--mode <mode>] [--recipe <file>] [--json]
 ```
 
 | Flag | Default | Description |
@@ -447,6 +447,7 @@ matrixai generate-dataset <mxai_file> --training <mxtrain_file> [-o <output_dir>
 | `--rows` | `200` | Total rows (range: 2–50,000) |
 | `--seed` | `42` | Random seed for reproducibility |
 | `--mode` | `random` | `random` or `coherent` (coherent is semantics-consistent) |
+| `--recipe` | — | File with the data recipe (contract 80): the rule that decides the target from the inputs. **The thresholds are in the units this command samples** — the ranges the `.mxai` declares, or 0–1 when it declares none. A recipe that cannot be read is an error here, not a warning: without it you would get a CSV of noise on your disk |
 | `-o, --output-dir` | `.` | Output directory for CSVs and manifest |
 | `--stem` | auto | Filename stem |
 | `--json` | — | Print generation result as JSON |
@@ -518,6 +519,12 @@ matrixai evaluate <mxai_file> --params <json_file> --training <mxtrain_file> [-o
 ### matrixai run
 
 Run a `.mxai` file once with JSON input and print the result.
+
+The declared outputs are printed by name — and a classifier that
+declares `ProbabilityMap[...]` prints its classes by name too, so a
+bare vector never forces you back to the `.mxai` to find out which
+position is which class. `--json` adds the full state, the actions
+and the audit trail.
 
 ```
 matrixai run <file> --input <json_file> [--params <json_file>] [--json]
@@ -998,9 +1005,9 @@ verifier you cannot act on.
 
 ### matrixai verify
 
-Verify an unpacked package: signature, manifest, the model's own
-declarations and the environment it claims. Four stages, each reported
-separately.
+Verify a package — a directory **or the `.zip` you downloaded**: signature,
+manifest, the model's own declarations and the environment it claims. Four
+stages, each reported separately.
 
 ```
 matrixai verify <package> [--json] [--retrain]
@@ -1008,12 +1015,89 @@ matrixai verify <package> [--json] [--retrain]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `package` | — | Directory of the unpacked package (contains `reproduce.json`) |
+| `package` | — | The package: a directory containing `reproduce.json`, or a `.zip` of one. An archive with entries that escape it is rejected **whole**, not entry by entry |
 | `--json` | — | Print the report as JSON |
 | `--retrain` | — | Also retrain and compare (slow: minutes to hours) |
+| `--locale` | `en` | Language of the reasons in the report (`es` or `en`). The report's verdicts and stage names never change: only the prose |
 
 A package produced in a different environment comes back `INCOMPARABLE`
 rather than `FAIL`: it neither accuses nor approves for free.
+
+### matrixai attest
+
+Measure a model **you did not train** on data you provide, and emit a receipt
+that ties the number to the digests of both. The model runs; nothing about how
+it was trained is claimed.
+
+```
+matrixai attest <model.onnx> --data <eval.csv> [--metric accuracy]
+                [--target-column <name>] [--key <hex>] [--in-toto]
+                [--sigstore] [-o <file>]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `model` | — | The `.onnx` model to evaluate |
+| `--data` | — | CSV with the evaluation data |
+| `--metric` | `accuracy` | Metric to measure (`accuracy` or `mae`) |
+| `--target-column` | last column | Column holding the expected value |
+| `--purpose` / `--actor` | — | What this evaluation is for, and who ran it |
+| `--key` / `--key-id` | — | Hex key to sign the receipt. Without it the receipt is **A0 / UNSIGNED**, and says so |
+| `--in-toto` | — | Also emit the receipt as an in-toto Statement. Needs `--key`: a Statement nobody signed does not say whose it is. The native envelope is **not** withdrawn — both are emitted and each says which it is |
+| `--sigstore` | — | Sign with Sigstore instead of HMAC. Needs the `sigstore` library and an OIDC identity; if either is missing it says **which** and does not fall back to HMAC in silence. It does **not** raise the assurance level: A0–A4 describe what was checked, not how strong the signature is |
+| `-o` | — | Write the receipt to this file. Extra envelopes go next to it (`<file>.in_toto.json`). Without `-o` everything goes to stdout |
+
+The receipt states what it does **not** attest, and records the model's
+declared input (type, shape, whether the shape could be contrasted at all) —
+with a dynamic axis it says `"no declarada"` rather than staying quiet, because
+staying quiet there reads as "checked". A model declaring integer inputs is
+**not** fed a decimal: ONNX Runtime would truncate it silently and the number
+that came out would end up in a signed receipt.
+
+### matrixai bom
+
+Emit the package as a **CycloneDX 1.6 ML-BOM** — the inventory format that
+already appears in procurement documents. It is a translator, not a new
+measurement: `reproduce.json` already holds identity, version, environment,
+packages, seeds, declared/effective/executed epochs, ranges, types, backend,
+device and the artefact digests.
+
+```
+matrixai bom <package> [--missing] [-o <file>]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `package` | — | Directory of the unpacked package |
+| `--missing` | — | Also print what this BOM **cannot** say, and why. A BOM with explained gaps is useful; one with silent gaps reads as if there were nothing to say |
+| `-o` | stdout | Write to this file |
+
+The document is **deterministic**: its serial number derives from
+`manifest_sha256`, not from a random UUID, because a BOM that changes on every
+run can be neither compared nor signed. Nothing is invented to fill a field —
+the partition goes in `slice` and the rest as properties, because
+`performanceMetric` admits no more fields, and an interval of zero width would
+claim a precision nobody measured.
+
+### matrixai report
+
+Write the package's record in the format a specific audience asks for.
+
+```
+matrixai report <package> --tripod [--locale en|es] [-o <file>]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `package` | — | Directory of the unpacked package |
+| `--tripod` | — | TRIPOD+AI record (clinical prediction models). **Required, not assumed**: the day there is a second format this command must not change meaning in silence for whoever already has it in a script |
+| `--locale` | `en` | Language of the record (`en` or `es`) |
+| `-o` | stdout | Write to this file |
+
+It fills **no box it cannot fill**. What the package does not know — absent
+data, calibration, fairness, and everything that belongs to the author — is
+enumerated as missing, and if the data is SYNTHETIC that warning goes at the
+very top, not in a footnote.
 
 ### matrixai replay
 

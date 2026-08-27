@@ -251,6 +251,16 @@ def main() -> int:
         "--retrain", action="store_true",
         help="Also retrain and compare (slow: minutes to hours)",
     )
+    # 85-C2b. El CLI habla inglés de arriba abajo —su ayuda, sus errores, la
+    # ficha del Space que lo ejecuta—, así que aquí el defecto es `en` y no
+    # el `es` del core: un informe en español bajo una ayuda en inglés es
+    # media herramienta traducida, que es el defecto que este corte quita.
+    # Quien quiera el otro idioma lo pide, igual que lo pide la interfaz.
+    verify_parser.add_argument(
+        "--locale", choices=["es", "en"], default="en",
+        help="Language of the reasons in the report (the stage names and the "
+             "PASS/FAIL/NOT_RUN/INCOMPARABLE statuses never change)",
+    )
 
     permissions_parser = subparsers.add_parser(
         "permissions", help="Review sandbox permissions for MatrixAI actions"
@@ -424,6 +434,15 @@ def main() -> int:
     generate_dataset_parser.add_argument("--rows", type=int, default=200, help="Total rows to generate (default: 200). Upper bound governed by the limits profile (MATRIXAI_LIMITS_PROFILE: equilibrado=50000, ilimitado=none; or MATRIXAI_MAX_ROWS)")
     generate_dataset_parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility (default: 42)")
     generate_dataset_parser.add_argument(
+        "--recipe",
+        help="File with the data recipe (contract 80): the rule that decides the "
+             "target from the inputs. Without it, 'coherent' mode has nothing to "
+             "be coherent with and the labels are random. THE THRESHOLDS ARE IN "
+             "THE UNITS THIS COMMAND SAMPLES: the ranges the .mxai declares, or "
+             "0-1 when it declares none — a rule written in real units against a "
+             "model with no declared ranges never fires",
+    )
+    generate_dataset_parser.add_argument(
         "--mode",
         choices=["random", "coherent"],
         default="random",
@@ -439,6 +458,23 @@ def main() -> int:
         "train", help="Train the P4 supervised MVP and write MatrixAI training artifacts"
     )
     train_parser.add_argument("file", help=".mxai model file")
+    # 85-C5b — lo que hace falta para que el paquete se DEMUESTRE, y que el
+    # CLI sabía y no escribía. Las dos son opcionales: sin ellas la captura
+    # sale con lo que se sepa, que es mejor que no salir.
+    train_parser.add_argument(
+        "--recipe",
+        help="The data recipe used to generate the dataset. It travels into the run "
+             "capture so an exported package can regenerate the data and compare")
+    train_parser.add_argument(
+        "--dataset-seed", type=int,
+        help="The seed `generate-dataset` used. Without it a package cannot regenerate "
+             "the dataset, and says so instead of pretending it can")
+    train_parser.add_argument(
+        "--dataset-manifest",
+        help="The manifest `generate-dataset` wrote (…-manifest.json). Carries the "
+             "seed, the mode and HOW MANY ROWS were generated before splitting — and "
+             "without the total the regeneration cannot be compared, because the "
+             "training file is a slice of it")
     train_parser.add_argument("--training", required=True, help=".mxtrain training spec")
     train_parser.add_argument("--output", "-o", required=True, help="Output run directory")
     train_parser.add_argument(
@@ -615,6 +651,11 @@ def main() -> int:
             "metrics [{name, value, split, dataset_sha256, ...}]."
         ),
     )
+    export_bundle_parser.add_argument(
+        "--from-run",
+        help="Run directory (the --output of `matrixai train`). Reads its run "
+             "capture, so the package can prove WHICH training produced these "
+             "weights. Without it the package says it cannot prove it")
     export_bundle_parser.add_argument("--json", action="store_true", help="Print bundle result as JSON")
 
     export_wasm_parser = subparsers.add_parser(
@@ -942,6 +983,60 @@ def main() -> int:
                               help="Days drift has been continuously observed (gates REFINEMENT_DRIFT_PERSISTENCE_DAYS)")
     cont_audit_p.add_argument("--json", action="store_true", help="Output JSON")
 
+    # ── attest: atestiguar la evaluación de un modelo AJENO (87-C2) ─────────────
+    attest_p = subparsers.add_parser(
+        "attest", help="Attest the evaluation of a model MatrixAI did not train")
+    attest_p.add_argument("model", help="Path to the .onnx model")
+    attest_p.add_argument("--data", required=True, help="CSV with the evaluation data")
+    attest_p.add_argument("--metric", default="accuracy",
+                          help="Metric to measure (default: accuracy)")
+    attest_p.add_argument("--target-column",
+                          help="Column with the expected value (default: the last one)")
+    attest_p.add_argument("--purpose", default="", help="What this evaluation is for")
+    attest_p.add_argument("--actor", default="", help="Who is running it")
+    attest_p.add_argument(
+        "--key", help="Hex key to sign the receipt. Without it the receipt is "
+                      "emitted UNSIGNED, which is level A0 and says so")
+    # 86-C2 y 86-C4 DEJAN DE SER CÓDIGO AISLADO (auditoría externa del
+    # 2026-08-25, hallazgo 3): tenían sus primitivas probadas y **ningún
+    # llamante de producción**, así que ni «se emiten los dos sobres» ni
+    # Sigstore estaba disponible como opción del producto. Aquí se ofrecen.
+    attest_p.add_argument(
+        "--in-toto", action="store_true", dest="in_toto",
+        help="Also emit the receipt as an in-toto Statement (86-C2). The native "
+             "envelope is not withdrawn: both are written and each says which it is")
+    attest_p.add_argument(
+        "--sigstore", action="store_true",
+        help="Sign with Sigstore instead of HMAC (86-C4). Needs the `sigstore` "
+             "library and an OIDC identity; if either is missing it says which one "
+             "and does not fall back to HMAC in silence")
+    attest_p.add_argument("--key-id", default="attest", help="Key identifier for the signature")
+    attest_p.add_argument("-o", "--output", help="Write the receipt to this file")
+
+    # ── bom: el ML-BOM del paquete, en CycloneDX (86-C3) ────────────────────────
+    bom_p = subparsers.add_parser(
+        "bom", help="Write the ML-BOM (CycloneDX) of an exported package")
+    bom_p.add_argument("package", help="Directory of the unpacked package")
+    bom_p.add_argument("-o", "--output", help="Write to this file instead of stdout")
+    bom_p.add_argument(
+        "--missing", action="store_true",
+        help="Also print what this BOM cannot say, and why. A BOM with explained "
+             "gaps is useful; one with silent gaps reads as if there were nothing "
+             "to say")
+
+    # ── report: la ficha TRIPOD+AI de un paquete (85-C6) ────────────────────────
+    report_p = subparsers.add_parser(
+        "report", help="Write a reporting record from an exported package")
+    report_p.add_argument("package", help="Directory of the unpacked package")
+    report_p.add_argument(
+        "--tripod", action="store_true",
+        help="TRIPOD+AI record (clinical prediction models). Required rather than "
+             "assumed: the day there is a second format, this command must not "
+             "change meaning in silence for whoever already has it in a script")
+    report_p.add_argument("--locale", default="en", choices=["en", "es"],
+                          help="Language of the record (default: en)")
+    report_p.add_argument("-o", "--output", help="Write to this file instead of stdout")
+
     # ── init: create new project from template ──────────────────────────────────
     init_p = subparsers.add_parser("init", help="Create a new MatrixAI project from a template")
     init_p.add_argument("project_name", help="Name of the project to create")
@@ -1119,6 +1214,15 @@ def main() -> int:
     if args.command == "verify":
         return _cmd_verify(args)
 
+    if args.command == "report":
+        return _cmd_report(args)
+
+    if args.command == "bom":
+        return _cmd_bom(args)
+
+    if args.command == "attest":
+        return _cmd_attest(args)
+
     if args.command == "permissions":
         return _cmd_permissions(args)
 
@@ -1167,7 +1271,7 @@ def main() -> int:
         if args.json:
             print(json.dumps(_json_safe(result), indent=2, ensure_ascii=False))
         else:
-            _print_run_report(program.project, result)
+            _print_run_report(program.project, result, program)
         return 0
 
     if args.command == "backend-parameters":
@@ -1648,10 +1752,16 @@ def _cmd_verify(args) -> int:
     Devuelve el código de salida del informe, no un 0/1: un guion tiene
     que poder distinguir «no se pudo comprobar» de «alguien lo tocó» sin
     leer el JSON. Ver `SALIDAS` en `export/verify.py`.
+
+    `--locale` solo cambia la PROSA (85-C2b). Lo que un guion lee —los
+    nombres de etapa, los cuatro `status` y el código de salida— es el
+    mismo en los dos idiomas, a propósito.
     """
     from matrixai.export.verify import verify_package
 
-    informe = verify_package(args.package, run_training=bool(getattr(args, "retrain", False)))
+    informe = verify_package(args.package,
+                             run_training=bool(getattr(args, "retrain", False)),
+                             locale=str(getattr(args, "locale", None) or "en"))
 
     if getattr(args, "json", False):
         print(json.dumps(informe, indent=2, ensure_ascii=False))
@@ -2007,6 +2117,41 @@ def _parse_cli_labels(value: str | None) -> list[str] | None:
     return labels
 
 
+def _metricas_para_leer(result: Any, args: Any) -> list[str]:
+    """Las líneas de métricas que tienen sentido para ESTA tarea.
+
+    Se decide por lo que hay en `metrics.json`, que es lo que el entrenador
+    midió: si trae `r2`/`mae` es una regresión y `accuracy` no aplica; si no,
+    se imprime la exactitud como siempre.
+    """
+    from pathlib import Path as _Path  # noqa: PLC0415
+
+    metricas: dict = {}
+    try:
+        _fichero = _Path(result.output_dir) / "metrics.json"
+        if _fichero.is_file():
+            metricas = json.loads(_fichero.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        metricas = {}
+
+    r2, mae = metricas.get("r2"), metricas.get("mae")
+    if isinstance(r2, (int, float)) or isinstance(mae, (int, float)):
+        lineas = []
+        if isinstance(r2, (int, float)):
+            lineas.append(f"R2: {r2:.6f}")
+        if isinstance(mae, (int, float)):
+            lineas.append(f"MAE: {mae:.6g}")
+        return lineas
+    # La exactitud también sale de `metrics.json` cuando está: si el fichero y
+    # el objeto discreparan, el que vale es el que queda EN DISCO, que es el que
+    # después leen el export y R3. Y si no está, se cae al del resultado, que es
+    # el comportamiento de siempre.
+    exactitud = metricas.get("accuracy")
+    if not isinstance(exactitud, (int, float)):
+        exactitud = result.accuracy
+    return [f"Accuracy: {exactitud:.6f}"]
+
+
 def _cmd_train(args) -> int:
     training_path = Path(args.training)
     try:
@@ -2063,15 +2208,191 @@ def _cmd_train(args) -> int:
         print(f"Training error: {exc}", file=sys.stderr)
         return 1
 
+    # LA CAPTURA DEL RUN (85-C5b). Sin ella, un paquete exportado desde el CLI
+    # sale `Reproducible: no` con cinco motivos —medido el 2026-08-25— aunque
+    # este comando SEPA todo lo que hace falta. Se escribe al lado de los pesos
+    # porque es de este run y de ningún otro.
+    _captura_error = _escribir_captura_del_run(args, training, training_path, result)
+    if _captura_error and not args.json:
+        # No se falla el entrenamiento por no poder escribir la captura —los
+        # pesos son buenos— pero tampoco se calla: sin ella el paquete no podrá
+        # demostrarse, y enterarse al exportar es enterarse tarde.
+        print(f"Note: the run capture could not be written ({_captura_error}); "
+              f"a package exported from this run will not be able to prove itself",
+              file=sys.stderr)
+
     if args.json:
         print(json.dumps(_json_safe(result.to_dict()), indent=2, ensure_ascii=False))
     else:
         print(f"Training OK: {result.run_id}")
         print(f"Best epoch: {result.best_epoch}")
         print(f"Best validation loss: {result.best_validation_loss:.6f}")
-        print(f"Accuracy: {result.accuracy:.6f}")
+        # LA MÉTRICA DE LA TAREA, NO SIEMPRE «ACCURACY» (2026-08-25).
+        #
+        # En una regresión, `accuracy` vale 0.0 y esto imprimía
+        # `Accuracy: 0.000000` — que es lo PRIMERO que ve quien acaba de
+        # entrenar el ejemplo del Kelvin, y se lee como «el modelo no acierta
+        # nunca» cuando en realidad el error medio era 6,5e-17. Un valor que no
+        # aplica no es un cero.
+        for _linea in _metricas_para_leer(result, args):
+            print(_linea)
         print(f"Artifacts: {result.output_dir}")
     return 0
+
+
+def _rangos_declarados(program) -> dict[str, tuple[float, float]]:
+    """Los dominios que el `.mxai` declara para sus entradas.
+
+    `edad: Scalar[18, 100]` es el dominio del que muestrea el generador; sin
+    declaración, muestrea `[0, 1]`. Lo que no traiga rango **no entra en el
+    mapa**: quien lo lea usará su valor por defecto, que es esa misma
+    suposición, en vez de una inventada aquí.
+    """
+    dominios: dict[str, tuple[float, float]] = {}
+    for vector in getattr(program, "vectors", []) or []:
+        for nombre, tipo in (getattr(vector, "field_types", None) or {}).items():
+            rango = getattr(tipo, "range", None)
+            minimo, maximo = getattr(rango, "minimum", None), getattr(rango, "maximum", None)
+            if isinstance(minimo, (int, float)) and isinstance(maximo, (int, float)):
+                dominios[str(nombre)] = (float(minimo), float(maximo))
+    return dominios
+
+
+def _generacion_declarada(args) -> tuple[int | None, int | None, str]:
+    """Semilla, filas TOTALES y modo con los que se generó el dataset.
+
+    Del manifiesto que escribió `generate-dataset` si se pasa —que es quien lo
+    sabe— y si no, de `--dataset-seed`. **Las filas totales importan**: medido
+    el 2026-08-25, el CSV de entrenamiento es la cabecera más las primeras N
+    filas de la generación completa, así que regenerar «tantas filas como tiene
+    el fichero de train» produce otro dataset y el veredicto sale `no
+    regenera` — acusando a una receta buena.
+    """
+    ruta = getattr(args, "dataset_manifest", None)
+    if ruta:
+        try:
+            m = json.loads(Path(ruta).read_text(encoding="utf-8"))
+            g = m.get("generator") or {}
+            return (g.get("seed"), g.get("rows"), str(g.get("mode") or "coherent"))
+        except (OSError, json.JSONDecodeError, AttributeError):
+            return (getattr(args, "dataset_seed", None), None, "coherent")
+    return (getattr(args, "dataset_seed", None), None, "coherent")
+
+
+def _comprobar_que_la_receta_regenera(args, training, csv_text, receta):
+    """Devuelve `(veredicto, csv_completo)`.
+
+    `csv_completo` es la generación ENTERA que la receta y la semilla producen,
+    y es lo que el paquete tiene que declarar. MEDIDO el 2026-08-25: el fichero
+    de entrenamiento es la cabecera más las primeras filas de esa generación
+    —`generate-dataset` reparte en train/eval DESPUÉS de generar—, así que un
+    paquete que declare el digest del fichero de train hace que R1 regenere una
+    cosa y compare con otra: **FAIL sobre un paquete honesto**. Lo que se
+    declara es la generación completa; que el entrenamiento usó su primer
+    tramo lo dice el `SPLIT` del `.mxtrain`, que viaja dentro.
+    """
+    """¿La receta y la semilla declaradas REGENERAN este dataset?
+
+    Se comprueba de verdad —regenerando y comparando el digest— porque una
+    receta que viaja sin comprobar es una promesa. El vocabulario de los
+    códigos es el mismo que ya usa el backend del Studio
+    (`regenera_el_dataset` / `no_regenera_el_dataset` /
+    `no_se_ha_podido_comprobar`): dos sitios inventando códigos distintos para
+    lo mismo acabarían divergiendo.
+    """
+    semilla, filas_totales, modo = _generacion_declarada(args)
+    if not receta or semilla is None or not csv_text:
+        return None, None
+    try:
+        from matrixai.playground_api import generate_synthetic_dataset  # noqa: PLC0415
+
+        lineas_train = [l for l in csv_text.splitlines() if l.strip()]
+        # Sin el total no se puede comprobar, y se DICE en vez de comparar
+        # contra otra cosa y llamar mentirosa a una receta buena.
+        if not isinstance(filas_totales, int) or filas_totales <= 0:
+            return {"verified": False, "code": "no_se_ha_podido_comprobar"}, None
+        rehecho = generate_synthetic_dataset(
+            Path(args.file).read_text(encoding="utf-8"),
+            Path(args.training).read_text(encoding="utf-8"),
+            filas_totales, int(semilla), modo, False, recipe_text=receta)
+        if not rehecho.get("ok"):
+            return {"verified": False, "code": "no_se_ha_podido_comprobar"}, None
+        completo = str(rehecho.get("csv_text") or "")
+        lineas_rehechas = [l for l in str(rehecho.get("csv_text") or "").splitlines() if l.strip()]
+        # MEDIDO: el fichero de entrenamiento es la cabecera + las primeras
+        # filas de la generación completa. Comparar el fichero entero contra
+        # una generación del mismo tamaño daría siempre «no regenera».
+        igual = (len(lineas_rehechas) >= len(lineas_train)
+                 and lineas_rehechas[:len(lineas_train)] == lineas_train)
+        return ({"verified": bool(igual),
+                 "code": "regenera_el_dataset" if igual else "no_regenera_el_dataset"},
+                completo if igual else None)
+    except Exception:  # noqa: BLE001 — no poder comprobar NO es un fallo del run
+        return {"verified": False, "code": "no_se_ha_podido_comprobar"}, None
+
+
+def _escribir_captura_del_run(args, training, training_path: Path, result) -> str | None:
+    """Escribe `run_provenance.json` en el directorio del run. Devuelve el
+    motivo si no se pudo, o `None` si se escribió.
+
+    Lo que se sabe se escribe; lo que no, se deja fuera. La captura la valida
+    el core al construirla, así que una imposible se corta aquí y no viaja
+    dentro de un paquete.
+    """
+    from matrixai.export.reproduce import capturar_run  # noqa: PLC0415
+
+    try:
+        mxai_text = Path(args.file).read_text(encoding="utf-8")
+        mxtrain_text = training_path.read_text(encoding="utf-8")
+        csv_path = (training_path.parent / str(training.dataset.source)).resolve()
+        csv_text = csv_path.read_text(encoding="utf-8") if csv_path.is_file() else None
+        filas = (len([l for l in csv_text.splitlines() if l.strip()]) - 1
+                 if csv_text else None)
+        receta = None
+        if getattr(args, "recipe", None):
+            receta = Path(args.recipe).read_text(encoding="utf-8")
+        veredicto, csv_completo = _comprobar_que_la_receta_regenera(
+            args, training, csv_text, receta)
+        # Lo que el paquete DECLARA es la generación entera cuando se ha podido
+        # comprobar; si no, el fichero que entrenó, que es lo único que consta.
+        _csv_declarado = csv_completo or csv_text
+        _filas_declaradas = (
+            len([l for l in csv_completo.splitlines() if l.strip()]) - 1
+            if csv_completo else filas)
+        captura = capturar_run(
+            mxai_text=mxai_text,
+            mxtrain_text=mxtrain_text,
+            dataset_csv=_csv_declarado,
+            dataset_rows=_filas_declaradas,
+            seeds={
+                "split": getattr(getattr(training.dataset, "split", None), "seed", None),
+                # La semilla de INICIALIZACIÓN del entrenador del CLI, que es su
+                # valor por defecto: se declara porque es la que se usó, no
+                # porque alguien la haya pedido.
+                "init": 42,
+                # La semilla del dataset sale de donde salga: del manifiesto
+                # que escribió `generate-dataset` o de `--dataset-seed`. Leerla
+                # solo del argumento dejaba la captura sin ella cuando se
+                # pasaba el manifiesto — que es el camino recomendado.
+                "dataset": _generacion_declarada(args)[0],
+            },
+            backend=getattr(training.backend, "target", None) or "stdlib",
+            device=getattr(training.backend, "device", None) or "cpu",
+            recipe_text=receta,
+            # El CLI no tiene reanudación: este run SIEMPRE arranca de la
+            # inicialización, así que `false` aquí es un hecho medido y no una
+            # suposición cómoda. El día que exista `--resume`, esto tiene que
+            # dejar de ser una constante.
+            warm_start=False,
+            mode=_generacion_declarada(args)[2] if _generacion_declarada(args)[0] is not None else None,
+            recipe_verification=veredicto,
+        )
+        destino = Path(result.output_dir) / "run_provenance.json"
+        destino.write_text(json.dumps(captura, ensure_ascii=False, indent=2),
+                           encoding="utf-8")
+        return None
+    except Exception as exc:  # noqa: BLE001 — el motivo se DICE, no se traga
+        return str(exc)
 
 
 def _cmd_evaluate(args) -> int:
@@ -2409,8 +2730,65 @@ def _print_plan_validation(
     return 0 if result.ok else 1
 
 
-def _print_run_report(project: str, result: dict) -> None:
+def _salidas_declaradas(program: Any) -> list[tuple[str, list[str]]]:
+    """Los nombres que el programa declara como SALIDA, en orden.
+
+    Se leen del IR y no del estado: el estado trae también las entradas y los
+    nodos intermedios, y volcarlo entero convertiría una predicción en un
+    listado. Una FUNCTION declara `output`; una NETWORK, también.
+    """
+    import re as _re
+
+    def _etiquetas(texto: Any) -> list[str]:
+        """Las clases de un `ProbabilityMap[a, b]`, o vacío si no lo es."""
+        m = _re.match(r"^\s*ProbabilityMap\s*\[(.+)\]\s*$", str(texto or ""))
+        if not m:
+            return []
+        return [p.strip() for p in m.group(1).split(",") if p.strip()]
+
+    nombres: list[tuple[str, list[str]]] = []
+    vistos: set[str] = set()
+    for fn in list(getattr(program, "functions", []) or []):
+        salida = getattr(fn, "output", None)
+        if isinstance(salida, str) and salida and salida not in vistos:
+            vistos.add(salida)
+            nombres.append((salida, _etiquetas(getattr(fn, "output_type", None))))
+    for red in list(getattr(program, "networks", []) or []):
+        salida = getattr(red, "output", None)
+        if isinstance(salida, str) and salida and salida not in vistos:
+            vistos.add(salida)
+            nombres.append((salida, _etiquetas(getattr(red, "output_type_str", None))))
+    return nombres
+
+
+def _print_run_report(project: str, result: dict, program: Any = None) -> None:
     print(f"Project: {project}")
+    # LA PREDICCIÓN, QUE ES A LO QUE SE VINO.
+    #
+    # Medido el 2026-08-24 contra el paquete publicado: `matrixai run` sobre el
+    # ejemplo Kelvin —entrenado a `val loss 0.000013`— imprimía el proyecto,
+    # las acciones y la narrativa de auditoría, y NI UN NÚMERO. La predicción
+    # solo salía con `--json`, así que cualquier modelo sin acciones discretas
+    # —todo clasificador o regresor puro— no enseñaba su resultado.
+    #
+    # Se imprimen SOLO las salidas declaradas: el estado trae además las
+    # entradas y los nodos intermedios.
+    estado = result.get("state") or {}
+    for nombre, etiquetas in _salidas_declaradas(program):
+        if nombre not in estado:
+            continue
+        valor = estado[nombre]
+        # UN CLASIFICADOR NOMBRA SUS CLASES. Es la misma decisión que la
+        # 1.4.2 tomó para el bundle: un vector `[2.6e-38, 1.0]` obliga a quien
+        # lo lee a ir al `.mxai` a ver qué posición es qué clase, y ahí es
+        # donde se equivoca. Si el modelo declara `ProbabilityMap[...]` y las
+        # cuentas cuadran, se enseña por su nombre.
+        if etiquetas and isinstance(valor, (list, tuple)) and len(etiquetas) == len(valor):
+            partes = ", ".join(f"{e}={v:.4f}" if isinstance(v, (int, float)) else f"{e}={v}"
+                               for e, v in zip(etiquetas, valor))
+            print(f"{nombre}: {partes}")
+            continue
+        print(f"{nombre}: {valor}")
     for action in result["actions"]:
         status = "simulated" if action["activated"] else "skipped"
         print(
@@ -2734,10 +3112,114 @@ def _cmd_export_bundle(args) -> int:
             meta_kwargs = _load_inference_metadata(args.inference_metadata)
         # Contrato 82-C1: el `.mxtrain` y la metadata de reproducción van por
         # el mismo camino que el resto de kwargs del bundle.
+        # 85-C5b: la captura del run, si el run la escribió. Es lo que
+        # convierte un paquete «no se puede demostrar» en uno que se demuestra,
+        # y `weights_source` sale de AHÍ y no de una suposición: hay captura
+        # porque hubo entrenamiento.
+        if getattr(args, "from_run", None):
+            _cap_path = Path(args.from_run) / "run_provenance.json"
+            if not _cap_path.is_file():
+                print(f"Error: {_cap_path} not found — `--from-run` expects the "
+                      f"--output directory of `matrixai train`", file=sys.stderr)
+                return 1
+            _captura = json.loads(_cap_path.read_text(encoding="utf-8"))
+            meta_kwargs["run_provenance"] = _captura
+            meta_kwargs["weights_source"] = "trained"
+            # Y LAS MÉTRICAS QUE EL RUN GUARDÓ, si guardó alguna. Sin ellas R3
+            # se queda en INCOMPARABLE —«the package publishes no metrics to
+            # contrast»— por un dato que está en el disco, al lado.
+            #
+            # Solo lo PERSISTIDO: `training_trace.json` guarda `best_val_loss`
+            # y `best_epoch`. La exactitud la imprime el CLI y no la escribe
+            # nadie, así que no se publica: un número que no consta en ningún
+            # fichero no puede contrastarse después.
+            _traza = Path(args.from_run) / "training_trace.json"
+            if _traza.is_file():
+                try:
+                    _t = json.loads(_traza.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    _t = {}
+                _digesto = _captura.get("dataset_sha256_raw")
+                _metricas: list[dict] = []
+                _perdida = _t.get("best_val_loss")
+                # LA EXACTITUD PRIMERO, que es la que le importa a quien lee: se
+                # persiste desde el 2026-08-25 y por eso ya se puede publicar.
+                # Más es mejor, y por eso su dirección es la contraria que la de
+                # la pérdida — decirlo al revés haría que R3 aprobara un modelo
+                # que empeoró.
+                _exactitud = _t.get("accuracy")
+                if isinstance(_exactitud, (int, float)):
+                    _ma = {"name": "accuracy", "value": float(_exactitud),
+                           "split": "validation", "direction": "higher_is_better"}
+                    if _digesto:
+                        _ma["dataset_sha256"] = _digesto
+                    _metricas.append(_ma)
+                if isinstance(_perdida, (int, float)):
+                    # Y LO QUE R3 NECESITA PARA PODER COMPARARLA: sobre qué
+                    # partición se midió y hacia dónde es mejor. Los dos son
+                    # hechos de esta métrica —la pérdida de VALIDACIÓN, y menos
+                    # es mejor—, no adornos: sin ellos el core la declara no
+                    # comparable y R3 se queda sin veredicto. La tolerancia la
+                    # pone el core desde su catálogo medido.
+                    _m = {"name": "best_validation_loss", "value": float(_perdida),
+                          "split": "validation", "direction": "lower_is_better"}
+                    if _digesto:
+                        # SOBRE QUÉ se midió: una métrica sin su dataset no se
+                        # puede contrastar, y decirlo a medias sería peor.
+                        _m["dataset_sha256"] = _digesto
+                    _metricas.append(_m)
+                # Y EL OTRO CAMINO, el de los modelos FUNCTION: ése no escribe
+                # nada de esto en la traza, pero escribe un `metrics.json`
+                # completo (`r2`, `mae`, `rmse`) que hasta hoy no leía nadie.
+                # Medido con el Kelvin: `r2 = 1.0` y `mae = 6,5e-17` en disco, y
+                # el paquete salía sin una sola métrica, así que R3 se quedaba
+                # en INCOMPARABLE por falta de datos que SÍ existían.
+                _fichero_metricas = Path(args.from_run) / "metrics.json"
+                if not _metricas and _fichero_metricas.is_file():
+                    try:
+                        _mj = json.loads(_fichero_metricas.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        _mj = {}
+                    # POR TAREA, y esto no es cosmético: ese fichero trae
+                    # `accuracy: 0.0` en una REGRESIÓN, y publicarlo sería
+                    # exactamente «un valor ausente escrito como cero».
+                    _es_regresion = str(_t.get("task_kind") or "") == "regression"
+                    _cuales = (("r2", "higher_is_better"), ("mae", "lower_is_better")) \
+                        if _es_regresion else \
+                        (("accuracy", "higher_is_better"), ("macro_f1", "higher_is_better"))
+                    for _nombre, _direccion in _cuales:
+                        _valor = _mj.get(_nombre)
+                        if isinstance(_valor, (int, float)):
+                            _entrada = {"name": _nombre, "value": float(_valor),
+                                        "split": "validation", "direction": _direccion}
+                            if _digesto:
+                                _entrada["dataset_sha256"] = _digesto
+                            _metricas.append(_entrada)
+                if _metricas:
+                    meta_kwargs["metrics"] = _metricas
         if getattr(args, "reproduce_metadata", None):
             meta_kwargs.update(_load_reproduce_metadata(args.reproduce_metadata))
         if getattr(args, "training", None):
             meta_kwargs["mxtrain_path"] = args.training
+            # EL RANGO DEL OBJETIVO, DECLARADO Y HASTA HOY IGNORADO POR AQUÍ.
+            # Medido con el Kelvin: el `.mxtrain` declara `Scalar[200, 450]`,
+            # el entrenamiento normaliza contra él (hallazgo 13) y el paquete
+            # devolvía **0,2926 para 0 °C** en vez de 273,15 — el valor
+            # correcto SIN desnormalizar, porque `predict.py` solo desnormaliza
+            # si el `inference_spec` trae el rango, y por aquí no llegaba.
+            # No pisa `--inference-metadata`: lo declarado a mano manda.
+            if "target_range" not in meta_kwargs:
+                try:
+                    from matrixai.training.normalizacion import (  # noqa: PLC0415
+                        rango_declarado_del_objetivo)
+                    from matrixai.training.parser import parse_training_text  # noqa: PLC0415
+
+                    _rango = rango_declarado_del_objetivo(parse_training_text(
+                        Path(args.training).read_text(encoding="utf-8")))
+                    if _rango is not None:
+                        meta_kwargs["target_range"] = _rango
+                except Exception:  # noqa: BLE001
+                    pass
         if getattr(args, "data_recipe", None):
             meta_kwargs["data_recipe"] = Path(args.data_recipe).read_text(encoding="utf-8")
         program = parse_file(args.file)
@@ -2960,6 +3442,177 @@ def _cmd_pack(args) -> int:
     )
 
 
+def _target_es_continuo(training: Any) -> bool:
+    """¿El objetivo del `.mxtrain` es un número y no un juego de clases?
+
+    Se mira el TIPO declarado, no el nombre: `Label[...]` y `ProbabilityMap[...]`
+    son clases; lo demás (`Scalar`, `Scalar[0, 1000]`, `Integer`…) es continuo.
+    """
+    # MEDIDO, no supuesto: `target.type` NO es una cadena, es un `TypeSpec` con
+    # su `name` («Label», «ProbabilityMap», «Scalar»…) y sus `parameters`. La
+    # primera versión lo trataba como texto y daba «continuo» para todo — o sea
+    # que rechazaba una receta de clases perfectamente válida diciendo que el
+    # objetivo era continuo. Se vio a la primera conduciendo el comando.
+    tipo = getattr(getattr(getattr(training, "dataset", None), "target", None), "type", None)
+    nombre = str(getattr(tipo, "name", "") or tipo or "")
+    return not nombre.strip().startswith(("Label", "ProbabilityMap"))
+
+
+def _etiquetas_del_training(training: Any) -> list[str]:
+    """Las clases que declara el `.mxtrain`, si las declara."""
+    tipo = getattr(getattr(getattr(training, "dataset", None), "target", None), "type", None)
+    # Las clases viajan en los parámetros del tipo (`Label[alto, bajo]`), no en
+    # un atributo `labels` — que no existe. Medido igual que lo de arriba.
+    parametros = getattr(tipo, "parameters", None) or {}
+    etiquetas = parametros.get("args") if isinstance(parametros, dict) else None
+    return [str(e) for e in etiquetas] if etiquetas else []
+
+
+def _cmd_attest(args) -> int:
+    """Atestiguar la evaluación de un modelo ajeno (87-C2)."""
+    import datetime as _dt
+
+    from matrixai.export.attest import AtestacionImposible, atestiguar  # noqa: PLC0415
+    from matrixai.pipelines.receipt import firmar_recibo, nivel_del_recibo  # noqa: PLC0415
+
+    try:
+        recibo = atestiguar(args.model, args.data, metrica=args.metric,
+                            columna=args.target_column, proposito=args.purpose,
+                            # AQUÍ SÍ es el terminal, y por eso lo dice ESTE
+                            # llamante y no el módulo: el módulo no sabe por
+                            # dónde ha entrado la petición.
+                            actor=args.actor or "matrixai attest")
+    except AtestacionImposible as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    # La hora la pone quien atestigua, y es un hecho de ESTE acto. El módulo no
+    # se inventa un reloj: lo deja en `None` y lo rellena aquí.
+    recibo["created_at"] = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    salida: dict = recibo
+    nivel = "A0"
+    sobres_extra: dict[str, dict] = {}
+
+    if getattr(args, "sigstore", False):
+        # NO CAE A HMAC EN SILENCIO: si no se puede firmar así, se dice cuál de
+        # las dos cosas falta. Caer a otra firma sería dar por hecho que al
+        # usuario le da igual quién responde por el recibo.
+        from matrixai.pipelines.canonical import jcs_bytes  # noqa: PLC0415
+        from matrixai.pipelines.sigstore_firma import (  # noqa: PLC0415
+            SigstoreNoDisponible, firmar_con_sigstore)
+        try:
+            firma = firmar_con_sigstore(jcs_bytes(recibo))
+        except SigstoreNoDisponible as exc:
+            print(f"Error: no se puede firmar con Sigstore: {exc}", file=sys.stderr)
+            return 1
+        salida = {"payload": recibo, "sigstore": firma}
+        # Y NO SUBE EL NIVEL: los niveles hablan de lo que se comprobó, no de la
+        # fuerza de la firma (86-C4). Pero se calcula sobre LO QUE SE EMITE, no
+        # sobre el recibo pelado: mirando el pelado salía A0 y el CLI decía
+        # «UNSIGNED: pass --key to sign it» encima de una firma Sigstore recién
+        # hecha (2ª auditoría externa, hallazgo 4 residual).
+        nivel = nivel_del_recibo(salida)
+    elif args.key:
+        try:
+            clave = bytes.fromhex(args.key)
+        except ValueError:
+            print("Error: --key must be hex", file=sys.stderr)
+            return 2
+        salida = firmar_recibo(recibo, clave=clave, key_id=args.key_id)
+        nivel = nivel_del_recibo(salida)
+        if getattr(args, "in_toto", False):
+            from matrixai.pipelines.receipt import sobre_in_toto  # noqa: PLC0415
+            sobres_extra["in_toto"] = sobre_in_toto(
+                recibo, clave=clave, key_id=args.key_id)
+    elif getattr(args, "in_toto", False):
+        print("Error: --in-toto necesita --key: un Statement sin firmar no dice de "
+              "quién es, y emitirlo así sería un sobre estándar vacío de garantía",
+              file=sys.stderr)
+        return 2
+
+    texto = json.dumps(salida, indent=2, ensure_ascii=False, sort_keys=True)
+    if args.output:
+        Path(args.output).write_text(texto + "\n", encoding="utf-8")
+        print(f"Receipt written to {args.output}")
+        # LOS DOS SOBRES, cada uno en su fichero y diciendo cuál es cuál.
+        for nombre, sobre in sobres_extra.items():
+            destino = Path(args.output).with_suffix(f".{nombre}.json")
+            destino.write_text(
+                json.dumps(sobre, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+                encoding="utf-8")
+            print(f"Also written ({nombre}): {destino}")
+    else:
+        # SIN `-o` TAMBIÉN SALEN (2ª auditoría externa, hallazgo 4 residual):
+        # antes los sobres extra se escribían **solo** dentro del `if
+        # args.output`, así que `--in-toto` sin fichero de salida se aceptaba,
+        # no avisaba de nada y el Statement se perdía. Pedir un sobre y no
+        # recibirlo ni enterarse es peor que no ofrecerlo.
+        salidas = {"receipt": salida, **sobres_extra}
+        if len(salidas) == 1:
+            print(texto)
+        else:
+            print(json.dumps(salidas, indent=2, ensure_ascii=False, sort_keys=True))
+            print(f"({', '.join(salidas)}: use -o to write each one to its own file)",
+                  file=sys.stderr)
+
+    metrica = recibo["metrics"][0]
+    print(f"\n{metrica['name']}: {metrica['value']} "
+          f"(on {recibo['dataset']['rows_measured']} rows)", file=sys.stderr)
+    print(f"assurance: {nivel}", file=sys.stderr)
+    if nivel == "A0":
+        print("  UNSIGNED: this receipt proves nothing about who issued it. "
+              "Pass --key to sign it.", file=sys.stderr)
+    # Y lo que NO demuestra, siempre — firmado o no.
+    print(f"  attests: {recibo['evidence']['attests']}", file=sys.stderr)
+    print(f"  does NOT attest: {recibo['evidence']['does_not_attest']}", file=sys.stderr)
+    return 0
+
+
+def _cmd_bom(args) -> int:
+    """El ML-BOM del paquete (86-C3)."""
+    from matrixai.export.bom import BomNoDisponible, lo_que_falta, ml_bom  # noqa: PLC0415
+
+    try:
+        bom = ml_bom(args.package)
+    except BomNoDisponible as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    texto = json.dumps(bom, indent=2, ensure_ascii=False, sort_keys=True)
+    if args.output:
+        Path(args.output).write_text(texto + "\n", encoding="utf-8")
+        print(f"ML-BOM written to {args.output}")
+    else:
+        print(texto)
+    if args.missing:
+        faltan = lo_que_falta(bom)
+        print("\nWhat this BOM cannot say:", file=sys.stderr)
+        for linea in faltan or ["nothing: every field this BOM knows about is filled"]:
+            print(f"  - {linea}", file=sys.stderr)
+    return 0
+
+
+def _cmd_report(args) -> int:
+    """La ficha TRIPOD+AI de un paquete (85-C6)."""
+    from matrixai.export.tripod import FichaNoDisponible, ficha_tripod  # noqa: PLC0415
+
+    if not args.tripod:
+        print("Error: say which record you want. Today there is one: --tripod",
+              file=sys.stderr)
+        return 2
+    try:
+        ficha = ficha_tripod(args.package, locale=args.locale)
+    except FichaNoDisponible as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    if args.output:
+        Path(args.output).write_text(ficha, encoding="utf-8")
+        print(f"Record written to {args.output}")
+    else:
+        print(ficha)
+    return 0
+
+
 def _cmd_generate_dataset(args) -> int:
     from matrixai.training.dataset_manifest import (
         DatasetManifestEntry,
@@ -2998,12 +3651,84 @@ def _cmd_generate_dataset(args) -> int:
     stem = args.stem or program.project.lower().replace(" ", "_").replace("-", "_")
 
     try:
+        # LA RECETA, POR LA MISMA PUERTA QUE EL STUDIO (85-C5a, 2026-08-25).
+        #
+        # Se resuelve con `resolver_receta`, que es la función que usa también
+        # `playground.py`: dos sitios decidiendo qué es una receta válida
+        # acabarían divergiendo, y este producto ya sabe lo que cuesta.
+        #
+        # Y aquí una receta ilegible NO se avisa y se sigue: se FALLA. En el
+        # Studio hay una pantalla donde leer el aviso; quien escribe
+        # `--recipe` en un terminal ha pedido esa receta explícitamente, y
+        # escribirle un CSV de ruido en el disco sería darle por bueno un
+        # dataset que no sirve.
+        _domain_rules = None
+        _regression_recipe = None
+        if getattr(args, "recipe", None):
+            from matrixai.training.domain_rules import resolver_receta  # noqa: PLC0415
+
+            _texto = Path(args.recipe).read_text(encoding="utf-8")
+            _es_regresion = _target_es_continuo(training)
+            _domain_rules, _regression_recipe, _, _errores, _caidas = resolver_receta(
+                _texto,
+                is_regression=_es_regresion,
+                # Los campos que la receta puede nombrar son las COLUMNAS DE
+                # ENTRADA del contrato. Pasar `None` reventaba con un
+                # `TypeError` dentro del validador — medido conduciendo el
+                # comando, que es donde se ven estas cosas.
+                typeable=list(getattr(getattr(training.dataset, "input", None),
+                                      "columns", []) or []),
+                labels=_etiquetas_del_training(training),
+                # `{}` y no `None`: el normalizador de la receta espera un
+                # mapa. Vacío significa «los umbrales van en las unidades de
+                # los datos», que es como muestrea este camino — el Studio sí
+                # normaliza porque allí las columnas viajan escaladas.
+                field_ranges={},
+            )
+            if not _errores and _caidas:
+                # AQUÍ una línea caída es un ERROR y no un aviso: quien escribe
+                # `--recipe` ha pedido ESAS reglas. Seguir con la mitad le
+                # dejaría un CSV cuyo reparto de clases no es el que escribió,
+                # y sin pantalla donde enterarse.
+                print("Error: part of the recipe could not be read, so the classes "
+                      "those lines decided are decided by nobody:", file=sys.stderr)
+                for _linea in _caidas:
+                    print(f"  {_linea}", file=sys.stderr)
+                print("A rule is `class: field > value`, with simple AND/OR (not "
+                      "mixed in the same line) and no parentheses.", file=sys.stderr)
+                return 1
+            if _errores:
+                print("Error: the recipe could not be read: " + "; ".join(_errores),
+                      file=sys.stderr)
+                print("A recipe is one line per class — `class: field > value`, with "
+                      "simple AND/OR — plus `DEFAULT:` for the rest. No parentheses.",
+                      file=sys.stderr)
+                return 1
+
+        # Y las condiciones que no pueden decidir nada (hallazgo 11). Aquí es
+        # un AVISO y no un error: la receta es válida y el resto sí decide.
+        # Callarlo deja media receta muerta dentro de un dataset con aspecto de
+        # bueno, que es peor que una receta que no se lee.
+        if _domain_rules is not None:
+            from matrixai.training.domain_rules import condiciones_imposibles  # noqa: PLC0415
+            # CON LOS RANGOS QUE EL MODELO DECLARA, y esto lo enseñó el propio
+            # producto: sin ellos, este aviso daba un FALSO POSITIVO sobre un
+            # `.mxai` con `edad: Scalar[18, 100]` —decía «edad va de 0 a 1»
+            # cuando el generador estaba muestreando 23,7 y 53,0—, o sea que
+            # mandaba a arreglar lo que ya estaba bien, que es justo el defecto
+            # que este aviso venía a quitar.
+            for _muerta in condiciones_imposibles(
+                    getattr(_domain_rules, "rules", []), _rangos_declarados(program)):
+                print(f"Warning: {_muerta}", file=sys.stderr)
+
         generator = SyntheticDataGenerator(
             program=program,
             training=training,
             seed=args.seed,
             rows=rows_requested,
             mode=args.mode,
+            domain_rules=_domain_rules,
+            regression_recipe=_regression_recipe,
         )
         adapter = generator.generate()
     except ValueError as exc:
@@ -3018,11 +3743,14 @@ def _cmd_generate_dataset(args) -> int:
         )
 
     all_rows = adapter.rows
-    train_count = max(1, int(len(all_rows) * 0.8))
+    # EL CORTE, DECIDIDO EN UN SOLO SITIO (`matrixai.training.particion_sintetica`):
+    # `matrixai verify` tiene que rehacer exactamente ESTA partición para
+    # reentrenar el mismo run, y la regla escrita dos veces deja de coincidir sin
+    # que nadie se entere.
+    from matrixai.training.particion_sintetica import corte_train_eval  # noqa: PLC0415
+
+    train_count = corte_train_eval(len(all_rows))
     eval_count = len(all_rows) - train_count
-    if eval_count < 1:
-        train_count -= 1
-        eval_count = 1
 
     schema = adapter.schema()
     columns = list(schema.input_columns) + [schema.target]

@@ -250,8 +250,28 @@ class TestSupervisedTrainerRegressionIntegration(unittest.TestCase):
             metrics = json.loads((run_dir / "metrics.json").read_text())
             params = json.loads((run_dir / "params.best.json").read_text())
         self.assertLess(metrics["mae"], 0.01)
-        self.assertAlmostEqual(params["parameters"]["W1"]["values"][0], 1.0, places=3)
-        self.assertAlmostEqual(params["parameters"]["b1"]["values"], 273.15, places=2)
+        # REESCRITA CONSERVANDO SU INTENCIÓN (2026-08-25, hallazgo 13).
+        #
+        # Antes exigía `W1 == 1.0` y `b1 == 273.15`, que son los pesos en la
+        # escala CRUDA. Desde que el entrenador normaliza por los rangos que el
+        # contrato declara —aquí `TARGET predicted_kelvin: Scalar[0, 1000]`— el
+        # modelo aprende la MISMA conversión expresada en [0, 1]: `W1 = 0,001`
+        # y `b1 = 0,27315`. Los números cambiaron; la conversión, no.
+        #
+        # Así que se comprueba **la conversión**, que es lo que la prueba quería
+        # decir, y no una parametrización concreta: esto sigue en verde el día
+        # que se normalice de otra forma, y se pone rojo si el modelo deja de
+        # convertir bien — que es justo al revés que antes.
+        lo, hi = 0.0, 1000.0
+        w = params["parameters"]["W1"]["values"][0]
+        b = params["parameters"]["b1"]["values"]
+        for celsius in (0.0, 100.0, -40.0):
+            kelvin = (w * celsius + b) * (hi - lo) + lo
+            # La tolerancia sale de lo que el propio run declara: `mae < 0,01`
+            # se comprueba tres líneas más arriba, así que exigir aquí menos que
+            # eso sería medir el redondeo y no la conversión. Se usa el doble.
+            self.assertAlmostEqual(kelvin, celsius + 273.15, delta=0.02,
+                                   msg=f"{celsius} °C debería dar {celsius + 273.15} K")
 
     def test_torch_regression_is_explicitly_gated(self):
         from matrixai.training.parser import parse_training_text

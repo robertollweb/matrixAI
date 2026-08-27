@@ -972,6 +972,82 @@ def _normalize_metrics(metrics: list[dict[str, Any]] | None) -> list[dict[str, A
 # estando las cinco, daba igual de dónde vinieran.
 
 
+def capturar_run(
+    *,
+    mxai_text: str,
+    mxtrain_text: str,
+    dataset_csv: str | None = None,
+    dataset_rows: int | None = None,
+    seeds: dict[str, Any] | None = None,
+    backend: str | None = None,
+    device: str | None = None,
+    recipe_text: str | None = None,
+    warm_start: Any = None,
+    recipe_verification: dict[str, Any] | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    """La captura de un run, construida por quien ENTRENA.
+
+    POR QUÉ EXISTE (medido el 2026-08-25). Un paquete exportado desde el CLI
+    salía **`Reproducible: no`** con cinco motivos —no consta que los pesos
+    vengan de un entrenamiento, no viaja captura, no se sabe el sha256 del
+    dataset, ni sus filas, ni la semilla—, o sea que **el camino de quien hace
+    `pip install matrixai-core` no puede producir un paquete que se demuestre**.
+    Y no era por falta de datos: el CLI genera el dataset (sabe su semilla, sus
+    filas y su digest) y lo entrena (sabe que los pesos son entrenados). Lo que
+    faltaba era que alguien lo escribiera.
+
+    El validador de esta misma casa (`_normalize_run_provenance`) ya declara qué
+    es una captura válida; esto lo CONSTRUYE, para que no haya un segundo sitio
+    decidiendo su forma. Lo que no se sepa **se deja fuera**: un valor ausente
+    es una respuesta legítima y un valor inventado no.
+    """
+    captura: dict[str, Any] = {
+        "schema_version": _RUN_PROVENANCE_SCHEMA_VERSIONS[-1],
+        "mxai_sha256": hashlib.sha256(mxai_text.strip().encode("utf-8")).hexdigest(),
+        "mxtrain_sha256": hashlib.sha256(mxtrain_text.encode("utf-8")).hexdigest(),
+        "mxtrain_text": mxtrain_text,
+    }
+    if dataset_csv is not None:
+        captura["dataset_sha256_raw"] = hashlib.sha256(
+            dataset_csv.encode("utf-8")).hexdigest()
+    if isinstance(dataset_rows, int) and dataset_rows > 0:
+        captura["dataset_rows"] = dataset_rows
+    if seeds:
+        # Solo las semillas que de verdad se saben: un `None` aquí dentro es
+        # peor que no traer la clave, porque parece una semilla declarada.
+        limpias = {k: v for k, v in seeds.items() if isinstance(v, int)}
+        if limpias:
+            captura["seeds"] = limpias
+    if backend:
+        captura["backend"] = str(backend)
+    if device:
+        captura["device"] = str(device)
+    if recipe_text is not None and recipe_text.strip():
+        captura["recipe_text"] = recipe_text
+        captura["recipe_sha256"] = hashlib.sha256(
+            recipe_text.encode("utf-8")).hexdigest()
+    if mode:
+        # CON QUÉ MODO se generó. Sin él, R1 se niega a comparar —«guessing one
+        # would rebuild a different one»— y con razón: el mismo texto y la
+        # misma semilla dan otro dataset en modo aleatorio.
+        captura["mode"] = str(mode)
+    if warm_start is not None:
+        # DE QUÉ PESOS PARTIÓ. `false` es una AFIRMACIÓN —arrancó de la
+        # inicialización—, y no decirlo deja al paquete sin poder descartar que
+        # el modelo venga de otro cuyos pesos iniciales no viajan.
+        captura["warm_start"] = warm_start
+    if recipe_verification is not None:
+        # ¿Se COMPROBÓ que esa receta y esa semilla regeneran el dataset? Quien
+        # entrena es quien puede comprobarlo, y el core publica el veredicto
+        # tal cual. Sin esto, la receta viaja como una promesa.
+        captura["recipe_verification"] = recipe_verification
+    # La captura se valida con el MISMO validador que la leerá después: si esto
+    # no pasa por ahí, no vale de nada haberla escrito.
+    _normalize_run_provenance(captura)
+    return captura
+
+
 def _normalize_run_provenance(raw: Any) -> dict[str, Any] | None:
     """Valida la captura del run y la devuelve normalizada (o `None` si no hay).
 
@@ -1771,9 +1847,16 @@ _MISSING_REASONS = {
     "training": (
         "no .mxtrain travels in this package, so the model cannot be retrained"
     ),
+    # POR QUÉ NO HAY RECETA NO LO SABE EL CORE (2ª auditoría externa del
+    # 2026-08-25, hallazgo 2 residual). Esto decía «it was trained on real data
+    # that is NOT REDISTRIBUTABLE», que es un hecho sobre la licencia de unos
+    # datos que este código no ha visto. En la galería quedó a la vista: el caso
+    # de la lluvia publica su CSV para descargar mientras su propio paquete
+    # decía que no se puede redistribuir. Lo que sí consta es lo que falta —la
+    # receta— y lo que eso impide.
     "recipe": (
-        "this model has no data recipe — it was trained on real data that is not "
-        "redistributable, and no recipe was invented for it"
+        "this model has no data recipe, so its dataset cannot be regenerated and "
+        "compared; why there is none is not recorded in the package"
     ),
     "dataset_sha256": (
         "the expected dataset sha256 is unknown, so a regenerated dataset cannot "

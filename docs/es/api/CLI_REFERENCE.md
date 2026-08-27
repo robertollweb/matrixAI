@@ -450,6 +450,7 @@ matrixai generate-dataset <fichero_mxai> --training <fichero_mxtrain> [-o <dir_s
 | `--rows` | `200` | Total de filas (rango: 2–50.000) |
 | `--seed` | `42` | Semilla aleatoria para reproducibilidad |
 | `--mode` | `random` | `random` o `coherent` (coherente es consistente con la semántica del modelo) |
+| `--recipe` | — | Fichero con la RECETA de datos (contrato 80): la regla que decide el objetivo a partir de las entradas. **Los umbrales van en las unidades que muestrea este comando** — los rangos que declare el `.mxai`, o 0–1 si no declara ninguno. Una receta que no se puede leer aquí es un ERROR, no un aviso: si no, te llevarías un CSV de ruido en el disco |
 | `-o, --output-dir` | `.` | Directorio de salida para los CSV y el manifiesto |
 | `--stem` | auto | Nombre base de los ficheros |
 | `--json` | — | Imprimir el resultado de generación como JSON |
@@ -521,6 +522,12 @@ matrixai evaluate <fichero_mxai> --params <fichero_json> --training <fichero_mxt
 ### matrixai run
 
 Ejecutar un fichero `.mxai` una vez con entrada JSON e imprimir el resultado.
+
+Las salidas declaradas se imprimen POR SU NOMBRE — y un clasificador que
+declara `ProbabilityMap[...]` imprime también sus clases por su nombre, así
+que un vector suelto no obliga a volver al `.mxai` para ver qué posición es
+qué clase. Con `--json` sale además el estado entero, las acciones y la
+traza de auditoría.
 
 ```
 matrixai run <fichero> --input <fichero_json> [--params <fichero_json>] [--json]
@@ -1001,9 +1008,9 @@ cuenta los aciertos no sirve para decidir nada.
 
 ### matrixai verify
 
-Verifica un paquete extraído: firma, manifiesto, lo que el propio modelo
-declara y el entorno que dice haber usado. Cuatro etapas, cada una con su
-resultado.
+Verifica un paquete —un directorio **o el `.zip` que te has descargado**—:
+firma, manifiesto, lo que el propio modelo declara y el entorno que dice haber
+usado. Cuatro etapas, cada una con su resultado.
 
 ```
 matrixai verify <paquete> [--json] [--retrain]
@@ -1011,12 +1018,88 @@ matrixai verify <paquete> [--json] [--retrain]
 
 | Opción | Por defecto | Descripción |
 |------|---------|-------------|
-| `paquete` | — | Directorio del paquete extraído (contiene `reproduce.json`) |
+| `paquete` | — | El paquete: un directorio con `reproduce.json`, o un `.zip` que lo contenga. Un archivo con entradas que se salen de él se rechaza **entero**, no entrada por entrada |
 | `--json` | — | Imprime el informe como JSON |
 | `--retrain` | — | Reentrena y compara además (lento: de minutos a horas) |
+| `--locale` | `en` | Idioma de los MOTIVOS del informe (`es` o `en`). Los veredictos y los nombres de las etapas no cambian: solo la prosa |
 
 Un paquete hecho en OTRO entorno devuelve `INCOMPARABLE`, no `FAIL`: ni
 acusa ni aprueba gratis.
+
+### matrixai attest
+
+Mide un modelo **que no has entrenado tú** sobre unos datos que le das, y emite
+un recibo que ata el número a las huellas de los dos. El modelo se ejecuta; de
+cómo se entrenó no se afirma nada.
+
+```
+matrixai attest <modelo.onnx> --data <eval.csv> [--metric accuracy]
+                [--target-column <nombre>] [--key <hex>] [--in-toto]
+                [--sigstore] [-o <fichero>]
+```
+
+| Opción | Por defecto | Descripción |
+|------|---------|-------------|
+| `modelo` | — | El `.onnx` que se evalúa |
+| `--data` | — | CSV con los datos de evaluación |
+| `--metric` | `accuracy` | Métrica a medir (`accuracy` o `mae`) |
+| `--target-column` | la última | Columna con el valor esperado |
+| `--purpose` / `--actor` | — | Para qué es esta evaluación, y quién la hace |
+| `--key` / `--key-id` | — | Clave hex para firmar el recibo. Sin ella el recibo es **A0 / SIN FIRMAR**, y lo dice |
+| `--in-toto` | — | Emite además el recibo como Statement de in-toto. Necesita `--key`: un Statement que nadie ha firmado no dice de quién es. El sobre nativo **no** se retira: se emiten los dos y cada uno dice cuál es |
+| `--sigstore` | — | Firma con Sigstore en vez de HMAC. Necesita la biblioteca `sigstore` y una identidad OIDC; si falta alguna dice **cuál** y no cae a HMAC en silencio. **No sube el nivel**: A0–A4 hablan de lo que se comprobó, no de la fuerza de la firma |
+| `-o` | — | Escribe el recibo en ese fichero. Los sobres extra van al lado (`<fichero>.in_toto.json`). Sin `-o` sale todo por la salida estándar |
+
+El recibo dice lo que **no** atestigua, y registra la entrada que el modelo
+declara (tipo, forma, y si la forma se ha podido contrastar): con un eje
+dinámico dice `"no declarada"` en vez de callar, porque callar ahí se lee como
+«comprobado». A un modelo de enteros **no** se le da un decimal: ONNX Runtime lo
+truncaría en silencio y el número que saliera acabaría en un recibo firmado.
+
+### matrixai bom
+
+Emite el paquete como **ML-BOM de CycloneDX 1.6** — el formato de inventario
+que ya aparece en los pliegos de compra. Es un traductor, no una medición
+nueva: `reproduce.json` ya guarda identidad, versión, entorno, paquetes,
+semillas, épocas declaradas/efectivas/ejecutadas, rangos, tipos, backend,
+dispositivo y las huellas de los artefactos.
+
+```
+matrixai bom <paquete> [--missing] [-o <fichero>]
+```
+
+| Opción | Por defecto | Descripción |
+|------|---------|-------------|
+| `paquete` | — | Directorio del paquete desempaquetado |
+| `--missing` | — | Imprime además lo que este BOM **no puede** decir, y por qué. Un BOM con huecos explicados sirve; uno con huecos callados se lee como si no hubiera nada que decir |
+| `-o` | stdout | Escribe en este fichero |
+
+El documento es **determinista**: su número de serie sale de
+`manifest_sha256` y no de un UUID aleatorio, porque un BOM que cambia en cada
+ejecución no se puede comparar ni firmar. No se inventa nada para rellenar un
+campo — la partición va en `slice` y el resto como propiedades, porque
+`performanceMetric` no admite más campos, y un intervalo de amplitud cero
+afirmaría una exactitud que nadie midió.
+
+### matrixai report
+
+Escribe la ficha del paquete en el formato que pide un público concreto.
+
+```
+matrixai report <paquete> --tripod [--locale en|es] [-o <fichero>]
+```
+
+| Opción | Por defecto | Descripción |
+|------|---------|-------------|
+| `paquete` | — | Directorio del paquete desempaquetado |
+| `--tripod` | — | Ficha TRIPOD+AI (modelos de predicción clínica). **Se exige, no se supone**: el día que haya un segundo formato este comando no puede cambiar de significado en silencio para quien ya lo tenga en un guion |
+| `--locale` | `en` | Idioma de la ficha (`en` o `es`) |
+| `-o` | stdout | Escribe en este fichero |
+
+**No rellena ni una casilla que no pueda rellenar.** Lo que el paquete no sabe
+—datos ausentes, calibración, equidad, y todo lo que es del autor— se enumera
+como ausente, y si los datos son SINTÉTICOS ese aviso va arriba del todo, no en
+una nota al pie.
 
 ### matrixai replay
 

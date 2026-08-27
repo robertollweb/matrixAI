@@ -26,7 +26,14 @@ def _matrixai_version_str() -> str:
         return ""
 
 
-_SUPPORTED_KINDS = frozenset({"softmax_linear", "sigmoid_linear", "layer_call"})
+_SUPPORTED_KINDS = frozenset({"softmax_linear", "sigmoid_linear", "layer_call",
+                              # HALLAZGO 4 (2026-08-25): faltaba la regresión
+                              # lineal, que es JUSTO lo que produce el camino
+                              # determinista del `prompt` — o sea que quien
+                              # llega por el CLI hacía un modelo que este
+                              # exportador no sabía exportar, y sin paquete no
+                              # hay `reproduce.json` ni nada que verificar.
+                              "linear_regression"})
 _OPSET_VERSION = 17
 
 
@@ -179,9 +186,13 @@ class OnnxExporter:
         layer_call_fns = [] if using_state_dict else [
             f for f in program.functions if f.semantic.kind == "layer_call"
         ]
+        # DOS SITIOS DECÍAN QUÉ SE EXPORTA, y solo cambié uno: añadir el tipo
+        # a `_SUPPORTED_KINDS` no bastó —el modelo seguía saliendo por
+        # `skipped` y el error era el mismo—, porque esta lista lo enumeraba
+        # aparte. Es el patrón de siempre, y aquí lo cazó conducir el comando.
         simple_fns = [] if using_state_dict else [
             f for f in program.functions
-            if f.semantic.kind in ("softmax_linear", "sigmoid_linear")
+            if f.semantic.kind in ("softmax_linear", "sigmoid_linear", "linear_regression")
         ]
         skipped = [] if using_state_dict else [
             f.name for f in program.functions if f.semantic.kind not in _SUPPORTED_KINDS
@@ -275,6 +286,10 @@ class OnnxExporter:
             kind = fn.semantic.kind
             if kind == "softmax_linear":
                 nodes, initializers, x_info, y_info, labels, out_shape = _build_softmax_linear(
+                    fn, vector, parameter_set, np, numpy_helper, helper, TensorProto
+                )
+            elif kind == "linear_regression":
+                nodes, initializers, x_info, y_info, labels, out_shape = _build_linear_regression(
                     fn, vector, parameter_set, np, numpy_helper, helper, TensorProto
                 )
             else:
@@ -538,6 +553,48 @@ def _build_sigmoid_linear(fn, vector, parameter_set, np, numpy_helper, helper, T
         [w1_init, b1_init, squeeze_axes_init],
         x_info, y_info, labels, [-1],
     )
+
+
+def _build_linear_regression(fn, vector, parameter_set, np, numpy_helper, helper, TensorProto):
+    """MatMul(X, W1_col) + b1 → prediction [N].
+
+    Es el mismo grafo que `sigmoid_linear` **sin la sigmoide**: una regresión
+    lineal no aplasta su salida a [0, 1] — hacerlo convertiría 373,15 K en 1,0.
+
+    Existe porque el camino determinista del `prompt` produce exactamente este
+    tipo (`FUNCTION … = linear(W1 * Reading + b1)`), y hasta hoy el exportador
+    lo rechazaba: quien llegaba por el CLI entrenaba un modelo que no se podía
+    empaquetar, y sin paquete no hay manifiesto ni nada que verificar.
+    """
+    w1_param = fn.semantic.parameters.get("weights", "W1")
+    b1_param = fn.semantic.parameters.get("bias", "b1")
+
+    w1_values = np.array(
+        _get_param_values(parameter_set, w1_param, fn.name), dtype=np.float32
+    ).reshape(-1)
+    b1_raw = _get_param_values(parameter_set, b1_param, fn.name)
+    b1_scalar = float(b1_raw) if not isinstance(b1_raw, list) else float(b1_raw[0])
+
+    input_dim = w1_values.shape[0]
+    w1_col = w1_values.reshape(input_dim, 1)
+
+    w1_init = numpy_helper.from_array(w1_col, name="W1_col")
+    b1_init = numpy_helper.from_array(np.array([b1_scalar], dtype=np.float32), name="b1_val")
+    squeeze_axes_init = numpy_helper.from_array(
+        np.array([1], dtype=np.int64), name="squeeze_axes"
+    )
+
+    matmul = helper.make_node("MatMul", inputs=[vector.name, "W1_col"], outputs=["raw_2d"])
+    add = helper.make_node("Add", inputs=["raw_2d", "b1_val"], outputs=["pred_2d"])
+    squeeze = helper.make_node("Squeeze", inputs=["pred_2d", "squeeze_axes"], outputs=["prediction"])
+
+    x_info = helper.make_tensor_value_info(vector.name, TensorProto.FLOAT, [-1, input_dim])
+    y_info = helper.make_tensor_value_info("prediction", TensorProto.FLOAT, [-1])
+
+    # Sin etiquetas: una regresión no tiene clases, y devolver una lista vacía
+    # es lo correcto — inventarle nombres a un número sería peor.
+    return ([matmul, add, squeeze], [w1_init, b1_init, squeeze_axes_init],
+            x_info, y_info, [], [-1])
 
 
 # ---------------------------------------------------------------------------

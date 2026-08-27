@@ -24,6 +24,7 @@ Los niveles del §A del contrato:
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import re
@@ -31,9 +32,11 @@ from typing import Any
 
 from matrixai.pipelines.canonical import jcs_bytes
 
-__all__ = ["NIVELES", "ReciboInvalido", "firmar_recibo", "nivel_del_recibo",
-           "problemas_de_esquema",
-           "verificar_recibo"]
+__all__ = ["NIVELES", "PAYLOAD_TYPE_IN_TOTO", "PREDICATE_TYPE", "ReciboInvalido",
+           "firmar_recibo", "nivel_del_recibo",
+           "payload_del_sobre", "problemas_de_esquema", "recibo_del_sobre",
+           "sobre_in_toto",
+           "sujetos_del_recibo", "verificar_recibo"]
 
 #: Los cinco niveles, en orden. A3 y A4 están reservados: existen para
 #: poder decir que NO se alcanzan.
@@ -44,6 +47,79 @@ NIVELES = ("A0", "A1", "A2", "A3", "A4")
 PAYLOAD_TYPE = "application/vnd.matrixai.receipt+json;version=1.0"
 
 _ESQUEMAS = ("1.0",)
+
+#: EL SOBRE QUE SÍ LEE EL RESTO DEL MUNDO (86-C2).
+#:
+#: El nativo (`PAYLOAD_TYPE`) no se retira: lo emitimos también, y es el que
+#: verifica `matrixai receipt`. Pero un `application/vnd.matrixai.receipt+json`
+#: no lo entiende **ninguna** herramienta de las que ya tiene un comprador, así
+#: que el mismo recibo viaja además como un **Statement de in-toto**, que es el
+#: sobre que leen `cosign`, los verificadores de políticas y los ingestores de
+#: atestaciones.
+#:
+#: Lo que NO cambia por esto: la firma sigue siendo HMAC y sigue demostrando
+#: CONSISTENCIA, no autenticidad. Un sobre estándar con una firma simétrica es
+#: legible por ahí fuera, no confiable por ahí fuera — y decir lo contrario
+#: sería la media verdad de siempre.
+PAYLOAD_TYPE_IN_TOTO = "application/vnd.in-toto+json"
+
+#: El tipo de predicado, versionado por URL y en un dominio que es NUESTRO. Un
+#: `predicateType` inventado en un dominio ajeno es una promesa que no podemos
+#: sostener.
+PREDICATE_TYPE = "https://matrixaistudio.org/attestations/receipt/v1"
+
+_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
+
+#: EL SOBRE ANTERIOR AL 2026-08-24 NO SE LEE, y se dice por qué.
+#:
+#: Hasta el 86-C1 este módulo guardaba `"payload": payload.decode("utf-8")`
+#: —el JSON canonicalizado EN CLARO—, y DSSE pide el payload **en base64**.
+#: Decisión de Roberto (2026-08-24): **se rechazan**, sin código de
+#: compatibilidad, porque fuera no hay ni un recibo emitido y este es el
+#: momento más barato de la vida de un formato. Y se rechazan DICIÉNDOLO:
+#: un «sobre inválido» genérico manda a buscar la avería donde no está, y
+#: leerlos en silencio sería una compatibilidad callada — la invariante 3
+#: del contrato 86 dice que nada se retira sin decirlo.
+_FORMATO_ANTERIOR = (
+    "el `payload` de este sobre va EN CLARO, y DSSE lo pide en base64: es "
+    "el formato anterior al 2026-08-24 (contrato 86-C1). No se lee ni se "
+    "convierte a propósito —una compatibilidad callada haría pasar por "
+    "conforme algo que ninguna herramienta ajena de DSSE acepta—: hay que "
+    "VOLVER A EMITIR el recibo con esta versión")
+
+#: Y lo que no es base64 ni se parece al formato anterior tampoco se
+#: interpreta a medias: se dice qué se miró y qué salió.
+_NO_ES_BASE64 = (
+    "el `payload` de este sobre no es base64 estándar, que es lo que DSSE "
+    "pide ({error}). Si el recibo se emitió antes del 2026-08-24 es del "
+    "formato anterior y hay que volver a emitirlo; si viene de otra "
+    "herramienta, tiene que codificar el payload en base64")
+
+
+def payload_del_sobre(sobre: Any) -> tuple[bytes | None, str | None]:
+    """Los BYTES que el sobre lleva firmados, o el motivo de que no.
+
+    Vive AQUÍ y no en cada lector porque son varios los que abren un
+    sobre —`verificar_recibo`, `nivel_del_recibo`, el verificador del
+    81-C4 y el CLI— y dos sitios declarando qué es un payload válido
+    acabarían divergiendo: un día uno leería lo que el otro rechaza.
+
+    La detección del formato anterior es segura por construcción: el
+    payload en claro de un recibo empieza por `{`, y `{` no está en el
+    alfabeto de base64, así que **nunca** puede decodificarse por error
+    como base64 válido.
+    """
+    if not isinstance(sobre, dict):
+        return None, "el sobre no es un objeto"
+    payload = sobre.get("payload")
+    if not isinstance(payload, str) or not payload:
+        return None, "el sobre no lleva payload"
+    try:
+        return base64.b64decode(payload, validate=True), None
+    except (binascii.Error, ValueError) as exc:
+        if payload.lstrip().startswith("{"):
+            return None, _FORMATO_ANTERIOR
+        return None, _NO_ES_BASE64.format(error=exc)
 
 
 #: Lo que hace que una evidencia sea REPRODUCIBLE, y no solo evidencia.
@@ -82,6 +158,12 @@ _SECCIONES_COMUNES = ("schema_version", "receipt_id", "event_type",
 _SECCIONES_POR_TIPO = {
     "pipeline_execution": ("pipeline", "models", "input", "checks"),
     "replay": ("package", "environment"),
+    # 87-C2 — la atestación de una EVALUACIÓN. No es una ejecución de pipeline
+    # (no hay grafo) ni un replay (no se reproduce un paquete): se corrió un
+    # modelo sobre unos datos y se midió. Lo que la hace valer es lo que exige:
+    # QUÉ modelo (con su digest), SOBRE QUÉ datos (con el suyo) y QUÉ salió.
+    # Sin las tres, un recibo de evaluación es un número con firma.
+    "evaluation_attestation": ("models", "dataset", "metrics"),
 }
 
 #: §14.2 bis / P23-R-0015: «El recibo **DEBE** comprometer el camino
@@ -224,6 +306,102 @@ def _pae(tipo: str, payload: bytes) -> bytes:
     ])
 
 
+def recibo_del_sobre(sobre: Any) -> tuple[dict[str, Any] | None, str | None]:
+    """El RECIBO que hay dentro de un sobre, sea del tipo que sea (86-C2).
+
+    Un sobre nativo lleva el recibo directamente; uno de in-toto lo lleva como
+    `predicate` dentro de un Statement. Quien quiera leerlo —el nivel, el CLI,
+    quien encadene esto en un guion— no tiene por qué saber en cuál está, y
+    **dos sitios decidiendo dónde vive el recibo acabarían divergiendo**.
+    """
+    crudo, motivo = payload_del_sobre(sobre)
+    if crudo is None:
+        return None, motivo
+    import json
+    try:
+        contenido = json.loads(crudo)
+    except (TypeError, ValueError) as exc:
+        return None, f"el payload del sobre no es JSON ({exc})"
+    if not isinstance(contenido, dict):
+        return None, "el payload del sobre no es un objeto"
+    if contenido.get("_type") == _STATEMENT_TYPE:
+        # Un Statement de OTRO predicado no se interpreta como si fuera
+        # nuestro: decir que no se reconoce es la respuesta correcta.
+        if contenido.get("predicateType") != PREDICATE_TYPE:
+            return None, (
+                f"el sobre lleva un Statement de in-toto con predicateType "
+                f"{contenido.get('predicateType')!r}, que no es el de un recibo "
+                f"de MatrixAI ({PREDICATE_TYPE})")
+        predicado = contenido.get("predicate")
+        if not isinstance(predicado, dict):
+            return None, "el Statement no lleva un `predicate` que sea un objeto"
+        return predicado, None
+    return contenido, None
+
+
+def sujetos_del_recibo(recibo: dict[str, Any]) -> list[dict[str, Any]]:
+    """Los ARTEFACTOS sobre los que habla el recibo, en forma de in-toto.
+
+    Un Statement dice «esto que afirmo va DE estos artefactos», y los artefactos
+    de un recibo son los modelos que se ejecutaron y el pipeline que los
+    encadenó. Sus digests ya viajan dentro; aquí solo se les da la forma que
+    espera quien lo va a leer.
+
+    **El prefijo `sha256:` se quita**: en in-toto el algoritmo es la CLAVE del
+    mapa (`{"sha256": "abc…"}`), así que dejarlo dentro del valor produce un
+    digest que ningún verificador reconoce. Es exactamente la clase de detalle
+    por el que un formato «casi estándar» no lo es.
+    """
+    sujetos: list[dict[str, Any]] = []
+    pipeline = recibo.get("pipeline") if isinstance(recibo.get("pipeline"), dict) else {}
+    digest_pipeline = str(pipeline.get("pipeline_digest") or "")
+    if digest_pipeline:
+        nombre = f"pipeline:{pipeline.get('pipeline_id')}@{pipeline.get('pipeline_version')}"
+        sujetos.append({"name": nombre,
+                        "digest": {"sha256": digest_pipeline.removeprefix("sha256:")}})
+    for modelo in recibo.get("models") or []:
+        if not isinstance(modelo, dict):
+            continue
+        digest = str(modelo.get("digest") or "")
+        if not digest:
+            continue
+        sujetos.append({
+            "name": f"{modelo.get('model_id')}@{modelo.get('version')}",
+            "digest": {"sha256": digest.removeprefix("sha256:")},
+        })
+    return sujetos
+
+
+def sobre_in_toto(recibo: dict[str, Any], *, clave: bytes, key_id: str) -> dict[str, Any]:
+    """El MISMO recibo, en un sobre que lee el resto del mundo (86-C2).
+
+    No sustituye a `firmar_recibo`: se emiten los dos y se dice cuál es cuál.
+    El payload va en base64 y el PAE ata el tipo al contenido, igual que en el
+    nativo — lo único que cambia es qué hay dentro y cómo se llama.
+
+    **Un recibo que no pasa §14.2 no se envuelve.** Sacarlo en un sobre
+    estándar lo haría parecer más serio, no serlo.
+    """
+    limpio = _validar(recibo)
+    if not str(key_id or "").strip():
+        raise ReciboInvalido(
+            "la firma tiene que decir con QUÉ clave se hizo: sin `keyid`, "
+            "verificar exige adivinarlo")
+    declaracion = {
+        "_type": _STATEMENT_TYPE,
+        "subject": sujetos_del_recibo(limpio),
+        "predicateType": PREDICATE_TYPE,
+        "predicate": limpio,
+    }
+    payload = jcs_bytes(declaracion)
+    return {
+        "payloadType": PAYLOAD_TYPE_IN_TOTO,
+        "payload": base64.b64encode(payload).decode("ascii"),
+        "signatures": [{"keyid": key_id.strip(),
+                        "sig": _firma(_pae(PAYLOAD_TYPE_IN_TOTO, payload), clave)}],
+    }
+
+
 def firmar_recibo(recibo: dict[str, Any], *, clave: bytes, key_id: str) -> dict[str, Any]:
     """Devuelve el sobre DSSE con el payload canonicalizado y su firma."""
     limpio = _validar(recibo)
@@ -234,10 +412,15 @@ def firmar_recibo(recibo: dict[str, Any], *, clave: bytes, key_id: str) -> dict[
     payload = jcs_bytes(limpio)
     return {
         "payloadType": PAYLOAD_TYPE,
-        # El payload se guarda TAL CUAL se firmó. Es lo que se verifica
-        # después: reparsear y volver a serializar es donde se cuelan las
-        # diferencias (P23-R-0016).
-        "payload": payload.decode("utf-8"),
+        # EN BASE64, como manda DSSE (86-C1). Lo que se firma —y lo que
+        # `_pae` recibe— siguen siendo los BYTES CRUDOS: base64 es el
+        # transporte del sobre, no lo firmado.
+        #
+        # Y son los bytes TAL CUAL se firmaron, solo que codificados:
+        # reparsear y volver a serializar es donde se cuelan las
+        # diferencias (P23-R-0016), y por eso el verificador decodifica
+        # esto en vez de recanonicalizar el objeto.
+        "payload": base64.b64encode(payload).decode("ascii"),
         "signatures": [{"keyid": key_id.strip(), "sig": _firma(_pae(PAYLOAD_TYPE, payload), clave)}],
     }
 
@@ -248,16 +431,18 @@ def verificar_recibo(sobre: Any, *, clave: bytes) -> dict[str, Any]:
     **Se verifica sobre el payload GUARDADO**, no sobre uno recompuesto a
     partir del objeto: reserializar aquí haría que dos serializadores
     distintos invalidaran una firma buena, o peor, validaran una mala.
+    Desde el 86-C1 eso significa **decodificar el base64 del sobre y
+    verificar sobre ESOS bytes** — decodificar no es recomponer: los
+    bytes que salen son exactamente los que entraron.
     """
-    if not isinstance(sobre, dict):
-        return {"ok": False, "reason": "el sobre no es un objeto"}
-    payload = sobre.get("payload")
+    crudo, motivo = payload_del_sobre(sobre)
+    if crudo is None:
+        return {"ok": False, "reason": motivo}
     firmas = sobre.get("signatures")
-    if not isinstance(payload, str) or not isinstance(firmas, list) or not firmas:
-        return {"ok": False, "reason": "el sobre no lleva payload y firma"}
+    if not isinstance(firmas, list) or not firmas:
+        return {"ok": False, "reason": "el sobre no lleva firma"}
 
     tipo = str(sobre.get("payloadType") or "")
-    crudo = payload.encode("utf-8")
     esperada = _firma(_pae(tipo, crudo), clave)
     for firma in firmas:
         if isinstance(firma, dict) and hmac.compare_digest(str(firma.get("sig") or ""), esperada):
@@ -276,14 +461,43 @@ def nivel_del_recibo(recibo_o_sobre: Any) -> str:
     """
     if not isinstance(recibo_o_sobre, dict):
         return "A0"
+    # UN RECIBO FIRMADO CON SIGSTORE ESTÁ FIRMADO (2ª auditoría externa del
+    # 2026-08-25, hallazgo 4 residual). El envoltorio de Sigstore no lleva
+    # `signatures` —lleva su bundle—, así que caía por el `if` de abajo y salía
+    # **A0 / UNSIGNED** justo después de firmar bien: el CLI recomendaba
+    # «pass --key to sign it» sobre un recibo ya firmado. Sigstore sigue **sin
+    # subir el nivel** (eso es del 86-C4, y hay prueba): aquí solo se deja de
+    # decir que no está firmado cuando lo está.
+    bundle = recibo_o_sobre.get("sigstore")
+    if isinstance(bundle, dict) and bundle.get("bundle") and isinstance(
+            recibo_o_sobre.get("payload"), dict):
+        contenido = recibo_o_sobre["payload"]
+        return "A2" if _evidencia_reproducible(contenido.get("evidence")) else "A1"
+
     firmado = bool(recibo_o_sobre.get("signatures")) and bool(recibo_o_sobre.get("payload"))
     if not firmado:
         return "A0"
     import json
+    # UN SOBRE QUE NO SE PUEDE ABRIR NO SOSTIENE NADA: A0.
+    #
+    # Antes del 86-C1 esto leía el payload en claro, y un sobre ilegible
+    # caía en el `except` de abajo y salía **A1** —«lleva firma»—. Con el
+    # formato anterior rechazado eso sería justo la media verdad que la
+    # invariante 3 prohíbe: un sobre que este código no lee no se
+    # presenta como firmado, se presenta como lo que es.
+    crudo, _motivo = payload_del_sobre(recibo_o_sobre)
+    if crudo is None:
+        return "A0"
     try:
-        contenido = json.loads(recibo_o_sobre["payload"])
+        json.loads(crudo)
     except (TypeError, ValueError):
+        # Base64 bien formado pero el contenido no es JSON: el sobre SÍ
+        # es un sobre y lleva firma, aunque no se pueda leer qué firma.
         return "A1"
+    # Y el recibo puede venir DENTRO de un Statement de in-toto (86-C2): sin
+    # esto, un sobre estándar perdía su nivel —la evidencia vive en el
+    # `predicate`— y un A2 se leía como A1.
+    contenido, _ = recibo_del_sobre(recibo_o_sobre)
     evidencia = contenido.get("evidence") if isinstance(contenido, dict) else None
     if _evidencia_reproducible(evidencia):
         return "A2"

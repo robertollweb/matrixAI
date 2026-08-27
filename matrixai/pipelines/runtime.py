@@ -37,6 +37,34 @@ class SalidaAlterada(ValueError):
     """Lo que se iba a transportar no es lo que su productor declaró."""
 
 
+#: Los `kind` cuyos modelos NO viven en el registry (87-C1). Un ONNX ajeno es
+#: un FICHERO: no hay entrada de registry contra la que contrastar su digest, y
+#: exigirla haría que un pipeline honesto no arrancara nunca.
+#:
+#: La lista es CERRADA a propósito: lo que no está aquí se resuelve por el
+#: registry, como siempre. Y lo que está **sigue teniendo que declarar su
+#: digest** — quien lo comprueba es su ejecutor, al abrir el fichero y otra vez
+#: al ejecutarlo.
+KINDS_FUERA_DEL_REGISTRY = ("onnx",)
+
+
+def _resolver_si_toca(nodo: dict, registry: dict[str, str]) -> None:
+    """Resuelve el modelo del nodo contra el registry — salvo que su `kind` no
+    viva ahí (87-C1), y entonces se exige el digest igual.
+
+    Saltarse la comprobación entera para esos nodos habría dejado entrar un
+    pipeline que dice «corre este onnx» sin decir CUÁL, que es exactamente lo
+    que `resolver_por_digest` existe para impedir.
+    """
+    if str(nodo.get("kind") or "") in KINDS_FUERA_DEL_REGISTRY:
+        if not str(nodo.get("entry_hash") or "").strip():
+            raise DigestNoCoincide(
+                f"el paso que usa {str(nodo.get('model') or '')!r} no declara su "
+                "digest, y sin él la traza diría que corrió «un modelo», no CUÁL")
+        return
+    resolver_por_digest(str(nodo.get("model") or ""), nodo.get("entry_hash"), registry)
+
+
 def resolver_por_digest(modelo: str, digest: str | None, registry: dict[str, str]) -> str:
     """Devuelve el digest resuelto, o falla.
 
@@ -168,16 +196,14 @@ def verificar_antes_de_ejecutar(pipeline: Any, registry: dict[str, str]) -> dict
         vistos.add(node_id)
         grafo[node_id] = [str(d) for d in (nodo.get("depends_on") or [])]
         try:
-            resolver_por_digest(str(nodo.get("model") or ""),
-                                nodo.get("entry_hash"), registry)
+            _resolver_si_toca(nodo, registry)
         except DigestNoCoincide as exc:
             problemas.append(str(exc))
 
     # Lo de los nodos tapados por un id repetido, dicho también.
     for nodo in duplicados:
         try:
-            resolver_por_digest(str(nodo.get("model") or ""),
-                                nodo.get("entry_hash"), registry)
+            _resolver_si_toca(nodo, registry)
         except DigestNoCoincide as exc:
             problemas.append(str(exc))
         for dependencia in (nodo.get("depends_on") or []):

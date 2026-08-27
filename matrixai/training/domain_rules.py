@@ -217,6 +217,147 @@ def _parse_clause(body: str) -> Clause | None:
     return Clause(tuple(conditions), combiner)
 
 
+#: Las cabeceras que NO son una clase: son directivas de la receta.
+_DIRECTIVAS = ("DEFAULT", "BALANCE", "REPARTO", "NOISE", "RUIDO")
+
+
+def lineas_que_no_se_leyeron(texto: str, reglas: Any) -> list[str]:
+    """Las líneas de clase que se escribieron y NO llegaron a ser regla.
+
+    POR QUÉ EXISTE (medido el 2026-08-25): `parse_domain_rules` es tolerante
+    —se salta lo que no entiende— y `validate` solo protesta cuando NO QUEDA
+    NINGUNA regla. Con dos líneas y una ilegible, el dataset sale
+    `synthetic_domain`, sin un solo aviso, **y la línea que no se pudo leer
+    desaparece**: el reparto de clases cambia y quien la escribió no se entera.
+    Lo salva a medias el aviso de «clases ausentes», que describe el síntoma y
+    manda a ajustar el prompt — de ahí nadie deduce que su línea se tiró.
+
+    Se compara por la ETIQUETA de la línea, que es lo que el parser conserva.
+    """
+    vivas = {str(getattr(r, "label", "")) for r in (reglas or [])}
+    caidas: list[str] = []
+    for cruda in (texto or "").splitlines():
+        linea = cruda.strip()
+        if not linea or linea.startswith("#") or ":" not in linea:
+            continue
+        cabeza = linea.split(":", 1)[0].strip()
+        if not cabeza or cabeza.upper() in _DIRECTIVAS:
+            continue
+        if cabeza not in vivas:
+            caidas.append(linea)
+    return caidas
+
+
+def condiciones_imposibles(reglas: Any, dominios: Any = None) -> list[str]:
+    """Las condiciones que NUNCA pueden cumplirse (o que se cumplen SIEMPRE).
+
+    POR QUÉ EXISTE (medido el 2026-08-25 al estrenar `--recipe`). Con un modelo
+    que no declara rangos, el generador muestrea en **0-1**; una receta escrita
+    en unidades reales —`alto: edad > 75`— se lee perfectamente, no da ningún
+    error, y esa mitad **no se cumple jamás**. El CSV salió con el 100 % de las
+    filas siguiendo la receta… **por la otra condición**. Media receta muerta y
+    un dataset con aspecto de bueno.
+
+    No es un error —la receta es válida— y tampoco es «no discriminó», porque
+    puede discriminar por lo demás. Es una tercera cosa, y hasta hoy no la
+    decía nadie.
+
+    `dominios` es `{campo: (min, max)}`; lo que no esté declarado se muestrea en
+    `[0, 1]`, que es lo que hace el generador. Un campo cuyo dominio no se pueda
+    determinar **no se juzga**: acusar sin saber es peor que callar.
+    """
+    fuera: list[str] = []
+    for regla in (reglas or []):
+        clause = getattr(regla, "clause", None)
+        for cond in (getattr(clause, "conditions", None) or ()):
+            campo = getattr(cond, "feature", None)
+            op = str(getattr(cond, "op", "") or "")
+            try:
+                valor = float(getattr(cond, "value"))
+            except (TypeError, ValueError):
+                continue
+            rango = (dominios or {}).get(campo) if isinstance(dominios, dict) else None
+            if rango is None:
+                minimo, maximo = 0.0, 1.0
+            else:
+                try:
+                    minimo, maximo = float(rango[0]), float(rango[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+            if maximo < minimo:
+                continue
+            if op in (">", ">="):
+                nunca = valor >= maximo if op == ">" else valor > maximo
+                siempre = valor < minimo
+            elif op in ("<", "<="):
+                nunca = valor <= minimo if op == "<" else valor < minimo
+                siempre = valor > maximo
+            else:
+                continue
+            if nunca:
+                fuera.append(
+                    f"{campo} {op} {valor:g}: nunca se cumple — {campo} va de "
+                    f"{minimo:g} a {maximo:g}")
+            elif siempre:
+                fuera.append(
+                    f"{campo} {op} {valor:g}: se cumple siempre — {campo} va de "
+                    f"{minimo:g} a {maximo:g}")
+    return fuera
+
+
+def resolver_receta(
+    recipe_text: str,
+    *,
+    is_regression: bool,
+    typeable: Any,
+    labels: Any = None,
+    field_ranges: Any = None,
+) -> tuple[Any, Any, str, list[str], list[str]]:
+    """De un texto de receta a lo que el generador necesita.
+
+    Devuelve `(domain_rules, regression_recipe, texto_normalizado, errores,
+    lineas_caidas)`.
+    Si hay errores, las dos primeras van a `None`: **una receta que no se ha
+    podido leer no produce reglas a medias**.
+
+    EXISTE PARA NO TENERLA DOS VECES. Esta lógica vivía dentro de
+    `playground.py`, o sea que solo la tenía el camino del Studio; el CLI
+    construía el generador con `domain_rules=None` y por eso `matrixai
+    generate-dataset` no admitía receta (medido el 2026-08-24: quien hacía
+    `pip install matrixai-core` no podía reproducir un dataset con receta, que
+    es justo el caso con el que se iba a escribir el artículo público).
+    Copiarla al CLI habría sido el segundo sitio declarando lo mismo — la regla
+    que más caro ha salido en este proyecto.
+    """
+    texto = (recipe_text or "").strip()
+    if not texto:
+        return None, None, "", [], []
+
+    if is_regression:
+        # 80-C2: el objetivo continuo no lleva reglas de clases sino una
+        # expresión. Escribir clases sobre un objetivo continuo no se ignora en
+        # silencio: el dataset saldría aleatorio con aspecto de bueno.
+        rr = parse_regression_recipe(texto)
+        if rr is None:
+            return None, None, "", [
+                "a continuous target needs an expression, not class rules"], []
+        errores = rr.validate(typeable)
+        if errores:
+            return None, None, "", list(errores), []
+        # Una receta de regresión es UNA expresión: no hay líneas que caerse.
+        return None, rr.normalizada(field_ranges), rr.to_text(), [], []
+
+    dr = parse_domain_rules(texto)
+    errores = dr.validate(typeable, list(labels or []))
+    if errores:
+        return None, None, "", list(errores), []
+    # Lo que se leyó vale; lo que se CAYÓ se dice. No es un error —el resto de
+    # la receta funciona— pero callarlo deja un dataset que no es el que su
+    # autor escribió.
+    caidas = lineas_que_no_se_leyeron(texto, getattr(dr, "rules", []))
+    return dr.normalized(field_ranges), None, dr.to_text(), [], caidas
+
+
 def parse_domain_rules(text: str) -> DomainRules:
     """Parse the textual domain-rule form. Tolerant: skips lines it cannot parse.
 

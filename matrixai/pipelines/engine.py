@@ -212,6 +212,10 @@ def ejecutar_pipeline(
         traza.abrir_nodo(
             node_id,
             modelo=str(nodo.get("model") or ""),
+            # El digest que el nodo DECLARÓ y que su ejecutor comprueba antes de
+            # correr. Sin él, el paso de un modelo ajeno se leería como «un
+            # fichero que se llamaba ajeno.onnx».
+            model_digest=str(nodo.get("entry_hash") or "") or None,
             input_digest=None,
             efectos=bool(nodo.get("effects")),
             idempotente=bool(nodo.get("idempotent")),
@@ -401,6 +405,7 @@ def emitir_recibo(
         pasos.append({
             "id": nodo["node_id"],
             "model": nodo["model"],
+            "model_digest": nodo.get("model_digest"),
             "status": nodo["status"],
             "started_at": nodo["started_at"],
             "ended_at": nodo["ended_at"],

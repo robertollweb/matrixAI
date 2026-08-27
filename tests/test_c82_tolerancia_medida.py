@@ -89,8 +89,12 @@ class UnaToleranciaSoloValeDondeSeMIDIOTest(unittest.TestCase):
             _fuera_del_alcance_de_la_tolerancia(self._manifiesto(actual), self._COMPARABLE))
 
     def test_en_OTRO_entorno_NO_aplica_y_se_dice_por_que(self):
+        # `locale="en"` FIJADO (85-C2b): lo que se mide es que el motivo
+        # DIGA que una diferencia aquí no acusa al paquete, y esa frase
+        # existe en los dos idiomas. Que la española diga lo mismo lo mide
+        # el barrido del 85-C2b.
         motivo = _fuera_del_alcance_de_la_tolerancia(
-            self._manifiesto("a" * 64), self._COMPARABLE)
+            self._manifiesto("a" * 64), self._COMPARABLE, locale="en")
         self.assertIsNotNone(motivo)
         self.assertIn("would not prove the package wrong", motivo)
 
@@ -101,7 +105,8 @@ class UnaToleranciaSoloValeDondeSeMIDIOTest(unittest.TestCase):
         self.assertIn("a" * 16, motivo)
 
     def test_sin_digest_de_entorno_tampoco_se_da_por_bueno(self):
-        motivo = _fuera_del_alcance_de_la_tolerancia({}, self._COMPARABLE)
+        motivo = _fuera_del_alcance_de_la_tolerancia({}, self._COMPARABLE,
+                                                     locale="en")
         self.assertIn("no environment digest", motivo)
 
     def test_un_alcance_DESCONOCIDO_no_se_da_por_bueno(self):
@@ -109,7 +114,7 @@ class UnaToleranciaSoloValeDondeSeMIDIOTest(unittest.TestCase):
         se presume aplicable."""
         motivo = _fuera_del_alcance_de_la_tolerancia(
             self._manifiesto("a" * 64),
-            [{"name": "accuracy", "tolerance_scope": "lo_que_sea"}])
+            [{"name": "accuracy", "tolerance_scope": "lo_que_sea"}], locale="en")
         self.assertIn("does not know", motivo)
 
     def test_sin_alcance_declarado_no_se_estorba(self):
@@ -154,7 +159,7 @@ class R3DA_UN_VEREDICTO_DE_VERDADTest(unittest.TestCase):
         tolerancia no se midió para esa máquina."""
         manifiesto = self._manifiesto(0.9)
         manifiesto["environment"]["environment_sha256"] = "c" * 64
-        r = _verificar_r3(manifiesto, self._entrenamiento(0.7))
+        r = _verificar_r3(manifiesto, self._entrenamiento(0.7), locale="en")
         self.assertEqual(r["status"], "INCOMPARABLE")
         self.assertIn("would not prove the package wrong", r["reason"])
 

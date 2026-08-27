@@ -31,6 +31,19 @@ _PROBABILITY_BINARY_LABELS = ["negative", "positive"]
 
 
 class SupervisedTrainer:
+    #: SU INICIALIZACIÓN NO DEPENDE DE NINGUNA SEMILLA, y por eso lo declara.
+    #:
+    #: Medido el 2026-08-25: `build_initial_parameter_set` de un modelo FUNCTION
+    #: devuelve siempre los mismos valores (`W1 = [0.05]`, `b1 = 0.0`), dos
+    #: veces seguidas y sin aleatoriedad de por medio.
+    #:
+    #: Lo lee el verificador (82-C2) para distinguir dos cosas que no son la
+    #: misma: **«no se pudo aplicar la semilla»** —una limitación real, que deja
+    #: R3 sin veredicto— y **«esa semilla no aplica aquí»**, que no impide
+    #: comparar nada. Sin esta distinción, un paquete perfectamente reproducible
+    #: se quedaba en INCOMPARABLE para siempre.
+    inicializacion_determinista = True
+
     def train(
         self,
         training: TrainingSpec,
@@ -65,6 +78,13 @@ class SupervisedTrainer:
         bias = _copy_parameter_values(initial.parameters["b1"]["values"])
 
         examples = adapter.examples()
+        # HALLAZGO 13, y aquí es donde de verdad se cargan (decisión de Roberto
+        # del 2026-08-25). MI PRIMER INTENTO FUE A UN MÉTODO MUERTO: este
+        # fichero tenía un `_load_examples` que **no llamaba nadie** —lo
+        # comprobé con `grep` después de que el arreglo no cambiara nada— y lo
+        # he borrado en el mismo cambio: un método muerto que parece el sitio
+        # correcto es una trampa para el siguiente.
+        examples = _normalizar_ejemplos(examples, vector, training)
         train_examples, validation_examples = self._split_examples(examples, training)
         if not train_examples or not validation_examples:
             raise ValueError("Training and validation splits must both contain rows")
@@ -95,6 +115,21 @@ class SupervisedTrainer:
                     objective,
                 )
                 weights, bias = _apply_gradients(weights, bias, gradients, learning_rate)
+
+            # ¿SIGUEN SIENDO NÚMEROS LOS PESOS? (2026-08-24)
+            #
+            # Medido contra el paquete publicado con el Kelvin del propio
+            # repositorio y el `.mxtrain` que escribe `generate-training`: el
+            # entrenamiento divergía y reventaba con `OverflowError: (34,
+            # 'Numerical result out of range')` **y su traza de pila**, dentro
+            # del cálculo de métricas. Es el peor mensaje posible para quien
+            # llega, y el PR1-C4 de este proyecto dice que cada error frecuente
+            # nombra su corrección.
+            #
+            # Se comprueba AQUÍ —una vez por época, después de actualizar— y no
+            # dentro de las métricas: cuando la métrica revienta, el número que
+            # se fue ya no dice en qué época pasó.
+            _comprobar_que_no_diverge(weights, bias, epoch, train_examples)
 
             train_metrics = self._metrics(train_examples, labels, weights, bias, objective)
             validation_metrics = self._metrics(validation_examples, labels, weights, bias, objective)
@@ -213,9 +248,6 @@ class SupervisedTrainer:
         if training.loss.type == "binary_cross_entropy" and len(values) != 2:
             raise ValueError("binary_cross_entropy requires exactly two Label[...] target values")
         return values
-
-    def _load_examples(self, path: Path, vector: VectorSpec, target: str) -> list[TrainingExample]:
-        return CSVDataAdapter(path, vector.name, vector.fields, target).examples()
 
     def _split_examples(
         self, examples: list[TrainingExample], training: TrainingSpec
@@ -523,6 +555,99 @@ def _mse_regression_gradients(
             weight_grad[i] += delta * xi
         bias_grad += delta
     return {"weights": weight_grad, "bias": bias_grad}
+
+
+def _normalizar_ejemplos(ejemplos: list, vector: Any, training: TrainingSpec) -> list:
+    """Escala entradas y objetivo por los rangos que el modelo DECLARA.
+
+    Las dos cosas o ninguna: `predict.py` del paquete normaliza las entradas
+    **y desnormaliza la salida** con esos mismos rangos, así que entrenar con
+    una mitad produce un modelo que predice en otra escala. Medido con el
+    Kelvin: normalizar solo las entradas lo hacía divergir a tasas a las que
+    antes no divergía.
+    """
+    from matrixai.training.normalizacion import (  # noqa: PLC0415
+        normalizar_filas, rango_declarado_del_objetivo, rangos_declarados_del_vector)
+
+    import dataclasses  # noqa: PLC0415
+
+    dominios = rangos_declarados_del_vector(vector)
+    rango = rango_declarado_del_objetivo(training)
+    if not dominios and rango is None:
+        return ejemplos
+
+    # `TrainingExample` es `frozen`, así que «normalizar» aquí es CONSTRUIR, no
+    # asignar. Es la tercera dataclase congelada que me lo recuerda hoy.
+    filas = [list(e.vector) for e in ejemplos]
+    if dominios:
+        filas, _ = normalizar_filas(filas, list(vector.fields), dominios)
+
+    salida = []
+    for ejemplo, fila in zip(ejemplos, filas):
+        cambios: dict = {"vector": fila}
+        if rango is not None:
+            minimo, maximo = rango
+            try:
+                cambios["label"] = (float(ejemplo.label) - minimo) / (maximo - minimo)
+            except (TypeError, ValueError):
+                pass
+        salida.append(dataclasses.replace(ejemplo, **cambios))
+    return salida
+
+
+def _comprobar_que_no_diverge(weights: Any, bias: Any, epoch: int, examples: Any) -> None:
+    """Levanta un error ACCIONABLE si los pesos han dejado de ser números.
+
+    No intenta arreglarlo por su cuenta —bajar la tasa a escondidas sería
+    entrenar otra cosa que la declarada— ni promete que la corrección que
+    sugiere sirva: dice qué pasó, en qué época, y qué se suele hacer.
+    """
+    from matrixai.errors import error_training_diverged
+
+    # NO BASTA CON MIRAR SI LOS PESOS SON FINITOS, y esto lo enseñó la
+    # primera versión de esta guarda: cuando reventó de verdad, los pesos
+    # seguían siendo números —enormes, pero finitos— y lo que desbordaba era
+    # el CUADRADO del error. Así que se comprueba lo que de verdad va a
+    # calcularse: una predicción y su error al cuadrado.
+    try:
+        pesos = [float(v) for v in _copy_vector(weights)]
+        sesgo = float(_bias_value(bias))
+    except (TypeError, ValueError):
+        return
+    diverge = not all(math.isfinite(v) for v in [*pesos, sesgo])
+    if not diverge:
+        for ejemplo in list(examples)[:64]:
+            # NO SON LO MISMO «no puedo mirar» y «ha divergido», y confundirlos
+            # aquí acusaría a un entrenamiento sano: una etiqueta que no es un
+            # número —un clasificador con clases por su nombre— hace que este
+            # ejemplo no se pueda comprobar, no que el modelo haya reventado.
+            # Lo cazó una prueba de este fichero antes de que lo sufriera nadie.
+            try:
+                etiqueta = float(ejemplo.label)
+                y_hat = _dot(ejemplo.vector, pesos) + sesgo
+            except (AttributeError, TypeError, ValueError):
+                continue
+            try:
+                error = (y_hat - etiqueta) ** 2
+            except OverflowError:
+                diverge = True
+                break
+            if not math.isfinite(y_hat) or not math.isfinite(error):
+                diverge = True
+                break
+    if not diverge:
+        return
+
+    # La escala del objetivo ayuda a elegir cuál de las tres correcciones
+    # aplica, y sale de los datos que ya están cargados.
+    escala = ""
+    try:
+        etiquetas = [float(e.label) for e in examples]
+        if etiquetas:
+            escala = f"{min(etiquetas):g} to {max(etiquetas):g}"
+    except (TypeError, ValueError, AttributeError):
+        escala = ""
+    raise ValueError(error_training_diverged(epoch, escala))
 
 
 def _mse_regression_metrics(

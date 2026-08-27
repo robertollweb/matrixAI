@@ -77,6 +77,21 @@ matrixai --help
   «something changed». It always states whether both runs used the same environment:
   matching inside one environment proves repeatability, not reproducibility. A run
   elsewhere returns `INCOMPARABLE` — it neither accuses nor approves for free
+- **A receipt for a model you did not train**: `matrixai attest model.onnx --data eval.csv`
+  runs someone else's ONNX model on your data and ties the number to the digests of both.
+  What makes it worth something is what it refuses to claim — the receipt carries
+  `evidence.does_not_attest` and `provenance: external`, and says that a copied model
+  produces exactly the same receipt as your own. Its ceiling is **A1**, written in the
+  receipt and not only in the docs
+- **Formats other tools already read**: the DSSE envelope is spec-conformant, `matrixai
+  attest --in-toto` emits an in-toto Statement, `matrixai bom` emits a **CycloneDX 1.6
+  ML-BOM** validated against the official schema and deterministic by construction (a BOM
+  that changes on every run can be neither compared nor signed), and `--sigstore` signs
+  with Sigstore — which does **not** raise the assurance level, because A0–A4 describe
+  what was checked, not how strong the signature is
+- **TRIPOD+AI record**: `matrixai report <package> --tripod` writes the checklist a
+  clinical-prediction journal asks for, from what the package already captured — and
+  **enumerates every box it cannot fill** instead of filling it
 - **Model registry**: versioned, signed, verifiable — `matrixai registry push/pull/verify`,
   with interface types derived from the model itself, so composing two components is
   **checked** instead of assumed (what cannot be determined is published without types
@@ -263,7 +278,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 5873 passed, 21 skipped
+# 6179 passed, 21 skipped
 ```
 
 ---

@@ -7,6 +7,141 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.7.0] — 2026-08-27
+
+The receipt reaches the product, the envelope follows the spec, the package
+can finally prove that it reproduces — and MatrixAI stops needing to have
+trained the model in order to say something verifiable about it.
+
+### Added
+- **`matrixai attest <model.onnx> --data <eval.csv>`** — a receipt for a
+  model **MatrixAI did not train**. It ties the number to the digests of
+  the model and of the evaluation data, and records the environment it
+  claims to attest (ORT version, providers, python, platform). What makes
+  it worth anything is what it *refuses* to claim: the receipt carries
+  `evidence.does_not_attest` and `models[].provenance: "external"`, and
+  says in plain words that it does not attest how the model was trained
+  nor on what data — a copied model produces exactly the same receipt as
+  your own. Its ceiling is **A1**, and that is written in the receipt, not
+  only in the docs.
+- **An `onnx` executor in the pipeline engine.** Declared input types are
+  checked against `meta.type` and what would be lost is **rejected** rather
+  than silently coerced; a dynamic axis is reported as *not checked*
+  instead of wrongly checked.
+- **`matrixai bom <package>` → CycloneDX 1.6 ML-BOM.** Validated against
+  the official schema, which ships in `tests/data/` so the test checks it
+  every day and not only the day it was downloaded. It is **deterministic**
+  — the serial number comes from `manifest_sha256`, not `uuid4()`, because
+  a BOM that changes on every run can be neither compared nor signed — and
+  `--missing` enumerates what it cannot say.
+- **`matrixai attest --in-toto`** emits the receipt as an in-toto Statement
+  (`application/vnd.in-toto+json`, `subject[]` from the digests we already
+  had, a `predicateType` versioned by URL). **Without `--key` it is
+  refused**: an unsigned Statement does not say whose it is. The native
+  receipt is not withdrawn — both are emitted, and which is which is said.
+- **`matrixai attest --sigstore`.** It does **not** fall back to HMAC in
+  silence: it says which of the two things is missing — the library or the
+  identity, two problems with two solutions — and writes no receipt at
+  all rather than half a bundle. And its limit is written and tested:
+  **Sigstore does not raise the assurance level**. A0–A4 describe what was
+  *checked*, not how strong the signature is; if signing better raised the
+  level, A2 would stop meaning «there is reproducible evidence».
+- **`matrixai report <package> --tripod [--locale es|en]`** — the TRIPOD+AI
+  checklist a clinical-prediction journal asks for, filled from what
+  `reproduce.json` already captures. It **invents no box**: it enumerates
+  the ones it cannot fill (absent data, calibration, fairness, and what
+  belongs to the author), and the SYNTHETIC-data warning goes at the very
+  top.
+- **`matrixai generate-dataset --recipe`** — the data recipe was reachable
+  from `export-bundle` and from the product, but not from the CLI, so the
+  first-contact path could not use it. `resolver_receta` was **extracted**
+  to the core so the CLI and `playground.py` resolve it the same way. In
+  the CLI an unreadable recipe **fails** (exit 1); in the Studio it warns.
+- **`matrixai verify --locale {es,en}`** and `verify_package(..., locale=)`.
+  The verifier used to write every reason in English only, so half the
+  screen showed one language and half the other. What the core writes is
+  translated in the core. What the *package* wrote about itself is
+  **quoted, not translated**: putting words in its mouth would change
+  bytes that its own `manifest_sha256` covers.
+- **`effective_mode` in the synthetic dataset result.** `mode` is what was
+  *requested*; a `coherent` run with no domain rules degrades to random,
+  so a manifest that declared the request would describe a dataset that
+  was never generated that way.
+- **The generation mode travels in the run capture** (`mode`), so
+  `generation.mode` stops being `null` in every package the product
+  builds. It is **measured, not declared**: the mode that ships is the one
+  that regenerates the CSV byte for byte.
+
+### Changed
+- **BREAKING — the DSSE envelope of a `.mxreceipt` now carries its payload
+  in base64**, as the specification requires (it used to store the
+  canonical JSON in clear text, which no third-party DSSE implementation
+  accepts). **Receipts issued by earlier versions are rejected**, with a
+  reason that says exactly that and tells you to re-issue them: reading
+  them silently would make a non-conforming envelope pass as conforming.
+  No receipts existed outside development, which is why this is the
+  cheapest moment in the life of the format to fix it.
+- An unreadable envelope is now level **A0** instead of A1. It used to
+  fall through to «it carries a signature», which is the reassuring
+  half-truth this project exists to remove.
+- **Training now normalises inputs by the ranges the contract declares**,
+  and the target range travels to the `inference_spec`. Both halves or
+  neither: normalising only the inputs made a model that used to converge
+  diverge instead. Measured driving the product — a clinical case went
+  from accuracy 0.687 to 0.969, and the Kelvin example from *not
+  converging* to a validation loss of 0.000000 and 273.150001 K for 0 °C.
+- **A registry entry published without its `model.mxai` is marked, not
+  hidden.** Publishing metrics alone has legitimate uses, so it is still
+  accepted; but `RegistryEntry.es_ejecutable()` **deduces it from the
+  `model_hash`** rather than adding a field — the `entry_hash` covers the
+  identity fields, and adding one would break the chain of everything
+  already published. The executor now says why it cannot run it, and what
+  the entry *is* good for, instead of raising a bare `FileNotFoundError`.
+- **A `.mxreceipt` reason catalogue in Spanish** (`export/reproduce_textos.py`).
+  The phrase is not translated — the fact is **recomposed** from the same
+  keys the manifest declares (`missing: ["recipe", …]`), because
+  translating the string would be guessing. A key the catalogue cannot say
+  is **enumerated, not silently dropped**, and if it can say none it
+  returns `None` rather than an empty sentence.
+
+### Fixed
+- **An accuracy of 1.000000 that had compared nothing.** With
+  `Label[0, 1]` and `ProbabilityMap[0, 1]` read as a *range* instead of two
+  classes, the target loaded as a one-element vector, and `argmax` of one
+  element is always 0 — so every row «matched». On 2,189 days of real
+  rainfall observations the trainer printed a perfect 100 %. The evaluator
+  now **refuses** mismatched shapes and one-element vectors, naming the
+  likely cause and the fix (`name them: Label[no, si]`); the same model on
+  the same data then gives a believable 0.7626. A bad accuracy still comes
+  out bad — the fix cannot be that everything now passes.
+- **A diverging training run came out as a Python traceback.**
+  `matrixai train` on the `.mxtrain` that `matrixai generate-training`
+  itself produces raised `OverflowError: Numerical result out of range`
+  with a stack dump. It is the first thing that happens to anyone trying a
+  regression from the CLI; it now says what diverged and what to change.
+- **`matrixai run` did not print the prediction.** `_print_run_report`
+  printed `project`, `actions` and `audit` and never touched `state`, so
+  any pure classifier or regressor — anything without discrete actions —
+  ran and showed no result. It prints it now, and a classifier names its
+  classes.
+- **A recipe condition that can never fire is now reported**, instead of
+  being dropped in silence while the dataset came out 50 % accurate and
+  the warning pointed elsewhere.
+- **The weights file no longer has a different name depending on which
+  trainer wrote it** (`params.best.json` vs `parameter_set.json`), which
+  made a package unreadable to the path that did not write it.
+- **The Kelvin example of the repository can be exported to a package**;
+  `linear_regression` was not exportable, so the example that best teaches
+  the flow was the one that could not complete it.
+- **Three of the four `verify` stages were unreachable for any package the
+  product built.** Without `generation.mode`, R1 could not compare; and
+  since `training` is `INCOMPARABLE` when R1 did not pass, and R3 depends
+  on `training`, only the manifest integrity check could ever run. The
+  field existed in the core since the reproducible-package work; nothing
+  ever filled it in.
+
+---
+
 ## [1.6.0] — 2026-08-23
 
 Pipelines that leave a receipt, packages that can prove they reproduce,

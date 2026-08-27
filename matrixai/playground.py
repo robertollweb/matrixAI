@@ -697,33 +697,35 @@ def _generate_synthetic_dataset(
         # Sin clave de LLM, ésta es la ÚNICA forma de que los datos
         # generados tengan relación con lo que se predice: hasta hoy, un
         # Studio recién instalado solo sabía etiquetar al azar.
-        recipe_errors: list[str] = []
-        if (recipe_text or "").strip():
-            from matrixai.training.domain_rules import parse_domain_rules  # noqa: PLC0415
-            if is_regression:
-                # ── 80-C2 · la receta de un objetivo continuo ──
-                # No es una regla de clases: es una expresión numérica. El
-                # alcance está cerrado (suma de términos + constante +
-                # ruido) por decisión de Roberto.
-                from matrixai.training.domain_rules import parse_regression_recipe  # noqa: PLC0415
-                _rr = parse_regression_recipe(recipe_text)
-                if _rr is None:
-                    # Se escribió una regla de clases sobre un objetivo
-                    # continuo: no se ignora en silencio, porque el dataset
-                    # saldría aleatorio con aspecto de dataset bueno.
-                    recipe_errors = ["a continuous target needs an expression, not class rules"]
-                else:
-                    recipe_errors = _rr.validate(typeable)
-                    if not recipe_errors:
-                        regression_recipe = _rr.normalizada(field_ranges)
-                        domain_rules_text = _rr.to_text()
-            else:
-                _labels_receta = dr_labels or (["0", "1"] if is_probability_target else [])
-                _dr = parse_domain_rules(recipe_text)
-                recipe_errors = _dr.validate(typeable, _labels_receta)
-                if not recipe_errors:
-                    domain_rules = _dr.normalized(field_ranges)
-                    domain_rules_text = _dr.to_text()
+        # LA RECETA LA RESUELVE EL CORE, Y EN UN SOLO SITIO (2026-08-25).
+        #
+        # Esto era veinte líneas aquí dentro, o sea que solo las tenía el
+        # camino del Studio: el CLI construía el generador con
+        # `domain_rules=None` y por eso `generate-dataset` no admitía receta.
+        # Extraído a `resolver_receta` para que los dos caminos usen la MISMA
+        # —copiarla habría sido el segundo sitio declarando lo mismo—.
+        from matrixai.training.domain_rules import resolver_receta  # noqa: PLC0415
+
+        _labels_receta = dr_labels or (["0", "1"] if is_probability_target else [])
+        domain_rules, regression_recipe, _texto_receta, recipe_errors, _caidas = resolver_receta(
+            recipe_text or "",
+            is_regression=is_regression,
+            typeable=typeable,
+            labels=_labels_receta,
+            field_ranges=field_ranges,
+        )
+        if _texto_receta:
+            domain_rules_text = _texto_receta
+
+        # LAS CONDICIONES MUERTAS SE MIRAN AQUÍ, y no más abajo, porque el
+        # camino degenerado pone `domain_rules = None` y se llevaba por delante
+        # justo el caso que más importa: una regla tan muerta que todo cayó en
+        # el DEFAULT. Medido — la prueba se puso roja enseñándolo.
+        _condiciones_muertas: list[str] = []
+        if domain_rules is not None:
+            from matrixai.training.domain_rules import condiciones_imposibles  # noqa: PLC0415
+            _condiciones_muertas = condiciones_imposibles(
+                getattr(domain_rules, "rules", []))
 
         if (domain_rules is None and mode == "coherent" and use_llm and is_multiclass
                 and _detect_llm_mode().get("active", False)):
@@ -831,6 +833,18 @@ def _generate_synthetic_dataset(
             # Echo the requested mode; `label_origin` below carries what the labels
             # actually are (synthetic_random when coherent degraded under option A).
             "mode": mode,
+            # EL MODO QUE DE VERDAD SE USÓ, y por qué hace falta publicarlo
+            # (medido el 2026-08-24): quien reproduce un dataset necesita el
+            # modo con el que se generó, y `mode` es el PEDIDO. Un
+            # «coherente» sin reglas degrada a aleatorio (opción A, arriba),
+            # así que declarar el pedido en un manifiesto haría que el
+            # paquete dijera que se generó de una forma en la que no se
+            # generó — y R1 regeneraría otra cosa.
+            #
+            # Se AÑADE en vez de cambiar `mode`: hay pantallas que echan de
+            # menos lo que pidieron, y quitarles eso sería arreglar un
+            # silencio creando otro.
+            "effective_mode": effective_mode,
             "fingerprint": adapter.fingerprint(),
             "columns": columns,
             "labels": list(schema.labels),
@@ -887,6 +901,60 @@ def _generate_synthetic_dataset(
             result["label_origin"] = (
                 "synthetic_random" if effective_mode == "random" else "synthetic_coherent"
             )
+        # LA RECETA QUE NO SE PUDO LEER, DICHA (2026-08-24).
+        #
+        # `recipe_errors` se calculaba desde el 80 y **no se usaba nunca
+        # después**: moría como variable local. Medido contra el paquete
+        # publicado, esto es lo que se llevaba quien escribía una receta con
+        # paréntesis o con un AND dentro de un OR:
+        #
+        #   alto: (edad > 75)  ->  0 reglas · etiquetas ALEATORIAS · y el aviso
+        #   genérico de «datos sintéticos aleatorios», que manda a mirar el modo
+        #   de generación en vez de la receta.
+        #
+        # El core YA sabía qué pasaba —`validate` devuelve «no rules parsed»—
+        # y no lo contaba. Es el hueco de siempre, dentro de un solo fichero.
+        # LA RECETA QUE SE LEYÓ A MEDIAS (2026-08-25). No es un error —el resto
+        # funciona— pero callarlo deja un dataset que no es el que su autor
+        # escribió: cambia el reparto de clases y él no se entera.
+        if _caidas:
+            result["recipe_dropped_lines"] = list(_caidas)
+            result["recipe_partial_warning"] = (
+                "De tu receta se aplicaron unas líneas y otras NO se pudieron "
+                f"leer ({len(_caidas)}): las etiquetas que decidían esas líneas "
+                "no las decide nadie, así que el reparto de clases no es el que "
+                "escribiste. Las líneas que se cayeron van en "
+                "`recipe_dropped_lines`. El lenguaje admite `clase: campo > "
+                "valor`, con `AND`/`OR` simples (no mezclados en la misma línea) "
+                "y sin paréntesis."
+            )
+        # LAS CONDICIONES MUERTAS (hallazgo 11, 2026-08-25). Se miran sobre las
+        # reglas YA NORMALIZADAS, que es el espacio en el que muestrea el
+        # generador: un umbral en unidades reales contra un modelo sin rangos
+        # declarados cae fuera de [0, 1] y no se cumple jamás. La receta es
+        # válida, discrimina por lo demás, y nadie lo decía.
+        if _condiciones_muertas:
+            result["recipe_dead_conditions"] = _condiciones_muertas
+            result["recipe_dead_warning"] = (
+                "Hay condiciones de tu receta que no pueden decidir nada: o "
+                "no se cumplen nunca o se cumplen siempre, porque su umbral "
+                "cae fuera del rango en el que se generan esos datos. La "
+                "receta es válida y el resto sí decide — por eso el dataset "
+                "parece correcto."
+            )
+        if recipe_errors:
+            result["recipe_errors"] = list(recipe_errors)
+            # Los códigos NO se concatenan en la frase: vienen del validador en
+            # inglés, y meterlos dentro dejaría media frase en otro idioma —el
+            # defecto que este proyecto lleva todo el día quitando—. Viajan
+            # aparte, en `recipe_errors`, para quien lea por programa.
+            result["recipe_warning"] = (
+                "Tu receta no se ha podido leer, así que las etiquetas son "
+                "ALEATORIAS y el modelo no aprenderá nada. El lenguaje de la "
+                "receta admite `clase: campo > valor`, con `AND`/`OR` simples, "
+                "una línea por clase y `DEFAULT:` para el resto — sin "
+                "paréntesis."
+            )
         if domain_degenerate_warning:
             result["domain_degenerate_warning"] = domain_degenerate_warning
         # 80-C4: el reparto pedido que NO se pudo cumplir. Hay recetas que
@@ -917,11 +985,18 @@ def _generate_synthetic_dataset(
                 f"sube datos reales."
             )
         if is_classification and effective_mode == "random":
+            # Y si la culpa fue de la receta, el aviso NO manda a mirar el modo
+            # de generación: mandar a buscar la avería donde no está cuesta más
+            # que no decir nada.
             result["signal_warning"] = (
                 "Datos sintéticos aleatorios: la salida no depende de la entrada, "
                 "así que el modelo no puede aprender nada (colapsará al predictor "
-                "constante). Para señal real, activa las reglas de dominio del LLM "
-                "o sube datos reales."
+                "constante). " + (
+                    "El motivo está arriba: tu receta no se pudo leer."
+                    if recipe_errors else
+                    "Para señal real, activa las reglas de dominio del LLM "
+                    "o sube datos reales."
+                )
             )
         if model_changed:
             # The VECTOR/columns changed (one-hot and/or excluded ids) — the
@@ -1010,6 +1085,11 @@ def _generate_synthetic_text_dataset(
         "rows": len(text_rows),
         "seed": seed,
         "mode": mode,
+        # En el camino de TEXTO no hay degradación de «coherente» a
+        # aleatorio —no se etiqueta con reglas de dominio—, así que el modo
+        # efectivo es el pedido. Se publica igualmente para que quien
+        # reproduce no tenga que saber por qué camino salió su dataset.
+        "effective_mode": mode,
         "fingerprint": fingerprint,
         "columns": [field_name, target_name],
         "labels": labels,
@@ -3408,6 +3488,7 @@ def _submit_training_job(
     recipe_verification: dict | None = None,
     generator_version: str | None = None,
     csv_serialization_version: str | None = None,
+    dataset_mode: str | None = None,
 ) -> dict[str, Any]:
     """Start async training job. Returns {ok, job_id} immediately.
 
@@ -3601,6 +3682,28 @@ def _submit_training_job(
         # Solo si HAY receta: declarar que se comprobó una receta que no viaja
         # es una contradicción, y el manifiesto la rechaza.
         "recipe_verification": recipe_verification if _receta else None,
+        # CON QUÉ MODO SE GENERÓ EL DATASET, y tiene que ser el EFECTIVO.
+        #
+        # Medido el 2026-08-24: sin este campo, `generation.mode` del
+        # manifiesto sale `null` SIEMPRE, y entonces **R1 no puede comparar**
+        # («the package does not declare which generation mode produced its
+        # dataset»). Y como `training` es INCOMPARABLE si R1 no pasó, y R3
+        # depende de training, un paquete del producto solo podía comprobar
+        # la integridad del manifiesto: las TRES etapas que demuestran que se
+        # rehace eran inalcanzables por un campo que no viajaba.
+        #
+        # `None` cuando no consta —y «no consta» no es «aleatorio»—: el
+        # entrenador no generó los datos y no puede saberlo; llega de quien
+        # los generó, igual que la receta y su comprobación.
+        # SE LLAMA `mode` A PROPÓSITO, y esto es lo que hace que funcione sin
+        # tocar nada más: `_RUN_PROVENANCE_GENERATION_KEYS` (en
+        # `export/reproduce.py`) ya lista `mode` como el PRIMER parámetro
+        # efectivo que la captura declara y el manifiesto publica. El core
+        # llevaba desde el 82 preparado para recibirlo; la captura nunca lo
+        # traía. Nombrarlo `dataset_mode` aquí lo habría publicado como un
+        # parámetro llamado `dataset_mode`, y `generation.mode` habría seguido
+        # saliendo `null` — medido antes de corregirlo.
+        "mode": dataset_mode,
         "dataset_sha256_raw": _hashlib.sha256(csv_text_crudo.encode("utf-8")).hexdigest(),
         "dataset_sha256_prepared": _sha_csv_preparado,
         # LAS FILAS, Y NO LAS LÍNEAS. Medido el 2026-08-19 con el Kelvin de 20
