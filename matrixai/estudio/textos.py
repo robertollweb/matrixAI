@@ -473,6 +473,74 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "two {campo} results are not ordered if either is undefined: a metric "
               "that could not be computed is not the worst one, it is unknown",
     },
+    # ---- incertidumbre por diseño y estimando (105-C2) --------------------
+    "diseno_no_soportado": {
+        "es": "el diseño {valor} no tiene un método de remuestreo soportado en "
+              "este corte: usar IID en silencio fingiría una independencia que "
+              "el diseño declarado dice que no hay",
+        "en": "design {valor} has no supported resampling method in this work "
+              "item: silently falling back to IID would fake an independence "
+              "the declared design says is not there",
+    },
+    "observaciones_insuficientes": {
+        "es": "no hay observaciones suficientes para estimar variabilidad por "
+              "remuestreo: con menos de dos filas no hay nada que remuestrear",
+        "en": "there are not enough observations to estimate resampling "
+              "variability: with fewer than two rows there is nothing to resample",
+    },
+    "unidades_insuficientes": {
+        "es": "la muestra solo trae {valor} unidad(es) de remuestreo: un "
+              "intervalo por grupos necesita al menos dos para hablar de la "
+              "variación ENTRE unidades, no de la variación dentro de una sola",
+        "en": "the sample only carries {valor} resampling unit(s): a group "
+              "interval needs at least two to speak of variation BETWEEN units, "
+              "not variation within a single one",
+    },
+    "remuestras_degeneradas": {
+        "es": "{valor} de {opciones} remuestras salieron degeneradas (una sola "
+              "clase, varianza nula u otro denominador vacío): con tan pocas "
+              "válidas, el percentil describiría el remuestreo, no el estimando",
+        "en": "{valor} of {opciones} resamples came out degenerate (a single "
+              "class, zero variance or another empty denominator): with this "
+              "few valid ones, the percentile would describe the resampling, "
+              "not the estimand",
+    },
+    "unidad_repetida_en_diseno_iid": {
+        "es": "se pide un intervalo IID y la muestra declara {valor} unidades "
+              "para {opciones} filas: filas y unidades no son intercambiables "
+              "(105 invariante 5), y un IID aquí fingiría observaciones "
+              "independientes que no lo son",
+        "en": "an IID interval is requested and the sample declares {valor} "
+              "units for {opciones} rows: rows and units are not "
+              "interchangeable (105 invariant 5), and an IID here would fake "
+              "independent observations that are not",
+    },
+    "remuestreo_de_grupos_sin_unidad": {
+        "es": "un intervalo por grupos necesita la unidad de remuestreo de cada "
+              "fila; sin ella no hay grupo que remuestrear para {campo}",
+        "en": "a group interval needs each row's resampling unit; without it "
+              "there is no group to resample for {campo}",
+    },
+    "intervalo_a_medias": {
+        "es": "el intervalo trae un límite y no el otro: {valor}",
+        "en": "the interval carries one bound and not the other: {valor}",
+    },
+    "intervalo_sin_valor_ni_motivo": {
+        "es": "{campo} no trae intervalo y tampoco dice por qué no está "
+              "disponible: un intervalo ausente no es un cero, pero tiene que "
+              "explicarse",
+        "en": "{campo} carries no interval and does not say why it is "
+              "unavailable: an absent interval is not a zero, but it has to be "
+              "explained",
+    },
+    "intervalo_con_valor_y_motivo": {
+        "es": "{campo} trae intervalo Y motivo de no disponibilidad a la vez",
+        "en": "{campo} carries both an interval AND an unavailability reason",
+    },
+    "intervalo_al_reves": {
+        "es": "el intervalo {valor} tiene el límite inferior por encima del superior",
+        "en": "interval {valor} has its lower bound above its upper bound",
+    },
     # ---- migración -------------------------------------------------------
     "version_no_legible": {
         "es": "{campo} viene en la versión {valor} y este core sabe leer {opciones}. "

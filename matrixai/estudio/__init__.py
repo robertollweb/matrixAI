@@ -81,6 +81,16 @@ from matrixai.estudio.metricas import (
     metricas_aplicables,
     ordenar_por,
 )
+from matrixai.estudio.incertidumbre import (
+    DISENOS_SOPORTADOS,
+    ESTIMANDOS_DE_INTERVALO,
+    METODOS_DE_REMUESTREO,
+    PROPORCION_MINIMA_VALIDA,
+    UNIDADES_DE_REMUESTREO,
+    Intervalo,
+    intervalo,
+    medir,
+)
 from matrixai.estudio.migracion import (
     ESTUDIO_SCHEMA_VERSION,
     MIGRACIONES,
@@ -102,16 +112,20 @@ from matrixai.estudio.vocabulario import (
 )
 
 __all__ = [
-    "Acceso", "Aptitud", "CLIP_LOG_LOSS", "ESTADOS", "ESTUDIO_SCHEMA_VERSION",
+    "Acceso", "Aptitud", "CLIP_LOG_LOSS", "DISENOS_SOPORTADOS", "ESTADOS",
+    "ESTIMANDOS_DE_INTERVALO", "ESTUDIO_SCHEMA_VERSION",
     "ETIQUETAS_DE_EVIDENCIA", "ErrorDeEstudio", "EsquemaInvalido",
     "EvaluationResult", "FASES", "FitResult", "FittedPipelineSpec", "FugaDeTest",
-    "Horizonte", "IDIOMAS", "LectorDeParticiones", "MIGRACIONES", "MOTIVOS",
-    "INFORME_VERSION", "METRICAS_DIFERIDAS", "REGISTRO", "UMBRAL_POR_DEFECTO",
+    "Horizonte", "IDIOMAS", "Intervalo", "LectorDeParticiones", "MIGRACIONES",
+    "METODOS_DE_REMUESTREO", "MOTIVOS",
+    "INFORME_VERSION", "METRICAS_DIFERIDAS", "PROPORCION_MINIMA_VALIDA",
+    "REGISTRO", "UMBRAL_POR_DEFECTO", "UNIDADES_DE_REMUESTREO",
     "EntradaNoMedible", "Indefinida", "InformeMetrico", "MatrizDeConfusion",
     "MetricaAplazada", "MetricaDesconocida", "MetricaRegistrada", "Muestra",
     "aplazamiento", "aptitud", "calcular", "catalogo", "digest_del_catalogo",
     "direccion_de", "distancia_al_ideal", "es_mejor", "especificacion", "evaluar",
-    "matriz_de_confusion", "metricas_aplicables", "ordenar_por",
+    "intervalo", "matriz_de_confusion", "medir", "metricas_aplicables",
+    "ordenar_por",
     "MetricSpec", "MigracionImposible", "PROPOSITOS", "PoliticaDeDecision",
     "PredictionRecord", "ProblemSpec", "ProtocoloRoto", "RESULTADOS_DE_SELECCION",
     "ROLES", "ROLES_DE_DESARROLLO", "ROLES_RESERVADOS", "Recursos",
