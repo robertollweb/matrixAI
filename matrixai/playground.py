@@ -1896,19 +1896,21 @@ def _dense_torch_train_result(
         # que `DenseSupervisedTrainer`/`_split_examples`: mode=temporal usa el
         # ratio declarado sin barajar; mode ausente/"random" reproduce el
         # 80/20 fijo de siempre, byte-idéntico.
-        split_spec = training.dataset.split
-        if split_spec is not None and split_spec.mode == "temporal":
-            train_ratio = split_spec.train
-            n_train = max(1, min(len(examples) - 1, int(len(examples) * train_ratio))) \
-                if len(examples) > 1 else len(examples)
-        else:
-            n_train = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
-        train_ex = examples[:n_train]
+        # CONTRATO 101-C0: la partición la decide `training.particion`, el mismo
+        # sitio que usa el entrenador stdlib. Sin `protocol=2` declarado
+        # devuelve exactamente lo de antes —el temporal del 57-C3 y el 80/20
+        # fijo—, así que este camino no cambia para nadie que no lo declare;
+        # con él, se honran la semilla, el modo y el tramo de prueba, y los dos
+        # backends parten IGUAL en vez de cada uno a su manera.
+        from matrixai.training.particion import particion_para, reparte
+        _particion = particion_para(len(examples), training.dataset.split)
+        train_ex, _val_declarada, _test_ex = reparte(examples, _particion)
+        n_train = len(train_ex)
         # 1 solo ejemplo: val vacío se sustituye por el propio train (mismo
         # criterio que ya usa el camino composite un poco más abajo en este
         # fichero, `or examples[-1:]`) — el trainer torch exige
         # validation_examples no vacío si se declara explícitamente.
-        val_ex = examples[n_train:] or examples[-1:]
+        val_ex = _val_declarada or examples[-1:]
 
         # M15(a): plantilla de estructura (sin pesos en Python); el módulo torch usa su
         # init nativo (Kaiming), sembrado por torch.manual_seed(seed) en el trainer.

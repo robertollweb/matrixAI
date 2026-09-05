@@ -39,6 +39,21 @@ class DatasetSplitSpec:
     # validación — para series temporales, donde barajar sería fuga
     # (invariante 6 del contrato 57).
     mode: str = "random"
+    # CONTRATO 101-C0. Los dos son opcionales y los dos siguen el mismo criterio
+    # que `seed` y `mode`: si no se declaran, esto se comporta y se serializa
+    # exactamente como antes.
+    #
+    # `test` es el tercer tramo, el que no toca nadie hasta el final. Sin él, la
+    # misma partición elige la mejor época Y publica la métrica, así que el
+    # número que se enseña está elegido sobre los datos con los que se eligió.
+    #
+    # `protocol` es lo que decide si los entrenadores HONRAN lo declarado. Hasta
+    # hoy el denso ignora `seed` y `mode=random` y corta por un 0,8 fijo; con
+    # `protocol="2"` deja de ignorarlos. Se declara en vez de cambiarlo para
+    # todos porque un proyecto antiguo tiene que seguir reproduciendo lo suyo —
+    # que es literalmente para lo que sirve `matrixai verify`.
+    test: float | None = None
+    protocol: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {"train": self.train, "validation": self.validation}
@@ -50,6 +65,10 @@ class DatasetSplitSpec:
         # criterio que `seed` arriba).
         if self.mode == "temporal":
             data["mode"] = self.mode
+        if self.test is not None:
+            data["test"] = self.test
+        if self.protocol is not None:
+            data["protocol"] = self.protocol
         return data
 
 

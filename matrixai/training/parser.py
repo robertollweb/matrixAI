@@ -19,6 +19,7 @@ from matrixai.training.spec import (
     RunSpec,
     TrainingSpec,
 )
+from matrixai.training.particion import PROTOCOLO_SEPARACION as _PROTOCOLO_SEPARACION
 from matrixai.types import parse_type_spec
 
 
@@ -30,8 +31,13 @@ _SOURCE_RE = re.compile(r'^SOURCE\s+(?P<kind>[A-Za-z_][\w]*)\("(?P<source>.+)"\)
 _INPUT_RE = re.compile(r"^INPUT\s+(?P<vector>[A-Za-z_][\w]*)\s+FROM\s+COLUMNS\s+(?P<columns>.+)$")
 _TARGET_RE = re.compile(r"^TARGET\s+(?P<name>[A-Za-z_][\w]*)\s*:\s*(?P<type>.+)$")
 _SPLIT_RE = re.compile(
+    # CONTRATO 101-C0: `test=` y `protocol=` son opcionales y van AL FINAL, en
+    # ese orden, para que una declaración de antes case exactamente igual que
+    # antes — el patrón no cambia para nadie que no los escriba.
     r"^SPLIT\s+train=(?P<train>[0-9.]+)\s+validation=(?P<validation>[0-9.]+)"
-    r"(?:\s+seed=(?P<seed>\d+))?(?:\s+mode=(?P<mode>temporal|random))?$"
+    r"(?:\s+test=(?P<test>[0-9.]+))?"
+    r"(?:\s+seed=(?P<seed>\d+))?(?:\s+mode=(?P<mode>temporal|random))?"
+    r"(?:\s+protocol=(?P<protocol>[0-9]+))?$"
 )
 _BATCH_RE = re.compile(r"^BATCH\s+size=(?P<size>\d+)(?:\s+shuffle=(?P<shuffle>true|false))?$")
 _TYPE_RE = re.compile(r"^TYPE\s+(?P<type>[A-Za-z_][\w]*)$")
@@ -195,6 +201,8 @@ def _parse_dataset(block: list[str]) -> DatasetSpec:
             validation_ratio = float(match.group("validation"))
             seed = int(match.group("seed")) if match.group("seed") else None
             mode = match.group("mode") or "random"
+            test_ratio = float(match.group("test")) if match.group("test") else None
+            protocol = match.group("protocol") or None
             # BIBLIOTECA_PROYECTOS_INTELIGENTES C3 (auditoría [MEDIA]): antes
             # se aceptaba cualquier train/validation (0.9+0.9, train=0,
             # train=1...) — los trainers solo usan `train` para el corte y
@@ -211,10 +219,37 @@ def _parse_dataset(block: list[str]) -> DatasetSpec:
                     f"Invalid SPLIT declaration: validation={validation_ratio} debe "
                     f"estar estrictamente entre 0 y 1: {line}"
                 )
-            if abs((train_ratio + validation_ratio) - 1.0) > 1e-6:
+            # CONTRATO 101-C0: con tres tramos, los tres suman 1,0. El mensaje
+            # nombra los que hay, no los que debería haber.
+            if test_ratio is not None and not (0.0 < test_ratio < 1.0):
                 raise MatrixAITrainingParseError(
-                    f"Invalid SPLIT declaration: train={train_ratio} + "
-                    f"validation={validation_ratio} debe sumar 1.0: {line}"
+                    f"Invalid SPLIT declaration: test={test_ratio} debe estar "
+                    f"estrictamente entre 0 y 1: {line}"
+                )
+            suma = train_ratio + validation_ratio + (test_ratio or 0.0)
+            if abs(suma - 1.0) > 1e-6:
+                partes = (f"train={train_ratio} + validation={validation_ratio}"
+                          + (f" + test={test_ratio}" if test_ratio is not None else ""))
+                raise MatrixAITrainingParseError(
+                    f"Invalid SPLIT declaration: {partes} debe sumar 1.0: {line}"
+                )
+            # UN TRAMO DE PRUEBA QUE NADIE HONRA ES PEOR QUE NO TENERLO. Sin
+            # `protocol=2` los entrenadores parten como siempre —0,8 fijo,
+            # secuencial— y ese `test=` se quedaría escrito sin efecto: alguien
+            # leería su `.mxtrain`, vería una prueba reservada y creería que el
+            # número sale de ahí. Se rechaza en vez de ignorarlo en silencio,
+            # igual que se hace arriba con `mode=temporal seed=`.
+            if test_ratio is not None and protocol != _PROTOCOLO_SEPARACION:
+                raise MatrixAITrainingParseError(
+                    f"Invalid SPLIT declaration: test={test_ratio} necesita "
+                    f"protocol={_PROTOCOLO_SEPARACION}; sin él los entrenadores parten "
+                    f"como siempre y el tramo de prueba se quedaría escrito sin "
+                    f"efecto: {line}"
+                )
+            if protocol is not None and protocol != _PROTOCOLO_SEPARACION:
+                raise MatrixAITrainingParseError(
+                    f"Invalid SPLIT declaration: protocol={protocol} no existe; el "
+                    f"único que cambia cómo se parte es {_PROTOCOLO_SEPARACION}: {line}"
                 )
             # mode=temporal nunca baraja (invariante 12 del contrato 57: "sin
             # barajar") — un seed ahí no tendría ningún efecto; declararlo de
@@ -228,6 +263,7 @@ def _parse_dataset(block: list[str]) -> DatasetSpec:
                 )
             split = DatasetSplitSpec(
                 train=train_ratio, validation=validation_ratio, seed=seed, mode=mode,
+                test=test_ratio, protocol=protocol,
             )
             index += 1
             continue

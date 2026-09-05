@@ -18,6 +18,7 @@ from matrixai.parameters.store import program_hash
 from matrixai.parser import parse_file
 from matrixai.training.data import CSVDataAdapter, SupervisedExample, dataset_fingerprint
 from matrixai.training.dense_backprop import dense_train_step, compute_loss
+from matrixai.training.particion import particion_para, reparte
 from matrixai.training.dense_evaluator import (
     DenseEvaluationResult,
     effective_labels,
@@ -137,21 +138,21 @@ class DenseSupervisedTrainer:
         data_path = _resolve_path(dataset_source, base_path) if dataset_source else None
         examples = self._load_examples(program, net, training, data_path)
 
-        # BIBLIOTECA_PROYECTOS_INTELIGENTES C3: este camino YA era secuencial
-        # (nunca baraja, ratio 0.8 fijo, ignora `training.dataset.split` por
-        # completo) — mode ausente/"random" se deja INTACTO (byte-idéntico,
-        # invariante del corte). mode=temporal es lo único nuevo: usa el
-        # ratio DECLARADO en vez del 0.8 fijo, mismo mecanismo secuencial
-        # (el último tramo, en el orden que llega, es la validación).
-        split_spec = training.dataset.split
-        if split_spec is not None and split_spec.mode == "temporal":
-            train_ratio = split_spec.train
-            split = max(1, min(len(examples) - 1, int(len(examples) * train_ratio))) \
-                if len(examples) > 1 else len(examples)
-        else:
-            split = max(1, int(len(examples) * 0.8)) if len(examples) > 1 else len(examples)
-        train_ex = examples[:split]
-        val_ex = examples[split:]
+        # CÓMO SE PARTE, EN UN SOLO SITIO (contrato 101-C0). Antes esto estaba
+        # aquí dentro y cada entrenador tenía su copia; ahora lo decide
+        # `training.particion`, que conserva EXACTAMENTE los dos caminos de
+        # antes —el 0,8 fijo secuencial y el temporal del 57-C3— y añade el
+        # tercero, que solo se activa si el `.mxtrain` declara `protocol=2`.
+        #
+        # Sin esa declaración no cambia ni un byte: es lo que permite que
+        # `matrixai verify --retrain` siga reproduciendo un proyecto antiguo.
+        particion = particion_para(len(examples), training.dataset.split)
+        train_ex, val_ex, test_ex = reparte(examples, particion)
+        # EL TRAMO DE PRUEBA NO SE TOCA AQUÍ. No entrena, no elige la época y no
+        # aporta un rango ni una categoría: el entrenador solo lo aparta y dice
+        # cuál es. Medirlo es un acto posterior y de otro (104-C0 lo hace
+        # cumplir con su registro de accesos); hacerlo aquí sería elegir sobre
+        # los datos con los que luego se afirma.
 
         ps = build_network_parameter_set(net, resolved_layers, mhash, seed=seed)
 
