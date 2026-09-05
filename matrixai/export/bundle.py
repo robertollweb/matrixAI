@@ -143,6 +143,11 @@ class EdgeBundler:
         metrics: list[dict[str, Any]] | None = None,
         run_provenance: dict[str, Any] | None = None,
         weights_source: str | None = None,
+        # CONTRATO 103 C1 — el problema confirmado (un `ProblemSpec` del 104-C0
+        # o su `a_json()`). Viaja al manifiesto para que el orden de las clases
+        # y la clase positiva salgan DENTRO del paquete: un vector de
+        # probabilidades sin el orden de sus clases no se puede leer.
+        problem: Any | None = None,
     ) -> EdgeBundleResult:
         """PESOS_GRANDES C7b: `state_dict` (tensores torch crudos de un modelo
         grande guardado en `.mxw`) es la alternativa a un `parameter_set` con
@@ -405,6 +410,7 @@ class EdgeBundler:
                 # `reproducible: true` — «no consta» no es «entrenado»— y el
                 # aviso se quedaba fuera del ZIP, solo en la respuesta HTTP.
                 weights_source=weights_source,
+                problem=problem,
             )
 
             # 6. README.md — refleja los ficheros REALES del bundle (BAJA C7
@@ -568,6 +574,7 @@ def create_edge_bundle(
     metrics: list[dict[str, Any]] | None = None,
     run_provenance: dict[str, Any] | None = None,
     weights_source: str | None = None,
+    problem: Any | None = None,
 ) -> EdgeBundleResult:
     return EdgeBundler().bundle(
         program, parameter_set, mxai_path, params_path, outdir,
@@ -590,6 +597,7 @@ def create_edge_bundle(
         metrics=metrics,
         run_provenance=run_provenance,
         weights_source=weights_source,
+        problem=problem,
     )
 
 

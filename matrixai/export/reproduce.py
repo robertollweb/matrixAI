@@ -72,7 +72,12 @@ from matrixai.training.metric_identity import (
 
 #: Versión del formato de ESTE manifiesto (§5-C1 del contrato lo fija en "1.0").
 #: Un consumidor que no la reconozca debe negarse a interpretarlo, no adivinar.
-REPRODUCE_SCHEMA_VERSION = "1.0"
+#: 1.1 (2026-09-05, 103-C1) es ADITIVA sobre 1.0: el mismo manifiesto más un
+#: bloque `problem` con el problema confirmado —objetivo, tarea, **el orden de
+#: las clases** y la clase positiva—. `verify` ya acepta 1.0, 1.1 y 1.2, así que
+#: un paquete nuevo no se vuelve ilegible; y un manifiesto 1.0 no lleva
+#: `problem`, que es distinto de llevarlo vacío.
+REPRODUCE_SCHEMA_VERSION = "1.1"
 
 REPRODUCE_MANIFEST_FILENAME = "reproduce.json"
 
@@ -826,6 +831,137 @@ def build_generation_block(
 
 
 # ---------------------------------------------------------------------------
+# El problema confirmado (103-C1)
+# ---------------------------------------------------------------------------
+
+#: Lo que del problema confirmado viaja en el paquete. No va entero el
+#: `ProblemSpec`: los predictores, su disponibilidad y las restricciones son del
+#: estudio, y lo que hace falta para LEER lo que este modelo emite es qué
+#: predice, con qué tarea, en qué ORDEN están sus clases y cuál es la positiva.
+_PROBLEM_KEYS = ("target", "task", "classes", "positive_label",
+                 "observation_unit", "prediction_time", "horizon", "intended_use")
+
+
+def build_problem_block(problem: Any) -> dict[str, Any] | None:
+    """El problema confirmado que viaja con el paquete, o `None` si no viaja.
+
+    POR QUÉ ESTÁ AQUÍ, que es el criterio de cierre del 103-C1: **la clase
+    positiva y el orden de las clases viajan al manifiesto**. Un vector de
+    probabilidades sin el orden de sus clases no se puede leer —cuál es la
+    columna 0 es justo lo que hay que saber— y una binaria sin clase positiva
+    deja sin definir sensibilidad, VPP y el umbral. Hasta aquí eso vivía en el
+    `.mxai` y en el `inference_spec`, y el manifiesto —que es lo que alguien
+    lee para saber qué es este paquete— no lo decía.
+
+    Acepta un `ProblemSpec` del 104-C0 o el mapa que produce su `a_json()`.
+    Ausente es `None` y se ve: un paquete que no declara su problema no es un
+    paquete cuyo problema esté vacío.
+
+    Fail-closed con motivo, como el resto de este fichero: una clase positiva
+    que no está entre las clases, o una regresión con clases, no es una
+    respuesta —es un fallo de cableado de quien empaqueta— y se corta aquí,
+    donde todavía se puede arreglar.
+    """
+    if problem is None:
+        return None
+    if hasattr(problem, "a_json"):
+        crudo = problem.a_json()
+        # `a_json()` de un `ProblemSpec` viene en sobre (`schema`,
+        # `schema_version`, cuerpo). Se toma el cuerpo: el sobre es del 104 y
+        # aquí manda el `schema_version` del manifiesto.
+        cuerpo = {k: v for k, v in crudo.items() if k in _PROBLEM_KEYS}
+    else:
+        cuerpo = _require_mapping(problem, "problem")
+
+    desconocidas = sorted(set(cuerpo) - set(_PROBLEM_KEYS))
+    if desconocidas:
+        raise ReproduceManifestError(
+            f"problem carries unknown keys {desconocidas}: half interpreting a "
+            f"field is what the schema version exists to prevent")
+
+    # El vocabulario de tareas es el del 104-C0 y se COMPARTE. Una segunda lista
+    # aquí acabaría divergiendo el día que se añada una tarea.
+    from matrixai.estudio.vocabulario import (  # noqa: PLC0415
+        TAREAS,
+        TAREAS_DE_CLASIFICACION,
+    )
+
+    target = _require_text(cuerpo.get("target"), "problem.target")
+    task = _require_text(cuerpo.get("task"), "problem.task", choices=TAREAS)
+    clases_crudas = cuerpo.get("classes")
+    positiva = cuerpo.get("positive_label")
+
+    clases: list[str] | None = None
+    if task in TAREAS_DE_CLASIFICACION:
+        if clases_crudas is None:
+            raise ReproduceManifestError(
+                "problem.classes is required for a classification: without the "
+                "ORDERED classes there is no telling which probability column "
+                "belongs to which class")
+        clases = _require_str_list(clases_crudas, "problem.classes")
+        if len(clases) < 2:
+            raise ReproduceManifestError(
+                f"problem.classes must carry two or more classes, got {clases!r}")
+        if len(set(clases)) != len(clases):
+            raise ReproduceManifestError(
+                f"problem.classes must not repeat a class, got {clases!r}")
+        if task == "binary_classification":
+            if positiva is None:
+                raise ReproduceManifestError(
+                    "problem.positive_label is required for a binary classification: "
+                    "without it sensitivity, PPV and the threshold are undefined")
+            _require_text(positiva, "problem.positive_label")
+        if positiva is not None and positiva not in clases:
+            raise ReproduceManifestError(
+                f"problem.positive_label {positiva!r} is not among problem.classes "
+                f"{clases!r}")
+    else:
+        if clases_crudas is not None:
+            raise ReproduceManifestError(
+                f"problem.classes does not belong to a {task}, got {clases_crudas!r}: "
+                f"if they are classes, the task is not regression")
+        if positiva is not None:
+            raise ReproduceManifestError(
+                f"problem.positive_label does not belong to a {task}, got {positiva!r}")
+
+    horizonte = cuerpo.get("horizon")
+    if horizonte is not None:
+        horizonte = _require_mapping(horizonte, "problem.horizon")
+        if sorted(horizonte) != ["magnitud", "unidad"]:
+            raise ReproduceManifestError(
+                f"problem.horizon must be {{magnitud, unidad}}, got {sorted(horizonte)}")
+        _require_real(horizonte["magnitud"], "problem.horizon.magnitud", minimum=0.0)
+        _require_text(horizonte["unidad"], "problem.horizon.unidad")
+        horizonte = dict(horizonte)
+
+    momento = cuerpo.get("prediction_time")
+    if momento is not None:
+        _require_text(momento, "problem.prediction_time")
+    if horizonte is not None and momento is None:
+        # La misma regla que el `ProblemSpec`, y no se relaja al publicar: un
+        # horizonte sin ancla no dice desde cuándo se cuenta.
+        raise ReproduceManifestError(
+            "problem.horizon travels without problem.prediction_time: a horizon "
+            "without an anchor does not say when it starts counting")
+    for nombre in ("observation_unit", "intended_use"):
+        if cuerpo.get(nombre) is not None:
+            _require_text(cuerpo[nombre], f"problem.{nombre}")
+
+    return {
+        "target": target,
+        "task": task,
+        # EL ORDEN ES EL DATO. `classes` no es un conjunto: es la
+        # correspondencia entre columna de probabilidades y clase.
+        "classes": clases,
+        "positive_label": positiva,
+        "observation_unit": cuerpo.get("observation_unit"),
+        "prediction_time": momento,
+        "horizon": horizonte,
+        "intended_use": cuerpo.get("intended_use"),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Métricas (§5 bis)
 # ---------------------------------------------------------------------------
 
@@ -1244,6 +1380,7 @@ def build_reproduce_manifest(
     metrics: list[dict[str, Any]] | None = None,
     run_provenance: dict[str, Any] | None = None,
     weights_source: str | None = None,
+    problem: Any | None = None,
 ) -> dict[str, Any]:
     """Construye el `reproduce.json` de un bundle YA escrito en `bundle_dir`.
 
@@ -1298,6 +1435,10 @@ def build_reproduce_manifest(
     # puede arreglar, y el CLI valida su sidecar llamando aquí (ensayo en seco
     # sobre un directorio vacío, `cli.py::_load_reproduce_metadata`).
     validate_generation_payload(generation)
+    # El problema se valida ANTES de escribir nada, igual que todo lo de arriba:
+    # un `positive_label` que no está entre las clases es un fallo de cableado y
+    # se corta donde todavía se puede arreglar.
+    problem_block = build_problem_block(problem)
 
     capture = _normalize_run_provenance(run_provenance)
 
@@ -1795,6 +1936,11 @@ def build_reproduce_manifest(
         # `null` significa «no consta», que no es «entrenado»; el motivo entero
         # está en `reproducible_reason`.
         "weights": {"source": estado_pesos},
+        # QUÉ PREDICE ESTE MODELO, con el orden de sus clases y su clase
+        # positiva (103-C1). `null` cuando nadie lo confirmó: un valor ausente
+        # no es un cero, y un paquete que no declara su problema no es un
+        # paquete cuyo problema esté vacío.
+        "problem": problem_block,
         "generation": generation_block,
         "environment": build_environment(),
         "metrics": metrics_block,

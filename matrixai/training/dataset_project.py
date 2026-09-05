@@ -279,6 +279,15 @@ def generate_project_from_dataset(
     user_intent: str | None = None,
     use_intent_llm: bool = False,
     locale: str = "es",
+    # CONTRATO 103 C1 — las respuestas a lo que hay que CONFIRMAR del problema.
+    # Todas opcionales y todas `None` por defecto: sin ellas se genera igual que
+    # siempre y `result['confirmacion']` enumera lo que falta; con ellas, el
+    # problema queda confirmado y viaja como `ProblemSpec` (104-C0).
+    unidad_de_observacion: str | None = None,
+    clase_positiva: str | None = None,
+    momento_de_prediccion: str | None = None,
+    horizonte: Any | None = None,
+    uso_previsto: str | None = None,
 ) -> dict[str, Any]:
     """Genera un proyecto MatrixAI completo A PARTIR de datos reales.
 
@@ -897,6 +906,25 @@ def generate_project_from_dataset(
     result = dict(res)
     result["csv_text"] = prepared_csv
     result["provenance"] = provenance
+    # CONTRATO 103 C1 — EL PROBLEMA, CONFIRMADO ANTES DE ENTRENAR.
+    #
+    # Se PUBLICA, no se impone: generar el proyecto sigue haciendo exactamente lo
+    # mismo que antes de este corte, y lo que aparece al lado es qué falta por
+    # confirmar para que entrenar signifique algo — la unidad de observación, la
+    # clase positiva de una binaria, el tipo de tarea cuando el objetivo es
+    # numérico con pocos valores distintos— y qué lo impide: un objetivo que no
+    # varía en las filas que DE VERDAD entrenan (que no es lo mismo que un
+    # objetivo constante en el CSV entero).
+    #
+    # Se le pasan el `analysis` y las `rows` YA calculados. Releerlos costaría
+    # tres pasadas más sobre un CSV que puede tener cientos de miles de filas
+    # (medido en este producto: 0,24 s por pasada sobre 200.000 filas).
+    result["confirmacion"] = _confirmacion_del_problema(
+        csv_text=csv_text, analysis=analysis, rows=rows, target_column=target_column,
+        feature_columns=list(feature_columns),
+        unidad_de_observacion=unidad_de_observacion, clase_positiva=clase_positiva,
+        momento_de_prediccion=momento_de_prediccion, horizonte=horizonte,
+        uso_previsto=uso_previsto)
     # field_ranges/field_types/field_categories YA vienen en `res` (extraídos
     # del prompt sintetizado por analyze_playground_request) — no se
     # duplican aquí, se devuelven tal cual llegaron.
@@ -925,6 +953,14 @@ def generate_temporal_project_from_dataset(
     user_intent: str | None = None,
     use_intent_llm: bool = False,
     locale: str = "es",
+    # CONTRATO 103 C1 — las mismas respuestas que el camino no temporal. Un
+    # envoltorio que se come un parámetro deja media aplicación sin confirmar,
+    # que es lo que ya pasó aquí con el idioma.
+    unidad_de_observacion: str | None = None,
+    clase_positiva: str | None = None,
+    momento_de_prediccion: str | None = None,
+    horizonte: Any | None = None,
+    uso_previsto: str | None = None,
 ) -> dict[str, Any]:
     """C4 — flujo A, caso serie temporal: "columna temporal + ventana +
     horizonte → operaciones de C3" (contrato 57). Envoltorio DELGADO
@@ -1109,6 +1145,12 @@ def generate_temporal_project_from_dataset(
         # El idioma también aquí: el camino temporal es un envoltorio, y un
         # envoltorio que se come un parámetro deja media aplicación traducida.
         locale=locale,
+        # CONTRATO 103 C1 — y las respuestas de la confirmación, por lo mismo.
+        unidad_de_observacion=unidad_de_observacion,
+        clase_positiva=clase_positiva,
+        momento_de_prediccion=momento_de_prediccion,
+        horizonte=horizonte,
+        uso_previsto=uso_previsto,
     )
 
     feature_columns = list(result["provenance"]["feature_name_map"].keys())
@@ -1892,6 +1934,45 @@ def _extract_seed(training_text: str) -> int | None:
     procedencia nunca pueda divergir del training_text real devuelto."""
     m = re.search(r"\bseed=(\d+)", training_text)
     return int(m.group(1)) if m else None
+
+
+def _confirmacion_del_problema(
+    *, csv_text: str, analysis: dict[str, Any], rows: list[dict[str, str]],
+    target_column: str,
+    feature_columns: list[str], unidad_de_observacion: str | None,
+    clase_positiva: str | None, momento_de_prediccion: str | None,
+    horizonte: Any | None, uso_previsto: str | None,
+) -> dict[str, Any]:
+    """El documento del 103-C1 para este proyecto, en JSON.
+
+    Vive aquí y no dentro de `objetivo.py` porque lo que traduce es lo de ESTE
+    flujo: las features que el proyecto ha decidido de verdad (`feature_columns`,
+    ya sin la columna objetivo, sin las constantes descartadas y sin las de tipo
+    no usable) son las entradas del problema — pasarle todas las columnas del CSV
+    declararía como predictores unas que este modelo no mira.
+
+    Nunca lanza: un fallo confirmando el problema no puede tumbar una generación
+    que ya ha terminado bien. Si algo va mal se dice, con el motivo, en vez de
+    devolver un documento a medias que parezca una confirmación.
+    """
+    from matrixai.estudio import Horizonte  # noqa: PLC0415
+    from matrixai.training.objetivo import confirmar_desde_csv  # noqa: PLC0415
+
+    if isinstance(horizonte, dict):
+        horizonte = Horizonte.desde_json(horizonte)
+    try:
+        return confirmar_desde_csv(
+            csv_text, objetivo=target_column, entradas=feature_columns,
+            filas=rows,
+            unidad_de_observacion=unidad_de_observacion,
+            clase_positiva=clase_positiva,
+            momento_de_prediccion=momento_de_prediccion, horizonte=horizonte,
+            uso_previsto=uso_previsto, analisis=analysis,
+        ).a_json()
+    except Exception as exc:  # noqa: BLE001
+        return {"confirmado": False, "problema": None, "propuesta": {},
+                "preguntas": [], "bloqueos": [], "pistas": [],
+                "error": f"{type(exc).__name__}: {exc}"}
 
 
 def _build_provenance(

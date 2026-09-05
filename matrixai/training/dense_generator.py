@@ -1211,6 +1211,23 @@ def _multiclase_sin_clases(dg, prompt, task, resolved_labels, locale="es"):
     )
 
 
+def lectura_del_objetivo(texto: str) -> tuple[str, bool]:
+    """Qué dice la frase que se predice, y si lo que pide es un SÍ o un NO.
+
+    Las dos cosas salen de los métodos del contrato 70 (`_objetivo_del_prompt`,
+    que corta por el conector más temprano, y `_es_pregunta_de_si_o_no`), y esta
+    función existe para que el 103-C1 pueda leerlas SIN una segunda lista de
+    conectores: dos sitios declarando lo mismo acaban divergiendo, y esa lista
+    ya lleva dos pasadas de auditoría encima.
+
+    El texto se normaliza igual que en `_detect_task` —sin acentos y en
+    minúsculas—, porque los conectores están escritos así.
+    """
+    dg = DenseNetworkGenerator()
+    normalizado = _norm(texto).lower()
+    return dg._objetivo_del_prompt(normalizado), dg._es_pregunta_de_si_o_no(normalizado)
+
+
 # CONTRATO 71 — un identificador NO es una característica.
 #
 # Nombres que delatan un identificador. La lista es CORTA y explícita a
@@ -1342,6 +1359,28 @@ def resolve_prompt_fields(dg, prompt, input_fields, locale="es"):
     for nombre in resolved_fields:
         if parece_identificador(nombre):
             warnings.append(_aviso_de_identificador(nombre, locale))
+
+    # CONTRATO 71, SEGUNDA MITAD — la fuga del objetivo, cerrada por el 103-C1.
+    #
+    # El 71 la dejó esperando decisión porque «detectarlo de verdad exige saber
+    # qué dice el prompt que hay que predecir, y en la ruta de prompt el
+    # objetivo se llama `predicted_class`». Ya no: `objetivo_declarado` lee el
+    # nombre real de la frase, y `pistas_por_nombre` compara.
+    #
+    # SE AVISA, NO SE QUITA (invariante 1 del 71), y se avisa como PISTA: el
+    # propio 71 midió que un detector por parecido de nombres marcaría
+    # `last_year_salary` —el sueldo del año pasado predice bien el siguiente— y
+    # acusaría a una columna legítima. Quien BLOQUEA es la confirmación del
+    # estudio (`matrixai/training/objetivo.py`), cuando la misma columna se
+    # declara a la vez objetivo y entrada; aquí, en el generador, solo se dice.
+    from matrixai.generation.prompt_objetivo import objetivo_declarado  # noqa: PLC0415
+    from matrixai.training.objetivo import pistas_por_nombre  # noqa: PLC0415
+
+    _leido = objetivo_declarado(prompt)
+    if _leido is not None and _leido.nombre:
+        _idioma = "en" if str(locale or "es").strip().lower() == "en" else "es"
+        for _pista in pistas_por_nombre(_leido.nombre, resolved_fields):
+            warnings.append(_pista.motivo[_idioma])
 
     field_ranges: dict[str, tuple[float, float]] = {
         name: specs_by_name[name].range
