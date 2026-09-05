@@ -37,6 +37,9 @@ from matrixai.compiler import (
     DifferentiablePythonCompiler,
     PythonBackendCompiler,
 )
+# El vocabulario del mapa de salida vive en un solo sitio (102-C0): el CLI lo
+# ofrece, no lo redefine.
+from matrixai.export.onnx_salida import SEMANTICAS as SEMANTICAS_DE_SALIDA
 from matrixai.compiler.torch_forward import TorchForwardRunner
 from matrixai.export import (
     EdgeBundleError,
@@ -994,6 +997,22 @@ def main() -> int:
                           help="Column with the expected value (default: the last one)")
     attest_p.add_argument("--purpose", default="", help="What this evaluation is for")
     attest_p.add_argument("--actor", default="", help="Who is running it")
+    # EL MAPA DE SALIDA (102-C0). Solo hace falta cuando el modelo no declara lo
+    # bastante: una salida de etiquetas, un mapa por clase o un `Softmax` se leen
+    # solos. Un escalar suelto, no — y suponer que es una probabilidad es lo que
+    # hacía que un modelo de tres clases atestiguara 0,6667 donde la exactitud
+    # era 0,9733.
+    attest_p.add_argument(
+        "--output-name",
+        help="Which graph output to read (only needed when the model is ambiguous)")
+    attest_p.add_argument(
+        "--output-kind", choices=list(SEMANTICAS_DE_SALIDA),
+        help="What that output means: a label, class probabilities, the positive "
+             "class probability, or a regression value")
+    attest_p.add_argument(
+        "--classes",
+        help="Ordered class labels, comma separated (e.g. 'no,yes' or '7,9,3'), "
+             "when the model returns positions instead of labels")
     attest_p.add_argument(
         "--key", help="Hex key to sign the receipt. Without it the receipt is "
                       "emitted UNSIGNED, which is level A0 and says so")
@@ -3476,12 +3495,18 @@ def _cmd_attest(args) -> int:
     from matrixai.pipelines.receipt import firmar_recibo, nivel_del_recibo  # noqa: PLC0415
 
     try:
+        clases = None
+        if getattr(args, "classes", None):
+            clases = [c.strip() for c in str(args.classes).split(",") if c.strip()]
         recibo = atestiguar(args.model, args.data, metrica=args.metric,
                             columna=args.target_column, proposito=args.purpose,
                             # AQUÍ SÍ es el terminal, y por eso lo dice ESTE
                             # llamante y no el módulo: el módulo no sabe por
                             # dónde ha entrado la petición.
-                            actor=args.actor or "matrixai attest")
+                            actor=args.actor or "matrixai attest",
+                            salida=getattr(args, "output_name", None),
+                            semantica=getattr(args, "output_kind", None),
+                            clases=clases)
     except AtestacionImposible as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

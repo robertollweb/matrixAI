@@ -27,6 +27,9 @@ Decir las tres cosas es lo que separa un recibo de un adorno.
 
 from __future__ import annotations
 
+from matrixai.export.onnx_salida import (
+    SalidaOnnxAmbigua, elegir_salida, etiqueta_de, misma_etiqueta, resolver_clases,
+    valor_de)
 from matrixai.onnx_entrada import (
     EntradaOnnxIncompatible, caracteristicas_declaradas, tensor_para)
 
@@ -94,11 +97,21 @@ def atestiguar(
     proposito: str = "",
     actor: str = "",
     locale: str = "es",
+    salida: str | None = None,
+    semantica: str | None = None,
+    clases: list | None = None,
 ) -> dict[str, Any]:
     """Corre el modelo sobre los datos y devuelve el RECIBO (sin firmar).
 
     Firmarlo es un acto aparte, como en todo el 81: quien firma decide con qué
     clave, y un recibo sin firmar es A0 y lo dice.
+
+    `salida`, `semantica` y `clases` son el **mapa de salida** (102-C0): qué
+    salida del grafo se lee, qué significa y en qué orden están las clases. No
+    hacen falta cuando el modelo lo declara —una salida de etiquetas, un mapa
+    por clase, un `Softmax`—; se piden cuando no, porque suponerlo es lo que
+    hacía que un modelo de tres clases atestiguara 0,6667 donde la exactitud
+    era 0,9733.
     """
     if metrica not in METRICAS:
         raise AtestacionImposible(
@@ -146,18 +159,61 @@ def atestiguar(
             f"{len(entradas_nombres)} "
             f"columnas además de {objetivo!r}: no se recorta ni se rellena")
 
-    aciertos = 0
-    error_absoluto = 0.0
-    medidas = 0
+    # LAS FILAS QUE DE VERDAD SE PUEDEN MEDIR, decididas UNA VEZ y aquí. Antes
+    # el filtro vivía dentro del bucle; al deducir las clases de la columna
+    # objetivo hacía falta el mismo criterio, y tenerlo en dos sitios habría
+    # hecho lo de siempre: tres filas de basura —que el recibo ya declara como
+    # no medidas— habrían aportado sus etiquetas a la deducción de clases y la
+    # habrían hecho imposible. Una fila que no es numérica no se convierte en un
+    # cero: se salta, se cuenta, y tampoco cuenta para las clases.
+    medibles: list[tuple[list, str]] = []
     for fila in filas:
         if len(fila) != len(cabecera):
             continue
         try:
             vector = [float(v) for i, v in enumerate(fila) if i != indice]
         except ValueError:
-            # Una fila que no es numérica no se convierte en un cero: se salta
-            # y se cuenta, para que el recibo diga sobre cuántas se midió.
             continue
+        medibles.append((vector, fila[indice]))
+
+    if not medibles:
+        raise AtestacionImposible(
+            "ninguna fila del CSV se pudo medir: no hay resultado que atestiguar")
+
+    # QUÉ SE LEE DE LO QUE DEVUELVE EL MODELO, Y POR QUÉ ÉSO (102-C0). Antes se
+    # tomaba `run(...)[0]` —la PRIMERA salida— y se umbralizaba a 0,5. Los
+    # conversores ponen `label` primero: en binaria cuadraba por accidente y con
+    # tres clases no. La decisión vive en `onnx_salida`, el mismo sitio para
+    # todos los caminos que lean un modelo ajeno.
+    tarea = "regresion" if metrica == "mae" else "clasificacion"
+    try:
+        elegida = elegir_salida(sesion, tarea=tarea, ruta_modelo=ruta_modelo,
+                                nombre=salida, semantica=semantica)
+    except SalidaOnnxAmbigua as exc:
+        raise AtestacionImposible(str(exc)) from None
+
+    meta_salida = sesion.get_outputs()[elegida.indice]
+    forma_salida = list(getattr(meta_salida, "shape", []) or [])
+    ancho_salida = forma_salida[-1] if (len(forma_salida) > 1
+                                        and isinstance(forma_salida[-1], int)) else None
+    etiquetas_del_csv = [esperado for _, esperado in medibles]
+
+    if str(elegida.tipo_onnx).startswith("seq(map"):
+        # Las clases vienen DENTRO del modelo, una por clave: no hay posiciones
+        # que traducir ni nada que suponer.
+        clases_usadas, origen_de_clases = None, "las trae el modelo (mapa por clase)"
+    else:
+        try:
+            clases_usadas, origen_de_clases = resolver_clases(
+                elegida, clases_declaradas=clases,
+                etiquetas_observadas=etiquetas_del_csv, ancho=ancho_salida)
+        except SalidaOnnxAmbigua as exc:
+            raise AtestacionImposible(str(exc)) from None
+
+    aciertos = 0
+    error_absoluto = 0.0
+    medidas = 0
+    for vector, esperado in medibles:
         # El TIPO que el modelo declara, no `float` siempre: un modelo de
         # `int64` alimentado con `3.7` lo trunca en silencio a `3`, y el acierto
         # que salga de ahí iría al recibo como si se hubiera medido sobre el dato
@@ -166,45 +222,23 @@ def atestiguar(
             tensor = tensor_para(meta, vector, "el modelo que se atestigua")
         except EntradaOnnxIncompatible as exc:
             raise AtestacionImposible(str(exc)) from None
-        salida = sesion.run(None, {meta.name: tensor})[0]
-        try:
-            valores = salida.tolist()[0]
-        except AttributeError:
-            valores = list(salida)[0]
-        esperado = fila[indice]
+        bruto = sesion.run(None, {meta.name: tensor})[elegida.indice]
         medidas += 1
-        if metrica == "accuracy":
-            # UNA SOLA SALIDA NO ES UNA LISTA DE CLASES (auditoría externa del
-            # 2026-08-25, hallazgo 1 — BLOQUEANTE, y reproducido con un
-            # clasificador sigmoide: la exactitud correcta con umbral 0,5 era
-            # **1,0** y esto atestiguaba **0,5**).
-            #
-            # `argmax` de un vector de UN elemento es siempre 0, así que el
-            # modelo «predecía» siempre la clase 0. Es el mismo defecto que ya
-            # se cerró en el evaluador del core, aquí un piso más allá: **el
-            # número equivocado acaba atado a los digests y se puede FIRMAR**.
-            #
-            # Con una salida se usa el umbral, que es lo que significa un
-            # sigmoide; con varias, el argmax, que es lo que significa un
-            # softmax.
-            if isinstance(valores, list) and len(valores) == 1:
-                predicho = 1 if float(valores[0]) >= 0.5 else 0
-            elif isinstance(valores, list):
-                predicho = max(range(len(valores)), key=lambda i: valores[i])
+        try:
+            if metrica == "accuracy":
+                # LA ETIQUETA, NO UN ÍNDICE (102-C0). O la que dio el modelo, o
+                # la clase que ocupa la posición del máximo — y de dónde salen
+                # esas clases va en el recibo.
+                predicha = etiqueta_de(bruto, elegida, clases_usadas)
+                aciertos += int(misma_etiqueta(predicha, esperado))
             else:
-                predicho = 1 if float(valores) >= 0.5 else 0
-            try:
-                aciertos += int(predicho == int(float(esperado)))
-            except ValueError:
-                # La etiqueta no es un número: se compara por posición solo si
-                # el CSV declara las clases, y aquí no las declara.
-                raise AtestacionImposible(
-                    f"la columna {objetivo!r} trae {esperado!r}, que no es un índice de "
-                    "clase; para etiquetas por su nombre hace falta declarar el orden "
-                    "de las clases, y este camino todavía no lo pide") from None
-        else:
-            valor = valores[0] if isinstance(valores, list) else valores
-            error_absoluto += abs(float(valor) - float(esperado))
+                error_absoluto += abs(valor_de(bruto) - float(esperado))
+        except SalidaOnnxAmbigua as exc:
+            raise AtestacionImposible(str(exc)) from None
+        except ValueError:
+            raise AtestacionImposible(
+                f"la columna {objetivo!r} trae {esperado!r}, que no es un número, y "
+                f"{metrica!r} se mide sobre números") from None
 
     if medidas == 0:
         raise AtestacionImposible(
@@ -259,6 +293,19 @@ def atestiguar(
                           for d in (getattr(meta, "shape", []) or [])],
                 "features_declared": esperado_declarado,
                 "shape_check": comprobacion_forma,
+            },
+            # QUÉ SE LEYÓ DE LO QUE DEVOLVIÓ, Y CON QUÉ CLASES (102-C0). Quien
+            # lea el recibo tiene que poder saber, sin abrir el ONNX, si el
+            # número salió de la predicción del propio modelo o de un `argmax`
+            # que hizo MatrixAI, y de dónde salieron las clases. Un recibo que
+            # no lo dice deja el número sin apellido.
+            "output_spec": {
+                "name": elegida.nombre,
+                "type": elegida.tipo_onnx,
+                "kind": elegida.semantica,
+                "chosen_because": elegida.motivo,
+                "classes": list(clases_usadas) if clases_usadas is not None else None,
+                "classes_source": origen_de_clases,
             },
         }],
         "dataset": {

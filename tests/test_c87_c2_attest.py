@@ -274,6 +274,15 @@ class AttestAlimentaCOMO_EL_EJECUTORTest(unittest.TestCase):
     2ª auditoría externa (2026-08-25), hallazgo 1 residual: **«la garantía de C1
     no alcanza C2»**. C1 ya comprobaba tipos y ejes dinámicos; C2 tenía su propia
     copia y hacía justo lo que C1 había dejado de hacer.
+
+    ESTAS PRUEBAS SON DEL LADO DE LA ENTRADA, y desde el 102-C0 lo dicen: su
+    modelo devuelve **un escalar de un `MatMul`**, que puede ser una regresión,
+    una puntuación o una probabilidad. El camino viejo lo umbralizaba a 0,5 sin
+    preguntar —el mismo defecto que atestiguaba 0,6667 sobre iris—, así que
+    estas tres se apoyaban sin querer en esa adivinación. Ahora declaran el
+    **mapa de salida**, que es lo que el contrato pide cuando el modelo no lo
+    declara; lo que comprueban —tipos, ejes dinámicos y qué dice el recibo de la
+    ENTRADA— no ha cambiado ni una letra.
     """
 
     def test_un_eje_DINAMICO_ya_no_se_confunde_con_una_entrada(self):
@@ -286,7 +295,8 @@ class AttestAlimentaCOMO_EL_EJECUTORTest(unittest.TestCase):
             _modelo_con("float", [1, "features"], modelo)
             datos = d / "d.csv"
             datos.write_text("a,b,c,y\n1,2,3,1\n0,5,6,0\n", encoding="utf-8")
-            recibo = atestiguar(modelo, datos, columna="y", metrica="accuracy")
+            recibo = atestiguar(modelo, datos, columna="y", metrica="accuracy",
+                                semantica="probabilidad_positiva")
         self.assertEqual(recibo["metrics"][0]["value"], 1.0)
         # Y no se afirma por omisión: con ejes dinámicos no se pudo contrastar,
         # y el recibo lo DICE en vez de callar.
@@ -305,7 +315,8 @@ class AttestAlimentaCOMO_EL_EJECUTORTest(unittest.TestCase):
             datos = d / "d.csv"
             datos.write_text("a,b,c,y\n3.7,2,3,1\n0,5,6,0\n", encoding="utf-8")
             with self.assertRaises(AtestacionImposible) as e:
-                atestiguar(modelo, datos, columna="y", metrica="accuracy")
+                atestiguar(modelo, datos, columna="y", metrica="accuracy",
+                           semantica="probabilidad_positiva")
         self.assertIn("truncaría en silencio", str(e.exception))
 
     def test_y_el_recibo_dice_CON_QUE_se_alimento(self):
@@ -315,7 +326,8 @@ class AttestAlimentaCOMO_EL_EJECUTORTest(unittest.TestCase):
             _modelo_con("int64", ["N", 3], modelo)
             datos = d / "d.csv"
             datos.write_text("a,b,c,y\n1,2,3,1\n0,5,6,0\n", encoding="utf-8")
-            recibo = atestiguar(modelo, datos, columna="y", metrica="accuracy")
+            recibo = atestiguar(modelo, datos, columna="y", metrica="accuracy",
+                                semantica="probabilidad_positiva")
         spec = recibo["models"][0]["input_spec"]
         self.assertEqual(spec["type"], "tensor(int64)")
         self.assertEqual(spec["features_declared"], 3)
