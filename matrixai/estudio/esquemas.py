@@ -874,9 +874,20 @@ class MetricSpec:
                 raise EsquemaInvalido("rango_ideal_al_reves", valor=repr(list(rango)))
             object.__setattr__(self, "ideal_range", (bajo, alto))
 
-        if "positive_label" in self.requires and self.positive_label is None:
-            raise EsquemaInvalido("metrica_de_clase_positiva_sin_clase",
-                                  campo=self.metric_id)
+        # AQUÍ NO SE EXIGE LA CLASE POSITIVA, Y ES A PROPÓSITO (revisado el
+        # 2026-09-05 al auditar el 105-C1). La regla anterior decía: si
+        # `requires` nombra `positive_label`, la ficha tiene que traer una. Pero
+        # `requires` significa justamente lo contrario — «esto lo tiene que
+        # traer la MUESTRA»—, así que la ficha GENÉRICA del catálogo («qué es el
+        # AUROC») no conoce ninguna clase y no puede traerla. El 105-C1 cumplió
+        # la regla inventándose un marcador (`"<positive_label of the sample>"`)
+        # en un campo tipado como etiqueta de clase: un valor fabricado, que es
+        # lo que esta casa tiene prohibido.
+        #
+        # Dónde SÍ se exige, que es donde importa: una `Muestra` binaria sin
+        # clase positiva **no se construye** (`metricas.Muestra`, con su motivo:
+        # «no se elige por orden alfabético»). La comprobación estaba en los dos
+        # sitios y solo uno era el bueno.
 
     def _cuerpo(self) -> dict[str, Any]:
         return {

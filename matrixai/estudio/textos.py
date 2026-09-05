@@ -355,6 +355,124 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "es": "el plan no tiene ninguna observación con el rol {valor}",
         "en": "the plan has no observation with role {valor}",
     },
+    # ---- registro métrico (105-C1) ---------------------------------------
+    "metrica_desconocida": {
+        "es": "el registro métrico no conoce {valor}. El catálogo es cerrado a "
+              "propósito: una métrica improvisada no tiene fórmula, ni versión, ni "
+              "dirección, y el número que saliera no se podría comparar con nada",
+        "en": "the metric registry does not know {valor}. The catalogue is closed "
+              "on purpose: an improvised metric has no formula, no version and no "
+              "direction, and any number it produced could not be compared to anything",
+    },
+    "mape_aplazada": {
+        "es": "MAPE se difiere hasta que alguien la pida y se acuerden las reglas "
+              "de los ceros y los casi ceros: dividir por un objetivo de valor 0 "
+              "no da un porcentaje grande, da un número inventado",
+        "en": "MAPE is deferred until somebody asks and the rules of zeros and "
+              "near zeros are agreed: dividing by a target of value 0 does not "
+              "yield a large percentage, it yields a made up number",
+    },
+    "brier_multiclase_aplazado": {
+        "es": "el Brier multiclase se difiere: tener un Brier no es tener "
+              "calibración multiclase, y publicarlo aquí prometería un "
+              "diagnóstico que ningún corte ha implementado",
+        "en": "multiclass Brier is deferred: having a Brier is not having "
+              "multiclass calibration, and publishing it here would promise a "
+              "diagnosis no work item has implemented",
+    },
+    "una_sola_clase": {
+        "es": "no se calcula {campo}: en la muestra solo aparece la clase {valor}. "
+              "Sin las dos no se ordena nada, y ordenar nada no vale 0,5",
+        "en": "{campo} is not computed: only class {valor} appears in the sample. "
+              "Without both there is nothing to rank, and ranking nothing is not 0.5",
+    },
+    "sin_observaciones": {
+        "es": "no se calcula {campo}: la muestra no trae observaciones. Cero filas "
+              "no dan un cero",
+        "en": "{campo} is not computed: the sample carries no observations. Zero "
+              "rows do not yield a zero",
+    },
+    "division_por_cero_en_metrica": {
+        "es": "no se calcula {campo}: {valor} vale cero. Una división por cero no "
+              "da cero, no da nada",
+        "en": "{campo} is not computed: {valor} is zero. A division by zero does "
+              "not yield zero, it yields nothing",
+    },
+    "etiquetas_duras_no_ordenan": {
+        "es": "{campo} necesita una puntuación ordenada y la muestra solo trae la "
+              "clase predicha. Una etiqueta dura no se presenta como probabilidad: "
+              "no ordena nada dentro de su propia clase",
+        "en": "{campo} needs an ordered score and the sample only carries the "
+              "predicted class. A hard label is not presented as a probability: it "
+              "ranks nothing within its own class",
+    },
+    "no_son_probabilidades": {
+        "es": "{campo} necesita probabilidades y la muestra solo trae puntuaciones "
+              "sin normalizar. Una puntuación ordenada sirve para ordenar; no dice "
+              "cuánto de probable es algo, y elevar al cuadrado su distancia a 1 "
+              "no mide nada",
+        "en": "{campo} needs probabilities and the sample only carries unnormalised "
+              "scores. An ordered score is good enough to rank; it does not say how "
+              "likely anything is, and squaring its distance to 1 measures nothing",
+    },
+    "pesos_no_admitidos": {
+        "es": "{campo} no admite pesos: los recuentos son observaciones enteras y "
+              "aplicar pesos en silencio daría una matriz que ya no cuenta filas",
+        "en": "{campo} does not accept weights: counts are whole observations and "
+              "applying weights quietly would yield a matrix that no longer counts rows",
+    },
+    "metrica_de_otra_tarea": {
+        "es": "{campo} es de {opciones} y la muestra es de {valor}",
+        "en": "{campo} belongs to {opciones} and the sample belongs to {valor}",
+    },
+    "filas_desalineadas": {
+        "es": "{campo} trae {valor} filas y la muestra tiene {opciones}",
+        "en": "{campo} carries {valor} rows and the sample has {opciones}",
+    },
+    "muestra_sin_salida": {
+        "es": "la muestra no trae probabilidades, ni puntuaciones, ni predicciones: "
+              "no se mide nada contra la verdad",
+        "en": "the sample carries no probabilities, no scores and no predictions: "
+              "nothing gets measured against ground truth",
+    },
+    "registro_sin_verdad": {
+        "es": "el registro {valor} no trae `y_true` y esta muestra es de "
+              "evaluación: medir contra una verdad ausente no se puede",
+        "en": "record {valor} carries no `y_true` and this is an evaluation sample: "
+              "measuring against absent ground truth is impossible",
+    },
+    "registros_con_clases_distintas": {
+        "es": "unos registros declaran las clases {valor} y otros {opciones}: dos "
+              "órdenes de clases distintos no se mezclan en una misma medición",
+        "en": "some records declare classes {valor} and others {opciones}: two "
+              "different class orders do not mix in a single measurement",
+    },
+    "registros_desiguales": {
+        "es": "unos registros traen {campo} y otros no. Media columna no es una "
+              "columna: rellenarla sería inventar la mitad de la medición",
+        "en": "some records carry {campo} and others do not. Half a column is not a "
+              "column: filling it in would invent half of the measurement",
+    },
+    "registros_de_varios_candidatos": {
+        "es": "estos registros son de {valor} candidatos distintos ({opciones}): "
+              "mezclar dos modelos en una misma medición no mide ninguno",
+        "en": "these records belong to {valor} different candidates ({opciones}): "
+              "mixing two models into a single measurement measures neither",
+    },
+    "umbral_por_omision_en_puntuacion": {
+        "es": "la muestra solo trae puntuaciones sin normalizar y no se declara "
+              "umbral: 0,5 por omisión corta en un sitio arbitrario de una escala "
+              "que nadie ha acotado",
+        "en": "the sample only carries unnormalised scores and no threshold is "
+              "declared: a default of 0.5 cuts at an arbitrary point of a scale "
+              "nobody bounded",
+    },
+    "comparar_sin_valor": {
+        "es": "no se ordenan dos resultados de {campo} si alguno está indefinido: "
+              "una métrica que no se pudo calcular no es la peor, es que no se sabe",
+        "en": "two {campo} results are not ordered if either is undefined: a metric "
+              "that could not be computed is not the worst one, it is unknown",
+    },
     # ---- migración -------------------------------------------------------
     "version_no_legible": {
         "es": "{campo} viene en la versión {valor} y este core sabe leer {opciones}. "

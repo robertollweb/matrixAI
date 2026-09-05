@@ -460,11 +460,25 @@ class UnaMetricaDeclaraComoSeOrdenaTest(unittest.TestCase):
             _metrica(direction=None, ideal_range=(1.1, 0.9))
         self.assertEqual(e.exception.clave, "rango_ideal_al_reves")
 
-    def test_una_metrica_que_exige_clase_positiva_y_no_la_declara(self):
-        with self.assertRaises(EsquemaInvalido) as e:
-            _metrica(metric_id="sensibilidad", requires=("y_true", "labels",
-                                                         "positive_label"))
-        self.assertEqual(e.exception.clave, "metrica_de_clase_positiva_sin_clase")
+    def test_una_ficha_GENERICA_declara_que_necesita_clase_positiva_sin_traerla(self):
+        """La intención de esta prueba no ha cambiado; el sitio donde se hace
+        cumplir, sí (revisado el 2026-09-05 al auditar el 105-C1).
+
+        Antes se exigía que una métrica que nombra `positive_label` en
+        `requires` trajera una clase concreta. Pero `requires` significa **lo
+        que la muestra tiene que traer**, y la ficha genérica del catálogo
+        —«qué es la sensibilidad»— no conoce ninguna clase. Cumplir aquella
+        regla obligó al 105-C1 a inventarse un marcador de texto en un campo
+        tipado como etiqueta: un valor fabricado.
+
+        Que una métrica de clase positiva no se calcule sin una **sigue siendo
+        cierto**, y se comprueba donde vive el dato: una `Muestra` binaria sin
+        clase positiva no se construye.
+        """
+        spec = _metrica(metric_id="sensibilidad",
+                        requires=("y_true", "labels", "positive_label"))
+        self.assertIn("positive_label", spec.requires)
+        self.assertIsNone(spec.positive_label)
 
     def test_un_requisito_inventado_se_rechaza(self):
         with self.assertRaises(EsquemaInvalido) as e:
