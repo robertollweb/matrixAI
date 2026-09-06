@@ -7,6 +7,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.7.1] — 2026-09-06
+
+`attest` read the first ONNX output and thresholded it at 0.5 — right by
+accident on a binary model, wrong on anything else.
+
+### Fixed
+- **`matrixai attest` now chooses the ONNX output by what it means, not by
+  its position.** A 3-class logistic regression on iris (accuracy 0.9733,
+  fixed model and dataset, versioned as a test fixture) was attested at
+  0.6667: `attest` took `session.run(None, ...)[0]`, the first tensor a
+  standard converter emits, and thresholded it at 0.5 — the right column by
+  accident in binary models (`label` comes first), the wrong one with three
+  classes. The new `onnx_salida.py` picks the output by declared task, name,
+  type and the **semantics of the graph itself** (a `Sigmoid` node declares
+  a probability; a bare `MatMul` declares nothing, and an ambiguous output
+  is refused with a request for an explicit map instead of a guess).
+  `argmax` now returns the real label — from a ZipMap's keys, from declared
+  classes, or deduced from the target column and said in the receipt —
+  never a bare index. Text and non-consecutive classes are supported. The
+  receipt gains `models[].output_spec`: which output was read, what it
+  means, and where the classes came from. New `--output-name`,
+  `--output-kind` and `--classes` flags for the ambiguous case.
+
+---
+
 ## [1.7.0] — 2026-08-27
 
 The receipt reaches the product, the envelope follows the spec, the package
