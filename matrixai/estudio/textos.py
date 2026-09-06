@@ -729,6 +729,25 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "es": "supera las restricciones, pero {opciones} tiene más utilidad medida",
         "en": "clears the constraints, but {opciones} has higher measured utility",
     },
+    # ---- umbral y calibrador (104-C4) --------------------------------------
+    "umbral_sin_probabilidades": {
+        "es": "{campo} no trae probabilidades: sin una escala continua no hay "
+              "umbral que buscar, solo una decisión ya tomada",
+        "en": "{campo} carries no probabilities: without a continuous scale "
+              "there is no threshold to search, only an already-made decision",
+    },
+    "no_hay_umbral_que_cumpla": {
+        "es": "ningún umbral candidato satisface a la vez las restricciones "
+              "obligatorias declaradas: {valor} candidatos probados, ninguno válido",
+        "en": "no candidate threshold satisfies the declared mandatory "
+              "constraints at once: {valor} candidates tried, none valid",
+    },
+    "restriccion_no_derivable_del_umbral": {
+        "es": "{campo} no se deriva de TP/FP/TN/FN: no depende de dónde se "
+              "corte, así que no hay umbral que la optimice",
+        "en": "{campo} is not derived from TP/FP/TN/FN: it does not depend "
+              "on where the cut falls, so there is no threshold that optimizes it",
+    },
 }
 
 

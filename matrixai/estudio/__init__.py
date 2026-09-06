@@ -135,6 +135,7 @@ from matrixai.estudio.migracion import (
     RegistroDeMigraciones,
 )
 from matrixai.estudio.textos import IDIOMAS, MOTIVOS, motivo
+from matrixai.estudio.umbral import elegir_umbral
 from matrixai.estudio.validacion import digest_canonico
 from matrixai.estudio.vocabulario import (
     ESTADOS,
@@ -180,6 +181,6 @@ __all__ = [
     "ROLES", "ROLES_DE_DESARROLLO", "ROLES_RESERVADOS", "Recursos",
     "RegistroDeAccesos", "RegistroDeMigraciones", "Restriccion",
     "SelectionDecision", "SplitPlan", "TAREAS", "TIPOS_DE_PARTICION",
-    "ValorDeMetrica", "digest_canonico", "motivo",
+    "ValorDeMetrica", "digest_canonico", "elegir_umbral", "motivo",
     "version_tras_aprender_del_test",
 ]
