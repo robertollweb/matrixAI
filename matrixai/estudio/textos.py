@@ -736,6 +736,22 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "{campo} carries no probabilities: without a continuous scale "
               "there is no threshold to search, only an already-made decision",
     },
+    # ---- evaluación final (104-C5) -----------------------------------------
+    "recomendacion_falla_en_test": {
+        "es": "{campo} no alcanza en el test reservado la restricción que sí "
+              "superaba en desarrollo: la recomendación falla su validación, "
+              "no se prueba otro candidato con este mismo test",
+        "en": "{campo} does not reach on the reserved test the constraint it "
+              "did clear in development: the recommendation fails validation, "
+              "no other candidate is tried against this same test",
+    },
+    "evidencia_no_comparable_para_promocion": {
+        "es": "no se puede promocionar: la evidencia del candidato alternativo "
+              "({valor}) no es de la misma categoría que la del vigente "
+              "({opciones})",
+        "en": "cannot promote: the alternative candidate's evidence ({valor}) "
+              "is not the same category as the current one's ({opciones})",
+    },
     "no_hay_umbral_que_cumpla": {
         "es": "ningún umbral candidato satisface a la vez las restricciones "
               "obligatorias declaradas: {valor} candidatos probados, ninguno válido",

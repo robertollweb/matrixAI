@@ -55,6 +55,12 @@ from matrixai.estudio.competicion import (
     ReservaDeTiempo,
     tiempo_de_busqueda_por_motor,
 )
+from matrixai.estudio.evaluacion_final import (
+    RESULTADOS_DE_VALIDACION_FINAL,
+    ValidacionFinal,
+    evaluar_en_test,
+    promover_candidato,
+)
 from matrixai.estudio.errores import (
     ErrorDeEstudio,
     EsquemaInvalido,
@@ -161,6 +167,8 @@ __all__ = [
     "EntradaDeLeaderboard", "EstudioSpec", "FASES_DE_LEADERBOARD",
     "Leaderboard", "MODOS_DE_ESTUDIO", "ReservaDeTiempo",
     "tiempo_de_busqueda_por_motor",
+    "RESULTADOS_DE_VALIDACION_FINAL", "ValidacionFinal", "evaluar_en_test",
+    "promover_candidato",
     "EvaluationResult", "FASES", "FitResult", "FittedPipelineSpec", "FugaDeTest",
     "Horizonte", "IDIOMAS", "Intervalo", "LectorDeParticiones", "MIGRACIONES",
     "METODOS_DE_REMUESTREO", "MOTIVOS",
