@@ -112,6 +112,14 @@ from matrixai.estudio.incertidumbre import (
     intervalo,
     medir,
 )
+from matrixai.estudio.segmentos import (
+    MINIMO_EVENTOS_POR_SEGMENTO,
+    MINIMO_FILAS_POR_SEGMENTO,
+    AnalisisDeSegmento,
+    ImportanciaDeVariable,
+    analizar_segmento,
+    importancia_por_permutacion,
+)
 from matrixai.estudio.migracion import (
     ESTUDIO_SCHEMA_VERSION,
     MIGRACIONES,
@@ -147,6 +155,9 @@ __all__ = [
     "METODOS_DE_REMUESTREO", "MOTIVOS",
     "INFORME_VERSION", "METRICAS_DIFERIDAS", "PROPORCION_MINIMA_VALIDA",
     "REGISTRO", "UMBRAL_POR_DEFECTO", "UNIDADES_DE_REMUESTREO",
+    "MINIMO_EVENTOS_POR_SEGMENTO", "MINIMO_FILAS_POR_SEGMENTO",
+    "AnalisisDeSegmento", "ImportanciaDeVariable", "analizar_segmento",
+    "importancia_por_permutacion",
     "EntradaNoMedible", "Indefinida", "InformeMetrico", "MatrizDeConfusion",
     "MetricaAplazada", "MetricaDesconocida", "MetricaRegistrada", "Muestra",
     "aplazamiento", "aptitud", "calcular", "catalogo", "digest_del_catalogo",

@@ -604,6 +604,47 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "es": "ya hay una migración de {campo} {valor}",
         "en": "there is already a migration for {campo} {valor}",
     },
+    # ---- segmentos e importancia (105-C4) ----------------------------------
+    "segmento_soporte_insuficiente": {
+        "es": "{campo} tiene {valor} fila(s): con menos de {opciones} no hay "
+              "soporte para distinguir una diferencia real de ruido de muestreo",
+        "en": "{campo} has {valor} row(s): with fewer than {opciones} there is "
+              "no support to tell a real difference from sampling noise",
+    },
+    "segmento_pocos_eventos": {
+        "es": "{campo} tiene {valor} evento(s) de la clase minoritaria: con "
+              "menos de {opciones}, la cifra del segmento es demasiado volátil "
+              "para apoyar una conclusión, aunque las filas totales alcancen",
+        "en": "{campo} has {valor} event(s) of the minority class: with fewer "
+              "than {opciones}, the segment's figure is too volatile to "
+              "support a conclusion, even if the total row count is enough",
+    },
+    "importancia_metrica_base_indefinida": {
+        "es": "no se puede medir la caída de {campo}: la métrica de referencia "
+              "(sin permutar nada) ya salió indefinida sobre esta muestra",
+        "en": "cannot measure the drop for {campo}: the reference metric (with "
+              "nothing permuted) already came out undefined on this sample",
+    },
+    "importancia_metrica_permutada_indefinida": {
+        "es": "{campo} no se puede medir: al menos una repetición de la "
+              "permutación dejó la métrica indefinida, y promediar sobre menos "
+              "repeticiones de las declaradas sería una cifra fabricada",
+        "en": "{campo} cannot be measured: at least one permutation repetition "
+              "left the metric undefined, and averaging over fewer repetitions "
+              "than declared would be a fabricated figure",
+    },
+    "segmento_indices_repetidos": {
+        "es": "{campo} repite al menos una fila en la lista de índices: una "
+              "fila no puede pertenecer dos veces al mismo segmento",
+        "en": "{campo} repeats at least one row in its index list: a row "
+              "cannot belong to the same segment twice",
+    },
+    "segmento_indice_fuera_de_rango": {
+        "es": "{campo} referencia la fila {valor}, y la muestra solo tiene "
+              "{opciones} filas",
+        "en": "{campo} references row {valor}, and the sample only has "
+              "{opciones} rows",
+    },
 }
 
 
