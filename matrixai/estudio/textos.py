@@ -672,6 +672,63 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "{opciones}): comparing them would fake a single experiment that "
               "is not one",
     },
+    # ---- selección y restricciones (104-C3) --------------------------------
+    "restriccion_sin_evidencia": {
+        "es": "no hay medición de {campo} para este candidato: no se puede "
+              "decir que cumple ni que no cumple, solo que falta el dato",
+        "en": "there is no measurement of {campo} for this candidate: it can "
+              "neither be said to pass nor to fail, only that the data is missing",
+    },
+    "restriccion_no_cumplida": {
+        "es": "{campo} no alcanza el mínimo exigido (medido: {valor})",
+        "en": "{campo} does not reach the required minimum (measured: {valor})",
+    },
+    "ningun_candidato_cumple": {
+        "es": "ningún candidato con evidencia completa supera las restricciones "
+              "obligatorias declaradas",
+        "en": "no candidate with complete evidence clears the declared "
+              "mandatory constraints",
+    },
+    "evidencia_insuficiente_para_decidir": {
+        "es": "al menos un candidato tiene datos incompletos para juzgar las "
+              "restricciones: no se puede afirmar que ninguno sirva, solo que "
+              "no se puede decidir con lo medido",
+        "en": "at least one candidate has incomplete data to judge the "
+              "constraints: it cannot be said that none qualify, only that a "
+              "decision cannot be made with what was measured",
+    },
+    "calidad_no_medida": {
+        "es": "{campo} no se pudo medir para ningún candidato que superó las "
+              "restricciones: hay candidatos viables pero no hay con qué ordenarlos",
+        "en": "{campo} could not be measured for any candidate that cleared "
+              "the constraints: there are viable candidates but nothing to "
+              "rank them by",
+    },
+    "seleccion_mejora_demostrada": {
+        "es": "{campo} tiene una mejora demostrada frente al siguiente mejor "
+              "candidato, con una diferencia emparejada que excluye el empate",
+        "en": "{campo} has a demonstrated improvement over the next best "
+              "candidate, with a paired difference that excludes a tie",
+    },
+    "seleccion_eleccion_operativa": {
+        "es": "{campo} se elige por criterio operativo (sencillez o recursos, "
+              "declarado): la evidencia frente al siguiente mejor candidato no "
+              "demuestra una mejora, es una elección bajo incertidumbre",
+        "en": "{campo} is chosen on operational grounds (simplicity or "
+              "resources, declared): the evidence against the next best "
+              "candidate does not demonstrate an improvement, it is a choice "
+              "made under uncertainty",
+    },
+    "seleccion_mayor_utilidad_medida": {
+        "es": "{campo} tiene la mayor utilidad medida entre los candidatos que "
+              "superan las restricciones",
+        "en": "{campo} has the highest measured utility among the candidates "
+              "that clear the constraints",
+    },
+    "seleccion_otro_con_mas_utilidad": {
+        "es": "supera las restricciones, pero {opciones} tiene más utilidad medida",
+        "en": "clears the constraints, but {opciones} has higher measured utility",
+    },
 }
 
 

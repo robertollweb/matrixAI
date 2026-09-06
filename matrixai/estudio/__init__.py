@@ -117,6 +117,10 @@ from matrixai.estudio.incertidumbre import (
     intervalo,
     medir,
 )
+from matrixai.estudio.seleccion import (
+    POLITICA_UTILIDAD_MAXIMA,
+    seleccionar,
+)
 from matrixai.estudio.segmentos import (
     MINIMO_EVENTOS_POR_SEGMENTO,
     MINIMO_FILAS_POR_SEGMENTO,
@@ -161,6 +165,7 @@ __all__ = [
     "METODOS_DE_REMUESTREO", "MOTIVOS",
     "INFORME_VERSION", "METRICAS_DIFERIDAS", "PROPORCION_MINIMA_VALIDA",
     "REGISTRO", "UMBRAL_POR_DEFECTO", "UNIDADES_DE_REMUESTREO",
+    "POLITICA_UTILIDAD_MAXIMA", "seleccionar",
     "MINIMO_EVENTOS_POR_SEGMENTO", "MINIMO_FILAS_POR_SEGMENTO",
     "AnalisisDeSegmento", "ImportanciaDeVariable", "analizar_segmento",
     "importancia_por_permutacion",
