@@ -17,7 +17,9 @@ de versiones y el registro de accesos que hace cumplir el protocolo.
         registro.anotar("development", proposito="fit")   # concedido
         registro.anotar("test", proposito="fit")           # FugaDeTest
 
-Aquí NO hay motores, ni fórmulas, ni búsqueda: eso es de 102, 105 y 104-C1..C5.
+Aquí NO hay motores, ni fórmulas propias de un solo estudio: eso es de 102 y
+105. `competicion.py` (104-C1) sí vive aquí — `EstudioSpec`/`Leaderboard` son
+FORMA, no ejecución; la orquestación real es de `matrixai-engines` (104-C2).
 Y `matrixai-core` sigue siendo stdlib puro — `dataclasses`, `typing`, `hashlib`,
 `json` y el canonicalizador JCS del 81. Nada más.
 """
@@ -28,6 +30,15 @@ from matrixai.estudio.accesos import (
     Acceso,
     LectorDeParticiones,
     RegistroDeAccesos,
+)
+from matrixai.estudio.competicion import (
+    FASES_DE_LEADERBOARD,
+    MODOS_DE_ESTUDIO,
+    EntradaDeLeaderboard,
+    EstudioSpec,
+    Leaderboard,
+    ReservaDeTiempo,
+    tiempo_de_busqueda_por_motor,
 )
 from matrixai.estudio.errores import (
     ErrorDeEstudio,
@@ -115,6 +126,9 @@ __all__ = [
     "Acceso", "Aptitud", "CLIP_LOG_LOSS", "DISENOS_SOPORTADOS", "ESTADOS",
     "ESTIMANDOS_DE_INTERVALO", "ESTUDIO_SCHEMA_VERSION",
     "ETIQUETAS_DE_EVIDENCIA", "ErrorDeEstudio", "EsquemaInvalido",
+    "EntradaDeLeaderboard", "EstudioSpec", "FASES_DE_LEADERBOARD",
+    "Leaderboard", "MODOS_DE_ESTUDIO", "ReservaDeTiempo",
+    "tiempo_de_busqueda_por_motor",
     "EvaluationResult", "FASES", "FitResult", "FittedPipelineSpec", "FugaDeTest",
     "Horizonte", "IDIOMAS", "Intervalo", "LectorDeParticiones", "MIGRACIONES",
     "METODOS_DE_REMUESTREO", "MOTIVOS",

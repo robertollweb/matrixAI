@@ -355,6 +355,21 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "es": "el plan no tiene ninguna observación con el rol {valor}",
         "en": "the plan has no observation with role {valor}",
     },
+    # ---- estudio y presupuesto total (104-C1) ------------------------------
+    "reserva_supera_presupuesto": {
+        "es": "la reserva de tiempo suma {valor} s, más que el presupuesto "
+              "total del estudio ({opciones} s): una reserva que promete más "
+              "de lo que hay se descubre aquí, no a mitad de estudio",
+        "en": "the time reservation adds up to {valor} s, more than the "
+              "study's total budget ({opciones} s): a reservation promising "
+              "more than there is gets caught here, not mid-study",
+    },
+    "motor_no_permitido": {
+        "es": "{campo} nombra {valor}, que no está en la lista de motores "
+              "permitidos de este estudio ({opciones})",
+        "en": "{campo} names {valor}, which is not in this study's list of "
+              "allowed engines ({opciones})",
+    },
     # ---- registro métrico (105-C1) ---------------------------------------
     "metrica_desconocida": {
         "es": "el registro métrico no conoce {valor}. El catálogo es cerrado a "
