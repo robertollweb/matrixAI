@@ -31,6 +31,16 @@ from matrixai.estudio.accesos import (
     LectorDeParticiones,
     RegistroDeAccesos,
 )
+from matrixai.estudio.calibracion import (
+    METODOS_DE_BINS,
+    METODOS_DE_RECALIBRACION,
+    BinDeFiabilidad,
+    CurvaDeFiabilidad,
+    RecalibracionLogistica,
+    ajustar_recalibracion_logistica,
+    aplicar_recalibracion,
+    curva_de_fiabilidad,
+)
 from matrixai.estudio.competicion import (
     FASES_DE_LEADERBOARD,
     MODOS_DE_ESTUDIO,
@@ -126,6 +136,9 @@ __all__ = [
     "Acceso", "Aptitud", "CLIP_LOG_LOSS", "DISENOS_SOPORTADOS", "ESTADOS",
     "ESTIMANDOS_DE_INTERVALO", "ESTUDIO_SCHEMA_VERSION",
     "ETIQUETAS_DE_EVIDENCIA", "ErrorDeEstudio", "EsquemaInvalido",
+    "BinDeFiabilidad", "CurvaDeFiabilidad", "METODOS_DE_BINS",
+    "METODOS_DE_RECALIBRACION", "RecalibracionLogistica",
+    "ajustar_recalibracion_logistica", "aplicar_recalibracion", "curva_de_fiabilidad",
     "EntradaDeLeaderboard", "EstudioSpec", "FASES_DE_LEADERBOARD",
     "Leaderboard", "MODOS_DE_ESTUDIO", "ReservaDeTiempo",
     "tiempo_de_busqueda_por_motor",

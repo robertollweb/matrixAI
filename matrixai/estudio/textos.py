@@ -503,6 +503,39 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "there are not enough observations to estimate resampling "
               "variability: with fewer than two rows there is nothing to resample",
     },
+    # ---- calibración (105-C3) ----------------------------------------------
+    "calibracion_datos_insuficientes": {
+        "es": "no hay filas suficientes para ajustar {campo}: con menos de dos "
+              "observaciones no hay verosimilitud que maximizar",
+        "en": "there are not enough rows to fit {campo}: with fewer than two "
+              "observations there is no likelihood to maximize",
+    },
+    "calibracion_una_sola_clase": {
+        "es": "{campo} no se puede ajustar: todas las observaciones de esta "
+              "muestra son de la misma clase, y una recalibración logística "
+              "necesita las dos para tener algo que separar",
+        "en": "{campo} cannot be fitted: every observation in this sample "
+              "belongs to the same class, and a logistic recalibration needs "
+              "both to have anything to separate",
+    },
+    "calibracion_no_convergio": {
+        "es": "{campo} no convergió en {valor} iteraciones — declarado sin "
+              "ajustar en vez de devolver el último paso de un Newton que no "
+              "se ha estabilizado",
+        "en": "{campo} did not converge in {valor} iterations — declared "
+              "unfitted instead of returning the last step of a Newton run "
+              "that never settled",
+    },
+    "calibracion_separacion_detectada": {
+        "es": "{campo} muestra separación (un coeficiente superó "
+              "{opciones} en {valor} iteraciones): la verosimilitud logística "
+              "no tiene máximo finito aquí, y devolver el último número "
+              "sería una conclusión falsa de precisión que no existe",
+        "en": "{campo} shows separation (a coefficient exceeded {opciones} "
+              "at iteration {valor}): the logistic likelihood has no finite "
+              "maximum here, and returning the last number would be a false "
+              "claim of precision that does not exist",
+    },
     "unidades_insuficientes": {
         "es": "la muestra solo trae {valor} unidad(es) de remuestreo: un "
               "intervalo por grupos necesita al menos dos para hablar de la "
