@@ -113,6 +113,7 @@ from matrixai.estudio.metricas import (
     metricas_aplicables,
     ordenar_por,
 )
+from matrixai.estudio.informe_final import InformeDeEvaluacion
 from matrixai.estudio.incertidumbre import (
     DISENOS_SOPORTADOS,
     ESTIMANDOS_DE_INTERVALO,
@@ -169,6 +170,7 @@ __all__ = [
     "tiempo_de_busqueda_por_motor",
     "RESULTADOS_DE_VALIDACION_FINAL", "ValidacionFinal", "evaluar_en_test",
     "promover_candidato",
+    "InformeDeEvaluacion",
     "EvaluationResult", "FASES", "FitResult", "FittedPipelineSpec", "FugaDeTest",
     "Horizonte", "IDIOMAS", "Intervalo", "LectorDeParticiones", "MIGRACIONES",
     "METODOS_DE_REMUESTREO", "MOTIVOS",
