@@ -41,6 +41,11 @@ from matrixai.estudio.calibracion import (
     aplicar_recalibracion,
     curva_de_fiabilidad,
 )
+from matrixai.estudio.comparaciones import (
+    VEREDICTOS_DE_COMPARACION,
+    ComparacionEmparejada,
+    comparar_candidatos,
+)
 from matrixai.estudio.competicion import (
     FASES_DE_LEADERBOARD,
     MODOS_DE_ESTUDIO,
@@ -147,6 +152,7 @@ __all__ = [
     "BinDeFiabilidad", "CurvaDeFiabilidad", "METODOS_DE_BINS",
     "METODOS_DE_RECALIBRACION", "RecalibracionLogistica",
     "ajustar_recalibracion_logistica", "aplicar_recalibracion", "curva_de_fiabilidad",
+    "VEREDICTOS_DE_COMPARACION", "ComparacionEmparejada", "comparar_candidatos",
     "EntradaDeLeaderboard", "EstudioSpec", "FASES_DE_LEADERBOARD",
     "Leaderboard", "MODOS_DE_ESTUDIO", "ReservaDeTiempo",
     "tiempo_de_busqueda_por_motor",

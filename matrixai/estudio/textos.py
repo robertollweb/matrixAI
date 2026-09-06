@@ -645,6 +645,33 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "{campo} references row {valor}, and the sample only has "
               "{opciones} rows",
     },
+    # ---- comparaciones emparejadas (105-C5) --------------------------------
+    "comparacion_metrica_sin_direccion": {
+        "es": "{campo} no tiene una dirección declarada (ni mayor-mejor ni "
+              "menor-mejor, solo un valor ideal): esta comparación necesita "
+              "saber qué lado favorece al candidato, y una métrica de ideal "
+              "no lo dice con un solo signo",
+        "en": "{campo} has no declared direction (neither higher-is-better nor "
+              "lower-is-better, only an ideal value): this comparison needs to "
+              "know which side favors the candidate, and an ideal-value metric "
+              "does not say so with a single sign",
+    },
+    "comparacion_incomparable_filas": {
+        "es": "candidato y baseline no describen las mismas filas ({valor} "
+              "frente a {opciones}, o la verdad observada no coincide fila a "
+              "fila): sin correspondencia no hay diferencia emparejada que medir",
+        "en": "candidate and baseline do not describe the same rows ({valor} "
+              "vs {opciones}, or the observed truth does not match row by "
+              "row): without correspondence there is no paired difference to measure",
+    },
+    "comparacion_incomparable_protocolo": {
+        "es": "candidato y baseline declaran protocolos distintos ({valor} "
+              "frente a {opciones}): compararlos fingiría un mismo experimento "
+              "que no lo es",
+        "en": "candidate and baseline declare different protocols ({valor} vs "
+              "{opciones}): comparing them would fake a single experiment that "
+              "is not one",
+    },
 }
 
 
