@@ -1,0 +1,185 @@
+{
+  "creado": "2026-09-07T13:40:26Z",
+  "caso": "sick",
+  "ganador": "lightgbm-default",
+  "decision": {
+    "schema": "matrixai.estudio.selection_decision",
+    "schema_version": "1.0",
+    "decision_id": "101-c4-sick",
+    "outcome": "selected",
+    "chosen_candidate": "lightgbm-default",
+    "reason": {
+      "es": "lightgbm-default tiene una mejora demostrada frente al siguiente mejor candidato, con una diferencia emparejada que excluye el empate",
+      "en": "lightgbm-default has a demonstrated improvement over the next best candidate, with a paired difference that excludes a tie"
+    },
+    "policy": "utilidad_maxima_bajo_restricciones",
+    "evidence": [
+      {
+        "schema": "matrixai.estudio.evaluation_result",
+        "schema_version": "1.0",
+        "evaluation_id": "sel-lightgbm-default",
+        "pipeline_digest": "753424f9a9dd86d9b452df4b985a69a71f28e01eb80ab34e9f684ef4b2daa008",
+        "split_plan_digest": "a8ad401dcd4190cbde3ca0abf8c915d0822d2c5d4a9752b48d7564befebf541c",
+        "evaluated_role": "selection",
+        "evidence": "development_estimate",
+        "metrics": [
+          {
+            "metric_id": "auroc",
+            "formula_version": "1.0.0",
+            "value": 0.9986741458439572,
+            "undefined_reason": null,
+            "n_observations": 302,
+            "n_units": null,
+            "uncertainty": null
+          },
+          {
+            "metric_id": "accuracy",
+            "formula_version": "1.0.0",
+            "value": 0.9834437086092715,
+            "undefined_reason": null,
+            "n_observations": 302,
+            "n_units": null,
+            "uncertainty": null
+          },
+          {
+            "metric_id": "specificity",
+            "formula_version": "1.0.0",
+            "value": 0.9962264150943396,
+            "undefined_reason": null,
+            "n_observations": 302,
+            "n_units": null,
+            "uncertainty": null
+          }
+        ],
+        "derives_from": null
+      }
+    ],
+    "rejected": [
+      {
+        "candidate": "baseline-default",
+        "reason": {
+          "es": "supera las restricciones, pero lightgbm-default tiene más utilidad medida",
+          "en": "clears the constraints, but lightgbm-default has higher measured utility"
+        }
+      },
+      {
+        "candidate": "sklearn.lineal-default",
+        "reason": {
+          "es": "supera las restricciones, pero lightgbm-default tiene más utilidad medida",
+          "en": "clears the constraints, but lightgbm-default has higher measured utility"
+        }
+      },
+      {
+        "candidate": "matrixai.dense.torch_cpu-default",
+        "reason": {
+          "es": "supera las restricciones, pero lightgbm-default tiene más utilidad medida",
+          "en": "clears the constraints, but lightgbm-default has higher measured utility"
+        }
+      }
+    ],
+    "constraints_checked": [
+      "specificity"
+    ],
+    "split_plan_digest": "a8ad401dcd4190cbde3ca0abf8c915d0822d2c5d4a9752b48d7564befebf541c"
+  },
+  "informe": {
+    "schema": "matrixai.estudio.evaluacion_final_report",
+    "schema_version": "1.0",
+    "informe_id": "informe-101-c4-lightgbm-default",
+    "evaluacion": {
+      "schema": "matrixai.estudio.evaluation_result",
+      "schema_version": "1.0",
+      "evaluation_id": "eval-753424f9a9dd86d9b452df4b985a69a71f28e01eb80ab34e9f684ef4b2daa008-test",
+      "pipeline_digest": "753424f9a9dd86d9b452df4b985a69a71f28e01eb80ab34e9f684ef4b2daa008",
+      "split_plan_digest": "a8ad401dcd4190cbde3ca0abf8c915d0822d2c5d4a9752b48d7564befebf541c",
+      "evaluated_role": "test",
+      "evidence": "independent_test",
+      "metrics": [
+        {
+          "metric_id": "auroc",
+          "formula_version": "1.0.0",
+          "value": 0.9858450012281995,
+          "undefined_reason": null,
+          "n_observations": 754,
+          "n_units": null,
+          "uncertainty": null
+        },
+        {
+          "metric_id": "accuracy",
+          "formula_version": "1.0.0",
+          "value": 0.9880636604774535,
+          "undefined_reason": null,
+          "n_observations": 754,
+          "n_units": null,
+          "uncertainty": null
+        },
+        {
+          "metric_id": "sensitivity",
+          "formula_version": "1.0.0",
+          "value": 0.8695652173913043,
+          "undefined_reason": null,
+          "n_observations": 754,
+          "n_units": null,
+          "uncertainty": null
+        },
+        {
+          "metric_id": "specificity",
+          "formula_version": "1.0.0",
+          "value": 0.9957627118644068,
+          "undefined_reason": null,
+          "n_observations": 754,
+          "n_units": null,
+          "uncertainty": null
+        }
+      ],
+      "derives_from": null
+    },
+    "intervalos": [],
+    "curva_de_fiabilidad": null,
+    "recalibracion": {
+      "metodo": "logistico_completo",
+      "n_observaciones": 302,
+      "a": null,
+      "b": null,
+      "convergio": false,
+      "iteraciones": 0,
+      "separacion_detectada": false,
+      "undefined_reason": {
+        "es": "recalibracion_logistica no se puede ajustar: todas las observaciones de esta muestra son de la misma clase, y una recalibración logística necesita las dos para tener algo que separar",
+        "en": "recalibracion_logistica cannot be fitted: every observation in this sample belongs to the same class, and a logistic recalibration needs both to have anything to separate"
+      }
+    },
+    "comparaciones": [
+      {
+        "metric_id": "auroc",
+        "diseno": "iid",
+        "estimando": "fixed_model_on_population",
+        "veredicto": "mejora",
+        "margen_equivalencia": null,
+        "diferencia_puntual": 0.4986741458439572,
+        "intervalo": {
+          "metric_id": "auroc",
+          "design": "iid",
+          "estimand": "fixed_model_on_population",
+          "method": "iid_paired_bootstrap",
+          "resampling_unit": "row",
+          "seed": 0,
+          "n_resamples": 1000,
+          "n_resamples_used": 1000,
+          "n_resamples_degenerate": 0,
+          "level": 0.95,
+          "ci_low": 0.49541050484446714,
+          "ci_high": 0.5,
+          "block_length": null,
+          "elapsed_seconds": 0.4705013711936772,
+          "undefined_reason": null
+        },
+        "undefined_reason": null
+      }
+    ]
+  },
+  "repeticion_independiente_reproduce": true,
+  "cost_false_positive": 1.0,
+  "cost_false_negative": 4.0,
+  "digest": "d37205f146af18e22d31d7a13a9f6e3378a483af7f2a9c7468037cd5253ccd14"
+}
