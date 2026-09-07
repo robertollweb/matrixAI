@@ -1,0 +1,116 @@
+{
+  "creado": "2026-09-07T08:21:40Z",
+  "wall_seconds_por_intento": 300.0,
+  "procesos_en_paralelo": 1,
+  "total_wall_s": 31.8,
+  "resultados": [
+    {
+      "dataset": "kc2",
+      "motor": "baseline",
+      "estado": "completed",
+      "wall_s": 0.55,
+      "auroc": 0.5,
+      "accuracy": 0.7980769230769231,
+      "motivo": null
+    },
+    {
+      "dataset": "kc2",
+      "motor": "sklearn.lineal",
+      "estado": "completed",
+      "wall_s": 1.812,
+      "auroc": 0.7871485943775101,
+      "accuracy": 0.875,
+      "motivo": null
+    },
+    {
+      "dataset": "kc2",
+      "motor": "lightgbm",
+      "estado": "completed",
+      "wall_s": 1.8,
+      "auroc": 0.8709122203098106,
+      "accuracy": 0.8653846153846154,
+      "motivo": null
+    },
+    {
+      "dataset": "kc2",
+      "motor": "matrixai.dense.torch_cpu",
+      "estado": "completed",
+      "wall_s": 6.282,
+      "auroc": 0.9059093516924842,
+      "accuracy": 0.8557692307692307,
+      "motivo": null
+    },
+    {
+      "dataset": "climate-model-simulation-crashes",
+      "motor": "baseline",
+      "estado": "completed",
+      "wall_s": 0.463,
+      "auroc": 0.5,
+      "accuracy": 0.9166666666666666,
+      "motivo": null
+    },
+    {
+      "dataset": "climate-model-simulation-crashes",
+      "motor": "sklearn.lineal",
+      "estado": "completed",
+      "wall_s": 2.006,
+      "auroc": 0.9528619528619529,
+      "accuracy": 0.9351851851851852,
+      "motivo": null
+    },
+    {
+      "dataset": "climate-model-simulation-crashes",
+      "motor": "lightgbm",
+      "estado": "completed",
+      "wall_s": 1.943,
+      "auroc": 0.9562289562289562,
+      "accuracy": 0.9351851851851852,
+      "motivo": null
+    },
+    {
+      "dataset": "climate-model-simulation-crashes",
+      "motor": "matrixai.dense.torch_cpu",
+      "estado": "failed",
+      "wall_s": 6.049,
+      "auroc": null,
+      "accuracy": null,
+      "motivo": "el subproceso aislado capturó una excepción no declarada: ValueError: '0' is not in list"
+    },
+    {
+      "dataset": "diabetes",
+      "motor": "baseline",
+      "estado": "completed",
+      "wall_s": 0.58,
+      "auroc": 0.5,
+      "accuracy": 0.6493506493506493,
+      "motivo": null
+    },
+    {
+      "dataset": "diabetes",
+      "motor": "sklearn.lineal",
+      "estado": "completed",
+      "wall_s": 1.908,
+      "auroc": 0.7783333333333333,
+      "accuracy": 0.7532467532467533,
+      "motivo": null
+    },
+    {
+      "dataset": "diabetes",
+      "motor": "lightgbm",
+      "estado": "completed",
+      "wall_s": 1.83,
+      "auroc": 0.7487037037037036,
+      "accuracy": 0.7207792207792207,
+      "motivo": null
+    },
+    {
+      "dataset": "diabetes",
+      "motor": "matrixai.dense.torch_cpu",
+      "estado": "completed",
+      "wall_s": 6.315,
+      "auroc": 0.7994444444444444,
+      "accuracy": 0.7727272727272727,
+      "motivo": null
+    }
+  ]
+}
