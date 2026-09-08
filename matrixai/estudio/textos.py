@@ -764,6 +764,22 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "{campo} is not derived from TP/FP/TN/FN: it does not depend "
               "on where the cut falls, so there is no threshold that optimizes it",
     },
+    "afirmacion_de_calidad_con_datos_sinteticos": {
+        "es": "con datos sintéticos ({campo}) no se puede afirmar {valor} "
+              "-- solo demostración funcional, nunca calidad esperada ni "
+              "rendimiento futuro",
+        "en": "with synthetic data ({campo}) {valor} cannot be claimed -- "
+              "functional demonstration only, never expected quality or "
+              "future performance",
+    },
+    "uso_clinico_no_autorizado": {
+        "es": "{campo} menciona uso clínico sin que la tarjeta declare "
+              "`autorizacion_uso_clinico=True` -- no se inventa un uso que "
+              "nadie autorizó",
+        "en": "{campo} mentions clinical use without the card declaring "
+              "`autorizacion_uso_clinico=True` -- no invented use that "
+              "nobody authorized",
+    },
 }
 
 

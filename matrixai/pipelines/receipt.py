@@ -164,6 +164,14 @@ _SECCIONES_POR_TIPO = {
     # QUÉ modelo (con su digest), SOBRE QUÉ datos (con el suyo) y QUÉ salió.
     # Sin las tres, un recibo de evaluación es un número con firma.
     "evaluation_attestation": ("models", "dataset", "metrics"),
+    # 106-C2 — la ejecución de un ESTUDIO (matrixai_engines: candidatos,
+    # selección, calibrador/umbral, evaluación final) — no es un grafo de
+    # pipeline ni una atestación de una sola evaluación: hubo una
+    # COMPETICIÓN entre candidatos con una decisión al final, y eso es
+    # justo lo que "declarar A2 a mano no lo concede" pide poder
+    # distinguir de "solo se puede recalcular la métrica".
+    "study_execution": ("dataset", "protocolo", "candidatos", "seleccion",
+                        "pipeline_final", "calibrador_umbral", "entorno"),
 }
 
 #: §14.2 bis / P23-R-0015: «El recibo **DEBE** comprometer el camino
