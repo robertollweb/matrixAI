@@ -487,7 +487,24 @@ def confirmar_desde_csv(
 
     # -- las entradas, y la identidad confirmada ---------------------------
     if entradas is None:
-        predictores = tuple(c for c in orden if c != objetivo)
+        # "row_id" es el identificador de observación por omisión en TODO
+        # el producto (`observation_id_field` de `proponer_particion`,
+        # 103-C4/108-C1/C2, nunca configurable desde la UI hoy) -- un
+        # identificador no es un predictor, y dejarlo pasar aquí sin más
+        # es CABLEAR una fuga: da igual que en la práctica no prediga
+        # nada (correlaciona con el orden de fila, no con el fenómeno),
+        # el propio invariante 2 del 103 («los nombres parecidos son
+        # PISTAS, no veredictos») ya trata `class` vs. `class` como el
+        # mismo defecto de fondo -- una columna que no debería ser
+        # entrada, entrando igual porque nadie la excluyó a propósito.
+        # Hallazgo real (108-C2, medido en navegador): con `entradas` sin
+        # declarar, `row_id`/`row_id__faltante` llegaban a
+        # `ajustar_preparacion` como predictor de verdad -- invisible
+        # hasta que 108-C2 fue el primer llamante que de verdad ENTRENA
+        # con esta lista (`diagnostico_de_riesgo_view.py` la calcula pero
+        # nunca prepara datos con ella, «depende del motor elegido, que
+        # todavía no existe en esta etapa del flujo»).
+        predictores = tuple(c for c in orden if c != objetivo and c != "row_id")
     else:
         predictores = tuple(str(e) for e in entradas)
         if objetivo in predictores:

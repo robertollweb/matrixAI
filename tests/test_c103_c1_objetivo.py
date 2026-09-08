@@ -400,6 +400,33 @@ class TestLaColumnaObjetivoNoEntraEnX(unittest.TestCase):
                                    unidad_de_observacion="una vivienda")
         self.assertNotIn("precio", conf.problema.predictors)
 
+    def test_sin_declarar_entradas_row_id_tampoco_es_un_predictor(self):
+        """108-C2, hallazgo real medido en navegador: sin `entradas`
+        declaradas, `row_id` (el identificador de observación por
+        omisión en TODO el producto, `proponer_particion` 103-C4/108-
+        C1/C2) se proponía como predictor -- invisible mientras nadie
+        entrenaba de verdad con la lista (`diagnostico_de_riesgo_view.py`
+        la calcula pero nunca prepara datos con ella)."""
+        csv_con_row_id = _csv("row_id,metros,barrio,precio",
+                              [f"{i},{60 + i},b{i % 3},{100000 + i * 1000}" for i in range(20)])
+        conf = confirmar_desde_csv(csv_con_row_id, objetivo="precio",
+                                   unidad_de_observacion="una vivienda")
+        self.assertTrue(conf.confirmado)
+        self.assertNotIn("row_id", conf.problema.predictors)
+        self.assertIn("metros", conf.problema.predictors)
+        self.assertIn("barrio", conf.problema.predictors)
+
+    def test_declarar_row_id_explicitamente_en_entradas_SI_lo_deja_pasar(self):
+        """La exclusión es solo del AUTO-derivado (sin `entradas`) -- si
+        alguien lo pide a propósito, no es a esta función a la que le
+        toca impedirlo."""
+        csv_con_row_id = _csv("row_id,metros,barrio,precio",
+                              [f"{i},{60 + i},b{i % 3},{100000 + i * 1000}" for i in range(20)])
+        conf = confirmar_desde_csv(csv_con_row_id, objetivo="precio",
+                                   entradas=("row_id", "metros", "barrio"),
+                                   unidad_de_observacion="una vivienda")
+        self.assertIn("row_id", conf.problema.predictors)
+
 
 # ---------------------------------------------------------------------------
 # La ruta CSV: proponer con motivo y confirmar antes de entrenar
