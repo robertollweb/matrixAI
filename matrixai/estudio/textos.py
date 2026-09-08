@@ -795,6 +795,24 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "`autorizacion_uso_clinico=True` -- no invented use that "
               "nobody authorized",
     },
+    # ---- inferencia sobre el pipeline calibrado (108-C4) -------------------
+    "probabilidad_fuera_de_rango": {
+        "es": "{campo} no es una probabilidad válida ({valor}): tiene que "
+              "estar entre 0 y 1",
+        "en": "{campo} is not a valid probability ({valor}): it must be "
+              "between 0 and 1",
+    },
+    "umbral_en_escala_no_soportada": {
+        "es": "{campo} declara la escala {valor}, y hoy ningún umbral del "
+              "estudio se elige sobre score crudo ({opciones} es la única "
+              "escala que produce `elegir_umbral`): aplicar aquí una "
+              "probabilidad cruda contra ese umbral cortaría en un sitio "
+              "que no es el suyo",
+        "en": "{campo} declares scale {valor}, and today no study threshold "
+              "is chosen over a raw score ({opciones} is the only scale "
+              "`elegir_umbral` produces): applying a raw probability against "
+              "that threshold here would cut in the wrong place",
+    },
 }
 
 
