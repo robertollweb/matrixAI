@@ -3,32 +3,95 @@
 # Copyright (C) 2026 Roberto Llamosas Conde
 """101-C4 — informe y decisión de cartera: «rendimiento de motores» (ya
 producido por 101-C3) y «rendimiento del selector COMPLETO... dentro de
-desarrollo», más «una repetición independiente comprueba un caso y sus
-tolerancias» (texto literal del criterio de terminado).
+desarrollo», más «una repetición con la misma semilla comprueba el
+determinismo de un caso» (texto literal del criterio de terminado, ver
+nota de nombre más abajo).
+
+REABIERTO Y CORREGIDO (2026-09-08), tras una auditoría externa verificada
+de forma independiente que encontró defectos reales en la primera versión
+de este script (detalle completo en `101_FASE0_LA_VERDAD_MEDIDA_
+CONTRACT.md`, sección C4). Los cinco cambios de fondo:
+
+1. **El caso ya NO es "sick".** La versión original reutilizaba
+   `particiones_base()` de `pasada_exploratoria_101_c3.py` con el MISMO
+   `seed=0` que 101-C3 ya había usado 60 veces sobre "sick" (4 motores ×
+   3 repeticiones × 5 pliegues) -- el test que este script etiquetaba
+   `independent_test` no lo era. Como el diseño de partición de C3 fija
+   el rol "test" de cada dataset (no varía por pliegue/repetición), no
+   hay forma de obtener un test de "sick" genuinamente no tocado sin
+   reabrir C3 entero. Se sustituye por "adult" (data_id 1590, censo de
+   EEUU, 48.842 filas, `grande`), NO sellado, con faltantes reales
+   (marcados `?`) y categóricas de cardinalidad moderada (hasta 41
+   niveles en `native-country`) -- de los 4 datasets `grande` no
+   sellados y nunca tocados por 101-C3 (los otros: KDDCup09_appetency,
+   Amazon_employee_access, APSFailure), el más tratable y menos
+   propenso a los problemas de cardinalidad extrema que ya rompieron
+   otros motores en 101-C3 (ver ese corte). Minoría = positiva (mismo
+   criterio que 101-C3): `>50K` (24% de las filas).
+
+2. **El umbral ya gobierna la decisión de verdad.** `matriz_de_confusion`
+   (104-C0/105-C1) da prioridad a `Muestra.predictions` ("declared_label")
+   sobre cualquier `umbral` explícito -- documentado y correcto AHÍ (si la
+   muestra trae la decisión del modelo, esa manda), pero la primera
+   versión de este script poblaba `predictions` con la etiqueta CRUDA del
+   motor (`motor.predict()`, sin calibrar, sin el umbral coste-óptimo) en
+   la MISMA `Muestra` que además llevaba el `umbral` elegido -- el umbral
+   nunca se aplicaba, silenciosamente. `_muestra_desde()` ya no puebla
+   `predictions`; accuracy/sensibilidad/especificidad salen SIEMPRE de la
+   regla de umbral, nunca de la etiqueta cruda del motor.
+
+3. **El umbral se aplica en la MISMA escala en la que se eligió.**
+   `PoliticaDeDecision` declara que, con calibrador, "el umbral vive en la
+   probabilidad calibrada" -- pero la evaluación final (`evaluar_en_test`)
+   aplicaba ese umbral sobre las probabilidades CRUDAS del motor ganador,
+   nunca recalibradas. Corregido: la muestra de test se recalibra con el
+   MISMO calibrador del ganador antes de evaluar, igual que ya se hacía
+   (a medias) en la fase de selección. Y `elegir_umbral()` ya admite un
+   parámetro `recalibracion=` que hace esto internamente -- se usa ese en
+   vez de reconstruir la recalibración a mano.
+
+4. **La comparación es contra el segundo mejor candidato real, no contra
+   el baseline.** `comparacion_lider` comparaba el ganador contra
+   `baseline-default` (AUROC 0,5 exacto por construcción, ningún
+   candidato real) mientras el texto de la decisión (`seleccion.py`/
+   `textos.py`) dice "frente al siguiente mejor candidato". Corregido:
+   se calcula el segundo mejor motor REAL (excluyendo baseline) por
+   AUROC de selección, y la comparación emparejada es contra ESE.
+
+5. **El umbral elegido queda persistido en la salida.** La primera
+   versión no guardaba `decision_policy` en ningún sitio del JSON --
+   ahora se guarda explícito (`PoliticaDeDecision.a_json()`), igual que
+   ya se guardaba la recalibración.
 
 UN CASO, NO LOS DOCE. El criterio pide un caso, no repetir la batería
-entera — "sick" (categóricas de alta cardinalidad, faltantes reales,
-desbalanceo 6,1%) es el más completo de los doce de 101-C3, y el que
-más EXIGE al pipeline entero (búsqueda → calibración → umbral →
-selección → evaluación final), no el más fácil de aprobar.
+entera -- "adult" (categóricas moderadas, faltantes reales, tamaño
+`grande`) es el candidato disponible más exigente entre los no tocados
+por 101-C3, no el más fácil de aprobar.
 
-CUATRO PARTICIONES DE DESARROLLO, NO DOS. El fold de "sick" de 101-C3
-da train/validation/test — para ejercer 105-C3 (recalibración) y 104-C4
+CUATRO PARTICIONES DE DESARROLLO, NO DOS. El fold de "adult" da
+train/validation/test -- para ejercer 105-C3 (recalibración) y 104-C4
 (umbral) sin que uno contamine al otro («ajustar sobre datos NUEVOS,
 nunca los que ajustaron la recalibración», texto literal de
-`aplicar_recalibracion`), el train original (2414 filas) se reparte en
-`fit_train`/`fit_val` (para `Motor.fit`) y la validation original (604
-filas) en `calibracion`/`seleccion` (para `ajustar_recalibracion_
+`aplicar_recalibracion`), el train original se reparte en
+`fit_train`/`fit_val` (para `Motor.fit`) y la validation original en
+`calibracion`/`seleccion` (para `ajustar_recalibracion_
 logistica` y `elegir_umbral`/`comparar_candidatos`/`seleccionar`,
-respectivamente). El test original (754 filas) quedó SIN TOCAR por
-esas cuatro particiones — se lee una sola vez, al final, vía
+respectivamente). El test original quedó SIN TOCAR por
+esas cuatro particiones -- se lee una sola vez, al final, vía
 `evaluar_en_test`.
 
 SIN AISLAMIENTO POR SUBPROCESO AQUÍ, A PROPÓSITO. `ejecutar_intento_
 aislado` (104-C2 ext.) existe para una BATERÍA de cientos de intentos
-donde un motor colgado no puede tirar la pasada entera — un solo caso,
+donde un motor colgado no puede tirar la pasada entera -- un solo caso,
 en el mismo proceso, no necesita esa protección; medirlo así habría
 sido ceremonia sin beneficio real.
+
+"REPETICIÓN INDEPENDIENTE", RENOMBRADA A LO QUE MIDE DE VERDAD. La
+auditoría señaló, con razón, que reajustar el MISMO motor sobre los
+MISMOS datos con la MISMA semilla demuestra determinismo, no una
+réplica independiente (que exigiría datos, entorno o al menos semilla
+distintos). Se mantiene la medición -- sigue siendo real y útil -- pero
+la salida y los mensajes ya no la llaman "independiente".
 """
 from __future__ import annotations
 
@@ -64,9 +127,9 @@ from matrixai_engines.motores.lineal import MotorLineal  # noqa: E402
 from matrixai_engines.motores.arbol_lightgbm import MotorArbolLightGBM  # noqa: E402
 from matrixai_engines.motores.densa import MotorDensaPropia  # noqa: E402
 
-DATASET = (38, "sick", "mediano", "sick", "negative")
+DATASET = (1590, "adult", "grande", ">50K", "<=50K")
 COST_FALSE_POSITIVE = 1.0
-COST_FALSE_NEGATIVE = 4.0  # perder un caso "sick" real cuesta más que una falsa alarma
+COST_FALSE_NEGATIVE = 4.0  # perder un caso positivo real cuesta más que una falsa alarma
 
 
 def _particion_de(filas: list[dict], objetivo: str) -> Particion:
@@ -74,13 +137,45 @@ def _particion_de(filas: list[dict], objetivo: str) -> Particion:
 
 
 def _muestra_desde(motor, fitted, filas: list[dict], objetivo: str, spec) -> Muestra:
+    """SIN `predictions`, a propósito: `matriz_de_confusion()` da prioridad
+    a la etiqueta declarada de la muestra sobre cualquier `umbral` que se le
+    pase (comportamiento correcto y documentado AHÍ), así que una `Muestra`
+    que quiere que el umbral decida no puede llevar la etiqueta cruda del
+    motor. La AUROC no necesita `predictions` -- usa `probabilities`."""
     datos = _particion_de(filas, objetivo)
-    predicciones = motor.predict(fitted, datos)
-    campos = dict(task=spec.task, y_true=tuple(datos.target), predictions=tuple(predicciones),
+    campos = dict(task=spec.task, y_true=tuple(datos.target),
                  classes=fitted.classes, positive_label=fitted.positive_label)
     if fitted.capacidades.admite_probabilidades:
         campos["probabilities"] = tuple(motor.predict_proba(fitted, datos))
     return Muestra(**campos)
+
+
+def _recalibracion_aplicable(recalibracion):
+    """`aplicar_recalibracion()` (y `elegir_umbral(recalibracion=...)`, que
+    la llama por dentro) EXIGE `a`/`b` reales -- levanta si la
+    recalibración falló (`convergio=False`, `a`/`b` en `None`). Tratar
+    "falló" igual que "no hay calibrador" (probabilidades crudas) es la
+    única salida sensata; nunca crashear el caso entero por una
+    recalibración que no convergió."""
+    if recalibracion is None or recalibracion.a is None or recalibracion.b is None:
+        return None
+    return recalibracion
+
+
+def _muestra_recalibrada(muestra: Muestra, recalibracion) -> Muestra:
+    """Misma muestra, con `scores` = la probabilidad del positivo YA
+    recalibrada -- para evaluar en la MISMA escala en la que se eligió el
+    umbral (`PoliticaDeDecision`: con calibrador, el umbral vive en la
+    probabilidad calibrada, nunca en la cruda). Sin calibrador (o si la
+    recalibración no convergió), se devuelve la muestra tal cual: no hay
+    una segunda escala que igualar."""
+    recalibracion = _recalibracion_aplicable(recalibracion)
+    if recalibracion is None:
+        return muestra
+    p_recalibrada = aplicar_recalibracion(recalibracion, muestra.probabilidad_del_positivo)
+    return Muestra(task=muestra.task, y_true=muestra.y_true, classes=muestra.classes,
+                   positive_label=muestra.positive_label, scores=p_recalibrada,
+                   score_rule="105-c3.recalibrada")
 
 
 def _particiones_de_desarrollo(por_id: dict, pliegue, seed: int):
@@ -108,15 +203,17 @@ def main() -> None:
     fit_train_ids, fit_val_ids, calibracion_ids, seleccion_ids = _particiones_de_desarrollo(
         por_id, pliegue, seed=0)
 
-    print(f"sick: fit_train={len(fit_train_ids)} fit_val={len(fit_val_ids)} "
+    print(f"{nombre_ds}: fit_train={len(fit_train_ids)} fit_val={len(fit_val_ids)} "
          f"calibracion={len(calibracion_ids)} seleccion={len(seleccion_ids)} "
          f"test={len(test_ids)}", flush=True)
 
-    registro = RegistroDeAccesos(propuesta.plan, estudio="101-c4-caso-sick")
+    registro = RegistroDeAccesos(propuesta.plan, estudio=f"101-c4-caso-{nombre_ds}")
     registro.abrir_fase("development")
 
     motores = [MotorBaseline(), MotorLineal(), MotorArbolLightGBM(), MotorDensaPropia()]
-    presupuesto = Presupuesto(wall_seconds=120.0, hilos=4, seed=0)
+    # "grande" en el protocolo registrado presupuesta 10 min/intento (vs 2
+    # min de "sick", mediano) -- "adult" tiene ~13x las filas de "sick".
+    presupuesto = Presupuesto(wall_seconds=600.0, hilos=4, seed=0)
 
     evaluaciones_seleccion: dict[str, EvaluationResult] = {}
     muestras_seleccion: dict[str, Muestra] = {}
@@ -139,9 +236,20 @@ def main() -> None:
 
         registro.anotar("development", proposito="fit", candidato=candidato,
                         observaciones=len(filas_fit_train) + len(filas_fit_val))
-        fit_result, fitted = motor.fit(_particion_de(filas_fit_train, objetivo),
-                                       _particion_de(filas_fit_val, objetivo), spec, presupuesto,
-                                       candidate=candidato, split_plan_digest=propuesta.plan.digest())
+        try:
+            fit_result, fitted = motor.fit(_particion_de(filas_fit_train, objetivo),
+                                           _particion_de(filas_fit_val, objetivo), spec, presupuesto,
+                                           candidate=candidato, split_plan_digest=propuesta.plan.digest())
+        except Exception as exc:  # noqa: BLE001
+            # Límite REAL del core, ya documentado en 101-C3 para
+            # PhishingWebsites (mismo mecanismo: dos etiquetas distintas que
+            # colisionan al mismo nombre saneado, p.ej. '>50K'/'<=50K' ->
+            # 'class_50k') -- declarado, no una excepción que se traga en
+            # silencio: un motor que no puede con este dataset queda fuera
+            # de la comparación, el resto del caso sigue midiéndose.
+            print(f"  {motor.nombre}: fit LEVANTÓ una excepción ({type(exc).__name__}: {exc}) "
+                 f"-- fuera de la comparación, no es un fallo de este script.")
+            continue
         if fit_result.state != "completed" or fitted is None:
             print(f"  {motor.nombre}: fit no completado ({fit_result.state}), fuera de la comparación")
             continue
@@ -156,47 +264,68 @@ def main() -> None:
             recalibracion = ajustar_recalibracion_logistica(muestra_calibracion)
         recalibraciones[candidato] = recalibracion
 
+        if recalibracion is not None and not recalibracion.convergio:
+            print(f"  {motor.nombre}: recalibración NO convergió "
+                 f"({recalibracion.undefined_reason}) -- se sigue sin recalibrar, "
+                 f"con las probabilidades crudas del motor.")
+
         registro.anotar("development", proposito="tune_threshold", candidato=candidato,
                         observaciones=len(filas_seleccion))
         muestra_seleccion = _muestra_desde(motor, fitted, filas_seleccion, objetivo, spec)
-        if recalibracion is not None and recalibracion.a is not None:
-            p_positiva = tuple(p[muestra_seleccion.classes.index(spec.positive_label)]
-                              for p in muestra_seleccion.probabilities)
-            p_recalibrada = aplicar_recalibracion(recalibracion, p_positiva)
-            muestra_seleccion = Muestra(
-                task=muestra_seleccion.task, y_true=muestra_seleccion.y_true,
-                classes=muestra_seleccion.classes, positive_label=muestra_seleccion.positive_label,
-                scores=p_recalibrada, score_rule="105-c3.recalibrada", predictions=muestra_seleccion.predictions)
+        # `elegir_umbral(recalibracion=...)` recalibra internamente ANTES de
+        # buscar el umbral óptimo -- no hace falta reconstruir la
+        # recalibración a mano aquí (y así el umbral sale ya en la escala
+        # correcta, calibrada si hay recalibración que aplicar de verdad).
         umbral = elegir_umbral(muestra_seleccion, cost_false_positive=COST_FALSE_POSITIVE,
-                               cost_false_negative=COST_FALSE_NEGATIVE)
+                               cost_false_negative=COST_FALSE_NEGATIVE,
+                               recalibracion=_recalibracion_aplicable(recalibracion))
         umbrales[candidato] = umbral
 
+        # Para EVALUAR con ese umbral, la muestra tiene que estar en la
+        # MISMA escala en la que se eligió -- recalibrada si hubo
+        # calibrador, cruda si no. Nunca con `predictions`: el umbral
+        # decide, no la etiqueta cruda del motor (ver `_muestra_desde`).
+        muestra_seleccion_evaluada = _muestra_recalibrada(muestra_seleccion, recalibracion)
         registro.anotar("development", proposito="select", candidato=candidato,
                         observaciones=len(filas_seleccion))
-        informe = evaluar(muestra_seleccion, ["auroc", "accuracy", "specificity"], umbral=umbral.threshold)
+        informe = evaluar(muestra_seleccion_evaluada, ["auroc", "accuracy", "specificity"],
+                          umbral=umbral.threshold)
         evaluaciones_seleccion[candidato] = EvaluationResult(
             evaluation_id=f"sel-{candidato}", pipeline_digest=fitted.digest(),
             split_plan_digest=propuesta.plan.digest(), evaluated_role="selection",
             evidence="development_estimate", metrics=informe.metrics)
-        muestras_seleccion[candidato] = muestra_seleccion
+        muestras_seleccion[candidato] = muestra_seleccion_evaluada
         auroc = next((m.value for m in informe.metrics if m.metric_id == "auroc"), None)
         print(f"  {motor.nombre}: fit ok, auroc(seleccion)={auroc}, "
-             f"umbral={umbral.threshold}")
+             f"umbral={umbral.threshold} (escala={umbral.scale})")
 
-    # comparación emparejada: cada candidato contra el baseline
+    # comparación emparejada: el ganador contra el SEGUNDO MEJOR candidato
+    # real -- nunca el baseline, que por construcción da AUROC 0,5 exacto
+    # y no es un candidato desplegable. "ganador" y "segundo mejor" se
+    # calculan los dos excluyendo baseline del ranking.
     baseline_cand = "baseline-default"
-    ganador_actual = max(evaluaciones_seleccion, key=lambda c: next(
+    candidatos_reales = [c for c in evaluaciones_seleccion if c != baseline_cand]
+    ganador_actual = max(candidatos_reales, key=lambda c: next(
         (m.value for m in evaluaciones_seleccion[c].metrics if m.metric_id == "auroc"), -1.0))
+    otros_candidatos_reales = [c for c in candidatos_reales if c != ganador_actual]
+    segundo_mejor = None
+    if otros_candidatos_reales:
+        segundo_mejor = max(otros_candidatos_reales, key=lambda c: next(
+            (m.value for m in evaluaciones_seleccion[c].metrics if m.metric_id == "auroc"), -1.0))
+
     comparacion_lider = None
-    if baseline_cand in muestras_seleccion and ganador_actual != baseline_cand:
+    if segundo_mejor is not None:
         comparacion_lider = comparar_candidatos(
-            "auroc", muestras_seleccion[ganador_actual], muestras_seleccion[baseline_cand],
+            "auroc", muestras_seleccion[ganador_actual], muestras_seleccion[segundo_mejor],
             diseno="iid", estimando="fixed_model_on_population", semilla=0)
-        print(f"  comparación {ganador_actual} vs {baseline_cand}: {comparacion_lider.veredicto}")
+        print(f"  comparación {ganador_actual} vs {segundo_mejor} (segundo mejor real, "
+             f"NO el baseline): {comparacion_lider.veredicto}")
+    else:
+        print("  un solo candidato real (aparte del baseline) -- sin comparación con el segundo mejor.")
 
     restricciones = (Restriccion(clave="specificity", operador="min", valor=0.3),)
     decision = seleccionar(evaluaciones_seleccion, restricciones=restricciones,
-                           metric_id_calidad="auroc", decision_id="101-c4-sick",
+                           metric_id_calidad="auroc", decision_id="101-c4-adult",
                            split_plan_digest=propuesta.plan.digest(),
                            necesita_red=necesita_red, comparacion_lider=comparacion_lider)
     print(f"\nDecisión de selección: {decision.outcome}, ganador={decision.chosen_candidate}")
@@ -222,37 +351,47 @@ def main() -> None:
         candidate=ganador, split_plan_digest=propuesta.plan.digest())
     assert fitted_ganador.digest() == pipeline_digest, "el reajuste no reprodujo el mismo digest"
 
-    muestra_test = _muestra_desde(motor_ganador, fitted_ganador, transformadas_test[n1 + n2:], objetivo, spec)
-    umbral_ganador = umbrales[ganador].threshold
+    # Test recalibrado con el MISMO calibrador del ganador -- el umbral se
+    # eligió en escala calibrada (si hubo calibrador), y evaluarlo sobre
+    # probabilidades crudas cortaría en el sitio equivocado.
+    muestra_test_cruda = _muestra_desde(motor_ganador, fitted_ganador, transformadas_test[n1 + n2:], objetivo, spec)
+    recalibracion_ganador = recalibraciones.get(ganador)
+    muestra_test = _muestra_recalibrada(muestra_test_cruda, recalibracion_ganador)
+    umbral_ganador = umbrales[ganador]
     validacion = evaluar_en_test(registro, pipeline_digest, muestra_test,
                                  metricas=["auroc", "accuracy", "sensitivity", "specificity"],
-                                 restricciones=restricciones, umbral=umbral_ganador)
+                                 restricciones=restricciones, umbral=umbral_ganador.threshold)
     print(f"Validación final: {validacion.resultado}, evidencia={validacion.evaluacion.evidence}")
     for m in validacion.evaluacion.metrics:
         print(f"  {m.metric_id} = {m.value}")
 
     informe_final = InformeDeEvaluacion(
         informe_id=f"informe-101-c4-{ganador}", evaluacion=validacion.evaluacion,
-        recalibracion=(recalibraciones[ganador].a_json() if recalibraciones.get(ganador) else None),
+        recalibracion=(recalibracion_ganador.a_json() if recalibracion_ganador else None),
         comparaciones=((comparacion_lider.a_json(),) if comparacion_lider else ()))
 
-    # --- repetición independiente: mismo caso, misma semilla, de cero ---
+    # --- repetición con la misma semilla: mide DETERMINISMO, no réplica
+    # independiente (mismo motor, mismos datos, mismo proceso -- ver nota
+    # del módulo). Útil y real, pero no es lo que su nombre decía antes. ---
     _, fitted_repeticion = motor_ganador.fit(
         _particion_de(transformadas_test[:n1], objetivo),
         _particion_de(transformadas_test[n1:n1 + n2], objetivo), spec, presupuesto,
         candidate=ganador, split_plan_digest=propuesta.plan.digest())
     reproduce = fitted_repeticion.digest() == pipeline_digest
-    print(f"\nRepetición independiente (mismo caso, misma semilla): "
+    print(f"\nRepetición con la misma semilla (determinismo, NO réplica independiente): "
          f"{'reproduce el mismo digest' if reproduce else 'NO REPRODUCE -- fallo real'}")
 
     salida = {
         "creado": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "caso": nombre_ds, "ganador": ganador, "decision": decision.a_json(),
-        "informe": informe_final.a_json(), "repeticion_independiente_reproduce": reproduce,
+        "informe": informe_final.a_json(),
+        "repeticion_misma_semilla_reproduce": reproduce,
+        "decision_policy": umbral_ganador.a_json(),
+        "segundo_mejor_candidato": segundo_mejor,
         "cost_false_positive": COST_FALSE_POSITIVE, "cost_false_negative": COST_FALSE_NEGATIVE,
     }
     salida["digest"] = digest_canonico(salida)
-    ruta = Path(__file__).resolve().parent / "informe_101_c4_caso_sick.json"
+    ruta = Path(__file__).resolve().parent / f"informe_101_c4_caso_{nombre_ds}.json"
     ruta.write_text(json.dumps(salida, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
     print(f"Guardado en {ruta}, digest={salida['digest'][:16]}")
 

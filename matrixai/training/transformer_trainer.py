@@ -205,6 +205,20 @@ class TransformerSupervisedTrainer:
         # Auditoría C4 ronda 2 [MEDIA-2]: honrar el DATASET SPLIT declarado
         # (ratio + seed de barajado — misma semántica que _split_examples del
         # trainer stdlib) y pasar las particiones EXPLÍCITAS al trainer.
+        #
+        # CONTRATO 101-C0, tramo de prueba añadido (reabierto y completado
+        # 2026-09-08 tras auditoría externa): este trainer YA honraba
+        # semilla/ratio sin exigir `protocol=2` (decisión de la propia
+        # "Auditoría C4 ronda 2", anterior al 101-C0) -- no se fuerza aquí
+        # al `particion_para()`/`protocol=2` que usan dense/composite/
+        # layer_call, porque eso APAGARÍA el barajado por semilla para
+        # quien lo declare SIN `protocol=2`, justo lo que esa auditoría
+        # anterior ya decidió soportar. Lo único que faltaba, y es lo que
+        # el 101 vino a arreglar: `split.test`, declarado o no, nunca se
+        # leía -- todo lo que sobraba de train cae en `val_examples`
+        # SIEMPRE, aunque el `.mxtrain` reserve un tramo de prueba. Ahora
+        # se aparta ANTES de repartir train/validación, con el mismo
+        # barajado (si hay semilla) que ya se aplicaba.
         import random as _random
         split_spec = training.dataset.split if training.dataset else None
         indices = list(range(len(examples)))
@@ -214,12 +228,18 @@ class TransformerSupervisedTrainer:
         # comportamiento de siempre, byte-idéntico.
         if split_spec and split_spec.seed is not None and split_spec.mode != "temporal":
             _random.Random(split_spec.seed).shuffle(indices)
+        n = len(examples)
         train_ratio = split_spec.train if split_spec else 0.8
-        n_train = max(1, min(len(examples) - 1, int(len(examples) * train_ratio))) \
-            if len(examples) > 1 else len(examples)
+        test_ratio = getattr(split_spec, "test", None) if split_spec else None
+        n_train = max(1, min(n - 1, int(n * train_ratio))) if n > 1 else n
+        n_test = int(n * test_ratio) if test_ratio else 0
+        # El tramo de prueba se aparta del FINAL de los índices (ya
+        # barajados si tocaba) -- nunca se cuela en `val_examples`.
+        corte_val = max(n_train, n - n_test) if n_test else n
         train_idx = set(indices[:n_train])
+        val_idx = set(indices[n_train:corte_val])
         train_examples = [ex for i, ex in enumerate(examples) if i in train_idx]
-        val_examples = [ex for i, ex in enumerate(examples) if i not in train_idx] \
+        val_examples = [ex for i, ex in enumerate(examples) if i in val_idx] \
             or train_examples[:1]
 
         mhash = program_hash(program)

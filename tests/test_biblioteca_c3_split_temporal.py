@@ -638,3 +638,20 @@ class TestCompositeTorchStudioPathHonorsTemporalSplit:
         )
         assert captured["validation_examples"] is None
         assert len(captured["examples"]) == 10  # TODOS, no solo el 60%
+
+    def test_protocol2_test_no_se_cuela_en_validacion(self, monkeypatch):
+        """101-C0, reabierto y completado 2026-09-08: con `protocol=2` Y
+        `test=` declarados (mode=temporal, para que el camino torch SÍ use
+        train_ex/val_ex — ver el test de arriba), el tramo de prueba
+        queda FUERA de `validation_examples` — antes se leía solo
+        `split.train` y todo lo que sobraba de train cabía en validación,
+        el tramo de prueba incluido."""
+        captured = self._run_and_capture(
+            "SPLIT train=0.6 validation=0.2 test=0.2 mode=temporal protocol=2", monkeypatch,
+        )
+        val_x1 = sorted(int(x["x1"]) for x, _y in captured["validation_examples"])
+        train_x1 = sorted(int(x["x1"]) for x, _y in captured["examples"])
+        assert val_x1 == [6, 7], val_x1  # NO [6,7,8,9] -- el bug reabierto habría colado 8,9 (test) aquí
+        assert train_x1 == [0, 1, 2, 3, 4, 5]
+        assert set(val_x1) & set(train_x1) == set()
+        assert 8 not in val_x1 and 9 not in val_x1  # el tramo de prueba, nunca en validación

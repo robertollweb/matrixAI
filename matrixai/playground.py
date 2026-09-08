@@ -2253,11 +2253,20 @@ def _run_playground_composite_training(
         if not examples:
             return {"ok": False, "error": "El dataset no produjo ejemplos válidos"}
 
-        split = training.dataset.split
-        train_ratio = split.train if split else 0.8
-        n_train = max(1, int(len(examples) * train_ratio))
-        train_ex = examples[:n_train]
-        val_ex = examples[n_train:] or examples[-1:]
+        # CONTRATO 101-C0 (reabierto y completado 2026-09-08 tras auditoría
+        # externa): la partición la decide `training.particion`, el mismo
+        # sitio que ya usan el entrenador stdlib denso y el camino torch
+        # denso de este mismo fichero (línea ~1906). Sin `protocol=2`
+        # declarado devuelve exactamente lo de antes -- el 0,8 fijo
+        # secuencial de siempre --, así que este camino no cambia para
+        # nadie que no lo declare; con él, un `SPLIT ... test=0.2
+        # protocol=2` deja el tramo de prueba FUERA de `val_ex` de verdad
+        # (antes se colaba entero: solo se leía `split.train`, nunca
+        # `split.test`, y todo lo que sobraba de train caía en validación).
+        from matrixai.training.particion import particion_para, reparte
+        _particion = particion_para(len(examples), training.dataset.split)
+        train_ex, _val_declarada, _test_ex = reparte(examples, _particion)
+        val_ex = _val_declarada or examples[-1:]
 
         mhash = program_hash(program)
         epoch_trace: list[dict[str, Any]] = []
@@ -2605,11 +2614,16 @@ def _run_playground_transformer_training(
             training.dataset.batch.size if (training.dataset and training.dataset.batch) else None
         )
 
-        split = training.dataset.split
-        train_ratio = split.train if split else 0.8
-        n_train = max(1, int(len(examples) * train_ratio))
-        train_ex = examples[:n_train]
-        val_ex = examples[n_train:] or examples[-1:]
+        # CONTRATO 101-C0 (reabierto y completado 2026-09-08): mismo
+        # `particion_para`/`reparte` que el resto de entrenadores (ver la
+        # nota completa en `_run_playground_composite_training`, más
+        # arriba en este fichero) -- sin `protocol=2` declarado, byte-
+        # idéntico a lo de siempre; con él, `split.test` deja de colarse
+        # en `val_ex`.
+        from matrixai.training.particion import particion_para, reparte
+        _particion = particion_para(len(examples), training.dataset.split)
+        train_ex, _val_declarada, _test_ex = reparte(examples, _particion)
+        val_ex = _val_declarada or examples[-1:]
 
         mhash = program_hash(program)
         ps = build_composite_network_parameter_set(
@@ -2922,11 +2936,16 @@ def _run_playground_generic_training(
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"CSV inválido: {exc}"}
 
-        split = training.dataset.split
-        train_ratio = split.train if split else 0.8
-        n_train = max(1, int(len(all_examples) * train_ratio))
-        train_examples = all_examples[:n_train]
-        val_examples = all_examples[n_train:] or all_examples[-1:]
+        # CONTRATO 101-C0 (reabierto y completado 2026-09-08): mismo
+        # `particion_para`/`reparte` que el resto de entrenadores (ver la
+        # nota completa en `_run_playground_composite_training`, más
+        # arriba en este fichero) -- sin `protocol=2` declarado, byte-
+        # idéntico a lo de siempre; con él, `split.test` deja de colarse
+        # en `val_examples`.
+        from matrixai.training.particion import particion_para, reparte
+        _particion = particion_para(len(all_examples), training.dataset.split)
+        train_examples, _val_declarada, _test_examples = reparte(all_examples, _particion)
+        val_examples = _val_declarada or all_examples[-1:]
 
         try:
             result = GenericSupervisedTrainer().train(

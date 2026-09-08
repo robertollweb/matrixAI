@@ -1,0 +1,186 @@
+{
+  "creado": "2026-09-08T16:55:49Z",
+  "caso": "adult",
+  "ganador": "lightgbm-default",
+  "decision": {
+    "schema": "matrixai.estudio.selection_decision",
+    "schema_version": "1.0",
+    "decision_id": "101-c4-adult",
+    "outcome": "selected",
+    "chosen_candidate": "lightgbm-default",
+    "reason": {
+      "es": "lightgbm-default tiene una mejora demostrada frente al siguiente mejor candidato, con una diferencia emparejada que excluye el empate",
+      "en": "lightgbm-default has a demonstrated improvement over the next best candidate, with a paired difference that excludes a tie"
+    },
+    "policy": "utilidad_maxima_bajo_restricciones",
+    "evidence": [
+      {
+        "schema": "matrixai.estudio.evaluation_result",
+        "schema_version": "1.0",
+        "evaluation_id": "sel-lightgbm-default",
+        "pipeline_digest": "8b49f0b3d8558f7d11246d674b045b6bb12749d526716f6560f636998d662308",
+        "split_plan_digest": "bdef5eb8ef5610ef72c08ff58af85cec95f2953ca01f6b5999919d7d6c5c7446",
+        "evaluated_role": "selection",
+        "evidence": "development_estimate",
+        "metrics": [
+          {
+            "metric_id": "auroc",
+            "formula_version": "1.0.0",
+            "value": 0.9323124012741861,
+            "undefined_reason": null,
+            "n_observations": 3908,
+            "n_units": null,
+            "uncertainty": null
+          },
+          {
+            "metric_id": "accuracy",
+            "formula_version": "1.0.0",
+            "value": 0.7935005117707267,
+            "undefined_reason": null,
+            "n_observations": 3908,
+            "n_units": null,
+            "uncertainty": null
+          },
+          {
+            "metric_id": "specificity",
+            "formula_version": "1.0.0",
+            "value": 0.6246319921491659,
+            "undefined_reason": null,
+            "n_observations": 3908,
+            "n_units": null,
+            "uncertainty": null
+          }
+        ],
+        "derives_from": null
+      }
+    ],
+    "rejected": [
+      {
+        "candidate": "baseline-default",
+        "reason": {
+          "es": "specificity no alcanza el mínimo exigido (medido: 0.0)",
+          "en": "specificity does not reach the required minimum (measured: 0.0)"
+        }
+      },
+      {
+        "candidate": "sklearn.lineal-default",
+        "reason": {
+          "es": "supera las restricciones, pero lightgbm-default tiene más utilidad medida",
+          "en": "clears the constraints, but lightgbm-default has higher measured utility"
+        }
+      }
+    ],
+    "constraints_checked": [
+      "specificity"
+    ],
+    "split_plan_digest": "bdef5eb8ef5610ef72c08ff58af85cec95f2953ca01f6b5999919d7d6c5c7446"
+  },
+  "informe": {
+    "schema": "matrixai.estudio.evaluacion_final_report",
+    "schema_version": "1.0",
+    "informe_id": "informe-101-c4-lightgbm-default",
+    "evaluacion": {
+      "schema": "matrixai.estudio.evaluation_result",
+      "schema_version": "1.0",
+      "evaluation_id": "eval-8b49f0b3d8558f7d11246d674b045b6bb12749d526716f6560f636998d662308-test",
+      "pipeline_digest": "8b49f0b3d8558f7d11246d674b045b6bb12749d526716f6560f636998d662308",
+      "split_plan_digest": "bdef5eb8ef5610ef72c08ff58af85cec95f2953ca01f6b5999919d7d6c5c7446",
+      "evaluated_role": "test",
+      "evidence": "independent_test",
+      "metrics": [
+        {
+          "metric_id": "auroc",
+          "formula_version": "1.0.0",
+          "value": 0.9274673739236808,
+          "undefined_reason": null,
+          "n_observations": 9768,
+          "n_units": null,
+          "uncertainty": null
+        },
+        {
+          "metric_id": "accuracy",
+          "formula_version": "1.0.0",
+          "value": 0.6897010647010647,
+          "undefined_reason": null,
+          "n_observations": 9768,
+          "n_units": null,
+          "uncertainty": null
+        },
+        {
+          "metric_id": "sensitivity",
+          "formula_version": "1.0.0",
+          "value": 0.9798887462558836,
+          "undefined_reason": null,
+          "n_observations": 9768,
+          "n_units": null,
+          "uncertainty": null
+        },
+        {
+          "metric_id": "specificity",
+          "formula_version": "1.0.0",
+          "value": 0.5984389718745795,
+          "undefined_reason": null,
+          "n_observations": 9768,
+          "n_units": null,
+          "uncertainty": null
+        }
+      ],
+      "derives_from": null
+    },
+    "intervalos": [],
+    "curva_de_fiabilidad": null,
+    "recalibracion": {
+      "metodo": "logistico_completo",
+      "n_observaciones": 3907,
+      "a": null,
+      "b": null,
+      "convergio": false,
+      "iteraciones": 0,
+      "separacion_detectada": false,
+      "undefined_reason": {
+        "es": "recalibracion_logistica no se puede ajustar: todas las observaciones de esta muestra son de la misma clase, y una recalibración logística necesita las dos para tener algo que separar",
+        "en": "recalibracion_logistica cannot be fitted: every observation in this sample belongs to the same class, and a logistic recalibration needs both to have anything to separate"
+      }
+    },
+    "comparaciones": [
+      {
+        "metric_id": "auroc",
+        "diseno": "iid",
+        "estimando": "fixed_model_on_population",
+        "veredicto": "mejora",
+        "margen_equivalencia": null,
+        "diferencia_puntual": 0.032294558469297185,
+        "intervalo": {
+          "metric_id": "auroc",
+          "design": "iid",
+          "estimand": "fixed_model_on_population",
+          "method": "iid_paired_bootstrap",
+          "resampling_unit": "row",
+          "seed": 0,
+          "n_resamples": 1000,
+          "n_resamples_used": 1000,
+          "n_resamples_degenerate": 0,
+          "level": 0.95,
+          "ci_low": 0.02676276416535039,
+          "ci_high": 0.03793517092357502,
+          "block_length": null,
+          "elapsed_seconds": 8.277201043907553,
+          "undefined_reason": null
+        },
+        "undefined_reason": null
+      }
+    ]
+  },
+  "repeticion_misma_semilla_reproduce": true,
+  "decision_policy": {
+    "threshold": 0.052777444608539975,
+    "scale": "calibrated_probability",
+    "positive_label": ">50K",
+    "cost_false_positive": 1.0,
+    "cost_false_negative": 4.0
+  },
+  "segundo_mejor_candidato": "sklearn.lineal-default",
+  "cost_false_positive": 1.0,
+  "cost_false_negative": 4.0,
+  "digest": "09a7d4e4ad9c82fe5e44354456ef205ace23cee213b27f29c3c8ea6d67026ed4"
+}
