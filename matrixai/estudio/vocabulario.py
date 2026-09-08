@@ -29,7 +29,8 @@ __all__ = [
     "OPERADORES_DE_RESTRICCION", "PROPOSITOS", "PROPOSITOS_QUE_APRENDEN",
     "REQUISITOS_DE_METRICA",
     "RESULTADOS_DE_SELECCION", "ROLES", "ROLES_DE_DESARROLLO", "ROLES_RESERVADOS",
-    "TAREAS", "TAREAS_DE_CLASIFICACION", "TIPOS_DE_PARTICION", "UNIDADES_DE_TIEMPO",
+    "TAREAS", "TAREAS_DE_CLASIFICACION", "TIPOS_DE_PARTICION",
+    "TIPOS_DE_PROCESO_ACTUAL", "UNIDADES_DE_TIEMPO",
     "conserva_candidato", "es_terminal", "exige_motivo", "exigir_opcion",
     "fase_del_rol_reservado",
 ]
@@ -141,6 +142,13 @@ OPERADORES_DE_RESTRICCION = ("min", "max", "equal", "boolean")
 #: la probabilidad calibrada: un umbral elegido sobre el score crudo no es el
 #: umbral de ese pipeline (104-C4).
 ESCALAS_DE_DECISION = ("calibrated_probability", "raw_score")
+
+#: Cómo se decide hoy, ANTES de este estudio (108-C1): una columna del propio
+#: dataset con la decisión/predicción vigente, una regla escrita a mano, o
+#: `ninguno` -- no hay proceso previo que comparar. `ninguno` es una respuesta,
+#: no la ausencia del campo: `current_process=None` dice «no se ha preguntado»
+#: y `tipo="ninguno"` dice «se preguntó, y no hay».
+TIPOS_DE_PROCESO_ACTUAL = ("columna", "regla", "ninguno")
 
 # ---------------------------------------------------------------------------
 # Evidencia y selección

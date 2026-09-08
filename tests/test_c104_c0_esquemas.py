@@ -36,6 +36,7 @@ from matrixai.estudio import (
     PoliticaDeDecision,
     PredictionRecord,
     ProblemSpec,
+    ProcesoActual,
     ProtocoloRoto,
     Recursos,
     RegistroDeAccesos,
@@ -232,6 +233,87 @@ class ElProblemaSeDeclaraEnteroTest(unittest.TestCase):
         with self.assertRaises(EsquemaInvalido) as e:
             _problema(intended_use="   ")
         self.assertEqual(e.exception.clave, "no_es_texto")
+
+
+class ComoSeDecideHoyTest(unittest.TestCase):
+    """108-C1: `current_process` es opcional (`None` = «no se ha preguntado») y,
+    cuando está, tiene exactamente una de tres formas -- una columna, una regla
+    escrita, o «ninguno» (se preguntó y no hay proceso previo)."""
+
+    def test_ausente_por_omision_no_se_ha_preguntado(self):
+        self.assertIsNone(_problema().current_process)
+
+    def test_columna_vale_y_se_lee_de_vuelta(self):
+        problema = _problema(current_process=ProcesoActual(tipo="columna", columna="triaje_actual"))
+        self.assertEqual(problema.current_process.tipo, "columna")
+        self.assertEqual(problema.current_process.columna, "triaje_actual")
+        self.assertIsNone(problema.current_process.regla)
+
+    def test_regla_vale_y_se_lee_de_vuelta(self):
+        problema = _problema(current_process=ProcesoActual(
+            tipo="regla", regla="ingresar si lactato > 4"))
+        self.assertEqual(problema.current_process.regla, "ingresar si lactato > 4")
+        self.assertIsNone(problema.current_process.columna)
+
+    def test_ninguno_es_una_respuesta_no_una_ausencia(self):
+        """`tipo="ninguno"` significa «se preguntó, y no hay» -- distinto de
+        `current_process=None`, que significa «no se ha preguntado»."""
+        problema = _problema(current_process=ProcesoActual(tipo="ninguno"))
+        self.assertIsNotNone(problema.current_process)
+        self.assertEqual(problema.current_process.tipo, "ninguno")
+        self.assertIsNone(problema.current_process.columna)
+        self.assertIsNone(problema.current_process.regla)
+
+    def test_columna_sin_columna_se_rechaza(self):
+        with self.assertRaises(EsquemaInvalido) as e:
+            ProcesoActual(tipo="columna", columna=None)
+        self.assertEqual(e.exception.clave, "no_es_texto")
+
+    def test_regla_sin_regla_se_rechaza(self):
+        with self.assertRaises(EsquemaInvalido) as e:
+            ProcesoActual(tipo="regla", regla=None)
+        self.assertEqual(e.exception.clave, "no_es_texto")
+
+    def test_columna_con_regla_rellena_se_rechaza(self):
+        """Solo el campo de la forma declarada va relleno -- los otros dos
+        tienen que venir vacíos, no simplemente "no obligatorios"."""
+        with self.assertRaises(EsquemaInvalido) as e:
+            ProcesoActual(tipo="columna", columna="x", regla="y")
+        self.assertEqual(e.exception.clave, "proceso_actual_campo_de_otra_forma")
+
+    def test_regla_con_columna_rellena_se_rechaza(self):
+        with self.assertRaises(EsquemaInvalido) as e:
+            ProcesoActual(tipo="regla", regla="y", columna="x")
+        self.assertEqual(e.exception.clave, "proceso_actual_campo_de_otra_forma")
+
+    def test_ninguno_con_columna_o_regla_rellena_se_rechaza(self):
+        with self.assertRaises(EsquemaInvalido) as e:
+            ProcesoActual(tipo="ninguno", columna="x")
+        self.assertEqual(e.exception.clave, "proceso_actual_campo_de_otra_forma")
+        with self.assertRaises(EsquemaInvalido) as e:
+            ProcesoActual(tipo="ninguno", regla="y")
+        self.assertEqual(e.exception.clave, "proceso_actual_campo_de_otra_forma")
+
+    def test_un_tipo_fuera_del_vocabulario_se_rechaza(self):
+        with self.assertRaises(EsquemaInvalido) as e:
+            ProcesoActual(tipo="csv_aparte")
+        self.assertEqual(e.exception.clave, "no_es_del_vocabulario")
+
+    def test_la_columna_del_proceso_actual_no_puede_ser_el_propio_objetivo(self):
+        """Comparar el objetivo consigo mismo no es un proceso actual -- sería
+        una «comparación» que siempre da acuerdo perfecto por construcción."""
+        with self.assertRaises(EsquemaInvalido) as e:
+            _problema(current_process=ProcesoActual(tipo="columna", columna="ingreso_uci"))
+        self.assertEqual(e.exception.clave, "proceso_actual_es_el_objetivo")
+
+    def test_ida_y_vuelta_json_conserva_las_tres_formas(self):
+        for proceso in (ProcesoActual(tipo="columna", columna="triaje_actual"),
+                        ProcesoActual(tipo="regla", regla="lactato > 4"),
+                        ProcesoActual(tipo="ninguno")):
+            with self.subTest(tipo=proceso.tipo):
+                problema = _problema(current_process=proceso)
+                vuelta = ProblemSpec.desde_json(problema.a_json())
+                self.assertEqual(vuelta.current_process, proceso)
 
 
 # ---------------------------------------------------------------------------

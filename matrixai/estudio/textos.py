@@ -140,6 +140,21 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "there is a horizon ({valor}) and no prediction time: a horizon "
               "without an anchor does not say when it starts counting",
     },
+    "proceso_actual_campo_de_otra_forma": {
+        "es": "current_process declara {valor} y trae relleno {campo}, que es de "
+              "otra forma: solo el campo de la forma declarada va relleno",
+        "en": "current_process declares {valor} and carries {campo} filled in, "
+              "which belongs to a different form: only the declared form's own "
+              "field is filled in",
+    },
+    "proceso_actual_es_el_objetivo": {
+        "es": "current_process señala la columna {valor}, que es el propio "
+              "objetivo del problema: comparar el objetivo consigo mismo no es "
+              "un proceso actual",
+        "en": "current_process points at column {valor}, which is the problem's "
+              "own target: comparing the target against itself is not a "
+              "current process",
+    },
     # ---- SplitPlan -------------------------------------------------------
     "particion_sin_test": {
         "es": "el plan no reserva ninguna observación al rol `test`. El test se "

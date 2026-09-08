@@ -73,6 +73,7 @@ from matrixai.estudio.vocabulario import (
     ROLES_RESERVADOS,
     TAREAS,
     TIPOS_DE_PARTICION,
+    TIPOS_DE_PROCESO_ACTUAL,
     UNIDADES_DE_TIEMPO,
     conserva_candidato,
     exige_motivo,
@@ -82,8 +83,8 @@ from matrixai.estudio.vocabulario import (
 __all__ = [
     "Aptitud", "EvaluationResult", "FitResult", "FittedPipelineSpec", "Horizonte",
     "MetricSpec", "PoliticaDeDecision", "PredictionRecord", "ProblemSpec",
-    "Recursos", "Restriccion", "SelectionDecision", "SplitPlan", "ValorDeMetrica",
-    "digest_canonico", "version_tras_aprender_del_test",
+    "ProcesoActual", "Recursos", "Restriccion", "SelectionDecision", "SplitPlan",
+    "ValorDeMetrica", "digest_canonico", "version_tras_aprender_del_test",
 ]
 
 #: Cuánto se le tolera a una distribución de probabilidad al sumar. No es una
@@ -307,6 +308,50 @@ class Aptitud:
         return {"apto": self.apto, "faltan": list(self.faltan), "motivo": self.motivo}
 
 
+@dataclass(frozen=True)
+class ProcesoActual:
+    """Cómo se decide hoy, ANTES de este estudio (108-C1) -- lo que 105-C5
+    compara como proceso actual, no otro baseline estadístico.
+
+    Tres formas, cerradas por `tipo`: una `columna` del propio dataset con la
+    decisión/predicción vigente, una `regla` escrita a mano, o `ninguno` --
+    no hay proceso previo. Solo el campo de la forma declarada viene relleno;
+    los otros dos tienen que venir vacíos, por la misma razón que una
+    restricción no lleva un valor de un tipo que no declaró.
+    """
+
+    tipo: str
+    columna: str | None = None
+    regla: str | None = None
+
+    def __post_init__(self) -> None:
+        exigir_opcion(self.tipo, "current_process.tipo", TIPOS_DE_PROCESO_ACTUAL)
+        if self.tipo == "columna":
+            exigir_texto(self.columna, "current_process.columna")
+            if self.regla is not None:
+                raise EsquemaInvalido("proceso_actual_campo_de_otra_forma",
+                                      campo="regla", valor=self.tipo)
+        elif self.tipo == "regla":
+            exigir_texto(self.regla, "current_process.regla")
+            if self.columna is not None:
+                raise EsquemaInvalido("proceso_actual_campo_de_otra_forma",
+                                      campo="columna", valor=self.tipo)
+        else:  # "ninguno"
+            if self.columna is not None or self.regla is not None:
+                raise EsquemaInvalido("proceso_actual_campo_de_otra_forma",
+                                      campo="columna/regla", valor=self.tipo)
+
+    def a_json(self) -> dict[str, Any]:
+        return {"tipo": self.tipo, "columna": self.columna, "regla": self.regla}
+
+    @classmethod
+    def desde_json(cls, payload: Any, campo: str = "current_process") -> "ProcesoActual":
+        mapa = exigir_mapa(payload, campo)
+        solo_estas_claves(mapa, ("tipo", "columna", "regla"), campo)
+        return cls(tipo=_saca(mapa, "tipo", campo), columna=mapa.get("columna"),
+                   regla=mapa.get("regla"))
+
+
 # ---------------------------------------------------------------------------
 # ProblemSpec
 # ---------------------------------------------------------------------------
@@ -331,7 +376,8 @@ class ProblemSpec:
     CLAVES: ClassVar[tuple[str, ...]] = (
         "problem_id", "target", "task", "classes", "positive_label",
         "observation_unit", "predictors", "predictor_availability",
-        "prediction_time", "horizon", "intended_use", "constraints")
+        "prediction_time", "horizon", "intended_use", "constraints",
+        "current_process")
 
     problem_id: str
     target: str
@@ -345,6 +391,7 @@ class ProblemSpec:
     horizon: Horizonte | None = None
     intended_use: str | None = None
     constraints: tuple[Restriccion, ...] = ()
+    current_process: ProcesoActual | None = None
     migracion: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
@@ -400,6 +447,15 @@ class ProblemSpec:
                 raise EsquemaInvalido("no_es_mapa", campo="constraints",
                                       valor=repr(restriccion))
 
+        if self.current_process is not None:
+            if not isinstance(self.current_process, ProcesoActual):
+                raise EsquemaInvalido("no_es_mapa", campo="current_process",
+                                      valor=repr(self.current_process))
+            if (self.current_process.tipo == "columna"
+                    and self.current_process.columna == self.target):
+                raise EsquemaInvalido("proceso_actual_es_el_objetivo",
+                                      valor=self.current_process.columna)
+
     # -- consultas -------------------------------------------------------
     def sin_disponibilidad_declarada(self) -> tuple[str, ...]:
         """Los predictores de los que NADIE ha dicho cuándo están disponibles.
@@ -427,6 +483,8 @@ class ProblemSpec:
             "horizon": self.horizon.a_json() if self.horizon else None,
             "intended_use": self.intended_use,
             "constraints": [r.a_json() for r in self.constraints],
+            "current_process": (self.current_process.a_json()
+                                if self.current_process is not None else None),
         }
 
     def a_json(self) -> dict[str, Any]:
@@ -442,6 +500,7 @@ class ProblemSpec:
         solo_estas_claves(cuerpo, cls.CLAVES, cls.ESQUEMA)
         clases = cuerpo.get("classes")
         horizonte = cuerpo.get("horizon")
+        proceso_actual = cuerpo.get("current_process")
         return cls(
             problem_id=_saca(cuerpo, "problem_id", cls.ESQUEMA),
             target=_saca(cuerpo, "target", cls.ESQUEMA),
@@ -456,6 +515,8 @@ class ProblemSpec:
             intended_use=cuerpo.get("intended_use"),
             constraints=tuple(Restriccion.desde_json(r) for r in
                               _secuencia(cuerpo.get("constraints"), "constraints")),
+            current_process=(ProcesoActual.desde_json(proceso_actual)
+                             if proceso_actual is not None else None),
             migracion=marca,
         )
 

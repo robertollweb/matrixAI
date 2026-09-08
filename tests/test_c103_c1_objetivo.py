@@ -33,7 +33,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from matrixai.estudio import Horizonte, ProblemSpec
+from matrixai.estudio import Horizonte, ProblemSpec, ProcesoActual
 from matrixai.export.reproduce import (
     ReproduceManifestError,
     build_problem_block,
@@ -189,6 +189,16 @@ class TestUnPromptSinObjetivoNoIniciaEstudio(unittest.TestCase):
         self.assertEqual(problema.target, "churn")
         self.assertEqual(problema.classes, ("no", "si"))
         self.assertEqual(problema.positive_label, "si")
+
+    def test_el_proceso_actual_108_c1_viaja_tambien_por_la_ruta_prompt(self):
+        proceso = ProcesoActual(tipo="regla", regla="marcar impago si mora > 90 días")
+        conf = confirmar_desde_prompt(
+            self.PROMPT, objetivo="churn", tarea="binary_classification",
+            clases=("no", "si"), clase_positiva="si",
+            unidad_de_observacion="un cliente", entradas=("edad", "plan"),
+            proceso_actual=proceso)
+        self.assertTrue(conf.confirmado, _claves(conf.preguntas))
+        self.assertEqual(conf.problema.current_process, proceso)
 
     def test_una_clasificacion_sin_clases_nombradas_no_arranca(self):
         """Medido y documentado en el propio core: «clasificar el nivel de
@@ -455,6 +465,23 @@ class TestLaRutaCsvProponeYConfirma(unittest.TestCase):
         self.assertTrue(conf.confirmado, _claves(conf.preguntas))
         self.assertEqual(conf.problema.task, "multiclass_classification")
         self.assertEqual(len(conf.problema.classes), 3)
+
+    def test_el_proceso_actual_108_c1_viaja_hasta_el_problema_confirmado(self):
+        """`current_process` (108-C1) es opcional y no tiene reglas propias de
+        esta ruta -- solo tiene que llegar intacto hasta el `ProblemSpec`, el
+        mismo objeto que se le pasó, no una copia reconstruida."""
+        proceso = ProcesoActual(tipo="columna", columna="tension")
+        conf = confirmar_desde_csv(self.CSV, objetivo="riesgo",
+                                   tarea="multiclass_classification",
+                                   unidad_de_observacion="un paciente",
+                                   proceso_actual=proceso)
+        self.assertTrue(conf.confirmado, _claves(conf.preguntas))
+        self.assertEqual(conf.problema.current_process, proceso)
+        # Y por omisión, nadie lo ha preguntado -- `None`, no `tipo="ninguno"`.
+        sin_proceso = confirmar_desde_csv(self.CSV, objetivo="riesgo",
+                                          tarea="multiclass_classification",
+                                          unidad_de_observacion="un paciente")
+        self.assertIsNone(sin_proceso.problema.current_process)
 
     def test_una_binaria_pregunta_cual_es_su_clase_positiva(self):
         csv = _csv("edad,impago", [f"{20 + i},{'si' if i % 2 else 'no'}"

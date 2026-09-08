@@ -78,6 +78,7 @@ from matrixai.estudio.esquemas import (
     PoliticaDeDecision,
     PredictionRecord,
     ProblemSpec,
+    ProcesoActual,
     Recursos,
     Restriccion,
     SelectionDecision,
@@ -155,6 +156,7 @@ from matrixai.estudio.vocabulario import (
     ROLES_RESERVADOS,
     TAREAS,
     TIPOS_DE_PARTICION,
+    TIPOS_DE_PROCESO_ACTUAL,
 )
 
 __all__ = [
@@ -187,10 +189,12 @@ __all__ = [
     "intervalo", "matriz_de_confusion", "medir", "metricas_aplicables",
     "ordenar_por",
     "MetricSpec", "MigracionImposible", "PROPOSITOS", "PoliticaDeDecision",
-    "PredictionRecord", "ProblemSpec", "ProtocoloRoto", "RESULTADOS_DE_SELECCION",
+    "PredictionRecord", "ProblemSpec", "ProcesoActual", "ProtocoloRoto",
+    "RESULTADOS_DE_SELECCION",
     "ROLES", "ROLES_DE_DESARROLLO", "ROLES_RESERVADOS", "Recursos",
     "RegistroDeAccesos", "RegistroDeMigraciones", "Restriccion",
     "SelectionDecision", "SplitPlan", "TAREAS", "TIPOS_DE_PARTICION",
+    "TIPOS_DE_PROCESO_ACTUAL",
     "ValorDeMetrica", "digest_canonico", "elegir_umbral", "motivo",
     "version_tras_aprender_del_test",
 ]

@@ -53,7 +53,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-from matrixai.estudio import Horizonte, ProblemSpec, Restriccion
+from matrixai.estudio import Horizonte, ProblemSpec, ProcesoActual, Restriccion
 from matrixai.estudio.errores import ErrorDeEstudio
 from matrixai.training.objetivo_textos import motivo
 
@@ -401,6 +401,7 @@ def confirmar_desde_csv(
     uso_previsto: str | None = None,
     entradas: Sequence[str] | None = None,
     restricciones: Sequence[Restriccion] = (),
+    proceso_actual: ProcesoActual | None = None,
     filas_de_train: Sequence[int] | None = None,
     ratio_de_train: float | None = None,
     problem_id: str | None = None,
@@ -580,7 +581,8 @@ def confirmar_desde_csv(
         etiquetas=etiquetas, clase_positiva=clase_positiva,
         unidad_de_observacion=unidad_de_observacion, predictores=predictores,
         momento_de_prediccion=momento_de_prediccion, horizonte=horizonte,
-        uso_previsto=uso_previsto, restricciones=restricciones)
+        uso_previsto=uso_previsto, restricciones=restricciones,
+        proceso_actual=proceso_actual)
 
 
 # ---------------------------------------------------------------------------
@@ -600,6 +602,7 @@ def confirmar_desde_prompt(
     uso_previsto: str | None = None,
     entradas: Sequence[str] = (),
     restricciones: Sequence[Restriccion] = (),
+    proceso_actual: ProcesoActual | None = None,
     problem_id: str | None = None,
 ) -> Confirmacion:
     """Lee el objetivo de la frase y confirma el problema, o pregunta.
@@ -709,7 +712,8 @@ def confirmar_desde_prompt(
         etiquetas=etiquetas, clase_positiva=clase_positiva,
         unidad_de_observacion=unidad_de_observacion, predictores=predictores,
         momento_de_prediccion=momento_de_prediccion, horizonte=horizonte,
-        uso_previsto=uso_previsto, restricciones=restricciones)
+        uso_previsto=uso_previsto, restricciones=restricciones,
+        proceso_actual=proceso_actual)
 
 
 # ---------------------------------------------------------------------------
@@ -723,7 +727,8 @@ def _confirmar(*, propuesta: dict[str, Any], preguntas: list[Pregunta],
                unidad_de_observacion: str | None, predictores: tuple[str, ...],
                momento_de_prediccion: str | None, horizonte: Horizonte | None,
                uso_previsto: str | None,
-               restricciones: Sequence[Restriccion]) -> Confirmacion:
+               restricciones: Sequence[Restriccion],
+               proceso_actual: ProcesoActual | None = None) -> Confirmacion:
     """El `ProblemSpec` solo si no falta nada. Un sitio, para las dos rutas."""
     if preguntas or bloqueos or tarea is None:
         return Confirmacion(problema=None, propuesta=propuesta,
@@ -741,5 +746,6 @@ def _confirmar(*, propuesta: dict[str, Any], preguntas: list[Pregunta],
         horizon=horizonte,
         intended_use=uso_previsto,
         constraints=tuple(restricciones),
+        current_process=proceso_actual,
     )
     return Confirmacion(problema=problema, propuesta=propuesta, pistas=pistas)
