@@ -262,6 +262,48 @@ class ModelRegistry:
                     f"{name}@{resolved}"
                 )
 
+        # Auditoría externa 2026-09-09: un artefacto declarado FUERA del
+        # registro (hoy, el .onnx de un motor de matrixai-engines y su
+        # sidecar -- `ENTRY_FILES` no tiene clave para ninguno de los
+        # dos) solo queda protegido si `evaluation_report.json` lo
+        # DECLARA con su propio hash Y `verify()` vuelve a leer el
+        # fichero real para comprobarlo -- lo primero ya existía
+        # (`onnx_export`), lo segundo no: alterar el sidecar después de
+        # publicar pasaba `verify()` en verde porque nadie releía el
+        # fichero. Se comprueba la clave `onnx_export`
+        # (`ruta`/`hash`/`sidecar_ruta`/`sidecar_hash`), que
+        # `matrixai_engines.registro_de_modelos` ya declara.
+        report_path = entry_dir / "evaluation_report.json"
+        if report_path.exists():
+            try:
+                report_content = json.loads(report_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                report_content = None
+            if isinstance(report_content, dict):
+                artefactos_declarados: list[tuple[str, str, str]] = []
+                onnx_export = report_content.get("onnx_export")
+                if isinstance(onnx_export, dict):
+                    if onnx_export.get("ruta") and onnx_export.get("hash"):
+                        artefactos_declarados.append(
+                            ("onnx_export.ruta", onnx_export["ruta"], onnx_export["hash"]))
+                    if onnx_export.get("sidecar_ruta") and onnx_export.get("sidecar_hash"):
+                        artefactos_declarados.append(
+                            ("onnx_export.sidecar_ruta", onnx_export["sidecar_ruta"],
+                             onnx_export["sidecar_hash"]))
+                for etiqueta, ruta_declarada, hash_declarado in artefactos_declarados:
+                    ruta_artefacto = Path(ruta_declarada)
+                    if not ruta_artefacto.exists():
+                        raise VerificationError(
+                            f"{etiqueta} for {name}@{resolved} points to "
+                            f"{ruta_declarada!r}, which no longer exists"
+                        )
+                    hash_real = sha256_bytes(ruta_artefacto.read_bytes())
+                    if hash_real != hash_declarado:
+                        raise VerificationError(
+                            f"{etiqueta} content hash mismatch for {name}@{resolved}: "
+                            f"declared {hash_declarado!r}, sibling file on disk does not match"
+                        )
+
         sig_path = self.layout.entry_file(name, resolved, "signature")
         if sig_path.exists():
             signing_key = get_signing_key(registry_path=self.path)
