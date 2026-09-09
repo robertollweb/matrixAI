@@ -2759,6 +2759,7 @@ def _run_playground_training(
     epochs_override: int | None = None,
     field_ranges: dict[str, tuple[float, float]] | None = None,
     target_range: tuple[float, float] | None = None,
+    seed: int = 42,
 ) -> dict[str, Any]:
     """Synchronous training — used by tests and /api/train endpoint.
 
@@ -2770,7 +2771,18 @@ def _run_playground_training(
     la MISMA frontera única (a nivel de CSV, antes de despachar), por lo que
     las tres rutas de trainer (dense/composite/transformer) y el validador solo
     ven valores en [0,1]. `/api/train` es ahora equivalente a `/api/train-start`
-    (invariante 10)."""
+    (invariante 10).
+
+    `seed` (auditoría externa 2026-09-09, 102-C2): los tres trainers de red
+    (`_run_playground_dense_training`/`_run_playground_composite_training`/
+    `_run_playground_transformer_training`) YA aceptan `seed: int = 42` cada
+    uno — el hueco no era la capacidad, era que ESTE wrapper nunca la pedía
+    ni la reenviaba, así que un llamante externo (`matrixai_engines.motores.
+    densa`) no tenía forma de que su semilla llegara a afectar el
+    entrenamiento real, aunque la procedencia declarara una semilla
+    distinta cada vez. Mismo valor por omisión (42) que los tres trainers
+    ya usaban — un llamante que no lo pase ve EXACTAMENTE el mismo
+    comportamiento que antes."""
     # BIBLIOTECA C1 (autoauditoría, sugerencia implementada): normalizar AQUÍ
     # (BOM/delimitador), no solo dentro de `_validate_training_csv` — esa
     # limpia su copia LOCAL, que nunca vuelve a este `csv_text` (los
@@ -2826,13 +2838,16 @@ def _run_playground_training(
         # normalizado y no se desnormalizaría a la unidad real por la ruta REST.
         if _network_is_transformer(mxai_text):
             return _run_playground_transformer_training(
-                mxai_text, training_text, csv_text, epochs_override, target_range=target_range)
+                mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
+                seed=seed)
         # M2-C2: route composite (P19) networks to the composite trainer
         if _network_is_composite(mxai_text):
             return _run_playground_composite_training(
-                mxai_text, training_text, csv_text, epochs_override, target_range=target_range)
+                mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
+                seed=seed)
         return _run_playground_dense_training(
-            mxai_text, training_text, csv_text, epochs_override, target_range=target_range)
+            mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
+            seed=seed)
 
     validation = _validate_training_csv(mxai_text, training_text, csv_text)
     if not validation.get("ok"):

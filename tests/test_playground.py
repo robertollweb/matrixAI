@@ -384,6 +384,49 @@ class P9TrainingLoopTest(unittest.TestCase):
         self.assertIn("parameter_set_id", r["params_best"])
         self.assertIn("W1", r["params_best"]["parameters"])
 
+    def test_run_playground_training_seed_controla_los_pesos_iniciales(self) -> None:
+        """Auditoría externa 2026-09-09 (102-C2): `_run_playground_training()`
+        no tenía NINGÚN parámetro de semilla en su firma -- los tres
+        trainers de red que despacha (`_run_playground_dense_training` et
+        al.) YA aceptaban `seed` (y `test_m8_a3_seed_retry.py` ya prueba
+        que ELLOS lo honran), pero este wrapper nunca lo pedía ni lo
+        reenviaba, así que un llamante externo (`matrixai_engines.motores.
+        densa`) no tenía forma de que su semilla afectara el entrenamiento
+        real. Esta prueba es del WRAPPER, no del trainer -- mismo fixture
+        de red con inicialización `he_normal` (sí depende de la semilla;
+        el fixture de la clase, `self.MXAI`, usa `deterministic_uniform` y
+        habría dado un falso verde aquí)."""
+        from matrixai.playground import _run_playground_training
+        from tests.test_m8_a3_seed_retry import DENSE_MXAI, DENSE_TRAIN, _csv, _flat
+
+        r_semilla_1a = _run_playground_training(
+            DENSE_MXAI, DENSE_TRAIN, _csv(), epochs_override=1, seed=1)
+        r_semilla_1b = _run_playground_training(
+            DENSE_MXAI, DENSE_TRAIN, _csv(), epochs_override=1, seed=1)
+        r_semilla_2 = _run_playground_training(
+            DENSE_MXAI, DENSE_TRAIN, _csv(), epochs_override=1, seed=2)
+        self.assertTrue(r_semilla_1a["ok"] and r_semilla_1b["ok"] and r_semilla_2["ok"])
+
+        pesos_1a = _flat(r_semilla_1a["params_best"]["parameters"]["Net.W1"]["values"])
+        pesos_1b = _flat(r_semilla_1b["params_best"]["parameters"]["Net.W1"]["values"])
+        pesos_2 = _flat(r_semilla_2["params_best"]["parameters"]["Net.W1"]["values"])
+        self.assertEqual(pesos_1a, pesos_1b, "misma semilla tiene que dar los MISMOS pesos")
+        self.assertNotEqual(pesos_1a, pesos_2, "semillas distintas dieron los MISMOS pesos")
+
+    def test_run_playground_training_sin_seed_explicita_sigue_dando_lo_de_siempre(self) -> None:
+        """Quien no pase `seed` (todo el código existente) ve EXACTAMENTE
+        el mismo comportamiento que antes de este cambio -- el valor por
+        omisión (42) es el mismo que los trainers de red ya usaban."""
+        from matrixai.playground import _run_playground_training
+        from tests.test_m8_a3_seed_retry import DENSE_MXAI, DENSE_TRAIN, _csv, _flat
+
+        sin_semilla = _run_playground_training(DENSE_MXAI, DENSE_TRAIN, _csv(), epochs_override=1)
+        con_semilla_42 = _run_playground_training(
+            DENSE_MXAI, DENSE_TRAIN, _csv(), epochs_override=1, seed=42)
+        self.assertTrue(sin_semilla["ok"] and con_semilla_42["ok"])
+        self.assertEqual(_flat(sin_semilla["params_best"]["parameters"]["Net.W1"]["values"]),
+                         _flat(con_semilla_42["params_best"]["parameters"]["Net.W1"]["values"]))
+
     def test_run_playground_training_caps_epochs(self) -> None:
         # The sanity ceiling clamps absurd values, but an explicit in-range request
         # is honoured verbatim (the user controls their machine). Tested on the pure
