@@ -191,6 +191,21 @@ def _kfold_iid(ids: Sequence[str], etiqueta_por_id: Mapping[str, Any] | None,
                 azar.shuffle(miembros)
                 for i, obs in enumerate(miembros):
                     cubos[i % folds].append(obs)
+            # 101-C4, hallazgo real (2026-09-08/09): el reparto de arriba
+            # equilibra las clases ENTRE pliegues (el objetivo de
+            # estratificar) pero deja el orden DENTRO de cada pliegue
+            # agrupado por clase -- todas las de la primera clase
+            # procesada, luego todas las de la segunda. Un llamante que
+            # reparte `pliegue.valida` por POSICIÓN en vez de barajar antes
+            # de partir (calibración/selección en `informe_101_c4.py` y en
+            # `estudio_job.py`) hereda ese sesgo entero: medido con "adult"
+            # real, la primera mitad posicional de un pliegue.valida de
+            # 7.815 filas dio 3.907/3.907 de una sola clase, cero de la
+            # otra. Barajar cada cubo, con la MISMA `azar` (determinista,
+            # sembrada), deshace el orden agrupado sin tocar qué filas
+            # caen en qué pliegue -- el equilibrio entre pliegues no cambia.
+            for cubo in cubos:
+                azar.shuffle(cubo)
         else:
             cubos = _reparto_kfold(ids, folds, azar)
         pliegues.extend(_pliegues_desde_cubos(cubos, r))

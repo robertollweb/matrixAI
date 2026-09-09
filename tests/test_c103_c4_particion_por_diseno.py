@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import random
 import unittest
+from collections import Counter
 from datetime import datetime, timedelta
 
 from matrixai.estudio import Horizonte
@@ -84,6 +85,59 @@ class GruposTest(unittest.TestCase):
         self.assertTrue(any(l.clave == "pliegues_reducidos_por_grupos" for l in r.limites))
         folds_reales = max(p.pliegue for p in r.pliegues.pliegues) + 1
         self.assertLess(folds_reales, 5)
+
+
+def _filas_desbalanceadas_iid(seed=0, n=200, fraccion_mayoritaria=0.8):
+    rng = random.Random(seed)
+    n_mayoritaria = int(n * fraccion_mayoritaria)
+    etiquetas = ["a"] * n_mayoritaria + ["b"] * (n - n_mayoritaria)
+    rng.shuffle(etiquetas)  # el orden de LLEGADA no debe importar -- el reparto barajará
+    return [{"id": f"o{i}", "y": etiquetas[i]} for i in range(n)]
+
+
+class IidEstratificadoOrdenDentroDelPliegueTest(unittest.TestCase):
+    """101-C4, hallazgo real (2026-09-08/09): `_kfold_iid` equilibra las
+    clases ENTRE pliegues (correcto, es el objetivo de estratificar), pero
+    el reparto round-robin POR CLASE dejaba el orden DENTRO de cada
+    pliegue agrupado — todas las filas de la clase alfabéticamente
+    primera, luego todas las de la segunda. Medido con datos reales
+    ("adult", 48.842 filas): la primera mitad POSICIONAL de un
+    `pliegue.valida` de 7.815 filas dio 3.907/3.907 de una sola clase,
+    cero de la otra -- justo lo que rompió la recalibración en
+    `benchmarks/fase0/informe_101_c4.py` (`_particiones_de_desarrollo`
+    reparte por posición, sin barajar) y hereda cualquier otro llamante
+    que haga lo mismo (`estudio_job.py`, mismo patrón)."""
+
+    def test_la_primera_mitad_POSICIONAL_de_un_pliegue_no_es_una_sola_clase(self):
+        filas = _filas_desbalanceadas_iid(seed=7, n=200, fraccion_mayoritaria=0.8)
+        r = proponer_particion(filas, plan_id="p", observation_id_field="id", split_type="iid",
+                               seed=42, objetivo="y", folds=5, repeats=1)
+        self.assertTrue(r.es_viable)
+        etiqueta_por_id = {f["id"]: f["y"] for f in filas}
+        for pliegue in r.pliegues.pliegues:
+            mitad = len(pliegue.valida) // 2
+            primera_mitad = pliegue.valida[:mitad]
+            clases_en_primera_mitad = {etiqueta_por_id[i] for i in primera_mitad}
+            self.assertEqual(
+                clases_en_primera_mitad, {"a", "b"},
+                f"pliegue {pliegue.pliegue}: la mitad posicional de `valida` es de una "
+                f"sola clase ({clases_en_primera_mitad}) -- el reparto round-robin por "
+                f"clase dejó el orden interno agrupado, sin barajar tras repartir")
+
+    def test_las_clases_siguen_equilibradas_ENTRE_pliegues_tras_barajar(self):
+        """El barajado dentro de cada cubo NO puede romper lo que la
+        estratificación ya conseguía: cada pliegue sigue viendo las dos
+        clases en proporción parecida a la global (80/20), no una mezcla
+        distinta -- barajar cambia el ORDEN, nunca la PERTENENCIA."""
+        filas = _filas_desbalanceadas_iid(seed=7, n=200, fraccion_mayoritaria=0.8)
+        r = proponer_particion(filas, plan_id="p", observation_id_field="id", split_type="iid",
+                               seed=42, objetivo="y", folds=5, repeats=1)
+        etiqueta_por_id = {f["id"]: f["y"] for f in filas}
+        for pliegue in r.pliegues.pliegues:
+            conteo = Counter(etiqueta_por_id[i] for i in pliegue.valida)
+            fraccion_b = conteo["b"] / len(pliegue.valida)
+            self.assertAlmostEqual(fraccion_b, 0.2, delta=0.05,
+                                   msg=f"pliegue {pliegue.pliegue}: {conteo}")
 
 
 class TemporalTest(unittest.TestCase):
