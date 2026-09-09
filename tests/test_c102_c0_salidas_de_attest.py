@@ -103,6 +103,34 @@ def _clasificador(destino: Path, *, clases: list, con_etiqueta: bool = True,
     return _guardar(destino, g)
 
 
+def _clasificador_con_dos_etiquetas(destino: Path, *, clases: list) -> Path:
+    """Auditoría externa 2026-09-09: DOS salidas de tipo etiqueta
+    (`tensor(int64)`), `label_a` y `label_b`, ninguna más "la predicción"
+    que la otra -- el caso exacto que reproducía `SalidaOnnxAmbigua`
+    eligiendo la primera por orden en vez de rechazar."""
+    from onnx import TensorProto, helper
+
+    k = len(clases)
+    pesos = [1.0 if i == j else 0.0 for i in range(k) for j in range(k)]
+    W = helper.make_tensor("W", TensorProto.FLOAT, [k, k], pesos)
+    etiquetas = helper.make_tensor("etiquetas", TensorProto.INT64, [k],
+                                   [int(c) for c in clases])
+    nodos = [
+        helper.make_node("MatMul", ["X", "W"], ["z"]),
+        helper.make_node("Softmax", ["z"], ["probabilities"], axis=1),
+        helper.make_node("ArgMax", ["probabilities"], ["pos"], axis=1, keepdims=0),
+        helper.make_node("Gather", ["etiquetas", "pos"], ["label_a"], axis=0),
+        helper.make_node("Gather", ["etiquetas", "pos"], ["label_b"], axis=0),
+    ]
+    g = helper.make_graph(
+        nodos, "clf_dos_etiquetas",
+        [helper.make_tensor_value_info("X", TensorProto.FLOAT, ["N", k])],
+        [helper.make_tensor_value_info("label_a", TensorProto.INT64, ["N"]),
+         helper.make_tensor_value_info("label_b", TensorProto.INT64, ["N"])],
+        [W, etiquetas])
+    return _guardar(destino, g)
+
+
 def _zipmap(destino: Path, clases: list) -> Path:
     """Un clasificador cuya salida es un MAPA por clase: `{clase: probabilidad}`.
 
@@ -379,6 +407,30 @@ class LoQueNoSE_SABE_SE_PIDE_NoSeAdivinaTest(unittest.TestCase):
         spec = recibo["models"][0]["output_spec"]
         self.assertEqual(spec["kind"], "probabilidad_positiva")
         self.assertIn("lo declara el grafo", spec["chosen_because"])
+
+    def test_dos_salidas_de_tipo_etiqueta_piden_el_mapa_en_vez_de_elegir_la_primera(self):
+        """Auditoría externa 2026-09-09: con `label_a`/`label_b` (las dos
+        `tensor(int64)`), la posición NO decide -- se rechaza en vez de
+        leer `label_a` por venir primero en el grafo."""
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _clasificador_con_dos_etiquetas(d / "m.onnx", clases=[0, 1])
+            csv = _csv(d / "d.csv", "a,b,y", ["3,0,0", "0,3,1"])
+            with self.assertRaises(AtestacionImposible) as e:
+                atestiguar(modelo, csv)
+        mensaje = str(e.exception)
+        self.assertIn("label_a", mensaje)
+        self.assertIn("label_b", mensaje)
+        self.assertIn("Declara el mapa de salida", mensaje)
+
+    def test_pero_declarando_CUAL_de_las_dos_etiquetas_si_funciona(self):
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _clasificador_con_dos_etiquetas(d / "m.onnx", clases=[0, 1])
+            csv = _csv(d / "d.csv", "a,b,y", ["3,0,0", "0,3,1"])
+            recibo = atestiguar(modelo, csv, salida="label_b", semantica="etiqueta")
+        self.assertEqual(recibo["metrics"][0]["value"], 1.0)
+        self.assertEqual(recibo["models"][0]["output_spec"]["name"], "label_b")
 
     def test_forzar_una_salida_que_no_existe_dice_las_que_hay(self):
         with TemporaryDirectory() as tmp:

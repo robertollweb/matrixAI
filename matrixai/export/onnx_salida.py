@@ -210,21 +210,45 @@ def _elegir_para_clasificacion(
     #    su inferencia nativa: si el modelo decide con otro umbral que 0,5, o
     #    con un orden de clases suyo, esa decisión ya está tomada aquí y no hay
     #    que reconstruirla —ni equivocarse reconstruyéndola—.
+    #
+    #    Auditoría externa 2026-09-09: con DOS salidas de tipo etiqueta, esto
+    #    elegía `etiquetas[0]` sin comprobar que fuera la única — el ORDEN
+    #    decidía, exactamente lo que la regla 1 del módulo (más abajo) dice
+    #    que nunca decide. Mismo criterio que YA aplica
+    #    `_elegir_para_regresion()` con varias salidas numéricas: si hay más
+    #    de una candidata igual de válida, se pide el mapa en vez de adivinar.
     if etiquetas and semantica in (None, "etiqueta"):
-        i, meta = etiquetas[0]
-        return SalidaElegida(
-            nombre=meta.name, indice=i, semantica="etiqueta", tipo_onnx=str(meta.type),
-            motivo=(f"el modelo declara la salida {meta.name!r} ({meta.type}) con su "
-                    "propia predicción: se usa ésa, que es su inferencia nativa"))
+        if len(etiquetas) == 1:
+            i, meta = etiquetas[0]
+            return SalidaElegida(
+                nombre=meta.name, indice=i, semantica="etiqueta", tipo_onnx=str(meta.type),
+                motivo=(f"el modelo declara la salida {meta.name!r} ({meta.type}) con su "
+                        "propia predicción: se usa ésa, que es su inferencia nativa"))
+        disponibles = [(m.name, str(m.type)) for _, m in etiquetas]
+        raise SalidaOnnxAmbigua(
+            f"el modelo declara {len(etiquetas)} salidas de tipo etiqueta "
+            f"({disponibles}) y ninguna posición es más 'la predicción' que otra: "
+            f"leer la primera sería adivinar por orden, no por declaración. "
+            f"Declara el mapa de salida: qué salida se lee y qué significa "
+            f"(una de {list(SEMANTICAS)})")
 
     # 2. Un ZipMap trae las clases DENTRO: cada fila es {clase: probabilidad}.
+    #    Misma regla que el punto 1: más de un ZipMap es ambigüedad, no un
+    #    orden a seguir.
     if zipmaps and semantica in (None, "probabilidades"):
-        i, meta = zipmaps[0]
-        return SalidaElegida(
-            nombre=meta.name, indice=i, semantica="probabilidades",
-            tipo_onnx=str(meta.type),
-            motivo=(f"la salida {meta.name!r} es un mapa por clase ({meta.type}): las "
-                    "clases vienen dentro, no hay que suponerlas"))
+        if len(zipmaps) == 1:
+            i, meta = zipmaps[0]
+            return SalidaElegida(
+                nombre=meta.name, indice=i, semantica="probabilidades",
+                tipo_onnx=str(meta.type),
+                motivo=(f"la salida {meta.name!r} es un mapa por clase ({meta.type}): las "
+                        "clases vienen dentro, no hay que suponerlas"))
+        disponibles = [(m.name, str(m.type)) for _, m in zipmaps]
+        raise SalidaOnnxAmbigua(
+            f"el modelo declara {len(zipmaps)} salidas ZipMap ({disponibles}) y "
+            f"ninguna posición es más 'la predicción' que otra: leer la primera "
+            f"sería adivinar por orden, no por declaración. Declara el mapa de "
+            f"salida: qué salida se lee y qué significa (una de {list(SEMANTICAS)})")
 
     # 3. Un tensor de flotantes: solo si el grafo o quien atestigua dicen qué es.
     for i, meta in flotantes:
