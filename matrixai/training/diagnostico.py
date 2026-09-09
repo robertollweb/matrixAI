@@ -208,6 +208,12 @@ class Limite:
         return {"clave": self.clave, "campo": self.campo,
                 "motivo": dict(self.motivo), "medida": dict(self.medida)}
 
+    @classmethod
+    def desde_json(cls, payload: dict[str, Any]) -> "Limite":
+        return cls(clave=payload["clave"], campo=payload.get("campo"),
+                   motivo=dict(payload.get("motivo") or {}),
+                   medida=dict(payload.get("medida") or {}))
+
 
 @dataclass(frozen=True)
 class Diagnostico:

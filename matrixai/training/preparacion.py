@@ -135,6 +135,15 @@ class PropuestaDeColumna:
             "categoria_de_referencia": self.categoria_de_referencia,
         }
 
+    @classmethod
+    def desde_json(cls, payload: dict[str, Any]) -> "PropuestaDeColumna":
+        return cls(columna=payload["columna"], tipo=payload["tipo"],
+                   admite_nativo=payload["admite_nativo"],
+                   proporcion_faltante=payload["proporcion_faltante"],
+                   mediana=payload.get("mediana"),
+                   categorias_conocidas=tuple(payload.get("categorias_conocidas") or ()),
+                   categoria_de_referencia=payload.get("categoria_de_referencia"))
+
 
 @dataclass(frozen=True)
 class PoliticaDePreparacion:
@@ -157,6 +166,14 @@ class PoliticaDePreparacion:
             "filas_de_train_efectivas": self.filas_de_train_efectivas,
             "limites": [l.a_json() for l in self.limites],
         }
+
+    @classmethod
+    def desde_json(cls, payload: dict[str, Any]) -> "PoliticaDePreparacion":
+        return cls(
+            columnas=tuple(PropuestaDeColumna.desde_json(c) for c in payload["columnas"]),
+            filas_excluidas_sin_objetivo=payload["filas_excluidas_sin_objetivo"],
+            filas_de_train_efectivas=payload["filas_de_train_efectivas"],
+            limites=tuple(Limite.desde_json(l) for l in payload.get("limites") or ()))
 
 
 def ajustar_preparacion(filas: Sequence[Mapping[str, Any]], *, objetivo: str,

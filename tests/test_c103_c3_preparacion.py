@@ -17,6 +17,7 @@ from matrixai.training.preparacion import (
     CATEGORIA_FALTANTE,
     MINIMO_FILAS_SIN_AVISO,
     UMBRAL_AVISO_FALTANTES,
+    PoliticaDePreparacion,
     ajustar_preparacion,
     transformar_fila,
 )
@@ -166,6 +167,60 @@ class TransformNuncaReajustaTest(unittest.TestCase):
         for i in range(200):
             transformar_fila({"edad": float(i) * 1000, "barrio": f"nueva_{i}"}, politica)
         self.assertEqual(politica.a_json(), original)
+
+
+class RoundTripJsonTest(unittest.TestCase):
+    """108-C4: sin `desde_json()` no hay forma de recuperar la política de
+    preparación del candidato ganador desde el sobre persistido en disco
+    (`_persistir_seleccion`/`cargar_seleccion`, `estudio_job.py`) -- el
+    checkpoint del `Motor` por sí solo no basta para transformar una fila
+    nueva llegada por "Usar"."""
+
+    def test_a_json_desde_json_reconstruye_una_politica_equivalente(self):
+        train = _filas(n_con_objetivo=120, incluir_sin_objetivo=5)
+        original = ajustar_preparacion(train, objetivo="objetivo", columnas=["edad", "barrio"],
+                                       admite_categoricas=True, admite_faltantes=True)
+        reconstruida = PoliticaDePreparacion.desde_json(original.a_json())
+
+        self.assertEqual(reconstruida.a_json(), original.a_json())
+
+        for fila in ({"edad": 35.0, "barrio": "centro"},
+                    {"edad": None, "barrio": "jamas_visto"},
+                    {"edad": 10_000_000.0, "barrio": None}):
+            self.assertEqual(transformar_fila(fila, reconstruida), transformar_fila(fila, original))
+
+    def test_reconstruida_no_reajusta_con_filas_nuevas(self):
+        """Mismo invariante que `TransformNuncaReajustaTest` de arriba,
+        pero sobre la política QUE PASÓ por JSON -- una reconstrucción a
+        medias (p. ej. `categorias_conocidas` como lista en vez de tupla)
+        podría parecer correcta y romper en el primer uso real."""
+        train = _filas()
+        original = ajustar_preparacion(train, objetivo="objetivo", columnas=["edad", "barrio"],
+                                       admite_categoricas=False, admite_faltantes=False)
+        reconstruida = PoliticaDePreparacion.desde_json(original.a_json())
+        antes = reconstruida.a_json()
+        for i in range(200):
+            transformar_fila({"edad": float(i) * 1000, "barrio": f"nueva_{i}"}, reconstruida)
+        self.assertEqual(reconstruida.a_json(), antes)
+
+    def test_categorias_conocidas_reconstruidas_son_tupla_no_lista(self):
+        train = _filas()
+        original = ajustar_preparacion(train, objetivo="objetivo", columnas=["barrio"],
+                                       admite_categoricas=False, admite_faltantes=False)
+        reconstruida = PoliticaDePreparacion.desde_json(original.a_json())
+        self.assertIsInstance(reconstruida.columna("barrio").categorias_conocidas, tuple)
+        self.assertIsInstance(reconstruida.columnas, tuple)
+        self.assertIsInstance(reconstruida.limites, tuple)
+
+    def test_limites_se_reconstruyen_tambien(self):
+        filas_60 = ([{"objetivo": "si", "x": 1.0} for _ in range(40)]
+                   + [{"objetivo": "si", "x": None} for _ in range(60)])
+        original = ajustar_preparacion(filas_60, objetivo="objetivo", columnas=["x"],
+                                       admite_categoricas=False, admite_faltantes=False)
+        self.assertTrue(original.limites)
+        reconstruida = PoliticaDePreparacion.desde_json(original.a_json())
+        self.assertEqual([l.a_json() for l in reconstruida.limites],
+                         [l.a_json() for l in original.limites])
 
 
 if __name__ == "__main__":
