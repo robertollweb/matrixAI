@@ -21,6 +21,7 @@ import unittest
 from pathlib import Path
 
 from benchmarks.fase0.protocolo import (
+    aplicar_regla_de_cierre,
     CosteDeLaPasada,
     DatasetRegistrado,
     DisenoDeParticion,
@@ -319,3 +320,79 @@ class ProtocoloRealRegistradoTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AplicarReglaDeCierreTest(unittest.TestCase):
+    """101-C4, auditoría propia 2026-09-11: la regla estaba REGISTRADA CON
+    HASH desde 101-C1 y ningún código la aplicaba — la conclusión de cartera
+    se declaró sin pasar por el listón que el propio protocolo se había puesto
+    antes de medir."""
+
+    def _regla(self):
+        return ReglaDeCierre(
+            puntos=2.0, fraccion_minima=0.8,
+            metrica_por_tarea={"binary_classification": "AUROC",
+                              "multiclass_classification": "accuracy_o_f1_macro",
+                              "regression": "R2"},
+            definicion_de_mejor="el mejor por media, excluido el baseline; un fallo cuenta "
+                               "como dataset perdido para ese motor")
+
+    def _r(self, dataset, motor, auroc=None, estado="completed"):
+        return {"dataset": dataset, "motor": motor, "estado": estado, "auroc": auroc}
+
+    def test_a_menos_de_dos_puntos_cumple(self):
+        datos = [self._r("d1", "a", 0.90), self._r("d1", "b", 0.915)]
+        r = aplicar_regla_de_cierre(datos, self._regla(), motor="a")
+        self.assertTrue(r["detalle"][0]["cumple"])
+        self.assertAlmostEqual(r["detalle"][0]["distancia_en_puntos"], 1.5, places=6)
+
+    def test_a_mas_de_dos_puntos_no_cumple(self):
+        datos = [self._r("d1", "a", 0.90), self._r("d1", "b", 0.93)]
+        self.assertFalse(aplicar_regla_de_cierre(datos, self._regla(), motor="a")["detalle"][0]["cumple"])
+
+    def test_UN_FALLO_pierde_el_dataset_aunque_la_media_sea_buena(self):
+        """El texto literal de `definicion_de_mejor`: «un fallo (timeout/crash)
+        cuenta como dataset perdido para ese motor». Sin esto, un motor que
+        revienta en la mitad de los pliegues y va bien en la otra mitad saldría
+        cumpliendo — que es justo lo que la regla quiere impedir."""
+        datos = [self._r("d1", "a", 0.90), self._r("d1", "a", None, estado="failed"),
+                 self._r("d1", "b", 0.905)]
+        r = aplicar_regla_de_cierre(datos, self._regla(), motor="a")
+        self.assertFalse(r["detalle"][0]["cumple"])
+        self.assertTrue(r["detalle"][0]["perdido_por_fallo"])
+
+    def test_el_baseline_no_cuenta_como_mejor(self):
+        """«excluido el baseline dummy» — si contara, cualquier motor real
+        estaría siempre por encima y la regla no mediría nada."""
+        datos = [self._r("d1", "a", 0.90), self._r("d1", "baseline", 0.999)]
+        self.assertTrue(aplicar_regla_de_cierre(datos, self._regla(), motor="a")["detalle"][0]["cumple"])
+
+    def test_la_fraccion_decide_el_veredicto(self):
+        datos = []
+        for i in range(10):
+            datos.append(self._r(f"d{i}", "a", 0.90))
+            datos.append(self._r(f"d{i}", "b", 0.90 if i < 8 else 0.99))
+        r = aplicar_regla_de_cierre(datos, self._regla(), motor="a")
+        self.assertEqual(r["cumplidos"], 8)
+        self.assertAlmostEqual(r["fraccion"], 0.8)
+        self.assertTrue(r["cumple_la_regla"])  # 0,8 >= 0,8, el borde cuenta
+
+    def test_sobre_los_datos_REALES_de_101_C3_lightgbm_NO_llega(self):
+        """El resultado que importa, medido sobre el JSON commiteado: 9/12 =
+        0,75 < 0,80. No invalida que lightgbm sea el mejor de los tres (los
+        otros dan 0,50), pero el listón prerregistrado NO se alcanza, y uno de
+        los tres fallos (Internet-Advertisements, a 1,15 puntos) se pierde por
+        el defecto de doble inferencia de tipo que 101-C3 ya declara sin
+        corregir."""
+        import json
+        from pathlib import Path
+        ruta = Path(__file__).parent.parent / "benchmarks/fase0/pasada_exploratoria_101_c3_resultado.json"
+        if not ruta.exists():
+            self.skipTest("el JSON de la pasada no está en este árbol")
+        crudo = json.loads(ruta.read_text())
+        registros = crudo["resultados"] if isinstance(crudo, dict) and "resultados" in crudo else crudo
+        protocolo = ProtocoloExploratorio.cargar(
+            str(Path(__file__).parent.parent / "benchmarks/fase0/protocolo_exploratorio.json"))
+        r = aplicar_regla_de_cierre(registros, protocolo.regla_de_cierre, motor="lightgbm")
+        self.assertEqual((r["cumplidos"], r["datasets"]), (9, 12))
+        self.assertFalse(r["cumple_la_regla"])

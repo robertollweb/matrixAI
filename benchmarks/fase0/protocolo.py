@@ -30,7 +30,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 _RAIZ_DEL_CORE = Path(__file__).resolve().parents[2]
 if str(_RAIZ_DEL_CORE) not in sys.path:
@@ -230,6 +230,68 @@ class ReglaDeCierre:
         return {"puntos": self.puntos, "fraccion_minima": self.fraccion_minima,
                 "metrica_por_tarea": dict(self.metrica_por_tarea),
                 "definicion_de_mejor": self.definicion_de_mejor}
+
+
+def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
+                            motor: str, metrica: str = "auroc",
+                            baseline: str = "baseline") -> dict[str, Any]:
+    """¿`motor` queda a menos de `regla.puntos` del mejor en al menos
+    `regla.fraccion_minima` de los datasets?
+
+    AUDITORÍA PROPIA 2026-09-11: esta regla estaba REGISTRADA CON HASH desde
+    101-C1 —fijada antes de medir, que es justo su razón de ser (invariante
+    1)— y NINGÚN código la aplicaba. Ni `pasada_exploratoria_101_c3.py` ni
+    `informe_101_c4.py` la invocan: la conclusión «LightGBM gana» se declaró
+    sin pasar por el listón que el propio protocolo se había puesto, y que el
+    contrato justifica porque «1 punto no es resoluble» con el IC medido.
+
+    `definicion_de_mejor` de la regla registrada dice, con todas las letras:
+    «el motor con mejor media de los ajustes en ESE dataset, excluido el
+    baseline dummy; **un fallo (timeout/crash) cuenta como dataset perdido
+    para ese motor**». Eso se implementa tal cual: un dataset donde `motor`
+    tenga algún intento fallido NO cuenta como cumplido, por buena que sea la
+    media de los que sí completaron. Interpretarlo de otro modo sería elegir
+    la lectura que da el resultado que conviene, después de ver los números.
+
+    `resultados` son los registros crudos de la pasada (un dict por intento,
+    con `dataset`, `motor`, `estado` y la métrica).
+    """
+    por_dataset: dict[str, dict[str, list[float]]] = {}
+    fallos: dict[str, set] = {}
+    for r in resultados:
+        ds, mt = r["dataset"], r["motor"]
+        if r.get("estado") != "completed":
+            fallos.setdefault(ds, set()).add(mt)
+            continue
+        valor = r.get(metrica)
+        if valor is None:
+            continue
+        por_dataset.setdefault(ds, {}).setdefault(mt, []).append(float(valor))
+
+    detalle: list[dict[str, Any]] = []
+    cumplidos = 0
+    for ds in sorted(set(por_dataset) | set(fallos)):
+        medias = {m: sum(v) / len(v) for m, v in por_dataset.get(ds, {}).items()
+                  if m != baseline}
+        perdido = motor in fallos.get(ds, set())
+        mejor_motor = max(medias, key=lambda m: medias[m]) if medias else None
+        mio = medias.get(motor)
+        # Los «puntos» son de la escala de la métrica (AUROC 0-1), y la regla
+        # los declara en PUNTOS porcentuales: 2,0 puntos = 0,02 de AUROC.
+        distancia = None if (mio is None or mejor_motor is None) else (
+            (medias[mejor_motor] - mio) * 100.0)
+        cumple = (not perdido) and distancia is not None and distancia <= regla.puntos
+        cumplidos += 1 if cumple else 0
+        detalle.append({"dataset": ds, "cumple": cumple, "perdido_por_fallo": perdido,
+                        "mejor": mejor_motor, "distancia_en_puntos": distancia})
+
+    total = len(detalle)
+    fraccion = (cumplidos / total) if total else 0.0
+    return {"motor": motor, "metrica": metrica, "puntos_exigidos": regla.puntos,
+            "fraccion_minima": regla.fraccion_minima, "datasets": total,
+            "cumplidos": cumplidos, "fraccion": fraccion,
+            "cumple_la_regla": fraccion >= regla.fraccion_minima,
+            "definicion_de_mejor": regla.definicion_de_mejor, "detalle": detalle}
 
 
 @dataclass(frozen=True)

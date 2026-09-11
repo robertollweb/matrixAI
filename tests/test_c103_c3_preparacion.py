@@ -225,3 +225,102 @@ class RoundTripJsonTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ColumnasDeSalidaTest(unittest.TestCase):
+    """Auditoría propia 2026-09-11 — la política declara lo que produce.
+
+    Sin esto, cada llamante reconstruía el sufijo `__faltante` por su cuenta
+    para saber qué columnas le llegan de verdad a un motor, o —peor— no lo
+    reconstruía y el motor las descartaba en silencio por no estar entre los
+    `predictors` declarados del problema (102-C2).
+    """
+
+    def _filas(self):
+        return [{"x": 1.0, "cat": "rojo", "y": "si"},
+                {"x": None, "cat": "azul", "y": "no"},
+                {"x": 3.0, "cat": "rojo", "y": "si"}]
+
+    def test_declara_exactamente_lo_que_transformar_fila_emite(self):
+        """El aserto que de verdad importa: no una lista escrita a mano, sino
+        la igualdad con lo que la OTRA función produce. Si una de las dos
+        cambia sin la otra, esto se pone rojo."""
+        for admite in (True, False):
+            with self.subTest(admite_faltantes=admite):
+                politica = ajustar_preparacion(
+                    self._filas(), objetivo="y", columnas=("x", "cat"),
+                    admite_categoricas=admite, admite_faltantes=admite)
+                emitidas = set(transformar_fila(self._filas()[0], politica))
+                self.assertEqual(set(politica.columnas_de_salida()), emitidas)
+
+    def test_el_indicador_de_faltantes_esta_incluido(self):
+        """El caso concreto que motivó esto: el indicador se emite para los dos
+        motores, con independencia de `admite_faltantes` (medido), así que
+        quien declare predictores al motor tiene que llevarlo."""
+        politica = ajustar_preparacion(
+            self._filas(), objetivo="y", columnas=("x", "cat"),
+            admite_categoricas=True, admite_faltantes=True)
+        self.assertIn("x__faltante", politica.columnas_de_salida())
+        # Y la categórica NO lleva indicador: un `None` categórico ya viaja
+        # como `__faltante__`, su propia categoría.
+        self.assertNotIn("cat__faltante", politica.columnas_de_salida())
+
+    def test_no_incluye_el_objetivo(self):
+        politica = ajustar_preparacion(
+            self._filas(), objetivo="y", columnas=("x", "cat"),
+            admite_categoricas=True, admite_faltantes=True)
+        self.assertNotIn("y", politica.columnas_de_salida())
+
+
+class ColisionDelIndicadorTest(unittest.TestCase):
+    """REAUDITORÍA 2026-09-11 — una regresión introducida por el arreglo del
+    mismo día, encontrada por un auditor independiente.
+
+    Si el CSV ya trae una columna llamada `x__faltante` junto a una `x`
+    numérica, el indicador derivado de `x` colisiona con ella:
+    `transformar_fila` escribe en un `dict` y se queda con tres claves,
+    mientras la primera versión de `columnas_de_salida()` declaraba cuatro con
+    una repetida. `ProblemSpec` prohíbe predictores repetidos, así que el
+    estudio del producto respondía **HTTP 500 sin motivo** en un caso que
+    antes arrancaba.
+    """
+
+    def _filas(self):
+        return [{"x": 1.0, "x__faltante": 5.0, "y": "si"},
+                {"x": None, "x__faltante": 6.0, "y": "no"},
+                {"x": 3.0, "x__faltante": 7.0, "y": "si"}]
+
+    def _politica(self):
+        return ajustar_preparacion(self._filas(), objetivo="y",
+                                   columnas=("x", "x__faltante"),
+                                   admite_categoricas=True, admite_faltantes=True)
+
+    def test_no_declara_columnas_repetidas(self):
+        salida = self._politica().columnas_de_salida()
+        self.assertEqual(len(salida), len(set(salida)), salida)
+
+    def test_y_sigue_coincidiendo_con_lo_que_se_emite(self):
+        politica = self._politica()
+        self.assertEqual(set(politica.columnas_de_salida()),
+                         set(transformar_fila(self._filas()[0], politica)))
+
+    def test_la_colision_en_si_queda_DECLARADA_no_arreglada(self):
+        """Quién gana la colisión, MEDIDO — no supuesto.
+
+        Mi primera versión de este test afirmaba lo contrario (que el
+        indicador derivado pisaba la columna real del CSV) y se puso en rojo:
+        el aserto estaba mal, no el producto. Lo que pasa de verdad es que las
+        propuestas se recorren en orden, `x` escribe su indicador `x__faltante`
+        = 0.0 y luego la propuesta de la columna REAL `x__faltante` lo
+        sobreescribe con su valor (5.0). Es decir: **el dato del usuario
+        sobrevive y lo que se pierde en silencio es el indicador derivado de
+        `x`** — un motor que dependa de ese indicador recibe el valor de otra
+        columna creyendo que es un 0/1.
+
+        Sigue sin arreglarse a propósito (cambiar el nombre del indicador
+        afectaría a todo lo ya ajustado); se fija aquí para que si alguien lo
+        cambia, se entere de cuál de las dos cosas está cambiando."""
+        transformada = transformar_fila(self._filas()[0], self._politica())
+        self.assertEqual(transformada["x__faltante"], 5.0)
+        # Y el indicador de la columna real sí se genera con su propio nombre.
+        self.assertEqual(transformada["x__faltante__faltante"], 0.0)

@@ -655,3 +655,40 @@ class TestCompositeTorchStudioPathHonorsTemporalSplit:
         assert train_x1 == [0, 1, 2, 3, 4, 5]
         assert set(val_x1) & set(train_x1) == set()
         assert 8 not in val_x1 and 9 not in val_x1  # el tramo de prueba, nunca en validación
+
+    def test_protocol2_tambien_manda_SIN_mode_temporal(self, monkeypatch):
+        """AUDITORÍA PROPIA 2026-09-11 — el agujero que dejó el test de arriba.
+
+        Aquel usa `mode=temporal` a propósito, y con eso esquivaba justo la
+        rama rota: en modo RANDOM (el que el generador escribe por omisión, y
+        el backend real del Studio con torch) el camino compuesto calculaba la
+        partición correcta y la TIRABA (`_torch_examples = examples`), y el
+        trainer la volvía a partir 80/20 por posición — las filas de test
+        acababan dentro de TRAIN, que es el defecto original del 100 que
+        101-C0 se propuso cerrar.
+
+        La decisión previa de «random = byte-idéntico» sigue en pie y tiene su
+        propio test (el de más arriba): lo que esta prueba fija es que
+        `protocol=2`, que es un opt-in explícito y posterior, MANDA aunque no
+        haya `mode`.
+        """
+        captured = self._run_and_capture(
+            "SPLIT train=0.6 validation=0.2 test=0.2 protocol=2", monkeypatch,
+        )
+        train_x1 = sorted(int(x["x1"]) for x, _y in captured["examples"])
+        val_x1 = sorted(int(x["x1"]) for x, _y in (captured["validation_examples"] or []))
+
+        # Sin el arreglo, `examples` llegaba ENTERO (los 10) al trainer.
+        assert len(train_x1) == 6, f"el trainer recibió {len(train_x1)} filas, no las 6 de train"
+        assert len(val_x1) == 2, val_x1
+        # Y lo que de verdad importa: las 2 filas de test no están en ninguno
+        # de los dos. Se derivan de la MISMA función pura, no de una lista a
+        # mano, para que cambiar el reparto no deje esta prueba mintiendo.
+        from matrixai.training.particion import particion_para, reparte
+        spec = parse_training_text(_composite_torch_train_text(
+            "SPLIT train=0.6 validation=0.2 test=0.2 protocol=2"))
+        particion = particion_para(10, spec.dataset.split)
+        _tr, _va, test_ex = reparte(list(range(10)), particion)
+        assert test_ex, "la partición declarada no reservó test: el fixture no prueba nada"
+        assert set(test_ex) & set(train_x1) == set(), (test_ex, train_x1)
+        assert set(test_ex) & set(val_x1) == set(), (test_ex, val_x1)

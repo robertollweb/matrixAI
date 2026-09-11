@@ -323,6 +323,22 @@ def resolver_clases(
                 "declaradas" if clases_declaradas else "las da el modelo")
 
     if clases_declaradas:
+        # `probabilidad_positiva` es UNA columna que vale por DOS clases: la
+        # positiva es el valor y la negativa es su complemento. Comparar contra
+        # el ancho aquí dejaba sin salida el binario más común que existe —un
+        # sigmoide `[N,1]` con etiquetas de texto—, y además de forma cruel: sin
+        # `--classes` el error pedía «declara cuál es la negativa y cuál la
+        # positiva», y al declararlas respondía «se declararon 2 clases y el
+        # modelo devuelve 1 valores por fila». El mensaje pedía exactamente lo
+        # que luego rechazaba. Encontrado por la auditoría propia del
+        # 2026-09-11; lo que se exige aquí son DOS, ni una ni tres.
+        if elegida.semantica == "probabilidad_positiva":
+            if len(clases_declaradas) != 2:
+                raise SalidaOnnxAmbigua(
+                    f"la salida es la probabilidad de la clase positiva (una columna) y se "
+                    f"declararon {len(clases_declaradas)} clases: hacen falta exactamente dos, "
+                    f"la negativa primero y la positiva después")
+            return list(clases_declaradas), "declaradas"
         if ancho is not None and len(clases_declaradas) != ancho:
             raise SalidaOnnxAmbigua(
                 f"se declararon {len(clases_declaradas)} clases y el modelo devuelve "

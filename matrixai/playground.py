@@ -2263,7 +2263,7 @@ def _run_playground_composite_training(
         # protocol=2` deja el tramo de prueba FUERA de `val_ex` de verdad
         # (antes se colaba entero: solo se leía `split.train`, nunca
         # `split.test`, y todo lo que sobraba de train caía en validación).
-        from matrixai.training.particion import particion_para, reparte
+        from matrixai.training.particion import PROTOCOLO_SEPARACION, particion_para, reparte
         _particion = particion_para(len(examples), training.dataset.split)
         train_ex, _val_declarada, _test_ex = reparte(examples, _particion)
         val_ex = _val_declarada or examples[-1:]
@@ -2319,8 +2319,34 @@ def _run_playground_composite_training(
             # de producto (cambiar qué significa "random" en TODOS los
             # backends) que le corresponde a Roberto, no a un pase de
             # auditoría de C3.
+            # AUDITORÍA PROPIA 2026-09-11 — la excepción que faltaba, y que NO
+            # contradice la decisión de arriba.
+            #
+            # Aquella decisión dice «mode ausente/random preserva el 80/20
+            # interno del trainer torch, su comportamiento de SIEMPRE», y sigue
+            # en pie tal cual. Lo que no contemplaba —porque no existía cuando
+            # se escribió— es `protocol=2`: un opt-in EXPLÍCITO y posterior
+            # (101-C0) cuyo único significado es «aparta el tramo de prueba».
+            # Un `.mxtrain` que lo declara ya no es un fichero de los de antes,
+            # así que preservarle «el comportamiento de siempre» no es
+            # compatibilidad: es ignorar lo que pide.
+            #
+            # Sin esta rama, un `SPLIT train=0.6 validation=0.2 test=0.2
+            # protocol=2` SIN `mode` —el modo por omisión del generador, y el
+            # backend real del Studio con torch— mandaba `examples` ENTERO al
+            # trainer, que lo volvía a partir 80/20 por posición: las filas de
+            # test acababan dentro de TRAIN. Reproducido con 10 filas: test
+            # [1,2] entrando al entrenamiento. Es el mismo defecto que 101-C0
+            # se propuso cerrar, en el único de los cuatro caminos que se dio
+            # por reparado sin comprobar su modo por omisión.
+            #
+            # El gate de byte-identidad sigue intacto para todo lo demás: sin
+            # `protocol=2` declarado, este `if` no se toma y no cambia nada.
             _split_spec = training.dataset.split
-            if _split_spec is not None and _split_spec.mode == "temporal":
+            _honra_particion = (
+                (_split_spec is not None and _split_spec.mode == "temporal")
+                or _particion.protocolo == PROTOCOLO_SEPARACION)
+            if _honra_particion:
                 _torch_examples, _torch_val = train_ex, val_ex
             else:
                 _torch_examples, _torch_val = examples, None

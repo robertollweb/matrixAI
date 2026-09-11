@@ -30,6 +30,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from matrixai.export.attest import AtestacionImposible, atestiguar
+from matrixai.export.onnx_salida import SalidaOnnxAmbigua, elegir_salida, resolver_clases
 
 _HAS = util.find_spec("onnxruntime") is not None and util.find_spec("onnx") is not None
 DATOS = Path(__file__).resolve().parent / "data"
@@ -474,3 +475,64 @@ class LoQueNoSE_SABE_SE_PIDE_NoSeAdivinaTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SigmoidDeUnaColumnaConClasesDeTextoTest(unittest.TestCase):
+    """102-C0, auditoría propia 2026-09-11 — el binario más común del mundo
+    no se podía atestiguar de NINGUNA manera.
+
+    Un sigmoide `[N,1]` (Keras/torch de toda la vida) con etiquetas de texto:
+    sin `--classes`, `attest` pedía «declara cuál es la clase negativa y cuál
+    la positiva»; al declararlas, respondía «se declararon 2 clases y el
+    modelo devuelve 1 valores por fila». El mensaje pedía exactamente lo que
+    luego rechazaba, porque la comprobación `len(clases) == ancho` corría
+    antes de la rama `probabilidad_positiva` — y una probabilidad positiva es
+    UNA columna que vale por DOS clases.
+    """
+
+    def _sigmoide(self):
+        import numpy as np
+        from onnx import TensorProto, helper
+        grafo = helper.make_graph(
+            [helper.make_node("MatMul", ["X", "W"], ["z"]),
+             helper.make_node("Sigmoid", ["z"], ["p"])],
+            "sig",
+            [helper.make_tensor_value_info("X", TensorProto.FLOAT, [None, 2])],
+            [helper.make_tensor_value_info("p", TensorProto.FLOAT, [None, 1])],
+            [helper.make_tensor("W", TensorProto.FLOAT, [2, 1],
+                                np.array([[0.5], [0.5]], dtype=np.float32).tobytes(), raw=True)])
+        return helper.make_model(grafo, opset_imports=[helper.make_opsetid("", 13)])
+
+    def _elegida(self):
+        import tempfile
+        import onnx
+        import onnxruntime as ort
+        modelo = self._sigmoide()
+        ruta = f"{tempfile.mkdtemp()}/m.onnx"
+        onnx.save(modelo, ruta)
+        sesion = ort.InferenceSession(modelo.SerializeToString())
+        return elegir_salida(sesion, tarea="clasificacion", ruta_modelo=ruta)
+
+    def test_declarar_dos_clases_de_texto_YA_funciona(self):
+        elegida = self._elegida()
+        self.assertEqual(elegida.semantica, "probabilidad_positiva")
+        clases, origen = resolver_clases(
+            elegida, clases_declaradas=["no", "yes"],
+            etiquetas_observadas=["no", "yes"], ancho=1)
+        self.assertEqual(clases, ["no", "yes"])
+        self.assertEqual(origen, "declaradas")
+
+    def test_pero_TRES_clases_siguen_sin_valer(self):
+        """La otra mitad: sin ella, lo de arriba lo pasaría un backend que
+        acepta cualquier lista. Una probabilidad positiva son exactamente dos
+        clases, ni una ni tres."""
+        with self.assertRaises(SalidaOnnxAmbigua):
+            resolver_clases(self._elegida(), clases_declaradas=["a", "b", "c"],
+                            etiquetas_observadas=["no", "yes"], ancho=1)
+
+    def test_y_sin_declararlas_sigue_pidiendolas_con_su_motivo(self):
+        """Deducir `no`/`yes` de la columna objetivo sería adivinar cuál es la
+        positiva: eso sigue rechazado, que es lo correcto."""
+        with self.assertRaises(SalidaOnnxAmbigua):
+            resolver_clases(self._elegida(), clases_declaradas=None,
+                            etiquetas_observadas=["no", "yes"], ancho=1)

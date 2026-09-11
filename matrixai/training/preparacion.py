@@ -159,6 +159,48 @@ class PoliticaDePreparacion:
     def columna(self, nombre: str) -> PropuestaDeColumna | None:
         return next((c for c in self.columnas if c.columna == nombre), None)
 
+    def columnas_de_salida(self) -> tuple[str, ...]:
+        """Los nombres que `transformar_fila` de verdad emite, en su orden.
+
+        Existe porque el llamante NECESITA declararlos: un motor que deriva
+        sus columnas de `ProblemSpec.predictors` (102-C2, invariante «modelo,
+        preparación, calibrador y decisión forman una unidad versionada»)
+        descartaría los indicadores `{columna}__faltante` que esta política
+        añade, porque no son predictores del problema — son predictores
+        DERIVADOS de ellos, y solo esta clase sabe cuáles produce.
+
+        Auditoría 2026-09-11: sin esto, cada llamante tendría que reconstruir
+        el sufijo `__faltante` por su cuenta, que es el «dos sitios declarando
+        lo mismo» que acaba divergiendo en cuanto esta función cambie. Se
+        deriva del MISMO bucle que `transformar_fila`, no de una lista
+        paralela.
+
+        Se DEDUPLICA preservando el orden, porque `transformar_fila` escribe en
+        un `dict` y un `dict` no repite claves. Un CSV que ya traiga una columna
+        llamada `x__faltante` junto a una `x` numérica hace que el indicador
+        derivado de `x` COLISIONE con ella: el dict se queda con tres claves y
+        una lista ingenua declararía cuatro. Encontrado en la reauditoría del
+        2026-09-11 —una lista con repetidos hacía que `ProblemSpec` rechazara la
+        traducción y el estudio del producto respondiera un **HTTP 500 sin
+        motivo**—, así que aquí se declara exactamente lo que sale, no lo que
+        debería salir.
+
+        La colisión en sí es anterior y sigue viva: la columna real `x__faltante`
+        del CSV queda PISADA por el indicador derivado, en silencio. Eso no se
+        arregla aquí (cambiar el nombre del indicador afecta a todo lo ya
+        ajustado); queda declarado como defecto de `transformar_fila`.
+        """
+        salida: list[str] = []
+        vistas: set[str] = set()
+        for propuesta in self.columnas:
+            for nombre in (propuesta.columna,
+                           *([f"{propuesta.columna}__faltante"]
+                             if propuesta.tipo == "numerica" else ())):
+                if nombre not in vistas:
+                    vistas.add(nombre)
+                    salida.append(nombre)
+        return tuple(salida)
+
     def a_json(self) -> dict[str, Any]:
         return {
             "columnas": [c.a_json() for c in self.columnas],
