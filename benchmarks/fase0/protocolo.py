@@ -213,6 +213,8 @@ def speedup_medido(hilos_reservados: int, cpus: int | None = None) -> float:
       reservar 24 hilos no da 24x ni 6x, da como mucho lo que las CPUs pueden.
     - **Con holgura sí sube.** Con 4 hilos de 8 devuelve 3,60x, no 1x: esto
       limita la reserva, no la estrangula.
+    - **Nunca baja de 1,00x**, porque el speedup se mide SOBRE un hilo y nada
+      rinde menos que su propia unidad de medida.
 
     **Lo que este número NO es**: una cota superior del tiempo. Es un SUELO
     del tiempo, porque es un TECHO del rendimiento — y además las anclas se
@@ -246,7 +248,13 @@ def speedup_medido(hilos_reservados: int, cpus: int | None = None) -> float:
     # SOLO ese sitio — un `return techo` temprano aquí daba exactamente el
     # mismo resultado (queda comprobado: al neutralizarlo la suite seguía
     # verde), y dos sitios imponiendo el mismo techo acaban divergiendo.
-    techo = disponibles * (ANCLAS_DE_ESCALADO[-1][1] / _CPUS_DE_LA_MEDICION)
+    # `max(1.0, …)`: el speedup se define SOBRE UN HILO, así que un hilo es
+    # 1,00x por definición y nada puede rendir menos que la unidad con la que
+    # se mide. Re-auditoría del 2026-09-12: sin ese suelo, con 1 CPU el techo
+    # salía `1 * (4,69/8) = 0,586` y el modelo afirmaba que un hilo rinde
+    # menos que un hilo. Se alcanza de verdad en un `docker --cpus=1`, que es
+    # justo lo que `cpus_disponibles()` existe para detectar.
+    techo = max(1.0, disponibles * (ANCLAS_DE_ESCALADO[-1][1] / _CPUS_DE_LA_MEDICION))
     # Por debajo del lleno: interpolación lineal entre anclas por FRACCIÓN de
     # CPUs ocupadas, para que la curva no dependa de que la máquina tenga 8.
     fraccion = hilos_reservados / disponibles
@@ -261,7 +269,13 @@ def speedup_medido(hilos_reservados: int, cpus: int | None = None) -> float:
             break
     else:
         eficiencia = puntos[-1][1]
-    return round(min(hilos_reservados * eficiencia, techo), 4)
+    # El suelo va en el RESULTADO, no solo en el techo. Con 1 CPU la
+    # interpolación por fracción da la eficiencia de «máquina llena» (0,586)
+    # y multiplicarla por 1 hilo daba 0,586: el modelo afirmaba que un hilo
+    # rinde menos que un hilo. Con una sola CPU no hay contención porque no
+    # hay con quién competir — la curva por fracción no lo sabe, y el suelo
+    # sí. Re-auditoría del 2026-09-12.
+    return round(max(1.0, min(hilos_reservados * eficiencia, techo)), 4)
 
 
 def reserva_segura(hilos_por_proceso: int, cpus: int | None = None) -> int:

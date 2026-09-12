@@ -75,3 +75,41 @@ def test_el_digest_del_entorno_CAMBIA_si_cambia_un_compartido(tmp_path):
     finally:
         pasada._FICHEROS_COMPARTIDOS = tuple(original)
     assert pasada._digest_entorno() == antes
+
+
+def test_la_pasada_COMPRUEBA_que_su_reserva_cabe_antes_de_empezar():
+    """Re-auditoría del 2026-09-12: `reserva_segura()` no tenía ningún
+    llamante. El commit que la creó se titula «la reserva de concurrencia deja
+    de pedir 24 hilos sobre 8 CPUs» y eso describía una FUNCIÓN, no un guardia:
+    el lanzador llevaba `hilos=4` escrito a mano y nadie preguntaba nunca
+    cuántos procesos caben. Hueco de cableado número quince.
+
+    Parar ANTES es el punto. Una pasada de más de una hora que satura la
+    máquina no se nota hasta que los intentos empiezan a fallar por tope de
+    pared, y entonces lo que se pierde no es tiempo: es la medición, porque un
+    fallo cuenta como dataset perdido para ese motor.
+    """
+    pasada._exigir_que_la_reserva_QUEPA()   # con el reparto real no levanta
+
+
+def test_y_si_NO_cabe_se_para_antes_de_medir_nada():
+    """La otra mitad, y la que de verdad protege: sin ella el guardia lo
+    pasaría un `return` vacío."""
+    import pytest
+
+    procesos = pasada.PROCESOS_A_LA_VEZ
+    try:
+        pasada.PROCESOS_A_LA_VEZ = 99
+        with pytest.raises(SystemExit) as excinfo:
+            pasada._exigir_que_la_reserva_QUEPA()
+        assert "solo caben" in str(excinfo.value)
+    finally:
+        pasada.PROCESOS_A_LA_VEZ = procesos
+
+
+def test_el_guardia_se_llama_desde_main_y_no_solo_existe():
+    """Que la función exista y nadie la llame es exactamente el defecto que
+    esto repara, así que se comprueba el CABLEADO, no la función."""
+    import inspect
+    fuente = inspect.getsource(pasada.main)
+    assert "_exigir_que_la_reserva_QUEPA()" in fuente

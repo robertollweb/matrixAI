@@ -459,6 +459,28 @@ class CpusDisponiblesTest(unittest.TestCase):
             ruta.write_text("200000 100000", encoding="utf-8")
             self.assertEqual(_cuota_de_cgroup(ruta), 2)
 
+    def test_el_speedup_NUNCA_baja_de_uno(self):
+        """Re-auditoría del 2026-09-12. El speedup se define SOBRE UN HILO, así
+        que nada puede rendir menos que la unidad con la que se mide.
+
+        Sin el suelo, `speedup_medido(1, cpus=1)` daba **0,5863**: el modelo
+        afirmaba que un hilo rinde menos que un hilo. Se alcanza de verdad en
+        un `docker --cpus=1`, que es justo lo que `cpus_disponibles()` existe
+        para detectar. Iba en dirección conservadora —inflaba las horas— pero
+        una cifra imposible en un informe la acaba copiando alguien.
+        """
+        from benchmarks.fase0.protocolo import speedup_medido
+        for hilos, cpus in ((1, 1), (4, 1), (1, 2), (1, 8), (100, 1)):
+            self.assertGreaterEqual(speedup_medido(hilos, cpus=cpus), 1.0,
+                                    f"{hilos} hilos sobre {cpus} CPUs")
+
+    def test_pero_con_HOLGURA_sigue_subiendo_de_verdad(self):
+        """La otra mitad: sin ella, el suelo lo pasaría una versión que
+        devuelve 1,0 siempre y estrangularía la pasada."""
+        from benchmarks.fase0.protocolo import speedup_medido
+        self.assertGreater(speedup_medido(4, cpus=8), 3.0)
+        self.assertGreater(speedup_medido(8, cpus=8), 4.0)
+
     def test_cpus_disponibles_USA_de_verdad_la_cuota_de_cgroup(self):
         """Re-auditoría del 2026-09-12: **un sabotaje salió VERDE aquí.**
         Neutralicé la rama de cgroup dentro de `cpus_disponibles()` —borrando

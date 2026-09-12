@@ -119,6 +119,46 @@ SEMILLAS = (0, 1, 2)
 
 WALL_SECONDS = 120.0  # generoso frente a lo medido (baseline<1s, lgbm~2s, densa~6s)
 
+#: Los hilos que pide cada intento. Estaba escrito a mano en la línea del
+#: `Presupuesto`, donde nadie lo encuentra.
+HILOS_POR_INTENTO = 4
+
+#: Los procesos que esta pasada lanza a la vez. UNO: es secuencial.
+PROCESOS_A_LA_VEZ = 1
+
+
+def _exigir_que_la_reserva_QUEPA() -> None:
+    """El guardia que faltaba, y sin el cual `reserva_segura()` era una
+    función que nadie llamaba.
+
+    Re-auditoría del 2026-09-12: el commit que la creó se titula «la reserva
+    de concurrencia deja de pedir 24 hilos sobre 8 CPUs», y eso describía una
+    FUNCIÓN, no un guardia. Medido: cero llamantes fuera de los tests y de
+    `calcular_coste()`, que solo INFORMA. El lanzador real llevaba `hilos=4`
+    escrito a mano y nadie preguntaba nunca cuántos procesos caben. Es el
+    hueco de cableado número quince de este proyecto.
+
+    Aquí no se DECIDE el reparto —eso está en el protocolo registrado con
+    hash, y cambiarlo es decisión de Roberto porque cambia su digest—: se
+    comprueba que lo que esta pasada va a pedir de verdad cabe en la máquina
+    donde se está ejecutando, y se para antes de empezar si no.
+
+    Parar antes es el punto. Una pasada de más de una hora que satura la
+    máquina no se nota hasta que los intentos empiezan a fallar por tope de
+    pared, y entonces lo que se pierde no es tiempo: es la medición, porque un
+    fallo cuenta como dataset perdido para ese motor.
+    """
+    from benchmarks.fase0.protocolo import cpus_disponibles, reserva_segura
+
+    caben = reserva_segura(HILOS_POR_INTENTO)
+    if PROCESOS_A_LA_VEZ > caben:
+        raise SystemExit(
+            f"esta pasada pediría {PROCESOS_A_LA_VEZ} procesos x "
+            f"{HILOS_POR_INTENTO} hilos = {PROCESOS_A_LA_VEZ * HILOS_POR_INTENTO} "
+            f"hilos, y en esta máquina ({cpus_disponibles()} CPUs disponibles) "
+            f"solo caben {caben} procesos de ese tamaño. Bajar los procesos o "
+            f"los hilos por intento antes de volver a lanzarla")
+
 _DIR_ENGINES = _RAIZ_DE_ENGINES / "matrixai_engines"
 # Compartidos: un cambio en cualquiera de estos invalida TODO el caché,
 # porque afecta a los 4 motores por igual (o a la propia lógica de esta
@@ -450,6 +490,7 @@ def particiones_base(data_id: int, nombre_ds: str, cubo: str, positiva: str, neg
 
 
 def main() -> None:
+    _exigir_que_la_reserva_QUEPA()
     parser = argparse.ArgumentParser()
     parser.add_argument("--forzar", action="store_true",
                        help="ignora el caché entero, re-ejecuta los 720 intentos")
@@ -531,7 +572,8 @@ def main() -> None:
                     test = Particion.desde_filas(filas_test_t, row_id_field="row_id",
                                                  target_field=objetivo)
 
-                    presupuesto = Presupuesto(wall_seconds=WALL_SECONDS, hilos=4, seed=SEMILLAS[repeticion])
+                    presupuesto = Presupuesto(wall_seconds=WALL_SECONDS, hilos=HILOS_POR_INTENTO,
+                                              seed=SEMILLAS[repeticion])
                     t0 = time.perf_counter()
                     intento = ejecutar_intento_aislado(
                         motor, train, validation, test, spec, presupuesto,
