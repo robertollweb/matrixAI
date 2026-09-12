@@ -51,7 +51,11 @@ __all__ = [
     "ProtocoloError",
     "ProtocoloExploratorio",
     "ReglaDeCierre",
+    "EQUIVALENCIAS_DE_NOMBRE_DE_MOTOR",
+    "alcance_de_una_pasada",
+    "aplicar_regla_de_cierre",
     "calcular_coste",
+    "veredicto_con_su_alcance",
     "cpus_disponibles",
     "nucleos_fisicos",
     "reserva_segura",
@@ -534,15 +538,59 @@ def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
             (medias[mejor_motor] - mio) * 100.0)
         cumple = (not perdido) and distancia is not None and distancia <= regla.puntos
         cumplidos += 1 if cumple else 0
+        # LA VENTAJA SOBRE EL SEGUNDO, y por qué no basta con `distancia`.
+        # Auditoría del 2026-09-12: `distancia_en_puntos` vale 0,0000 SIEMPRE
+        # que `motor` sea el mejor, así que «ganó de calle» y «ganó por la
+        # décima de una décima» se escriben IGUAL. Sobre la re-medición limpia
+        # eso son OCHO de los diez aciertos de lightgbm: leídos sin esta
+        # columna, los ocho dicen lo mismo que un dominio real.
+        #
+        # Se declara solo cuando `motor` ES el mejor —si no lo es, `distancia`
+        # ya dice todo lo que hay que saber— y va en las mismas unidades:
+        # puntos porcentuales de la métrica.
+        ordenados = sorted(medias, key=lambda m: medias[m], reverse=True)
+        segundo = ordenados[1] if len(ordenados) > 1 else None
+        ventaja = None
+        if mejor_motor == motor and segundo is not None:
+            ventaja = (medias[motor] - medias[segundo]) * 100.0
         detalle.append({"dataset": ds, "cumple": cumple, "perdido_por_fallo": perdido,
-                        "mejor": mejor_motor, "distancia_en_puntos": distancia})
+                        "mejor": mejor_motor, "distancia_en_puntos": distancia,
+                        "segundo": segundo if mejor_motor == motor else None,
+                        "ventaja_sobre_el_segundo_en_puntos": ventaja,
+                        "motores_que_compitieron": sorted(medias)})
 
     total = len(detalle)
     fraccion = (cumplidos / total) if total else 0.0
+    # CUÁNTOS de los aciertos son «es el mejor», que en esta escala se escribe
+    # 0,0000 — y cuántos datasets puede perder antes de bajarse del listón.
+    # Los dos números van AQUÍ y no en un informe aparte: «10/12 CUMPLE» y
+    # «ocho de esos diez son un empate a cero, y con uno menos no cumple» son
+    # la misma frase, y separarlas es lo que permitió leer la primera sola.
+    por_distancia_cero = sum(
+        1 for d in detalle
+        if d["cumple"] and d["distancia_en_puntos"] is not None
+        and abs(d["distancia_en_puntos"]) < 1e-12)
+    # El margen solo significa algo si HOY cumple: «puede perder 0» dicho de un
+    # motor que ya está por debajo se lee como si estuviera al borde por arriba.
+    # Cuando no cumple, el número que informa es el contrario: cuántos le faltan.
+    cumple_hoy = total > 0 and (cumplidos / total) >= regla.fraccion_minima
+    margen: int | None = None
+    le_faltan: int | None = None
+    if cumple_hoy:
+        margen = 0
+        while ((cumplidos - margen - 1) / total) >= regla.fraccion_minima:
+            margen += 1
+    elif total:
+        le_faltan = 0
+        while ((cumplidos + le_faltan) / total) < regla.fraccion_minima:
+            le_faltan += 1
     return {"motor": motor, "metrica": metrica, "puntos_exigidos": regla.puntos,
             "fraccion_minima": regla.fraccion_minima, "datasets": total,
             "cumplidos": cumplidos, "fraccion": fraccion,
             "cumple_la_regla": fraccion >= regla.fraccion_minima,
+            "aciertos_por_ser_el_mejor": por_distancia_cero,
+            "datasets_que_puede_perder_sin_incumplir": margen,
+            "datasets_que_le_faltan_para_cumplir": le_faltan,
             "definicion_de_mejor": regla.definicion_de_mejor, "detalle": detalle}
 
 
@@ -729,3 +777,158 @@ def calcular_coste(protocolo: ProtocoloExploratorio,
         speedup_efectivo_medido=speedup,
         horas_reloj_suelo_medido=round(horas_suelo, 2),
     )
+
+
+# ---------------------------------------------------------------------------
+# EL ALCANCE DE UNA PASADA — «10/12 CUMPLE» no se puede leer sin él
+# ---------------------------------------------------------------------------
+# Auditoría interna del 2026-09-12, clasificada GRAVE: el protocolo registrado
+# pide 40 datasets y 7 motores; la pasada exploratoria mide 12 y 4. El script
+# declaraba el subconjunto de datasets en un comentario, y el recorte de
+# motores NO LO DECLARABA EN NINGUNA PARTE — y los tres que faltan
+# (`sklearn.hgb`, `xgboost`, `catboost`) son los rivales DIRECTOS de un GBM.
+#
+# El problema no es el recorte: una pasada exploratoria recorta, y es legítimo.
+# El problema es que el ARTEFACTO no llevaba escrito su propio alcance, así que
+# «lightgbm 10/12 = 0,833 CUMPLE» se leía sin enterarse de que compitió contra
+# tres motores y no contra seis.
+#
+# Por eso esto vive en el mismo módulo que la regla y viaja en el MISMO
+# fichero que el veredicto: dos ficheros que se pueden separar se separan.
+
+
+#: Los ids del protocolo NO son los ids implementados, y esa es exactamente la
+#: trampa que haría inútil una comparación literal: `baseline` es el `dummy`
+#: del protocolo (mayoritaria/distribución de train: no mira las entradas) y
+#: `sklearn.lineal` es su `sklearn.logreg` (logística). Comparadas a pelo, las
+#: dos listas dirían que faltan CINCO motores, y ese número sería falso en la
+#: dirección alarmista — que miente igual que el tranquilizador.
+#:
+#: Se declara aquí, en un solo sitio, en vez de resolverlo a ojo en cada
+#: llamante. Un motor implementado que no aparezca en este mapa se compara por
+#: su propio nombre, que es lo correcto para `lightgbm` y
+#: `matrixai.dense.torch_cpu`: se llaman igual en los dos sitios.
+EQUIVALENCIAS_DE_NOMBRE_DE_MOTOR = {
+    "baseline": "dummy",
+    "sklearn.lineal": "sklearn.logreg",
+}
+
+
+def _id_en_el_protocolo(motor_implementado: str) -> str:
+    return EQUIVALENCIAS_DE_NOMBRE_DE_MOTOR.get(motor_implementado, motor_implementado)
+
+
+def alcance_de_una_pasada(protocolo: "ProtocoloExploratorio",
+                          resultados: Sequence[dict], *,
+                          motores_declarados: Sequence[str],
+                          datasets_declarados: Sequence[str],
+                          criterio_del_subconjunto: str = "") -> dict[str, Any]:
+    """Qué pidió el protocolo, qué dijo la pasada que iba a correr, y qué
+    aparece DE VERDAD en los registros. Las tres cosas, porque cada par
+    detecta un fallo distinto:
+
+    * declarado vs protocolo → el recorte, que es lo que no se declaraba;
+    * declarado vs observado → la lista que se tocó sin tocar la declaración,
+      o el motor que falló entero y no dejó un solo registro.
+
+    `observados` sale de las CLAVES REALES de `resultados`, nunca de una lista
+    escrita a mano: una lista copiada es la que acaba divergiendo.
+    """
+    motores_protocolo = [m.id for m in protocolo.motores]
+    datasets_protocolo = [d.nombre for d in protocolo.datasets]
+
+    motores_observados = sorted({r["motor"] for r in resultados})
+    datasets_observados = sorted({r["dataset"] for r in resultados})
+
+    declarados_en_ids_del_protocolo = [_id_en_el_protocolo(m) for m in motores_declarados]
+    motores_que_faltan = [m for m in motores_protocolo
+                          if m not in declarados_en_ids_del_protocolo]
+    datasets_que_faltan = [d for d in datasets_protocolo if d not in datasets_declarados]
+
+    # Lo que el recorte deja ENTERAMENTE sin medir. Un motor menos se ve
+    # contando; una TAREA sin un solo dataset no se ve en ningún recuento, y es
+    # más grave: de esta pasada no se sigue absolutamente nada sobre regresión
+    # ni multiclase, por muy alto que sea el 0,833.
+    corridos = {d.nombre for d in protocolo.datasets if d.nombre in datasets_declarados}
+    tareas_cubiertas = {d.tarea for d in protocolo.datasets if d.nombre in corridos}
+    cubos_cubiertos = {d.cubo_de_tamano for d in protocolo.datasets if d.nombre in corridos}
+
+    return {
+        "protocolo": {
+            "version": protocolo.version_protocolo,
+            "fecha_registro": protocolo.fecha_registro,
+            "digest_sha256": protocolo.digest(),
+            "n_datasets": len(datasets_protocolo),
+            "n_motores": len(motores_protocolo),
+        },
+        "motores": {
+            "del_protocolo": motores_protocolo,
+            "declarados_por_la_pasada": list(motores_declarados),
+            "observados_en_los_resultados": motores_observados,
+            "equivalencias_de_nombre": dict(EQUIVALENCIAS_DE_NOMBRE_DE_MOTOR),
+            "que_faltan": motores_que_faltan,
+            "n_del_protocolo": len(motores_protocolo),
+            "n_que_corrieron": len(motores_declarados),
+        },
+        "datasets": {
+            "criterio_del_subconjunto": criterio_del_subconjunto,
+            "del_protocolo": datasets_protocolo,
+            "declarados_por_la_pasada": list(datasets_declarados),
+            "observados_en_los_resultados": datasets_observados,
+            "que_faltan": datasets_que_faltan,
+            "n_del_protocolo": len(datasets_protocolo),
+            "n_que_corrieron": len(datasets_declarados),
+        },
+        "sin_medir": {
+            "tareas": [t for t in TAREAS if t not in tareas_cubiertas],
+            "cubos_de_tamano": [c for c in CUBOS_DE_TAMANO if c not in cubos_cubiertos],
+        },
+    }
+
+
+def veredicto_con_su_alcance(protocolo: "ProtocoloExploratorio",
+                             resultados: Sequence[dict], *,
+                             motor: str,
+                             motores_declarados: Sequence[str],
+                             datasets_declarados: Sequence[str],
+                             criterio_del_subconjunto: str = "",
+                             metrica: str = "auroc") -> dict[str, Any]:
+    """El número y su alcance, EN EL MISMO OBJETO.
+
+    Lo no negociable de la reparación del 2026-09-12: quien lea
+    `cumple_la_regla` tiene delante, sin abrir otro fichero, contra cuántos
+    motores se midió y cuáles faltan por nombre.
+    """
+    regla = aplicar_regla_de_cierre(resultados, protocolo.regla_de_cierre,
+                                    motor=motor, metrica=metrica)
+    alcance = alcance_de_una_pasada(
+        protocolo, resultados, motores_declarados=motores_declarados,
+        datasets_declarados=datasets_declarados,
+        criterio_del_subconjunto=criterio_del_subconjunto)
+    faltan = alcance["motores"]["que_faltan"]
+    compitieron = [m for m in alcance["motores"]["observados_en_los_resultados"]
+                   if m != "baseline"]
+    regla["alcance"] = alcance
+    # La advertencia se REDACTA con los números medidos, no se guarda escrita:
+    # una frase compuesta y guardada deja de ser verdad en cuanto cambian los
+    # números que la sostenían, y sigue sonando razonable.
+    regla["como_hay_que_leer_este_numero"] = (
+        f"{regla['cumplidos']}/{regla['datasets']} sobre un ALCANCE RECORTADO: "
+        f"{alcance['motores']['n_que_corrieron']} de "
+        f"{alcance['motores']['n_del_protocolo']} motores del protocolo y "
+        f"{alcance['datasets']['n_que_corrieron']} de "
+        f"{alcance['datasets']['n_del_protocolo']} datasets. "
+        f"NO corrieron: {', '.join(faltan) if faltan else 'ninguno'}. "
+        f"Compitieron por el primer puesto {len(compitieron)} motores "
+        f"(el baseline no compite, la regla lo excluye). "
+        f"{regla['aciertos_por_ser_el_mejor']} de los {regla['cumplidos']} "
+        f"aciertos lo son por SER el mejor de esos, o sea distancia 0,0000: "
+        f"mirar `ventaja_sobre_el_segundo_en_puntos` antes de leerlos como dominio. "
+        + (f"Puede perder {regla['datasets_que_puede_perder_sin_incumplir']} "
+           f"dataset(s) mas sin bajarse del liston. "
+           if regla["cumple_la_regla"]
+           else f"NO cumple: le faltan {regla['datasets_que_le_faltan_para_cumplir']} "
+                f"dataset(s) para llegar al liston. ") +
+        f"Sin medir: {', '.join(alcance['sin_medir']['tareas']) or 'ninguna tarea'}; "
+        f"cubos {', '.join(alcance['sin_medir']['cubos_de_tamano']) or 'todos cubiertos'}.")
+    return regla

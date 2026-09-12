@@ -1,0 +1,370 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Roberto Llamosas Conde
+"""101-C3 — UNA PASADA DECLARA SU PROPIO ALCANCE, y el alcance CUADRA.
+
+HALLAZGO GRAVE de la auditoría interna del 2026-09-12:
+
+    «El protocolo registrado pide 40 datasets y 7 motores; la pasada mide 12 y
+    4. El script declara el subconjunto de datasets, pero en ninguna parte
+    declara el recorte de motores — y los tres que faltan (`sklearn.hgb`,
+    `xgboost`, `catboost`) son los rivales DIRECTOS de un GBM.»
+
+Re-medido el 2026-09-13, punto por punto, antes de reparar nada: el protocolo
+registrado (`101-C1.v1`, digest `493a6f1d…`) trae **40** datasets y **7**
+motores; `pasada_exploratoria_101_c3.py` corre **12** y **4**; y de los diez
+aciertos de lightgbm, **ocho** tienen distancia 0,0000 al mejor, que es como
+se escribe «es el mejor de los tres que compitieron». El enunciado era exacto.
+
+EL DEFECTO NO ERA EL RECORTE. Recortar para una pasada exploratoria es
+legítimo y el subconjunto está bien elegido (verificado aquí abajo: son
+EXACTAMENTE los 12 del protocolo que cumplen el criterio). El defecto era que
+el ARTEFACTO no llevaba escrito su propio alcance: el JSON de resultado no
+tenía un solo campo que dijera contra cuántos motores se midió, así que
+«lightgbm 10/12 = 0,833 CUMPLE» se podía leer entero sin enterarse de que tres
+de los siete motores —los tres que más aprietan a un GBM— no corrieron.
+
+QUÉ PONE ESTE FICHERO EN ROJO, que es lo que decide si tiene dientes:
+
+  * tocar la lista `DATASETS` o `motores_de_la_pasada()` del script sin
+    regenerar el JSON — el alcance declarado dejaría de casar con el medido;
+  * quitar un motor del protocolo registrado, o añadirlo, sin re-medir;
+  * editar a mano cualquiera de las listas de alcance del JSON;
+  * un motor que falle ENTERO y no deje un solo registro: aparecería en
+    `declarados_por_la_pasada` y no en `observados_en_los_resultados`;
+  * borrar el bloque de alcance, o separarlo del veredicto en otro fichero.
+
+NO comprueba «que el campo exista». Eso lo pasa un campo puesto a mano con
+cualquier contenido, y es justo el defecto que se está cerrando: la
+comprobación es que la lista DECLARADA case con las CLAVES REALES de los 720
+registros y con lo que el script corre HOY.
+"""
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from benchmarks.fase0.pasada_exploratoria_101_c3 import (
+    CRITERIO_DEL_SUBCONJUNTO, DATASETS, _componer_y_guardar,
+    nombres_de_los_motores_de_la_pasada)
+from benchmarks.fase0.protocolo import (
+    EQUIVALENCIAS_DE_NOMBRE_DE_MOTOR, ProtocoloExploratorio, aplicar_regla_de_cierre)
+from matrixai.estudio.validacion import digest_canonico
+
+_FASE0 = Path(__file__).resolve().parents[1] / "benchmarks" / "fase0"
+
+#: La evidencia CON alcance. Sin `skipTest` si falta: el fichero está en el
+#: árbol, y un salto silencioso ante un fichero ausente es exactamente el banco
+#: de pruebas sin dientes que este hallazgo denuncia — se quedaría verde sin
+#: haber comprobado nada.
+_JSON = "pasada_exploratoria_101_c3_remedida_20260912_con_alcance.json"
+
+
+class ElArtefactoDeclaraSuAlcanceTest(unittest.TestCase):
+    """El bloque existe, está completo, y viaja con el veredicto."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.payload = json.loads((_FASE0 / _JSON).read_text(encoding="utf-8"))
+        cls.resultados = cls.payload["resultados"]
+        cls.bloque = cls.payload["alcance_y_veredicto"]
+        cls.alcance = cls.bloque["alcance"]
+        cls.protocolo = ProtocoloExploratorio.cargar(
+            str(_FASE0 / "protocolo_exploratorio.json"))
+
+    def test_el_veredicto_y_el_alcance_estan_en_el_MISMO_objeto(self):
+        """Lo no negociable de la reparación. Si mañana alguien saca el
+        alcance a un fichero aparte «para que el resultado quede limpio», los
+        dos se separan y el número vuelve a viajar solo — que es como llegó
+        hasta aquí."""
+        self.assertIn("alcance_y_veredicto", self.payload)
+        self.assertIn("alcance", self.bloque)
+        self.assertIn("por_motor", self.bloque)
+        for motor, veredicto in self.bloque["por_motor"].items():
+            self.assertIn("cumple_la_regla", veredicto, motor)
+            self.assertIn("como_hay_que_leer_este_numero", veredicto, motor)
+
+    def test_el_veredicto_no_se_puede_leer_sin_el_recorte_DELANTE(self):
+        """La frase que acompaña a cada número nombra los motores que faltan.
+        No es decoración: es lo único que ve quien lee el JSON por encima."""
+        faltan = self.alcance["motores"]["que_faltan"]
+        self.assertTrue(faltan, "si no falta ninguno, esta pasada ya no es la recortada")
+        for motor, veredicto in self.bloque["por_motor"].items():
+            lectura = veredicto["como_hay_que_leer_este_numero"]
+            for ausente in faltan:
+                self.assertIn(ausente, lectura,
+                              f"la lectura del veredicto de {motor} no nombra a "
+                              f"{ausente}, que NO corrió")
+
+    def test_el_fichero_cuadra_con_su_propio_digest_CON_el_alcance_dentro(self):
+        """El alcance va DENTRO del sello. Fuera de él se podría reescribir en
+        silencio, y un alcance editable sin dejar rastro no declara nada."""
+        payload = dict(self.payload)
+        guardado = payload.pop("digest_resultados_crudos")
+        self.assertEqual(digest_canonico(payload), guardado,
+                         f"{_JSON} ha cambiado desde que se escribió: su propio "
+                         "digest ya no cuadra")
+
+
+class ElSELLO_CUBRE_AL_ALCANCE_EnElCODIGO_NoSoloEnElFicheroTest(unittest.TestCase):
+    """Que el JSON que ya existe cuadre con su digest NO dice nada del código.
+
+    SABOTAJE VERDE del 2026-09-13, el décimo de la sesión. El script lleva
+    escrito, justo encima de las dos líneas, por qué el alcance va dentro del
+    sello: «fuera del sello se podría editar sin que el fichero dejara de
+    cuadrar consigo mismo, y un alcance que se puede reescribir en silencio no
+    declara nada». Intercambié esas dos líneas —el digest se calcula ANTES de
+    meter el alcance— y las 19 pruebas de este fichero siguieron en VERDE.
+
+    Por qué escapaba: el único test que miraba el sello comprobaba el JSON YA
+    ESCRITO, que se escribió bien y no cambia porque el script cambie. Probar
+    el artefacto no es probar el código que lo produce.
+
+    Es el mismo patrón que ya mordió dos veces hoy: **una línea que explica
+    por qué NO hace lo obvio necesita una prueba con su nombre**, o el
+    siguiente que pase la «simplifica» y nadie se entera.
+    """
+
+    def _payload_recien_compuesto(self):
+        """Compone uno DE VERDAD, con el mismo código que corre la pasada."""
+        reales = json.loads((_FASE0 / _JSON).read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            return _componer_y_guardar(
+                reales["resultados"], reales["procedencia"], {},
+                Path(tmp) / "salida.json",
+                total_wall_s=1.0, reusados=0, parcial=False)
+
+    def test_quitar_el_alcance_del_payload_CAMBIA_su_digest(self):
+        """La comprobación directa: si el alcance estuviera fuera del sello,
+        quitarlo no movería el digest ni un bit."""
+        payload = self._payload_recien_compuesto()
+        guardado = dict(payload)
+        digest = guardado.pop("digest_resultados_crudos")
+
+        sin_alcance = dict(guardado)
+        sin_alcance.pop("alcance_y_veredicto")
+
+        self.assertEqual(digest_canonico(guardado), digest,
+                         "el payload recién compuesto no cuadra con su propio digest")
+        self.assertNotEqual(
+            digest_canonico(sin_alcance), digest,
+            "QUITAR el alcance no cambia el digest: está FUERA del sello, así que "
+            "se puede reescribir sin que el fichero deje de cuadrar consigo mismo")
+
+    def test_el_alcance_del_payload_recien_compuesto_NO_esta_vacio(self):
+        """Un aserto negativo lo pasa un payload en blanco: el de arriba
+        seguiría cumpliendo si `alcance_y_veredicto` fuera `{}`, porque quitar
+        una clave vacía también mueve el digest. Esta es la otra mitad."""
+        bloque = self._payload_recien_compuesto()["alcance_y_veredicto"]
+        self.assertTrue(bloque.get("alcance", {}).get("motores", {}).get("que_faltan"),
+                        "el alcance recién compuesto no nombra ni un motor ausente")
+        self.assertTrue(bloque.get("por_motor"),
+                        "el alcance recién compuesto no trae veredicto por motor")
+
+
+class ElAlcanceDeclaradoCUADRAConLoMedidoTest(unittest.TestCase):
+    """El corazón del asunto: declarado vs REAL, en las dos direcciones.
+
+    Cada pareja caza un fallo distinto:
+      * declarado vs protocolo → el recorte, que es lo que no se declaraba;
+      * declarado vs observado → la lista que se tocó sin regenerar el JSON, o
+        el motor que se cayó entero y no dejó un registro.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.payload = json.loads((_FASE0 / _JSON).read_text(encoding="utf-8"))
+        cls.resultados = cls.payload["resultados"]
+        cls.alcance = cls.payload["alcance_y_veredicto"]["alcance"]
+        cls.protocolo = ProtocoloExploratorio.cargar(
+            str(_FASE0 / "protocolo_exploratorio.json"))
+
+    # -- motores ---------------------------------------------------------
+
+    def test_los_motores_DECLARADOS_son_los_que_aparecen_en_los_720(self):
+        """Las claves reales del resultado, no una lista escrita a mano."""
+        observados = sorted({r["motor"] for r in self.resultados})
+        self.assertEqual(sorted(self.alcance["motores"]["declarados_por_la_pasada"]),
+                         observados,
+                         "el JSON declara unos motores y sus registros traen otros")
+        self.assertEqual(sorted(self.alcance["motores"]["observados_en_los_resultados"]),
+                         observados)
+
+    def test_los_motores_declarados_son_los_que_el_SCRIPT_corre_hoy(self):
+        """La comprobación que caza «cambiaron la lista y no regeneraron el
+        JSON». Se le preguntan al script, que a su vez se los pregunta a los
+        objetos motor: si uno cambia de `nombre`, esto cambia con él."""
+        self.assertEqual(self.alcance["motores"]["declarados_por_la_pasada"],
+                         nombres_de_los_motores_de_la_pasada(),
+                         "la lista de motores del script ya no es la del JSON: "
+                         "hay que volver a generar la evidencia")
+
+    def test_los_motores_del_protocolo_son_los_del_protocolo_REGISTRADO(self):
+        self.assertEqual(self.alcance["motores"]["del_protocolo"],
+                         [m.id for m in self.protocolo.motores])
+        self.assertEqual(self.alcance["protocolo"]["digest_sha256"],
+                         self.protocolo.digest())
+
+    def test_los_que_FALTAN_salen_de_restar_las_dos_listas_con_su_mapeo(self):
+        """Y se restan traduciendo los nombres. Comparadas a pelo, las dos
+        listas dirían que faltan CINCO —`baseline` es el `dummy` del protocolo
+        y `sklearn.lineal` su `sklearn.logreg`— y ese número sería falso en la
+        dirección alarmista, que miente igual que la tranquilizadora."""
+        declarados = self.alcance["motores"]["declarados_por_la_pasada"]
+        traducidos = [EQUIVALENCIAS_DE_NOMBRE_DE_MOTOR.get(m, m) for m in declarados]
+        esperado = [m.id for m in self.protocolo.motores if m.id not in traducidos]
+        self.assertEqual(self.alcance["motores"]["que_faltan"], esperado)
+
+    def test_los_tres_rivales_DIRECTOS_de_un_GBM_estan_nombrados(self):
+        """El corazón del hallazgo. No «faltan tres»: los tres, por su nombre,
+        porque son justo los que más aprietan al motor que se promueve."""
+        self.assertEqual(set(self.alcance["motores"]["que_faltan"]),
+                         {"sklearn.hgb", "xgboost", "catboost"})
+
+    def test_las_cuentas_de_motores_cuadran_con_sus_listas(self):
+        """Un contador escrito a mano es el primero que se queda atrás."""
+        m = self.alcance["motores"]
+        self.assertEqual(m["n_del_protocolo"], len(m["del_protocolo"]))
+        self.assertEqual(m["n_que_corrieron"], len(m["declarados_por_la_pasada"]))
+        self.assertEqual(len(m["que_faltan"]),
+                         m["n_del_protocolo"] - m["n_que_corrieron"])
+
+    # -- datasets --------------------------------------------------------
+
+    def test_los_datasets_DECLARADOS_son_los_que_aparecen_en_los_720(self):
+        observados = sorted({r["dataset"] for r in self.resultados})
+        self.assertEqual(sorted(self.alcance["datasets"]["declarados_por_la_pasada"]),
+                         observados,
+                         "el JSON declara unos datasets y sus registros traen otros")
+        self.assertEqual(sorted(self.alcance["datasets"]["observados_en_los_resultados"]),
+                         observados)
+
+    def test_los_datasets_declarados_son_los_que_el_SCRIPT_corre_hoy(self):
+        self.assertEqual(self.alcance["datasets"]["declarados_por_la_pasada"],
+                         [nombre for _id, nombre, _c, _p, _n in DATASETS])
+
+    def test_los_que_faltan_mas_los_que_corrieron_son_los_40_del_protocolo(self):
+        d = self.alcance["datasets"]
+        self.assertEqual(len(d["del_protocolo"]), 40)
+        self.assertEqual(sorted(d["que_faltan"] + d["declarados_por_la_pasada"]),
+                         sorted(d["del_protocolo"]))
+
+    def test_el_CRITERIO_del_subconjunto_describe_el_subconjunto_de_verdad(self):
+        """Medido, no creído: los 12 que corren son EXACTAMENTE los 12 del
+        protocolo que son binarios, de cubo pequeño o mediano y no sellados.
+        Si alguien añadiera un dataset que no cumple el criterio, o dejara
+        fuera uno que sí, el criterio escrito pasaría a ser una media verdad
+        tranquilizadora — y las tranquilizadoras son las peores."""
+        elegibles = {d.nombre for d in self.protocolo.datasets
+                     if d.tarea == "binary_classification"
+                     and d.cubo_de_tamano in ("pequeno", "mediano")
+                     and not d.sellado}
+        self.assertEqual(set(self.alcance["datasets"]["declarados_por_la_pasada"]),
+                         elegibles)
+        self.assertEqual(self.alcance["datasets"]["criterio_del_subconjunto"],
+                         CRITERIO_DEL_SUBCONJUNTO)
+
+    def test_declara_las_tareas_y_los_cubos_que_se_quedan_SIN_MEDIR(self):
+        """Un motor de menos se ve contando. Una TAREA entera sin un solo
+        dataset no se ve en ningún recuento, y es más grave: de esta pasada no
+        se sigue NADA sobre regresión ni multiclase, por alto que sea el
+        0,833. Se deriva del protocolo, no se escribe a mano."""
+        corridos = set(self.alcance["datasets"]["declarados_por_la_pasada"])
+        cubiertas = {d.tarea for d in self.protocolo.datasets if d.nombre in corridos}
+        cubos = {d.cubo_de_tamano for d in self.protocolo.datasets if d.nombre in corridos}
+        self.assertEqual(set(self.alcance["sin_medir"]["tareas"]),
+                         {d.tarea for d in self.protocolo.datasets} - cubiertas)
+        self.assertEqual(set(self.alcance["sin_medir"]["cubos_de_tamano"]),
+                         {d.cubo_de_tamano for d in self.protocolo.datasets} - cubos)
+        # Y las dos que de verdad faltan, por nombre: una lista vacía pasaría
+        # las igualdades de arriba si el protocolo cambiara, y un aserto
+        # negativo lo pasa un render en blanco.
+        self.assertEqual(set(self.alcance["sin_medir"]["tareas"]),
+                         {"multiclass_classification", "regression"})
+        self.assertEqual(self.alcance["sin_medir"]["cubos_de_tamano"], ["grande"])
+
+
+class GanarYGanarPorNadaNoSeLeenIgualTest(unittest.TestCase):
+    """«8 de los 10 aciertos de lightgbm son distancia 0,0000.»
+
+    Re-derivado aquí, no copiado: `distancia_en_puntos` vale 0,0000 SIEMPRE que
+    el motor sea el mejor, así que sin una segunda columna «ganó de calle» y
+    «ganó por cinco centésimas» se escriben idéntico.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.payload = json.loads((_FASE0 / _JSON).read_text(encoding="utf-8"))
+        cls.protocolo = ProtocoloExploratorio.cargar(
+            str(_FASE0 / "protocolo_exploratorio.json"))
+        cls.veredicto = cls.payload["alcance_y_veredicto"]["por_motor"]["lightgbm"]
+
+    def test_el_numero_del_JSON_sale_de_RE_APLICAR_la_regla_registrada(self):
+        """El número no se cree, se re-deriva — sobre los registros del propio
+        fichero y con la regla que 101-C1 selló antes de medir."""
+        re_derivado = aplicar_regla_de_cierre(
+            self.payload["resultados"], self.protocolo.regla_de_cierre, motor="lightgbm")
+        self.assertEqual((re_derivado["cumplidos"], re_derivado["datasets"]),
+                         (self.veredicto["cumplidos"], self.veredicto["datasets"]))
+        self.assertEqual(re_derivado["cumple_la_regla"], self.veredicto["cumple_la_regla"])
+
+    def test_cuantos_aciertos_son_por_SER_el_mejor_se_cuentan_a_mano(self):
+        """La re-derivación independiente del «8 de 10»: contados aquí desde el
+        detalle, sin usar el contador que el propio bloque trae."""
+        a_mano = sum(1 for d in self.veredicto["detalle"]
+                     if d["cumple"] and d["distancia_en_puntos"] is not None
+                     and abs(d["distancia_en_puntos"]) < 1e-12)
+        self.assertEqual(a_mano, self.veredicto["aciertos_por_ser_el_mejor"])
+        self.assertEqual(a_mano, 8,
+                         "la auditoría midió 8 de 10 aciertos por distancia cero")
+        self.assertEqual(self.veredicto["cumplidos"], 10)
+
+    def test_cada_dataset_GANADO_dice_por_CUANTO_y_a_quien(self):
+        """Sin esto, los ocho empates a cero se leen como ocho dominios."""
+        ganados = [d for d in self.veredicto["detalle"]
+                   if d["distancia_en_puntos"] is not None
+                   and abs(d["distancia_en_puntos"]) < 1e-12]
+        self.assertEqual(len(ganados), 8)
+        for d in ganados:
+            self.assertIsNotNone(d["ventaja_sobre_el_segundo_en_puntos"],
+                                 f"{d['dataset']}: ganó y no dice por cuánto")
+            self.assertIsNotNone(d["segundo"], f"{d['dataset']}: ganó y no dice a quién")
+            self.assertGreaterEqual(d["ventaja_sobre_el_segundo_en_puntos"], 0.0)
+
+    def test_la_ventaja_sobre_el_segundo_se_RE_CALCULA_desde_los_crudos(self):
+        """El número que distingue «ganó» de «ganó por nada», re-derivado
+        desde los 720 intentos sin pasar por el bloque que lo declara."""
+        medias: dict[str, dict[str, list[float]]] = {}
+        for r in self.payload["resultados"]:
+            if r.get("estado") != "completed" or r.get("auroc") is None:
+                continue
+            if r["motor"] == "baseline":   # la regla lo excluye de «el mejor»
+                continue
+            medias.setdefault(r["dataset"], {}).setdefault(r["motor"], []).append(
+                float(r["auroc"]))
+        for d in self.veredicto["detalle"]:
+            if d["ventaja_sobre_el_segundo_en_puntos"] is None:
+                continue
+            por_motor = {m: sum(v) / len(v) for m, v in medias[d["dataset"]].items()}
+            orden = sorted(por_motor, key=lambda m: por_motor[m], reverse=True)
+            self.assertEqual(orden[0], "lightgbm", d["dataset"])
+            self.assertEqual(d["segundo"], orden[1], d["dataset"])
+            self.assertAlmostEqual(
+                d["ventaja_sobre_el_segundo_en_puntos"],
+                (por_motor[orden[0]] - por_motor[orden[1]]) * 100.0, places=9,
+                msg=d["dataset"])
+
+    def test_el_margen_es_de_UN_solo_dataset_y_el_JSON_lo_dice(self):
+        """«Un dataset perdido más lo deja en 9/12» — 0,75 < 0,80. Medido: el
+        margen es CERO, o sea que no puede perder ninguno. Que un veredicto
+        que cumple esté exactamente en el borde es parte de cómo hay que
+        leerlo, y por eso viaja con él."""
+        self.assertTrue(self.veredicto["cumple_la_regla"])
+        self.assertEqual(self.veredicto["datasets_que_puede_perder_sin_incumplir"], 0)
+        uno_menos = (self.veredicto["cumplidos"] - 1) / self.veredicto["datasets"]
+        self.assertLess(uno_menos, self.protocolo.regla_de_cierre.fraccion_minima)
+
+
+if __name__ == "__main__":
+    unittest.main()

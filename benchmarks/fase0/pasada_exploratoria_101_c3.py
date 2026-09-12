@@ -92,10 +92,27 @@ from matrixai_engines.motores.densa import MotorDensaPropia  # noqa: E402
 from matrixai_engines.procedencia import versiones_de_bibliotecas  # noqa: E402
 from matrixai_engines.subproceso import ejecutar_intento_aislado  # noqa: E402
 
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from protocolo import (ProtocoloExploratorio,  # noqa: E402
+                       veredicto_con_su_alcance)
+
 ARFF_DIR = Path.home() / "fase0_openml_datos" / "arff"
 
 # (data_id, nombre, cubo, positiva, negativa) -- los 12, no sellados,
 # binarios, pequeño/mediano, del protocolo registrado. Minoría = positiva.
+#
+# EL CRITERIO, escrito para que viaje AL JSON. Hasta el 2026-09-12 esta
+# explicación vivía solo en el comentario de arriba, o sea en el código: quien
+# leía el resultado no la tenía delante. Verificado el 2026-09-13 que los 12
+# son EXACTAMENTE los 12 del protocolo que cumplen el criterio — ni uno de
+# propina ni uno menos.
+CRITERIO_DEL_SUBCONJUNTO = (
+    "los 12 datasets del protocolo que son binary_classification, de cubo "
+    "pequeno o mediano, y NO sellados (los sellados se reservan para la "
+    "confirmatoria). Quedan fuera las 10 de multiclase, las 10 de regresion y "
+    "todo el cubo grande: de esta pasada no se sigue NADA sobre esas.")
+
 DATASETS = [
     (1063, "kc2", "pequeno", "yes", "no"),
     (40994, "climate-model-simulation-crashes", "pequeno", "0", "1"),
@@ -199,6 +216,30 @@ _FICHERO_POR_MOTOR = {
     "lightgbm": _DIR_ENGINES / "motores" / "arbol_lightgbm.py",
     "matrixai.dense.torch_cpu": _DIR_ENGINES / "motores" / "densa.py",
 }
+
+
+def motores_de_la_pasada() -> list:
+    """Los motores que esta pasada corre — UN solo sitio.
+
+    Estaban instanciados a mitad de `main()`, donde nadie que leyera el
+    resultado los veía, y de ahí salió el hallazgo GRAVE del 2026-09-12: el
+    protocolo registrado pide SIETE motores, esta pasada corre CUATRO, y el
+    recorte no estaba declarado en ninguna parte — ni en el script ni en el
+    JSON. Los tres que faltan (`sklearn.hgb`, `xgboost`, `catboost`) son los
+    rivales DIRECTOS de un GBM, así que «lightgbm gana» se estaba leyendo con
+    los tres rivales que más le aprietan fuera de la foto.
+
+    Sacarlo a una función es lo que permite que `_componer_y_guardar` escriba
+    la lista REAL en el JSON sin copiarla: una lista copiada es la que acaba
+    divergiendo de la que de verdad corre.
+    """
+    return [MotorBaseline(), MotorLineal(), MotorArbolLightGBM(), MotorDensaPropia()]
+
+
+def nombres_de_los_motores_de_la_pasada() -> list[str]:
+    """Sus nombres, preguntados a los objetos: si mañana un motor cambia de
+    `nombre`, esto cambia con él y el JSON no miente."""
+    return [m.nombre for m in motores_de_la_pasada()]
 
 
 def _digest_fichero(ruta: Path) -> str:
@@ -521,7 +562,7 @@ def main() -> None:
         print(f"cache previo: {len(cache_previo)} registros, procedencia "
              f"{declarada['estado']} -- {declarada['explicacion']}", flush=True)
 
-    motores = [MotorBaseline(), MotorLineal(), MotorArbolLightGBM(), MotorDensaPropia()]
+    motores = motores_de_la_pasada()
     resultados = []
     reusados = 0
     inicio_total = time.perf_counter()
@@ -626,6 +667,44 @@ def main() -> None:
     print(f"Guardado en {ruta_salida}, digest={salida['digest_resultados_crudos'][:16]}")
 
 
+def _alcance_y_veredicto(resultados) -> dict:
+    """El veredicto de la regla de cierre CON su alcance pegado, para cada
+    motor que compite.
+
+    Para CADA motor y no solo para lightgbm: dar el veredicto de uno solo
+    vuelve a ser elegir qué se enseña, que es la misma familia de defecto que
+    esto repara. El baseline queda fuera porque la propia regla lo excluye del
+    cálculo de «mejor» — no compite, es la referencia.
+
+    Si el protocolo no se puede leer, esto NO inventa un alcance: deja dicho
+    que no lo pudo determinar. Un alcance a medias tranquiliza igual que uno
+    falso.
+    """
+    ruta_protocolo = Path(__file__).resolve().parent / "protocolo_exploratorio.json"
+    try:
+        protocolo = ProtocoloExploratorio.cargar(ruta_protocolo)
+    except (OSError, ValueError) as exc:
+        return {"no_se_pudo_determinar_el_alcance": f"{type(exc).__name__}: {exc}"}
+
+    nombres_motores = nombres_de_los_motores_de_la_pasada()
+    nombres_datasets = [nombre for _id, nombre, _c, _p, _n in DATASETS]
+    por_motor = {}
+    for nombre in nombres_motores:
+        if nombre == "baseline":
+            continue
+        por_motor[nombre] = veredicto_con_su_alcance(
+            protocolo, resultados, motor=nombre,
+            motores_declarados=nombres_motores,
+            datasets_declarados=nombres_datasets,
+            criterio_del_subconjunto=CRITERIO_DEL_SUBCONJUNTO)
+    # El alcance es el MISMO para los tres, así que se declara una vez arriba y
+    # no tres veces dentro: dos sitios declarando lo mismo acaban divergiendo.
+    alcance = next(iter(por_motor.values()))["alcance"] if por_motor else {}
+    for v in por_motor.values():
+        v.pop("alcance", None)
+    return {"alcance": alcance, "por_motor": por_motor}
+
+
 def _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida, *,
                         total_wall_s, reusados, parcial):
     """Compone el JSON y lo escribe. UN solo sitio, y se llama también a
@@ -661,6 +740,17 @@ def _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida, *,
         "n_reusados": reusados,
         "resultados": resultados,
     }
+    # EL ALCANCE VIAJA CON EL NÚMERO, y va DENTRO del digest.
+    #
+    # Reparación del hallazgo GRAVE del 2026-09-12: el protocolo pide 40
+    # datasets y 7 motores, esta pasada mide 12 y 4, y el JSON no lo decía en
+    # ninguna parte. Cualquiera podía leer «lightgbm 10/12 = 0,833 CUMPLE» sin
+    # enterarse de que compitió contra TRES motores y no contra seis.
+    #
+    # Dentro del digest a propósito: si el alcance quedara fuera del sello, se
+    # podría editar sin que el fichero dejara de cuadrar consigo mismo, y un
+    # alcance que se puede reescribir en silencio no declara nada.
+    salida["alcance_y_veredicto"] = _alcance_y_veredicto(resultados)
     salida["digest_resultados_crudos"] = digest_canonico(salida)
     # Escritura ATÓMICA: a un temporal y luego `replace`. Sin esto, morir a
     # mitad de escribir dejaría un JSON truncado, y un fichero corrupto es
