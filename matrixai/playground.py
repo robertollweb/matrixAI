@@ -4622,15 +4622,48 @@ def _prompt_forces_dense(prompt: str) -> bool:
     return any(h in text for h in _FORCE_DENSE_HINTS)
 
 
+def _prompt_prosa(prompt: str) -> str:
+    """La PROSA del prompt: lo que alguien PIDIÓ, sin las declaraciones de
+    campo `nombre: Tipo[...]`, que son una DESCRIPCIÓN DE LOS DATOS.
+
+    Es la misma trampa que el contrato 71 ya dejó escrita cuarenta líneas más
+    abajo, en `_TEXTO_EN_PROSA_RE` («Son las palabras del prompt, NO nombres de
+    campo... decidir por parecido de nombres es justo la trampa del contrato
+    71») — pero los hints de ARQUITECTURA seguían barriendo el prompt entero.
+
+    MEDIDO, no supuesto (2026-09-12, pasada exploratoria de 101-C3 del
+    2026-09-07). El prompt que `dataset_project.py` fabrica desde un CSV
+    incrusta los nombres de las columnas en un bloque `FEATURES:`. El dataset
+    `pc4` tiene `CYCLOMATIC_COMPLEXITY`, `DESIGN_COMPLEXITY`,
+    `ESSENTIAL_COMPLEXITY` y `NORMALIZED_CYLOMATIC_COMPLEXITY`: dentro de esos
+    nombres vive la subcadena `complex`, que está en `_COMPOSITE_HINTS`. Sin
+    esto, `pc4` recibía una red RESIDUAL entera y `architecture_decision`
+    declaraba `source="prompt_hints"` — una afirmación FALSA, porque nadie
+    había pedido nada: lo dijo un nombre de columna. De los 12 datasets de la
+    pasada, `pc4` es el ÚNICO cuyos nombres de columna chocan con la lista
+    (comprobados los 12, uno a uno), y es exactamente el único cuyos 15
+    intentos de la red densa se perdieron.
+
+    `strip_field_specs` ya existía para esto (`matrixai.generation`): quita las
+    declaraciones `nombre: <Tipo>[...]` y deja la prosa. No se reimplementa
+    aquí una segunda copia de esa regla.
+    """
+    from matrixai.generation import strip_field_specs  # noqa: PLC0415
+    return strip_field_specs(prompt or "")
+
+
 def _prompt_wants_composite(prompt: str) -> bool:
-    text = prompt.lower()
+    text = _prompt_prosa(prompt).lower()
     if _prompt_forces_dense(prompt):
         return False
     return any(h in text for h in _COMPOSITE_HINTS)
 
 
 def _prompt_is_sequence(prompt: str) -> bool:
-    text = prompt.lower()
+    # Misma razón que en `_prompt_wants_composite`: `temporal` está en
+    # `_SEQUENCE_HINTS`, y una columna llamada `temporal_id` enrutaría un CSV
+    # tabular al camino de secuencias sin que nadie lo hubiera pedido.
+    text = _prompt_prosa(prompt).lower()
     return any(h in text for h in _SEQUENCE_HINTS)
 
 
