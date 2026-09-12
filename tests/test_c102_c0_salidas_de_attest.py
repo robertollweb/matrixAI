@@ -45,6 +45,12 @@ DATOS = Path(__file__).resolve().parent / "data"
 IRIS_ONNX = DATOS / "iris_3clases.onnx"
 IRIS_CSV = DATOS / "iris.csv"
 IRIS_DIGEST = "7c11e9fb9e968c4a8cc358b5aad8631d2ed1ece7432b8f743400c6147a0cf25d"
+#: El CSV va atado igual que el modelo, y no por simetría: la exactitud
+#: documentada sale de comparar las predicciones del modelo CONTRA ESTAS
+#: FILAS. Atar solo el modelo deja la mitad suelta -- cambiar el CSV movería
+#: el número sin que nada avisara, que es el mismo fallo con los papeles
+#: cambiados. (BAJO del contrato 102, cerrado el 2026-09-12.)
+IRIS_CSV_DIGEST = "15643878e1505236562c4a2b8902f77077a7ecabebdbaa17c935eddd05dc11dc"
 EXACTITUD_DOCUMENTADA = 0.9733333333333334
 LO_QUE_ATESTIGUABA_ANTES = 0.6666666666666666
 
@@ -250,6 +256,20 @@ class ElCasoDocumentadoTest(unittest.TestCase):
             "el modelo del caso documentado ha cambiado: la exactitud de abajo es la "
             "de ESTE fichero, no la de cualquier iris. Vuelve a medirla antes de "
             "tocar el número")
+
+    def test_los_DATOS_del_fixture_tambien_van_atados(self):
+        """La otra mitad, y faltaba (BAJO del contrato 102, 2026-09-12).
+
+        La exactitud documentada no sale del modelo a solas: sale de comparar
+        sus predicciones CONTRA ESTAS FILAS. Con solo el modelo atado,
+        cambiar el CSV movería el número sin que nada avisara — el mismo fallo
+        con los papeles cambiados.
+        """
+        self.assertTrue(IRIS_CSV.is_file(), "falta el CSV del caso documentado")
+        self.assertEqual(
+            _sha256(IRIS_CSV), IRIS_CSV_DIGEST,
+            "los datos del caso documentado han cambiado: la exactitud de abajo se "
+            "midió contra ESTAS filas. Vuelve a medirla antes de tocar el número")
 
     def test_atestigua_la_exactitud_REAL_y_no_la_de_la_primera_salida(self):
         recibo = atestiguar(IRIS_ONNX, IRIS_CSV, columna="clase")
