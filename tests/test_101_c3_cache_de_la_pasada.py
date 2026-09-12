@@ -113,3 +113,52 @@ def test_el_guardia_se_llama_desde_main_y_no_solo_existe():
     import inspect
     fuente = inspect.getsource(pasada.main)
     assert "_exigir_que_la_reserva_QUEPA()" in fuente
+
+
+def test_la_pasada_GUARDA_al_terminar_cada_dataset(tmp_path):
+    """Medido el 2026-09-12, y costó una hora de máquina: la pasada solo
+    escribía al terminar. Murió en `Internet-Advertisements` —3.279 filas por
+    1.558 columnas, el más pesado de los doce— tras **162 pliegues
+    completados**, y no dejó NADA: ni los 162 buenos, ni el motivo.
+
+    Con el caché arreglado ese trabajo era reaprovechable, pero solo si está
+    escrito en alguna parte. Guardar solo al final convierte cualquier muerte
+    en una pasada entera perdida, y la de 101-C5 durará bastante más que ésta.
+    """
+    import json
+    salida = tmp_path / "parcial.json"
+    pasada._componer_y_guardar(
+        [{"dataset": "d", "motor": "m", "repeticion": 0, "pliegue": 0,
+          "estado": "completed"}],
+        {"procedencia_id": "p1", "anclable": False}, {}, salida,
+        total_wall_s=1.0, reusados=0, parcial=True)
+    assert salida.exists()
+    payload = json.loads(salida.read_text(encoding="utf-8"))
+    assert payload["parcial"] is True
+    assert payload["n_intentos"] == 1
+
+
+def test_un_fichero_a_medias_lo_DICE(tmp_path):
+    """`parcial` no es decoración. Un JSON a medias que no lo diga se lee como
+    una pasada completa a la que le faltan datasets, y eso es peor que no
+    tenerlo: los números saldrían de menos datos sin que nadie lo supiera."""
+    import json
+    salida = tmp_path / "final.json"
+    pasada._componer_y_guardar([], {"procedencia_id": "p1", "anclable": True}, {}, salida,
+                               total_wall_s=2.0, reusados=0, parcial=False)
+    assert json.loads(salida.read_text(encoding="utf-8"))["parcial"] is False
+
+
+def test_la_escritura_es_ATOMICA(tmp_path):
+    """A un temporal y luego `replace`. Morir a mitad de escribir dejaría un
+    JSON truncado, y un fichero corrupto es peor que ninguno: el caché lo
+    leería y fallaría sin decir por qué."""
+    import inspect
+    fuente = inspect.getsource(pasada._componer_y_guardar)
+    assert ".replace(" in fuente, "no usa replace: la escritura no es atómica"
+    assert "write_text" in fuente
+    # Y el temporal no se queda: tras escribir, solo existe el fichero final.
+    salida = tmp_path / "x.json"
+    pasada._componer_y_guardar([], {"procedencia_id": "p1"}, {}, salida, total_wall_s=1.0,
+                               reusados=0, parcial=False)
+    assert [f.name for f in tmp_path.iterdir()] == ["x.json"]

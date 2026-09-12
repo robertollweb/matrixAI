@@ -603,6 +603,13 @@ def main() -> None:
                      f"{sum(1 for r in resultados if r['dataset']==nombre_ds and r['repeticion']==repeticion and r['pliegue']==pliegue_i and r['estado']=='completed')}/4 completed",
                      flush=True)
 
+        # AL TERMINAR CADA DATASET, no solo al final. Cuesta menos de un
+        # segundo y es la diferencia entre perder una hora de máquina o los
+        # minutos del dataset en curso.
+        _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida,
+                            total_wall_s=time.perf_counter() - inicio_total,
+                            reusados=reusados, parcial=True)
+
     total = time.perf_counter() - inicio_total
     print(f"\n=== total: {total:.1f}s ({total/60:.1f} min), {len(resultados)} intentos "
          f"({reusados} reusados del caché, {len(resultados) - reusados} ejecutados) ===")
@@ -613,6 +620,30 @@ def main() -> None:
         print(f"AVISO DE CACHE: {len(cache_previo)} registros previos y NINGUNO reusable "
              f"-- {procedencia_declarada(payload_previo)['explicacion']}")
 
+    salida = _componer_y_guardar(
+        resultados, procedencia, payload_previo, ruta_salida,
+        total_wall_s=total, reusados=reusados, parcial=False)
+    print(f"Guardado en {ruta_salida}, digest={salida['digest_resultados_crudos'][:16]}")
+
+
+def _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida, *,
+                        total_wall_s, reusados, parcial):
+    """Compone el JSON y lo escribe. UN solo sitio, y se llama también a
+    mitad de la pasada.
+
+    **Por qué existe, medido el 2026-09-12**: la pasada solo escribía al
+    terminar. Murió en `Internet-Advertisements` —3.279 filas por 1.558
+    columnas, el más pesado de los doce— tras **162 pliegues completados y una
+    hora larga de máquina**, y no dejó NADA. Ni los 162 buenos, ni el motivo.
+    Con el caché arreglado ese trabajo era reaprovechable, pero solo si está
+    escrito en alguna parte.
+
+    Guardar solo al final convierte cualquier muerte en una pasada entera
+    perdida, y una pasada de C5 durará bastante más que ésta.
+
+    `parcial` no es decoración: un fichero a medias que no lo diga se lee como
+    una pasada completa con datasets que faltan, que es peor que no tenerlo.
+    """
     procedencias, sin_procedencia = _procedencias_citadas(
         resultados, procedencia, (payload_previo.get("procedencias") or {}))
 
@@ -621,17 +652,23 @@ def main() -> None:
         "procedencia": procedencia,
         "procedencias": procedencias,
         "n_intentos_sin_procedencia": sin_procedencia,
+        "parcial": parcial,
         "wall_seconds_por_intento": WALL_SECONDS,
         "procesos_en_paralelo": 1,
         "folds": FOLDS, "repeticiones": REPETICIONES_PEQUENO_MEDIANO,
-        "total_wall_s": round(total, 1),
+        "total_wall_s": round(total_wall_s, 1),
         "n_intentos": len(resultados),
         "n_reusados": reusados,
         "resultados": resultados,
     }
     salida["digest_resultados_crudos"] = digest_canonico(salida)
-    ruta_salida.write_text(json.dumps(salida, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"Guardado en {ruta_salida}, digest={salida['digest_resultados_crudos'][:16]}")
+    # Escritura ATÓMICA: a un temporal y luego `replace`. Sin esto, morir a
+    # mitad de escribir dejaría un JSON truncado, y un fichero corrupto es
+    # peor que ninguno — el caché lo leería y fallaría sin decir por qué.
+    temporal = ruta_salida.with_suffix(ruta_salida.suffix + ".parcial")
+    temporal.write_text(json.dumps(salida, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporal.replace(ruta_salida)
+    return salida
 
 
 if __name__ == "__main__":
