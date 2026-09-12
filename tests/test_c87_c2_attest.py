@@ -49,13 +49,27 @@ def _datos(d: Path, filas: int = 10, sucias: int = 0) -> Path:
     return ruta
 
 
+#: EL MAPA DE SALIDA DE `_modelo_onnx`, declarado y no adivinado (2026-09-12).
+#: Su modelo es un `MatMul` crudo que devuelve DOS columnas flotantes y **ningún
+#: operador dice qué son**: podrían ser probabilidades, logits o las dos salidas
+#: de un regresor. `attest` las leía como probabilidades **solo por la anchura**
+#: —la última inferencia por forma que quedaba viva, la que el 102-C0 prohíbe— y
+#: el recibo declaraba `kind: "probabilidades"` sobre algo que nadie había
+#: declarado. Estas pruebas son de OTRA cosa (los digests, las filas medidas, el
+#: recibo, el entorno) y se apoyaban sin querer en esa adivinación: ahora pasan
+#: el mapa de salida, que es lo que el contrato pide, y lo que comprueban no
+#: cambia ni una letra. Mismo criterio, y mismas palabras, que el que ya se
+#: aplicó a las tres de `AttestAlimentaCOMO_EL_EJECUTORTest`.
+COMO_PROBABILIDADES = {"semantica": "probabilidades"}
+
+
 @unittest.skipUnless(_HAS, "onnx + onnxruntime required")
 class AtestiguaLoQueMideTest(unittest.TestCase):
     def test_mide_y_ata_el_numero_a_los_dos_digests(self):
         with TemporaryDirectory() as tmp:
             d = Path(tmp)
             modelo, digest = _modelo_onnx(d)
-            recibo = atestiguar(modelo, _datos(d))
+            recibo = atestiguar(modelo, _datos(d), **COMO_PROBABILIDADES)
         self.assertEqual(recibo["metrics"][0]["name"], "accuracy")
         self.assertEqual(recibo["models"][0]["digest"], f"sha256:{digest}")
         # Y la métrica dice SOBRE QUÉ datos se midió.
@@ -68,7 +82,8 @@ class AtestiguaLoQueMideTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             d = Path(tmp)
             modelo, _ = _modelo_onnx(d)
-            recibo = atestiguar(modelo, _datos(d, filas=10, sucias=3))
+            recibo = atestiguar(modelo, _datos(d, filas=10, sucias=3),
+                                **COMO_PROBABILIDADES)
         self.assertEqual(recibo["dataset"]["rows_total"], 13)
         self.assertEqual(recibo["dataset"]["rows_measured"], 10)
 
@@ -76,7 +91,7 @@ class AtestiguaLoQueMideTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             d = Path(tmp)
             modelo, _ = _modelo_onnx(d)
-            recibo = atestiguar(modelo, _datos(d))
+            recibo = atestiguar(modelo, _datos(d), **COMO_PROBABILIDADES)
         self.assertIn("not trained by MatrixAI", recibo["models"][0]["provenance"])
         self.assertIn("copied model", recibo["evidence"]["does_not_attest"])
 
@@ -84,7 +99,7 @@ class AtestiguaLoQueMideTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             d = Path(tmp)
             modelo, _ = _modelo_onnx(d)
-            recibo = atestiguar(modelo, _datos(d))
+            recibo = atestiguar(modelo, _datos(d), **COMO_PROBABILIDADES)
             recibo["created_at"] = "2026-08-25T10:00:00Z"
         self.assertEqual(problemas_de_esquema(recibo), [])
 
@@ -92,7 +107,7 @@ class AtestiguaLoQueMideTest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             d = Path(tmp)
             modelo, _ = _modelo_onnx(d)
-            recibo = atestiguar(modelo, _datos(d))
+            recibo = atestiguar(modelo, _datos(d), **COMO_PROBABILIDADES)
             recibo["created_at"] = "2026-08-25T10:00:00Z"
             sobre = firmar_recibo(recibo, clave=b"k", key_id="k1")
         self.assertTrue(verificar_recibo(sobre, clave=b"k")["ok"])
@@ -104,8 +119,9 @@ class AtestiguaLoQueMideTest(unittest.TestCase):
             d = Path(tmp)
             modelo, _ = _modelo_onnx(d)
             datos = _datos(d)
-            self.assertEqual(atestiguar(modelo, datos)["receipt_id"],
-                             atestiguar(modelo, datos)["receipt_id"])
+            self.assertEqual(
+                atestiguar(modelo, datos, **COMO_PROBABILIDADES)["receipt_id"],
+                atestiguar(modelo, datos, **COMO_PROBABILIDADES)["receipt_id"])
 
 
 @unittest.skipUnless(_HAS, "onnx + onnxruntime required")
@@ -164,7 +180,20 @@ class LoQueNoSePuedeMedirNoSeInventaTest(unittest.TestCase):
                 atestiguar(modelo, ruta)
 
     def test_las_metricas_que_sabe_medir_estan_declaradas(self):
-        self.assertEqual(METRICAS, ("accuracy", "mae"))
+        """La intención de esta prueba —que estén DECLARADAS, para que pedir una
+        que no está se conteste con las que hay— no cambia; lo que cambia es
+        quién las declara. Desde el 2026-09-12 salen del registro único de
+        105-C1 en vez de estar escritas a mano aquí (`("accuracy", "mae")`),
+        así que lo que se comprueba es que cada una EXISTE en ese registro y que
+        las dos históricas siguen estando.
+        """
+        from matrixai.estudio.metricas import REGISTRO
+
+        self.assertTrue(METRICAS)
+        for metrica in METRICAS:
+            self.assertIn(metrica, REGISTRO)
+        self.assertIn("accuracy", METRICAS)
+        self.assertIn("mae", METRICAS)
 
 
 if __name__ == "__main__":
@@ -221,11 +250,18 @@ class UnaSalidaNoEsUnaListaDeClasesTest(unittest.TestCase):
         self.assertEqual(recibo["metrics"][0]["value"], 1.0)
 
     def test_y_un_softmax_de_dos_clases_sigue_midiendose_con_argmax(self):
-        """El arreglo no puede consistir en cambiar el criterio para todos."""
+        """El arreglo no puede consistir en cambiar el criterio para todos.
+
+        El fixture no lleva un `Softmax`: es un `MatMul` de dos columnas, y por
+        eso desde el 2026-09-12 hay que DECIRLE qué son esas dos columnas. Lo
+        que esta prueba sostiene sigue igual: dos columnas se deciden por
+        `argmax`, y una sola con umbral — el arreglo del sigmoide no cambió el
+        criterio de los demás.
+        """
         with TemporaryDirectory() as tmp:
             d = Path(tmp)
             modelo, _ = _modelo_onnx(d)
-            recibo = atestiguar(modelo, _datos(d))
+            recibo = atestiguar(modelo, _datos(d), **COMO_PROBABILIDADES)
         self.assertEqual(recibo["metrics"][0]["name"], "accuracy")
         self.assertGreaterEqual(recibo["metrics"][0]["value"], 0.0)
 
@@ -240,7 +276,7 @@ class ElEntornoSeREGISTRATest(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             d = Path(tmp)
             modelo, _ = _modelo_onnx(d)
-            recibo = atestiguar(modelo, _datos(d))
+            recibo = atestiguar(modelo, _datos(d), **COMO_PROBABILIDADES)
         entorno = recibo["environment"]
         self.assertTrue(entorno["onnxruntime"])
         self.assertTrue(entorno["providers"])

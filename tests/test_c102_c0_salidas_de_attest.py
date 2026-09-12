@@ -29,7 +29,7 @@ from importlib import util
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from matrixai.export.attest import AtestacionImposible, atestiguar
+from matrixai.export.attest import METRICAS, AtestacionImposible, atestiguar
 from matrixai.export.onnx_salida import (
     SalidaOnnxAmbigua, elegir_salida, misma_etiqueta, resolver_clases)
 
@@ -158,6 +158,24 @@ def _zipmap(destino: Path, clases: list) -> Path:
         [W])
     return _guardar(destino, g, [helper.make_opsetid("", 13),
                                  helper.make_opsetid("ai.onnx.ml", 2)])
+
+
+def _dos_columnas_sin_declarar(destino: Path) -> Path:
+    """`X @ W` con DOS columnas de salida y **ningún operador que diga qué son**.
+
+    Es el caso crudo que la auditoría del 2026-09-11 dejó sin test: sin
+    `Softmax`, sin `Sigmoid` y sin `ArgMax`, esas dos columnas pueden ser
+    probabilidades, logits o las dos salidas de un regresor — y la anchura no
+    distingue entre las tres.
+    """
+    from onnx import TensorProto, helper
+
+    W = helper.make_tensor("W", TensorProto.FLOAT, [2, 2], [1.0, 0.0, 0.0, 1.0])
+    g = helper.make_graph(
+        [helper.make_node("MatMul", ["X", "W"], ["Y"])], "crudo",
+        [helper.make_tensor_value_info("X", TensorProto.FLOAT, ["N", 2])],
+        [helper.make_tensor_value_info("Y", TensorProto.FLOAT, ["N", 2])], [W])
+    return _guardar(destino, g)
 
 
 def _regresor(destino: Path) -> Path:
@@ -476,6 +494,330 @@ class LoQueNoSE_SABE_SE_PIDE_NoSeAdivinaTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── LO QUE ENCONTRÓ LA AUDITORÍA PROPIA DEL 2026-09-11, reparado el 09-12 ───
+
+@unittest.skipUnless(_HAS, "onnx + onnxruntime required")
+class ForzarUnaSalidaIncorrectaFALLATest(unittest.TestCase):
+    """El criterio literal del corte: **«Forzar salida incorrecta falla»**.
+
+    Y no fallaba por la puerta del NOMBRE. Reproducido el 2026-09-12 sobre el
+    iris de tres clases, antes de tocar nada::
+
+        atestiguar(iris, iris_csv, metrica="mae", salida="label")
+        → 0.02666666666666667,  output_spec.kind = "etiqueta"
+
+    Un MAE entre los códigos 0, 1 y 2 de tres especies de lirio. No mide
+    ninguna distancia —entre «setosa» y «virginica» no hay distancia— y sin
+    embargo sale un número pequeño, de los que tranquilizan, atado a los dos
+    digests y **firmable**. `elegir_salida()` comprobaba que la salida
+    existiera y que alguien dijera qué significa, pero no que eso que significa
+    sirviera para lo que se está midiendo.
+
+    LAS DOS MITADES. Si solo se probara que falla, lo pasaría una versión que
+    falle siempre: por eso las dos salidas CORRECTAS están aquí abajo con su
+    número.
+    """
+
+    def test_un_MAE_sobre_la_salida_de_ETIQUETAS_falla(self):
+        with self.assertRaises(AtestacionImposible) as e:
+            atestiguar(IRIS_ONNX, IRIS_CSV, columna="clase", metrica="mae",
+                       salida="label")
+        mensaje = str(e.exception)
+        self.assertIn("etiqueta", mensaje)
+        self.assertIn("regresión", mensaje)
+        self.assertIn("valor", mensaje)
+
+    def test_y_ya_no_devuelve_aquel_0_0267(self):
+        """El número medido antes de la reparación, escrito para que se vea que
+        lo que se cierra es ESTO y no una posibilidad teórica."""
+        try:
+            recibo = atestiguar(IRIS_ONNX, IRIS_CSV, columna="clase", metrica="mae",
+                                salida="label")
+        except AtestacionImposible:
+            return
+        self.fail(f"volvió a medir un MAE entre etiquetas de clase: "
+                  f"{recibo['metrics'][0]['value']!r}")
+
+    def test_pero_el_MAE_sobre_la_salida_NUMERICA_sigue_saliendo(self):
+        """La otra mitad: forzar la salida BUENA no puede fallar."""
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _regresor(d / "r.onnx")
+            csv = _csv(d / "d.csv", "a,b,y", ["1,1,2", "2,2,4", "0,1,2"])
+            recibo = atestiguar(modelo, csv, metrica="mae", salida="Y")
+        self.assertAlmostEqual(recibo["metrics"][0]["value"], 1 / 3)
+        self.assertEqual(recibo["models"][0]["output_spec"]["kind"], "valor")
+
+    def test_y_la_EXACTITUD_sobre_esa_misma_salida_de_etiquetas_tambien(self):
+        """La otra mitad, por el otro lado: la salida `label` es la correcta
+        para una clasificación, y forzarla por nombre sigue midiendo."""
+        recibo = atestiguar(IRIS_ONNX, IRIS_CSV, columna="clase", metrica="accuracy",
+                            salida="label")
+        self.assertEqual(recibo["metrics"][0]["value"], EXACTITUD_DOCUMENTADA)
+
+    def test_leer_un_VALOR_como_si_fuera_una_clase_falla_igual(self):
+        """El mismo defecto por el lado contrario: una clasificación no se mide
+        sobre una salida que significa un valor continuo."""
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _regresor(d / "r.onnx")
+            csv = _csv(d / "d.csv", "a,b,y", ["1,1,1", "0,0,0"])
+            with self.assertRaises(AtestacionImposible) as e:
+                atestiguar(modelo, csv, metrica="accuracy", semantica="valor")
+        self.assertIn("no es una clase", str(e.exception))
+
+
+@unittest.skipUnless(_HAS, "onnx + onnxruntime required")
+class LaANCHURA_NoDeclaraNadaTest(unittest.TestCase):
+    """La última inferencia por FORMA que quedaba viva, y el corte la prohíbe.
+
+    Medido el 2026-09-12 con un `MatMul` de dos columnas y nada más::
+
+        atestiguar(crudo, csv, metrica="accuracy")
+        → 1.0,  output_spec.kind = "probabilidades",
+          chosen_because = "devuelve 2 valores por fila: se leen como
+                            probabilidades por clase"
+
+    El `argmax` acierta por invariancia CUANDO de verdad son logits, pero el
+    recibo afirma «probabilidades» sobre algo que nadie ha declarado, y con un
+    **regresor de dos salidas** no acierta nada: devuelve un número y se queda
+    tan ancho.
+    """
+
+    def _csv(self, d: Path) -> Path:
+        return _csv(d / "d.csv", "a,b,y", ["3,0,0", "0,3,1", "5,1,0"])
+
+    def test_dos_columnas_que_nadie_declara_piden_el_mapa_de_salida(self):
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _dos_columnas_sin_declarar(d / "crudo.onnx")
+            with self.assertRaises(AtestacionImposible) as e:
+                atestiguar(modelo, self._csv(d), metrica="accuracy")
+        mensaje = str(e.exception)
+        self.assertIn("la anchura no distingue", mensaje)
+        self.assertIn("Declara el mapa de salida", mensaje)
+
+    def test_pero_DECLARANDO_que_son_probabilidades_se_mide_igual_que_antes(self):
+        """La otra mitad. El número no cambia: lo que cambia es que ahora lo
+        sostiene una declaración y el recibo dice de quién es."""
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _dos_columnas_sin_declarar(d / "crudo.onnx")
+            recibo = atestiguar(modelo, self._csv(d), metrica="accuracy",
+                                semantica="probabilidades")
+        self.assertEqual(recibo["metrics"][0]["value"], 1.0)
+        spec = recibo["models"][0]["output_spec"]
+        self.assertEqual(spec["kind"], "probabilidades")
+        self.assertIn("quien atestigua", spec["chosen_because"])
+
+    def test_y_un_SOFTMAX_lo_sigue_declarando_el_grafo_sin_pedir_nada(self):
+        """La otra mitad, y la que impide que el arreglo sea «fallar siempre»:
+        cuando el grafo SÍ lo declara, no hay que declarar nada."""
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _clasificador(d / "m.onnx", clases=[0, 1, 2], con_etiqueta=False)
+            csv = _csv(d / "d.csv", "a,b,c,y", ["3,0,0,0", "0,3,0,1", "0,0,3,2"])
+            recibo = atestiguar(modelo, csv)
+        self.assertEqual(recibo["metrics"][0]["value"], 1.0)
+        spec = recibo["models"][0]["output_spec"]
+        self.assertEqual(spec["kind"], "probabilidades")
+        self.assertIn("lo declara el grafo", spec["chosen_because"])
+
+
+@unittest.skipUnless(_HAS, "onnx + onnxruntime required")
+class ElNUMERO_LoCalculaElRegistroUnicoTest(unittest.TestCase):
+    """`attest` ya no tiene fórmula propia — invariante 1 del 105.
+
+    Tenía dos: `aciertos / medidas` y `error_absoluto / medidas`, escritas aquí
+    mientras las mismas dos fórmulas vivían en `matrixai.estudio.metricas` desde
+    el 2026-09-06. Dos sitios midiendo lo mismo acaban divergiendo, y el día que
+    divergieran nadie sabría cuál de los dos números firmó el recibo.
+
+    CÓMO SE PRUEBA QUE DE VERDAD LO CALCULA EL REGISTRO, y no que los dos
+    coincidan por ahora: se sustituye la FÓRMULA del registro por una que
+    devuelve un número imposible y se comprueba que el recibo lo trae. Con una
+    fórmula propia, el recibo seguiría trayendo la exactitud de siempre.
+    """
+
+    def _iris(self, metrica: str = "accuracy", **kw) -> dict:
+        return atestiguar(IRIS_ONNX, IRIS_CSV, columna="clase", metrica=metrica, **kw)
+
+    def test_la_EXACTITUD_sale_de_la_formula_del_registro(self):
+        from dataclasses import replace
+        from unittest import mock
+
+        from matrixai.estudio import metricas
+
+        falsa = replace(metricas.REGISTRO["accuracy"], formula=lambda m, u: 0.123456)
+        with mock.patch.dict(metricas.REGISTRO, {"accuracy": falsa}):
+            recibo = self._iris()
+        self.assertEqual(recibo["metrics"][0]["value"], 0.123456)
+        # Y sin el parche vuelve a ser la de verdad: el parche no deja rastro.
+        self.assertEqual(self._iris()["metrics"][0]["value"], EXACTITUD_DOCUMENTADA)
+
+    def test_y_el_MAE_tambien(self):
+        from dataclasses import replace
+        from unittest import mock
+
+        from matrixai.estudio import metricas
+
+        falsa = replace(metricas.REGISTRO["mae"], formula=lambda m, u: 42.0)
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _regresor(d / "r.onnx")
+            csv = _csv(d / "d.csv", "a,b,y", ["1,1,2", "2,2,4", "0,1,2"])
+            with mock.patch.dict(metricas.REGISTRO, {"mae": falsa}):
+                con_parche = atestiguar(modelo, csv, metrica="mae")
+            sin_parche = atestiguar(modelo, csv, metrica="mae")
+        self.assertEqual(con_parche["metrics"][0]["value"], 42.0)
+        self.assertAlmostEqual(sin_parche["metrics"][0]["value"], 1 / 3)
+
+    def test_las_metricas_las_decide_el_REGISTRO_no_una_linea_a_mano(self):
+        from matrixai.estudio.metricas import REGISTRO
+
+        for metrica in METRICAS:
+            self.assertIn(metrica, REGISTRO)
+        # Las dos históricas siguen; y las que el registro ya tenía y este
+        # camino puede alimentar entran solas, sin escribir una fórmula.
+        for metrica in ("accuracy", "mae", "macro_f1", "rmse", "r2"):
+            self.assertIn(metrica, METRICAS)
+        # Y NO entran las que piden algo que atestiguar un modelo ajeno no da:
+        # de un ONNX de fuera aquí se lee la clase predicha, no una puntuación
+        # ni una distribución. Decir que se saben medir sería prometer de más.
+        for metrica in ("auroc", "log_loss", "brier_score", "average_precision"):
+            self.assertNotIn(metrica, METRICAS)
+
+    def test_una_metrica_que_el_registro_TIENE_pero_que_aqui_no_se_puede_alimentar(self):
+        """Son dos negativas distintas y confundirlas manda a buscar una errata
+        donde no la hay."""
+        with self.assertRaises(AtestacionImposible) as e:
+            self._iris(metrica="auroc")
+        mensaje = str(e.exception)
+        self.assertIn("existe en el registro", mensaje)
+        self.assertIn("scores", mensaje)
+
+    def test_y_una_que_el_registro_NO_tiene_se_contesta_con_las_que_hay(self):
+        with self.assertRaises(AtestacionImposible) as e:
+            self._iris(metrica="f1_macro")
+        self.assertIn("no sé medir", str(e.exception))
+
+    def test_la_DIRECCION_la_declara_el_registro(self):
+        """Estaba escrita como «higher si es accuracy, lower en cualquier otro
+        caso». Con la lista abierta, ese `else` publicaría un `r2` —donde más
+        es mejor— como si menos fuera mejor."""
+        from matrixai.estudio.metricas import direccion_de
+
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _regresor(d / "r.onnx")
+            csv = _csv(d / "d.csv", "a,b,y", ["1,1,2", "2,2,4", "0,1,3"])
+            r2 = atestiguar(modelo, csv, metrica="r2")["metrics"][0]
+            mae = atestiguar(modelo, csv, metrica="mae")["metrics"][0]
+        # El R² NO es simétrico, así que este número también dice que lo real y
+        # lo predicho no se han pasado del revés al construir la muestra:
+        # SS_res = 4 y SS_tot = 2 sobre la columna objetivo dan -1,0; al revés
+        # darían +0,143. Un MAE no lo habría notado.
+        self.assertAlmostEqual(r2["value"], -1.0)
+        self.assertEqual(r2["direction"], "higher_is_better")
+        self.assertEqual(mae["direction"], "lower_is_better")
+        self.assertEqual(r2["direction"], direccion_de("r2"))
+        self.assertEqual(self._iris()["metrics"][0]["direction"], "higher_is_better")
+
+    def test_las_metricas_NUEVAS_se_atestiguan_de_verdad(self):
+        """Un RMSE y un macro-F1 escritos a mano, no recalculados con el mismo
+        registro que se está probando."""
+        import math
+
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _regresor(d / "r.onnx")
+            # Predice a+b: 2, 4, 1 frente a 2, 4, 2 → errores 0, 0, 1.
+            csv = _csv(d / "d.csv", "a,b,y", ["1,1,2", "2,2,4", "0,1,2"])
+            rmse = atestiguar(modelo, csv, metrica="rmse")["metrics"][0]["value"]
+
+            clf = _clasificador(d / "m.onnx", clases=[0, 1])
+            # Dos aciertos y un fallo: la clase 1 predicha como 0.
+            datos = _csv(d / "c.csv", "a,b,y", ["3,0,0", "0,3,1", "3,0,1"])
+            macro = atestiguar(clf, datos, metrica="macro_f1")["metrics"][0]["value"]
+            exactitud = atestiguar(clf, datos)["metrics"][0]["value"]
+        self.assertAlmostEqual(rmse, math.sqrt(1 / 3))
+        # F1 de la clase 0: P=1/2, R=1 → 0,666667. F1 de la clase 1: P=1, R=1/2
+        # → 0,666667. Media macro: 0,666667 (redondeo a 6 decimales del
+        # evaluador histórico, que el registro conserva a propósito).
+        self.assertEqual(macro, 0.666667)
+        self.assertAlmostEqual(exactitud, 2 / 3)
+
+
+@unittest.skipUnless(_HAS, "onnx + onnxruntime required")
+class UnVOCABULARIO_DeUnaSolaClaseNoMideNadaTest(unittest.TestCase):
+    """Lo que cambió al adoptar el documento del registro, dicho y probado.
+
+    El registro mide una clasificación contra un vocabulario DECLARADO de al
+    menos dos clases. Cuando las clases no se declaran y todo lo que se ve —la
+    columna objetivo y todo lo que predijo el modelo— es la misma clase, antes
+    salía un 1,0 que no decía contra qué se había comparado. Ahora se dice qué
+    falta y cómo darlo, que es lo que se puede arreglar.
+    """
+
+    def _todo_una_clase(self, d: Path) -> tuple[Path, Path]:
+        return (_clasificador(d / "m.onnx", clases=[0, 1]),
+                _csv(d / "d.csv", "a,b,y", ["3,0,0", "5,1,0", "9,2,0"]))
+
+    def test_sin_declarar_las_clases_se_dice_lo_que_falta(self):
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo, csv = self._todo_una_clase(d)
+            with self.assertRaises(AtestacionImposible) as e:
+                atestiguar(modelo, csv)
+        mensaje = str(e.exception)
+        self.assertIn("solo consta una clase", mensaje)
+        self.assertIn("Declara las clases", mensaje)
+
+    def test_y_declarandolas_se_mide(self):
+        """La otra mitad: el 1,0 legítimo —«no falló ni una de estas tres»—
+        sigue estando, en cuanto se dice contra qué vocabulario se mide."""
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo, csv = self._todo_una_clase(d)
+            recibo = atestiguar(modelo, csv, clases=[0, 1])
+        self.assertEqual(recibo["metrics"][0]["value"], 1.0)
+
+    def test_una_etiqueta_ESCRITA_DE_OTRA_FORMA_sigue_siendo_la_misma_clase(self):
+        """QUIÉN decide que dos etiquetas son la misma clase no cambió con la
+        migración al registro, y esto lo mide.
+
+        El registro cuenta un acierto cuando `y_true` y la clase predicha son
+        **la misma cadena**; aquí no lo son —el ONNX devuelve un `int64` 1 y la
+        columna objetivo dice `1.0`—, así que quien las junta sigue siendo
+        `misma_etiqueta()`, la regla de este paquete, que ya sabe que `"1"` y
+        `"1.0"` son la misma clase y que `"01"` no lo es. Sin esta prueba, un
+        vocabulario construido con una comparación de texto cruda pasaba la
+        suite entera en verde (medido el 2026-09-12, sabotaje 8) y dejaba la
+        exactitud en 0,0 para un modelo que acierta todo.
+        """
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _clasificador(d / "m.onnx", clases=[0, 1])
+            csv = _csv(d / "d.csv", "a,b,y", ["3,0,0.0", "0,3,1.0"])
+            recibo = atestiguar(modelo, csv)
+        self.assertEqual(recibo["metrics"][0]["value"], 1.0)
+
+    def test_cual_de_las_dos_clases_sea_la_positiva_NO_cambia_la_exactitud(self):
+        """`Muestra` no se construye binaria sin clase positiva y este camino no
+        siempre sabe cuál es, así que declara la última. Esto mide que da igual
+        —accuracy sale de la matriz de confusión, que con la clase predicha
+        declarada usa `declared_label` y no mira la positiva— en vez de
+        suponerlo."""
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            modelo = _clasificador(d / "m.onnx", clases=[0, 1])
+            csv = _csv(d / "d.csv", "a,b,y", ["3,0,0", "0,3,1", "3,0,1"])
+            derecho = atestiguar(modelo, csv, clases=[0, 1])["metrics"][0]["value"]
+            invertido = atestiguar(modelo, csv, clases=[1, 0])["metrics"][0]["value"]
+        self.assertEqual(derecho, invertido)
+        self.assertAlmostEqual(derecho, 2 / 3)
 
 
 class SigmoidDeUnaColumnaConClasesDeTextoTest(unittest.TestCase):

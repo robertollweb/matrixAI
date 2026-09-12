@@ -24,10 +24,18 @@ LAS TRES REGLAS QUE SE SIGUEN AQUÍ, y son del contrato:
    solo es una etiqueta si alguien lo dice (las claves de un ZipMap, unas
    clases declaradas, o unas etiquetas observadas que resultan ser `0..K-1`) —
    y de dónde salió queda escrito en el recibo.
-3. **Un escalar puede ser una regresión, una puntuación o una probabilidad**, y
-   no se distingue por la forma. Si el grafo lo dice —lo produce un `Sigmoid`,
-   un `Softmax`— se usa eso; si no lo dice nadie, **se pide el mapa de salida**
-   en vez de adivinar. Adivinar aquí es lo que produjo el 0,6667.
+3. **La FORMA no declara nada**, ni la de un escalar ni la de varias columnas.
+   Un escalar puede ser una regresión, una puntuación o una probabilidad; y
+   `[N, k]` puede ser una distribución por clase, unos logits o las k salidas de
+   un regresor. Si el grafo lo dice —lo produce un `Sigmoid`, un `Softmax`— se
+   usa eso; si no lo dice nadie, **se pide el mapa de salida** en vez de
+   adivinar. Adivinar aquí es lo que produjo el 0,6667.
+4. **La salida elegida tiene que SERVIR para lo que se mide.** Una regresión se
+   mide sobre un valor y una clasificación sobre una clase; leer la salida de
+   etiquetas «como si fuera» el valor de una regresión daba un MAE entre códigos
+   de categoría —0,0267 sobre iris, con `kind: "etiqueta"` en el recibo—, que es
+   un número que no mide ninguna distancia. Se comprueba en `elegir_salida()`,
+   que es por donde pasan las tres vías.
 """
 
 from __future__ import annotations
@@ -44,6 +52,7 @@ __all__ = [
     "etiqueta_de",
     "valor_de",
     "misma_etiqueta",
+    "texto_de_etiqueta",
 ]
 
 #: Lo que puede significar una salida. La lista es CERRADA: una semántica que no
@@ -61,6 +70,31 @@ _OPERADOR_DECLARA = {
     "Sigmoid": "probabilidad_positiva",
     "Softmax": "probabilidades",
     "ArgMax": "etiqueta",
+}
+
+
+#: QUÉ SEMÁNTICAS PUEDE LEER CADA TAREA. Medido el 2026-09-12 sobre el caso que
+#: encontró la auditoría propia del 09-11: `--metric mae --output-name label`
+#: sobre el iris de tres clases devolvía **`mae: 0,0267`** con `kind: "etiqueta"`
+#: en el recibo — un error medio entre CÓDIGOS de clase (0, 1, 2), que no mide
+#: ninguna distancia porque entre «setosa» y «virginica» no hay distancia. El
+#: criterio literal del corte dice que forzar una salida incorrecta TIENE que
+#: fallar, y forzarla por nombre no fallaba: `elegir_salida()` comprobaba que la
+#: salida existiera y que alguien dijera qué significa, pero no que eso que
+#: significa sirviera para lo que se está midiendo.
+_SEMANTICAS_DE_LA_TAREA = {
+    "regresion": ("valor",),
+    "clasificacion": ("etiqueta", "probabilidades", "probabilidad_positiva"),
+}
+
+#: Cómo se nombra cada tarea al explicar el rechazo, y POR QUÉ no encaja. El
+#: mensaje tiene que decir qué pasó, no solo que no se puede.
+_POR_QUE_NO_ENCAJA = {
+    "regresion": ("lo que se mide es una regresión: un error medio entre etiquetas de "
+                  "clase no mide ninguna distancia, porque entre dos categorías no la "
+                  "hay"),
+    "clasificacion": ("lo que se mide es una clasificación: un valor continuo no es "
+                      "una clase, y redondearlo a una sería inventarse la predicción"),
 }
 
 
@@ -167,16 +201,39 @@ def elegir_salida(
             raise SalidaOnnxAmbigua(
                 f"la salida {nombre!r} es {meta.type} y ni el grafo ni nadie dice qué "
                 f"significa: declara también qué es, con una de {list(SEMANTICAS)}")
-        return SalidaElegida(
+        elegida = SalidaElegida(
             nombre=meta.name, indice=indice, semantica=elegida_semantica,
             tipo_onnx=str(meta.type),
             motivo=(f"la salida y su significado los declaró quien atestigua"
                     if semantica else
                     f"la salida la declaró quien atestigua; el significado, el grafo"))
+    elif tarea == "regresion":
+        elegida = _elegir_para_regresion(sesion, ruta_modelo, semantica)
+    else:
+        elegida = _elegir_para_clasificacion(sesion, ruta_modelo, semantica)
 
-    if tarea == "regresion":
-        return _elegir_para_regresion(sesion, ruta_modelo, semantica)
-    return _elegir_para_clasificacion(sesion, ruta_modelo, semantica)
+    # LA SALIDA TIENE QUE SERVIR PARA LO QUE SE MIDE, y esto se comprueba aquí
+    # —en el ÚNICO sitio por el que pasan las tres vías— y no dentro de cada
+    # una: la vía del `nombre` no lo comprobaba, y por ahí entraba el 0,0267.
+    _exigir_que_sirva_para_la_tarea(elegida, tarea)
+    return elegida
+
+
+def _exigir_que_sirva_para_la_tarea(elegida: SalidaElegida, tarea: str) -> None:
+    """Rechaza leer una salida que no puede sostener la medida que se pide.
+
+    La tarea desconocida se trata como clasificación, igual que hace
+    `elegir_salida()` al repartir: dos criterios distintos para el mismo `else`
+    acabarían divergiendo.
+    """
+    cual = "regresion" if tarea == "regresion" else "clasificacion"
+    permitidas = _SEMANTICAS_DE_LA_TAREA[cual]
+    if elegida.semantica in permitidas:
+        return
+    raise SalidaOnnxAmbigua(
+        f"la salida {elegida.nombre!r} significa {elegida.semantica!r} y "
+        f"{_POR_QUE_NO_ENCAJA[cual]}. Para esta medida la salida tiene que "
+        f"significar una de {list(permitidas)}: declara otra salida, o mide otra cosa")
 
 
 def _deducir(meta: Any, ruta_modelo: Any, tarea: str) -> str | None:
@@ -192,8 +249,17 @@ def _deducir(meta: Any, ruta_modelo: Any, tarea: str) -> str | None:
             return del_grafo
         if tarea == "regresion":
             return "valor" if (_ancho(meta) or 1) == 1 else None
-        ancho = _ancho(meta)
-        return "probabilidades" if (ancho is not None and ancho > 1) else None
+        # LA ANCHURA NO DECLARA NADA, y esto era la última inferencia por forma
+        # que quedaba viva (auditoría propia 2026-09-11; reproducido el 09-12).
+        # Un `[N, 2]` flotante salido de un `MatMul` se leía como
+        # `probabilidades` **solo porque devolvía dos columnas**: con un regresor
+        # de dos salidas, `attest` medía su exactitud y respondía un número sin
+        # quejarse, y el recibo declaraba `kind: "probabilidades"` sobre algo que
+        # nadie había dicho que lo fuera. El argmax salía bien por invariancia
+        # cuando de verdad eran logits, pero el recibo AFIRMABA de más — y con un
+        # regresor no salía bien nada. Ahora: si ningún operador lo declara y
+        # nadie lo dice, se pide el mapa de salida.
+        return None
     return None
 
 
@@ -255,15 +321,14 @@ def _elegir_para_clasificacion(
         elegida = semantica or _deducir(meta, ruta_modelo, "clasificacion")
         if elegida is None:
             continue
+        # Solo hay DOS motivos posibles, y los dos son una declaración: o la
+        # trae quien atestigua, o la trae el grafo. El tercero que había aquí
+        # —«devuelve N valores por fila: se leen como probabilidades»— era la
+        # inferencia por forma que `_deducir` acaba de dejar sin caso.
         del_grafo = _semantica_del_grafo(ruta_modelo, meta.name)
-        if semantica:
-            motivo = "el significado de la salida lo declaró quien atestigua"
-        elif del_grafo:
-            motivo = (f"lo declara el grafo: la salida {meta.name!r} la produce un nodo "
-                      f"que significa {elegida!r}")
-        else:
-            motivo = (f"la salida {meta.name!r} devuelve {_ancho(meta)} valores por fila: "
-                      "se leen como probabilidades por clase")
+        motivo = ("el significado de la salida lo declaró quien atestigua" if semantica
+                  else (f"lo declara el grafo: la salida {meta.name!r} la produce un nodo "
+                        f"que significa {elegida!r}"))
         return SalidaElegida(nombre=meta.name, indice=i, semantica=elegida,
                              tipo_onnx=str(meta.type), motivo=motivo)
 
@@ -272,8 +337,10 @@ def _elegir_para_clasificacion(
         "no se puede saber qué de lo que devuelve el modelo es su predicción: sus "
         f"salidas son {disponibles} y ninguna lo declara. Un escalar puede ser una "
         "regresión, una puntuación o una probabilidad, y umbralizarlo a 0,5 sin "
-        "saberlo es inventarse el resultado. Declara el mapa de salida: qué salida "
-        f"se lee y qué significa (una de {list(SEMANTICAS)})")
+        "saberlo es inventarse el resultado; varias columnas pueden ser "
+        "probabilidades, logits o las salidas de un regresor, y la anchura no "
+        "distingue entre las tres. Declara el mapa de salida: qué salida se lee y "
+        f"qué significa (una de {list(SEMANTICAS)})")
 
 
 def _elegir_para_regresion(
@@ -463,7 +530,7 @@ def misma_etiqueta(predicha: Any, esperada: Any) -> bool:
     escribir el número y viendo si sale el mismo texto: `"1"`→`1`→`"1"` sí;
     `"01"`→`1`→`"1"` no.
     """
-    a, b = _texto(predicha).strip(), _texto(esperada).strip()
+    a, b = texto_de_etiqueta(predicha).strip(), texto_de_etiqueta(esperada).strip()
     # Texto idéntico es la misma clase, sin más preguntas. Va ANTES de la vía
     # numérica por un caso real que la vía numérica falla: `"nan"` como
     # etiqueta (una categoría escrita así, o un ausente serializado) daba
@@ -497,7 +564,14 @@ def _es_numero_canonico(texto: str) -> bool:
         return False
 
 
-def _texto(v: Any) -> str:
+def texto_de_etiqueta(v: Any) -> str:
+    """El TEXTO de una etiqueta, venga como venga del modelo o del CSV.
+
+    Es público porque `attest` construye con él el vocabulario de clases que le
+    pasa al registro métrico, y dos maneras de escribir la misma etiqueta —una
+    aquí y otra allí— harían que la clase predicha y la esperada dejaran de
+    casar sin que nadie lo notase. Los `bytes` salen de `tensor(string)`.
+    """
     if isinstance(v, bytes):
         return v.decode("utf-8", "replace")
     return str(v)
