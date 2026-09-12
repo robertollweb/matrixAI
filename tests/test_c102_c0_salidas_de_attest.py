@@ -30,7 +30,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from matrixai.export.attest import AtestacionImposible, atestiguar
-from matrixai.export.onnx_salida import SalidaOnnxAmbigua, elegir_salida, resolver_clases
+from matrixai.export.onnx_salida import (
+    SalidaOnnxAmbigua, elegir_salida, misma_etiqueta, resolver_clases)
 
 _HAS = util.find_spec("onnxruntime") is not None and util.find_spec("onnx") is not None
 DATOS = Path(__file__).resolve().parent / "data"
@@ -536,3 +537,53 @@ class SigmoidDeUnaColumnaConClasesDeTextoTest(unittest.TestCase):
         with self.assertRaises(SalidaOnnxAmbigua):
             resolver_clases(self._elegida(), clases_declaradas=None,
                             etiquetas_observadas=["no", "yes"], ancho=1)
+
+
+class CodigosConCeroALaIzquierdaTest(unittest.TestCase):
+    """102-C0, auditoría 2026-09-11 — el NUANCED que se dejó sin reparar
+    producía una exactitud FALSA, no solo un matiz.
+
+    `misma_etiqueta` comparaba por número en cuanto las dos etiquetas
+    parseaban como tal, así que `"01"` y `"1"` eran la misma clase. En un
+    dataset de códigos de categoría donde el cero a la izquierda es
+    significativo —los hay, y muchos— eso hacía que `attest` certificara
+    **1,0 donde la exactitud real era 0,5**. Un número falso que además se
+    puede firmar: exactamente el defecto que este corte existía para cerrar,
+    reaparecido por otra puerta.
+
+    La regla nueva compara por número solo cuando las dos están escritas en
+    forma CANÓNICA. Un `"01"` no lo produce ninguna salida numérica de un
+    ONNX: es una forma textual, y tratarla como número es adivinar que quien
+    la escribió no quería decir lo que escribió.
+    """
+
+    def test_cero_a_la_izquierda_es_OTRA_clase(self):
+        self.assertFalse(misma_etiqueta("01", "1"))
+        self.assertFalse(misma_etiqueta("007", "7"))
+        self.assertFalse(misma_etiqueta("1e0", "1"))
+
+    def test_pero_las_formas_canonicas_siguen_siendo_la_misma(self):
+        """Sin esta mitad, lo de arriba lo pasaría una versión que compara
+        solo texto — y entonces el int64 `1` que devuelve un ONNX dejaría de
+        casar con el `"1"` del CSV, que es el caso normal."""
+        self.assertTrue(misma_etiqueta(1, "1"))
+        self.assertTrue(misma_etiqueta("1", "1.0"))
+        self.assertTrue(misma_etiqueta(1.0, 1))
+        self.assertTrue(misma_etiqueta(7, "7"))
+        self.assertTrue(misma_etiqueta("setosa", "setosa"))
+
+    def test_una_etiqueta_igual_a_si_misma_SIEMPRE_casa(self):
+        """Defecto anterior, cerrado de paso: `"nan"` como etiqueta daba
+        `False` contra sí mismo porque `float("nan") != float("nan")` por
+        norma IEEE. Dos filas con la MISMA etiqueta contadas como distintas
+        bajan la exactitud atestiguada sin que nadie lo note."""
+        for etiqueta in ("nan", "inf", "-inf", "01", "setosa", "3"):
+            self.assertTrue(misma_etiqueta(etiqueta, etiqueta), etiqueta)
+
+    def test_el_efecto_sobre_la_exactitud_atestiguada(self):
+        """El caso del auditor, reducido a su esencia: 4 filas de las que el
+        modelo acierta 2. Con la regla vieja salían 4 de 4."""
+        predichas = ["01", "01", "1", "1"]
+        esperadas = ["01", "1", "01", "1"]
+        aciertos = sum(1 for p, e in zip(predichas, esperadas) if misma_etiqueta(p, e))
+        self.assertEqual(aciertos, 2, "se están contando como iguales '01' y '1'")

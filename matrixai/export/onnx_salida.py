@@ -443,16 +443,58 @@ def _escalar(valores: Any) -> Any:
 def misma_etiqueta(predicha: Any, esperada: Any) -> bool:
     """¿Son la misma clase?
 
-    Compara por número cuando las dos lo son —`1`, `1.0` y `"1"` son la misma
-    clase— y por texto cuando no. Así funcionan las clases **no consecutivas**
-    (`3`, `7`, `9`) y las de **texto** (`"setosa"`), que es lo que devuelven los
-    conversores cuando el modelo original tenía etiquetas así.
+    Compara por número cuando las dos están escritas en forma CANÓNICA de
+    número —`1`, `1.0` y `"1"` son la misma clase— y por texto en cuanto una
+    de las dos no lo está. Así funcionan las clases **no consecutivas**
+    (`3`, `7`, `9`) y las de **texto** (`"setosa"`), que es lo que devuelven
+    los conversores cuando el modelo original tenía etiquetas así.
+
+    **Por qué la forma canónica y no «parsea como número»** (auditoría
+    2026-09-11): con la regla anterior, `"01"` y `"1"` eran la misma clase, y
+    también `"007"` y `"7"`. En un dataset de códigos de categoría donde el
+    cero a la izquierda es significativo —los hay, y muchos— eso hacía que
+    `attest` certificara **1,0 donde la exactitud real era 0,5**. Un número
+    falso que además se puede firmar, que es exactamente el defecto que el
+    corte 102-C0 existía para cerrar, reaparecido por otra puerta.
+
+    Un `"01"` no lo produce ninguna salida numérica de un ONNX: es una forma
+    TEXTUAL, y tratarla como número es adivinar que quien la escribió no
+    quería decir lo que escribió. La canonicidad se comprueba volviendo a
+    escribir el número y viendo si sale el mismo texto: `"1"`→`1`→`"1"` sí;
+    `"01"`→`1`→`"1"` no.
     """
-    a, b = _texto(predicha), _texto(esperada)
-    na, nb = _como_numero(a), _como_numero(b)
-    if na is not None and nb is not None:
-        return na == nb
-    return a.strip() == b.strip()
+    a, b = _texto(predicha).strip(), _texto(esperada).strip()
+    # Texto idéntico es la misma clase, sin más preguntas. Va ANTES de la vía
+    # numérica por un caso real que la vía numérica falla: `"nan"` como
+    # etiqueta (una categoría escrita así, o un ausente serializado) daba
+    # `False` contra sí mismo, porque `float("nan") != float("nan")` por
+    # norma IEEE. Dos filas con la MISMA etiqueta contadas como distintas
+    # bajan la exactitud atestiguada sin que nadie lo note. Defecto anterior
+    # a esta reparación; se cierra de paso.
+    if a == b:
+        return True
+    if _es_numero_canonico(a) and _es_numero_canonico(b):
+        return _como_numero(a) == _como_numero(b)
+    return a == b
+
+
+def _es_numero_canonico(texto: str) -> bool:
+    """¿Este texto es la forma en que Python escribiría ese número?
+
+    `"1"` y `"1.0"` sí (`str(1)` / `repr(1.0)`); `"01"`, `"007"`, `"1e0"` y
+    `" 1"` no — parsean como número pero nadie los escribe así al convertir
+    uno, así que son texto con significado propio."""
+    if not texto:
+        return False
+    try:
+        if str(int(texto)) == texto:
+            return True
+    except (TypeError, ValueError):
+        pass
+    try:
+        return repr(float(texto)) == texto
+    except (TypeError, ValueError):
+        return False
 
 
 def _texto(v: Any) -> str:
