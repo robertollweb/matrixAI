@@ -17,6 +17,7 @@ dejó escritos.
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from pathlib import Path
 
@@ -457,6 +458,39 @@ class CpusDisponiblesTest(unittest.TestCase):
             ruta = Path(d) / "cpu.max"
             ruta.write_text("200000 100000", encoding="utf-8")
             self.assertEqual(_cuota_de_cgroup(ruta), 2)
+
+    def test_cpus_disponibles_USA_de_verdad_la_cuota_de_cgroup(self):
+        """Re-auditoría del 2026-09-12: **un sabotaje salió VERDE aquí.**
+        Neutralicé la rama de cgroup dentro de `cpus_disponibles()` —borrando
+        la llamada y el `append`— y los 81 tests siguieron pasando.
+
+        El test de al lado se llama «la cuota de cgroup manda cuando existe»
+        pero solo asierta sobre el PARSEADOR con un fichero de prueba: nunca
+        llama a `cpus_disponibles()`. El nombre declaraba un cableado que la
+        prueba no medía, que es la forma más cara de banco sin dientes —
+        parece cubierto y no lo está.
+
+        Y no es teórico: `docker --cpus=N` es exactamente cómo las reglas de
+        esta casa mandan correr las suites, y esa rama es la única que impide
+        que dentro de un contenedor se reserve por las CPUs del host.
+        """
+        from unittest.mock import patch  # noqa: PLC0415
+
+        from benchmarks.fase0 import protocolo  # noqa: PLC0415
+        with patch.object(protocolo, "_cuota_de_cgroup", return_value=2):
+            self.assertEqual(protocolo.cpus_disponibles(), 2)
+
+    def test_y_SIN_cuota_no_se_inventa_un_tope(self):
+        """La otra mitad: sin ella, la de arriba la pasaría una versión que
+        devuelve 2 siempre. Sin cuota manda la afinidad, que en esta máquina
+        es mayor que 2."""
+        from unittest.mock import patch  # noqa: PLC0415
+
+        from benchmarks.fase0 import protocolo  # noqa: PLC0415
+        with patch.object(protocolo, "_cuota_de_cgroup", return_value=None):
+            sin_cuota = protocolo.cpus_disponibles()
+        self.assertGreater(sin_cuota, 2)
+        self.assertEqual(sin_cuota, len(os.sched_getaffinity(0)))
 
     def test_max_significa_sin_tope_no_cero(self):
         """«Un valor ausente no es un cero»: `max` es SIN cuota, y devolver 0
