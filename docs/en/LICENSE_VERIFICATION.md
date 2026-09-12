@@ -27,4 +27,8 @@ Choose a License describes GNU AGPLv3 as a strong copyleft license whose network
 
 ## Limits
 
-This verification confirms that the repository contains the intended license text and metadata. It is not legal advice. Commercial implications, future Studio licensing, contributor agreements, and fiscal handling of donations or paid products must be reviewed with qualified professionals before launch.
+This verification confirms that the **core** repository contains the intended license text and metadata. It covers the core and nothing else.
+
+It does not cover MatrixAI Studio, which is a separate, proprietary product: its terms are in its own `LICENSE`, shipped in the root of the Studio package next to `TERCEROS.md`, and summarised in [BUSINESS_MODEL.md](BUSINESS_MODEL.md). Receiving the Studio still includes receiving this core under AGPL-3.0, with every right the AGPL grants over it.
+
+This is not legal advice. What the AGPL means inside your own organisation — whether you may embed, extend, or redistribute something that carries an AGPL core — is a question for your own counsel.

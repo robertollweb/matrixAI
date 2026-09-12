@@ -27,4 +27,8 @@ Choose a License describe GNU AGPLv3 como una licencia copyleft fuerte cuya cond
 
 ## Limites
 
-Esta verificacion confirma que el repositorio contiene el texto y los metadatos de licencia previstos. No es asesoramiento legal. Las implicaciones comerciales, la licencia futura del Studio, los acuerdos de contribucion y la gestion fiscal de donativos o productos de pago deben revisarse con profesionales cualificados antes del lanzamiento.
+Esta verificacion confirma que el repositorio del **nucleo** contiene el texto y los metadatos de licencia previstos. Cubre el nucleo y nada mas.
+
+No cubre MatrixAI Studio, que es un producto propietario aparte: sus terminos estan en su propio `LICENSE`, que viaja en la raiz del paquete del Studio junto a `TERCEROS.md`, y se resumen en [MODELO_NEGOCIO.md](MODELO_NEGOCIO.md). Recibir el Studio sigue incluyendo recibir este nucleo bajo AGPL-3.0, con todos los derechos que la AGPL concede sobre el.
+
+Esto no es asesoramiento legal. Que significa la AGPL dentro de tu propia organizacion —si puedes incorporar, extender o redistribuir algo que lleva un nucleo AGPL dentro— es una pregunta para tus propios asesores.
