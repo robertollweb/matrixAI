@@ -264,9 +264,31 @@ class SupervisedTrainer:
             random.Random(split.seed).shuffle(indices)
         train_ratio = split.train if split else 0.8
         train_count = max(1, min(len(examples) - 1, int(len(examples) * train_ratio)))
+
+        # 101-C0, deuda cerrada el 2026-09-12. Este camino leía `split.train`
+        # y la semilla pero NUNCA `split.test`, así que todo lo que sobraba de
+        # train caía en validación — el tramo de prueba incluido, y validación
+        # es justo quien elige la época y publica la métrica. Es el defecto
+        # original del 100 §0.2, vivo aquí después de repararlo en los otros
+        # cinco caminos; se quedó fuera del cierre original con el mismo
+        # razonamiento ("ya honraba la semilla") que el REABIERTO del 09-08 ya
+        # había desmontado para `transformer_trainer.py`.
+        #
+        # Mismo patrón que ese fichero (líneas 233-243), no una sexta
+        # implementación: el tramo de prueba se aparta del FINAL de los
+        # índices, YA barajados si tocaba. Sin `test=` declarado, `n_test` es
+        # 0 y esto es byte-idéntico a lo de siempre — el gate de
+        # compatibilidad sigue siendo no declararlo.
+        n = len(examples)
+        test_ratio = getattr(split, "test", None) if split else None
+        n_test = int(n * test_ratio) if test_ratio else 0
+        corte_val = max(train_count, n - n_test) if n_test else n
+
         train_indices = set(indices[:train_count])
+        validation_indices = set(indices[train_count:corte_val])
         train = [example for index, example in enumerate(examples) if index in train_indices]
-        validation = [example for index, example in enumerate(examples) if index not in train_indices]
+        validation = [example for index, example in enumerate(examples)
+                      if index in validation_indices]
         return train, validation
 
     def _gradients(

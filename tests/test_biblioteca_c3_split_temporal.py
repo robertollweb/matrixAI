@@ -141,6 +141,48 @@ class TestSharedSplitExamples:
         assert [e.row_index for e in val] == [18, 19]
         assert [e.row_index for e in train] == list(range(18))
 
+    def test_el_tramo_de_prueba_NO_cae_en_validacion(self):
+        """101-C0, deuda cerrada el 2026-09-12 — la última de las seis vías.
+
+        Este camino (`SupervisedTrainer`, y `TorchSupervisedTrainer` por
+        herencia) leía `split.train` y la semilla pero NUNCA `split.test`, así
+        que todo lo que sobraba de train caía en validación — el tramo de
+        prueba incluido. Y validación es justo quien elige la época y publica
+        la métrica: es el defecto original del 100 §0.2, vivo aquí después de
+        repararlo en los otros cinco caminos.
+
+        Reproducción medida por la auditoría del 2026-09-11 con `seed=42`:
+        train=[2,3,5,6,7,8] y val=**[0,1,4,9]** — las filas 0 y 1, declaradas
+        test, dentro de validación.
+        """
+        from matrixai.training.trainer import SupervisedTrainer
+        examples = _examples(10)
+        split = DatasetSplitSpec(train=0.6, validation=0.2, test=0.2, seed=42, protocol="2")
+        train, val = SupervisedTrainer()._split_examples(examples, _training_with_split(split))
+
+        # El tramo apartado se deriva del MISMO barajado, no de una lista a
+        # mano: si el criterio cambia, esto se entera.
+        indices = list(range(10))
+        random.Random(42).shuffle(indices)
+        test_esperado = set(indices[-2:])
+
+        vistos = {e.row_index for e in train} | {e.row_index for e in val}
+        assert test_esperado & vistos == set(), (test_esperado, vistos)
+        assert len(train) == 6
+        assert len(val) == 2
+
+    def test_y_SIN_declararlo_sigue_siendo_byte_identico(self):
+        """La otra mitad, y el gate de compatibilidad entero: sin `test=`
+        declarado, validación sigue llevándose TODO lo que no es train, igual
+        que siempre. Sin esta prueba, el arreglo de arriba lo pasaría una
+        versión que apartase filas aunque nadie se lo pidiera."""
+        from matrixai.training.trainer import SupervisedTrainer
+        examples = _examples(10)
+        split = DatasetSplitSpec(train=0.6, validation=0.4, seed=42)
+        train, val = SupervisedTrainer()._split_examples(examples, _training_with_split(split))
+        assert len(train) + len(val) == 10
+        assert len(val) == 4
+
     def test_random_with_seed_shuffles_as_before(self):
         from matrixai.training.trainer import SupervisedTrainer
         examples = _examples(10)

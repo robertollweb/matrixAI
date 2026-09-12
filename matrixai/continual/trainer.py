@@ -137,6 +137,24 @@ class IncrementalTrainer:
         examples: list[SupervisedExample],
         weights: list[float],
     ) -> tuple[list[SupervisedExample], list[float], list[SupervisedExample]]:
+        """Reparto PROPIO del reentrenamiento incremental (contrato 83), con
+        la fracción y la semilla que le da su política — **no** el de
+        `matrixai/training/particion.py`.
+
+        Declarado aquí porque una reauditoría (2026-09-11) lo encontró
+        buscando caminos que ignoran `split.test`, y conviene que nadie tenga
+        que volver a averiguarlo: **este no es uno de ellos**. Medido: esta
+        clase no recibe un `TrainingSpec` por ningún sitio —solo
+        `validation_fraction` y `seed` sueltos, de la política continua— así
+        que no hay ningún `SPLIT ... test= protocol=2` declarado que honrar.
+        No hay tramo de prueba porque no hay quien lo declare, no porque se
+        ignore.
+
+        **Si algún día esto se cablea a un `.mxtrain`**, entonces sí tiene que
+        pasar por `particion_para()`/`reparte()` como los demás: el test
+        `test_no_recibe_un_split_declarado` de `test_p22_cut5_incremental_trainer.py`
+        se pondrá rojo para avisar.
+        """
         n = len(examples)
         val_count = max(1, int(n * self._val_fraction)) if n > 1 else 0
         train_count = n - val_count

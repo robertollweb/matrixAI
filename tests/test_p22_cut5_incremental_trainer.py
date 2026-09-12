@@ -508,3 +508,28 @@ class TestReplayBufferAlias:
             policy, _make_ps(), _make_classification_dataset(), labels=_LABELS,
         ).run()
         assert result.candidate_parameter_set.source == "incremental_finetune"
+
+
+def test_no_recibe_un_split_declarado():
+    """101-C0, reauditoría 2026-09-11 — este NO es un camino que ignore
+    `split.test`.
+
+    Buscando repartidores que se saltaran la partición declarada apareció
+    `IncrementalTrainer._split`. Medido antes de tratarlo como una fuga: esta
+    clase **no recibe ningún `TrainingSpec`**, así que no hay ningún
+    `SPLIT ... test= protocol=2` que honrar — su fracción y su semilla salen
+    de la política continua (contrato 83), que es otro mecanismo.
+
+    Esta prueba fija ese hecho. Si alguien le pasa un spec de entrenamiento,
+    se pondrá roja: y entonces sí hay que hacerle honrar la partición como a
+    los otros cinco caminos, no dejarlo con su reparto propio.
+    """
+    import inspect
+
+    from matrixai.continual.trainer import IncrementalTrainer
+
+    parametros = set(inspect.signature(IncrementalTrainer.__init__).parameters)
+    for prohibido in ("training", "training_spec", "split", "dataset_split"):
+        assert prohibido not in parametros, (
+            f"IncrementalTrainer ya recibe {prohibido!r}: ahora SÍ tiene una "
+            "partición declarada que honrar -- ver 101-C0")
