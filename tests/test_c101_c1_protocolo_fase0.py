@@ -384,25 +384,56 @@ class AplicarReglaDeCierreTest(unittest.TestCase):
         self.assertAlmostEqual(r["fraccion"], 0.8)
         self.assertTrue(r["cumple_la_regla"])  # 0,8 >= 0,8, el borde cuenta
 
-    def test_sobre_los_datos_REALES_de_101_C3_lightgbm_NO_llega(self):
-        """El resultado que importa, medido sobre el JSON commiteado: 9/12 =
-        0,75 < 0,80. No invalida que lightgbm sea el mejor de los tres (los
-        otros dan 0,50), pero el listón prerregistrado NO se alcanza, y uno de
-        los tres fallos (Internet-Advertisements, a 1,15 puntos) se pierde por
-        el defecto de doble inferencia de tipo que 101-C3 ya declara sin
-        corregir."""
+    def test_sobre_la_pasada_CONTAMINADA_del_07_09_daba_9_12_dato_HISTORICO(self):
+        """EL DATO HISTÓRICO, y solo eso — **no el resultado vigente**.
+
+        Este test se llamaba «sobre los datos REALES de 101-C3 lightgbm NO
+        llega» y su docstring empezaba por «el resultado que importa». Lo era
+        el 2026-09-11: con la pasada del 07-09, la regla pre-registrada daba
+        9/12 = 0,75 < 0,80 y la cartera se dejó VACÍA a propósito, porque
+        mover el listón después de ver el número es justo lo que una regla
+        pre-registrada existe para impedir.
+
+        El 2026-09-12 se descubrió que ese 0,750 estaba CONTAMINADO en las dos
+        direcciones por tres defectos de cableado —un dataset perdido por un
+        fallo cuya distancia real (1,14) caía DENTRO del margen, y dos
+        victorias contra un rival que no llegaba a competir—, se repararon y
+        se repitió la medición. El resultado vigente es el de la re-medición:
+        lo comprueba `test_c102_c1_evidencia_de_la_cartera.py`, que re-deriva
+        la regla sobre `..._remedida_20260912.json` y lo contrasta con lo que
+        la entrada de cartera afirma.
+
+        Se conserva porque el dato histórico SÍ vale: es la prueba de que el
+        listón no se movió, de que la misma regla aplicada a una medición
+        peor daba peor, y de que el 9/12 no era una invención. Lo que no vale
+        es seguir presentándolo como «el resultado que importa»: una nota
+        vieja miente igual que un dato falso."""
         import json
         from pathlib import Path
-        ruta = Path(__file__).parent.parent / "benchmarks/fase0/pasada_exploratoria_101_c3_resultado.json"
-        if not ruta.exists():
-            self.skipTest("el JSON de la pasada no está en este árbol")
-        crudo = json.loads(ruta.read_text())
+        # Sin `skipTest`: los dos JSON están commiteados. Un salto silencioso
+        # ante un fichero que falta es un banco de pruebas sin dientes.
+        raiz = Path(__file__).resolve().parents[1] / "benchmarks" / "fase0"
+        crudo = json.loads((raiz / "pasada_exploratoria_101_c3_resultado.json")
+                           .read_text(encoding="utf-8"))
         registros = crudo["resultados"] if isinstance(crudo, dict) and "resultados" in crudo else crudo
-        protocolo = ProtocoloExploratorio.cargar(
-            str(Path(__file__).parent.parent / "benchmarks/fase0/protocolo_exploratorio.json"))
+        protocolo = ProtocoloExploratorio.cargar(str(raiz / "protocolo_exploratorio.json"))
         r = aplicar_regla_de_cierre(registros, protocolo.regla_de_cierre, motor="lightgbm")
         self.assertEqual((r["cumplidos"], r["datasets"]), (9, 12))
         self.assertFalse(r["cumple_la_regla"])
+
+        # LA OTRA MITAD, que es lo que impide volver a confundir las dos
+        # pasadas: sobre la re-medición limpia la MISMA regla, sin tocarla,
+        # da otra cosa. Si estas dos afirmaciones se cruzaran, este test
+        # volvería a decir del JSON vigente lo que solo vale del viejo.
+        crudo_limpio = json.loads((raiz / "pasada_exploratoria_101_c3_remedida_20260912.json")
+                                  .read_text(encoding="utf-8"))
+        limpio = aplicar_regla_de_cierre(crudo_limpio["resultados"],
+                                         protocolo.regla_de_cierre, motor="lightgbm")
+        self.assertGreater(limpio["cumplidos"], r["cumplidos"])
+        self.assertTrue(limpio["cumple_la_regla"],
+                        "la re-medición limpia es la vigente: si dejara de cumplir, "
+                        "la entrada de cartera de matrixai_engines estaría afirmando "
+                        "algo que ya no se sostiene")
 
 
 # ---------------------------------------------------------------------------
