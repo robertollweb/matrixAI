@@ -139,6 +139,33 @@ def _clasificador_con_dos_etiquetas(destino: Path, *, clases: list) -> Path:
     return _guardar(destino, g)
 
 
+def _abrir(ruta: Path):
+    import onnxruntime
+    return onnxruntime.InferenceSession(str(ruta), providers=["CPUExecutionProvider"])
+
+
+def _regresion_con_sigmoide(destino: Path) -> Path:
+    """Una REGRESIÓN acotada a 0..1 con `Sigmoid` final: un valor por fila.
+
+    No es un caso de laboratorio. Es lo que se hace con proporciones, tasas y
+    objetivos normalizados, y **el exportador propio de MatrixAI lo produce**:
+    `onnx_exporter.py` emite `Sigmoid` según la activación de la última capa,
+    sin mirar si la tarea es clasificación o regresión.
+    """
+    import numpy as np
+    from onnx import TensorProto, helper, numpy_helper
+
+    W = numpy_helper.from_array(np.ones((3, 1), dtype=np.float32), name="W")
+    nodos = [helper.make_node("MatMul", ["X", "W"], ["z"]),
+             helper.make_node("Sigmoid", ["z"], ["salida"])]
+    g = helper.make_graph(
+        nodos, "reg_sigmoide",
+        [helper.make_tensor_value_info("X", TensorProto.FLOAT, ["N", 3])],
+        [helper.make_tensor_value_info("salida", TensorProto.FLOAT, ["N", 1])],
+        [W])
+    return _guardar(destino, g)
+
+
 def _zipmap(destino: Path, clases: list) -> Path:
     """Un clasificador cuya salida es un MAPA por clase: `{clase: probabilidad}`.
 
@@ -240,6 +267,62 @@ def _exactitud_nativa(modelo: Path, csv: Path) -> float:
 
 
 @unittest.skipUnless(_HAS, "onnx + onnxruntime required")
+class UnaRegresionConSigmoideSeMideIGUAL_PorLasDosViasTest(unittest.TestCase):
+    """Re-auditoría del 2026-09-12, MEDIA REPARACIÓN del arreglo de la mañana.
+
+    `_elegir_para_regresion` fijaba la semántica sin preguntar al grafo,
+    mientras la vía del `--output-name` sí preguntaba y obtenía
+    «probabilidades» de un `Sigmoid`. Resultado medido: **la misma salida se
+    atestiguaba por la vía automática y se rechazaba por la del nombre**. La
+    salida MÁS declarada perdía contra la MENOS declarada.
+
+    El fondo es que en REGRESIÓN no hay clases, así que tampoco hay
+    «probabilidades» que el grafo pueda declarar: un escalar es el valor,
+    venga del operador que venga. Preguntar al grafo ahí era hacer la pregunta
+    equivocada.
+    """
+
+    def test_las_dos_vias_eligen_la_misma_salida_con_la_misma_semantica(self):
+        import tempfile
+        from matrixai.export.onnx_salida import elegir_salida
+        with tempfile.TemporaryDirectory() as d:
+            ruta = _regresion_con_sigmoide(Path(d) / "reg.onnx")
+            sesion = _abrir(ruta)
+            automatica = elegir_salida(sesion, tarea="regresion", ruta_modelo=ruta)
+            por_nombre = elegir_salida(sesion, tarea="regresion", ruta_modelo=ruta,
+                                       nombre="salida")
+            self.assertEqual(automatica.semantica, "valor")
+            self.assertEqual(por_nombre.semantica, automatica.semantica)
+            self.assertEqual(por_nombre.nombre, automatica.nombre)
+
+    def test_pero_en_CLASIFICACION_el_sigmoide_sigue_siendo_probabilidad(self):
+        """La otra mitad, sin la cual la reparación la pasaría una versión que
+        deja de preguntar al grafo en todas las tareas — y eso volvería a
+        traer la adivinación que se quitó por la mañana."""
+        import tempfile
+        from matrixai.export.onnx_salida import elegir_salida
+        with tempfile.TemporaryDirectory() as d:
+            ruta = _regresion_con_sigmoide(Path(d) / "clf.onnx")
+            elegida = elegir_salida(_abrir(ruta), tarea="clasificacion",
+                                    ruta_modelo=ruta)
+            # `probabilidad_positiva`, no `probabilidades`: un sigmoide
+            # ESCALAR en clasificación binaria es la probabilidad de UNA clase,
+            # y el producto ya lo distingue. Mi aserto decía `probabilidades`
+            # y estaba mal el aserto, no el producto.
+            self.assertEqual(elegida.semantica, "probabilidad_positiva")
+
+    def test_y_con_VARIAS_salidas_numericas_se_sigue_pidiendo_el_mapa(self):
+        """Que en regresión la anchura diga «una o varias» no es adivinar la
+        semántica: con varias candidatas se pide el mapa, no se elige una."""
+        import tempfile
+        from matrixai.export.onnx_salida import SalidaOnnxAmbigua, elegir_salida
+        with tempfile.TemporaryDirectory() as d:
+            ruta = _clasificador_con_dos_etiquetas(Path(d) / "dos.onnx",
+                                                   clases=[1, 2])
+            with self.assertRaises(SalidaOnnxAmbigua):
+                elegir_salida(_abrir(ruta), tarea="regresion", ruta_modelo=ruta)
+
+
 class ElCasoDocumentadoTest(unittest.TestCase):
     """El de `100 §0.11`, con su dataset y su modelo EXACTOS."""
 

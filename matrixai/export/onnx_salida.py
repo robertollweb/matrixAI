@@ -89,12 +89,26 @@ _SEMANTICAS_DE_LA_TAREA = {
 
 #: Cómo se nombra cada tarea al explicar el rechazo, y POR QUÉ no encaja. El
 #: mensaje tiene que decir qué pasó, no solo que no se puede.
+#: El motivo depende de QUÉ se rechazó, no solo de la tarea. Re-auditoría del
+#: 2026-09-12: había un texto por tarea, y el de regresión hablaba de «etiquetas
+#: de clase» aunque lo rechazado fueran probabilidades — un mensaje correcto
+#: sobre un diagnóstico equivocado sigue siendo un fallo, y aquí además manda a
+#: quien lo lee a buscar una etiqueta que no existe en su modelo.
 _POR_QUE_NO_ENCAJA = {
-    "regresion": ("lo que se mide es una regresión: un error medio entre etiquetas de "
-                  "clase no mide ninguna distancia, porque entre dos categorías no la "
-                  "hay"),
-    "clasificacion": ("lo que se mide es una clasificación: un valor continuo no es "
-                      "una clase, y redondearlo a una sería inventarse la predicción"),
+    ("regresion", "etiqueta"): (
+        "lo que se mide es una regresión: un error medio entre etiquetas de clase no "
+        "mide ninguna distancia, porque entre dos categorías no la hay"),
+    ("regresion", "probabilidades"): (
+        "lo que se mide es una regresión y esa salida son probabilidades POR CLASE: "
+        "no hay ninguna cantidad que restar"),
+    ("clasificacion", "valor"): (
+        "lo que se mide es una clasificación: un valor continuo no es una clase, y "
+        "redondearlo a una sería inventarse la predicción"),
+}
+_POR_QUE_NO_ENCAJA_EN_GENERAL = {
+    "regresion": ("lo que se mide es una regresión y esa salida no es una cantidad"),
+    "clasificacion": ("lo que se mide es una clasificación y esa salida no dice "
+                      "ninguna clase"),
 }
 
 
@@ -232,7 +246,8 @@ def _exigir_que_sirva_para_la_tarea(elegida: SalidaElegida, tarea: str) -> None:
         return
     raise SalidaOnnxAmbigua(
         f"la salida {elegida.nombre!r} significa {elegida.semantica!r} y "
-        f"{_POR_QUE_NO_ENCAJA[cual]}. Para esta medida la salida tiene que "
+        f"{_POR_QUE_NO_ENCAJA.get((cual, elegida.semantica), _POR_QUE_NO_ENCAJA_EN_GENERAL[cual])}. "
+        f"Para esta medida la salida tiene que "
         f"significar una de {list(permitidas)}: declara otra salida, o mide otra cosa")
 
 
@@ -244,11 +259,27 @@ def _deducir(meta: Any, ruta_modelo: Any, tarea: str) -> str | None:
     if tipo in _TIPOS_DE_ETIQUETA:
         return "etiqueta"
     if tipo in _TIPOS_FLOTANTES:
+        # EN REGRESIÓN NO HAY CLASES, así que tampoco hay «probabilidades» que
+        # el grafo pueda declarar: un escalar es EL VALOR, venga del operador
+        # que venga. Preguntar aquí al grafo es hacer la pregunta equivocada.
+        #
+        # Re-auditoría del 2026-09-12: con la pregunta puesta antes, una
+        # regresión acotada a 0..1 con `Sigmoid` final —un modelo corriente
+        # (proporciones, tasas, objetivo normalizado) **y que el exportador
+        # propio de MatrixAI produce**, `onnx_exporter.py` emite `Sigmoid`
+        # según `layer.activation` sin mirar la tarea— se atestiguaba por la
+        # vía automática y se RECHAZABA por la del nombre. La salida MÁS
+        # declarada perdía contra la MENOS declarada.
+        #
+        # Esto NO es volver a inferir por la forma: en regresión la anchura no
+        # elige entre dos semánticas posibles, porque solo hay una. Lo que
+        # sigue diciendo la anchura es si hay UNA candidata o varias, y con
+        # varias se pide el mapa en vez de adivinar.
+        if tarea == "regresion":
+            return "valor" if (_ancho(meta) or 1) == 1 else None
         del_grafo = _semantica_del_grafo(ruta_modelo, meta.name)
         if del_grafo is not None:
             return del_grafo
-        if tarea == "regresion":
-            return "valor" if (_ancho(meta) or 1) == 1 else None
         # LA ANCHURA NO DECLARA NADA, y esto era la última inferencia por forma
         # que quedaba viva (auditoría propia 2026-09-11; reproducido el 09-12).
         # Un `[N, 2]` flotante salido de un `MatMul` se leía como
