@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -288,13 +290,14 @@ class TestP12GenerateDatasetCLI(unittest.TestCase):
     MXAI = str(ROOT / "examples" / "email-agent.typed.mxai")
     MXTRAIN = str(ROOT / "examples" / "email-agent.supervised.mxtrain")
 
-    def _run(self, *extra_args: str, expect_ok: bool = True):
+    def _run(self, *extra_args: str, expect_ok: bool = True, env: dict | None = None):
         result = subprocess.run(
             [sys.executable, "-m", "matrixai", "generate-dataset",
              self.MXAI, "--training", self.MXTRAIN, *extra_args],
             cwd=ROOT,
             capture_output=True,
             text=True,
+            env={**os.environ, **(env or {})},
         )
         if expect_ok:
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -391,9 +394,26 @@ class TestP12GenerateDatasetCLI(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
     def test_rows_too_large_returns_error(self):
+        # 2026-09-12: el tope de filas ya no viene por omisión (decisión de
+        # Roberto sobre el tamaño de los datos), así que se PONE — que es como
+        # lo tiene el servicio compartido y quien lo configure— y se comprueba
+        # que la CLI lo sigue respetando. Sin el tope puesto, esta prueba pedía
+        # de verdad 99.999 filas.
         with tempfile.TemporaryDirectory() as tmp:
-            result = self._run("--rows", "99999", "--output-dir", tmp, expect_ok=False)
+            result = self._run("--rows", "99999", "--output-dir", tmp, expect_ok=False,
+                               env={"MATRIXAI_MAX_ROWS": "50000"})
         self.assertNotEqual(result.returncode, 0)
+
+    def test_rows_sin_tope_ya_no_es_un_error(self):
+        """La otra mitad: sin tope puesto, pedir muchas filas es legítimo — la
+        máquina es de quien lo usa. Se piden 60.000 (por encima del viejo tope
+        de 50.000) y la CLI tiene que aceptarlas."""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run("--rows", "60000", "--output-dir", tmp, "--json",
+                               env={"MATRIXAI_MAX_ROWS": ""})
+            payload = json.loads(result.stdout)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(payload["rows"], 60000)
 
     def test_human_readable_output(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -551,7 +571,13 @@ class TestP12PlaygroundGenerateSyntheticDataset(unittest.TestCase):
             self.assertIn(col, header)
 
     def test_row_clamp_respects_p9_max(self):
-        result = self._call(rows=999999)
+        # El recorte sigue existiendo CUANDO HAY TOPE; desde el 2026-09-12 no lo
+        # hay por omisión, así que se pone explícito. (Sin esto la prueba
+        # generaba de verdad 999.999 filas.)
+        with unittest.mock.patch.dict(
+                os.environ, {"MATRIXAI_MAX_ROWS": "50000", "MATRIXAI_HOSTED": "0"},
+                clear=False):
+            result = self._call(rows=999999)
         self.assertTrue(result["ok"])
         self.assertLessEqual(result["rows"], 50_000)
 

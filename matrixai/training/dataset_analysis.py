@@ -228,6 +228,16 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
             details=_limits.limit_error("max_csv_bytes", size),
         )
 
+    # 2026-09-12: con `max_csv_bytes` sin tope por omisión (decisión de Roberto:
+    # el de 50 MB era un número de otra época), ESTA es la comprobación que
+    # queda por tamaño — y la única que hace falta, porque habla de lo que de
+    # verdad pasa: un CSV que no cabe en la RAM de la máquina no da un error,
+    # da un proceso muerto. El mensaje tiene que llegar ANTES de leerlo, no
+    # después. Ver `limits.memoria_insuficiente` (factor medido, fail-open).
+    _memoria = _limits.memoria_insuficiente(size)
+    if _memoria is not None:
+        raise DatasetAnalysisError(_memoria["error"], details=_memoria)
+
     # Autoauditoría C1 (sugerencias implementadas): BOM UTF-8 de Excel y
     # delimitador ';' (Excel europeo) — mismo helper compartido que usan
     # `_validate_training_csv`/`_run_playground_training`/

@@ -331,13 +331,19 @@ def _build_artifacts(
 
 
 # P9 operational limits — M12: ahora configurables en runtime (hosted/env/perfil) vía
-# `matrixai.limits`. Estas constantes son los DEFAULTS (perfil "equilibrado") y se
-# conservan para compatibilidad/visualización; el código de runtime llama a
-# `limits.cap()/exceeds()/get_limit()` para respetar la configuración del usuario.
+# `matrixai.limits`. Estas constantes se conservan para compatibilidad/visualización;
+# el código de runtime llama a `limits.cap()/exceeds()/get_limit()` para respetar la
+# configuración del usuario.
+#
+# 2026-09-12: apuntan a `_HOSTED`, no al perfil por defecto. Eran "los defaults del
+# perfil equilibrado", pero ese perfil dejó de topar el tamaño de los datos (decisión
+# de Roberto) y `_P9_MAX_CSV_BYTES`/`_P9_MAX_ROWS` valdrían `None` — un nombre que
+# promete un número y devuelve nada. Los valores P9 históricos son EXACTAMENTE los que
+# conserva el servicio compartido, así que ahí es donde viven ahora.
 from matrixai import limits as _limits  # noqa: E402
-_P9_MAX_CSV_BYTES = _limits._EQUILIBRADO["max_csv_bytes"]
-_P9_MAX_ROWS = _limits._EQUILIBRADO["max_rows"]
-_P9_MAX_EPOCHS = _limits._EQUILIBRADO["max_epochs"]
+_P9_MAX_CSV_BYTES = _limits._HOSTED["max_csv_bytes"]
+_P9_MAX_ROWS = _limits._HOSTED["max_rows"]
+_P9_MAX_EPOCHS = _limits._HOSTED["max_epochs"]
 # Wall-clock training budget, configurable via MATRIXAI_TRAIN_TIMEOUT.
 # Default 300s protects a SHARED hosted playground. **Set to 0 to disable** (no
 # limit) — the downloadable Studio sets 0 because the machine is the user's and a
@@ -641,6 +647,20 @@ def _generate_synthetic_dataset(
         # Embedding sources are integer lookup indices (e.g. 0..14), not domain
         # scalars; LLM/user ranges must never normalize or re-sample them.
         input_columns = list(training.dataset.input.columns)
+
+        # LO QUE SE VA A GENERAR, ESTIMADO ANTES DE GENERARLO (2026-09-12).
+        # `max_rows` dejó de topar por omisión —el tamaño de los datos ya no es
+        # una decisión de producto—, pero aquí las filas no vienen de un fichero
+        # que existe: las TECLEA alguien. Sin nada en su sitio, un cero de más
+        # (1.000.000 -> 10.000.000) ya no se recortaría con aviso: se llevaría
+        # el proceso por delante sin decir nada. Se estima el CSV resultante
+        # (5,6 bytes por celda medidos el 2026-09-12: 2.000 filas x 3 columnas =
+        # 33.571 bytes) y se pregunta si cabe en esta máquina.
+        _celdas = rows * (len(input_columns) + 1)
+        _memoria = _limits.memoria_insuficiente(_celdas * _limits.BYTES_POR_CELDA_SINTETICA)
+        if _memoria is not None:
+            return {"ok": False, **_memoria}
+
         # S2 / GEN C6: declared types only apply to real input columns (not
         # one-hot members, not embedding lookup indices).
         typeable = [
@@ -1054,6 +1074,18 @@ def _generate_synthetic_text_dataset(
         }
     target_name = training.dataset.target.name
 
+    # MISMA ESTIMACIÓN PREVIA QUE EN LA RAMA TABULAR (2026-09-12), con la
+    # aritmética de ESTA: aquí una fila no son celdas cortas, es un texto de
+    # hasta `seq.length` caracteres (el truncado real del modelo) más la
+    # etiqueta y las comas. Sin esto, quitar el tope de filas dejaba el camino
+    # de texto sin nada que avisara antes de quedarse sin memoria — y una
+    # SEQUENCE de 8.192 caracteres pesa dieciséis veces más por fila que la de
+    # por defecto.
+    _bytes_por_fila = seq.length + max((len(e) for e in labels), default=1) + 4
+    _memoria = _limits.memoria_insuficiente(rows * _bytes_por_fila)
+    if _memoria is not None:
+        return {"ok": False, **_memoria}
+
     try:
         # `mode` ya llega normalizado a "random"/"coherent" (el caller lo
         # fuerza antes de esta rama). `seq.length` viaja para que la señal
@@ -1307,10 +1339,19 @@ def _normalize_external_csv(csv_text: str) -> tuple[str, dict | None]:
     `error` con el texto de respaldo), para que el caller lo reenvíe entero con
     `{"ok": False, **payload}` y la SPA pueda localizarlo sin parsear texto.
 
-    Devuelve `(csv_normalizado, None)` o `(csv_original, payload_de_tope)`."""
+    Devuelve `(csv_normalizado, None)` o `(csv_original, payload_de_tope)`.
+
+    2026-09-12: el segundo elemento puede ser TAMBIÉN el payload de
+    `limits.memoria_insuficiente`. Con `max_csv_bytes` sin tope por omisión, un
+    CSV que no cabe en memoria tiene que decirlo aquí —la otra puerta de un CSV
+    externo, junto con `analyze_dataset_csv`— y no morir dentro de la
+    normalización, que es O(n) y hace una copia entera del texto."""
     _size = len(csv_text.encode())
     if _limits.exceeds(_size, "max_csv_bytes"):
         return csv_text, _limits.limit_error("max_csv_bytes", _size)
+    _memoria = _limits.memoria_insuficiente(_size)
+    if _memoria is not None:
+        return csv_text, _memoria
     from matrixai.training.data import normalize_csv_text
     return normalize_csv_text(csv_text), None
 

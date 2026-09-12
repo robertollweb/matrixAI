@@ -47,7 +47,12 @@ class TestLimitErrorPayload(unittest.TestCase):
     """La forma del dato, que es el contrato con la SPA."""
 
     def test_campos_obligatorios(self):
+        # `MATRIXAI_MAX_ROWS` explícito desde el 2026-09-12: el perfil por
+        # defecto ya NO topa las filas (decisión de Roberto sobre el tamaño de
+        # los datos), así que sin un tope puesto no hay error de tope que
+        # describir — y este test describe la FORMA del payload, que no cambió.
         with patch.dict(os.environ, {"MATRIXAI_LIMITS_PROFILE": "equilibrado",
+                                     "MATRIXAI_MAX_ROWS": "50000",
                                      "MATRIXAI_HOSTED": "0"}, clear=False):
             payload = _limits.limit_error("max_rows", 94833)
         self.assertEqual(payload["error_kind"], "limit_exceeded")

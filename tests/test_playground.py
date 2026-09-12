@@ -350,10 +350,18 @@ class P9TrainingLoopTest(unittest.TestCase):
         self.assertGreater(r["rows"], 0)
 
     def test_validate_csv_rejects_oversized(self) -> None:
-        from matrixai.playground import _validate_training_csv, _P9_MAX_CSV_BYTES
+        # 2026-09-12: el tope de tamaño ya NO viene por omisión (el de 50 MB era
+        # un número de otra época, decisión de Roberto), así que aquí se pone
+        # uno —como lo tiene el servicio compartido y como lo pondrá quien lo
+        # configure— y se comprueba que se aplica. De paso, probarlo deja de
+        # costar un texto de 50 MB.
+        from matrixai.playground import _validate_training_csv
         training_text = self._get_training_text()
-        big_csv = "x" * (_P9_MAX_CSV_BYTES + 1)
-        r = _validate_training_csv(self.MXAI, training_text, big_csv)
+        big_csv = "x" * 2_001
+        with unittest.mock.patch.dict(
+                os.environ, {"MATRIXAI_MAX_CSV_BYTES": "2000", "MATRIXAI_HOSTED": "0"},
+                clear=False):
+            r = _validate_training_csv(self.MXAI, training_text, big_csv)
         self.assertFalse(r["ok"])
         # CONTRATO 62 C1: contrato estructurado en vez de subcadena del texto.
         self.assertEqual(r["error_kind"], "limit_exceeded")

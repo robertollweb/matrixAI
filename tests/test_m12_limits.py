@@ -25,9 +25,11 @@ def _clean_env(monkeypatch):
 # ── resolución de topes ──────────────────────────────────────────────────────────
 
 def test_defaults_are_equilibrado():
-    assert limits.get_limit("max_rows") == 50_000
+    # 2026-09-12: el tamaño de los DATOS ya no lo topa el producto (decisión de
+    # Roberto); lo que sigue topado es lo que cuesta CALCULAR.
+    assert limits.get_limit("max_rows") is None
+    assert limits.get_limit("max_csv_bytes") is None
     assert limits.get_limit("max_epochs") == 1_000
-    assert limits.get_limit("max_csv_bytes") == 50_000_000
     assert limits.get_limit("max_depth") == 12
     assert limits.get_limit("max_labels") == 12
     assert limits.is_hosted() is False
@@ -40,8 +42,13 @@ def test_unknown_limit_raises():
 
 def test_profile_avanzado(monkeypatch):
     monkeypatch.setenv("MATRIXAI_LIMITS_PROFILE", "avanzado")
-    assert limits.get_limit("max_rows") == 1_000_000
+    assert limits.get_limit("max_epochs") == 100_000
     assert limits.get_limit("max_depth") == 128
+    # Tampoco aquí topa el tamaño de los datos: si "equilibrado" no topa,
+    # "avanzado" no puede topar MENOS que él (sería un perfil más potente que
+    # admite menos datos).
+    assert limits.get_limit("max_rows") is None
+    assert limits.get_limit("max_csv_bytes") is None
 
 
 def test_profile_ilimitado_gives_none(monkeypatch):
@@ -52,7 +59,7 @@ def test_profile_ilimitado_gives_none(monkeypatch):
 
 def test_bad_profile_falls_back_to_equilibrado(monkeypatch):
     monkeypatch.setenv("MATRIXAI_LIMITS_PROFILE", "turbo-inexistente")
-    assert limits.get_limit("max_rows") == 50_000
+    assert limits.get_limit("max_depth") == 12
 
 
 def test_per_limit_env_override(monkeypatch):
@@ -70,7 +77,9 @@ def test_env_unlimited_tokens(monkeypatch, token):
 
 def test_env_invalid_falls_back_to_profile(monkeypatch):
     monkeypatch.setenv("MATRIXAI_MAX_ROWS", "abc")
-    assert limits.get_limit("max_rows") == 50_000
+    assert limits.get_limit("max_rows") is None
+    monkeypatch.setenv("MATRIXAI_MAX_DEPTH", "abc")
+    assert limits.get_limit("max_depth") == 12
 
 
 def test_negative_env_means_unlimited(monkeypatch):
@@ -102,12 +111,13 @@ def test_snapshot_descargable_offers_ilimitado(monkeypatch):
     snap = limits.limits_snapshot()
     assert "ilimitado" in snap["profiles_available"]
     assert snap["profile"] == "avanzado"
-    assert snap["limits"]["max_rows"] == 1_000_000
+    assert snap["limits"]["max_epochs"] == 100_000
 
 
 # ── cap / exceeds ──────────────────────────────────────────────────────────────────
 
-def test_cap_and_exceeds_with_limit():
+def test_cap_and_exceeds_with_limit(monkeypatch):
+    monkeypatch.setenv("MATRIXAI_MAX_ROWS", "50000")
     assert limits.cap(60_000, "max_rows") == 50_000
     assert limits.cap(10, "max_rows") == 10
     assert limits.exceeds(60_000, "max_rows") is True
@@ -123,7 +133,8 @@ def test_cap_and_exceeds_unlimited(monkeypatch):
 # ── integración: playground y generador respetan los límites en runtime ────────────
 
 def test_playground_generation_honours_row_override(monkeypatch):
-    """Sin override topa a 50k; con override a 80k deja pasar más filas."""
+    """Con un tope puesto recorta; sin tope (el default desde 2026-09-12) genera
+    las filas pedidas."""
     from matrixai.playground import _generate_synthetic_dataset
     mxai = ("PROJECT P\nVECTOR In[2]\n  a: Scalar\n  b: Scalar\nEND\n"
             "NETWORK Net\n  INPUT In\n  LAYER Dense units=4 activation=relu\n"
@@ -134,7 +145,8 @@ def test_playground_generation_honours_row_override(monkeypatch):
                "  SPLIT train=0.8 validation=0.2 seed=42\n  BATCH size=16\nEND\n"
                "LOSS L\n  TYPE cross_entropy\n  PREDICTION Net\n  TARGET y\nEND\n"
                "OPTIMIZER O\n  TYPE sgd\n  LEARNING_RATE 0.1\n  UPDATE Net.*\nEND\n")
-    # default: 70000 pedidas → topa a 50000
+    # con tope de 50000: 70000 pedidas → recorta y AVISA
+    monkeypatch.setenv("MATRIXAI_MAX_ROWS", "50000")
     r = _generate_synthetic_dataset(mxai, mxtrain, rows=70000, seed=1, mode="random")
     assert r["ok"]
     assert r["rows"] == 50_000
@@ -143,6 +155,11 @@ def test_playground_generation_honours_row_override(monkeypatch):
     r2 = _generate_synthetic_dataset(mxai, mxtrain, rows=70000, seed=1, mode="random")
     assert r2["ok"]
     assert r2["rows"] == 70_000
+    # sin tope ninguno (el DEFAULT desde 2026-09-12): tampoco recorta
+    monkeypatch.delenv("MATRIXAI_MAX_ROWS")
+    r3 = _generate_synthetic_dataset(mxai, mxtrain, rows=70000, seed=1, mode="random")
+    assert r3["ok"]
+    assert r3["rows"] == 70_000
 
 
 def test_epoch_cap_honours_override(monkeypatch):
