@@ -51,12 +51,23 @@ misma semilla + mismos datos + mismo código -> mismo resultado, ya
 medido en `test_determinismo_misma_semilla_mismo_digest` de 102-C2).
 `--forzar` en la línea de comandos ignora el caché entero, para la
 validación final antes de cerrar el corte.
+
+PROCEDENCIA EN LA SALIDA (2026-09-12). Hasta hoy este JSON guardaba los
+números y NADA de dónde salieron. Ahora lleva un bloque `procedencia` con
+los commits de los DOS repositorios —y si su árbol estaba SUCIO al medir—,
+las versiones de las bibliotecas realmente cargadas, los digests de código
+que el script ya calculaba, y el sha256 de los 12 ARFF. Sin eso, un número
+medido hace un mes no se puede volver a atar a nada: medido el 09-12, el
+`pipeline_digest` de 101-C4 (`b888d0b1…`, del 09-09) ya NO reproduce —hoy
+sale `eeea0cdf…`— y no hay forma de decir cuál de los 33 commits que
+`matrixai-engines` acumuló desde entonces lo movió.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -78,6 +89,7 @@ from matrixai_engines.motores.baseline import MotorBaseline  # noqa: E402
 from matrixai_engines.motores.lineal import MotorLineal  # noqa: E402
 from matrixai_engines.motores.arbol_lightgbm import MotorArbolLightGBM  # noqa: E402
 from matrixai_engines.motores.densa import MotorDensaPropia  # noqa: E402
+from matrixai_engines.procedencia import versiones_de_bibliotecas  # noqa: E402
 from matrixai_engines.subproceso import ejecutar_intento_aislado  # noqa: E402
 
 ARFF_DIR = Path.home() / "fase0_openml_datos" / "arff"
@@ -118,6 +130,26 @@ _FICHEROS_COMPARTIDOS = (
     _DIR_ENGINES / "textos.py",
     _RAIZ_DEL_CORE / "matrixai" / "training" / "particion_por_diseno.py",
     _RAIZ_DEL_CORE / "matrixai" / "training" / "preparacion.py",
+    # Añadidos el 2026-09-12, y no por simetría: los TRES ficheros de abajo
+    # son donde vivían los tres defectos de cableado que costaron los 36
+    # intentos fallidos de la pasada del 09-07, y ninguno invalidaba el caché.
+    #
+    #   · `dataset_project.py` fabrica el prompt desde el CSV y normaliza las
+    #     etiquetas: ahí estaba `-1` y `1` declarados «la misma etiqueta», que
+    #     costó los 15 intentos de `PhishingWebsites`.
+    #   · `playground.py` decide la arquitectura: ahí estaba el barrido que
+    #     leía los nombres de columna, y por el que `pc4` entrenaba una red
+    #     residual que nadie pidió (15 intentos más).
+    #   · `dense_forward.py` devolvía el vector de ENTRADA como si fuera la
+    #     salida cuando la red no era plana.
+    #
+    # Sin ellos, una re-pasada SIN `--forzar` reusaría del caché exactamente
+    # los intentos que se acaban de reparar, y la medición «limpia» traería
+    # los fallos viejos dentro. Un caché que no ve el arreglo es peor que no
+    # tener caché: da un número nuevo con datos viejos y nadie lo nota.
+    _RAIZ_DEL_CORE / "matrixai" / "training" / "dataset_project.py",
+    _RAIZ_DEL_CORE / "matrixai" / "playground.py",
+    _RAIZ_DEL_CORE / "matrixai" / "forward" / "dense_forward.py",
     Path(__file__),
 )
 # Por motor: un cambio SOLO invalida los intentos de ESE motor.
@@ -138,12 +170,207 @@ def _digest_entorno() -> str:
                          .encode()).hexdigest()[:16]
 
 
-def _cargar_cache(ruta: Path) -> dict[tuple, dict]:
+# --- Procedencia: lo que hace falta para volver a ATAR un numero medido ------
+#
+# Deuda cerrada el 2026-09-12. Hasta hoy este JSON guardaba los numeros y NADA
+# de donde salieron: ni el commit de los dos repositorios, ni las versiones de
+# las bibliotecas, ni el sha256 de los ARFF de entrada, ni siquiera los digests
+# de codigo que este mismo script YA calculaba para su cache.
+#
+# Medido ese dia sobre el fichero commiteado del 09-07: los 720 registros
+# traian `entorno_digest=None` y `motor_digest=None` -- 720 de 720 -- asi que
+# `_reusable()` daba REUSABLES 0 DE 720 y una re-pasada repetia los 74,8 min
+# enteros. Un cache inerte que ademas no lo dice parece un cache que funciona y
+# no encontro nada que reusar; por eso `main()` lo declara en voz alta.
+
+_RUTAS_DE_REPOSITORIO = {
+    "matrixAI": _RAIZ_DEL_CORE,
+    "matrixai-engines": _RAIZ_DE_ENGINES.parent,
+}
+
+#: Lo que se dice de un JSON de medicion escrito ANTES de que existiera el
+#: bloque de procedencia. NO es un hueco por rellenar: los ficheros del
+#: 2026-09-07 (la pasada y el caso "sick") y del 09-09 (el caso "adult") se
+#: midieron sin registrar commit ni versiones, y escribirles hoy los de hoy
+#: seria fabricar justo la procedencia que les falta.
+SIN_PROCEDENCIA = ("sin procedencia: medido antes de que este bloque existiera; "
+                   "el commit y las versiones de entonces no se registraron y no "
+                   "se pueden reconstruir sin inventarlos")
+
+
+def _sha256_de(ruta: Path) -> str:
+    """El sha256 COMPLETO del fichero de datos, sin truncar.
+
+    Los digests de codigo de aqui arriba van a 16 hex porque se comparan entre
+    si dentro de una misma pasada; este viaja fuera y es la unica prueba de que
+    los datos de entrada eran LOS MISMOS, asi que va entero (mismo criterio que
+    `digest_canonico`: «una huella corta es comoda de leer y no es una prueba»).
+    Se lee a trozos: `adult` (1590.arff) son 5,7 MB y los sellados grandes pasan
+    de 30."""
+    huella = hashlib.sha256()
+    with ruta.open("rb") as fichero:
+        for trozo in iter(lambda: fichero.read(1 << 20), b""):
+            huella.update(trozo)
+    return huella.hexdigest()
+
+
+def _estado_del_repositorio(raiz: Path) -> dict:
+    """El commit Y si el arbol estaba sucio. Los dos, siempre.
+
+    Un commit a secas es una coartada: si el arbol tiene cambios sin commitear,
+    ese sha NO identifica el codigo que produjo los numeros, y publicarlo solo
+    invita a un `git checkout` y a creer que se reprodujo lo mismo. Un digest de
+    un arbol sucio presentado como limpio es peor que no tener digest.
+
+    Cuando git no puede responder (no esta instalado, la ruta no es un
+    repositorio, la llamada se cuelga) el commit va a `None` CON su motivo:
+    nunca una cadena de relleno ni un «desconocido» mudo."""
+    try:
+        cabeza = subprocess.run(("git", "-C", str(raiz), "rev-parse", "HEAD"),
+                                capture_output=True, text=True, timeout=30)
+        estado = subprocess.run(("git", "-C", str(raiz), "status", "--porcelain"),
+                                capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:  # git ausente o colgado
+        return {"commit": None, "arbol_sucio": None,
+                "motivo": f"no se pudo preguntar a git: {type(exc).__name__}: {exc}"}
+    if cabeza.returncode != 0 or estado.returncode != 0:
+        fallo = (cabeza.stderr + estado.stderr).strip() or "git devolvio un codigo de error"
+        return {"commit": None, "arbol_sucio": None, "motivo": fallo}
+    lineas = [l for l in estado.stdout.splitlines() if l.strip()]
+    # `--porcelain` ya respeta .gitignore, asi que `documentacion/` y los
+    # `__pycache__` no cuentan. Los sin seguimiento SI cuentan: un modulo nuevo
+    # sin commitear puede tapar a otro y cambiar lo que se mide.
+    modificados = sorted(l[3:] for l in lineas if not l.startswith("??"))
+    sin_seguimiento = sorted(l[3:] for l in lineas if l.startswith("??"))
+    return {"commit": cabeza.stdout.strip(),
+            "arbol_sucio": bool(modificados or sin_seguimiento),
+            "ficheros_modificados": modificados,
+            "ficheros_sin_seguimiento": sin_seguimiento,
+            "motivo": None}
+
+
+def procedencia_de_la_medicion(*, digests_de_codigo: dict,
+                               datos_de_entrada: dict[str, Path]) -> dict:
+    """El bloque que convierte un numero medido en un numero ANCLABLE.
+
+    Lo minimo para volver a atar una medicion dentro de un mes: los commits de
+    los DOS repositorios (el core y `matrixai-engines`, que derivo 33 commits
+    entre el 09-07 y el 09-12 y por eso el `pipeline_digest` de 101-C4 ya no
+    reproduce), las versiones de las bibliotecas REALMENTE cargadas
+    (`versiones_de_bibliotecas()` de 102-C1, que ya existia y nadie llamaba
+    desde aqui), los digests de codigo que el script ya calculaba, y el sha256
+    de los ARFF de entrada.
+
+    `anclable` es una CONCLUSION, no un deseo: basta un arbol sucio, un git que
+    no responde o un ARFF que no esta para que valga `False`, y el motivo
+    concreto va en `avisos`, en texto. Declarar lo que PASO, no lo que se pidio.
+    """
+    repositorios = {nombre: _estado_del_repositorio(raiz)
+                    for nombre, raiz in _RUTAS_DE_REPOSITORIO.items()}
+    avisos: list[str] = []
+    for nombre, estado in repositorios.items():
+        if estado["commit"] is None:
+            avisos.append(f"{nombre}: SIN COMMIT ({estado['motivo']}) -- esta medicion "
+                          f"no se puede atar a una version del codigo")
+        elif estado["arbol_sucio"]:
+            avisos.append(
+                f"{nombre}: ARBOL SUCIO al medir ({len(estado['ficheros_modificados'])} "
+                f"modificados, {len(estado['ficheros_sin_seguimiento'])} sin seguimiento) "
+                f"-- el commit {estado['commit'][:12]} NO identifica el codigo que produjo "
+                f"estos numeros")
+
+    datos: dict[str, dict] = {}
+    for nombre, ruta in sorted(datos_de_entrada.items()):
+        if not ruta.exists():
+            datos[nombre] = {"ruta": str(ruta), "sha256": None,
+                             "motivo": "el fichero no existe al sellar la procedencia"}
+            avisos.append(f"datos de entrada «{nombre}»: {ruta} no existe, sin sha256")
+            continue
+        datos[nombre] = {"ruta": str(ruta), "sha256": _sha256_de(ruta),
+                         "bytes": ruta.stat().st_size, "motivo": None}
+
+    bloque = {
+        "medido": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "repositorios": repositorios,
+        "versiones_de_bibliotecas": versiones_de_bibliotecas(),
+        "digests_de_codigo": dict(digests_de_codigo),
+        "datos_de_entrada": datos,
+        "anclable": not avisos,
+        "avisos": avisos,
+    }
+    # El id se calcula sobre TODO lo anterior, avisos incluidos: dos pasadas del
+    # mismo commit con el arbol sucio de formas distintas no son la misma
+    # procedencia y no pueden compartir identificador.
+    bloque["procedencia_id"] = digest_canonico(bloque)
+    return bloque
+
+
+def procedencia_declarada(payload: dict) -> dict:
+    """Que se puede anclar de un JSON de medicion YA ESCRITO.
+
+    Los tres ficheros commiteados antes del 2026-09-12
+    (`pasada_exploratoria_101_c3_resultado.json` del 09-07,
+    `informe_101_c4_caso_sick.json` del 09-07, `informe_101_c4_caso_adult.json`
+    del 09-09) caen en `sin_procedencia`, y ahi se quedan: sus numeros son de
+    esas fechas y ponerles el commit de hoy seria fabricar procedencia. Ademas
+    los tres verifican hoy su `digest_canonico` (comprobado el 2026-09-12) y
+    anadirles una clave romperia lo unico que si los ata.
+
+    Un bloque presente pero con `anclable=False` NO es lo mismo que ninguno:
+    ese si dice por que no se ata. Media verdad tranquilizadora tambien es media
+    limpieza, asi que los dos estados se distinguen por nombre."""
+    bloque = payload.get("procedencia")
+    if not isinstance(bloque, dict):
+        return {"estado": "sin_procedencia", "anclable": False, "explicacion": SIN_PROCEDENCIA}
+    if bloque.get("anclable") is True:
+        return {"estado": "anclable", "anclable": True,
+                "explicacion": "procedencia completa: commits de arbol limpio, versiones "
+                               "de bibliotecas y sha256 de los datos de entrada"}
+    avisos = bloque.get("avisos") or ["procedencia incompleta, y sin motivo declarado"]
+    return {"estado": "no_anclable", "anclable": False, "explicacion": "; ".join(avisos)}
+
+
+def _procedencias_citadas(resultados: list[dict], procedencia: dict,
+                          previas: dict) -> tuple[dict, int]:
+    """Las procedencias que el fichero de salida tiene que llevar, y cuantos
+    intentos no tienen ninguna.
+
+    Un fichero escrito hoy con 700 intentos REUSADOS del cache no se midio hoy:
+    atribuirles el commit de hoy seria mentir sobre 700 de 720 numeros. Cada
+    registro cita SU procedencia (`procedencia_id`) y el fichero lleva todas las
+    citadas. Los reusados de un fichero anterior al 2026-09-12 no citan ninguna
+    y se cuentan aparte, en vez de heredar la de hoy en silencio."""
+    citadas = {procedencia["procedencia_id"]: procedencia}
+    sin_ninguna = 0
+    for registro in resultados:
+        identificador = registro.get("procedencia_id")
+        if identificador is None:
+            sin_ninguna += 1
+        elif identificador not in citadas:
+            citadas[identificador] = previas.get(identificador) or {
+                "procedencia_id": identificador, "anclable": False,
+                "avisos": ["el fichero anterior citaba esta procedencia y no la traia"]}
+    return citadas, sin_ninguna
+
+
+def _reusable(previo: dict | None, entorno_digest: str, motor_digest: str) -> bool:
+    """Un registro previo vale si lo midio EL MISMO codigo. Vive en una funcion
+    propia desde el 2026-09-12 para poder medirlo sin lanzar los 720 intentos:
+    sobre el JSON del 09-07 devuelve False 720 veces, porque aquel fichero se
+    escribio antes de que los digests se guardaran."""
+    return (previo is not None and previo.get("entorno_digest") == entorno_digest
+            and previo.get("motor_digest") == motor_digest)
+
+
+def _cargar_cache(ruta: Path) -> tuple[dict[tuple, dict], dict]:
+    """Los registros previos Y el fichero entero: desde el 2026-09-12 la salida
+    lleva las procedencias de las pasadas que midieron cada intento, y un
+    intento que se reusa tiene que seguir citando LA SUYA, no la de hoy."""
     if not ruta.exists():
-        return {}
+        return {}, {}
     payload = json.loads(ruta.read_text(encoding="utf-8"))
-    return {(r["dataset"], r["motor"], r["repeticion"], r["pliegue"]): r
-           for r in payload.get("resultados", [])}
+    return ({(r["dataset"], r["motor"], r["repeticion"], r["pliegue"]): r
+            for r in payload.get("resultados", [])}, payload)
 
 
 def cargar_arff(data_id: int) -> tuple[list[dict], str]:
@@ -226,12 +453,32 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--forzar", action="store_true",
                        help="ignora el caché entero, re-ejecuta los 720 intentos")
+    # Añadido el 2026-09-12 para poder MEDIR el cableado de la procedencia sin
+    # relanzar los 720 intentos ni pisar el JSON commiteado: sin esto, el único
+    # modo de comprobar que el bloque llega de verdad al fichero es una lectura
+    # del código, y el hueco está en el CABLEADO catorce veces de cada catorce.
+    parser.add_argument("--salida", default=None,
+                       help="ruta del JSON de salida (por omisión, el de este directorio)")
     args = parser.parse_args()
 
-    ruta_salida = Path(__file__).resolve().parent / "pasada_exploratoria_101_c3_resultado.json"
-    cache_previo = {} if args.forzar else _cargar_cache(ruta_salida)
+    ruta_salida = (Path(args.salida) if args.salida
+                  else Path(__file__).resolve().parent / "pasada_exploratoria_101_c3_resultado.json")
+    cache_previo, payload_previo = ({}, {}) if args.forzar else _cargar_cache(ruta_salida)
     entorno_digest = _digest_entorno()
     digest_por_motor = {nombre: _digest_fichero(ruta) for nombre, ruta in _FICHERO_POR_MOTOR.items()}
+
+    # La procedencia se sella ANTES de medir: describe el arbol con el que se
+    # va a medir, no el que quede al acabar.
+    procedencia = procedencia_de_la_medicion(
+        digests_de_codigo={"entorno": entorno_digest, "por_motor": digest_por_motor},
+        datos_de_entrada={nombre: ARFF_DIR / f"{data_id}.arff"
+                          for data_id, nombre, _cubo, _pos, _neg in DATASETS})
+    for aviso in procedencia["avisos"]:
+        print(f"AVISO DE PROCEDENCIA: {aviso}", flush=True)
+    if payload_previo:
+        declarada = procedencia_declarada(payload_previo)
+        print(f"cache previo: {len(cache_previo)} registros, procedencia "
+             f"{declarada['estado']} -- {declarada['explicacion']}", flush=True)
 
     motores = [MotorBaseline(), MotorLineal(), MotorArbolLightGBM(), MotorDensaPropia()]
     resultados = []
@@ -254,9 +501,13 @@ def main() -> None:
                 for motor in motores:
                     clave = (nombre_ds, motor.nombre, repeticion, pliegue_i)
                     previo = cache_previo.get(clave)
-                    if (previo is not None and previo.get("entorno_digest") == entorno_digest
-                           and previo.get("motor_digest") == digest_por_motor[motor.nombre]):
+                    if _reusable(previo, entorno_digest, digest_por_motor[motor.nombre]):
+                        # `setdefault`, no la de hoy: un intento reusado de un
+                        # fichero anterior al 2026-09-12 no tiene procedencia, y
+                        # ponerle la de esta pasada seria firmar como medido hoy
+                        # un numero de hace cinco dias.
                         registro = dict(previo, reusado=True)
+                        registro.setdefault("procedencia_id", None)
                         resultados.append(registro)
                         reusados += 1
                         continue
@@ -302,6 +553,7 @@ def main() -> None:
                         "wall_s": round(transcurrido, 3), "auroc": auroc, "accuracy": accuracy,
                         "motivo": intento.motivo_del_estado["es"] if intento.motivo_del_estado else None,
                         "entorno_digest": entorno_digest, "motor_digest": digest_por_motor[motor.nombre],
+                        "procedencia_id": procedencia["procedencia_id"],
                         "reusado": False,
                     }
                     resultados.append(registro)
@@ -312,9 +564,21 @@ def main() -> None:
     total = time.perf_counter() - inicio_total
     print(f"\n=== total: {total:.1f}s ({total/60:.1f} min), {len(resultados)} intentos "
          f"({reusados} reusados del caché, {len(resultados) - reusados} ejecutados) ===")
+    if cache_previo and reusados == 0:
+        # El fallo que cerro esta deuda: 0 reusados se lee como «no habia nada
+        # que reusar» cuando en realidad el fichero previo no guardaba los
+        # digests. Medido el 2026-09-12 sobre el JSON del 09-07: 0 de 720.
+        print(f"AVISO DE CACHE: {len(cache_previo)} registros previos y NINGUNO reusable "
+             f"-- {procedencia_declarada(payload_previo)['explicacion']}")
+
+    procedencias, sin_procedencia = _procedencias_citadas(
+        resultados, procedencia, (payload_previo.get("procedencias") or {}))
 
     salida = {
         "creado": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "procedencia": procedencia,
+        "procedencias": procedencias,
+        "n_intentos_sin_procedencia": sin_procedencia,
         "wall_seconds_por_intento": WALL_SECONDS,
         "procesos_en_paralelo": 1,
         "folds": FOLDS, "repeticiones": REPETICIONES_PEQUENO_MEDIANO,

@@ -86,6 +86,22 @@ donde un motor colgado no puede tirar la pasada entera -- un solo caso,
 en el mismo proceso, no necesita esa protección; medirlo así habría
 sido ceremonia sin beneficio real.
 
+PROCEDENCIA EN LA SALIDA (2026-09-12). El `pipeline_digest` que este JSON
+publica como prueba ya NO se reproduce: medido el 09-12 reajustando
+lightgbm sobre el mismo `adult`, el guardado es `b888d0b1…` y hoy sale
+`eeea0cdf…` (el `split_plan_digest`, en cambio, SÍ reproduce:
+`bdef5eb8…`, así que la deriva está en el motor, no en la partición).
+`matrixai-engines` lleva 33 commits desde el 09-07 —entre ellos
+`9eddaf3`, que metió sklearn/lightgbm/torch/onnx en `library_versions`, y
+`library_versions` entra en el `component_id` del predictor y de ahí en el
+digest del pipeline—, pero el JSON no guardaba NI el commit NI las
+versiones, así que la explicación hay que reconstruirla a mano cada vez.
+Ahora la salida lleva el mismo bloque `procedencia` que 101-C3 (importado
+de allí, no copiado: dos sitios declarando lo mismo acaban divergiendo),
+con los commits de los dos repositorios —marcados si el árbol estaba
+sucio—, las versiones cargadas, los digests de código y el sha256 del ARFF
+de entrada.
+
 "REPETICIÓN INDEPENDIENTE", RENOMBRADA A LO QUE MIDE DE VERDAD. La
 auditoría señaló, con razón, que reajustar el MISMO motor sobre los
 MISMOS datos con la MISMA semilla demuestra determinismo, no una
@@ -107,7 +123,8 @@ for ruta in (_RAIZ_DEL_CORE, _RAIZ_DE_ENGINES):
         sys.path.insert(0, str(ruta))
 
 from benchmarks.fase0.pasada_exploratoria_101_c3 import (  # noqa: E402
-    particiones_base, preparar_para_motor)
+    ARFF_DIR, _FICHERO_POR_MOTOR, _digest_entorno, _digest_fichero,
+    particiones_base, preparar_para_motor, procedencia_de_la_medicion)
 
 from matrixai.estudio import ProblemSpec  # noqa: E402
 from matrixai.estudio.accesos import RegistroDeAccesos  # noqa: E402
@@ -196,6 +213,22 @@ def _particiones_de_desarrollo(por_id: dict, pliegue, seed: int):
 
 def main() -> None:
     data_id, nombre_ds, cubo, positiva, negativa = DATASET
+
+    # Se sella ANTES de medir: describe el árbol con el que se va a medir, no
+    # el que quede al acabar. `_digest_entorno()` cubre los ficheros
+    # COMPARTIDOS (incluido `pasada_exploratoria_101_c3.py`, de donde salen
+    # `particiones_base`/`preparar_para_motor`), pero no este fichero, que no
+    # está en esa lista -- va aparte y con su nombre.
+    procedencia = procedencia_de_la_medicion(
+        digests_de_codigo={
+            "entorno": _digest_entorno(),
+            "informe_101_c4.py": _digest_fichero(Path(__file__).resolve()),
+            "por_motor": {nombre: _digest_fichero(ruta)
+                          for nombre, ruta in _FICHERO_POR_MOTOR.items()}},
+        datos_de_entrada={nombre_ds: ARFF_DIR / f"{data_id}.arff"})
+    for aviso in procedencia["avisos"]:
+        print(f"AVISO DE PROCEDENCIA: {aviso}", flush=True)
+
     por_id, propuesta, spec, objetivo, predictores = particiones_base(
         data_id, nombre_ds, cubo, positiva, negativa)
     pliegue = propuesta.pliegues.pliegue_de(repeticion=0, pliegue=0)
@@ -383,6 +416,7 @@ def main() -> None:
 
     salida = {
         "creado": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "procedencia": procedencia,
         "caso": nombre_ds, "ganador": ganador, "decision": decision.a_json(),
         "informe": informe_final.a_json(),
         "repeticion_misma_semilla_reproduce": reproduce,
