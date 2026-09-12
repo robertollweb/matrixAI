@@ -296,3 +296,63 @@ class TestProvenance:
         res = generate_project_from_dataset(_SEMANA_SANTA_CSV, target_column="resultado")
         expected = hashlib.sha256(_SEMANA_SANTA_CSV.encode("utf-8")).hexdigest()
         assert res["provenance"]["raw_csv_sha256"] == expected
+
+
+from matrixai.training.dataset_project import (  # noqa: E402
+    DatasetProjectError, _normalize_labels, _slug)
+
+
+class TestEtiquetasConSigno:
+    """101-C3, cableado — `-1` y `1` se declaraban «la misma etiqueta».
+
+    `_slug` metía el signo menos en la clase de «cualquier símbolo», lo
+    convertía en `_`, y `.strip("_")` lo remataba: `-1` y `1` daban los dos
+    `1`, así que `_normalize_labels` levantaba `DatasetProjectError` diciendo
+    que no se pueden distinguir y pidiendo «unificar el texto de esas filas».
+
+    Costó 15 intentos y un dataset entero, medido: en la pasada exploratoria
+    del 101-C3 (2026-09-07, diagnosticado el 09-12), `PhishingWebsites` tiene
+    la columna objetivo `Result` con valores `-1` y `1`, que es la
+    codificación más común que existe para un problema binario. La red densa
+    perdió los 15 intentos, o sea que en ese dataset **no compitió**, y
+    LightGBM figuraba como mejor sin rival. La regla de cierre del 101-C1
+    leyó esa victoria como buena.
+
+    `-1` y `1` no son un dato ambiguo que alguien deba unificar: son dos
+    valores perfectamente distintos que la normalización estaba fundiendo. Un
+    mensaje correcto sobre un diagnóstico equivocado sigue siendo un fallo.
+    """
+
+    def test_menos_uno_y_uno_YA_NO_son_la_misma_etiqueta(self):
+        etiquetas, mapa = _normalize_labels(["-1", "1"], "Result")
+        assert len(set(etiquetas)) == 2, etiquetas
+        assert mapa["-1"] != mapa["1"]
+
+    def test_el_signo_se_ve_en_la_etiqueta_no_solo_se_evita_el_choque(self):
+        """Evitar la colisión con un sufijo `_2` cualquiera también pasaría el
+        test de arriba, y dejaría una etiqueta que no dice nada. Quien la lee
+        tiene que reconocer el valor del que salió."""
+        assert _slug("-1") == "neg_1"
+        assert _slug("1") == "1"
+
+    def test_un_guion_EN_MEDIO_no_es_un_signo(self):
+        """La otra mitad. Sin ella, la reparación la pasaría una versión que
+        trata cualquier guion como negativo y convierte `alto-riesgo` en
+        `neg_alto_riesgo`, que sería peor que el fallo original."""
+        assert _slug("alto-riesgo") == "alto_riesgo"
+        assert _slug("post-venta") == "post_venta"
+
+    def test_los_decimales_negativos_tenian_el_MISMO_problema(self):
+        assert _slug("-0.5") != _slug("0.5")
+        etiquetas, _ = _normalize_labels(["-0.5", "0.5"], "delta")
+        assert len(set(etiquetas)) == 2
+
+    def test_una_colision_DE_VERDAD_se_sigue_detectando(self):
+        """El detector tiene que seguir haciendo su trabajo: `Sí` y `SI` sí
+        son el mismo texto tras normalizar, y ahí el error es correcto."""
+        with pytest.raises(DatasetProjectError):
+            _normalize_labels(["Sí", "SI"], "respuesta")
+
+    def test_un_valor_sin_nada_alfanumerico_sigue_siendo_error(self):
+        with pytest.raises(DatasetProjectError):
+            _normalize_labels(["###", "otro"], "col")

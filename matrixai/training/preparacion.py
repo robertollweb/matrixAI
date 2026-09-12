@@ -218,6 +218,62 @@ class PoliticaDePreparacion:
             limites=tuple(Limite.desde_json(l) for l in payload.get("limites") or ()))
 
 
+def tipar_columnas_numericas(filas: list[dict[str, Any]],
+                             columnas: Sequence[str]) -> tuple[str, ...]:
+    """Convierte EN SITIO a `float` las columnas cuyo texto parsea entero, y
+    devuelve cuáles tocó.
+
+    `ajustar_preparacion` exige valores YA TIPADOS: su detección de
+    numérica/categórica es `isinstance(v, (int, float))` y nunca intenta
+    parsear texto, **por diseño del núcleo** — que una columna «parezca»
+    numérica no es lo mismo que serlo, y adivinar ahí sería justo lo que este
+    proyecto prohíbe. Pero un `csv.DictReader` da TODO como texto, y un ARFF
+    da como texto las columnas nominales aunque sus valores sean `"0"`/`"1"`.
+
+    **Y los motores SÍ parsean texto.** Ahí está el choque, y ha costado dos
+    fallos distintos:
+
+      · Studio (2026-09): `x1`/`x2`, numéricas de verdad, salían categóricas
+        con valores casi únicos por fila; casi todo pliegue de validación veía
+        «categoría nunca vista en train», el core metía el centinela de texto
+        `__desconocida__` y `float("__desconocida__")` reventaba dentro del
+        subproceso aislado.
+      · Fase 0, pasada exploratoria del 101-C3 (2026-09-07, diagnosticado el
+        12): `Internet-Advertisements` tiene columnas nominales con valores
+        `"0"`/`"1"`. Mismo choque, mismo centinela, **6 intentos perdidos** de
+        `lightgbm` y `sklearn.lineal` — y con ellos el dataset entero para la
+        regla de cierre, que cuenta un fallo como dataset perdido. El veredicto
+        «lightgbm 9/12 = 0,750 < 0,800» se apoyaba en parte en eso.
+
+    La reparación del Studio se escribió allí y el camino de benchmarks nunca
+    la recibió. Se extrae aquí, al núcleo, para que no haya una tercera copia:
+    «antes de copiar una decisión por segunda vez, extraerla».
+
+    Se decide **sobre el conjunto COMPLETO de filas, no por pliegue**: el tipo
+    de una columna no depende de qué filas le tocan a cada pliegue. Y una
+    columna se convierte solo si TODOS sus valores no vacíos parsean; si no, es
+    categórica de verdad y se deja tal cual.
+    """
+    tocadas: list[str] = []
+    for columna in columnas:
+        no_vacios = [f.get(columna) for f in filas]
+        no_vacios = [v for v in no_vacios if v not in (None, "")]
+        if not no_vacios:
+            continue
+        try:
+            tipados = {v: float(v) for v in set(no_vacios)}
+        except (TypeError, ValueError):
+            continue  # columna categórica de verdad -- se deja tal cual
+        if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in no_vacios):
+            continue  # ya estaba tipada: no se toca ni se declara tocada
+        for fila in filas:
+            valor = fila.get(columna)
+            if valor not in (None, ""):
+                fila[columna] = tipados[valor]
+        tocadas.append(columna)
+    return tuple(tocadas)
+
+
 def ajustar_preparacion(filas: Sequence[Mapping[str, Any]], *, objetivo: str,
                         columnas: Sequence[str], admite_categoricas: bool,
                         admite_faltantes: bool) -> PoliticaDePreparacion:

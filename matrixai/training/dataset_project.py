@@ -1775,11 +1775,36 @@ def _check_categorical_values_safe(values: list[str], col: str) -> None:
 def _slug(raw: str) -> str:
     """Como `_identifier` pero SIN el veto de dígito inicial — solo se usa
     como base del prefijo `class_` cuando `_identifier` rechaza un valor
-    por empezar con número (ver `_normalize_labels`)."""
+    por empezar con número (ver `_normalize_labels`).
+
+    **El SIGNO se conserva** (`-1` → `neg_1`), y no es un detalle de estilo.
+    Antes el menos caía en la clase de «cualquier símbolo» y se convertía en
+    `_`, que `.strip("_")` remataba: `-1` y `1` daban los dos `1`, y
+    `_normalize_labels` los declaraba «la misma etiqueta tras normalizar».
+
+    Costó 15 intentos y un dataset entero, medido: en la pasada exploratoria
+    del 101-C3 (2026-09-07, diagnosticado el 09-12), `PhishingWebsites` tiene
+    la columna objetivo `Result` con valores `-1` y `1` — la codificación más
+    común que existe para un problema binario. La red densa perdió los 15
+    intentos con `DatasetProjectError`, así que en ese dataset no compitió, y
+    LightGBM figuraba como mejor **sin rival**. La regla de cierre del 101-C1
+    leía esa victoria como buena.
+
+    `-1` y `1` no son un dato ambiguo que alguien deba «unificar antes de
+    generar el modelo», que es lo que el error pedía: son dos valores
+    perfectamente distintos que la normalización estaba fundiendo. Un mensaje
+    correcto sobre un diagnóstico equivocado sigue siendo un fallo.
+
+    `-0,5` frente a `0,5` tenía exactamente el mismo problema, por el mismo
+    motivo.
+    """
     text = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+    # Solo un signo de VERDAD al principio, no un guion en medio de una
+    # palabra: «alto-riesgo» tiene que seguir dando `alto_riesgo`.
+    negativo = bool(re.match(r"^\s*-\s*[0-9.,]", text))
     text = re.sub(r"[^0-9A-Za-z_]+", "_", text)
     text = re.sub(r"_+", "_", text).strip("_").lower()
-    return text
+    return f"neg_{text}" if (negativo and text) else text
 
 
 def _normalize_labels(

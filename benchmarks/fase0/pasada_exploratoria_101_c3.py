@@ -70,7 +70,8 @@ for ruta in (_RAIZ_DEL_CORE, _RAIZ_DE_ENGINES):
 from matrixai.estudio import ProblemSpec  # noqa: E402
 from matrixai.estudio.validacion import digest_canonico  # noqa: E402
 from matrixai.training.particion_por_diseno import proponer_particion  # noqa: E402
-from matrixai.training.preparacion import ajustar_preparacion, transformar_fila  # noqa: E402
+from matrixai.training.preparacion import (ajustar_preparacion,  # noqa: E402
+                                           tipar_columnas_numericas, transformar_fila)
 
 from matrixai_engines.particiones import Particion, Presupuesto  # noqa: E402
 from matrixai_engines.motores.baseline import MotorBaseline  # noqa: E402
@@ -188,6 +189,23 @@ def particiones_base(data_id: int, nombre_ds: str, cubo: str, positiva: str, neg
     filas, objetivo = cargar_arff(data_id)
     filas_con_objetivo = [f for f in filas if f[objetivo] is not None]
     predictores = tuple(k for k in filas[0] if k not in ("row_id", objetivo))
+
+    # SIN ESTO, 6 intentos perdidos en `Internet-Advertisements` — medido en la
+    # pasada del 2026-09-07 y diagnosticado el 09-12. Un ARFF entrega como
+    # TEXTO sus columnas nominales, aunque sus valores sean `"0"`/`"1"`.
+    # `ajustar_preparacion` no parsea texto (por diseño del núcleo: que una
+    # columna «parezca» numérica no es serlo), así que las ve categóricas y
+    # mete el centinela `__desconocida__` cuando una categoría no aparecía en
+    # train. Los motores SÍ parsean, ven la columna numérica, y
+    # `float("__desconocida__")` revienta dentro del subproceso aislado.
+    #
+    # El dataset entero se perdía para la regla de cierre, que cuenta un fallo
+    # como dataset perdido — y el veredicto «lightgbm 9/12 = 0,750 < 0,800» se
+    # apoyaba en parte en eso, con una distancia REAL de 1,15 puntos, dentro
+    # del margen de 2. El Studio ya tenía esta reparación desde el 09; este
+    # camino nunca la recibió, y por eso la función vive ahora en el núcleo en
+    # vez de en una tercera copia.
+    tipar_columnas_numericas(filas_con_objetivo, predictores)
 
     propuesta = proponer_particion(
         filas_con_objetivo, plan_id=f"101c3-{nombre_ds}", observation_id_field="row_id",

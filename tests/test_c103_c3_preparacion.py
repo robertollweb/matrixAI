@@ -19,6 +19,7 @@ from matrixai.training.preparacion import (
     UMBRAL_AVISO_FALTANTES,
     PoliticaDePreparacion,
     ajustar_preparacion,
+    tipar_columnas_numericas,
     transformar_fila,
 )
 from matrixai.training.preparacion_textos import IDIOMAS, MOTIVOS, huecos_de, motivo
@@ -324,3 +325,97 @@ class ColisionDelIndicadorTest(unittest.TestCase):
         self.assertEqual(transformada["x__faltante"], 5.0)
         # Y el indicador de la columna real sí se genera con su propio nombre.
         self.assertEqual(transformada["x__faltante__faltante"], 0.0)
+
+
+class TiparColumnasNumericasTest(unittest.TestCase):
+    """101-C3 / 103-C3, cableado — el choque de tipos que costó un dataset
+    entero en la pasada exploratoria de Fase 0.
+
+    `ajustar_preparacion` NO parsea texto, por diseño del núcleo: que una
+    columna «parezca» numérica no es lo mismo que serlo, y adivinar ahí sería
+    justo lo que este proyecto prohíbe. Pero los MOTORES sí parsean. Cuando la
+    fuente entrega texto (un `csv.DictReader`, o un ARFF con columnas
+    nominales de valores `"0"`/`"1"`), los dos lados tipan distinto: el núcleo
+    ve categórica, mete el centinela `__desconocida__` para una categoría no
+    vista en train, y el motor —que la ve numérica— revienta con
+    `float("__desconocida__")`.
+
+    Medido sobre `Internet-Advertisements` (2026-09-12): **1372 centinelas en
+    101 columnas** sin esta función, **0** con ella. Eso costó 6 intentos, y
+    con ellos el dataset entero para la regla de cierre del 101-C1, que cuenta
+    un fallo como dataset perdido.
+
+    La reparación existía en el Studio desde el 09 y el camino de benchmarks
+    nunca la recibió. Vive aquí para que no haya una tercera copia.
+    """
+
+    def test_una_columna_de_texto_que_TODO_parsea_se_convierte(self):
+        filas = [{"a": "0"}, {"a": "1"}, {"a": "2"}]
+        self.assertEqual(tipar_columnas_numericas(filas, ("a",)), ("a",))
+        self.assertEqual([f["a"] for f in filas], [0.0, 1.0, 2.0])
+
+    def test_una_categorica_DE_VERDAD_se_deja_tal_cual(self):
+        """La otra mitad. Sin ella, la función la pasaría una versión que
+        convierte todo y rompe las categóricas de verdad, que es un daño mayor
+        que el que repara."""
+        filas = [{"a": "rojo"}, {"a": "azul"}]
+        self.assertEqual(tipar_columnas_numericas(filas, ("a",)), ())
+        self.assertEqual([f["a"] for f in filas], ["rojo", "azul"])
+
+    def test_UN_solo_valor_no_numerico_deja_la_columna_ENTERA_como_esta(self):
+        """«Todos o ninguno», no valor a valor: convertir la mitad dejaría una
+        columna con floats y textos mezclados, que es peor que cualquiera de
+        las dos cosas."""
+        filas = [{"a": "0"}, {"a": "1"}, {"a": "N/A"}]
+        self.assertEqual(tipar_columnas_numericas(filas, ("a",)), ())
+        self.assertEqual([f["a"] for f in filas], ["0", "1", "N/A"])
+
+    def test_los_huecos_no_cuentan_ni_se_rellenan(self):
+        filas = [{"a": "0"}, {"a": ""}, {"a": None}, {"a": "2"}]
+        self.assertEqual(tipar_columnas_numericas(filas, ("a",)), ("a",))
+        self.assertEqual([f["a"] for f in filas], [0.0, "", None, 2.0])
+
+    def test_una_columna_YA_tipada_no_se_declara_tocada(self):
+        """Declarar que se tocó algo que no se tocó es declarar lo que se
+        pidió y no lo que pasó: quien lea el retorno no puede distinguir un
+        CSV de texto de un DataFrame ya tipado."""
+        filas = [{"a": 1.5}, {"a": 2.5}]
+        self.assertEqual(tipar_columnas_numericas(filas, ("a",)), ())
+
+    def test_una_columna_vacia_entera_no_estalla(self):
+        filas = [{"a": None}, {"a": ""}]
+        self.assertEqual(tipar_columnas_numericas(filas, ("a",)), ())
+
+    def test_solo_toca_las_columnas_QUE_SE_LE_PIDEN(self):
+        """El desenlace no es un predictor y no se tipa por su cuenta: en una
+        clasificación con clases `"0"`/`"1"` convertirlas a float cambiaría
+        las etiquetas del problema."""
+        filas = [{"a": "0", "y": "1"}, {"a": "1", "y": "0"}]
+        tipar_columnas_numericas(filas, ("a",))
+        self.assertEqual([f["y"] for f in filas], ["1", "0"])
+
+    def test_el_CENTINELA_desaparece_del_camino_completo(self):
+        """Por el producto y no solo por la función: se recorre
+        `ajustar_preparacion` + `transformar_fila` de verdad, con una columna
+        de texto cuyo valor nuevo solo aparece fuera de train. Es la forma
+        exacta en que el fallo se manifestó."""
+        train = [{"row_id": str(i), "ind": "0", "y": "si" if i % 2 else "no"}
+                 for i in range(40)]
+        fuera = [{"row_id": "99", "ind": "1", "y": "si"}]   # "1" nunca visto en train
+
+        sin_tipar = [dict(f) for f in train + fuera]
+        politica = ajustar_preparacion(sin_tipar[:40], objetivo="y", columnas=("ind",),
+                                       admite_categoricas=True, admite_faltantes=True)
+        centinelas = sum(1 for f in sin_tipar
+                         for v in transformar_fila(f, politica).values()
+                         if v == "__desconocida__")
+        self.assertGreater(centinelas, 0, "el fallo original ya no se reproduce")
+
+        con_tipar = [dict(f) for f in train + fuera]
+        tipar_columnas_numericas(con_tipar, ("ind",))
+        politica2 = ajustar_preparacion(con_tipar[:40], objetivo="y", columnas=("ind",),
+                                        admite_categoricas=True, admite_faltantes=True)
+        centinelas2 = sum(1 for f in con_tipar
+                          for v in transformar_fila(f, politica2).values()
+                          if v == "__desconocida__")
+        self.assertEqual(centinelas2, 0)
