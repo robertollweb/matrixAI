@@ -21,6 +21,7 @@ import unittest
 from pathlib import Path
 
 from benchmarks.fase0.protocolo import (
+    ANCLAS_DE_ESCALADO,
     aplicar_regla_de_cierre,
     CosteDeLaPasada,
     DatasetRegistrado,
@@ -31,6 +32,10 @@ from benchmarks.fase0.protocolo import (
     ProtocoloExploratorio,
     ReglaDeCierre,
     calcular_coste,
+    cpus_disponibles,
+    nucleos_fisicos,
+    reserva_segura,
+    speedup_medido,
 )
 
 _RUTA_PROTOCOLO_REAL = Path(__file__).resolve().parents[1] / "benchmarks" / "fase0" / "protocolo_exploratorio.json"
@@ -310,16 +315,17 @@ class ProtocoloRealRegistradoTest(unittest.TestCase):
                         "la decisión confirmada fue torch-CPU en el ranking, no stdlib")
 
     def test_coste_guardado_coincide_con_recalcularlo(self):
-        recalculado = calcular_coste(self.protocolo)
+        """`cpus` va FIJADO a las CPUs lógicas que el propio protocolo declara
+        en `recursos_declarados`: el coste guardado describe la máquina
+        registrada, no el ordenador donde se corra la suite — si no, esta
+        prueba se pondría roja en cualquier máquina con otro número de CPUs."""
+        cpus = self.payload["recursos_declarados"]["cpu_logicas"]
+        recalculado = calcular_coste(self.protocolo, cpus=cpus)
         self.assertEqual(self.payload["coste_calculado"], recalculado.a_json())
 
     def test_regla_de_cierre_es_la_confirmada_dos_puntos_80_por_ciento(self):
         self.assertEqual(self.protocolo.regla_de_cierre.puntos, 2.0)
         self.assertEqual(self.protocolo.regla_de_cierre.fraccion_minima, 0.80)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class AplicarReglaDeCierreTest(unittest.TestCase):
@@ -396,3 +402,284 @@ class AplicarReglaDeCierreTest(unittest.TestCase):
         r = aplicar_regla_de_cierre(registros, protocolo.regla_de_cierre, motor="lightgbm")
         self.assertEqual((r["cumplidos"], r["datasets"]), (9, 12))
         self.assertFalse(r["cumple_la_regla"])
+
+
+# ---------------------------------------------------------------------------
+# 101-C1/C2 — sobre-reserva de concurrencia
+# ---------------------------------------------------------------------------
+# La deuda literal: «4 hilos x 6 procesos = 24 sobre 8 CPUs lógicas reales, y
+# `calcular_coste()` divide linealmente sin contar la contención».
+#
+# Cada afirmación va con SUS DOS MITADES a propósito: sin la mitad de «con
+# holgura sí usa lo que hay», un techo que reservase siempre 1 proceso pasaría
+# por reparación y haría la pasada eterna.
+
+
+class CpusDisponiblesTest(unittest.TestCase):
+    def test_nunca_devuelve_cero_ni_negativo(self):
+        self.assertGreaterEqual(cpus_disponibles(), 1)
+
+    def test_no_pasa_de_la_afinidad_del_proceso(self):
+        """`os.cpu_count()` cuenta las del HOST: en esta máquina 8 de afinidad
+        frente a las 128 que declara `nproc --all`. Reservar por `cpu_count`
+        sería reservar 16 veces lo que hay."""
+        import os
+        self.assertLessEqual(cpus_disponibles(), len(os.sched_getaffinity(0)))
+
+    def test_bajo_taskset_manda_la_afinidad_y_no_el_recuento_del_host(self):
+        """CON DIENTES: sin restringir, `os.cpu_count()` y la afinidad dan lo
+        mismo (8) y confundirlos no se nota. Bajo `taskset -c 0,1` se separan
+        —afinidad 2, `cpu_count` 8— y usar `cpu_count` reservaría CUATRO veces
+        lo que toca. Se mide de verdad, en un subproceso restringido: no hay
+        forma honesta de comprobar esto sin restringir la afinidad."""
+        import shutil, subprocess, sys as _sys
+        if shutil.which("taskset") is None:
+            self.skipTest("sin taskset: no se puede restringir la afinidad")
+        guion = (
+            "import sys, os; sys.path.insert(0, %r);"
+            "from protocolo import cpus_disponibles;"
+            "print(cpus_disponibles(), os.cpu_count())"
+            % str(_RUTA_PROTOCOLO_REAL.parent)
+        )
+        salida = subprocess.run(["taskset", "-c", "0,1", _sys.executable, "-c", guion],
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(salida.returncode, 0, salida.stderr)
+        medido, del_host = (int(x) for x in salida.stdout.split())
+        self.assertEqual(medido, 2, "no respetó la afinidad de taskset")
+        self.assertLessEqual(medido, del_host)
+
+    def test_la_cuota_de_cgroup_manda_cuando_existe(self):
+        """`docker --cpus=2` se ve como «200000 100000». Esta máquina no tiene
+        cuota, así que sin fichero de prueba esta rama no se probaría nunca."""
+        import tempfile
+        from benchmarks.fase0.protocolo import _cuota_de_cgroup
+        with tempfile.TemporaryDirectory() as d:
+            ruta = Path(d) / "cpu.max"
+            ruta.write_text("200000 100000", encoding="utf-8")
+            self.assertEqual(_cuota_de_cgroup(ruta), 2)
+
+    def test_max_significa_sin_tope_no_cero(self):
+        """«Un valor ausente no es un cero»: `max` es SIN cuota, y devolver 0
+        aquí haría que `cpus_disponibles` reservase 1 en toda máquina sin
+        contenedor."""
+        import tempfile
+        from benchmarks.fase0.protocolo import _cuota_de_cgroup
+        with tempfile.TemporaryDirectory() as d:
+            ruta = Path(d) / "cpu.max"
+            ruta.write_text("max 100000", encoding="utf-8")
+            self.assertIsNone(_cuota_de_cgroup(ruta))
+
+    def test_nucleos_fisicos_no_supera_a_las_logicas(self):
+        """Medido aquí: 4 físicos, 8 lógicos (SMT x2). `None` es «no lo sé»,
+        que es una respuesta válida y no un cero."""
+        fisicos = nucleos_fisicos()
+        if fisicos is not None:
+            self.assertGreaterEqual(fisicos, 1)
+            self.assertLessEqual(fisicos, cpus_disponibles())
+
+
+class SpeedupMedidoTest(unittest.TestCase):
+    """MITAD 1: no promete más de lo que la máquina da.
+    MITAD 2: con holgura sí sube — si no, «reservar 1 siempre» pasaría."""
+
+    def test_reservar_de_mas_no_da_mas_que_llenar_la_maquina(self):
+        """El caso de la deuda: 24 hilos sobre 8 CPUs. La división lineal daba
+        6x (un proceso por cada 4 hilos); lo medido es el techo 4,69x, y 24
+        hilos no rinden más que 8."""
+        lleno = speedup_medido(8, cpus=8)
+        self.assertEqual(speedup_medido(24, cpus=8), lleno)
+        self.assertEqual(speedup_medido(96, cpus=8), lleno)
+        self.assertLess(speedup_medido(24, cpus=8), 6.0)
+
+    def test_el_techo_es_el_medido_469_en_ocho_cpus(self):
+        self.assertAlmostEqual(speedup_medido(8, cpus=8), 4.69, places=2)
+
+    def test_nunca_supera_el_numero_de_cpus(self):
+        """Ningún reparto puede sacar de N CPUs más de N veces un hilo."""
+        for cpus in (1, 2, 4, 8, 16):
+            for hilos in (1, 2, 3, 4, 8, 16, 24, 64):
+                self.assertLessEqual(speedup_medido(hilos, cpus=cpus), cpus + 1e-9,
+                                     f"{hilos} hilos sobre {cpus} CPUs prometen más que las CPUs")
+
+    def test_con_holgura_usa_lo_que_hay(self):
+        """LA OTRA MITAD. Con 4 hilos de 8 lo medido es 3,60x — muy por encima
+        de 1. Una versión que devolviese siempre 1,0 «no se pasaría» de las
+        CPUs y aun así sería una reparación inútil: esta prueba la caza."""
+        self.assertGreater(speedup_medido(4, cpus=8), 3.0)
+        self.assertGreater(speedup_medido(2, cpus=8), 1.5)
+        self.assertGreater(speedup_medido(8, cpus=8), speedup_medido(4, cpus=8))
+
+    def test_es_monotono_no_decreciente(self):
+        previo = 0.0
+        for hilos in range(1, 33):
+            actual = speedup_medido(hilos, cpus=8)
+            self.assertGreaterEqual(actual, previo - 1e-9,
+                                    f"añadir hilos bajó el speedup en {hilos}")
+            previo = actual
+
+    def test_un_solo_hilo_es_la_base(self):
+        self.assertAlmostEqual(speedup_medido(1, cpus=8), 1.0, places=2)
+
+    def test_las_anclas_son_las_medidas_y_estan_ordenadas(self):
+        """Si alguien retoca la tabla medida, que se vea aquí: son MEDICIONES
+        del 2026-09-12, no parámetros que se ajusten a gusto."""
+        self.assertEqual(ANCLAS_DE_ESCALADO, ((1, 1.00), (4, 3.60), (8, 4.69)))
+        hilos = [h for h, _ in ANCLAS_DE_ESCALADO]
+        self.assertEqual(hilos, sorted(hilos))
+
+    def test_rechaza_entradas_absurdas(self):
+        with self.assertRaises(ProtocoloError):
+            speedup_medido(0, cpus=8)
+        with self.assertRaises(ProtocoloError):
+            speedup_medido(4, cpus=0)
+
+
+class ReservaSeguraTest(unittest.TestCase):
+    """El límite duro: nunca reservar más hilos que CPUs hay."""
+
+    def test_el_caso_de_la_deuda_cuatro_hilos_en_ocho_cpus_son_dos_procesos(self):
+        """Lo registrado eran 6 procesos (24 hilos). Caben 2."""
+        self.assertEqual(reserva_segura(4, cpus=8), 2)
+
+    def test_nunca_reserva_mas_hilos_que_cpus(self):
+        for cpus in (1, 2, 4, 8, 16, 64):
+            for hilos in (1, 2, 3, 4, 5, 8, 16):
+                procesos = reserva_segura(hilos, cpus=cpus)
+                if hilos <= cpus:
+                    self.assertLessEqual(procesos * hilos, cpus,
+                                         f"{procesos}x{hilos} se pasa de {cpus} CPUs")
+
+    def test_con_holgura_usa_lo_que_hay(self):
+        """LA OTRA MITAD: 1 hilo por proceso sobre 8 CPUs son 8 procesos, no 1.
+        Un `return 1` pasaría la mitad de arriba y estrangularía la pasada."""
+        self.assertEqual(reserva_segura(1, cpus=8), 8)
+        self.assertEqual(reserva_segura(2, cpus=8), 4)
+        self.assertEqual(reserva_segura(1, cpus=64), 64)
+
+    def test_nunca_devuelve_cero_aunque_un_proceso_solo_ya_se_pase(self):
+        """No lanzar nada no es una opción: 1 proceso, y `sobre_reserva` es
+        quien avisa de que ese proceso solo ya se pasa."""
+        self.assertEqual(reserva_segura(16, cpus=8), 1)
+        self.assertEqual(reserva_segura(1000, cpus=1), 1)
+
+    def test_rechaza_entradas_absurdas(self):
+        with self.assertRaises(ProtocoloError):
+            reserva_segura(0, cpus=8)
+        with self.assertRaises(ProtocoloError):
+            reserva_segura(4, cpus=0)
+
+
+class PresupuestoReservaTest(unittest.TestCase):
+    def _presupuesto(self, **kw):
+        base = dict(minutos_por_cubo={"pequeno": 2.0, "mediano": 5.0, "grande": 10.0})
+        base.update(kw)
+        return PresupuestoPorCubo(**base)
+
+    def test_hilos_reservados_son_hilos_por_procesos(self):
+        """El número de la deuda: 4 x 6 = 24."""
+        self.assertEqual(self._presupuesto(hilos=4, procesos_en_paralelo=6).hilos_reservados, 24)
+
+    def test_sobre_reserva_cuenta_los_hilos_de_mas(self):
+        self.assertEqual(self._presupuesto(hilos=4, procesos_en_paralelo=6).sobre_reserva(cpus=8), 16)
+
+    def test_sin_sobre_reserva_cuando_cabe(self):
+        """LA OTRA MITAD: si cabe, es 0 — no un aviso permanente que se acabe
+        ignorando por salir siempre."""
+        self.assertEqual(self._presupuesto(hilos=4, procesos_en_paralelo=2).sobre_reserva(cpus=8), 0)
+        self.assertEqual(self._presupuesto(hilos=1, procesos_en_paralelo=8).sobre_reserva(cpus=8), 0)
+
+    def test_procesos_que_caben_dice_el_arreglo(self):
+        self.assertEqual(self._presupuesto(hilos=4, procesos_en_paralelo=6).procesos_que_caben(cpus=8), 2)
+
+    def test_los_campos_derivados_no_entran_en_el_json_ni_en_el_digest(self):
+        """Serializarlos ataría el digest registrado a la máquina que lo
+        serializa: el mismo protocolo daría hashes distintos en dos
+        ordenadores, y el invariante 1 dejaría de significar nada."""
+        b = self._presupuesto(hilos=4, procesos_en_paralelo=6)
+        self.assertEqual(set(b.a_json()), {"minutos_por_cubo", "hilos", "procesos_en_paralelo"})
+
+
+class CosteConContencionTest(unittest.TestCase):
+    """`calcular_coste` ya no divide linealmente y calla: declara las dos
+    cuentas y en qué se diferencian."""
+
+    def _protocolo(self, hilos=4, procesos=6):
+        return _protocolo_minimo(presupuesto=PresupuestoPorCubo(
+            minutos_por_cubo={"pequeno": 2.0, "mediano": 5.0, "grande": 10.0},
+            hilos=hilos, procesos_en_paralelo=procesos))
+
+    def test_declara_la_sobre_reserva_en_vez_de_callarla(self):
+        c = calcular_coste(self._protocolo(), cpus=8)
+        self.assertEqual(c.hilos_reservados, 24)
+        self.assertEqual(c.cpus_disponibles, 8)
+        self.assertEqual(c.sobre_reserva, 16)
+
+    def test_el_suelo_medido_es_mayor_que_la_division_lineal(self):
+        """Si se reserva de más, el tiempo REAL no puede ser el que promete
+        dividir por 6: el suelo medido tiene que salir MAYOR. Un modelo que
+        siguiera dividiendo linealmente daría los dos números iguales."""
+        c = calcular_coste(self._protocolo(), cpus=8)
+        self.assertGreater(c.horas_reloj_suelo_medido, c.horas_reloj_peor_caso_con_paralelismo)
+
+    def test_conserva_la_division_lineal_ya_publicada(self):
+        """La cota de 74,93 h del protocolo registrado NO se sustituye en
+        silencio: sigue ahí, con su nombre, junto al número nuevo."""
+        c = calcular_coste(self._protocolo(), cpus=8)
+        self.assertAlmostEqual(c.horas_reloj_peor_caso_con_paralelismo,
+                               c.horas_reloj_peor_caso_secuencial / 6, places=2)
+
+    def test_sin_sobre_reserva_los_dos_numeros_se_acercan(self):
+        """LA OTRA MITAD: con una reserva que cabe (2 procesos x 4 hilos = 8),
+        no hay sobre-reserva y el suelo medido no se dispara. Sin esta mitad,
+        un modelo que siempre inflara las horas pasaría por reparación."""
+        c = calcular_coste(self._protocolo(procesos=2), cpus=8)
+        self.assertEqual(c.sobre_reserva, 0)
+        self.assertLess(c.horas_reloj_suelo_medido, 2.0 * c.horas_reloj_peor_caso_con_paralelismo)
+
+    def test_el_speedup_declarado_nunca_pasa_de_las_cpus(self):
+        for procesos in (1, 2, 6, 12):
+            c = calcular_coste(self._protocolo(procesos=procesos), cpus=8)
+            self.assertLessEqual(c.speedup_efectivo_medido, 8.0)
+
+    def test_las_ejecuciones_no_cambian_al_contar_la_contencion(self):
+        """La contención afecta al RELOJ, no al número de ajustes: 6.500
+        siguen siendo 6.500."""
+        self.assertEqual(calcular_coste(self._protocolo(), cpus=8).total_ejecuciones,
+                         calcular_coste(self._protocolo(procesos=2), cpus=8).total_ejecuciones)
+
+    def test_el_json_lleva_los_campos_nuevos(self):
+        d = calcular_coste(self._protocolo(), cpus=8).a_json()
+        for clave in ("hilos_reservados", "cpus_disponibles", "sobre_reserva",
+                      "speedup_efectivo_medido", "horas_reloj_suelo_medido"):
+            self.assertIn(clave, d)
+
+
+class ProtocoloRegistradoSobreReservaTest(unittest.TestCase):
+    """El protocolo REAL registrado, con los números de la deuda. Es la guarda
+    de regresión: si alguien vuelve a poner 6 procesos x 4 hilos creyendo que
+    caben, esto lo dice con nombres y números."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.protocolo = ProtocoloExploratorio.cargar(_RUTA_PROTOCOLO_REAL)
+        cls.coste = calcular_coste(cls.protocolo, cpus=8)
+
+    def test_el_protocolo_registrado_reserva_24_hilos_sobre_8_cpus(self):
+        self.assertEqual(self.protocolo.presupuesto.hilos_reservados, 24)
+        self.assertEqual(self.coste.sobre_reserva, 16)
+
+    def test_la_cota_lineal_publicada_sigue_siendo_7493_horas(self):
+        self.assertAlmostEqual(self.coste.horas_reloj_peor_caso_con_paralelismo, 74.93, places=2)
+
+    def test_el_suelo_medido_es_9586_horas(self):
+        """Número NUEVO, no sustituto: con el techo medido 4,69x (no 6x) las
+        449,58 h secuenciales dan 95,86 h, no 74,93."""
+        self.assertAlmostEqual(self.coste.horas_reloj_suelo_medido, 95.86, places=2)
+        self.assertAlmostEqual(self.coste.speedup_efectivo_medido, 4.69, places=2)
+
+    def test_lo_que_cabria_son_dos_procesos_no_seis(self):
+        self.assertEqual(self.protocolo.presupuesto.procesos_que_caben(cpus=8), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -847,6 +847,11 @@
     "horas_reloj_peor_caso_secuencial": 449.58,
     "horas_reloj_peor_caso_con_paralelismo": 74.93,
     "dias_peor_caso_con_paralelismo": 3.12,
-    "procesos_en_paralelo": 6
+    "procesos_en_paralelo": 6,
+    "hilos_reservados": 24,
+    "cpus_disponibles": 8,
+    "sobre_reserva": 16,
+    "speedup_efectivo_medido": 4.69,
+    "horas_reloj_suelo_medido": 95.86
   }
 }
