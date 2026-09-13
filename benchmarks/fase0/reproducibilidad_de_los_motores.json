@@ -1,0 +1,166 @@
+{
+  "creado": "2026-09-13T06:18:20Z",
+  "que_mide": "repeticion del ajuste en PROCESOS SEPARADOS contra un digest de referencia calculado fuera (criterio 101-C4)",
+  "que_NO_mide": "estabilidad ante semillas distintas — eso es otra cosa y esta medido aparte (la densa mueve hasta 8,66 puntos de AUROC entre semillas en climate-model)",
+  "dataset": {
+    "data_id": 1063,
+    "nombre": "kc2",
+    "cubo": "pequeno",
+    "filas": 522,
+    "predictores": 22
+  },
+  "semilla": 7,
+  "wall_seconds_por_intento": 120,
+  "repeticiones_por_motor": 2,
+  "motores": {
+    "baseline": {
+      "version": "1.0.0",
+      "repeticiones": 3,
+      "identico": true,
+      "digests": [
+        "671b69d7e18ee8363fdc10c9c6e9a46135f1f01b3d3261335ee34605d4521cf3",
+        "671b69d7e18ee8363fdc10c9c6e9a46135f1f01b3d3261335ee34605d4521cf3",
+        "671b69d7e18ee8363fdc10c9c6e9a46135f1f01b3d3261335ee34605d4521cf3"
+      ],
+      "digest_de_referencia": "671b69d7e18ee8363fdc10c9c6e9a46135f1f01b3d3261335ee34605d4521cf3",
+      "tolerancia_medida": null,
+      "entorno": {
+        "python": "3.12.3",
+        "numpy": "2.4.4",
+        "threadpoolctl": "3.6.0",
+        "matrixai_core": "1.7.1",
+        "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+        "scikit-learn": "1.8.0",
+        "lightgbm": "4.7.0",
+        "torch": "2.11.0+cpu",
+        "onnx": "1.21.0",
+        "onnxmltools": "1.16.0",
+        "onnxruntime": "1.26.0",
+        "scipy": "1.17.1",
+        "engine": "baseline",
+        "engine_version": "1.0.0",
+        "medido": "entrenamiento_en_otro_proceso",
+        "seed_solicitada": "7",
+        "seed_efectiva": "7",
+        "hilos_solicitados": "1",
+        "hilos_efectivos": "1",
+        "backend_de_hilos": "openblas",
+        "aislamiento": "proceso del sistema (spawn)"
+      },
+      "coinciden_entre_procesos_aislados": true
+    },
+    "sklearn.lineal": {
+      "version": "1.1.0+sklearn1.8.0",
+      "repeticiones": 3,
+      "identico": true,
+      "digests": [
+        "e5aa2fab36fd412acc667abc62009ffee31a61d06d3903448af6a1304c24ed4a",
+        "e5aa2fab36fd412acc667abc62009ffee31a61d06d3903448af6a1304c24ed4a",
+        "e5aa2fab36fd412acc667abc62009ffee31a61d06d3903448af6a1304c24ed4a"
+      ],
+      "digest_de_referencia": "e5aa2fab36fd412acc667abc62009ffee31a61d06d3903448af6a1304c24ed4a",
+      "tolerancia_medida": null,
+      "entorno": {
+        "python": "3.12.3",
+        "numpy": "2.4.4",
+        "threadpoolctl": "3.6.0",
+        "matrixai_core": "1.7.1",
+        "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+        "scikit-learn": "1.8.0",
+        "lightgbm": "4.7.0",
+        "torch": "2.11.0+cpu",
+        "onnx": "1.21.0",
+        "onnxmltools": "1.16.0",
+        "onnxruntime": "1.26.0",
+        "scipy": "1.17.1",
+        "engine": "sklearn.lineal",
+        "engine_version": "1.1.0+sklearn1.8.0",
+        "medido": "entrenamiento_en_otro_proceso",
+        "seed_solicitada": "7",
+        "seed_efectiva": "7",
+        "hilos_solicitados": "1",
+        "hilos_efectivos": "1",
+        "backend_de_hilos": "openblas",
+        "aislamiento": "proceso del sistema (spawn)"
+      },
+      "coinciden_entre_procesos_aislados": true
+    },
+    "lightgbm": {
+      "version": "1.0.0+lightgbm4.7.0",
+      "repeticiones": 3,
+      "identico": true,
+      "digests": [
+        "8f1909797eb733d388b4bf81d0fcae9b258e28d575698b91d219e2e6e7c59bed",
+        "8f1909797eb733d388b4bf81d0fcae9b258e28d575698b91d219e2e6e7c59bed",
+        "8f1909797eb733d388b4bf81d0fcae9b258e28d575698b91d219e2e6e7c59bed"
+      ],
+      "digest_de_referencia": "8f1909797eb733d388b4bf81d0fcae9b258e28d575698b91d219e2e6e7c59bed",
+      "tolerancia_medida": null,
+      "entorno": {
+        "python": "3.12.3",
+        "numpy": "2.4.4",
+        "threadpoolctl": "3.6.0",
+        "matrixai_core": "1.7.1",
+        "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+        "scikit-learn": "1.8.0",
+        "lightgbm": "4.7.0",
+        "torch": "2.11.0+cpu",
+        "onnx": "1.21.0",
+        "onnxmltools": "1.16.0",
+        "onnxruntime": "1.26.0",
+        "scipy": "1.17.1",
+        "engine": "lightgbm",
+        "engine_version": "1.0.0+lightgbm4.7.0",
+        "medido": "entrenamiento_en_otro_proceso",
+        "seed_solicitada": "7",
+        "seed_efectiva": "7",
+        "hilos_solicitados": "1",
+        "hilos_efectivos": "1",
+        "backend_de_hilos": "openblas",
+        "aislamiento": "proceso del sistema (spawn)"
+      },
+      "coinciden_entre_procesos_aislados": true
+    },
+    "matrixai.dense.torch_cpu": {
+      "version": "1.0.0+matrixai1.7.1",
+      "repeticiones": 3,
+      "identico": false,
+      "digests": [
+        "666835c4c0aa12e9a1e1ddce36b78efaf891b10f8691f46106fc85f1b6627088",
+        "8500b5a2b822ddf5223dc76ee66e1a6218f6a7ca484e5567e5a54c13bfeffba7",
+        "8500b5a2b822ddf5223dc76ee66e1a6218f6a7ca484e5567e5a54c13bfeffba7"
+      ],
+      "digest_de_referencia": "666835c4c0aa12e9a1e1ddce36b78efaf891b10f8691f46106fc85f1b6627088",
+      "tolerancia_medida": {
+        "fraccion_digests_distintos": 1.0
+      },
+      "entorno": {
+        "python": "3.12.3",
+        "numpy": "2.4.4",
+        "threadpoolctl": "3.6.0",
+        "matrixai_core": "1.7.1",
+        "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+        "scikit-learn": "1.8.0",
+        "lightgbm": "4.7.0",
+        "torch": "2.11.0+cpu",
+        "onnx": "1.21.0",
+        "onnxmltools": "1.16.0",
+        "onnxruntime": "1.26.0",
+        "scipy": "1.17.1",
+        "engine": "matrixai.dense.torch_cpu",
+        "engine_version": "1.0.0+matrixai1.7.1",
+        "medido": "entrenamiento_en_otro_proceso",
+        "seed_solicitada": "7",
+        "seed_efectiva": "7",
+        "hilos_solicitados": "1",
+        "hilos_efectivos": "1",
+        "backend_de_hilos": "openblas",
+        "aislamiento": "proceso del sistema (spawn)"
+      },
+      "coinciden_entre_procesos_aislados": true
+    }
+  },
+  "todos_coinciden_entre_procesos_aislados": true,
+  "todos_coinciden_con_la_referencia_en_proceso": false,
+  "total_wall_s": 43.0
+}
