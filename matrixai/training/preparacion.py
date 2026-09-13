@@ -61,9 +61,28 @@ from matrixai.training.preparacion_textos import motivo
 
 __all__ = [
     "CATEGORIA_DESCONOCIDA", "CATEGORIA_FALTANTE", "MINIMO_FILAS_SIN_AVISO",
-    "UMBRAL_AVISO_FALTANTES", "PoliticaDePreparacion", "PropuestaDeColumna",
-    "ajustar_preparacion", "transformar_fila",
+    "SUFIJO_FALTANTE", "UMBRAL_AVISO_FALTANTES", "PoliticaDePreparacion",
+    "PropuestaDeColumna", "ajustar_preparacion", "nombre_de_indicador",
+    "transformar_fila",
 ]
+
+#: Sufijo del indicador «en esta celda se imputó», DECLARADO UNA VEZ.
+#:
+#: Estaba escrito a mano en los dos sitios que lo producen
+#: (`transformar_fila` y `columnas_de_salida`) y ahora hace falta un tercero:
+#: `dataset_project.py` cablea esta política y tiene que declarar el indicador
+#: como una FEATURE del modelo. Ese tercero además no puede copiarlo tal cual
+#: —el prompt tipado de GEN sanea los nombres de campo con `_sanitize_name`,
+#: que colapsa `_+` a un solo `_`, así que un `__` no sobrevive— y por eso
+#: importa más todavía que el sufijo salga de un solo sitio: lo que cada
+#: camino adapta es la ESCRITURA del nombre, nunca la decisión de cuál es.
+SUFIJO_FALTANTE = "__faltante"
+
+
+def nombre_de_indicador(columna: str) -> str:
+    """El nombre del indicador de `columna`, según esta política."""
+    return f"{columna}{SUFIJO_FALTANTE}"
+
 
 #: Presente en la fila, pero NUNCA visto en train — distinto de faltante.
 CATEGORIA_DESCONOCIDA = "__desconocida__"
@@ -194,7 +213,7 @@ class PoliticaDePreparacion:
         vistas: set[str] = set()
         for propuesta in self.columnas:
             for nombre in (propuesta.columna,
-                           *([f"{propuesta.columna}__faltante"]
+                           *([nombre_de_indicador(propuesta.columna)]
                              if propuesta.tipo == "numerica" else ())):
                 if nombre not in vistas:
                     vistas.add(nombre)
@@ -338,7 +357,7 @@ def transformar_fila(fila: Mapping[str, Any], politica: PoliticaDePreparacion) -
                 resultado[propuesta.columna] = None if propuesta.admite_nativo else propuesta.mediana
             else:
                 resultado[propuesta.columna] = float(valor)
-            resultado[f"{propuesta.columna}__faltante"] = 1.0 if faltante else 0.0
+            resultado[nombre_de_indicador(propuesta.columna)] = 1.0 if faltante else 0.0
         else:
             if _es_faltante(valor):
                 resultado[propuesta.columna] = CATEGORIA_FALTANTE

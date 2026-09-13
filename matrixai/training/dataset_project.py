@@ -88,6 +88,23 @@ Verificado empíricamente contra el generador real (no asumido):
    un error accionable (invariante 7) — GEN no tiene mecanismo de escape
    para este vocabulario, así que no hay forma segura de "arreglarlo" en
    silencio.
+9. **Un hueco no se puede escribir tal cual.** Una celda vacía en una
+   FEATURE hacía que el modelo recién generado rechazara su propio CSV
+   ("DATASET row N field X is empty") y el proyecto entero moría —
+   reproducido el 2026-09-13 con 12 filas sintéticas y dos huecos en una
+   numérica, y con `KDDCup09_appetency`, donde en las categóricas el
+   faltante llega como `?` (que `_is_null` considera nulo y por tanto
+   fuera del vocabulario). Se aplica la política del NÚCLEO
+   (`preparacion.py`, 103-C3), que este camino no usaba: numérica →
+   MEDIANA más un indicador `{columna}_faltante`, para que el modelo pueda
+   distinguir "valía eso" de "no había valor"; categórica → `__faltante__`
+   como categoría propia, sin colapsarla con ninguna otra (antes: one-hot
+   todo a cero, o un índice inexistente escrito como ""). Solo en las
+   columnas que de verdad tienen huecos: un CSV limpio sale byte a byte
+   igual que antes. El objetivo NUNCA se imputa — esas filas se descartan,
+   como siempre. Lo imputado se declara en `provenance["missing_values"]`
+   y la política queda CONGELADA en la receta (`preparation_spec
+   ["missing_policy"]`): re-preparar no vuelve a calcular la mediana.
 
 Los rangos numéricos NO se tocan aquí — igual que el flujo de subida de
 HOY, viajan como `field_ranges` y `_normalize_csv_with_ranges` (M5) los
@@ -125,6 +142,22 @@ from matrixai.training.dataset_analysis import (
 from matrixai import limits as _limits
 from matrixai.training.categorical import _build_group_names, embedding_source_columns
 from matrixai.training.dense_generator import _identifier, _ONEHOT_MAX
+# LA POLÍTICA DE FALTANTES DEL NÚCLEO, NO UNA SEGUNDA. `preparacion.py`
+# (103-C3) ya declara qué se hace con un hueco: mediana —no media, que la
+# mueve un extremo— más un indicador `{columna}__faltante` para que el
+# modelo pueda distinguir «valía 0» de «no había valor», y para una
+# categórica un TERCER estado propio (`__faltante__`) que no se colapsa ni
+# con la categoría de referencia ni con una desconocida. Este camino no la
+# usaba (hueco de CABLEADO nº 15): se ajusta y se aplica con las funciones
+# del núcleo, y lo único que vive aquí es la traducción del CSV crudo —que
+# es todo texto— a los valores tipados que `ajustar_preparacion` exige.
+from matrixai.training.preparacion import (
+    CATEGORIA_FALTANTE,
+    PoliticaDePreparacion,
+    ajustar_preparacion,
+    nombre_de_indicador,
+    transformar_fila,
+)
 from matrixai.training.user_intent import UserIntentError, normalize_user_intent
 from matrixai.training.intent_llm import (
     IntentArchitectureError,
@@ -220,6 +253,13 @@ class _PreparedCSV:
     # MODELO generado, no una regla recalculable desde el CSV crudo, así que
     # re-preparar sin ella produciría otras columnas.
     embedding_source_names: list[str] = field(default_factory=list)
+    # LO QUE PASÓ DE VERDAD, no lo que la política pedía: celdas realmente
+    # rellenadas por columna (nombre SAFE) y celdas categóricas que se
+    # escribieron como `__faltante__`. Se CUENTAN al escribir cada fila, no se
+    # derivan de `proporcion_faltante`, porque una imputación es afirmar algo
+    # que el dato no decía y la procedencia tiene que declarar lo ocurrido.
+    imputed_numeric_cells: dict[str, int] = field(default_factory=dict)
+    missing_category_cells: dict[str, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -616,6 +656,67 @@ def generate_project_from_dataset(
             f"distintos ({effective_target_values}) — no hay nada que clasificar."
         )
 
+    # ------------------------------------------------------------------
+    # LOS FALTANTES, ANTES DE SINTETIZAR EL PROMPT (hueco de cableado nº 15).
+    #
+    # Hasta aquí, un hueco viajaba al CSV preparado tal cual —celda vacía— y
+    # el modelo recién generado rechazaba su propio CSV («DATASET row N field
+    # X is empty»), así que el dataset entero se perdía. `preparacion.py`
+    # (103-C3) ya tenía la política del núcleo y este camino no la usaba.
+    #
+    # La imputación AFIRMA algo que el dato no decía, así que se hace con lo
+    # que el núcleo decidió y se DECLARA:
+    #   · numérica -> MEDIANA (no media: no la mueve un extremo) más un
+    #     indicador `{columna}__faltante`. Sin el indicador la imputación
+    #     miente en silencio: en una columna de 0 a 10, rellenar con la
+    #     mediana sin marcarlo hace indistinguible «valía eso» de «no había
+    #     valor» — el mismo fallo que el motor lineal cometió rellenando con
+    #     cero, que en esa columna equivale a decir «era el mínimo».
+    #   · categórica -> `__faltante__` como CATEGORÍA propia, el tercer
+    #     estado que el núcleo exige no colapsar. Lo de antes sí lo
+    #     colapsaba: one-hot todo a cero (indistinguible de una fila rota) o,
+    #     en la rama de embedding, un índice inexistente escrito como "".
+    #
+    # Y SOLO DONDE HAY HUECOS: una columna sin faltantes no gana indicador ni
+    # categoría, así que el CSV de un dataset limpio sale byte a byte igual
+    # que antes de esto.
+    missing_policy = _ajustar_politica_de_faltantes(
+        rows, feature_columns, columns, feature_safe_names, target_column,
+    )
+    for col in feature_columns:
+        if columns[col]["type"] != "categorical":
+            continue
+        valores_reales = category_vocabularies.get(col) or _distinct_non_null(rows, col)
+        # AQUÍ IBA UNA GUARDA `len(valores_reales) < 2` PARA QUE EL CENTINELA NO
+        # RESCATARA UNA COLUMNA QUE SE IBA A CAER. Se quitó porque NO PODÍA
+        # PASAR: una categórica con un solo valor es `constant` y se excluye de
+        # `feature_columns` antes de llegar aquí, y conservarla exige un
+        # `column_category_overrides` de dos valores o más (la comprobación de
+        # arriba lo rechaza si no). Se midió con los dos casos —columna de un
+        # valor, y columna entera vacía forzada a `categorical` con un
+        # override— y ninguno llega. Su sabotaje salía VERDE, que es justo
+        # cómo se descubrió: una línea que dice impedir algo imposible cuenta
+        # una historia falsa, y el banco de pruebas no tenía dientes para ella.
+        # Lo que sí queda, con su prueba: una categórica constante con huecos
+        # se sigue excluyendo, no la rescata el faltante.
+        #
+        # Los huecos que CUENTAN son los de las filas que se van a escribir:
+        # una fila sin objetivo se descarta, y su hueco no puede añadir al
+        # modelo una columna que luego nadie marca (una constante a 0 que
+        # además afirmaría que este dataset tiene faltantes donde no los
+        # tiene). Mismo criterio que usa la política numérica.
+        if not any(_is_null(row.get(col)) for row in rows
+                   if not _is_null(row.get(target_column))):
+            continue
+        if CATEGORIA_FALTANTE in valores_reales:
+            raise DatasetProjectError(
+                f"La columna categórica {col!r} tiene valores ausentes Y un valor "
+                f"literal {CATEGORIA_FALTANTE!r}, que es el nombre reservado para "
+                "marcarlos. No se pueden distinguir: renombra ese valor en el CSV "
+                "de origen antes de generar el modelo."
+            )
+        category_vocabularies[col] = [*valores_reales, CATEGORIA_FALTANTE]
+
     feature_lines: list[str] = []
     for col in feature_columns:
         info = columns[col]
@@ -647,6 +748,16 @@ def generate_project_from_dataset(
             "Ninguna columna quedó utilizable como feature tras excluir "
             "categóricas con menos de 2 valores."
         )
+    # EL INDICADOR TIENE QUE VIAJAR HASTA EL MODELO, no solo hasta el CSV: si
+    # no se declara aquí, el VECTOR generado no lo tiene y la validación
+    # rechaza el CSV por traer una columna de más — imputar sin indicador
+    # sería, además, rellenar en silencio. `Boolean` porque eso es: ¿faltaba?
+    # sí/no (el generador lo materializa como un Scalar 0/1, medido).
+    # Al FINAL de las features y en el mismo orden que `_prepare_training_csv`
+    # escribe la cabecera.
+    if missing_policy is not None:
+        for indicador in _nombres_de_indicador(missing_policy).values():
+            feature_lines.append(f"  {indicador}: Boolean")
 
     target_labels_normalized: list[str] | None = None
     target_label_map: dict[str, str] | None = None
@@ -799,6 +910,7 @@ def generate_project_from_dataset(
         # — que es lo que hacía divergir el CSV del modelo en cuanto había una
         # categórica por encima de `_ONEHOT_MAX` junto a otra por debajo.
         embedding_sources=embedding_source_columns(res.get("mxai") or ""),
+        missing_policy=missing_policy,
     )
     prepared_csv = prepared.text
 
@@ -888,6 +1000,28 @@ def generate_project_from_dataset(
         # de entonces (`_prepare_v1`); una lista VACÍA significa "ninguna", que
         # no es lo mismo que "no se sabe".
         "embedding_columns": list(prepared.embedding_source_names),
+        # LA POLÍTICA DE FALTANTES, CONGELADA. La mediana se ajustó sobre ESTAS
+        # filas: re-preparar recalculándola daría otro número en cuanto el CSV
+        # cambiara una fila, y el dataset dejaría de ser el que entrenó el
+        # modelo. Es el mismo motivo por el que `preparacion.py` separa ajustar
+        # de transformar — transformar NUNCA vuelve a mirar los datos.
+        # `None` aquí significa «este dataset no tenía faltantes numéricos», y
+        # se comporta igual que la ausencia de la clave en una receta anterior
+        # a este arreglo: en ninguno de los dos casos se imputa nada. (La
+        # asimetría con `embedding_columns` es a propósito: allí ausente y
+        # vacía piden criterios DISTINTOS; aquí piden el mismo.) Lo que sí
+        # distingue a una receta vieja es su `category_vocabularies`, que no
+        # trae `__faltante__` y por eso reproduce el CSV de entonces.
+        # SIN `limites`, y la clave se OMITE en vez de escribirla vacía: una
+        # lista vacía afirmaría «esta preparación no encontró nada que
+        # declarar», que sería falso. Los `Limite` son HALLAZGOS, no algo que
+        # `transformar_fila` necesite para reproducir nada, y viajan una sola
+        # vez en `provenance["missing_values"]["limits"]` — repetirlos aquí
+        # costaba otros 88 KB en `KDDCup09_appetency` (medido). `desde_json`
+        # ya trata la clave como opcional.
+        "missing_policy": ({k: v for k, v in missing_policy.a_json().items()
+                            if k != "limites"}
+                           if missing_policy is not None else None),
         "target_column": target_column,
         "target_header": target_header,
         "task": task,
@@ -919,6 +1053,7 @@ def generate_project_from_dataset(
         intent_llm=intent_llm,
         target_range=target_range,
         reconsidered_identifier_columns=reconsidered_columns,
+        missing_values=_declaracion_de_faltantes(missing_policy, prepared),
     )
 
     result = dict(res)
@@ -1312,6 +1447,15 @@ def _validate_preparation_spec(spec: dict[str, Any]) -> None:
     vocab = spec.get("category_vocabularies")
     if vocab is not None and not isinstance(vocab, dict):
         raise DatasetProjectError("La receta de preparación tiene `category_vocabularies` inválido.")
+    # Igual que arriba: una receta corrupta (editada a mano, truncada al
+    # guardar) no puede salir como un KeyError dentro de
+    # `PoliticaDePreparacion.desde_json` — eso en el producto es un error
+    # interno sin nada accionable. `None` es válido: significa «sin faltantes
+    # numéricos», lo mismo que la ausencia de la clave.
+    politica = spec.get("missing_policy")
+    if politica is not None and (not isinstance(politica, dict)
+                                 or not isinstance(politica.get("columnas"), list)):
+        raise DatasetProjectError("La receta de preparación tiene `missing_policy` inválido.")
 
 
 # AUDITORÍA C3 [MEDIO-ALTO]: la versión de receta era NOMINAL — ante una
@@ -1342,6 +1486,19 @@ def _prepare_v1(
         # entonces; una lista (aunque sea vacía) es una respuesta.
         embedding_sources=(set(spec["embedding_columns"])
                            if "embedding_columns" in spec else None),
+        # LA MEDIANA NO SE RECALCULA: se lee de la receta. Recalcularla sobre
+        # el CSV que ahora se re-prepara daría otro número en cuanto cambiara
+        # una fila, y `prepare_dataset_from_provenance` abortaría —con razón—
+        # por no reproducir el dataset que entrenó el modelo. Ausente y `None`
+        # piden lo mismo, y es correcto: una receta anterior a esta clave
+        # NUNCA pudo tener faltantes numéricos (el modelo rechazaba su propio
+        # CSV y no llegaba a guardarse), así que «no lo sé» y «no había» son
+        # aquí el mismo caso. Lo que SÍ distingue a una receta vieja con
+        # faltantes CATEGÓRICOS es su `category_vocabularies`, que no trae
+        # `__faltante__`: sin él, la re-preparación repite el criterio de
+        # entonces sin que haya que preguntarle nada más.
+        missing_policy=(PoliticaDePreparacion.desde_json(spec["missing_policy"])
+                        if spec.get("missing_policy") else None),
     )
 
 
@@ -1874,6 +2031,191 @@ def _normalize_labels(
     return sorted(normalized.keys()), raw_to_label
 
 
+def _nombres_de_indicador(politica: PoliticaDePreparacion) -> dict[str, str]:
+    """Los indicadores que `politica` EMITE -> cómo se llaman en este camino.
+
+    La clave es el nombre que `transformar_fila` devuelve; el valor, el nombre
+    con el que se escribe en el CSV y se declara en el modelo.
+
+    NO SE RECONSTRUYE EL SUFIJO: se pregunta a la política
+    (`columnas_de_salida()` declara exactamente lo que `transformar_fila`
+    escribe, columna + indicador, deduplicado) y los indicadores son lo que
+    queda al quitar las columnas fuente.
+
+    SÍ SE SANEA, y esa es la única libertad que se toma este camino. GEN
+    sanea cada nombre de FEATURE con `_sanitize_name`, que colapsa `_+` en un
+    solo `_`: un campo declarado `edad__faltante` en el prompt sale del
+    generador como `edad_faltante` y el CSV dejaba de casar con el modelo
+    («Faltan: edad_faltante», medido). Se aplica `_identifier` —la MISMA
+    normalización que ya reciben todas las demás columnas de este CSV— para
+    que el nombre coincida con el del modelo por construcción y no por suerte.
+    """
+    fuentes = {propuesta.columna for propuesta in politica.columnas}
+    return {nombre: _identifier(nombre)
+            for nombre in politica.columnas_de_salida() if nombre not in fuentes}
+
+
+def _valor_numerico_o_none(valor: str | None) -> float | None | str:
+    """El valor tipado que `ajustar_preparacion` espera, desde texto de CSV.
+
+    `None` si el CSV dice que no hay dato (`_is_null`, la MISMA definición que
+    usa el resto de este camino para tipar columnas y para descartar filas sin
+    target); el `float` si parsea; y el TEXTO CRUDO si no parsea.
+
+    Ese último caso no es teórico y por eso no se convierte en una excepción:
+    con `column_type_overrides` el usuario puede declarar numérica una columna
+    con basura dentro, y re-preparar un CSV distinto con la misma receta puede
+    traer un valor nuevo que no parsea. Inventar ahí un número sería imputar
+    algo que el dato sí decía — mal; el texto viaja tal cual y el verificador
+    del modelo lo rechaza con «must be numeric», que es la verdad.
+    """
+    if _is_null(valor):
+        return None
+    try:
+        return float(str(valor).strip())
+    except (TypeError, ValueError):
+        return str(valor).strip()
+
+
+#: Clave con la que el objetivo viaja a `ajustar_preparacion`: un `\0` no
+#: puede salir de una cabecera de CSV ni de `_identifier`, así que no choca
+#: con ninguna columna real.
+_SENTINELA_OBJETIVO = "\0objetivo\0"
+
+
+def _declaracion_de_faltantes(
+    politica: PoliticaDePreparacion | None, prepared: _PreparedCSV,
+) -> dict[str, Any]:
+    """Lo que la imputación AFIRMÓ, para la procedencia.
+
+    Se declara lo que PASÓ —celdas contadas al escribir el CSV— y no lo que la
+    política pedía: `proporcion_faltante` describe las filas que se miraron al
+    ajustar, no las que se acabaron escribiendo, y confundirlas sería firmar
+    un número que nadie ha medido.
+    """
+    por_columna: dict[str, Any] = {}
+    indicadores = _nombres_de_indicador(politica) if politica is not None else {}
+    for nombre, celdas in sorted(prepared.imputed_numeric_cells.items()):
+        propuesta = politica.columna(nombre) if politica is not None else None
+        por_columna[nombre] = {
+            "cells": celdas,
+            # El valor CON EL QUE se rellenó — sin esto, «se imputó» no es una
+            # declaración auditable, es un aviso.
+            "imputed_with": propuesta.mediana if propuesta is not None else None,
+            "strategy": "median",
+            "indicator_column": indicadores.get(nombre_de_indicador(nombre)),
+        }
+    return {
+        # La política NO se repite aquí: vive en `preparation_spec`, que es
+        # quien la necesita para reproducir. Repetirla costaba 116 KB en
+        # `KDDCup09_appetency` (medido: 231 columnas, 160 imputadas) y duplicar
+        # una declaración es exactamente lo que acaba divergiendo.
+        "imputed_numeric": por_columna,
+        "missing_category": {
+            nombre: {"cells": celdas, "category": CATEGORIA_FALTANTE}
+            for nombre, celdas in sorted(prepared.missing_category_cells.items())
+        },
+        "limits": [limite.a_json() for limite in (politica.limites if politica else ())],
+    }
+
+
+def _ajustar_politica_de_faltantes(
+    rows: list[dict[str, str]],
+    feature_columns: list[str],
+    columns: dict[str, dict[str, Any]],
+    feature_safe_names: dict[str, str],
+    target_column: str,
+) -> PoliticaDePreparacion | None:
+    """Ajusta la política de faltantes DEL NÚCLEO sobre las numéricas que de
+    verdad tienen huecos. `None` si no hay ninguna: un CSV sin faltantes no
+    debe ganar ni una columna ni cambiar de forma.
+
+    SOLO LAS QUE TIENEN HUECOS, y esto es deliberado. `preparacion.py` emite
+    un indicador para TODA numérica porque allí la política se ajusta por
+    pliegue y una columna puede faltar en test sin faltar en train. Aquí el
+    CSV preparado lo ve entero y la forma del modelo queda congelada en la
+    receta, así que un indicador constante a 0 solo añadiría una entrada
+    inútil a la red y cambiaría el CSV de todos los datasets que hoy
+    funcionan. El precio, declarado: una columna que no tuvo ningún hueco al
+    preparar no tiene dónde declarar uno más tarde — una fila nueva con ese
+    hueco la sigue rechazando el verificador, que es preferible a rellenarla
+    con una mediana que nunca se ajustó.
+
+    Se ajusta con NOMBRES SAFE (los del modelo), no con los nombres crudos
+    del CSV: lo que la política produce son columnas del CSV preparado.
+    """
+    candidatas: list[str] = []
+    filas_tipadas: list[dict[str, Any]] = []
+    # SOLO LAS FILAS QUE SE VAN A ESCRIBIR. Una fila sin objetivo la descarta
+    # `_prepare_training_csv`, así que su hueco no puede decidir la forma del
+    # modelo: añadiría un indicador que después nadie marca.
+    con_objetivo = [row for row in rows if not _is_null(row.get(target_column))]
+    for col in feature_columns:
+        # NUMÉRICAS, NO BOOLEANAS, y es una decisión declarada, no un olvido.
+        # Una `boolean` de este camino se escribe 0/1 pero su tipo declarado no
+        # es ninguna de las dos ramas que el núcleo tiene: la mediana de 0/1
+        # puede salir 0,5 —un valor que esa columna no tuvo nunca— y rellenar
+        # con la más frecuente es justo lo que el núcleo NO hace con una
+        # categórica. Inventar aquí una tercera política sería fabricar lo que
+        # el núcleo no ha dicho. Una booleana con huecos sigue, por tanto,
+        # rechazándose; `column_type_overrides={col: "categorical"}` la lleva a
+        # la rama categórica, que sí tiene política (medido, y con prueba con
+        # su nombre en `tests/test_c101_c5_faltantes_cableados.py`).
+        if columns[col]["type"] not in ("number", "integer"):
+            continue
+        valores = [_valor_numerico_o_none(row.get(col)) for row in con_objetivo]
+        # Una columna solo entra si TIENE hueco, si le queda algún valor con
+        # el que calcular la mediana, y si TODOS los presentes son números:
+        # con un valor sin parsear, `ajustar_preparacion` la vería categórica
+        # (no parsea texto, por diseño del núcleo) y le pondría centinelas de
+        # texto en una columna que el modelo declara Scalar.
+        if not any(v is None for v in valores):
+            continue
+        presentes = [v for v in valores if v is not None]
+        if not presentes or not all(isinstance(v, float) for v in presentes):
+            continue
+        candidatas.append(col)
+
+    if not candidatas:
+        return None
+
+    for row in rows:
+        fila: dict[str, Any] = {
+            # El objetivo viaja SOLO para que el núcleo excluya las filas sin
+            # él (nunca se imputa un objetivo) — con la misma definición de
+            # «no hay dato» que usa `_prepare_training_csv` al descartarlas,
+            # para que la mediana se ajuste exactamente sobre las filas que
+            # de verdad se escriben.
+            #
+            # BAJO UNA CLAVE QUE NADIE PUEDE TENER, no bajo su propio nombre:
+            # las features viajan con su nombre SAFE y el objetivo con el
+            # CRUDO, así que un objetivo llamado `edad` junto a una feature
+            # `edad!` (que sanea a `edad`) compartirían clave y el valor de la
+            # feature pisaría al del objetivo — la mediana se ajustaría sobre
+            # otras filas. Mismo truco que `_RESERVED_TARGET_SENTINEL` usa
+            # unas líneas más arriba para el otro choque de nombres.
+            _SENTINELA_OBJETIVO: (
+                None if _is_null(row.get(target_column)) else row.get(target_column)),
+        }
+        for col in candidatas:
+            fila[feature_safe_names[col]] = _valor_numerico_o_none(row.get(col))
+        filas_tipadas.append(fila)
+
+    return ajustar_preparacion(
+        filas_tipadas,
+        objetivo=_SENTINELA_OBJETIVO,
+        columnas=[feature_safe_names[col] for col in candidatas],
+        # La red densa/composite de MatrixAI no tiene tratamiento nativo ni de
+        # faltantes ni de categóricas: son los dos booleanos de `Capacidades`
+        # (102-C1) de `matrixai.dense.torch_cpu`, pasados como datos sueltos
+        # porque `preparacion.py` es stdlib puro y no puede importar el motor.
+        # Con `admite_faltantes=False` la política RELLENA (mediana) en vez de
+        # dejar el hueco, que es justo lo que este camino necesita.
+        admite_categoricas=False,
+        admite_faltantes=False,
+    )
+
+
 def _prepare_training_csv(
     rows: list[dict[str, str]],
     feature_columns: list[str],
@@ -1886,6 +2228,7 @@ def _prepare_training_csv(
     category_vocabularies: dict[str, list[str]],
     *,
     embedding_sources: set[str] | None = None,
+    missing_policy: PoliticaDePreparacion | None = None,
 ) -> _PreparedCSV:
     # Grupos one-hot/embedding + los mapas valor_crudo->columna o índice,
     # calculados UNA VEZ (no por fila — recalcular _distinct_non_null
@@ -1943,7 +2286,51 @@ def _prepare_training_csv(
             header.append(safe_name)
             if col_type == "boolean" and "normalize_boolean_features" not in operations:
                 operations.append("normalize_boolean_features")
+
+    # LOS INDICADORES, AL FINAL Y SOLO SI LOS HAY. Van después de todas las
+    # features para que el CSV de un dataset SIN faltantes salga byte a byte
+    # igual que antes de este arreglo (la cabecera anterior no se desplaza), y
+    # en el MISMO orden en el que el prompt sintetizado los declara — el
+    # VECTOR generado sigue ese orden y la validación compara posición a
+    # posición.
+    indicadores = _nombres_de_indicador(missing_policy) if missing_policy else {}
+    if indicadores:
+        ya_en_cabecera = set(header) | {target_header}
+        colisiones = sorted(n for n in indicadores.values() if n in ya_en_cabecera)
+        if colisiones:
+            # NO SE PISA EN SILENCIO. Un `dict` de fila no repite claves: si el
+            # indicador derivado de una numérica se llama igual que una columna
+            # real (un CSV con `edad` y `edad__faltante`) o que una one-hot ya
+            # generada, el CSV saldría con una columna de menos que la cabecera
+            # y el desalineamiento no se vería hasta entrenar. Es el mismo
+            # choque que `PoliticaDePreparacion.columnas_de_salida()` declara
+            # sin resolver; aquí sí hay a quién decírselo.
+            raise DatasetProjectError(
+                "El indicador de valores ausentes que hace falta para "
+                f"{', '.join(repr(n) for n in colisiones)} choca con una columna "
+                "que este CSV ya produce. Renombra esa columna en el CSV de "
+                "origen (el sufijo '__faltante' está reservado para marcar qué "
+                "celdas se rellenaron) antes de generar el modelo."
+            )
+        if len(set(indicadores.values())) != len(indicadores):
+            raise DatasetProjectError(
+                "Dos columnas numéricas con valores ausentes necesitan el mismo "
+                "indicador tras normalizar su nombre. Renombra una de ellas en "
+                "el CSV de origen antes de generar el modelo."
+            )
+        header.extend(indicadores.values())
     header.append(target_header)
+
+    # Las numéricas que la política rellena, indexadas por su nombre SAFE —
+    # que es como se ajustó (ver `_ajustar_politica_de_faltantes`).
+    imputadas: dict[str, str] = {  # safe_name -> columna cruda
+        feature_safe_names[col]: col
+        for col in feature_columns
+        if missing_policy is not None
+        and missing_policy.columna(feature_safe_names[col]) is not None
+    }
+    imputed_cells: dict[str, int] = {safe: 0 for safe in imputadas}
+    missing_category_cells: dict[str, int] = {}
 
     out = io.StringIO()
     writer = csv.DictWriter(out, fieldnames=header)
@@ -1955,24 +2342,68 @@ def _prepare_training_csv(
             rows_dropped += 1
             continue  # sin target no hay fila que entrenar (nunca se inventa uno)
         prepared: dict[str, str] = {}
+        # LA IMPUTACIÓN LA DECIDE EL NÚCLEO, no este bucle: `transformar_fila`
+        # aplica la política tal como quedó ajustada (mediana congelada) y
+        # devuelve, junto al valor, su indicador 0.0/1.0. Aquí solo se traduce
+        # el texto del CSV a valores tipados y el resultado de vuelta a texto.
+        tipados = {safe: _valor_numerico_o_none(row.get(col)) for safe, col in imputadas.items()}
+        # Un valor PRESENTE que no parsea (`"?" ` no: eso es `_is_null`; esto es
+        # basura real en una columna que el usuario declaró numérica a mano, o
+        # un valor nuevo al re-preparar otro CSV con la misma receta) se aparta
+        # ANTES: `transformar_fila` haría `float()` sobre él y reventaría con un
+        # ValueError que no dice nada. Ver `_valor_numerico_o_none`.
+        sin_parsear = {safe for safe, valor in tipados.items() if isinstance(valor, str)}
+        transformada: dict[str, Any] = (
+            transformar_fila({safe: (None if safe in sin_parsear else valor)
+                              for safe, valor in tipados.items()}, missing_policy)
+            if imputadas else {}
+        )
         for col in feature_columns:
             info = columns[col]
             safe_name = feature_safe_names[col]
             if info["type"] == "categorical":
+                raw = row.get(col)
+                raw = raw.strip() if raw is not None else raw
+                vocabulario = onehot_columns.get(col) or embedding_columns.get(col) or {}
+                # EL TERCER ESTADO DEL NÚCLEO, cuando el vocabulario lo declara.
+                # Un hueco en una categórica no es «ninguna de las categorías»
+                # (one-hot todo a cero, indistinguible de una fila rota) ni un
+                # índice inexistente (la rama de embedding escribía "" y el
+                # modelo rechazaba su propio CSV): es `__faltante__`, una
+                # categoría más. Que el vocabulario CONGELADO la traiga o no es
+                # lo que distingue una receta nueva de una anterior a esto —
+                # una vieja se sigue reproduciendo con el criterio de entonces.
+                if _is_null(raw) and CATEGORIA_FALTANTE in vocabulario:
+                    raw = CATEGORIA_FALTANTE
+                    missing_category_cells[safe_name] = missing_category_cells.get(safe_name, 0) + 1
                 if col in onehot_columns:
                     value_to_column = onehot_columns[col]
                     for onehot_col in value_to_column.values():
                         prepared[onehot_col] = "0"
-                    raw = row.get(col)
-                    raw = raw.strip() if raw is not None else raw
                     if raw in value_to_column:
                         prepared[value_to_column[raw]] = "1"
                 elif col in embedding_columns:
-                    raw = row.get(col)
-                    raw = raw.strip() if raw is not None else raw
                     idx = embedding_columns[col].get(raw)
                     prepared[safe_name] = str(idx) if idx is not None else ""
                 # cardinalidad<2 -> columna excluida arriba, nada que escribir
+            elif safe_name in imputadas:
+                # NO SE IMPUTA LO QUE SÍ TENÍA DATO. Un valor ilegible es una
+                # respuesta equivocada, no un hueco: rellenarlo con la mediana
+                # y marcar el indicador a 1 sería declarar «no había valor»
+                # cuando lo había. Viaja tal cual y el verificador del modelo lo
+                # rechaza con «must be numeric», que es la verdad.
+                clave_indicador = nombre_de_indicador(safe_name)
+                falta = (safe_name not in sin_parsear
+                         and transformada[clave_indicador] == 1.0)
+                if falta:
+                    prepared[safe_name] = _fmt_num(transformada[safe_name])
+                    imputed_cells[safe_name] += 1
+                else:
+                    # El texto ORIGINAL, no el `float` re-formateado: una celda
+                    # que no se tocó no puede cambiar ni un byte por el hecho de
+                    # que otra fila tuviera un hueco ("20" no se vuelve "20.0").
+                    prepared[safe_name] = row.get(col, "")
+                prepared[indicadores[clave_indicador]] = "1" if falta else "0"
             elif info["type"] == "boolean":
                 raw = (row.get(col) or "").strip().lower()
                 if raw in _BOOL_TRUE:
@@ -1989,10 +2420,17 @@ def _prepare_training_csv(
         else:
             prepared[target_header] = raw_target
         writer.writerow(prepared)
+    if any(imputed_cells.values()):
+        operations.append("impute_missing_numeric_median")
+        operations.append("add_missing_value_indicator")
+    if missing_category_cells:
+        operations.append("encode_missing_category")
     return _PreparedCSV(
         text=out.getvalue(), rows_dropped_null_target=rows_dropped,
         operations=operations, effective_vocabularies=effective_vocabularies,
         embedding_source_names=[feature_safe_names[c] for c in embedding_columns],
+        imputed_numeric_cells={k: v for k, v in imputed_cells.items() if v},
+        missing_category_cells=dict(missing_category_cells),
     )
 
 
@@ -2072,6 +2510,7 @@ def _build_provenance(
     intent_llm: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
     reconsidered_identifier_columns: list[str] | None = None,
+    missing_values: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from matrixai.export.inference_spec import _matrixai_version
 
@@ -2140,4 +2579,18 @@ def _build_provenance(
         # clasificación. Fuente auditable para `_studio_infer` (evita
         # confiar en un valor recalculado ad-hoc en otro punto del código).
         "target_range": list(target_range) if target_range is not None else None,
+        # 101-C5 — QUÉ SE RELLENÓ Y CON QUÉ. (No confundir con el paso
+        # `missing_values(drop)` del pipeline TEMPORAL, que vive en
+        # `provenance["temporal"]["pipeline_operations"]` y ocurre ANTES, sobre
+        # la serie: aquel DESCARTA filas, este declara lo que se rellenó en la
+        # preparación de features.) Una imputación afirma algo que el
+        # dato no decía, así que no basta con hacerla: queda declarada aquí,
+        # celda a celda contada, con el valor usado y con los `Limite` que la
+        # propia política encontró motivo para levantar (una columna con más
+        # de la mitad de huecos, una muestra corta para ajustar). Siempre
+        # presente: `imputed_numeric`/`missing_category` vacíos afirman «no se
+        # rellenó nada», que no es lo mismo que no decir nada.
+        "missing_values": missing_values or {
+            "imputed_numeric": {}, "missing_category": {}, "limits": [],
+        },
     }
