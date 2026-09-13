@@ -55,23 +55,25 @@ DATASETS = [
 WALL_SECONDS = 300.0  # generoso: lo medido en fixtures sinteticas fue <5s por motor
 
 
-def cargar_arff(data_id: int) -> tuple[list[dict], str]:
-    from scipy.io import arff
-
-    datos, meta = arff.loadarff(ARFF_DIR / f"{data_id}.arff")
-    nombres = meta.names()
-    objetivo = nombres[-1]
-    filas = []
-    for i, registro in enumerate(datos):
-        fila = {"row_id": f"{data_id}-{i}"}
-        for nombre in nombres:
-            valor = registro[nombre]
-            if nombre == objetivo:
-                fila[nombre] = valor.decode() if isinstance(valor, (bytes, bytearray)) else str(valor)
-            else:
-                fila[nombre] = float(valor)
-        filas.append(fila)
-    return filas, objetivo
+# LA TERCERA COPIA DEL LECTOR, BORRADA (2026-09-13).
+#
+# Este fichero tenía la suya, igual que la tenía la pasada, y las tres
+# divergieron — que es lo que pasa siempre que dos sitios declaran lo mismo.
+# La de aquí arrastraba los tres defectos de una vez:
+#
+#   · `objetivo = nombres[-1]`, cuando en CINCO de los cuarenta del protocolo
+#     el objetivo declarado NO es el último atributo: habría medido tiempos
+#     entrenando contra otra columna;
+#   · `float(valor)` para todo lo que no es el objetivo, que revienta con
+#     cualquier columna nominal y por eso este fichero solo podía medir tres
+#     datasets numéricos;
+#   · ni el `"?"` del estándar ARFF como faltante, ni la exclusión de la
+#     columna identificadora que el catálogo dice que sobra.
+#
+# Ahora delega en el `cargar_arff` de la pasada, que a su vez delega en el
+# lector único. Se importa de allí y no se reimplementa aquí: una cuarta copia
+# «porque esto solo mide tiempos» es exactamente cómo nacieron las tres.
+from pasada_exploratoria_101_c3 import cargar_arff  # noqa: E402
 
 
 def particiones_para(data_id: int, nombre_ds: str, positivo: str, negativo: str):
