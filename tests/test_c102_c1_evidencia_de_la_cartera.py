@@ -15,7 +15,7 @@ POR QUÉ ESTE TEST VIVE EN `matrixAI` Y NO EN `matrixai-engines`, que es donde
 está la afirmación:
 
 1. Aquí viven las DOS cosas que hay que volver a juntar: el JSON de la pasada
-   (`benchmarks/fase0/pasada_exploratoria_101_c3_remedida_20260912.json`) y la
+   (`benchmarks/fase0/pasada_exploratoria_101_c3_remedida_20260913.json`) y la
    REGLA que lo juzga (`benchmarks/fase0/protocolo.py`, registrada con hash
    por 101-C1 antes de medir). Un test que re-deriva un número se pone donde
    viven el número y su fórmula, no donde vive la frase que los cita.
@@ -249,7 +249,7 @@ def _reproducidos_entre_las_dos_pasadas() -> dict[str, tuple[int, int]]:
                 for r in crudo["resultados"]}
 
     vieja = indexar(_FASE0 / "pasada_exploratoria_101_c3_resultado.json")
-    nueva = indexar(_FASE0 / "pasada_exploratoria_101_c3_remedida_20260912.json")
+    nueva = indexar(_FASE0 / "pasada_exploratoria_101_c3_remedida_20260913.json")
     cuenta: dict[str, list[int]] = {}
     for clave in set(vieja) & set(nueva):
         a, b = vieja[clave], nueva[clave]

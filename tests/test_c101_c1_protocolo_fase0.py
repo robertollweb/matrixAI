@@ -414,7 +414,7 @@ class ProtocoloRealRegistradoTest(unittest.TestCase):
         from pathlib import Path
         raiz = Path(__file__).resolve().parents[1] / "benchmarks" / "fase0"
         crudo = json.loads(
-            (raiz / "pasada_exploratoria_101_c3_remedida_20260912_con_alcance.json")
+            (raiz / "pasada_exploratoria_101_c3_remedida_20260913.json")
             .read_text(encoding="utf-8"))
         r = aplicar_regla_de_cierre(crudo["resultados"], self.protocolo.regla_de_cierre,
                                     motor="lightgbm")
@@ -619,7 +619,7 @@ class AplicarReglaDeCierreTest(unittest.TestCase):
         # pasadas: sobre la re-medición limpia la MISMA regla, sin tocarla,
         # da otra cosa. Si estas dos afirmaciones se cruzaran, este test
         # volvería a decir del JSON vigente lo que solo vale del viejo.
-        crudo_limpio = json.loads((raiz / "pasada_exploratoria_101_c3_remedida_20260912.json")
+        crudo_limpio = json.loads((raiz / "pasada_exploratoria_101_c3_remedida_20260913.json")
                                   .read_text(encoding="utf-8"))
         limpio = aplicar_regla_de_cierre(crudo_limpio["resultados"],
                                          protocolo.regla_de_cierre, motor="lightgbm")

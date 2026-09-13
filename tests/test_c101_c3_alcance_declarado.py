@@ -60,7 +60,7 @@ _FASE0 = Path(__file__).resolve().parents[1] / "benchmarks" / "fase0"
 #: árbol, y un salto silencioso ante un fichero ausente es exactamente el banco
 #: de pruebas sin dientes que este hallazgo denuncia — se quedaría verde sin
 #: haber comprobado nada.
-_JSON = "pasada_exploratoria_101_c3_remedida_20260912_con_alcance.json"
+_JSON = "pasada_exploratoria_101_c3_remedida_20260913.json"
 
 
 class ElArtefactoDeclaraSuAlcanceTest(unittest.TestCase):
@@ -202,10 +202,20 @@ class ElAlcanceDeclaradoCUADRAConLoMedidoTest(unittest.TestCase):
                          "la lista de motores del script ya no es la del JSON: "
                          "hay que volver a generar la evidencia")
 
-    #: El digest del protocolo CONTRA EL QUE SE MIDIERON los 720 intentos: el
-    #: del primer registro, 2026-09-06 a las 16:32, commit `a3d551a`.
+    #: El digest del protocolo CONTRA EL QUE SE MIDIERON los 720 intentos.
+    #:
+    #: Cambió el 2026-09-13 y **eso es correcto, no una regresión**: la
+    #: evidencia vigente ya no es la del 12-09 sino una pasada nueva, lanzada
+    #: DESPUÉS de re-firmar el protocolo y con todas las reparaciones del día
+    #: dentro. Un artefacto cita el protocolo contra el que corrió **él**, no
+    #: el que hubiera entonces ni el de hoy.
+    #:
+    #: Antes de aquí valía `493a6f1d…`, el del primer registro (2026-09-06
+    #: 16:32, commit `a3d551a`), que es el que citaba el fichero del 12-09.
+    #: Queda escrito para que el cambio se pueda seguir: si mañana alguien ve
+    #: este número moverse sin que se haya vuelto a medir, eso SÍ es un fallo.
     DIGEST_CONTRA_EL_QUE_SE_MIDIO = (
-        "493a6f1df9175cfe0d4f736216af11a740f9c4913426700e0ac10c7eb165f0b6")
+        "eb54f42166835ad158b4d879ebfbe085ad8c8eaedf4895cfcb5d220a032756dc")
 
     def test_los_motores_del_protocolo_son_los_del_protocolo_REGISTRADO(self):
         """**Esto comparaba el digest del artefacto con el del protocolo de
