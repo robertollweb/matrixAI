@@ -262,8 +262,49 @@ class ProtocoloRealRegistradoTest(unittest.TestCase):
     def test_el_digest_guardado_coincide_con_el_recalculado(self):
         """El fichero lleva su propio digest declarado (`digest_sha256`):
         tiene que coincidir con recalcularlo desde el contenido — si alguien
-        edita el JSON a mano sin recalcular, esta prueba lo caza."""
+        edita el JSON a mano sin recalcular, esta prueba lo caza.
+
+        **Pero SOLO caza eso**, y ese límite lo destapó la auditoría del
+        2026-09-13: relajó el listón de la regla de cierre a 0,75, **recalculó
+        el digest** y este aserto siguió VERDE. Comprueba auto-consistencia,
+        que es otra cosa que estar registrado. El ancla real es el test de
+        abajo."""
         self.assertEqual(self.payload["digest_sha256"], self.protocolo.digest())
+
+    #: El digest que el protocolo tenía el 2026-09-06 a las 16:32, en el commit
+    #: `a3d551a`, **antes de que se midiera nada** (la primera pasada es del
+    #: 09-07 a las 11:49). Está escrito aquí ENTERO y a mano a propósito.
+    DIGEST_REGISTRADO_ANTES_DE_MEDIR = (
+        "493a6f1df9175cfe0d4f736216af11a740f9c4913426700e0ac10c7eb165f0b6")
+
+    def test_el_digest_es_EL_MISMO_que_antes_de_medir(self):
+        """El ancla, y no existía: **nada ataba el digest a su valor
+        literal.**
+
+        Un protocolo «registrado con hash» solo vale si el hash es EL DE
+        ENTONCES. Con la auto-consistencia sola, cualquiera puede aflojar la
+        regla, recalcular y quedarse con un fichero que cuadra consigo mismo y
+        con la suite en verde — que es exactamente lo que el auditor hizo para
+        demostrar el hueco. Hasta hoy lo cazaban el historial de git y el texto
+        de la cartera; ninguna de las dos es una prueba.
+
+        Aquí el número va ESCRITO. Si alguien toca el protocolo, esto se pone
+        rojo, y esa es la conversación que tiene que haber: cambiar lo que se
+        prometió medir **después de ver los números** no es un detalle de
+        implementación. Si el cambio es legítimo —añadir un motor, corregir un
+        dato falso del catálogo— se re-firma A PROPÓSITO, se cambia esta
+        constante, y el commit explica qué se re-firmó y por qué.
+
+        El único cambio que el protocolo ha tenido desde el registro es el
+        bloque `coste_calculado`, que es derivado y va deliberadamente FUERA de
+        `a_json()`: por eso no mueve el digest, y está bien que no lo mueva.
+        """
+        self.assertEqual(
+            self.protocolo.digest(), self.DIGEST_REGISTRADO_ANTES_DE_MEDIR,
+            "el protocolo ha cambiado desde que se registró el 2026-09-06, "
+            "ANTES de medir. Si el cambio es a propósito hay que re-firmarlo "
+            "explícitamente y decir aquí por qué; si no lo es, los números "
+            "medidos ya no responden a lo que se prometió medir")
 
     def test_cubos_de_tamano_15_15_10(self):
         from collections import Counter
