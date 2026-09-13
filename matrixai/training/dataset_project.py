@@ -123,7 +123,7 @@ from matrixai.training.dataset_analysis import (
     analyze_dataset_csv,
 )
 from matrixai import limits as _limits
-from matrixai.training.categorical import _build_group_names
+from matrixai.training.categorical import _build_group_names, embedding_source_columns
 from matrixai.training.dense_generator import _identifier, _ONEHOT_MAX
 from matrixai.training.user_intent import UserIntentError, normalize_user_intent
 from matrixai.training.intent_llm import (
@@ -214,6 +214,12 @@ class _PreparedCSV:
     # `_distinct_non_null`, así que un CSV con un valor de más (o de menos)
     # produciría otras columnas one-hot y otro VECTOR.
     effective_vocabularies: dict[str, list[str]] = field(default_factory=dict)
+    # Nombres SAFE de las categóricas que este CSV escribió como ÍNDICE de
+    # embedding (una columna) en vez de one-hot (N columnas). Se congela en la
+    # receta por el mismo motivo que el vocabulario: la decisión la tomó el
+    # MODELO generado, no una regla recalculable desde el CSV crudo, así que
+    # re-preparar sin ella produciría otras columnas.
+    embedding_source_names: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -787,6 +793,12 @@ def generate_project_from_dataset(
     prepared = _prepare_training_csv(
         rows, feature_columns, columns, feature_safe_names, target_column, task,
         target_label_map, target_header, category_vocabularies,
+        # LO QUE EL MODELO PIDE DE VERDAD. `res["mxai"]` ya es el modelo final
+        # (VECTOR expandido incluido): qué categóricas consume como índice de
+        # EMBEDDING se LEE de él, en vez de volver a deducirlo por cardinalidad
+        # — que es lo que hacía divergir el CSV del modelo en cuanto había una
+        # categórica por encima de `_ONEHOT_MAX` junto a otra por debajo.
+        embedding_sources=embedding_source_columns(res.get("mxai") or ""),
     )
     prepared_csv = prepared.text
 
@@ -870,6 +882,12 @@ def generate_project_from_dataset(
         "feature_name_map": dict(feature_safe_names),
         "column_types": {col: columns[col]["type"] for col in feature_columns},
         "category_vocabularies": dict(prepared.effective_vocabularies),
+        # CONGELADO, no recalculable: qué categóricas fueron a índice de
+        # embedding lo decidió el generador que produjo ESTE modelo. Una receta
+        # SIN esta clave es anterior al arreglo y se re-prepara con el criterio
+        # de entonces (`_prepare_v1`); una lista VACÍA significa "ninguna", que
+        # no es lo mismo que "no se sabe".
+        "embedding_columns": list(prepared.embedding_source_names),
         "target_column": target_column,
         "target_header": target_header,
         "task": task,
@@ -1317,6 +1335,13 @@ def _prepare_v1(
         spec.get("target_label_map"),
         spec["target_header"],
         dict(spec.get("category_vocabularies") or {}),
+        # AUSENTE no es VACÍA: una receta anterior a esta clave no sabe qué
+        # columnas fueron a embedding, y forzar `set()` convertiría en one-hot
+        # las que entonces se escribieron como índice — re-preparar dejaría de
+        # reproducir el CSV que ese modelo entrenó. `None` pide el criterio de
+        # entonces; una lista (aunque sea vacía) es una respuesta.
+        embedding_sources=(set(spec["embedding_columns"])
+                           if "embedding_columns" in spec else None),
     )
 
 
@@ -1859,6 +1884,8 @@ def _prepare_training_csv(
     target_label_map: dict[str, str] | None,
     target_header: str,
     category_vocabularies: dict[str, list[str]],
+    *,
+    embedding_sources: set[str] | None = None,
 ) -> _PreparedCSV:
     # Grupos one-hot/embedding + los mapas valor_crudo->columna o índice,
     # calculados UNA VEZ (no por fila — recalcular _distinct_non_null
@@ -1878,11 +1905,30 @@ def _prepare_training_csv(
             if len(values) < 2:
                 continue
             effective_vocabularies[col] = list(values)
-            if len(values) > _ONEHOT_MAX:
-                # Auditoría C2 [ALTA] (ver punto 6 del docstring): GEN
-                # enrutó esta columna al composite con EMBEDDING nativo —
-                # el CSV lleva el ÍNDICE del valor en el vocabulario (mismo
-                # orden que se escribió en el prompt), NUNCA one-hot.
+            # ¿ÍNDICE DE EMBEDDING O ONE-HOT? LO DICE EL MODELO, NO LA
+            # CARDINALIDAD. `embedding_sources` son las columnas que el `.mxai`
+            # recién generado consume como fuente de un EMBEDDING
+            # (`embedding_source_columns`, categorical.py). Aquí había un
+            # `len(values) > _ONEHOT_MAX` que REIMPLEMENTABA la decisión, y
+            # divergía justo en el caso mixto: basta UNA categórica por encima
+            # del umbral para que el enrutado mande el prompt ENTERO al
+            # generador composite, que materializa como EMBEDDING TODAS las
+            # declaradas — también las de 2 valores. El CSV las expandía a
+            # one-hot igualmente y el proyecto moría en su propia validación
+            # ("Faltan: var191, var194" con KDDCup09_appetency; reproducido el
+            # 2026-09-13 con 14 filas sintéticas y cero faltantes).
+            # Sin modelo a mano —re-preparar desde una receta anterior a
+            # `embedding_columns`— se aplica el criterio VIEJO, que es
+            # exactamente el que produjo aquel CSV: cambiarlo ahí reescribiría
+            # el pasado.
+            if embedding_sources is not None:
+                va_por_embedding = safe_name in embedding_sources
+            else:
+                va_por_embedding = len(values) > _ONEHOT_MAX
+            if va_por_embedding:
+                # Ver punto 6 del docstring: el CSV lleva el ÍNDICE del valor
+                # en el vocabulario (mismo orden que se escribió en el
+                # prompt), NUNCA one-hot.
                 embedding_columns[col] = {v: i for i, v in enumerate(values)}
                 header.append(safe_name)
                 if "embed_high_cardinality_categoricals" not in operations:
@@ -1946,6 +1992,7 @@ def _prepare_training_csv(
     return _PreparedCSV(
         text=out.getvalue(), rows_dropped_null_target=rows_dropped,
         operations=operations, effective_vocabularies=effective_vocabularies,
+        embedding_source_names=[feature_safe_names[c] for c in embedding_columns],
     )
 
 

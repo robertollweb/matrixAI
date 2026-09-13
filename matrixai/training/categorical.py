@@ -254,3 +254,37 @@ def _vector_field_names(mxai_text: str) -> set[str]:
             if m:
                 names.add(m.group(1))
     return names
+
+
+def embedding_source_columns(mxai_text: str) -> set[str]:
+    """Columnas del VECTOR que ESTE modelo consume como fuente de un EMBEDDING.
+
+    LA ÚNICA DECLARACIÓN de «esta categórica NO va one-hot». Una columna que
+    el modelo materializó como EMBEDDING espera UNA columna con el ÍNDICE del
+    valor en el vocabulario; expandirla a one-hot produce N columnas que el
+    VECTOR no declara y el CSV deja de validar contra su propio modelo.
+
+    Quién decide eso NO es la cardinalidad de la columna: es el GENERADOR que
+    acabó produciendo el `.mxai`. Cuando UNA sola categórica del prompt supera
+    `_ONEHOT_MAX`, el enrutado manda el prompt ENTERO al generador composite
+    (`playground.py`, `want_composite`), y ese generador materializa como
+    EMBEDDING **todas** las categóricas declaradas — también las de 2 valores.
+    Recalcular la decisión por cardinalidad, columna a columna, contradice al
+    modelo real en justo ese caso: medido el 2026-09-13 con 14 filas
+    sintéticas (una categórica de 2 valores + una de 13), el CSV preparado
+    salía con `cat_baja__a`/`cat_baja__b` mientras el VECTOR pedía `cat_baja`,
+    y `generate_project_from_dataset` moría con «El CSV preparado no pasa la
+    validación del modelo que acaba de generarse. Faltan: cat_baja».
+
+    Se lee del texto del modelo ya generado, no se reimplementa la regla de
+    enrutado: si mañana cambia el umbral o el criterio, esto sigue siendo
+    cierto sin tocarse.
+    """
+    from matrixai.parser import parse_text  # noqa: PLC0415  (ciclo de import)
+
+    program = parse_text(mxai_text)
+    return {
+        spec.source
+        for network in program.networks
+        for spec in getattr(network, "embeddings", [])
+    }
