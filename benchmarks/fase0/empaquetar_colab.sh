@@ -83,6 +83,22 @@ case "$modo" in
       [ -f "$DESTINO/engines/src/matrixai_engines/$rel" ] || { echo "FALTA   engines/$rel"; viejos=1; }
     done < <(find "$ENGINES/src/matrixai_engines" -name '*.py' -not -path '*__pycache__*' -print0)
 
+    # LOS JSON, que es donde este comprobador tenia un HUECO.
+    #
+    # El 2026-09-13 se re-firmo el protocolo (cambia su digest) y
+    # `--comprobar` dijo «al dia»: solo miraba ficheros `.py`. Una pasada en
+    # Colab habria medido contra el protocolo VIEJO mientras esto afirmaba que
+    # estaba todo bien — o sea, el mismo fallo que este script existe para
+    # impedir, cometido por el script.
+    #
+    # `seleccion_40_final.json` es opcional (solo hace falta para re-descargar
+    # los ARFF por `file_id`); el protocolo NO lo es.
+    for j in protocolo_exploratorio.json seleccion_40_final.json; do
+      [ -f "$FASE0/$j" ] || continue
+      if [ ! -f "$DESTINO/$j" ]; then echo "FALTA   $j"; viejos=1; continue; fi
+      cmp -s "$DESTINO/$j" "$FASE0/$j" || { echo "VIEJO   $j"; viejos=1; }
+    done
+
     if [ "$viejos" -eq 0 ]; then
       echo "✓ el paquete de Colab está al día con los dos árboles"
     else
