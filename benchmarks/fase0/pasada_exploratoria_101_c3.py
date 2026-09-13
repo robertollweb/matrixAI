@@ -94,6 +94,7 @@ from matrixai_engines.subproceso import ejecutar_intento_aislado  # noqa: E402
 
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+import lector_arff  # noqa: E402
 from protocolo import (ProtocoloExploratorio,  # noqa: E402
                        veredicto_con_su_alcance)
 
@@ -207,6 +208,16 @@ _FICHEROS_COMPARTIDOS = (
     _RAIZ_DEL_CORE / "matrixai" / "training" / "dataset_project.py",
     _RAIZ_DEL_CORE / "matrixai" / "playground.py",
     _RAIZ_DEL_CORE / "matrixai" / "forward" / "dense_forward.py",
+    # 2026-09-13: el lector de ARFF, desde que esta pasada dejo de tener su
+    # propia copia. Sin el, reparar el `"?"` del estandar ARFF o la exclusion
+    # de la columna identificadora NO invalidaria el cache, y una re-pasada
+    # «limpia» reusaria exactamente los intentos que se acaban de reparar. Es
+    # el mismo agujero que se cerro con los tres ficheros de arriba.
+    _RAIZ_DEL_CORE / "benchmarks" / "fase0" / "lector_arff.py",
+    # Y el modulo del NUCLEO que declara que es un identificador: la exclusion
+    # de la columna sobrante se decide con su criterio, asi que cambiarlo
+    # cambia que columnas ve el modelo.
+    _RAIZ_DEL_CORE / "matrixai" / "training" / "dataset_analysis.py",
     Path(__file__),
 )
 # Por motor: un cambio SOLO invalida los intentos de ESE motor.
@@ -454,26 +465,84 @@ def _cargar_cache(ruta: Path) -> tuple[dict[tuple, dict], dict]:
             for r in payload.get("resultados", [])}, payload)
 
 
-def cargar_arff(data_id: int) -> tuple[list[dict], str]:
-    from scipy.io import arff
+#: Lo que el catálogo registrado dice de cada dataset, por `data_id`. Se lee
+#: una vez y se cachea: `cargar_arff` lo necesita en cada dataset y el fichero
+#: no cambia a mitad de una pasada.
+_CATALOGO_POR_DATA_ID: dict[int, dict] | None = None
 
-    datos, meta = arff.loadarff(ARFF_DIR / f"{data_id}.arff")
-    nombres = meta.names()
-    tipos = dict(zip(nombres, meta.types()))
-    objetivo = nombres[-1]
-    filas = []
-    for i, registro in enumerate(datos):
-        fila = {"row_id": f"{data_id}-{i}"}
-        for nombre in nombres:
-            valor = registro[nombre]
-            if tipos[nombre] == "numeric":
-                valor_final = None if valor != valor else float(valor)  # NaN -> None
-            else:
-                texto = valor.decode() if isinstance(valor, (bytes, bytearray)) else str(valor)
-                valor_final = None if texto == "" else texto
-            fila[nombre] = valor_final
-        filas.append(fila)
-    return filas, objetivo
+
+def _catalogo_registrado() -> dict[int, dict]:
+    """El catálogo del protocolo registrado, indexado por `data_id`.
+
+    Si no se puede leer devuelve vacío y `cargar_arff` sigue leyendo los ARFF
+    sin la parte que depende de él —el objetivo declarado y la columna
+    identificadora sobrante—, PERO lo dice: un catálogo que no se pudo leer no
+    es un catálogo que diga «nada que excluir».
+    """
+    global _CATALOGO_POR_DATA_ID
+    if _CATALOGO_POR_DATA_ID is None:
+        ruta = Path(__file__).resolve().parent / "protocolo_exploratorio.json"
+        try:
+            payload = json.loads(ruta.read_text(encoding="utf-8"))
+            _CATALOGO_POR_DATA_ID = {d["data_id"]: d for d in payload["datasets"]}
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"AVISO DE CATALOGO: no se pudo leer {ruta}: "
+                 f"{type(exc).__name__}: {exc} -- se lee sin objetivo declarado "
+                 f"ni exclusion de identificadores", flush=True)
+            _CATALOGO_POR_DATA_ID = {}
+    return _CATALOGO_POR_DATA_ID
+
+
+#: Lo que cada dataset declaró al leerse: normalizaciones, columnas excluidas
+#: con su motivo, y avisos. Viaja al JSON de salida — una columna que se cae
+#: sin dejar rastro es un dato que desaparece.
+LECTURA_DECLARADA: dict[str, dict] = {}
+
+
+def cargar_arff(data_id: int) -> tuple[list[dict], str]:
+    """El ARFF, leído por el lector UNICO (`lector_arff.cargar`).
+
+    ESTE FICHERO TENIA SU PROPIA COPIA, y las dos divergieron — que es
+    exactamente lo que pasa cuando dos sitios declaran lo mismo. La de aquí
+    hacia `None if texto == ""`, y el marcador de ausencia del ESTANDAR ARFF
+    es `"?"`, no la cadena vacia. `scipy` lo entrega literal en las columnas
+    nominales (en las numericas ya sale `NaN`), asi que el `"?"` llegaba al
+    nucleo como UNA CATEGORIA MAS: ni se imputaba ni encendia el indicador de
+    faltante, y eso vale para los CUATRO motores, no solo para el denso.
+
+    Medido el 2026-09-13 sobre los doce de esta pasada: `sick` trae 150 de sus
+    3.772 filas con `sex == "?"`. Es el unico de los doce afectado, y el unico
+    numero que se mueve es el de `sklearn.lineal` en `sick` (AUROC 0,9640138 ->
+    0,9638602 en el pliegue 0 de la repeticion 0). El veredicto de la regla de
+    cierre NO se mueve: `sick` ya estaba a 3,53 puntos del mejor para ese
+    motor, y el liston son 2,0.
+
+    El lector unico trae ademas lo que esta copia nunca tuvo: las tres
+    normalizaciones que hacen legibles cuatro de los cuarenta, el objetivo
+    DECLARADO por el catalogo (en cinco de los cuarenta no es el ultimo
+    atributo, y `nombres[-1]` entrenaba contra otra columna), y la exclusion de
+    la columna identificadora que el catalogo dice que sobra.
+    """
+    entrada = _catalogo_registrado().get(data_id)
+    leido = lector_arff.cargar(
+        ARFF_DIR / f"{data_id}.arff",
+        objetivo_declarado=entrada.get("columna_objetivo") if entrada else None,
+        n_columnas_declaradas=entrada.get("n_columnas") if entrada else None)
+    LECTURA_DECLARADA[str(data_id)] = {
+        "nombre": entrada["nombre"] if entrada else None,
+        "objetivo": leido.objetivo,
+        "normalizaciones": list(leido.normalizaciones),
+        "columnas_excluidas": list(leido.columnas_excluidas),
+        "motivos_de_exclusion": dict(leido.motivos_de_exclusion),
+        "avisos": list(leido.avisos),
+        "catalogo_leido": entrada is not None,
+    }
+    for columna in leido.columnas_excluidas:
+        print(f"  COLUMNA EXCLUIDA en data_id={data_id}: {columna} -- "
+             f"{leido.motivos_de_exclusion.get(columna, 'sin motivo declarado')}", flush=True)
+    for aviso in leido.avisos:
+        print(f"  AVISO DE LECTURA en data_id={data_id}: {aviso}", flush=True)
+    return leido.filas, leido.objetivo
 
 
 def preparar_para_motor(train_filas: list[dict], todas_filas: list[dict], objetivo: str,
@@ -738,6 +807,12 @@ def _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida, *,
         "total_wall_s": round(total_wall_s, 1),
         "n_intentos": len(resultados),
         "n_reusados": reusados,
+        # QUE SE LEYO DE CADA ARFF, y que se dejo fuera. Una columna excluida
+        # sin rastro es un dato que desaparece: quien lea estos numeros tiene
+        # que poder ver que `splice` entro SIN `Instance_name` y por que. Va
+        # dentro del digest, como el alcance y por el mismo motivo — una
+        # declaracion que se puede reescribir en silencio no declara nada.
+        "lectura_de_los_datos": dict(LECTURA_DECLARADA),
         "resultados": resultados,
     }
     # EL ALCANCE VIAJA CON EL NÚMERO, y va DENTRO del digest.
