@@ -10,8 +10,10 @@ HALLAZGO GRAVE de la auditoría interna del 2026-09-12:
     `xgboost`, `catboost`) son los rivales DIRECTOS de un GBM.»
 
 Re-medido el 2026-09-13, punto por punto, antes de reparar nada: el protocolo
-registrado (`101-C1.v1`, digest `493a6f1d…`) trae **40** datasets y **7**
-motores; `pasada_exploratoria_101_c3.py` corre **12** y **4**; y de los diez
+registrado (`101-C1.v1`, digest `493a6f1d…` — el de ENTONCES; ese mismo día,
+más tarde, se re-firmó a `eb54f421…` por la cardinalidad falsa del catálogo y
+la sobre-reserva de CPU, sin tocar la regla de cierre) trae **40** datasets y
+**7** motores; `pasada_exploratoria_101_c3.py` corre **12** y **4**; y de los diez
 aciertos de lightgbm, **ocho** tienen distancia 0,0000 al mejor, que es como
 se escribe «es el mejor de los tres que compitieron». El enunciado era exacto.
 
@@ -200,11 +202,50 @@ class ElAlcanceDeclaradoCUADRAConLoMedidoTest(unittest.TestCase):
                          "la lista de motores del script ya no es la del JSON: "
                          "hay que volver a generar la evidencia")
 
+    #: El digest del protocolo CONTRA EL QUE SE MIDIERON los 720 intentos: el
+    #: del primer registro, 2026-09-06 a las 16:32, commit `a3d551a`.
+    DIGEST_CONTRA_EL_QUE_SE_MIDIO = (
+        "493a6f1df9175cfe0d4f736216af11a740f9c4913426700e0ac10c7eb165f0b6")
+
     def test_los_motores_del_protocolo_son_los_del_protocolo_REGISTRADO(self):
+        """**Esto comparaba el digest del artefacto con el del protocolo de
+        HOY, y el 2026-09-13 el protocolo se RE-FIRMÓ** (cardinalidad falsa
+        del catálogo + reserva de 24 hilos sobre 8 CPUs). Con la comparación
+        vieja, una corrección legítima del catálogo invalidaba una evidencia
+        que no tenía nada malo — y, peor, la única forma de volver a verde
+        habría sido editar el JSON de los 720 intentos, que es evidencia.
+
+        Lo que el artefacto graba es un HECHO HISTÓRICO: contra qué protocolo
+        se midió. Eso no cambia nunca, y por eso ahora se compara con el
+        literal de entonces. Lo que sí hay que seguir exigiendo —y va debajo,
+        separado— es que lo que la pasada USÓ no se haya movido: los motores,
+        y la regla con la que se lee el resultado."""
         self.assertEqual(self.alcance["motores"]["del_protocolo"],
                          [m.id for m in self.protocolo.motores])
         self.assertEqual(self.alcance["protocolo"]["digest_sha256"],
-                         self.protocolo.digest())
+                         self.DIGEST_CONTRA_EL_QUE_SE_MIDIO)
+
+    def test_la_RE_FIRMA_no_toco_nada_de_lo_que_esta_pasada_uso(self):
+        """La otra mitad, y la que impide que «es un hecho histórico» se
+        convierta en una excusa para cualquier cambio. El digest del artefacto
+        puede diferir del vigente SOLO si lo que la pasada usó sigue siendo lo
+        mismo: los siete motores, los 40 datasets, la partición y —sobre todo—
+        la regla de cierre con la que se lee «10/12 CUMPLE».
+
+        Si alguien re-firma tocando alguna de esas cosas, esta prueba se pone
+        roja y el veredicto guardado deja de poder leerse con el protocolo de
+        hoy, que es exactamente lo que tiene que pasar."""
+        self.assertEqual(self.alcance["protocolo"]["version"],
+                         self.protocolo.version_protocolo)
+        self.assertEqual(self.alcance["protocolo"]["n_motores"], len(self.protocolo.motores))
+        self.assertEqual(self.alcance["protocolo"]["n_datasets"], len(self.protocolo.datasets))
+        self.assertEqual(self.protocolo.regla_de_cierre.puntos, 2.0)
+        self.assertEqual(self.protocolo.regla_de_cierre.fraccion_minima, 0.80)
+        veredicto = aplicar_regla_de_cierre(
+            self.resultados, self.protocolo.regla_de_cierre, motor="lightgbm")
+        self.assertEqual((veredicto["cumplidos"], veredicto["datasets"]), (10, 12),
+                         "el veredicto de esta evidencia ya no sale con el protocolo "
+                         "vigente: la re-firma tocó algo que la pasada usaba")
 
     def test_los_que_FALTAN_salen_de_restar_las_dos_listas_con_su_mapeo(self):
         """Y se restan traduciendo los nombres. Comparadas a pelo, las dos

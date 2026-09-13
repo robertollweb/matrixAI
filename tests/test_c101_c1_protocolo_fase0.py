@@ -23,7 +23,9 @@ from pathlib import Path
 
 from benchmarks.fase0.protocolo import (
     ANCLAS_DE_ESCALADO,
+    UMBRAL_ALTA_CARDINALIDAD,
     aplicar_regla_de_cierre,
+    cardinalidad_nominal_declarada,
     CosteDeLaPasada,
     DatasetRegistrado,
     DisenoDeParticion,
@@ -45,7 +47,8 @@ _RUTA_PROTOCOLO_REAL = Path(__file__).resolve().parents[1] / "benchmarks" / "fas
 def _dataset(**kw) -> DatasetRegistrado:
     base = dict(data_id=1, nombre="x", fuente="cc18", version=1, sha256_arff="a" * 64,
                columna_objetivo="y", tarea="binary_classification", cubo_de_tamano="pequeno",
-               n_filas=1000, n_columnas=10, tiene_faltantes=False, alta_cardinalidad=False,
+               n_filas=1000, n_columnas=10, tiene_faltantes=False,
+               max_cardinalidad_nominal=0, alta_cardinalidad=False,
                desbalanceado=False, solo_numericas=True, licencia="Public")
     base.update(kw)
     return DatasetRegistrado(**base)
@@ -271,40 +274,160 @@ class ProtocoloRealRegistradoTest(unittest.TestCase):
         abajo."""
         self.assertEqual(self.payload["digest_sha256"], self.protocolo.digest())
 
-    #: El digest que el protocolo tenía el 2026-09-06 a las 16:32, en el commit
-    #: `a3d551a`, **antes de que se midiera nada** (la primera pasada es del
-    #: 09-07 a las 11:49). Está escrito aquí ENTERO y a mano a propósito.
-    DIGEST_REGISTRADO_ANTES_DE_MEDIR = (
+    #: El digest del PRIMER registro: el que el protocolo tenía el 2026-09-06 a
+    #: las 16:32, en el commit `a3d551a`, **antes de que se midiera nada** (la
+    #: primera pasada es del 09-07 a las 11:49). Ya no es el digest del
+    #: fichero, y se conserva porque sigue siendo un HECHO: es el protocolo
+    #: contra el que se midieron los 720 intentos, y es el que la evidencia
+    #: (`pasada_exploratoria_..._con_alcance.json`), la calibración y la
+    #: cartera de `matrixai_engines` citan. Un artefacto medido contra él no
+    #: se vuelve falso porque el catálogo se corrija después.
+    DIGEST_DEL_PRIMER_REGISTRO_2026_09_06 = (
         "493a6f1df9175cfe0d4f736216af11a740f9c4913426700e0ac10c7eb165f0b6")
+
+    #: El digest VIGENTE, tras la ÚNICA re-firma. Escrito a mano, como el
+    #: anterior: es el ancla, y un ancla calculada no ancla nada.
+    DIGEST_REGISTRADO_ANTES_DE_MEDIR = (
+        "eb54f42166835ad158b4d879ebfbe085ad8c8eaedf4895cfcb5d220a032756dc")
 
     def test_el_digest_es_EL_MISMO_que_antes_de_medir(self):
         """El ancla, y no existía: **nada ataba el digest a su valor
         literal.**
 
+        **RE-FIRMA DEL 2026-09-13, la única que ha habido.** Esta constante
+        pasó de `493a6f1d…` a `eb54f421…`. Se re-firmó por DOS correcciones, y
+        la primera frase que alguien va a querer leer dentro de seis meses es
+        esta: **LA REGLA DE CIERRE NO SE MOVIÓ.** Ni el listón (2,0 puntos), ni
+        la fracción mínima (0,80), ni la definición de «mejor», ni las métricas
+        por tarea, ni la lista de 40 datasets, ni las particiones. Lo comprueba
+        `test_la_REGLA_DE_CIERRE_no_se_movio_en_la_re_firma`, byte a byte
+        contra el literal de entonces, y no este comentario.
+
+        Qué se corrigió, y por qué cada cosa era falsa:
+
+        1. **La cardinalidad declarada del catálogo, falsa en DIEZ de los
+           cuarenta.** El campo se llamaba `alta_cardinalidad` y se rellenaba
+           con «columnas categóricas / columnas > 0,3», que es otra cosa.
+           `KDDCup09_appetency` decía `false` con **15.415 niveles** en
+           `Var200` (71.506 en todo el fichero); `kr-vs-kp`,
+           `PhishingWebsites`, `connect-4` e `Internet-Advertisements` decían
+           `true` con un máximo de 2 o 3 niveles. Ahora el catálogo registra el
+           NÚMERO medido sobre el ARFF sellado (`max_cardinalidad_nominal`) y
+           el booleano se lee contra el umbral que el anexo C §2.2 ya tenía
+           escrito antes de medir nada: 50 niveles.
+        2. **La reserva de concurrencia: 24 hilos sobre 8 CPUs**, `hilos=4` x
+           `procesos_en_paralelo=6`, triple de lo que la máquina tiene — y
+           `cpu_fisicas` decía 8 cuando son 4 (8 son las lógicas). Este
+           servidor se ha caído dos veces por exactamente esto. Ahora
+           `procesos_en_paralelo=2`, que es `reserva_segura(4)` sobre
+           `cpus_disponibles()`, MEDIDO con las funciones de este módulo:
+           sobre-reserva 0, y sin perder nada de velocidad porque 24 hilos
+           sobre 8 CPUs rendían el mismo techo de 4,69x que 8.
+
+        **El veredicto no se movió**: re-aplicar la regla a la evidencia sigue
+        dando lightgbm 10/12 = 0,833 CUMPLE. Lo comprueba
+        `test_el_veredicto_NO_se_movio_con_la_re_firma`.
+
+        Lo de siempre, que la re-firma no deroga: un protocolo «registrado con
+        hash» solo vale si el hash es EL QUE SE ESCRIBIÓ. Con la
+        auto-consistencia sola, cualquiera puede aflojar la regla, recalcular y
+        quedarse con un fichero que cuadra consigo mismo y con la suite en
+        verde — que es exactamente lo que el auditor hizo el 2026-09-13 para
+        demostrar el hueco. Por eso el número va ESCRITO aquí: si alguien toca
+        el protocolo, esto se pone rojo, y esa es la conversación que tiene que
+        haber.
+
         Un protocolo «registrado con hash» solo vale si el hash es EL DE
         ENTONCES. Con la auto-consistencia sola, cualquiera puede aflojar la
-        regla, recalcular y quedarse con un fichero que cuadra consigo mismo y
-        con la suite en verde — que es exactamente lo que el auditor hizo para
-        demostrar el hueco. Hasta hoy lo cazaban el historial de git y el texto
-        de la cartera; ninguna de las dos es una prueba.
+        Cambiar lo que se prometió medir **después de ver los números** no es
+        un detalle de implementación. Si el cambio es legítimo —añadir un
+        motor, corregir un dato falso del catálogo, bajar una reserva que
+        tumba la máquina— se re-firma A PROPÓSITO, se cambia esta constante, y
+        el commit explica qué se re-firmó y por qué. Lo que NO se re-firma
+        nunca por este camino es la regla de cierre: eso es otra conversación,
+        y tiene su propia prueba debajo.
 
-        Aquí el número va ESCRITO. Si alguien toca el protocolo, esto se pone
-        rojo, y esa es la conversación que tiene que haber: cambiar lo que se
-        prometió medir **después de ver los números** no es un detalle de
-        implementación. Si el cambio es legítimo —añadir un motor, corregir un
-        dato falso del catálogo— se re-firma A PROPÓSITO, se cambia esta
-        constante, y el commit explica qué se re-firmó y por qué.
-
-        El único cambio que el protocolo ha tenido desde el registro es el
-        bloque `coste_calculado`, que es derivado y va deliberadamente FUERA de
-        `a_json()`: por eso no mueve el digest, y está bien que no lo mueva.
+        El otro cambio que el protocolo ha tenido, y que NO es una re-firma,
+        es el bloque `coste_calculado`: es derivado y va deliberadamente FUERA
+        de `a_json()`, así que no mueve el digest, y está bien que no lo mueva.
         """
         self.assertEqual(
             self.protocolo.digest(), self.DIGEST_REGISTRADO_ANTES_DE_MEDIR,
-            "el protocolo ha cambiado desde que se registró el 2026-09-06, "
-            "ANTES de medir. Si el cambio es a propósito hay que re-firmarlo "
-            "explícitamente y decir aquí por qué; si no lo es, los números "
+            "el protocolo ha cambiado desde la última re-firma deliberada. Si "
+            "el cambio es a propósito hay que re-firmarlo explícitamente y "
+            "decir aquí qué, cuándo y por qué; si no lo es, los números "
             "medidos ya no responden a lo que se prometió medir")
+        self.assertNotEqual(
+            self.protocolo.digest(), self.DIGEST_DEL_PRIMER_REGISTRO_2026_09_06,
+            "el digest vigente ha vuelto a ser el del primer registro: o la "
+            "re-firma del 2026-09-13 se ha revertido, o las dos constantes de "
+            "arriba se han igualado y esta prueba ya no distingue nada")
+
+    #: La regla de cierre EXACTAMENTE como se registró el 2026-09-06, en su
+    #: forma canónica JCS — la misma con la que se calcula el digest. Escrita
+    #: a mano y entera: el sentido de tenerla aquí es poder contrastar el
+    #: fichero con algo que NO salga del fichero.
+    REGLA_DE_CIERRE_REGISTRADA_JCS = (
+        b'{"definicion_de_mejor":"el motor con mejor media de los ajustes en ESE dataset,'
+        b' excluido el baseline dummy; un fallo (timeout/crash) cuenta como dataset perdido'
+        b' para ese motor","fraccion_minima":0.8,"metrica_por_tarea":{"binary_classification'
+        b'":"AUROC","multiclass_classification":"accuracy_o_f1_macro","regression":"R2"},'
+        b'"puntos":2}')
+
+    def test_la_REGLA_DE_CIERRE_no_se_movio_en_la_re_firma(self):
+        """**La prueba que hace legítima la re-firma del 2026-09-13**, y la
+        primera que alguien va a querer mirar dentro de seis meses.
+
+        Un digest que cambia no dice QUÉ cambió. Lo que hace que corregir el
+        catálogo sea una corrección y no un amaño es que lo que decide quién
+        gana siga siendo, letra por letra, lo que se fijó ANTES de medir:
+        2,0 puntos, 0,80 de fracción, esas tres métricas por tarea y esa
+        definición de «mejor», con su cláusula de que un fallo cuenta como
+        dataset perdido.
+
+        Se compara en JCS —los mismos bytes que entran en el sha256—, no
+        `assertEqual` de diccionarios: así también caza un 2,0 que se vuelva
+        2,00001, un orden distinto o un espacio de más en la definición. Y el
+        literal está ESCRITO, no leído de ningún sitio: contrastar el fichero
+        consigo mismo es lo que ya hacía `test_el_digest_guardado_coincide…`,
+        y la auditoría demostró que eso lo pasa cualquiera que recalcule.
+        """
+        from matrixai.estudio.validacion import jcs_bytes
+        self.assertEqual(
+            jcs_bytes(self.protocolo.regla_de_cierre.a_json()),
+            self.REGLA_DE_CIERRE_REGISTRADA_JCS,
+            "LA REGLA DE CIERRE SE HA MOVIDO. Ninguna corrección del catálogo "
+            "ni de la reserva de recursos toca esto: si esta prueba está roja, "
+            "lo que ha cambiado es el listón, y eso no se re-firma sin una "
+            "conversación aparte")
+
+    def test_el_veredicto_NO_se_movio_con_la_re_firma(self):
+        """La otra mitad de la legitimidad: la regla no se movió Y aplicarla
+        sigue dando lo mismo. Se re-deriva sobre la EVIDENCIA de los 720
+        intentos, que no se ha tocado — 10 de 12, 0,833, CUMPLE.
+
+        Vale la pena que esté aquí y no solo en el contrato: si una corrección
+        del catálogo hubiera movido el veredicto, querría decir que el
+        catálogo entraba en la cuenta, y entonces «corregir un dato falso»
+        habría sido cambiar quién gana."""
+        import json
+        from pathlib import Path
+        raiz = Path(__file__).resolve().parents[1] / "benchmarks" / "fase0"
+        crudo = json.loads(
+            (raiz / "pasada_exploratoria_101_c3_remedida_20260912_con_alcance.json")
+            .read_text(encoding="utf-8"))
+        r = aplicar_regla_de_cierre(crudo["resultados"], self.protocolo.regla_de_cierre,
+                                    motor="lightgbm")
+        self.assertEqual((r["cumplidos"], r["datasets"]), (10, 12))
+        self.assertTrue(r["cumple_la_regla"])
+        # La mitad positiva sola la pasaría un motor que ganara siempre: los
+        # otros dos tienen que seguir sin cumplir, y por los mismos números.
+        self.assertEqual(
+            aplicar_regla_de_cierre(crudo["resultados"], self.protocolo.regla_de_cierre,
+                                    motor="sklearn.lineal")["cumplidos"], 7)
+        self.assertEqual(
+            aplicar_regla_de_cierre(crudo["resultados"], self.protocolo.regla_de_cierre,
+                                    motor="matrixai.dense.torch_cpu")["cumplidos"], 4)
 
     def test_cubos_de_tamano_15_15_10(self):
         from collections import Counter
@@ -321,11 +444,41 @@ class ProtocoloRealRegistradoTest(unittest.TestCase):
         self.assertEqual(tareas["regression"], 10)
 
     def test_cobertura_obligatoria_del_anexo_c(self):
+        """Las cuatro cuentas del anexo C §2.2, literal: «≥ 10 con faltantes
+        (> 1 % de celdas), **≥ 12 con categóricas (≥ 5 con alguna de
+        cardinalidad ≥ 50)**, ≥ 8 desbalanceados (minoritaria ≤ 10 %), ≥ 6 con
+        solo numéricas».
+
+        **La del paréntesis no se comprobaba, y la de fuera se comprobaba con
+        el campo equivocado.** Hasta el 2026-09-13 esta prueba pedía «≥ 12 con
+        `alta_cardinalidad`» — el 12 es el de «con categóricas», y
+        `alta_cardinalidad` no medía cardinalidad sino proporción de columnas
+        categóricas. Fundidas las dos mitades, el resultado pasaba en verde
+        con `KDDCup09_appetency` (15.415 niveles) marcado como de baja
+        cardinalidad. Ahora van por separado y se comprueban **las dos**:
+        aquí se exige MÁS que antes, no menos.
+
+        «Con categóricas» se cuenta como `not solo_numericas` y no con un
+        campo nuevo: serían dos sitios declarando lo mismo."""
         ds = self.protocolo.datasets
         self.assertGreaterEqual(sum(1 for d in ds if d.tiene_faltantes), 10)
-        self.assertGreaterEqual(sum(1 for d in ds if d.alta_cardinalidad), 12)
+        self.assertGreaterEqual(sum(1 for d in ds if not d.solo_numericas), 12)
+        self.assertGreaterEqual(sum(1 for d in ds if d.alta_cardinalidad), 5)
         self.assertGreaterEqual(sum(1 for d in ds if d.desbalanceado), 8)
         self.assertGreaterEqual(sum(1 for d in ds if d.solo_numericas), 6)
+
+    def test_la_cobertura_se_cumple_con_los_numeros_EXACTOS_que_se_midieron(self):
+        """Un `assertGreaterEqual` no distingue 12 de 40, así que tampoco
+        notaría que el catálogo se ha vuelto a llenar de `true` falsos. Los
+        números medidos el 2026-09-13 sobre los cuarenta ARFF sellados son
+        estos, y si cambian hay que volver a medir y decirlo, no ajustarlos."""
+        ds = self.protocolo.datasets
+        self.assertEqual(sum(1 for d in ds if not d.solo_numericas), 15)
+        self.assertEqual(sum(1 for d in ds if d.alta_cardinalidad), 6)
+        self.assertEqual(
+            sorted(d.nombre for d in ds if d.alta_cardinalidad),
+            ["Allstate_Claims_Severity", "Amazon_employee_access", "KDDCup09_appetency",
+             "house_sales", "okcupid-stem", "splice"])
 
     def test_ocho_datasets_sellados(self):
         self.assertEqual(sum(1 for d in self.protocolo.datasets if d.sellado), 8)
@@ -783,30 +936,330 @@ class CosteConContencionTest(unittest.TestCase):
 
 
 class ProtocoloRegistradoSobreReservaTest(unittest.TestCase):
-    """El protocolo REAL registrado, con los números de la deuda. Es la guarda
-    de regresión: si alguien vuelve a poner 6 procesos x 4 hilos creyendo que
-    caben, esto lo dice con nombres y números."""
+    """El protocolo REAL, con los números de la reserva. Era la guarda de la
+    DEUDA (24 hilos sobre 8 CPUs); desde la re-firma del 2026-09-13 es la
+    guarda de la REPARACIÓN: si alguien vuelve a poner 6 procesos x 4 hilos
+    creyendo que caben, esto lo dice con nombres y números."""
 
     @classmethod
     def setUpClass(cls):
         cls.protocolo = ProtocoloExploratorio.cargar(_RUTA_PROTOCOLO_REAL)
+        cls.payload = json.loads(_RUTA_PROTOCOLO_REAL.read_text(encoding="utf-8"))
         cls.coste = calcular_coste(cls.protocolo, cpus=8)
 
-    def test_el_protocolo_registrado_reserva_24_hilos_sobre_8_cpus(self):
-        self.assertEqual(self.protocolo.presupuesto.hilos_reservados, 24)
-        self.assertEqual(self.coste.sobre_reserva, 16)
+    def test_el_protocolo_reserva_8_hilos_sobre_8_cpus_y_no_24(self):
+        """El caso de la deuda, ya cerrado. 4 x 6 = 24 sobre 8 era TRIPLE
+        reserva, y este servidor se ha caído dos veces por eso mismo."""
+        self.assertEqual(self.protocolo.presupuesto.hilos_reservados, 8)
+        self.assertEqual(self.coste.sobre_reserva, 0)
 
-    def test_la_cota_lineal_publicada_sigue_siendo_7493_horas(self):
-        self.assertAlmostEqual(self.coste.horas_reloj_peor_caso_con_paralelismo, 74.93, places=2)
+    def test_los_procesos_son_los_que_RESERVA_SEGURA_dice_no_un_numero_a_ojo(self):
+        """«Dilo medido»: el 2 del protocolo tiene que ser exactamente lo que
+        `reserva_segura` devuelve para sus propios hilos sobre la máquina que
+        el propio protocolo declara. Las CPUs se toman de
+        `recursos_declarados`, no de la máquina donde corra la suite: si no,
+        esto se pondría rojo en cualquier ordenador con otro número de CPUs y
+        dejaría de decir nada sobre el documento."""
+        cpus = self.payload["recursos_declarados"]["cpu_logicas"]
+        presupuesto = self.protocolo.presupuesto
+        self.assertEqual(presupuesto.procesos_en_paralelo,
+                         reserva_segura(presupuesto.hilos, cpus=cpus))
+        self.assertEqual(presupuesto.procesos_en_paralelo,
+                         presupuesto.procesos_que_caben(cpus=cpus))
 
-    def test_el_suelo_medido_es_9586_horas(self):
-        """Número NUEVO, no sustituto: con el techo medido 4,69x (no 6x) las
-        449,58 h secuenciales dan 95,86 h, no 74,93."""
+    def test_LA_OTRA_MITAD_la_reserva_no_se_ha_estrangulado(self):
+        """Un techo que reservase 1 proceso también daría sobre-reserva 0 y
+        pasaría por reparación, haciendo la pasada eterna. La reserva tiene
+        que USAR las CPUs que hay: los 8 hilos son los 8 de la máquina."""
+        cpus = self.payload["recursos_declarados"]["cpu_logicas"]
+        self.assertEqual(self.protocolo.presupuesto.hilos_reservados, cpus)
+        self.assertGreater(self.protocolo.presupuesto.procesos_en_paralelo, 1)
+
+    def test_el_presupuesto_y_los_recursos_declarados_NO_divergen(self):
+        """El mismo par de números vive en `presupuesto` y en
+        `recursos_declarados`, y dos sitios declarando lo mismo acaban
+        divergiendo — de hecho la re-firma tuvo que tocar los dos. Si alguien
+        cambia uno solo, esto lo caza."""
+        recursos = self.payload["recursos_declarados"]
+        self.assertEqual(recursos["hilos_por_proceso"], self.protocolo.presupuesto.hilos)
+        self.assertEqual(recursos["procesos_en_paralelo"],
+                         self.protocolo.presupuesto.procesos_en_paralelo)
+
+    def test_cpu_fisicas_declaradas_son_las_MEDIDAS_no_las_logicas(self):
+        """Decía `cpu_fisicas: 8` y son 4: 8 son las LÓGICAS, con SMT x2. No
+        es cosmética — es el número con el que uno decide cuántos hilos caben.
+
+        Solo se mide si la suite corre en la máquina que el protocolo
+        describe; en otra se salta diciéndolo, porque comparar los núcleos de
+        OTRO ordenador con los declarados aquí no probaría nada."""
+        recursos = self.payload["recursos_declarados"]
+        medidos = nucleos_fisicos()
+        if medidos is None or cpus_disponibles() != recursos["cpu_logicas"]:
+            self.skipTest(f"esta no es la máquina declarada "
+                          f"({cpus_disponibles()} CPUs, físicos={medidos}); "
+                          f"el protocolo describe {recursos['cpu_logicas']} lógicas")
+        self.assertEqual(recursos["cpu_fisicas"], medidos)
+        self.assertLess(recursos["cpu_fisicas"], recursos["cpu_logicas"],
+                        "si vuelven a ser iguales, o la máquina cambió o alguien "
+                        "ha copiado las lógicas encima de las físicas otra vez")
+
+    def test_la_cota_lineal_ya_no_promete_algo_INALCANZABLE(self):
+        """El cambio que de verdad importa de la re-firma, y no se ve en la
+        sobre-reserva. Con 6 procesos el lineal daba 74,93 h y el suelo MEDIDO
+        eran 95,86: el número publicado exigía un 6x que esta máquina no puede
+        dar, o sea que era imposible por construcción. Con 2 procesos el
+        lineal (224,79 h) va POR ENCIMA del suelo medido, que es lo que tiene
+        que pasar con una cota de peor caso."""
+        self.assertAlmostEqual(self.coste.horas_reloj_peor_caso_con_paralelismo, 224.79, places=2)
+        self.assertGreater(self.coste.horas_reloj_peor_caso_con_paralelismo,
+                           self.coste.horas_reloj_suelo_medido,
+                           "la cota lineal vuelve a prometer menos horas de las que el "
+                           "escalado medido permite: es una promesa que no se puede cumplir")
+
+    def test_el_suelo_medido_es_9586_horas_y_NO_lo_movio_la_re_firma(self):
+        """Número NUEVO en su día, no sustituto: con el techo medido 4,69x (no
+        6x) las 449,58 h secuenciales dan 95,86 h.
+
+        **Y bajar de 24 hilos a 8 no lo empeoró ni una hora**, que es lo que
+        hace la corrección de la reserva indolora: 24 hilos sobre 8 CPUs
+        rendían exactamente el mismo 4,69x que 8. Se reservaba el triple para
+        no sacar nada."""
         self.assertAlmostEqual(self.coste.horas_reloj_suelo_medido, 95.86, places=2)
         self.assertAlmostEqual(self.coste.speedup_efectivo_medido, 4.69, places=2)
+        self.assertAlmostEqual(speedup_medido(24, cpus=8), speedup_medido(8, cpus=8), places=4)
 
-    def test_lo_que_cabria_son_dos_procesos_no_seis(self):
-        self.assertEqual(self.protocolo.presupuesto.procesos_que_caben(cpus=8), 2)
+    def test_las_ejecuciones_NO_las_movio_la_re_firma(self):
+        """La reserva reparte el MISMO trabajo, no menos: 6.500 ajustes antes
+        y 6.500 después. Si esto bajara, la re-firma habría recortado la
+        pasada en vez de repartirla."""
+        self.assertEqual(self.coste.total_ejecuciones, 6500)
+        self.assertAlmostEqual(self.coste.horas_reloj_peor_caso_secuencial, 449.58, places=2)
+
+
+# ---------------------------------------------------------------------------
+# Cardinalidad — la corrección del catálogo de la re-firma del 2026-09-13
+# ---------------------------------------------------------------------------
+#: Los ARFF sellados viven FUERA del repo (invariante 4 del runbook de
+#: publicación: nada de blobs grandes en git), así que las pruebas que los
+#: miden se saltan donde no estén — DICIÉNDOLO, no en silencio.
+_ARFF_SELLADOS = Path.home() / "fase0_openml_datos" / "arff"
+
+
+class CardinalidadNominalDeclaradaTest(unittest.TestCase):
+    """La función que MIDE, con ficheros escritos aquí: si se prueba solo
+    contra los cuarenta sellados, un fallo de parseo y un catálogo equivocado
+    se tapan mutuamente."""
+
+    def _arff(self, texto: str) -> Path:
+        import tempfile
+        f = tempfile.NamedTemporaryFile("w", suffix=".arff", delete=False, encoding="utf-8")
+        f.write(texto)
+        f.close()
+        self.addCleanup(lambda: Path(f.name).unlink(missing_ok=True))
+        return Path(f.name)
+
+    def test_cuenta_los_niveles_de_cada_columna_nominal(self):
+        ruta = self._arff("@relation r\n@attribute a {x,y,z}\n@attribute b REAL\n"
+                          "@attribute c {p,q}\n@data\nx,1.0,p\n")
+        self.assertEqual(cardinalidad_nominal_declarada(ruta), {"a": 3, "c": 2})
+
+    def test_una_columna_NUMERICA_no_aparece_con_cero(self):
+        """Un valor ausente no es un cero: si las numéricas entraran como 0,
+        `max(...)` sobre un dataset sin nominales parecería una medición en
+        vez de una ausencia, y `min(...)` mentiría del todo."""
+        ruta = self._arff("@relation r\n@attribute a REAL\n@attribute b INTEGER\n@data\n1,2\n")
+        self.assertEqual(cardinalidad_nominal_declarada(ruta), {})
+
+    def test_la_columna_OBJETIVO_no_cuenta(self):
+        """La cardinalidad que importa es la de los PREDICTORES: un objetivo
+        multiclase de 26 letras no es un problema de one-hot de entrada."""
+        ruta = self._arff("@relation r\n@attribute a {x,y}\n@attribute clase {p,q,r}\n@data\nx,p\n")
+        self.assertEqual(cardinalidad_nominal_declarada(ruta, "clase"), {"a": 2})
+        self.assertEqual(cardinalidad_nominal_declarada(ruta), {"a": 2, "clase": 3})
+
+    def test_una_coma_DENTRO_de_un_nivel_entrecomillado_no_separa(self):
+        """`house_prices_nominal` y `diamonds` traen niveles con espacios y
+        comillas. Contar comas a pelo partiría un nivel en dos y la
+        cardinalidad saldría inflada."""
+        ruta = self._arff("@relation r\n@attribute a {Fair, Good, 'Very Good', \"A, B\"}\n"
+                          "@data\nFair\n")
+        self.assertEqual(cardinalidad_nominal_declarada(ruta), {"a": 4})
+
+    def test_una_declaracion_partida_en_VARIAS_lineas_se_cierra_entera(self):
+        """Ninguno de los 40 sellados la parte —comprobado—, pero un ARFF
+        futuro sí puede, y cerrar en falso contaría de menos justo en el
+        dataset más cardinal. Esta es la prueba de esa línea."""
+        ruta = self._arff("@relation r\n@attribute a {uno,dos,\n  tres,cuatro,\n  cinco}\n"
+                          "@attribute b REAL\n@data\nuno,1\n")
+        self.assertEqual(cardinalidad_nominal_declarada(ruta), {"a": 5, })
+
+    def test_no_lee_mas_alla_de_arroba_data(self):
+        """Solo la cabecera: 254 MB de datos no hacen falta para contar lo que
+        la cabecera ya dice, y una fila que empezara por `@attribute` no es
+        una declaración."""
+        ruta = self._arff("@relation r\n@attribute a {x,y}\n@data\n"
+                          "@attribute colado {1,2,3,4,5,6,7,8,9}\n")
+        self.assertEqual(cardinalidad_nominal_declarada(ruta), {"a": 2})
+
+
+class DatasetRegistradoCardinalidadTest(unittest.TestCase):
+    """El invariante del esquema: el número medido y el booleano no se pueden
+    separar. Antes el booleano viajaba solo y nadie podía contrastarlo."""
+
+    def test_el_booleano_que_CONTRADICE_al_numero_se_rechaza(self):
+        with self.assertRaises(ProtocoloError):
+            _dataset(max_cardinalidad_nominal=15415, alta_cardinalidad=False)
+        with self.assertRaises(ProtocoloError):
+            _dataset(max_cardinalidad_nominal=3, alta_cardinalidad=True)
+
+    def test_LA_OTRA_MITAD_los_que_cuadran_se_aceptan_en_los_dos_lados(self):
+        """Un aserto de rechazo solo lo pasa un esquema que rechace TODO."""
+        self.assertTrue(_dataset(max_cardinalidad_nominal=15415,
+                                 alta_cardinalidad=True).alta_cardinalidad)
+        self.assertFalse(_dataset(max_cardinalidad_nominal=3,
+                                  alta_cardinalidad=False).alta_cardinalidad)
+
+    def test_el_umbral_es_EL_DEL_ANEXO_y_es_inclusivo(self):
+        """«≥ 50», anexo C §2.2 — escrito antes de medir nada. En el borde:
+        49 no, 50 sí."""
+        self.assertEqual(UMBRAL_ALTA_CARDINALIDAD, 50)
+        self.assertFalse(_dataset(max_cardinalidad_nominal=49,
+                                  alta_cardinalidad=False).alta_cardinalidad)
+        self.assertTrue(_dataset(max_cardinalidad_nominal=50,
+                                 alta_cardinalidad=True).alta_cardinalidad)
+        with self.assertRaises(ProtocoloError):
+            _dataset(max_cardinalidad_nominal=50, alta_cardinalidad=False)
+
+    def test_un_catalogo_SIN_el_campo_revienta_en_vez_de_valer_cero(self):
+        """Un valor ausente no es un cero. Un catálogo anterior a la re-firma
+        no trae `max_cardinalidad_nominal`, y rellenarlo con 0 por defecto lo
+        haría pasar por «ninguna columna nominal» — justo la afirmación falsa
+        que la re-firma vino a corregir."""
+        payload = _dataset().a_json()
+        del payload["max_cardinalidad_nominal"]
+        with self.assertRaises(KeyError):
+            DatasetRegistrado.desde_json(payload)
+
+    def test_el_campo_VIAJA_en_el_json_y_por_tanto_en_el_digest(self):
+        """Si se quedara fuera de `a_json()`, el número medido no estaría
+        sellado y se podría cambiar sin mover el digest — que es exactamente
+        como el dato falso sobrevivió tanto tiempo."""
+        self.assertIn("max_cardinalidad_nominal", _dataset().a_json())
+        uno = _protocolo_minimo(datasets=(_dataset(max_cardinalidad_nominal=0,
+                                                   alta_cardinalidad=False),))
+        otro = _protocolo_minimo(datasets=(_dataset(max_cardinalidad_nominal=7,
+                                                    alta_cardinalidad=False),))
+        self.assertNotEqual(uno.digest(), otro.digest())
+
+
+@unittest.skipUnless(_ARFF_SELLADOS.is_dir(),
+                     f"los ARFF sellados no están en {_ARFF_SELLADOS} (viven fuera del repo)")
+class CatalogoContraLosARFFRealesTest(unittest.TestCase):
+    """**La prueba que habría cazado el dato falso, y no existía.** El
+    catálogo declaraba la cardinalidad y NADA la contrastaba con los ficheros:
+    `KDDCup09_appetency` dijo `alta_cardinalidad: false` con 15.415 niveles en
+    `Var200` durante una semana, con la suite en verde todo el rato.
+
+    Solo lee cabeceras, así que los cuarenta se miden en menos de un segundo.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.protocolo = ProtocoloExploratorio.cargar(_RUTA_PROTOCOLO_REAL)
+
+    def test_el_numero_declarado_es_EL_QUE_DICE_EL_FICHERO_en_los_cuarenta(self):
+        medidos = 0
+        for d in self.protocolo.datasets:
+            ruta = _ARFF_SELLADOS / f"{d.data_id}.arff"
+            # Sin `continue` silencioso: un directorio a medias no puede pasar
+            # por barrido completo. O están los 40, o esto se cae por su nombre.
+            self.assertTrue(ruta.is_file(), f"falta el ARFF sellado de {d.nombre}: {ruta}")
+            niveles = cardinalidad_nominal_declarada(ruta, d.columna_objetivo)
+            self.assertEqual(
+                d.max_cardinalidad_nominal, max(niveles.values(), default=0),
+                f"{d.nombre} ({d.data_id}): el catálogo declara "
+                f"{d.max_cardinalidad_nominal} niveles y el ARFF dice otra cosa")
+            medidos += 1
+        self.assertEqual(medidos, 40, "se han medido menos de 40: el barrido no barrió")
+
+    def test_los_dos_casos_que_destaparon_el_fallo_por_su_nombre_y_su_numero(self):
+        """No «alguno estaba mal»: estos dos, con estos números, medidos sobre
+        el ARFF sellado. `KDDCup09_appetency` es el falso negativo más grande
+        (decía `false` con 15.415 niveles en `Var200`, y `Var214` declara
+        otros 15.415) y `kr-vs-kp` el falso positivo más claro (decía `true`
+        siendo 36 columnas categóricas de 3 niveles como mucho)."""
+        por_nombre = {d.nombre: d for d in self.protocolo.datasets}
+        kdd = cardinalidad_nominal_declarada(_ARFF_SELLADOS / "1111.arff", "APPETENCY")
+        self.assertEqual(kdd["Var200"], 15415)
+        self.assertEqual(kdd["Var214"], 15415)
+        self.assertEqual(por_nombre["KDDCup09_appetency"].max_cardinalidad_nominal, 15415)
+        self.assertTrue(por_nombre["KDDCup09_appetency"].alta_cardinalidad)
+
+        krvskp = cardinalidad_nominal_declarada(_ARFF_SELLADOS / "3.arff", "class")
+        self.assertEqual(max(krvskp.values()), 3)
+        self.assertEqual(len(krvskp), 36)
+        self.assertFalse(por_nombre["kr-vs-kp"].alta_cardinalidad)
+
+    def test_pendigits_NO_tiene_ni_una_columna_nominal_y_su_false_era_correcto(self):
+        """Medido, no heredado. `pendigits` venía señalado como mal marcado
+        junto a `KDDCup09_appetency`, y **no lo estaba en cardinalidad**: sus
+        16 predictores son `numeric` y su única columna nominal es el objetivo
+        (`class {0..9}`), así que `alta_cardinalidad: false` era y sigue siendo
+        lo que el fichero dice. Queda escrito aquí para que nadie lo vuelva a
+        «corregir» de memoria."""
+        por_nombre = {d.nombre: d for d in self.protocolo.datasets}
+        self.assertEqual(
+            cardinalidad_nominal_declarada(_ARFF_SELLADOS / "32.arff", "class"), {})
+        self.assertEqual(por_nombre["pendigits"].max_cardinalidad_nominal, 0)
+        self.assertFalse(por_nombre["pendigits"].alta_cardinalidad)
+
+    def test_los_sha256_de_los_ARFF_SIGUEN_siendo_los_registrados(self):
+        """Lo que hace que todo lo de arriba valga: si el fichero medido no es
+        el sellado, la medición es de otra cosa. Se comprueban los cuarenta,
+        porque la re-firma tocó el catálogo y no puede haber tocado los datos.
+        """
+        import hashlib
+        for d in self.protocolo.datasets:
+            ruta = _ARFF_SELLADOS / f"{d.data_id}.arff"
+            self.assertEqual(hashlib.sha256(ruta.read_bytes()).hexdigest(), d.sha256_arff,
+                            f"{d.nombre}: el ARFF del disco ya no es el que el protocolo registró")
+
+
+class ConstruirProtocoloDerivaLaCardinalidadTest(unittest.TestCase):
+    """Probar el artefacto no es probar el código que lo produce: el JSON
+    cuadra con su digest aunque `generar_protocolo.py` vuelva a escribir el
+    booleano a mano. Esto prueba el GENERADOR."""
+
+    def _seleccion(self, maximo: int) -> list[dict]:
+        return [dict(data_id=1, nombre="x", version=1, objetivo="y",
+                     n_filas=1000, n_columnas=10, bucket="pequeno",
+                     tiene_faltantes=False, max_cardinalidad_nominal=maximo,
+                     desbalanceado=False, solo_numericas=False, licencia="Public",
+                     sellado=False, binaria=True, multiclase=False)]
+
+    def test_el_booleano_sale_del_numero_medido_en_los_dos_lados(self):
+        from benchmarks.fase0.generar_protocolo import construir_protocolo
+        hashes = {1: "b" * 64}
+        alto = construir_protocolo(self._seleccion(15415), hashes).datasets[0]
+        bajo = construir_protocolo(self._seleccion(3), hashes).datasets[0]
+        self.assertEqual((alto.max_cardinalidad_nominal, alto.alta_cardinalidad), (15415, True))
+        self.assertEqual((bajo.max_cardinalidad_nominal, bajo.alta_cardinalidad), (3, False))
+
+    def test_el_generador_escribe_la_reserva_que_CABE(self):
+        """Si el generador se volviera a correr, no puede reintroducir los 6
+        procesos: escribiría otra vez 24 hilos sobre 8 CPUs."""
+        from benchmarks.fase0.generar_protocolo import construir_protocolo
+        presupuesto = construir_protocolo(self._seleccion(3), {1: "b" * 64}).presupuesto
+        self.assertEqual(presupuesto.hilos_reservados, 8)
+        self.assertEqual(presupuesto.sobre_reserva(cpus=8), 0)
+
+    def test_los_dos_minimos_del_anexo_van_SEPARADOS(self):
+        """Eran uno solo (`MINIMO_ALTA_CARDINALIDAD = 12`, el 12 de «con
+        categóricas»), y por eso la exigencia del paréntesis —«≥ 5 con alguna
+        de cardinalidad ≥ 50»— no se comprobaba nunca."""
+        from benchmarks.fase0 import generar_protocolo as gen
+        self.assertEqual(gen.MINIMO_CON_CATEGORICAS, 12)
+        self.assertEqual(gen.MINIMO_ALTA_CARDINALIDAD, 5)
 
 
 if __name__ == "__main__":

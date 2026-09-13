@@ -28,6 +28,7 @@ tocar este módulo: es escribir un protocolo NUEVO, con su propio digest.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,6 +44,8 @@ __all__ = [
     "ANCLAS_DE_ESCALADO",
     "CUBOS_DE_TAMANO",
     "TAREAS",
+    "UMBRAL_ALTA_CARDINALIDAD",
+    "cardinalidad_nominal_declarada",
     "CosteDeLaPasada",
     "DatasetRegistrado",
     "DisenoDeParticion",
@@ -80,12 +83,20 @@ def _exigir(cond: bool, mensaje: str) -> None:
 # ---------------------------------------------------------------------------
 # Reserva de CPU — 101-C1/C2, sobre-reserva de concurrencia
 # ---------------------------------------------------------------------------
-# El protocolo registrado pide `hilos=4` x `procesos_en_paralelo=6` = 24 hilos.
-# Esta máquina tiene 8 CPUs LÓGICAS (4 núcleos físicos con SMT x2), medido el
-# 2026-09-12: `nproc` 8, `os.sched_getaffinity` 8, `lscpu` «Core(s) per socket:
-# 4, Thread(s) per core: 2», sin cuota de cgroup (`cpu.max` = «max 100000»).
-# 24 sobre 8 es TRIPLE reserva — y `recursos_declarados` del protocolo dice
-# «cpu_fisicas: 8», que no es lo medido: son 8 lógicas y 4 físicas.
+# El protocolo registrado PEDÍA `hilos=4` x `procesos_en_paralelo=6` = 24
+# hilos. Esta máquina tiene 8 CPUs LÓGICAS (4 núcleos físicos con SMT x2),
+# medido el 2026-09-12 y vuelto a medir el 2026-09-13: `os.sched_getaffinity`
+# 8, `os.cpu_count()` 8, `nucleos_fisicos()` 4 (pares `physical id`/`core id`
+# únicos de `/proc/cpuinfo`), sin cuota de cgroup (`cpu.max` = «max 100000»).
+# 24 sobre 8 era TRIPLE reserva — y `recursos_declarados` decía «cpu_fisicas:
+# 8», que no es lo medido: son 8 lógicas y 4 físicas.
+#
+# **RE-FIRMADO el 2026-09-13**: el protocolo pide ahora `hilos=4` x
+# `procesos_en_paralelo=2` = 8 hilos, que es exactamente `reserva_segura(4)`
+# sobre `cpus_disponibles()` — la propia función de este módulo, no un número a
+# ojo — y `cpu_fisicas` dice 4. La sobre-reserva pasa de 16 hilos a CERO. Lo
+# que NO se movió en esa re-firma: la regla de cierre, la definición de
+# «mejor», el listón, la lista de datasets y las particiones.
 #
 # No es teoría en este servidor: se cayó dos veces (2026-08-10 y 2026-08-16)
 # por reservar más de lo que hay, y no tiene swap suficiente para salvarlo —
@@ -300,6 +311,122 @@ def reserva_segura(hilos_por_proceso: int, cpus: int | None = None) -> int:
     return max(1, disponibles // hilos_por_proceso)
 
 
+# ---------------------------------------------------------------------------
+# Cardinalidad — el dato del catálogo que estaba FALSO hasta la re-firma
+# ---------------------------------------------------------------------------
+#: A partir de cuántos niveles una columna nominal cuenta como «de alta
+#: cardinalidad». **No es un número elegido aquí**: es el que el anexo C del
+#: documento 100 escribió en §2.2 antes de medir nada — «≥ 12 con categóricas
+#: (**≥ 5 con alguna de cardinalidad ≥ 50**)».
+#:
+#: HASTA EL 2026-09-13 EL CATÁLOGO NO MEDÍA ESTO. `generar_protocolo.py`
+#: rellenaba `alta_cardinalidad` con `columnas_simbólicas / columnas > 0,3`,
+#: que no es cardinalidad sino PROPORCIÓN DE COLUMNAS CATEGÓRICAS — la otra
+#: mitad de la misma frase del anexo, con el nombre de la primera. Las dos
+#: direcciones salían mal, medido sobre los ARFF sellados:
+#:
+#:   · `KDDCup09_appetency` declaraba `alta_cardinalidad: false` con **15.415
+#:     niveles** en `Var200` (y otros tantos en `Var214`; 71.506 en total,
+#:     contando el objetivo). 38 columnas nominales de 230 son 0,165, así que
+#:     la regla vieja decía «no» sobre el dataset MÁS cardinal de los cuarenta.
+#:   · `kr-vs-kp`, `PhishingWebsites` y `connect-4` declaraban `true` con un
+#:     máximo de **3 niveles**: son enteramente categóricos y no tienen ni una
+#:     columna cardinal.
+#:
+#: Un aserto negativo lo pasa un fichero vacío, así que el catálogo registra el
+#: NÚMERO medido (`max_cardinalidad_nominal`) y no solo el booleano, y
+#: `DatasetRegistrado` exige que los dos digan lo mismo.
+UMBRAL_ALTA_CARDINALIDAD = 50
+
+
+def cardinalidad_nominal_declarada(ruta_arff: str | Path,
+                                   columna_objetivo: str = "") -> dict[str, int]:
+    """Los niveles que la CABECERA del ARFF declara para cada columna nominal,
+    excluida `columna_objetivo`. Solo lee hasta `@data`: los 254 MB de los
+    cuarenta ficheros no hacen falta para contar lo que la cabecera ya dice.
+
+    Devuelve `{nombre de columna: nº de niveles}`, y las columnas numéricas no
+    aparecen — **una columna sin niveles nominales no es una columna con cero
+    niveles**, y meterla como 0 haría que `max(...)` sobre un dataset sin
+    nominales pareciera una medición en vez de una ausencia.
+
+    Se mide lo que el fichero DECLARA, sin reinterpretarlo: no se descuentan
+    columnas identificadoras. `splice` llega a 3.178 niveles por
+    `Instance_name` (un id por fila) y `house_sales` a 70 por `zipcode`; las
+    dos son columnas nominales que un one-hot se comería tal cual, que es
+    justo el caso que el anexo quería cubrir. Quién es un identificador y quién
+    no es otra pregunta, y se responde con datos, no dentro de un contador.
+    """
+    niveles: dict[str, int] = {}
+    pendiente: str | None = None
+    acumulado = ""
+    with open(ruta_arff, "r", encoding="utf-8", errors="replace") as fichero:
+        for linea in fichero:
+            if pendiente is not None:
+                # Una declaración `{...}` puede seguir en la línea de abajo.
+                # Ninguno de los 40 sellados la parte (comprobado), pero un
+                # ARFF futuro sí puede: cerrar en falso contaría de menos.
+                acumulado += " " + linea.strip()
+                if "}" in linea:
+                    niveles[pendiente] = _contar_niveles(acumulado)
+                    pendiente, acumulado = None, ""
+                continue
+            despuntada = linea.strip()
+            if despuntada.lower().startswith("@data"):
+                break
+            if not despuntada.lower().startswith("@attribute"):
+                continue
+            casado = _ATRIBUTO_ARFF.match(linea)
+            if casado is None:
+                continue
+            nombre = _sin_comillas_arff(casado.group("nombre"))
+            tipo = casado.group("tipo").strip()
+            if not tipo.startswith("{"):
+                continue
+            if "}" in tipo:
+                niveles[nombre] = _contar_niveles(tipo)
+            else:
+                pendiente, acumulado = nombre, tipo
+    niveles.pop(columna_objetivo, None)
+    return niveles
+
+
+_ATRIBUTO_ARFF = re.compile(
+    r"^\s*@attribute\s+(?P<nombre>'[^']*'|\"[^\"]*\"|\S+)\s+(?P<tipo>.+?)\s*$",
+    re.IGNORECASE)
+
+
+def _sin_comillas_arff(texto: str) -> str:
+    limpio = texto.strip()
+    if len(limpio) >= 2 and limpio[0] == limpio[-1] and limpio[0] in "'\"":
+        return limpio[1:-1]
+    return limpio
+
+
+def _contar_niveles(declaracion: str) -> int:
+    """Cuenta los niveles de un `{a, b, 'c, d'}` respetando las comillas: una
+    coma DENTRO de un nivel entrecomillado no separa nada, y contarla partiría
+    un nivel en dos (`house_prices_nominal` y `diamonds` los traen)."""
+    dentro = declaracion.strip()
+    dentro = dentro[dentro.index("{") + 1:dentro.rindex("}")]
+    niveles, actual, comilla = [], [], None
+    for caracter in dentro:
+        if comilla is not None:
+            if caracter == comilla:
+                comilla = None
+            else:
+                actual.append(caracter)
+        elif caracter in "'\"":
+            comilla = caracter
+        elif caracter == ",":
+            niveles.append("".join(actual).strip())
+            actual = []
+        else:
+            actual.append(caracter)
+    niveles.append("".join(actual).strip())
+    return len([n for n in niveles if n != ""])
+
+
 @dataclass(frozen=True)
 class DatasetRegistrado:
     """Un dataset PRE-REGISTRADO: el sha256 es del ARFF tal como se descargó,
@@ -312,6 +439,15 @@ class DatasetRegistrado:
     `100_anexos/C_fase0_protocolo_y_motores.md` §2.3): elegidos por posición
     determinista sobre la lista ordenada por `data_id`, ANTES de correr nada,
     no a mano después de ver qué conviene sellar.
+
+    `max_cardinalidad_nominal` es **lo medido** sobre el ARFF sellado: los
+    niveles que declara la columna nominal más cardinal, sin contar el
+    objetivo, y 0 si el dataset no tiene ni una columna nominal predictora.
+    `alta_cardinalidad` es su LECTURA contra el umbral del anexo
+    (`UMBRAL_ALTA_CARDINALIDAD`), y `__post_init__` exige que no se separen:
+    hasta el 2026-09-13 el booleano viajaba solo, nadie podía contrastarlo con
+    nada, y decía lo contrario de lo que los ficheros dicen en diez de los
+    cuarenta. Un número medido se puede refutar; un booleano heredado no.
     """
 
     data_id: int
@@ -325,6 +461,7 @@ class DatasetRegistrado:
     n_filas: int
     n_columnas: int
     tiene_faltantes: bool
+    max_cardinalidad_nominal: int
     alta_cardinalidad: bool
     desbalanceado: bool
     solo_numericas: bool
@@ -341,6 +478,17 @@ class DatasetRegistrado:
         _exigir(self.n_filas > 0, "n_filas tiene que ser positivo")
         _exigir(bool(self.columna_objetivo), "columna_objetivo no puede estar vacía")
         _exigir(bool(self.licencia), "licencia no puede estar vacía — no fabricar lo que no se midió")
+        _exigir(self.max_cardinalidad_nominal >= 0,
+               "max_cardinalidad_nominal no puede ser negativo")
+        # El booleano NO se calcula aquí en vez de exigirse: si se calculase,
+        # un catálogo con el booleano mal escrito se «arreglaría» solo al
+        # cargarlo y nadie se enteraría de que el fichero registrado miente.
+        # Se exige, para que el fichero tenga que decir la verdad ÉL.
+        _exigir(self.alta_cardinalidad
+                == (self.max_cardinalidad_nominal >= UMBRAL_ALTA_CARDINALIDAD),
+               f"{self.nombre}: alta_cardinalidad={self.alta_cardinalidad} no cuadra con "
+               f"max_cardinalidad_nominal={self.max_cardinalidad_nominal} frente al umbral "
+               f"{UMBRAL_ALTA_CARDINALIDAD} del anexo C §2.2")
 
     def a_json(self) -> dict[str, Any]:
         return {
@@ -349,6 +497,7 @@ class DatasetRegistrado:
             "columna_objetivo": self.columna_objetivo, "tarea": self.tarea,
             "cubo_de_tamano": self.cubo_de_tamano, "n_filas": self.n_filas,
             "n_columnas": self.n_columnas, "tiene_faltantes": self.tiene_faltantes,
+            "max_cardinalidad_nominal": self.max_cardinalidad_nominal,
             "alta_cardinalidad": self.alta_cardinalidad, "desbalanceado": self.desbalanceado,
             "solo_numericas": self.solo_numericas, "licencia": self.licencia,
             "sellado": self.sellado,
@@ -356,10 +505,15 @@ class DatasetRegistrado:
 
     @classmethod
     def desde_json(cls, payload: dict[str, Any]) -> "DatasetRegistrado":
+        # `payload[k]` y no `payload.get(k)` a propósito: un catálogo anterior
+        # a la re-firma no trae `max_cardinalidad_nominal`, y rellenarlo con un
+        # 0 por defecto lo haría pasar por «ninguna columna nominal» —
+        # **un valor ausente no es un cero**. Que reviente por su nombre.
         return cls(**{k: payload[k] for k in (
             "data_id", "nombre", "fuente", "version", "sha256_arff", "columna_objetivo",
             "tarea", "cubo_de_tamano", "n_filas", "n_columnas", "tiene_faltantes",
-            "alta_cardinalidad", "desbalanceado", "solo_numericas", "licencia", "sellado")})
+            "max_cardinalidad_nominal", "alta_cardinalidad", "desbalanceado",
+            "solo_numericas", "licencia", "sellado")})
 
 
 @dataclass(frozen=True)
@@ -437,20 +591,23 @@ class PresupuestoPorCubo:
     @property
     def hilos_reservados(self) -> int:
         """Los hilos que la pasada reserva A LA VEZ: hilos x procesos. El
-        protocolo registrado da 4 x 6 = **24**, sobre 8 CPUs — que es la
-        sobre-reserva que el 101-C1/C2 dejó apuntada como deuda."""
+        protocolo re-firmado el 2026-09-13 da 4 x 2 = **8**, que es lo que la
+        máquina tiene. Antes daba 4 x 6 = 24, la sobre-reserva que el
+        101-C1/C2 dejó apuntada como deuda y que la re-firma cerró."""
         return self.hilos * self.procesos_en_paralelo
 
     def sobre_reserva(self, cpus: int | None = None) -> int:
         """Hilos de MÁS sobre las CPUs que hay, o 0 si cabe. Con el protocolo
-        registrado y esta máquina: 24 - 8 = 16 de más."""
+        re-firmado y esta máquina: 8 - 8 = **0**. Con el registrado
+        originalmente eran 24 - 8 = 16 de más."""
         disponibles = cpus if cpus is not None else cpus_disponibles()
         return max(0, self.hilos_reservados - disponibles)
 
     def procesos_que_caben(self, cpus: int | None = None) -> int:
         """Los procesos que cabrían con estos `hilos` sin pasarse. No cambia
-        el protocolo registrado —eso sería otro protocolo con otro digest—:
-        dice lo que habría que poner."""
+        el protocolo cargado —eso sería otro protocolo con otro digest—: dice
+        lo que habría que poner. Es la función con la que se midió el 2 de la
+        re-firma, no un número escrito a mano encima de ella."""
         return reserva_segura(self.hilos, cpus)
 
     # `a_json` NO lleva los campos de arriba a propósito: son DERIVADOS de
@@ -718,26 +875,33 @@ def calcular_coste(protocolo: ProtocoloExploratorio,
     dos** (101-C1/C2, sobre-reserva de concurrencia):
 
     - `horas_reloj_peor_caso_con_paralelismo` divide LINEALMENTE entre
-      `procesos_en_paralelo`, como si 6 procesos fueran 6 veces más rápidos.
-      Es el número ya publicado del protocolo registrado (**74,93 h**) y se
-      conserva tal cual para no cambiar en silencio algo que ya se dijo.
-    - `horas_reloj_suelo_medido` usa el escalado MEDIDO (`speedup_medido`).
-      Con el protocolo registrado en esta máquina da **95,86 h**: 6 procesos
-      x 4 hilos = 24 hilos sobre 8 CPUs no rinden 6x, rinden como mucho el
-      techo medido 4,69x.
+      `procesos_en_paralelo`, como si N procesos fueran N veces más rápidos.
+      Con el protocolo re-firmado (2 procesos) da **224,79 h**.
+    - `horas_reloj_suelo_medido` usa el escalado MEDIDO (`speedup_medido`) y
+      da **95,86 h**, el mismo número que antes de la re-firma: 8 hilos sobre
+      8 CPUs rinden el techo medido 4,69x, y 24 hilos sobre esas mismas 8
+      CPUs rendían exactamente lo mismo — reservar tres veces más no sacaba
+      ni un minuto, solo arriesgaba la máquina.
 
-    El segundo NO invalida el primero como cuenta de ejecuciones — son las
-    mismas 6.500 —, pero sí dice que 74,93 h era **inalcanzable**: exigía un
-    6x que esta máquina no puede dar. Y `horas_reloj_suelo_medido` es un
-    SUELO, no un techo: las anclas se midieron con 1 hilo por proceso, que
-    escala mejor (3,60x) que los 4 hilos por proceso que el protocolo pide
-    (2,53x medido), así que la pasada real irá más lenta, no más rápida.
+    **LA RE-FIRMA DEL 2026-09-13 INVIRTIÓ LA RELACIÓN ENTRE LOS DOS, y eso es
+    lo que hay que mirar.** Con 6 procesos, el lineal prometía 74,93 h y el
+    suelo medido eran 95,86: el número publicado era **inalcanzable**, exigía
+    un 6x que esta máquina no puede dar. Con 2 procesos el lineal (224,79 h)
+    va POR ENCIMA del suelo medido (95,86 h), que es como tiene que ser: una
+    cota de peor caso que la máquina puede batir, no una promesa que no puede
+    cumplir. El 74,93 h queda donde debe quedar, en el historial.
+
+    `horas_reloj_suelo_medido` sigue siendo un SUELO, no un techo: las anclas
+    se midieron con 1 hilo por proceso, que escala mejor (3,60x) que los 4
+    hilos por proceso que el protocolo pide (2,53x medido), así que la pasada
+    real irá más lenta, no más rápida.
 
     `sobre_reserva` > 0 es la señal de que el protocolo pide más hilos que
     CPUs hay. Este cálculo lo DECLARA, no lo corrige: bajar
-    `procesos_en_paralelo` a los `procesos_que_caben` (2, aquí) cambia el
-    presupuesto y por tanto el digest, y eso es escribir un protocolo NUEVO
-    (invariante 1), no una decisión de esta función.
+    `procesos_en_paralelo` a los `procesos_que_caben` cambia el presupuesto y
+    por tanto el digest, y eso es re-firmar el protocolo A PROPÓSITO
+    (invariante 1) — lo que se hizo el 2026-09-13—, nunca una decisión que
+    esta función tome sola al calcular.
     """
     total = 0
     por_cubo: dict[str, int] = {c: 0 for c in CUBOS_DE_TAMANO}
@@ -752,10 +916,11 @@ def calcular_coste(protocolo: ProtocoloExploratorio,
             por_cubo[ds.cubo_de_tamano] += n
             horas_secuencial += n * minutos / 60.0
 
-    # La división LINEAL, tal como estaba: supone que 6 procesos van 6 veces
-    # más rápido. Se CONSERVA —es la cota de 74,93 h ya publicada del
-    # protocolo registrado, y sustituirla en silencio sería cambiar un número
-    # publicado sin decirlo— pero ya no viaja sola.
+    # La división LINEAL, tal como estaba: supone que N procesos van N veces
+    # más rápido. Se CONSERVA —la fórmula, no el número— para que el par
+    # «lineal vs medido» siga siendo comparable entre el protocolo de antes de
+    # la re-firma y el de después: quitarla dejaría el 74,93 h inalcanzable
+    # sin nada que lo contradiga.
     horas_paralelo = horas_secuencial / protocolo.presupuesto.procesos_en_paralelo
 
     presupuesto = protocolo.presupuesto

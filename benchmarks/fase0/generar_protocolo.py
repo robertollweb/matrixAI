@@ -40,6 +40,8 @@ if str(_RAIZ_DEL_CORE) not in sys.path:
     sys.path.insert(0, str(_RAIZ_DEL_CORE))
 
 from benchmarks.fase0.protocolo import (  # noqa: E402
+    UMBRAL_ALTA_CARDINALIDAD,
+    cardinalidad_nominal_declarada,
     DatasetRegistrado,
     DisenoDeParticion,
     Motor,
@@ -71,9 +73,22 @@ LICENCIAS_PERMITIDAS = {"public", "cc0", "public domain", "cc0 public domain"}
 CUOTA_BINARIA = {"pequeno": 8, "mediano": 8, "grande": 4}
 CUOTA_MULTICLASE = {"pequeno": 4, "mediano": 4, "grande": 2}
 CUOTA_REGRESION = {"pequeno": 3, "mediano": 3, "grande": 4}
-#: Mínimos de cobertura obligatoria, EXACTOS del anexo C (§2.2).
+#: Mínimos de cobertura obligatoria, EXACTOS del anexo C (§2.2). La frase
+#: literal es: «≥ 10 con faltantes (> 1 % de celdas), **≥ 12 con categóricas
+#: (≥ 5 con alguna de cardinalidad ≥ 50)**, ≥ 8 desbalanceados (minoritaria
+#: ≤ 10 %), ≥ 6 con solo numéricas».
+#:
+#: **Eran DOS exigencias y aquí había UNA.** Hasta el 2026-09-13 esto decía
+#: `MINIMO_ALTA_CARDINALIDAD = 12`: el 12 de «con categóricas» aplicado a un
+#: campo llamado `alta_cardinalidad` que además se rellenaba con la proporción
+#: de columnas categóricas, no con cardinalidad ninguna. Fusionar las dos
+#: mitades dejó sin comprobar la que el anexo puso entre paréntesis — y el
+#: catálogo salió mintiendo en diez de los cuarenta. Ahora van separadas, y se
+#: comprueban las dos: 15 con categóricas (≥ 12) y 6 con alguna columna de
+#: ≥ 50 niveles (≥ 5), medidos sobre los ARFF sellados.
 MINIMO_FALTANTES = 10
-MINIMO_ALTA_CARDINALIDAD = 12
+MINIMO_CON_CATEGORICAS = 12
+MINIMO_ALTA_CARDINALIDAD = 5
 MINIMO_DESBALANCEADOS = 8
 MINIMO_SOLO_NUMERICAS = 6
 MINIMO_MULTICLASE_5_CLASES = 4
@@ -143,8 +158,22 @@ def _candidato(data_id: int, es_clasificacion: bool) -> dict | None:
         "n_clases": q.get("NumberOfClasses"),
         "bucket": bucket,
         "tiene_faltantes": bool(q.get("NumberOfMissingValues", 0)),
-        "alta_cardinalidad": bool(simbolicas >= 1 and q.get("NumberOfFeatures")
-                                  and simbolicas / q["NumberOfFeatures"] > 0.3),
+        # **ESTO NO ES CARDINALIDAD, y hasta el 2026-09-13 se llamaba
+        # `alta_cardinalidad`.** Es la proporción de columnas categóricas, que
+        # es lo que las «qualities» de OpenML permiten saber ANTES de bajarse
+        # el fichero — `NumberOfSymbolicFeatures` cuenta columnas, no niveles.
+        # Con el nombre viejo, `KDDCup09_appetency` (38 nominales de 230 =
+        # 0,165, pero 15.415 niveles en `Var200`) quedaba marcado como de baja
+        # cardinalidad, y `kr-vs-kp` (36 de 36, máximo 3 niveles) como de alta.
+        # El nombre nuevo dice lo que mide. La cardinalidad de verdad se mide
+        # sobre el ARFF ya descargado, en `medir_cardinalidad`, porque ANTES
+        # de tener el fichero no se puede: la metadata no la trae.
+        "proporcion_alta_de_categoricas": bool(
+            simbolicas >= 1 and q.get("NumberOfFeatures")
+            and simbolicas / q["NumberOfFeatures"] > 0.3),
+        # No hay un `tiene_categoricas`: sería `not solo_numericas` escrito
+        # otra vez, y dos sitios declarando lo mismo acaban divergiendo.
+        # `verificar_cobertura` lo niega donde lo necesita.
         "desbalanceado": bool(minoria is not None and n and (minoria / n) <= 0.10),
         "clase_muy_minoritaria": bool(minoria is not None and n and (minoria / n) < 0.02),
         "solo_numericas": solo_numericas,
@@ -173,7 +202,12 @@ def _elegir(pool: list[dict], cuotas: dict[str, int], ya_elegidos: set[int],
                 s -= 10
             if raras_puestas < necesita_rara and r["clase_muy_minoritaria"]:
                 s -= 8
-            s -= int(r["tiene_faltantes"]) + int(r["alta_cardinalidad"]) + int(r["desbalanceado"])
+            # La selección puntúa con la señal que de verdad se tenía ANTES de
+            # descargar nada, y con su nombre bueno. Cambiarla por la
+            # cardinalidad medida elegiría OTROS 40: la cardinalidad solo se
+            # conoce con el ARFF en la mano, y para entonces ya se eligió.
+            s -= (int(r["tiene_faltantes"]) + int(r["proporcion_alta_de_categoricas"])
+                  + int(r["desbalanceado"]))
             return s
 
         candidatos.sort(key=puntuar)
@@ -238,9 +272,36 @@ def seleccionar_40() -> list[dict]:
     return seleccion
 
 
+def medir_cardinalidad(seleccion: list[dict], directorio: Path) -> None:
+    """Rellena `max_cardinalidad_nominal` leyendo la CABECERA de cada ARFF ya
+    descargado. En sitio, porque es un dato del dataset, no un cálculo aparte.
+
+    **Va aquí y no en `_candidato` porque antes no se puede.** Las «qualities»
+    de OpenML dan `NumberOfSymbolicFeatures` —cuántas columnas son nominales—
+    y no cuántos NIVELES tiene cada una; el número de niveles solo está en el
+    fichero. Por eso la cobertura se verifica después de bajarlos: preferimos
+    gastar la descarga a declarar un dato que no se ha medido.
+    """
+    for r in seleccion:
+        niveles = cardinalidad_nominal_declarada(
+            directorio / f"{r['data_id']}.arff", r["objetivo"] or "")
+        r["max_cardinalidad_nominal"] = max(niveles.values(), default=0)
+        r["columna_mas_cardinal"] = max(niveles, key=niveles.get) if niveles else None
+
+
 def verificar_cobertura(seleccion: list[dict]) -> None:
+    """Las SEIS exigencias del anexo C §2.2, cada una por separado.
+
+    Se llama DESPUÉS de descargar porque una de ellas —«≥ 5 con alguna de
+    cardinalidad ≥ 50»— necesita `medir_cardinalidad`, y esa es justo la que
+    faltaba: hasta el 2026-09-13 estaban fundidas en un solo contador de 12 y
+    la del paréntesis no se comprobaba nunca.
+    """
     faltan = sum(1 for r in seleccion if r["tiene_faltantes"])
-    altacard = sum(1 for r in seleccion if r["alta_cardinalidad"])
+    # «con categóricas» es la negación de «solo numéricas», no un campo nuevo.
+    categoricas = sum(1 for r in seleccion if not r["solo_numericas"])
+    altacard = sum(1 for r in seleccion
+                   if r["max_cardinalidad_nominal"] >= UMBRAL_ALTA_CARDINALIDAD)
     desbal = sum(1 for r in seleccion if r["desbalanceado"])
     numericas = sum(1 for r in seleccion if r["solo_numericas"])
     mc = [r for r in seleccion if r["multiclase"]]
@@ -248,6 +309,7 @@ def verificar_cobertura(seleccion: list[dict]) -> None:
     mcrara = sum(1 for r in mc if r["clase_muy_minoritaria"])
     problemas = []
     if faltan < MINIMO_FALTANTES: problemas.append(f"faltantes {faltan}<{MINIMO_FALTANTES}")
+    if categoricas < MINIMO_CON_CATEGORICAS: problemas.append(f"con_categoricas {categoricas}<{MINIMO_CON_CATEGORICAS}")
     if altacard < MINIMO_ALTA_CARDINALIDAD: problemas.append(f"alta_cardinalidad {altacard}<{MINIMO_ALTA_CARDINALIDAD}")
     if desbal < MINIMO_DESBALANCEADOS: problemas.append(f"desbalanceados {desbal}<{MINIMO_DESBALANCEADOS}")
     if numericas < MINIMO_SOLO_NUMERICAS: problemas.append(f"solo_numericas {numericas}<{MINIMO_SOLO_NUMERICAS}")
@@ -280,7 +342,12 @@ def construir_protocolo(seleccion: list[dict], hashes: dict[int, str]) -> Protoc
             data_id=r["data_id"], nombre=r["nombre"], fuente="openml", version=r["version"],
             sha256_arff=hashes[r["data_id"]], columna_objetivo=r["objetivo"], tarea=tarea,
             cubo_de_tamano=r["bucket"], n_filas=r["n_filas"], n_columnas=r["n_columnas"],
-            tiene_faltantes=r["tiene_faltantes"], alta_cardinalidad=r["alta_cardinalidad"],
+            tiene_faltantes=r["tiene_faltantes"],
+            max_cardinalidad_nominal=r["max_cardinalidad_nominal"],
+            # El booleano se DERIVA del número medido, en un solo sitio.
+            # `DatasetRegistrado` vuelve a exigir que cuadren al cargar: aquí
+            # no pueden separarse, y en un fichero editado a mano tampoco.
+            alta_cardinalidad=r["max_cardinalidad_nominal"] >= UMBRAL_ALTA_CARDINALIDAD,
             desbalanceado=r["desbalanceado"], solo_numericas=r["solo_numericas"],
             licencia=r["licencia"], sellado=r["sellado"]))
 
@@ -298,8 +365,17 @@ def construir_protocolo(seleccion: list[dict], hashes: dict[int, str]) -> Protoc
         datasets=tuple(datasets), motores=motores,
         particion=DisenoDeParticion(folds=5, repeticiones_pequeno_mediano=3,
                                     repeticiones_grande=1, semillas=(0, 1, 2)),
+        # `procesos_en_paralelo=2` va ESCRITO, no calculado con
+        # `reserva_segura(4)` aquí: si se calculara, el protocolo —y por tanto
+        # su digest— dependería de la máquina donde se ejecute el generador, y
+        # el registro dejaría de ser un documento. El 2 se MIDIÓ el 2026-09-13
+        # en la máquina que `recursos_declarados` describe: `cpus_disponibles()`
+        # 8, `nucleos_fisicos()` 4, `reserva_segura(4)` -> 2. Antes ponía 6, o
+        # sea 24 hilos sobre 8 CPUs — la sobre-reserva que tumbó el servidor
+        # dos veces. Quien mueva la pasada de máquina vuelve a medirlo y
+        # RE-FIRMA a propósito.
         presupuesto=PresupuestoPorCubo(minutos_por_cubo={"pequeno": 2.0, "mediano": 5.0, "grande": 10.0},
-                                       hilos=4, procesos_en_paralelo=6),
+                                       hilos=4, procesos_en_paralelo=2),
         regla_de_cierre=ReglaDeCierre(
             puntos=2.0, fraccion_minima=0.80,
             metrica_por_tarea={"binary_classification": "AUROC",
@@ -307,11 +383,21 @@ def construir_protocolo(seleccion: list[dict], hashes: dict[int, str]) -> Protoc
             definicion_de_mejor="el motor con mejor media de los ajustes en ESE dataset, excluido "
                                 "el baseline dummy; un fallo cuenta como dataset perdido para ese motor"),
         recursos_declarados={
-            "maquina": "servidor de desarrollo, medido 2026-09-04", "cpu_fisicas": 8, "cpu_logicas": 8,
+            # `cpu_fisicas` decía 8 y son 4: 8 son las LÓGICAS (SMT x2).
+            # Medido con `nucleos_fisicos()` el 2026-09-13, pares
+            # `physical id`/`core id` únicos de `/proc/cpuinfo`.
+            "maquina": "servidor de desarrollo, medido 2026-09-04", "cpu_fisicas": 4, "cpu_logicas": 8,
             "ram_gb": 15, "ram_disponible_gb": 10, "gpu": None, "disco_gb": 197, "python": "3.12.3",
-            "hilos_por_proceso": 4, "procesos_en_paralelo": 6,
+            "hilos_por_proceso": 4, "procesos_en_paralelo": 2,
             "nota": "sin GPU en esta máquina; CUDA queda para una tabla aparte marcada GPU, "
-                   "fuera del ranking CPU principal (invariante 4 del 101)"},
+                   "fuera del ranking CPU principal (invariante 4 del 101). Re-firmado el "
+                   "2026-09-13: la reserva era 4 hilos x 6 procesos = 24 sobre 8 CPUs lógicas "
+                   "(triple), y cpu_fisicas decía 8. Medido con las funciones de protocolo.py "
+                   "en esta misma máquina: cpus_disponibles()=8, nucleos_fisicos()=4, "
+                   "reserva_segura(4)=2 -> 4 x 2 = 8 hilos, sobre_reserva 0. El escalado "
+                   "medido no pierde nada: 24 hilos sobre 8 CPUs rendían el mismo techo de "
+                   "4,69x que 8. NO se tocaron la regla de cierre, la definición de mejor, "
+                   "el listón, la lista de datasets ni las particiones."},
         metricas_por_tarea={
             "binary_classification": {"primaria": "AUROC", "secundarias": [
                 "AUPRC", "log_loss", "Brier", "accuracy@0.5", "accuracy@prevalencia", "F1_macro"],
@@ -336,9 +422,13 @@ def main() -> None:
 
     print("consultando OpenML (CC18 + AMLB clasificación + AMLB regresión)...")
     seleccion = seleccionar_40()
-    verificar_cobertura(seleccion)
     print(f"descargando y hasheando {len(seleccion)} ARFF en {args.datos}...")
     hashes = descargar_y_hashear(seleccion, Path(args.datos))
+    # La cobertura se verifica DESPUÉS de descargar: «≥ 5 con alguna columna
+    # de cardinalidad ≥ 50» no se puede saber sin el fichero, y comprobar solo
+    # las cinco exigencias baratas es lo que dejó pasar el catálogo falso.
+    medir_cardinalidad(seleccion, Path(args.datos))
+    verificar_cobertura(seleccion)
     protocolo = construir_protocolo(seleccion, hashes)
     coste = calcular_coste(protocolo)
     print("digest:", protocolo.digest())
