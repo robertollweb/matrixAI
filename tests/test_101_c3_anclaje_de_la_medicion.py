@@ -425,7 +425,11 @@ def test_el_JSON_que_ESCRIBE_la_pasada_lleva_la_procedencia(tmp_path, monkeypatc
     assert salida["procedencias"][bloque["procedencia_id"]] == bloque
     assert {r["procedencia_id"] for r in salida["resultados"]} == {bloque["procedencia_id"]}
     assert salida["n_intentos_sin_procedencia"] == 0
-    assert len(salida["resultados"]) == 4
+    # UN registro por motor de la pasada, contados — no un 4 escrito a mano.
+    # El 4 se quedó viejo el 2026-09-13, cuando la pasada pasó a correr los
+    # SIETE motores del protocolo: una lista copiada es la que acaba
+    # divergiendo, y un recuento copiado también.
+    assert len(salida["resultados"]) == len(motores_falsos)
 
 
 def test_el_JSON_escrito_sigue_verificando_su_digest(tmp_path, monkeypatch, motores_falsos):
@@ -448,12 +452,20 @@ def test_lo_REUSADO_de_un_fichero_sin_procedencia_se_cuenta_aparte(
     previos = [{"dataset": "kc2", "motor": motor.nombre, "repeticion": 0, "pliegue": 0,
                 "estado": "completed", "auroc": 0.5,
                 "entorno_digest": entorno,
+                # El presupuesto de pared entra en la clave del caché desde el
+                # 2026-09-13 (sale del protocolo registrado, no de una
+                # constante de la pasada, así que cambiarlo no toca ningún
+                # fichero de código y el `entorno_digest` no se enteraría).
+                # Aquí se pone EL MISMO que la pasada va a aplicar al cubo de
+                # `kc2`, porque lo que esta prueba quiere ejercer es el camino
+                # en que SÍ se reusa.
+                "presupuesto_wall_s": pasada.wall_seconds_del_cubo("pequeno"),
                 "motor_digest": pasada._digest_fichero(pasada._FICHERO_POR_MOTOR[motor.nombre])}
                for motor in motores_falsos]
     ruta.write_text(json.dumps({"resultados": previos}), encoding="utf-8")
     salida = _pasada_de_juguete(monkeypatch, ruta, motores_falsos)
-    assert salida["n_reusados"] == 4
-    assert salida["n_intentos_sin_procedencia"] == 4
+    assert salida["n_reusados"] == len(motores_falsos)
+    assert salida["n_intentos_sin_procedencia"] == len(motores_falsos)
     assert all(r["procedencia_id"] is None for r in salida["resultados"])
     assert all(r["auroc"] == 0.5 for r in salida["resultados"]), "no se reusó el número viejo"
 

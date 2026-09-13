@@ -17,13 +17,12 @@ DISEÑO DE PARTICIÓN: el YA REGISTRADO en el protocolo (`DisenoDeParticion`,
 inventado aquí. Cambiar folds/repeticiones sin registrar un protocolo
 nuevo sería precisamente lo que `protocolo.py` prohíbe por diseño.
 
-UNA SOLA CONFIGURACIÓN POR MOTOR, DECLARADO. El protocolo registrado habla
-de `Motor.configuraciones=2` («el rival en su mejor versión») como
-abstracción de PLANIFICACIÓN para `calcular_coste` — pero los 4 adaptadores
-reales de `matrixai_engines` (102-C2) son de hiperparámetros FIJOS, sin
-búsqueda interna todavía. Ejecutar "2 configuraciones" hoy sería fabricar
-una segunda pasada que no existe. Se declara aquí, no se esconde: 1
-configuración por motor es el alcance real de esta pasada.
+UNA SOLA CONFIGURACIÓN POR MOTOR, Y AHORA DENTRO DEL ARTEFACTO. El motivo
+entero está en `CRITERIO_DE_LAS_CONFIGURACIONES`, aquí abajo, y desde el
+2026-09-13 viaja al JSON dentro del bloque `alcance` — no se repite en este
+docstring a propósito: dos sitios declarando lo mismo acaban divergiendo, y
+el que se quedó viejo la última vez fue precisamente éste (decía «los 4
+adaptadores» cuando ya eran siete).
 
 MINORÍA = POSITIVA, CONVENCIÓN EXPLÍCITA. Para AUROC hace falta una clase
 "positiva" declarada; sin leer la semántica de cada dataset uno por uno,
@@ -89,6 +88,9 @@ from matrixai_engines.motores.baseline import MotorBaseline  # noqa: E402
 from matrixai_engines.motores.lineal import MotorLineal  # noqa: E402
 from matrixai_engines.motores.arbol_lightgbm import MotorArbolLightGBM  # noqa: E402
 from matrixai_engines.motores.densa import MotorDensaPropia  # noqa: E402
+from matrixai_engines.motores.arbol_sklearn_hgb import MotorArbolHGB  # noqa: E402
+from matrixai_engines.motores.arbol_xgboost import MotorArbolXGBoost  # noqa: E402
+from matrixai_engines.motores.arbol_catboost import MotorArbolCatBoost  # noqa: E402
 from matrixai_engines.procedencia import versiones_de_bibliotecas  # noqa: E402
 from matrixai_engines.subproceso import ejecutar_intento_aislado  # noqa: E402
 
@@ -135,7 +137,90 @@ FOLDS = 5
 REPETICIONES_PEQUENO_MEDIANO = 3
 SEMILLAS = (0, 1, 2)
 
-WALL_SECONDS = 120.0  # generoso frente a lo medido (baseline<1s, lgbm~2s, densa~6s)
+#: EL PROTOCOLO REGISTRADO, cargado UNA vez y desde un solo sitio.
+#:
+#: Antes lo cargaba solo `_alcance_y_veredicto()`, al final, para redactar el
+#: veredicto — o sea que el fichero que declara con hash lo que se iba a medir
+#: no tenía ni voz ni voto MIENTRAS se medía. De ahí salió la desviación que
+#: esto repara.
+RUTA_DEL_PROTOCOLO = Path(__file__).resolve().parent / "protocolo_exploratorio.json"
+
+
+def protocolo_registrado() -> ProtocoloExploratorio:
+    """El protocolo con el que esta pasada se mide. Sin caché a propósito:
+    se lee del disco cada vez que se pregunta, que son unas pocas veces por
+    pasada y ninguna dentro del bucle caliente. Un valor cacheado en un
+    módulo es exactamente lo que permite que el fichero cambie y el proceso
+    siga usando el de antes sin enterarse."""
+    return ProtocoloExploratorio.cargar(RUTA_DEL_PROTOCOLO)
+
+
+def wall_seconds_del_cubo(cubo: str, protocolo: ProtocoloExploratorio | None = None) -> float:
+    """El presupuesto de pared de UN intento, EN SEGUNDOS, sacado del
+    `presupuesto.minutos_por_cubo` del protocolo REGISTRADO.
+
+    **EL ACCIDENTE QUE ESTO CIERRA (medido el 2026-09-13).** Aquí había una
+    constante global, `WALL_SECONDS = 120.0`, con el comentario «generoso
+    frente a lo medido». El protocolo registrado declara 2 min al cubo
+    pequeño, **5 al mediano** y 10 al grande; seis de los doce datasets de
+    esta pasada son medianos, así que la pasada aplicaba el **40 %** del
+    presupuesto que tenía registrado para la mitad de sus datasets.
+
+    No es un detalle de configuración: el ÚNICO fallo de los 1.260 intentos
+    de la pasada de siete motores fue `matrixai.dense.torch_cpu` sobre
+    `Internet-Advertisements` (mediano) matado desde fuera a **156,9 s** —
+    120 de presupuesto más el margen del subproceso—, o sea **por debajo de
+    los 300 s que el protocolo le da a su cubo**. Y un fallo no es un número
+    peor: la regla de cierre registrada dice, con todas las letras, que «un
+    fallo (timeout/crash) cuenta como dataset perdido para ese motor». El
+    presupuesto recortado no hacía la medición más barata, la hacía OTRA.
+
+    Que salga del protocolo y no de una constante es el punto entero: un
+    número escrito aquí se puede mover sin que ningún digest se entere, y
+    `minutos_por_cubo` está dentro de `a_json()`, o sea dentro del hash
+    registrado antes de medir.
+    """
+    protocolo = protocolo if protocolo is not None else protocolo_registrado()
+    minutos = protocolo.presupuesto.minutos_por_cubo[cubo]
+    return float(minutos) * 60.0
+
+#: LA ÚNICA CONFIGURACIÓN QUE ESTA PASADA CORRE POR MOTOR, con su nombre.
+#:
+#: Estaba escrita a mitad de la llamada a `ejecutar_intento_aislado`
+#: (`candidate=f"{motor.nombre}-default"`), que es donde nadie la encuentra, y
+#: no llegaba a los registros: el artefacto no tenía un solo campo del que se
+#: pudiera leer CUÁNTAS configuraciones corrieron.
+CONFIGURACION_UNICA = "default"
+
+#: EL CRITERIO DEL RECORTE DE CONFIGURACIONES, escrito para que viaje AL JSON.
+#:
+#: Hasta el 2026-09-13 esto vivía SOLO en el docstring de este módulo — o sea,
+#: en el código— y el bloque `alcance` del resultado declaraba el recorte de
+#: datasets y el de motores y se callaba éste. Es el mismo defecto que la
+#: auditoría del 09-12 clasificó GRAVE para los motores, sobre el eje que más
+#: pesa: la regla de cierre registrada mide «la mejor media de los AJUSTES».
+CRITERIO_DE_LAS_CONFIGURACIONES = (
+    "UNA configuracion por motor (la `-default`) de las DOS que el protocolo "
+    "registra por motor (13 en total contando el dummy, que registra una). El "
+    "protocolo declara CUANTAS son (`Motor.configuraciones`) y su modelo de "
+    "coste solo cuadra con 13, pero NO declara CUALES: el anexo C 2.3 las "
+    "nombra —«defaults» y «busqueda bajo presupuesto»— y su propia medida "
+    "anti-favoritismo numero 1 exige que los ESPACIOS DE BUSQUEDA esten "
+    "registrados con sha256 ANTES de la primera pasada. No lo estan en "
+    "`protocolo_exploratorio.json` ni en ningun otro sitio del arbol, y "
+    "ninguno de los siete adaptadores implementa busqueda interna: son de "
+    "hiperparametros FIJOS. Inventar aqui los espacios seria elegirlos "
+    "DESPUES de ver los numeros, que es exactamente lo que el pre-registro "
+    "existe para impedir. Se declara, no se esconde: de esta pasada no se "
+    "sigue nada sobre «el rival en su mejor version».")
+
+#: Las configuraciones que esta pasada corre, POR MOTOR. Se compone de
+#: `motores_de_la_pasada()` y no de una lista copiada: una lista copiada es la
+#: que acaba divergiendo de la que de verdad corre.
+def configuraciones_de_la_pasada() -> dict[str, list[str]]:
+    return {nombre: [CONFIGURACION_UNICA]
+            for nombre in nombres_de_los_motores_de_la_pasada()}
+
 
 #: Los hilos que pide cada intento. Estaba escrito a mano en la línea del
 #: `Presupuesto`, donde nadie lo encuentra.
@@ -165,8 +250,26 @@ def _exigir_que_la_reserva_QUEPA() -> None:
     máquina no se nota hasta que los intentos empiezan a fallar por tope de
     pared, y entonces lo que se pierde no es tiempo: es la medición, porque un
     fallo cuenta como dataset perdido para ese motor.
+
+    **Y ESE PÁRRAFO DESCRIBÍA EL ACCIDENTE QUE ESTE GUARDIA NO VIGILABA
+    (2026-09-13).** «Los intentos empiezan a fallar por tope de pared» tiene
+    DOS causas, no una: que la máquina no dé abasto —la que esto miraba— y que
+    el tope de pared aplicado no sea el registrado —la que pasó—. El guardia
+    cubría la mitad de recursos de su propio docstring y se callaba la del
+    presupuesto: la pasada de siete motores aplicó 120 s a todos los cubos
+    teniendo 300 s registrados para el mediano, y el único fallo de los 1.260
+    intentos fue exactamente eso, un tope de pared a 156,9 s sobre un dataset
+    mediano.
+
+    Por eso ahora comprueba las dos cosas antes de medir nada: que la reserva
+    de CPU quepa, y que el presupuesto de pared que se va a aplicar a cada
+    cubo sea el del protocolo registrado y no otro. Ninguna de las dos DECIDE
+    nada — las dos leen lo registrado y paran si lo que se va a pedir no
+    coincide.
     """
     from benchmarks.fase0.protocolo import cpus_disponibles, reserva_segura
+
+    _exigir_que_el_PRESUPUESTO_sea_EL_REGISTRADO()
 
     caben = reserva_segura(HILOS_POR_INTENTO)
     if PROCESOS_A_LA_VEZ > caben:
@@ -176,6 +279,52 @@ def _exigir_que_la_reserva_QUEPA() -> None:
             f"hilos, y en esta máquina ({cpus_disponibles()} CPUs disponibles) "
             f"solo caben {caben} procesos de ese tamaño. Bajar los procesos o "
             f"los hilos por intento antes de volver a lanzarla")
+
+
+def _exigir_que_el_PRESUPUESTO_sea_EL_REGISTRADO() -> None:
+    """Que el tope de pared que esta pasada va a aplicar a CADA dataset salga
+    del protocolo registrado, y que el protocolo se pueda leer.
+
+    Tres cosas, y las tres paran la pasada antes de medir nada:
+
+    1. **El protocolo tiene que cargarse.** Si no, no hay presupuesto
+       registrado que aplicar, y seguir con un número de repuesto sería
+       volver a la constante global por otro camino. Un presupuesto a medias
+       tranquiliza igual que uno falso.
+    2. **Cada cubo que esta pasada va a tocar tiene que estar registrado**,
+       y con un presupuesto positivo. Un `KeyError` a los veinte minutos de
+       pasada es la misma pérdida que un tope de pared.
+    3. **Lo que se va a pedir tiene que ser lo registrado**: se comprueba
+       llamando a `wall_seconds_del_cubo()`, la MISMA función que el bucle
+       usa, no recalculando el número aquí. Dos sitios calculando el
+       presupuesto acaban divergiendo, y el que divergiría es el que mide.
+    """
+    try:
+        protocolo = protocolo_registrado()
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise SystemExit(
+            f"no se puede leer el protocolo registrado ({RUTA_DEL_PROTOCOLO}): "
+            f"{type(exc).__name__}: {exc}. Sin él no hay presupuesto de pared "
+            f"que aplicar, y medir con uno de repuesto es medir otra cosa") from exc
+
+    registrados = protocolo.presupuesto.minutos_por_cubo
+    for cubo in sorted({cubo for _id, _n, cubo, _p, _neg in DATASETS}):
+        if cubo not in registrados:
+            raise SystemExit(
+                f"el cubo {cubo!r} lo usan datasets de esta pasada y el protocolo "
+                f"registrado ({protocolo.version_protocolo}, digest "
+                f"{protocolo.digest()[:16]}) no le da presupuesto: "
+                f"{sorted(registrados)}")
+        aplicado = wall_seconds_del_cubo(cubo, protocolo)
+        esperado = float(registrados[cubo]) * 60.0
+        if aplicado != esperado or aplicado <= 0.0:
+            raise SystemExit(
+                f"el presupuesto que esta pasada aplicaría al cubo {cubo!r} son "
+                f"{aplicado} s y el protocolo registrado declara {esperado} s "
+                f"({registrados[cubo]} min). Medir con un tope de pared distinto "
+                f"del registrado convierte un fallo por tiempo en un dataset "
+                f"perdido que el protocolo no pedía perder")
+
 
 _DIR_ENGINES = _RAIZ_DE_ENGINES / "matrixai_engines"
 # Compartidos: un cambio en cualquiera de estos invalida TODO el caché,
@@ -226,6 +375,9 @@ _FICHERO_POR_MOTOR = {
     "sklearn.lineal": _DIR_ENGINES / "motores" / "lineal.py",
     "lightgbm": _DIR_ENGINES / "motores" / "arbol_lightgbm.py",
     "matrixai.dense.torch_cpu": _DIR_ENGINES / "motores" / "densa.py",
+    "sklearn.hgb": _DIR_ENGINES / "motores" / "arbol_sklearn_hgb.py",
+    "xgboost": _DIR_ENGINES / "motores" / "arbol_xgboost.py",
+    "catboost": _DIR_ENGINES / "motores" / "arbol_catboost.py",
 }
 
 
@@ -234,17 +386,26 @@ def motores_de_la_pasada() -> list:
 
     Estaban instanciados a mitad de `main()`, donde nadie que leyera el
     resultado los veía, y de ahí salió el hallazgo GRAVE del 2026-09-12: el
-    protocolo registrado pide SIETE motores, esta pasada corre CUATRO, y el
+    protocolo registrado pide SIETE motores, esta pasada corría CUATRO, y el
     recorte no estaba declarado en ninguna parte — ni en el script ni en el
-    JSON. Los tres que faltan (`sklearn.hgb`, `xgboost`, `catboost`) son los
+    JSON. Los tres que faltaban (`sklearn.hgb`, `xgboost`, `catboost`) son los
     rivales DIRECTOS de un GBM, así que «lightgbm gana» se estaba leyendo con
     los tres rivales que más le aprietan fuera de la foto.
+
+    **YA SON SIETE (2026-09-13).** Los tres se construyeron ese día
+    (`9cfbe87` y `a8295bd`) precisamente para que esa acotación dejara de
+    hacer falta. Lo que se sabe de ellos hasta ahora, medido sobre seis ARFF
+    reales a un pliegue y una semilla —que no es un veredicto y no se presenta
+    como tal—: xgboost gana a lightgbm en 2 de 6 y catboost en 4 de 6. O sea
+    que esta pasada puede muy bien **desmentir** la promoción que la cartera
+    declara hoy, y eso es exactamente para lo que se corre.
 
     Sacarlo a una función es lo que permite que `_componer_y_guardar` escriba
     la lista REAL en el JSON sin copiarla: una lista copiada es la que acaba
     divergiendo de la que de verdad corre.
     """
-    return [MotorBaseline(), MotorLineal(), MotorArbolLightGBM(), MotorDensaPropia()]
+    return [MotorBaseline(), MotorLineal(), MotorArbolLightGBM(), MotorDensaPropia(),
+            MotorArbolHGB(), MotorArbolXGBoost(), MotorArbolCatBoost()]
 
 
 def nombres_de_los_motores_de_la_pasada() -> list[str]:
@@ -445,13 +606,37 @@ def _procedencias_citadas(resultados: list[dict], procedencia: dict,
     return citadas, sin_ninguna
 
 
-def _reusable(previo: dict | None, entorno_digest: str, motor_digest: str) -> bool:
-    """Un registro previo vale si lo midio EL MISMO codigo. Vive en una funcion
-    propia desde el 2026-09-12 para poder medirlo sin lanzar los 720 intentos:
-    sobre el JSON del 09-07 devuelve False 720 veces, porque aquel fichero se
-    escribio antes de que los digests se guardaran."""
-    return (previo is not None and previo.get("entorno_digest") == entorno_digest
-            and previo.get("motor_digest") == motor_digest)
+def _reusable(previo: dict | None, entorno_digest: str, motor_digest: str,
+              presupuesto_wall_s: float | None = None) -> bool:
+    """Un registro previo vale si lo midio EL MISMO codigo Y con EL MISMO
+    presupuesto de pared. Vive en una funcion propia desde el 2026-09-12 para
+    poder medirlo sin lanzar los 720 intentos: sobre el JSON del 09-07 devuelve
+    False 720 veces, porque aquel fichero se escribio antes de que los digests
+    se guardaran.
+
+    **EL PRESUPUESTO ENTRA EN LA CLAVE DESDE EL 2026-09-13, y no por
+    simetria.** Desde que el tope de pared sale del protocolo registrado y no
+    de una constante de este fichero, mover `presupuesto.minutos_por_cubo` NO
+    toca ningun fichero de codigo: el `entorno_digest` no cambia y el caché
+    reusaria tal cual intentos medidos con OTRO tope. Un intento que se
+    completó con 120 s y uno que se completó con 300 s no son el mismo
+    intento, y el que falló por tiempo con 120 s puede completar con 300 —
+    que es justo la correccion que abrio este agujero. Es el mismo hueco que
+    ya se cerro dos veces en este fichero: un caché que no ve el cambio da un
+    numero nuevo con datos viejos y nadie lo nota.
+
+    Un registro sin `presupuesto_wall_s` (los de antes del 2026-09-13) NO es
+    un registro con el presupuesto de hoy: se descarta. Un valor ausente no es
+    un cero, ni el que a uno le conviene.
+    """
+    if previo is None:
+        return False
+    if not (previo.get("entorno_digest") == entorno_digest
+            and previo.get("motor_digest") == motor_digest):
+        return False
+    if presupuesto_wall_s is None:
+        return True
+    return previo.get("presupuesto_wall_s") == presupuesto_wall_s
 
 
 def _cargar_cache(ruta: Path) -> tuple[dict[tuple, dict], dict]:
@@ -632,6 +817,19 @@ def main() -> None:
              f"{declarada['estado']} -- {declarada['explicacion']}", flush=True)
 
     motores = motores_de_la_pasada()
+    # UNA lectura del protocolo para toda la pasada, y se pasa a mano a
+    # `wall_seconds_del_cubo`: releerlo 1.260 veces desde el disco no cambiaría
+    # el número pero sí permitiría que cambiara A MITAD de pasada, y entonces
+    # los intentos de antes y los de después se habrían medido con presupuestos
+    # distintos sin que nada lo dijera.
+    protocolo = protocolo_registrado()
+    wall_por_cubo = {cubo: wall_seconds_del_cubo(cubo, protocolo)
+                     for _id, _n, cubo, _p, _neg in DATASETS}
+    presupuesto_declarado = presupuesto_declarado_de_la_pasada(protocolo)
+    print(f"presupuesto de pared, del protocolo {protocolo.version_protocolo} "
+         f"(digest {protocolo.digest()[:16]}): "
+         + ", ".join(f"{c}={v:.0f}s" for c, v in sorted(wall_por_cubo.items())),
+         flush=True)
     resultados = []
     reusados = 0
     inicio_total = time.perf_counter()
@@ -641,8 +839,10 @@ def main() -> None:
             data_id, nombre_ds, cubo, positiva, negativa)
         test_ids = propuesta.plan.observaciones_del_rol("test")
         n_total = len(por_id)
+        wall_seconds = wall_por_cubo[cubo]
         print(f"\n=== {nombre_ds} (data_id={data_id}, n={n_total}, "
-             f"test={len(test_ids)}) ===", flush=True)
+             f"test={len(test_ids)}, cubo={cubo}, presupuesto={wall_seconds:.0f}s) ===",
+             flush=True)
 
         for repeticion in range(REPETICIONES_PEQUENO_MEDIANO):
             for pliegue_i in range(FOLDS):
@@ -652,7 +852,8 @@ def main() -> None:
                 for motor in motores:
                     clave = (nombre_ds, motor.nombre, repeticion, pliegue_i)
                     previo = cache_previo.get(clave)
-                    if _reusable(previo, entorno_digest, digest_por_motor[motor.nombre]):
+                    if _reusable(previo, entorno_digest, digest_por_motor[motor.nombre],
+                                 wall_seconds):
                         # `setdefault`, no la de hoy: un intento reusado de un
                         # fichero anterior al 2026-09-12 no tiene procedencia, y
                         # ponerle la de esta pasada seria firmar como medido hoy
@@ -682,12 +883,13 @@ def main() -> None:
                     test = Particion.desde_filas(filas_test_t, row_id_field="row_id",
                                                  target_field=objetivo)
 
-                    presupuesto = Presupuesto(wall_seconds=WALL_SECONDS, hilos=HILOS_POR_INTENTO,
+                    presupuesto = Presupuesto(wall_seconds=wall_seconds, hilos=HILOS_POR_INTENTO,
                                               seed=SEMILLAS[repeticion])
                     t0 = time.perf_counter()
                     intento = ejecutar_intento_aislado(
                         motor, train, validation, test, spec, presupuesto,
-                        candidate=f"{motor.nombre}-default", split_plan_digest=propuesta.plan.digest(),
+                        candidate=f"{motor.nombre}-{CONFIGURACION_UNICA}",
+                        split_plan_digest=propuesta.plan.digest(),
                         dataset=nombre_ds, pliegue=pliegue_i, repeticion=repeticion)
                     transcurrido = time.perf_counter() - t0
 
@@ -702,6 +904,19 @@ def main() -> None:
                     registro = {
                         "dataset": nombre_ds, "cubo": cubo, "motor": motor.nombre,
                         "repeticion": repeticion, "pliegue": pliegue_i, "estado": intento.estado,
+                        # EL PRESUPUESTO QUE DE VERDAD SE LE DIO A ESTE INTENTO,
+                        # por intento y no solo en la cabecera: un `failed` por
+                        # tope de pared no se puede leer sin saber contra que
+                        # tope se midio, y la cabecera dice el de la pasada
+                        # ENTERA. Ademas es lo que hace que el caché note un
+                        # cambio de presupuesto que no toca ningun codigo.
+                        "presupuesto_wall_s": wall_seconds,
+                        # LA CONFIGURACION DE ESTE INTENTO. Sin ella, «cuantas
+                        # configuraciones corrieron» no se puede DERIVAR de los
+                        # registros y hay que creerse la declaracion — que es
+                        # justo lo que el bloque de alcance no hace con los
+                        # motores ni con los datasets.
+                        "configuracion": CONFIGURACION_UNICA,
                         "wall_s": round(transcurrido, 3), "auroc": auroc, "accuracy": accuracy,
                         "motivo": intento.motivo_del_estado["es"] if intento.motivo_del_estado else None,
                         "entorno_digest": entorno_digest, "motor_digest": digest_por_motor[motor.nombre],
@@ -710,7 +925,7 @@ def main() -> None:
                     }
                     resultados.append(registro)
                 print(f"  rep={repeticion} pliegue={pliegue_i}: "
-                     f"{sum(1 for r in resultados if r['dataset']==nombre_ds and r['repeticion']==repeticion and r['pliegue']==pliegue_i and r['estado']=='completed')}/4 completed",
+                     f"{sum(1 for r in resultados if r['dataset']==nombre_ds and r['repeticion']==repeticion and r['pliegue']==pliegue_i and r['estado']=='completed')}/{len(motores)} completed",
                      flush=True)
 
         # AL TERMINAR CADA DATASET, no solo al final. Cuesta menos de un
@@ -718,7 +933,8 @@ def main() -> None:
         # minutos del dataset en curso.
         _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida,
                             total_wall_s=time.perf_counter() - inicio_total,
-                            reusados=reusados, parcial=True)
+                            reusados=reusados, parcial=True,
+                            presupuesto=presupuesto_declarado)
 
     total = time.perf_counter() - inicio_total
     print(f"\n=== total: {total:.1f}s ({total/60:.1f} min), {len(resultados)} intentos "
@@ -732,7 +948,8 @@ def main() -> None:
 
     salida = _componer_y_guardar(
         resultados, procedencia, payload_previo, ruta_salida,
-        total_wall_s=total, reusados=reusados, parcial=False)
+        total_wall_s=total, reusados=reusados, parcial=False,
+        presupuesto=presupuesto_declarado)
     print(f"Guardado en {ruta_salida}, digest={salida['digest_resultados_crudos'][:16]}")
 
 
@@ -765,7 +982,9 @@ def _alcance_y_veredicto(resultados) -> dict:
             protocolo, resultados, motor=nombre,
             motores_declarados=nombres_motores,
             datasets_declarados=nombres_datasets,
-            criterio_del_subconjunto=CRITERIO_DEL_SUBCONJUNTO)
+            criterio_del_subconjunto=CRITERIO_DEL_SUBCONJUNTO,
+            configuraciones_declaradas=configuraciones_de_la_pasada(),
+            criterio_de_las_configuraciones=CRITERIO_DE_LAS_CONFIGURACIONES)
     # El alcance es el MISMO para los tres, así que se declara una vez arriba y
     # no tres veces dentro: dos sitios declarando lo mismo acaban divergiendo.
     alcance = next(iter(por_motor.values()))["alcance"] if por_motor else {}
@@ -774,8 +993,35 @@ def _alcance_y_veredicto(resultados) -> dict:
     return {"alcance": alcance, "por_motor": por_motor}
 
 
+def presupuesto_declarado_de_la_pasada(protocolo: ProtocoloExploratorio | None = None) -> dict:
+    """El presupuesto de pared que esta pasada aplica, CUBO POR CUBO, y de
+    dónde sale. Va al JSON de salida y DENTRO de su digest.
+
+    Hasta el 2026-09-13 la cabecera del resultado decía
+    `"wall_seconds_por_intento": 120.0`: un número solo, para doce datasets de
+    dos cubos distintos, sin decir contra qué se comparaba. Se podía leer
+    entero sin enterarse de que el protocolo registrado le daba 300 s al
+    mediano — que es exactamente lo que pasó, y le costó un intento a la
+    pasada de siete motores.
+
+    Lleva el digest del protocolo del que salen los minutos: un presupuesto
+    sin su procedencia es otro número escrito a mano.
+    """
+    protocolo = protocolo if protocolo is not None else protocolo_registrado()
+    cubos = sorted({cubo for _id, _n, cubo, _p, _neg in DATASETS})
+    return {
+        "wall_seconds_por_cubo": {c: wall_seconds_del_cubo(c, protocolo) for c in cubos},
+        "minutos_por_cubo_registrados": dict(protocolo.presupuesto.minutos_por_cubo),
+        "protocolo_version": protocolo.version_protocolo,
+        "protocolo_digest_sha256": protocolo.digest(),
+        "hilos_por_intento": HILOS_POR_INTENTO,
+        "procesos_a_la_vez": PROCESOS_A_LA_VEZ,
+        "procesos_en_paralelo_registrados": protocolo.presupuesto.procesos_en_paralelo,
+    }
+
+
 def _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida, *,
-                        total_wall_s, reusados, parcial):
+                        total_wall_s, reusados, parcial, presupuesto=None):
     """Compone el JSON y lo escribe. UN solo sitio, y se llama también a
     mitad de la pasada.
 
@@ -801,8 +1047,13 @@ def _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida, *,
         "procedencias": procedencias,
         "n_intentos_sin_procedencia": sin_procedencia,
         "parcial": parcial,
-        "wall_seconds_por_intento": WALL_SECONDS,
-        "procesos_en_paralelo": 1,
+        # EL PRESUPUESTO, POR CUBO Y CON SU PROCEDENCIA. Sustituye al
+        # `wall_seconds_por_intento: 120.0` de una sola cifra, que era la
+        # desviacion respecto del protocolo escrita en la cabecera del propio
+        # artefacto sin que nada la contradijera.
+        "presupuesto": presupuesto if presupuesto is not None
+                       else presupuesto_declarado_de_la_pasada(),
+        "procesos_en_paralelo": PROCESOS_A_LA_VEZ,
         "folds": FOLDS, "repeticiones": REPETICIONES_PEQUENO_MEDIANO,
         "total_wall_s": round(total_wall_s, 1),
         "n_intentos": len(resultados),

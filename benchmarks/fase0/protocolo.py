@@ -28,11 +28,12 @@ tocar este módulo: es escribir un protocolo NUEVO, con su propio digest.
 from __future__ import annotations
 
 import os
+import random
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 _RAIZ_DEL_CORE = Path(__file__).resolve().parents[2]
 if str(_RAIZ_DEL_CORE) not in sys.path:
@@ -645,6 +646,109 @@ class ReglaDeCierre:
                 "definicion_de_mejor": self.definicion_de_mejor}
 
 
+#: La semilla del remuestreo de `_intervalo_pareado`. Escrita, no elegida en
+#: cada llamada: un intervalo que cambia de límites cada vez que se recalcula
+#: no se puede citar, y «el que salió» sería el que a uno le conviniera.
+SEMILLA_DEL_INTERVALO = 0
+
+#: Remuestras, las mismas 1.000 que `metricas_por_tarea.intervalos` del
+#: protocolo registrado ya declaraba.
+REMUESTRAS_DEL_INTERVALO = 1000
+
+
+def _intervalo_pareado(diferencias: Sequence[float], *,
+                       semilla: int = SEMILLA_DEL_INTERVALO,
+                       remuestras: int = REMUESTRAS_DEL_INTERVALO,
+                       nivel: float = 0.95) -> tuple[float, float] | None:
+    """Bootstrap de percentiles sobre diferencias YA EMPAREJADAS.
+
+    **Emparejado, no dos intervalos sueltos.** Los dos motores se miden sobre
+    los MISMOS pliegues de los MISMOS datos: sus aciertos y sus fallos están
+    correlacionados, y remuestrear cada uno por su cuenta para ver si los
+    intervalos se solapan ignora esa correlación y es sistemáticamente
+    conservador. Es la misma razón —y la misma aritmética— que
+    `matrixai.estudio.comparaciones` (105-C5): se resta ANTES de guardar.
+
+    **Qué se reutiliza y qué no, dicho por su nombre.** El percentil es
+    `_percentil` de 105-C2, importado, no reescrito: interpolar entre dos
+    posiciones tiene una convención y dos implementaciones divergen. Lo que
+    NO se puede reutilizar es `intervalo()` entera: pide una `Muestra` de
+    filas (verdad y predicción por observación) y aquí no hay filas — los
+    registros crudos de esta pasada guardan UNA métrica ya agregada por
+    pliegue, no las predicciones fuera-de-fold. El remuestreo es por tanto de
+    PLIEGUES, no de observaciones, y eso no es lo mismo que el
+    `metricas_por_tarea.intervalos` del protocolo: es más grueso, y por eso
+    el campo que lo publica dice de qué está hecho en vez de llamarse
+    «intervalo» a secas.
+
+    Devuelve `None` con menos de dos diferencias: con una sola no hay nada
+    que remuestrear, y un intervalo de anchura cero ahí sería una afirmación
+    de precisión que el dato no sostiene.
+    """
+    if len(diferencias) < 2:
+        return None
+    from matrixai.estudio.incertidumbre import _percentil
+
+    azar = random.Random(semilla)
+    n = len(diferencias)
+    medias: list[float] = []
+    for _ in range(remuestras):
+        # La MISMA línea que la rama no-clasificación de `_indices_iid`
+        # (105-C2): índices con reemplazo sobre las n unidades. Aquí la unidad
+        # es el pliegue, no la fila, y por eso no se puede llamar a aquella
+        # función —pide una `Muestra`— sin fabricar un objeto que mentiría
+        # sobre lo que se está remuestreando.
+        indices = azar.choices(range(n), k=n)
+        medias.append(sum(diferencias[i] for i in indices) / n)
+    medias.sort()
+    cola = (1.0 - nivel) / 2.0
+    return (_percentil(medias, cola), _percentil(medias, 1.0 - cola))
+
+
+def _intervalo_de_la_distancia(medidas_por_pliegue: Mapping[str, Mapping[tuple, float]], *,
+                               motor: str, mejor: str | None,
+                               puntos: float) -> dict[str, Any] | None:
+    """El intervalo de la DISTANCIA de `motor` al `mejor`, en los mismos
+    puntos porcentuales que `distancia_en_puntos` — y si el listón cae dentro.
+
+    Devuelve `None`, y no un intervalo cualquiera, cuando no hay nada que
+    emparejar: sin un mejor declarado, cuando el mejor ES `motor` (la
+    distancia es 0,0000 por construcción y un intervalo alrededor de una
+    identidad no dice nada), o con menos de dos pliegues comunes. Un intervalo
+    inventado donde no hay datos es peor que ninguno: se lee igual que uno
+    medido.
+
+    `cruza_el_liston` es el campo entero de este añadido: con él, «no cumple»
+    y «no cumple y el listón está dentro del intervalo» dejan de escribirse
+    igual.
+    """
+    if mejor is None or mejor == motor:
+        return None
+    mios = medidas_por_pliegue.get(motor) or {}
+    suyos = medidas_por_pliegue.get(mejor) or {}
+    comunes = sorted(set(mios) & set(suyos))
+    if len(comunes) < 2:
+        return None
+    # La MISMA escala que `distancia_en_puntos`: (mejor - mio) x 100.
+    diferencias = [(suyos[k] - mios[k]) * 100.0 for k in comunes]
+    limites = _intervalo_pareado(diferencias)
+    if limites is None:
+        return None
+    bajo, alto = limites
+    return {
+        "bajo": bajo, "alto": alto, "nivel": 0.95,
+        "unidad": "puntos porcentuales de la metrica, igual que distancia_en_puntos",
+        "emparejado_por": "repeticion y pliegue",
+        "n_pliegues_emparejados": len(comunes),
+        "remuestreo": (f"bootstrap de percentiles, {REMUESTRAS_DEL_INTERVALO} remuestras "
+                       f"de PLIEGUES (no de filas: los registros crudos guardan la "
+                       f"metrica ya agregada por pliegue), semilla "
+                       f"{SEMILLA_DEL_INTERVALO}"),
+        "contra": mejor,
+        "cruza_el_liston": bajo <= puntos <= alto,
+    }
+
+
 def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
                             motor: str, metrica: str = "auroc",
                             baseline: str = "baseline") -> dict[str, Any]:
@@ -671,6 +775,11 @@ def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
     """
     por_dataset: dict[str, dict[str, list[float]]] = {}
     fallos: dict[str, set] = {}
+    # Las mismas medidas, indexadas por el pliegue que las produjo. Es lo que
+    # permite EMPAREJAR dos motores antes de restarlos; la media de arriba no
+    # se toca y sigue saliendo de la lista de siempre.
+    por_pliegue: dict[str, dict[str, dict[tuple, float]]] = {}
+    sin_pliegue = 0
     for r in resultados:
         ds, mt = r["dataset"], r["motor"]
         if r.get("estado") != "completed":
@@ -680,6 +789,11 @@ def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
         if valor is None:
             continue
         por_dataset.setdefault(ds, {}).setdefault(mt, []).append(float(valor))
+        if r.get("repeticion") is None or r.get("pliegue") is None:
+            sin_pliegue += 1
+            continue
+        por_pliegue.setdefault(ds, {}).setdefault(mt, {})[
+            (r["repeticion"], r["pliegue"])] = float(valor)
 
     detalle: list[dict[str, Any]] = []
     cumplidos = 0
@@ -710,10 +824,27 @@ def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
         ventaja = None
         if mejor_motor == motor and segundo is not None:
             ventaja = (medias[motor] - medias[segundo]) * 100.0
+        # LA INCERTIDUMBRE DEL NÚMERO QUE DECIDE, y por qué el veredicto sin
+        # ella se lee más holgado de lo que es.
+        #
+        # Auditoría del 2026-09-13: la ventaja de catboost sobre lightgbm en
+        # `pc1` son 2,926 puntos con IC95 emparejado [1,66 · 4,20] — un
+        # intervalo que CRUZA el listón de 2,0. El veredicto según la regla
+        # registrada es correcto e inequívoco (2,926 > 2,0, y la regla es la
+        # que es), pero publicarlo sin el intervalo hace que «no cumple» y «no
+        # cumple, y con estos 15 pliegues no se distingue de cumplir» se lean
+        # exactamente igual.
+        #
+        # Esto NO cambia la regla ni su veredicto: `cumple` se calcula arriba,
+        # con la distancia puntual y el listón registrados, y ni lo mira. Lo
+        # que añade es el dato que faltaba para leerlo.
+        intervalo = _intervalo_de_la_distancia(
+            por_pliegue.get(ds, {}), motor=motor, mejor=mejor_motor, puntos=regla.puntos)
         detalle.append({"dataset": ds, "cumple": cumple, "perdido_por_fallo": perdido,
                         "mejor": mejor_motor, "distancia_en_puntos": distancia,
                         "segundo": segundo if mejor_motor == motor else None,
                         "ventaja_sobre_el_segundo_en_puntos": ventaja,
+                        "intervalo_de_la_distancia": intervalo,
                         "motores_que_compitieron": sorted(medias)})
 
     total = len(detalle)
@@ -741,7 +872,18 @@ def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
         le_faltan = 0
         while ((cumplidos + le_faltan) / total) < regla.fraccion_minima:
             le_faltan += 1
+    # CUÁNTOS de los incumplidos son incumplidos «de calle» y cuántos tienen el
+    # listón dentro de su intervalo. Sin este recuento hay que abrir el detalle
+    # dataset por dataset para saberlo, y el número de portada («9/12 NO
+    # cumple») no cambia de aspecto por mucho que los tres fallos estén al
+    # borde.
+    no_cumplen_con_el_liston_dentro = sum(
+        1 for d in detalle
+        if not d["cumple"] and (d["intervalo_de_la_distancia"] or {}).get("cruza_el_liston"))
     return {"motor": motor, "metrica": metrica, "puntos_exigidos": regla.puntos,
+            "intervalos_de_los_que_NO_cumplen_que_cruzan_el_liston":
+                no_cumplen_con_el_liston_dentro,
+            "n_medidas_sin_pliegue_declarado": sin_pliegue,
             "fraccion_minima": regla.fraccion_minima, "datasets": total,
             "cumplidos": cumplidos, "fraccion": fraccion,
             "cumple_la_regla": fraccion >= regla.fraccion_minima,
@@ -983,11 +1125,86 @@ def _id_en_el_protocolo(motor_implementado: str) -> str:
     return EQUIVALENCIAS_DE_NOMBRE_DE_MOTOR.get(motor_implementado, motor_implementado)
 
 
+def _alcance_de_las_configuraciones(
+        protocolo: "ProtocoloExploratorio", resultados: Sequence[dict], *,
+        motores_declarados: Sequence[str],
+        configuraciones_declaradas: Mapping[str, Sequence[str]] | None,
+        criterio_de_las_configuraciones: str) -> dict[str, Any]:
+    """El TERCER recorte, que el bloque de alcance se callaba.
+
+    AUDITORÍA DEL 2026-09-13: el protocolo registrado declara
+    `configuraciones: 2` por motor (1 para el dummy, 13 en total), y su propio
+    modelo de coste **solo cuadra con 13** — `calcular_coste` da 6.500
+    ejecuciones, que son 13 x (30 datasets x 15 ajustes + 10 x 5), y con una
+    configuración por motor darían 3.500. La pasada de siete motores del
+    2026-09-13 corrió UNA por motor, 7 de 13; el script lo declaraba en su
+    docstring —o sea, en el código— y el ARTEFACTO no lo decía en ninguna
+    parte.
+
+    Y es el recorte que más pesa de los tres, porque la `definicion_de_mejor`
+    registrada dice «el motor con mejor media **de los ajustes**»: aplicarla
+    sobre una sola familia de ajuste por motor no es lo que el protocolo
+    describe. Exactamente la misma clase de defecto que el recorte de motores
+    del 2026-09-12 —«lightgbm 10/12 CUMPLE» leído sin saber que tres de los
+    siete rivales no corrieron—, y se repara igual: el número viaja con su
+    alcance.
+
+    `observadas` sale del campo `configuracion` de los registros. Un fichero
+    anterior a que ese campo existiera NO se convierte en «ninguna
+    configuración corrió»: se declara `observable=False` y las listas quedan
+    vacías **con su motivo al lado**, porque un aserto negativo lo pasa un
+    diccionario vacío.
+    """
+    del_protocolo = {m.id: m.configuraciones for m in protocolo.motores}
+    n_del_protocolo = sum(del_protocolo.values())
+
+    declaradas = {m: sorted(configuraciones_declaradas.get(m, ()))
+                  for m in motores_declarados} if configuraciones_declaradas else {}
+    n_que_corrieron = sum(len(v) for v in declaradas.values())
+
+    con_campo = [r for r in resultados if r.get("configuracion") is not None]
+    observable = bool(con_campo)
+    observadas: dict[str, list[str]] = {}
+    for r in con_campo:
+        observadas.setdefault(r["motor"], [])
+        if r["configuracion"] not in observadas[r["motor"]]:
+            observadas[r["motor"]].append(r["configuracion"])
+    observadas = {m: sorted(v) for m, v in sorted(observadas.items())}
+
+    # Cuántas le faltan a CADA motor, por su id del protocolo. Un total solo
+    # («7 de 13») no dice si el recorte cayó repartido o entero sobre uno.
+    que_faltan: dict[str, int] = {}
+    for motor in motores_declarados:
+        pedidas = del_protocolo.get(_id_en_el_protocolo(motor))
+        if pedidas is None:
+            continue
+        que_faltan[_id_en_el_protocolo(motor)] = max(0, pedidas - len(declaradas.get(motor, ())))
+
+    return {
+        "criterio_de_las_configuraciones": criterio_de_las_configuraciones,
+        "del_protocolo": del_protocolo,
+        "n_del_protocolo": n_del_protocolo,
+        "declaradas_por_la_pasada": declaradas,
+        "n_que_corrieron": n_que_corrieron,
+        "que_faltan_por_motor": que_faltan,
+        "observadas_en_los_resultados": observadas,
+        "observable_en_los_registros": observable,
+        "por_que_no_es_observable": ("" if observable else
+                                     "ninguno de los registros trae el campo "
+                                     "`configuracion`: son de antes de que la pasada lo "
+                                     "escribiera, asi que de aqui no se sigue que "
+                                     "corrieran cero configuraciones -- se sigue que no "
+                                     "se puede saber cuales corrieron"),
+    }
+
+
 def alcance_de_una_pasada(protocolo: "ProtocoloExploratorio",
                           resultados: Sequence[dict], *,
                           motores_declarados: Sequence[str],
                           datasets_declarados: Sequence[str],
-                          criterio_del_subconjunto: str = "") -> dict[str, Any]:
+                          criterio_del_subconjunto: str = "",
+                          configuraciones_declaradas: Mapping[str, Sequence[str]] | None = None,
+                          criterio_de_las_configuraciones: str = "") -> dict[str, Any]:
     """Qué pidió el protocolo, qué dijo la pasada que iba a correr, y qué
     aparece DE VERDAD en los registros. Las tres cosas, porque cada par
     detecta un fallo distinto:
@@ -998,6 +1215,12 @@ def alcance_de_una_pasada(protocolo: "ProtocoloExploratorio",
 
     `observados` sale de las CLAVES REALES de `resultados`, nunca de una lista
     escrita a mano: una lista copiada es la que acaba divergiendo.
+
+    **TRES EJES, no dos (2026-09-13).** El protocolo recorta por datasets, por
+    motores **y por configuraciones**, y hasta hoy este bloque declaraba los
+    dos primeros y se callaba el tercero — con el agravante de que es el que
+    toca la `definicion_de_mejor` de la regla. Ver
+    `_alcance_de_las_configuraciones`.
     """
     motores_protocolo = [m.id for m in protocolo.motores]
     datasets_protocolo = [d.nombre for d in protocolo.datasets]
@@ -1044,11 +1267,42 @@ def alcance_de_una_pasada(protocolo: "ProtocoloExploratorio",
             "n_del_protocolo": len(datasets_protocolo),
             "n_que_corrieron": len(datasets_declarados),
         },
+        "configuraciones": _alcance_de_las_configuraciones(
+            protocolo, resultados, motores_declarados=motores_declarados,
+            configuraciones_declaradas=configuraciones_declaradas,
+            criterio_de_las_configuraciones=criterio_de_las_configuraciones),
         "sin_medir": {
             "tareas": [t for t in TAREAS if t not in tareas_cubiertas],
             "cubos_de_tamano": [c for c in CUBOS_DE_TAMANO if c not in cubos_cubiertos],
         },
     }
+
+
+def _configuraciones_que_faltan_en_texto(bloque: dict[str, Any]) -> str:
+    """«a quien le falta cuánta», por su nombre. Un total («7 de 13») no dice
+    si el recorte cayó repartido o entero sobre un motor."""
+    faltan = [(m, n) for m, n in sorted((bloque.get("que_faltan_por_motor") or {}).items()) if n]
+    if not faltan:
+        return "ninguna falta"
+    return "; ".join(f"{m}: falta(n) {n}" for m, n in faltan)
+
+
+def _configuraciones_por_motor_en_texto(bloque: dict[str, Any]) -> str:
+    """«cada motor aporta ...» — dicho con los numeros medidos, no con una
+    frase escrita que deja de ser verdad en cuanto cambian.
+
+    El total (7 de 13) no dice si el recorte cayo repartido o entero sobre
+    uno: si todos los motores aportan lo mismo se dice ese numero, y si no,
+    se dice el rango. Un «1» dicho de una pasada donde un motor aporto dos
+    seria falso en la direccion tranquilizadora.
+    """
+    cuentas = {m: len(v) for m, v in (bloque.get("declaradas_por_la_pasada") or {}).items()}
+    if not cuentas:
+        return "un numero de familias de ajuste que la pasada no declaro"
+    bajo, alto = min(cuentas.values()), max(cuentas.values())
+    if bajo == alto:
+        return f"{bajo} familia(s) de ajuste"
+    return f"entre {bajo} y {alto} familias de ajuste segun el motor"
 
 
 def veredicto_con_su_alcance(protocolo: "ProtocoloExploratorio",
@@ -1057,6 +1311,8 @@ def veredicto_con_su_alcance(protocolo: "ProtocoloExploratorio",
                              motores_declarados: Sequence[str],
                              datasets_declarados: Sequence[str],
                              criterio_del_subconjunto: str = "",
+                             configuraciones_declaradas: Mapping[str, Sequence[str]] | None = None,
+                             criterio_de_las_configuraciones: str = "",
                              metrica: str = "auroc") -> dict[str, Any]:
     """El número y su alcance, EN EL MISMO OBJETO.
 
@@ -1069,7 +1325,9 @@ def veredicto_con_su_alcance(protocolo: "ProtocoloExploratorio",
     alcance = alcance_de_una_pasada(
         protocolo, resultados, motores_declarados=motores_declarados,
         datasets_declarados=datasets_declarados,
-        criterio_del_subconjunto=criterio_del_subconjunto)
+        criterio_del_subconjunto=criterio_del_subconjunto,
+        configuraciones_declaradas=configuraciones_declaradas,
+        criterio_de_las_configuraciones=criterio_de_las_configuraciones)
     faltan = alcance["motores"]["que_faltan"]
     compitieron = [m for m in alcance["motores"]["observados_en_los_resultados"]
                    if m != "baseline"]
@@ -1083,6 +1341,15 @@ def veredicto_con_su_alcance(protocolo: "ProtocoloExploratorio",
         f"{alcance['motores']['n_del_protocolo']} motores del protocolo y "
         f"{alcance['datasets']['n_que_corrieron']} de "
         f"{alcance['datasets']['n_del_protocolo']} datasets. "
+        # LA TERCERA CIFRA DEL RECORTE, y la que toca la propia regla: su
+        # `definicion_de_mejor` habla de «la mejor media de LOS AJUSTES», y una
+        # sola configuracion por motor no es eso. Va en la MISMA frase que las
+        # otras dos, no en un campo aparte que se pueda leer por separado.
+        f"Configuraciones: {alcance['configuraciones']['n_que_corrieron']} de "
+        f"{alcance['configuraciones']['n_del_protocolo']} del protocolo "
+        f"({_configuraciones_que_faltan_en_texto(alcance['configuraciones'])}); "
+        f"la regla mide «la mejor media de los AJUSTES» y aqui cada motor aporta "
+        f"{_configuraciones_por_motor_en_texto(alcance['configuraciones'])}. "
         f"NO corrieron: {', '.join(faltan) if faltan else 'ninguno'}. "
         f"Compitieron por el primer puesto {len(compitieron)} motores "
         f"(el baseline no compite, la regla lo excluye). "
