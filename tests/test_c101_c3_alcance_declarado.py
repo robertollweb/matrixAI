@@ -60,23 +60,30 @@ _FASE0 = Path(__file__).resolve().parents[1] / "benchmarks" / "fase0"
 #: árbol, y un salto silencioso ante un fichero ausente es exactamente el banco
 #: de pruebas sin dientes que este hallazgo denuncia — se quedaría verde sin
 #: haber comprobado nada.
-#: LA EVIDENCIA QUE ESTE FICHERO AUDITA, y por qué sigue siendo la de CUATRO
-#: motores teniendo ya una de siete.
+#: LA EVIDENCIA QUE ESTE FICHERO AUDITA — la conforme, desde el 2026-09-14.
 #:
-#: `test_los_motores_declarados_son_los_que_el_SCRIPT_corre_hoy` está **ROJO a
-#: propósito** desde el 2026-09-13: esta evidencia declara 4 motores y el
-#: script corre 7. Es **verdad**, y taparlo sería apagar justo el guardia que
-#: avisa de que la evidencia se ha quedado atrás.
+#: **El rojo deliberado queda cerrado.** Desde el 13-09,
+#: `test_los_motores_declarados_son_los_que_el_SCRIPT_corre_hoy` estaba en rojo
+#: a propósito: la evidencia declaraba 4 motores y el script corría 7. Era
+#: verdad, y taparlo habría sido apagar el guardia que avisa de que la
+#: evidencia se ha quedado atrás. Se cerraba re-midiendo, y se ha re-medido.
 #:
-#: Por qué no se apunta ya a `..._siete_motores_20260913.json`: **medido, da 5
-#: rojos**, porque varias pruebas de este fichero codifican el veredicto de
-#: cuatro motores (el margen de UN dataset, los 8 aciertos a distancia cero).
-#: Cambiar la evidencia es reescribir esas pruebas, y eso es aceptar el nuevo
-#: veredicto — que **es una decisión de Roberto**, pendiente: la pasada de
-#: siete corrió 1 de las 2 configuraciones que el protocolo exige.
+#: `..._conforme_20260914.json`: **1.260 intentos, CERO fallos**, 12 datasets,
+#: los 7 motores, con el presupuesto del protocolo (120 s cubo pequeño, 300 s
+#: mediano, en vez de los 120 s fijos) y UNA configuración. 218,5 minutos, sin
+#: reusar un solo intento del caché.
 #:
-#: Se cierra al re-medir con todo conforme, y entonces se apunta aquí.
-_JSON = "pasada_exploratoria_101_c3_remedida_20260913.json"
+#: **Y el veredicto no se movió**: de las 84 celdas comunes con la pasada del
+#: 13-09, **83 salen idénticas al bit** y la que se mueve lo hace 0,0029
+#: puntos (`Internet-Advertisements` × densa, el motor que ya se sabía que se
+#: mueve con la semilla). Motor a motor, exactamente los mismos: catboost
+#: 12/12 CUMPLE, lightgbm 9/12, sklearn.hgb 9/12, xgboost 8/12, sklearn.lineal
+#: 7/12, densa 4/12.
+#:
+#: Que el presupuesto correcto no cambie nada **es un resultado, no un
+#: trámite**: dice que la pasada anterior no estaba limitada por reloj, y por
+#: tanto que el 9/12 de lightgbm no es un artefacto del presupuesto.
+_JSON = "pasada_exploratoria_101_c3_conforme_20260914.json"
 
 
 class ElArtefactoDeclaraSuAlcanceTest(unittest.TestCase):
@@ -297,11 +304,20 @@ class ElAlcanceDeclaradoCUADRAConLoMedidoTest(unittest.TestCase):
         self.assertEqual(self.alcance["protocolo"]["n_datasets"], len(self.protocolo.datasets))
         self.assertEqual(self.protocolo.regla_de_cierre.puntos, 2.0)
         self.assertEqual(self.protocolo.regla_de_cierre.fraccion_minima, 0.80)
-        veredicto = aplicar_regla_de_cierre(
-            self.resultados, self.protocolo.regla_de_cierre, motor="lightgbm")
-        self.assertEqual((veredicto["cumplidos"], veredicto["datasets"]), (10, 12),
-                         "el veredicto de esta evidencia ya no sale con el protocolo "
-                         "vigente: la re-firma tocó algo que la pasada usaba")
+        # CONTRA EL MOTOR QUE CUMPLE, no contra uno escrito a mano. Aquí ponía
+        # `motor="lightgbm"` y `(10, 12)`, que era el veredicto de la evidencia
+        # de CUATRO motores. Con los siete, el que cumple es otro — y una
+        # prueba que nombra a mano al ganador de ayer mide el ayer, no la
+        # propiedad: lo que esto defiende es que **el veredicto guardado se
+        # siga obteniendo con el protocolo vigente**, sea de quien sea.
+        for motor, guardado in self.payload["alcance_y_veredicto"]["por_motor"].items():
+            veredicto = aplicar_regla_de_cierre(
+                self.resultados, self.protocolo.regla_de_cierre, motor=motor)
+            self.assertEqual((veredicto["cumplidos"], veredicto["datasets"]),
+                             (guardado["cumplidos"], guardado["datasets"]),
+                             f"el veredicto guardado de {motor} ya no sale con el protocolo "
+                             "vigente: la re-firma tocó algo que la pasada usaba")
+            self.assertEqual(veredicto["cumple_la_regla"], guardado["cumple_la_regla"], motor)
 
     def test_los_que_FALTAN_salen_de_restar_las_dos_listas_con_su_mapeo(self):
         """Y se restan traduciendo los nombres. Comparadas a pelo, las dos
@@ -313,11 +329,32 @@ class ElAlcanceDeclaradoCUADRAConLoMedidoTest(unittest.TestCase):
         esperado = [m.id for m in self.protocolo.motores if m.id not in traducidos]
         self.assertEqual(self.alcance["motores"]["que_faltan"], esperado)
 
-    def test_los_tres_rivales_DIRECTOS_de_un_GBM_estan_nombrados(self):
-        """El corazón del hallazgo. No «faltan tres»: los tres, por su nombre,
-        porque son justo los que más aprietan al motor que se promueve."""
-        self.assertEqual(set(self.alcance["motores"]["que_faltan"]),
-                         {"sklearn.hgb", "xgboost", "catboost"})
+    def test_el_que_NO_compitio_se_nombra_y_hoy_no_falta_NINGUNO(self):
+        """El corazón del hallazgo, conservado al cambiar la evidencia.
+
+        Decía «los tres rivales directos de un GBM están nombrados» y exigía
+        `{sklearn.hgb, xgboost, catboost}`, porque la evidencia de entonces
+        corría 4 motores de 7. **Hoy corren los siete**, así que esa lista
+        tiene que estar VACÍA — y forzar la prueba a seguir esperando tres
+        ausentes habría convertido una limitación en un contrato.
+
+        Lo que la prueba defiende es lo mismo que defendía: **quien falte se
+        nombra**, nunca un recuento. Por eso se miden las dos mitades: que la
+        lista cuadre con la diferencia real entre protocolo y pasada, y que
+        hoy esa diferencia sea cero con los siete corriendo."""
+        faltan = self.alcance["motores"]["que_faltan"]
+        m = self.alcance["motores"]
+        # La mitad general: lo que falta son NOMBRES y cuadran con las listas.
+        esperados = set(m["del_protocolo"]) - set(
+            self.alcance["motores"]["equivalencias_de_nombre"].get(x, x)
+            for x in m["declarados_por_la_pasada"])
+        self.assertEqual(set(faltan), esperados,
+                         "la lista de ausentes no cuadra con las dos listas de motores")
+        # Y la mitad de HOY, que es la que caduca ruidosa si alguien recorta.
+        self.assertEqual(faltan, [],
+                         "esta evidencia corre los SIETE motores del protocolo: si vuelve "
+                         "a faltar alguno, la promoción de un motor se estrecha otra vez")
+        self.assertEqual(m["n_que_corrieron"], m["n_del_protocolo"])
 
     def test_las_cuentas_de_motores_cuadran_con_sus_listas(self):
         """Un contador escrito a mano es el primero que se queda atrás."""
@@ -395,13 +432,29 @@ class GanarYGanarPorNadaNoSeLeenIgualTest(unittest.TestCase):
         cls.payload = json.loads((_FASE0 / _JSON).read_text(encoding="utf-8"))
         cls.protocolo = ProtocoloExploratorio.cargar(
             str(_FASE0 / "protocolo_exploratorio.json"))
-        cls.veredicto = cls.payload["alcance_y_veredicto"]["por_motor"]["lightgbm"]
+        # EL MOTOR QUE CUMPLE, quienquiera que sea — no `["lightgbm"]`.
+        #
+        # Esta clase examinaba a lightgbm por su nombre porque era el que
+        # cumplía con la evidencia de CUATRO motores. Con los siete cumple
+        # otro (catboost), y dejar el nombre escrito habría hecho que estas
+        # pruebas midieran el veredicto de ayer. Lo que defienden no es quién
+        # gana: es que **un veredicto que CUMPLE viaje con lo que le costó**
+        # —cuántos ganó por nada, contra quién, y a cuánto está del borde—,
+        # y eso vale para cualquier motor.
+        por_motor = cls.payload["alcance_y_veredicto"]["por_motor"]
+        cumplen = [m for m, v in por_motor.items() if v["cumple_la_regla"]]
+        assert len(cumplen) == 1, (
+            f"esta clase lee EL veredicto que cumple y hay {len(cumplen)}: {cumplen}. "
+            "Con ninguno no hay nada que auditar; con varios hay que decir cuál se audita.")
+        cls.motor_que_cumple = cumplen[0]
+        cls.veredicto = por_motor[cls.motor_que_cumple]
 
     def test_el_numero_del_JSON_sale_de_RE_APLICAR_la_regla_registrada(self):
         """El número no se cree, se re-deriva — sobre los registros del propio
         fichero y con la regla que 101-C1 selló antes de medir."""
         re_derivado = aplicar_regla_de_cierre(
-            self.payload["resultados"], self.protocolo.regla_de_cierre, motor="lightgbm")
+            self.payload["resultados"], self.protocolo.regla_de_cierre,
+            motor=self.motor_que_cumple)
         self.assertEqual((re_derivado["cumplidos"], re_derivado["datasets"]),
                          (self.veredicto["cumplidos"], self.veredicto["datasets"]))
         self.assertEqual(re_derivado["cumple_la_regla"], self.veredicto["cumple_la_regla"])
@@ -413,16 +466,20 @@ class GanarYGanarPorNadaNoSeLeenIgualTest(unittest.TestCase):
                      if d["cumple"] and d["distancia_en_puntos"] is not None
                      and abs(d["distancia_en_puntos"]) < 1e-12)
         self.assertEqual(a_mano, self.veredicto["aciertos_por_ser_el_mejor"])
-        self.assertEqual(a_mano, 8,
-                         "la auditoría midió 8 de 10 aciertos por distancia cero")
-        self.assertEqual(self.veredicto["cumplidos"], 10)
+        # Y los números de HOY, escritos para que caduquen ruidosos: catboost
+        # cumple los 12 y **5 de esos 12 los gana por ser el mejor**, no por
+        # entrar en el margen. Antes aquí ponía 8 de 10, que era lightgbm con
+        # cuatro motores compitiendo; con siete, las dos cifras cambian.
+        self.assertEqual((self.motor_que_cumple, a_mano, self.veredicto["cumplidos"]),
+                         ("catboost", 5, 12))
 
     def test_cada_dataset_GANADO_dice_por_CUANTO_y_a_quien(self):
         """Sin esto, los ocho empates a cero se leen como ocho dominios."""
         ganados = [d for d in self.veredicto["detalle"]
                    if d["distancia_en_puntos"] is not None
                    and abs(d["distancia_en_puntos"]) < 1e-12]
-        self.assertEqual(len(ganados), 8)
+        self.assertEqual(len(ganados), self.veredicto["aciertos_por_ser_el_mejor"])
+        self.assertEqual(len(ganados), 5, "hoy son 5; eran 8 con cuatro motores")
         for d in ganados:
             self.assertIsNotNone(d["ventaja_sobre_el_segundo_en_puntos"],
                                  f"{d['dataset']}: ganó y no dice por cuánto")
@@ -445,22 +502,35 @@ class GanarYGanarPorNadaNoSeLeenIgualTest(unittest.TestCase):
                 continue
             por_motor = {m: sum(v) / len(v) for m, v in medias[d["dataset"]].items()}
             orden = sorted(por_motor, key=lambda m: por_motor[m], reverse=True)
-            self.assertEqual(orden[0], "lightgbm", d["dataset"])
+            self.assertEqual(orden[0], self.motor_que_cumple, d["dataset"])
             self.assertEqual(d["segundo"], orden[1], d["dataset"])
             self.assertAlmostEqual(
                 d["ventaja_sobre_el_segundo_en_puntos"],
                 (por_motor[orden[0]] - por_motor[orden[1]]) * 100.0, places=9,
                 msg=d["dataset"])
 
-    def test_el_margen_es_de_UN_solo_dataset_y_el_JSON_lo_dice(self):
-        """«Un dataset perdido más lo deja en 9/12» — 0,75 < 0,80. Medido: el
-        margen es CERO, o sea que no puede perder ninguno. Que un veredicto
-        que cumple esté exactamente en el borde es parte de cómo hay que
-        leerlo, y por eso viaja con él."""
+    def test_CUANTO_MARGEN_tiene_el_que_cumple_viaja_con_el_veredicto(self):
+        """Que un veredicto que cumple esté en el borde —o no— es parte de
+        cómo hay que leerlo, y por eso viaja con él.
+
+        Se llamaba «el margen es de UN solo dataset» y exigía CERO: era
+        lightgbm con cuatro motores, 10/12, que no podía perder ninguno más.
+        Hoy cumple catboost con 12/12 y le sobran **dos**. Fijar el cero
+        habría convertido «estaba en el borde» en un requisito.
+
+        Lo que se comprueba es la propiedad: el margen declarado es el que
+        sale de la regla, y perder uno más de la cuenta baja del listón."""
         self.assertTrue(self.veredicto["cumple_la_regla"])
-        self.assertEqual(self.veredicto["datasets_que_puede_perder_sin_incumplir"], 0)
-        uno_menos = (self.veredicto["cumplidos"] - 1) / self.veredicto["datasets"]
-        self.assertLess(uno_menos, self.protocolo.regla_de_cierre.fraccion_minima)
+        margen = self.veredicto["datasets_que_puede_perder_sin_incumplir"]
+        self.assertIsNotNone(margen, "un veredicto que cumple tiene que decir su margen")
+        minimo = self.protocolo.regla_de_cierre.fraccion_minima
+        n = self.veredicto["datasets"]
+        # Con el margen declarado sigue cumpliendo...
+        self.assertGreaterEqual((self.veredicto["cumplidos"] - margen) / n, minimo)
+        # ...y con uno más, no. Las dos mitades: sin la segunda, un margen
+        # inflado pasaría igual.
+        self.assertLess((self.veredicto["cumplidos"] - margen - 1) / n, minimo)
+        self.assertEqual(margen, 2, "hoy sobran dos; con cuatro motores el margen era cero")
 
 
 if __name__ == "__main__":

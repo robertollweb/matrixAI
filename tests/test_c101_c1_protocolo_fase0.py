@@ -578,6 +578,57 @@ class AplicarReglaDeCierreTest(unittest.TestCase):
         self.assertAlmostEqual(r["fraccion"], 0.8)
         self.assertTrue(r["cumple_la_regla"])  # 0,8 >= 0,8, el borde cuenta
 
+    def test_EL_MARGEN_dice_cuantos_datasets_puede_perder_sin_bajarse(self):
+        """Lo destapó un sabotaje VERDE el 2026-09-14.
+
+        `datasets_que_puede_perder_sin_incumplir` es el número que dice si un
+        veredicto que cumple está holgado o en el borde, y **ningún test
+        tocaba el código que lo calcula**: inflarlo en uno
+        (`margen + 1`) dejaba las 21 pruebas de
+        `test_c101_c3_alcance_declarado.py` en verde, porque ésas auditan el
+        JSON ya escrito. *Probar el artefacto no es probar el código que lo
+        produce.*
+
+        Las DOS mitades, que es lo que hace que un margen inflado se caiga:
+        con el margen declarado todavía cumple, y **con uno más, no**.
+        """
+        regla = self._regla()
+        # 10 de 10: puede perder dos y seguir en 0,8 exacto; tres, no.
+        datos = []
+        for i in range(10):
+            datos += [self._r(f"d{i}", "a", 0.90), self._r(f"d{i}", "b", 0.905)]
+        r = aplicar_regla_de_cierre(datos, regla, motor="a")
+        self.assertTrue(r["cumple_la_regla"])
+        self.assertEqual(r["cumplidos"], 10)
+        margen = r["datasets_que_puede_perder_sin_incumplir"]
+        self.assertEqual(margen, 2)
+        self.assertGreaterEqual((r["cumplidos"] - margen) / r["datasets"], regla.fraccion_minima)
+        self.assertLess((r["cumplidos"] - margen - 1) / r["datasets"], regla.fraccion_minima)
+
+    def test_EL_MARGEN_es_CERO_cuando_se_cumple_justo_en_el_borde(self):
+        """8 de 10 es 0,80 clavado: cumple y no puede perder ni uno. Un margen
+        que nunca da cero no distinguiría «holgado» de «en el borde», que es
+        justo para lo que existe."""
+        datos = []
+        for i in range(8):
+            datos += [self._r(f"d{i}", "a", 0.90), self._r(f"d{i}", "b", 0.905)]
+        for i in range(8, 10):
+            datos += [self._r(f"d{i}", "a", 0.90), self._r(f"d{i}", "b", 0.95)]
+        r = aplicar_regla_de_cierre(datos, self._regla(), motor="a")
+        self.assertTrue(r["cumple_la_regla"])
+        self.assertEqual((r["cumplidos"], r["datasets"]), (8, 10))
+        self.assertEqual(r["datasets_que_puede_perder_sin_incumplir"], 0)
+
+    def test_el_que_NO_cumple_no_tiene_margen_y_dice_None_no_cero(self):
+        """`None` no es `0`: cero sería «cumple justo en el borde», y éste no
+        cumple. Un valor ausente no es un cero."""
+        datos = []
+        for i in range(10):
+            datos += [self._r(f"d{i}", "a", 0.90), self._r(f"d{i}", "b", 0.95)]
+        r = aplicar_regla_de_cierre(datos, self._regla(), motor="a")
+        self.assertFalse(r["cumple_la_regla"])
+        self.assertIsNone(r["datasets_que_puede_perder_sin_incumplir"])
+
     def test_sobre_la_pasada_CONTAMINADA_del_07_09_daba_9_12_dato_HISTORICO(self):
         """EL DATO HISTÓRICO, y solo eso — **no el resultado vigente**.
 
