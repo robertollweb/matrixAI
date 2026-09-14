@@ -32,6 +32,7 @@ detector de identificadores del núcleo.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -70,6 +71,40 @@ def _arff(tmp_path, cuerpo, nombre="min.arff"):
     ruta = tmp_path / nombre
     ruta.write_text(cuerpo, encoding="utf-8")
     return ruta
+
+
+#: UNA sola declaración de cómo se lee un `@attribute` en este fichero. Había
+#: dos —la de `test_tras_la_exclusion…` y la que traje el 2026-09-14 para los
+#: niveles— y son la misma línea: exactamente el defecto del que trata este
+#: fichero, cometido dentro de él.
+_ATRIBUTO = re.compile(r"^\s*@attribute\s+(?P<n>'[^']*'|\"[^\"]*\"|\S+)\s+(?P<t>.+?)\s*$",
+                       re.IGNORECASE)
+
+
+def _atributos_declarados(ruta: Path) -> list[tuple[str, str]]:
+    """`[(nombre, tipo)]` de la CABECERA, en orden y sin tocar los datos."""
+    fuera: list[tuple[str, str]] = []
+    with open(ruta, encoding="utf-8", errors="replace") as fichero:
+        for linea in fichero:
+            if linea.strip().lower().startswith("@data"):
+                break
+            if not linea.strip().lower().startswith("@attribute"):
+                continue
+            casado = _ATRIBUTO.match(linea)
+            if casado is None:
+                continue
+            nombre = casado.group("n").strip()
+            if len(nombre) >= 2 and nombre[0] == nombre[-1] and nombre[0] in "'\"":
+                nombre = nombre[1:-1]
+            fuera.append((nombre, casado.group("t").strip()))
+    return fuera
+
+
+def _niveles_declarados(ruta: Path) -> dict[str, list[str]]:
+    """`{columna: niveles}` de cada nominal, desde `_atributos_declarados`."""
+    return {nombre: [v.strip().strip("\'\"") for v in tipo[1:-1].split(",")]
+            for nombre, tipo in _atributos_declarados(ruta)
+            if tipo.startswith("{") and tipo.endswith("}")}
 
 
 # --------------------------------------------------------------------------
@@ -185,22 +220,12 @@ def test_tras_la_exclusion_los_CUARENTA_cuadran_con_su_catalogo():
     falta para contar `@attribute`, y las columnas STRING se descuentan porque
     el lector las quita.
     """
-    import re
-    atributo = re.compile(r"^\s*@attribute\s+(?P<n>'[^']*'|\"[^\"]*\"|\S+)\s+(?P<t>.+?)\s*$",
-                          re.IGNORECASE)
     descuadran = []
     for entrada in PROTOCOLO["datasets"]:
         ruta = DATOS / f"{entrada['data_id']}.arff"
         if not ruta.exists():
             continue
-        tipos = []
-        with open(ruta, encoding="utf-8", errors="replace") as fichero:
-            for linea in fichero:
-                if linea.strip().lower().startswith("@data"):
-                    break
-                casado = atributo.match(linea)
-                if casado and linea.strip().lower().startswith("@attribute"):
-                    tipos.append(casado.group("t").strip().lower())
+        tipos = [tipo.lower() for _nombre, tipo in _atributos_declarados(ruta)]
         trae = len([t for t in tipos if t != "string"])
         if trae != entrada["n_columnas"]:
             descuadran.append((entrada["nombre"], trae, entrada["n_columnas"]))
@@ -452,3 +477,184 @@ def test_la_pasada_DECLARA_en_su_salida_que_columna_quito_y_por_que():
     assert declarado["columnas_excluidas"] == ["Instance_name"]
     assert "3178" in declarado["motivos_de_exclusion"]["Instance_name"]
     assert declarado["catalogo_leido"] is True
+
+
+# --------------------------------------------------------------------------
+# 3. LO QUE HACE SEGURO CONVERTIR TODOS LOS `?` — medido el 2026-09-14
+# --------------------------------------------------------------------------
+# `lector_arff.cargar` hace `None if texto in ("", "?") else texto` SIN mirar
+# de qué columna viene: vale para un predictor nominal, para el objetivo y
+# para una columna que declarase `?` entre sus niveles. Esa decisión es
+# correcta —`?` es el marcador de ausencia del estándar ARFF— pero su
+# INOCUIDAD sobre este protocolo se apoya en dos hechos que nadie había
+# medido, y una línea que explica por qué no hace lo obvio necesita una prueba
+# con su nombre:
+#
+#   · ninguno de los cuarenta declara `?` como nivel legítimo de un nominal,
+#     así que la conversión no destruye ninguna categoría real;
+#   · ninguno de los cuarenta trae `?` en su columna objetivo, así que no hay
+#     ni una fila que pierda su etiqueta por el camino.
+#
+# El día que entre un dataset que rompa cualquiera de los dos, esto se pone
+# rojo antes de que nadie mida nada — que es justo cuando hay que enterarse,
+# porque el segundo caso no da error: la fila se queda sin objetivo y la
+# pasada la descarta EN SILENCIO (`filas_con_objetivo`, `particiones_base`).
+
+#: Un campo que es exactamente `?` (con los espacios de alineación que algunos
+#: ARFF meten). Validado el 2026-09-14 contra un troceador que respeta las
+#: comillas SIMPLES de ARFF: los dos dan el MISMO número en los cuarenta
+#: ficheros. El atajo importa porque el exacto tarda minutos y este 8,6 s.
+_CAMPO_INTERROGANTE = re.compile(rb"(?<=[,\n])[ \t]*\?[ \t]*(?=[,\n\r])")
+
+
+def _celdas_interrogante(ruta: Path) -> int:
+    datos = ruta.read_bytes()
+    return len(_CAMPO_INTERROGANTE.findall(b"\n" + datos[datos.lower().find(b"@data"):]))
+
+
+@con_los_arff
+def test_ningun_ARFF_del_protocolo_declara_el_interrogante_como_NIVEL_legitimo():
+    """Lo que hace inocuo convertir TODOS los `?`: ninguno es una categoría.
+
+    Si un dataset declarase `{sí,no,?}`, ese `?` sería un valor con
+    significado y el lector lo estaría borrando — y en silencio, porque la
+    celda saldría como ausente igual que las de verdad.
+    """
+    declaran, nominales, ficheros = [], 0, 0
+    for entrada in PROTOCOLO["datasets"]:
+        ruta = DATOS / f"{entrada['data_id']}.arff"
+        if not ruta.exists():
+            continue
+        ficheros += 1
+        for columna, niveles in _niveles_declarados(ruta).items():
+            nominales += 1
+            if "?" in niveles:
+                declaran.append((entrada["nombre"], columna))
+    # La mitad positiva, porque `declaran == []` lo pasaría un barrido que no
+    # hubiera mirado nada: el 2026-09-14 son 40 ficheros y 2.017 columnas
+    # nominales, MEDIDAS — el primer número que escribí aquí fue a ojo y era
+    # falso, y lo cazó este mismo aserto.
+    assert ficheros == 40, f"no se barrieron los cuarenta, sino {ficheros}"
+    assert nominales == 2017, f"cambió cuántas columnas nominales hay: {nominales}"
+    assert declaran == [], (
+        "algún ARFF declara `?` como nivel legítimo y el lector lo está "
+        f"convirtiendo en ausente: {declaran}")
+
+
+def test_un_nivel_declarado_como_interrogante_SE_PIERDE_y_asi_se_ve(tmp_path):
+    """La otra mitad, que es la que impide que la de arriba pase por vacía: si
+    un ARFF SÍ lo declarase, esto es exactamente lo que pasaría."""
+    ruta = _arff(tmp_path, "@relation r\n"
+                           "@attribute respuesta {si,no,?}\n"
+                           "@attribute clase {a,b}\n"
+                           "@data\n"
+                           "si,a\n?,b\nno,a\n")
+    leido = cargar(ruta, "clase")
+    assert [f["respuesta"] for f in leido.filas] == ["si", None, "no"], (
+        "el `?` declarado como nivel tiene que salir como ausente: es la "
+        "consecuencia que la prueba de los cuarenta da por no ocurrida")
+
+
+@con_los_arff
+def test_ningun_OBJETIVO_de_los_cuarenta_trae_interrogante():
+    """El segundo hecho: nadie pierde su etiqueta al convertir los `?`.
+
+    Importa porque no da error. `particiones_base` se queda con
+    `f[objetivo] is not None`, así que una fila cuyo objetivo fuera `?`
+    desaparecería de la medición sin que nada lo dijera.
+    """
+    con_interrogante = []
+    for entrada in PROTOCOLO["datasets"]:
+        ruta = DATOS / f"{entrada['data_id']}.arff"
+        if not ruta.exists():
+            continue
+        objetivo = entrada["columna_objetivo"]
+        leido = _niveles_declarados(ruta)
+        if objetivo in leido and "?" in leido[objetivo]:
+            con_interrogante.append((entrada["nombre"], "declarado"))
+    assert con_interrogante == []
+    # La medida de verdad: el lector, sobre cuatro de los diez que SÍ traen `?`.
+    # Con su cuenta de filas delante: `sin_etiqueta == []` lo pasaría también
+    # una lectura que no hubiera devuelto ni una fila.
+    for nombre, filas_esperadas in (("sick", 3772), ("adult", 48842),
+                                    ("house_prices_nominal", 1460), ("Moneyball", 1232)):
+        leido = _cargar(nombre)
+        assert len(leido.filas) == filas_esperadas, (
+            f"{nombre}: el lector devolvió {len(leido.filas)} filas, no "
+            f"{filas_esperadas} — el aserto de abajo no estaría mirando nada")
+        assert any(v is None for f in leido.filas for v in f.values()), (
+            f"{nombre} trae `?` y ni una celda salió ausente: la conversión no corrió")
+        sin_etiqueta = [f["row_id"] for f in leido.filas if f[leido.objetivo] is None]
+        assert sin_etiqueta == [], (
+            f"{nombre}: {len(sin_etiqueta)} filas se quedaron sin objetivo y la "
+            "pasada las descartaría en silencio")
+
+
+def test_un_interrogante_en_el_OBJETIVO_deja_la_fila_sin_etiqueta(tmp_path):
+    """La mitad positiva de la anterior: el día que ocurra, esto es el efecto.
+
+    No se «arregla» aquí —convertirlo es lo correcto— pero queda escrito que
+    el precio es una fila que la pasada tira sin decirlo.
+    """
+    ruta = _arff(tmp_path, "@relation r\n"
+                           "@attribute x numeric\n"
+                           "@attribute clase {a,b}\n"
+                           "@data\n"
+                           "1,a\n2,?\n3,b\n")
+    leido = cargar(ruta, "clase")
+    assert [f["clase"] for f in leido.filas] == ["a", None, "b"]
+    assert len([f for f in leido.filas if f["clase"] is not None]) == 2, (
+        "la fila del medio se pierde para la pasada, y nada lo declara")
+
+
+@con_los_arff
+def test_tiene_faltantes_es_ALGUNA_celda_y_NO_el_uno_por_ciento_del_anexo():
+    """`tiene_faltantes` del catálogo y la exigencia del anexo NO son lo mismo.
+
+    El anexo C §2.2 pide «≥ 10 con faltantes (**> 1 % de celdas**)», y
+    `generar_protocolo.verificar_cobertura` cuenta `tiene_faltantes`, que sale
+    de `NumberOfMissingValues` de OpenML: ALGUNA celda ausente, sin umbral.
+
+    Medido el 2026-09-14 sobre los cuarenta ARFF: con «alguna» salen **10**
+    —y el catálogo acierta en los diez, ni uno de más ni de menos—; con el
+    «> 1 %» del paréntesis salen **7**. Es el mismo patrón que el
+    `alta_cardinalidad` del 09-13: el anexo pedía dos cosas y el código
+    comprueba una.
+
+    Esta prueba NO decide cuál de las dos lecturas vale —cambiarlo movería la
+    selección de los cuarenta y con ella el protocolo registrado, que no es
+    una decisión que se tome dentro de un test—: fija los DOS números para que
+    nadie los descubra otra vez desde cero, y se pone roja si alguno se mueve.
+    """
+    con_alguna, por_encima_del_uno_por_ciento, declaran = [], [], []
+    total_celdas = 0
+    for entrada in PROTOCOLO["datasets"]:
+        ruta = DATOS / f"{entrada['data_id']}.arff"
+        if not ruta.exists():
+            pytest.skip("faltan ARFF: el recuento sería parcial y mentiría")
+        celdas = _celdas_interrogante(ruta)
+        total_celdas += celdas
+        if entrada["tiene_faltantes"]:
+            declaran.append(entrada["nombre"])
+        if celdas:
+            con_alguna.append(entrada["nombre"])
+            if celdas / (entrada["n_filas"] * (entrada["n_columnas"] + 1)) > 0.01:
+                por_encima_del_uno_por_ciento.append(entrada["nombre"])
+
+    assert sorted(declaran) == sorted(con_alguna), (
+        "`tiene_faltantes` ya no coincide con «tiene alguna celda `?`»: "
+        f"declara {sorted(declaran)}, mide {sorted(con_alguna)}")
+    assert len(con_alguna) == 10
+    assert len(por_encima_del_uno_por_ciento) == 7, (
+        "cambió cuántos pasan el «> 1 % de celdas» del anexo: "
+        f"{sorted(por_encima_del_uno_por_ciento)}")
+    assert len(por_encima_del_uno_por_ciento) < len(declaran), (
+        "si los dos criterios ya coinciden, esta prueba sobra y el aviso "
+        "de su nombre también")
+    # Y la MAGNITUD, no solo los conjuntos. Va aquí porque un sabotaje del
+    # 2026-09-14 salió VERDE sin ella: cambiar el contador por uno que cuenta
+    # cualquier `?` del fichero —también dentro de un texto entrecomillado— no
+    # movía ni un nombre de las listas de arriba, así que la prueba no
+    # distinguía un contador exacto de uno tosco. Este número sí.
+    assert total_celdas == 9_319_291, (
+        f"cambió cuántas celdas ausentes traen los cuarenta: {total_celdas:,}")

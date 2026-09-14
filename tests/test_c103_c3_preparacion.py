@@ -115,6 +115,120 @@ class CriterioLiteralTest(unittest.TestCase):
         self.assertIsNotNone(politica.columna("edad"))
 
 
+class ExtremosMedidosEnTrainTest(unittest.TestCase):
+    """LOS EXTREMOS DE CADA NUMERICA -- 2026-09-14.
+
+    El criterio de terminado de este corte dice, con estas palabras:
+    «Alterar valores extremos solo en test no cambia medianas, RANGOS ni
+    vocabulario aprendido». Hasta hoy no había ningún rango que alterar:
+    `PropuestaDeColumna` publicaba `mediana` y nada más, así que esa
+    tercera palabra del criterio no la sostenía ninguna prueba -- y la que
+    sí existe (`test_valores_extremos_en_test_no_cambian_mediana_ni_
+    vocabulario`) comprueba justo las otras dos.
+
+    Los extremos entran porque quien usa el modelo pedía un deslizador en
+    «Probar una fila» y no había con qué dibujarlo. La regla que gobierna
+    de dónde salen es la de siempre y es la que estas pruebas sujetan: se
+    miden SOBRE TRAIN, en el mismo sitio y de la misma lista que la
+    mediana, y ninguna fila nueva los mueve.
+    """
+
+    def test_los_extremos_son_el_minimo_y_el_maximo_de_train(self):
+        # `_filas` reparte edad = 20.0 … 69.0 (20 + i % 50).
+        politica = ajustar_preparacion(_filas(), objetivo="objetivo", columnas=["edad"],
+                                       admite_categoricas=False, admite_faltantes=False)
+        propuesta = politica.columna("edad")
+        self.assertEqual(propuesta.minimo, 20.0)
+        self.assertEqual(propuesta.maximo, 69.0)
+
+    def test_alterar_valores_extremos_solo_en_test_no_cambia_los_rangos(self):
+        """La tercera palabra del criterio literal, ahora medible.
+
+        Es la MISMA garantía que ya se comprueba para la mediana y el
+        vocabulario, sobre el dato que faltaba: un deslizador cuyos topes
+        se movieran al escribir en el formulario estaría describiendo lo
+        que acaba de teclear quien mira, no lo que vio el modelo.
+        """
+        politica = ajustar_preparacion(_filas(), objetivo="objetivo", columnas=["edad"],
+                                       admite_categoricas=False, admite_faltantes=False)
+        minimo_antes = politica.columna("edad").minimo
+        maximo_antes = politica.columna("edad").maximo
+
+        for extremo in (-10_000_000.0, 10_000_000.0):
+            transformar_fila({"edad": extremo, "barrio": "lo_que_sea"}, politica)
+
+        self.assertEqual(politica.columna("edad").minimo, minimo_antes)
+        self.assertEqual(politica.columna("edad").maximo, maximo_antes)
+
+    def test_las_filas_sin_objetivo_no_entran_en_los_extremos(self):
+        """Las filas que `ajustar_preparacion` excluye por no tener
+        objetivo llevan edad = 99.0 en `_filas`, muy por encima del 69.0
+        del train efectivo: si se colaran, el tope del deslizador
+        describiría filas que el modelo nunca vio."""
+        politica = ajustar_preparacion(_filas(n_con_objetivo=120, incluir_sin_objetivo=7),
+                                       objetivo="objetivo", columnas=["edad"],
+                                       admite_categoricas=False, admite_faltantes=False)
+        self.assertEqual(politica.filas_excluidas_sin_objetivo, 7)
+        self.assertEqual(politica.columna("edad").maximo, 69.0)
+
+    def test_una_numerica_con_faltantes_mide_solo_lo_presente(self):
+        """Un valor ausente no es un cero: una columna donde falta la mitad
+        de los datos y cuyos valores presentes van de 5 a 9 tiene mínimo 5,
+        no 0."""
+        filas = ([{"objetivo": "si", "x": 5.0}, {"objetivo": "si", "x": 9.0}]
+                + [{"objetivo": "si", "x": None} for _ in range(2)])
+        politica = ajustar_preparacion(filas, objetivo="objetivo", columnas=["x"],
+                                       admite_categoricas=False, admite_faltantes=False)
+        self.assertEqual(politica.columna("x").minimo, 5.0)
+        self.assertEqual(politica.columna("x").maximo, 9.0)
+
+    def test_una_categorica_no_declara_extremos(self):
+        """Ordenar cadenas para sacar un "mínimo" inventaría un orden que
+        los datos no tienen -- `None` los dos, que es una respuesta."""
+        politica = ajustar_preparacion(_filas(), objetivo="objetivo", columnas=["barrio"],
+                                       admite_categoricas=False, admite_faltantes=False)
+        self.assertIsNone(politica.columna("barrio").minimo)
+        self.assertIsNone(politica.columna("barrio").maximo)
+
+    def test_una_columna_constante_publica_minimo_igual_a_maximo(self):
+        """Eso es una MEDIDA, no un fallo: en train todas las filas valían
+        lo mismo. Este módulo lo dice tal cual y no lo convierte en `None`
+        -- qué se puede dibujar con un rango de ancho cero es decisión de
+        quien pinta, y sin el dato no podría ni tomarla."""
+        filas = [{"objetivo": "si", "x": 7.0} for _ in range(120)]
+        politica = ajustar_preparacion(filas, objetivo="objetivo", columnas=["x"],
+                                       admite_categoricas=False, admite_faltantes=False)
+        self.assertEqual(politica.columna("x").minimo, 7.0)
+        self.assertEqual(politica.columna("x").maximo, 7.0)
+
+    def test_los_extremos_viajan_por_json(self):
+        original = ajustar_preparacion(_filas(), objetivo="objetivo", columnas=["edad", "barrio"],
+                                       admite_categoricas=True, admite_faltantes=True)
+        reconstruida = PoliticaDePreparacion.desde_json(original.a_json())
+        self.assertEqual(reconstruida.columna("edad").minimo, original.columna("edad").minimo)
+        self.assertEqual(reconstruida.columna("edad").maximo, original.columna("edad").maximo)
+
+    def test_un_sobre_escrito_antes_de_este_cambio_se_relee_sin_extremos(self):
+        """Los sobres de selección YA en disco no los traen -- medidos el
+        2026-09-14: siete claves por columna, sin `minimo` ni `maximo`. Se
+        releen con `None`, nunca con un rango inventado: ese estudio de
+        verdad no midió esto, y `[0, 100]` sería una afirmación sobre unos
+        datos que nadie ha mirado.
+        """
+        sobre_viejo = {
+            "columnas": [{"columna": "edad", "tipo": "numerica", "admite_nativo": False,
+                         "proporcion_faltante": 0.0, "mediana": 44.0,
+                         "categorias_conocidas": [], "categoria_de_referencia": None}],
+            "filas_excluidas_sin_objetivo": 0, "filas_de_train_efectivas": 120,
+        }
+        politica = PoliticaDePreparacion.desde_json(sobre_viejo)
+        self.assertEqual(politica.columna("edad").mediana, 44.0)
+        self.assertIsNone(politica.columna("edad").minimo)
+        self.assertIsNone(politica.columna("edad").maximo)
+        # Y sigue sirviendo para lo suyo: transformar una fila.
+        self.assertEqual(transformar_fila({"edad": 30.0}, politica)["edad"], 30.0)
+
+
 class ExclusionDelObjetivoTest(unittest.TestCase):
     def test_fila_sin_objetivo_se_excluye_con_recuento(self):
         train = _filas(n_con_objetivo=120, incluir_sin_objetivo=7)

@@ -141,6 +141,23 @@ class PropuestaDeColumna:
     admite_nativo: bool
     proporcion_faltante: float
     mediana: float | None = None
+    #: LOS EXTREMOS QUE VIO TRAIN, medidos sobre las MISMAS filas y la misma
+    #: lista de valores presentes de la que sale `mediana` -- nunca sobre
+    #: test, nunca sobre una fila nueva. Los añade 2026-09-14 porque quien
+    #: usa el modelo pedía un deslizador y no había con qué dibujarlo: esta
+    #: propuesta publicaba un valor de partida (`mediana`) pero ningún
+    #: extremo, y un deslizador sin extremos tendría que inventárselos.
+    #:
+    #: `None` en una CATEGÓRICA, las dos: ordenar cadenas para sacar un
+    #: "mínimo" inventaría un orden que los datos no tienen. `None` también
+    #: en una política vieja releída con `desde_json` -- ausente no es cero,
+    #: y ese estudio de verdad no midió esto.
+    #:
+    #: `minimo == maximo` (columna constante en train) es una MEDIDA, no un
+    #: fallo, y se publica tal cual: si con eso se puede dibujar algo o no
+    #: es decisión de quien pinta, no de este modulo.
+    minimo: float | None = None
+    maximo: float | None = None
     categorias_conocidas: tuple[str, ...] = ()
     categoria_de_referencia: str | None = None
 
@@ -150,6 +167,7 @@ class PropuestaDeColumna:
             "admite_nativo": self.admite_nativo,
             "proporcion_faltante": self.proporcion_faltante,
             "mediana": self.mediana,
+            "minimo": self.minimo, "maximo": self.maximo,
             "categorias_conocidas": list(self.categorias_conocidas),
             "categoria_de_referencia": self.categoria_de_referencia,
         }
@@ -160,6 +178,11 @@ class PropuestaDeColumna:
                    admite_nativo=payload["admite_nativo"],
                    proporcion_faltante=payload["proporcion_faltante"],
                    mediana=payload.get("mediana"),
+                   # `.get()` A PROPOSITO: los sobres de selección ya escritos
+                   # (medidos el 2026-09-14: 7 claves, sin extremos) se releen
+                   # con `minimo`/`maximo` en `None`. No se rellenan con el
+                   # rango de nada -- ese estudio no lo midió.
+                   minimo=payload.get("minimo"), maximo=payload.get("maximo"),
                    categorias_conocidas=tuple(payload.get("categorias_conocidas") or ()),
                    categoria_de_referencia=payload.get("categoria_de_referencia"))
 
@@ -313,10 +336,17 @@ def ajustar_preparacion(filas: Sequence[Mapping[str, Any]], *, objetivo: str,
         es_numerica = bool(presentes) and all(_es_numerica(v) for v in presentes)
 
         if es_numerica:
+            # UNA SOLA LISTA para los tres: mediana, mínimo y máximo salen de
+            # los mismos valores presentes de las mismas filas de train. Que
+            # sea la misma variable no es estilo -- es lo que impide que el
+            # extremo y el valor de partida acaben describiendo conjuntos
+            # distintos si mañana alguien toca uno de los dos filtros.
+            numericos = [float(v) for v in presentes]
             propuestas.append(PropuestaDeColumna(
                 columna=columna, tipo="numerica", admite_nativo=admite_faltantes,
                 proporcion_faltante=proporcion_faltante,
-                mediana=_mediana([float(v) for v in presentes])))
+                mediana=_mediana(numericos),
+                minimo=min(numericos), maximo=max(numericos)))
         else:
             categorias_str = [str(v) for v in presentes]
             categorias_conocidas = tuple(sorted(set(categorias_str)))
