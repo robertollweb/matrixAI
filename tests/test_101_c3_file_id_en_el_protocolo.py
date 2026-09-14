@@ -38,7 +38,7 @@ commiteada (`pasada_exploratoria_101_c3_conforme_20260914.json` cita
 `eb54f42166835ad1…`). Re-firmar es escribir un protocolo NUEVO: es decisión de
 Roberto, y hay otras correcciones esperando la misma re-firma. Estas pruebas
 cubren **el código que lo haría**, y la que exige el campo en el fichero
-registrado está `skip` con su motivo escrito, más abajo.
+registrado ESTUVO en `skip` hasta la re-firma del 2026-09-14; ya corre.
 """
 from __future__ import annotations
 
@@ -121,15 +121,22 @@ def test_componer_una_url_con_un_file_id_que_no_lo_es_levanta(file_id):
 # El hueco, medido sobre los 40 de verdad
 # --------------------------------------------------------------------------
 
-def test_el_protocolo_registrado_NO_trae_ninguna_url_de_la_que_sacarlo():
-    """La mitad del hallazgo que SÍ era cierta, y más gorda de lo anotado: no
-    es que el `file_id` viaje escondido en la `url`, es que en el fichero
-    sellado no hay ninguna `url`."""
+def test_el_protocolo_registrado_TRAE_el_file_id_y_SIGUE_sin_url():
+    """CERRADO EL 2026-09-14 con la re-firma, y esta prueba es la de antes con
+    el signo cambiado.
+
+    Decía que en el fichero sellado no había `file_id` **ni ninguna `url`** —
+    era el hallazgo, y era más gordo de lo anotado: quien clonara el
+    repositorio no tenía de dónde sacarlo. Ahora los 40 lo traen.
+
+    **Y sigue sin `url`, a propósito**: `url_de_descarga(file_id, nombre)` la
+    compone, y guardar las dos sería la misma decisión escrita en dos sitios.
+    Por eso la segunda mitad del aserto NO se invierte: se conserva tal cual."""
     crudo = RUTA_PROTOCOLO.read_text(encoding="utf-8")
-    assert "file_id" not in crudo
-    assert "http" not in crudo
+    assert "file_id" in crudo
+    assert "http" not in crudo, "el protocolo no guarda urls: se componen del file_id"
     claves = {k for d in _payload()["datasets"] for k in d}
-    assert "url" not in claves and "file_id" not in claves
+    assert "file_id" in claves and "url" not in claves
 
 
 @con_la_seleccion_local
@@ -247,35 +254,18 @@ def test_un_file_id_que_llega_como_CADENA_de_digitos_se_convierte():
 # La prueba que EXIGE el campo, y el aviso de que hoy no aplica
 # --------------------------------------------------------------------------
 
-def test_HOY_el_protocolo_registrado_sigue_SIN_file_id_y_por_eso_hay_un_skip():
-    """**El guardián del `skip` de abajo, para que no caduque en silencio.**
+# EL GUARDIÁN DEL `skip`, BORRADO EL 2026-09-14 — y funcionó.
+#
+# Vivía aquí `test_HOY_el_protocolo_registrado_sigue_SIN_file_id_y_por_eso_hay
+# _un_skip`: existía para ponerse ROJA el día de la re-firma y decir qué había
+# que hacer, porque **un `skip` que caduca en silencio es peor que no ponerlo**
+# — su motivo sigue sonando razonable mucho después de dejar de ser cierto.
+#
+# Se re-firmó, se puso roja, y su mensaje llevaba los tres pasos: quitar el
+# `skip` de abajo, borrarla, y actualizar `DIGEST_REGISTRADO_ANTES_DE_MEDIR`.
+# Los tres hechos. Queda su epitafio para que se vea que el mecanismo sirvió,
+# y para el siguiente que necesite aparcar algo con fecha de caducidad.
 
-    Un `skip` cuyo motivo dejó de ser verdad es peor que no tener la prueba:
-    sigue sonando razonable y ya no mira nada. Mientras el protocolo NO traiga
-    `file_id`, esta prueba pasa y la de abajo está saltada con razón. El día
-    que Roberto autorice la re-firma y el guion la escriba, ESTA se pone roja
-    —y su mensaje dice qué hacer— en vez de dejar la otra saltada para
-    siempre.
-    """
-    con_campo = [d["data_id"] for d in _payload()["datasets"] if d.get("file_id")]
-    assert not con_campo, (
-        f"{len(con_campo)} datasets YA traen file_id: el protocolo se re-firmó. "
-        "Quita el `skip` de `test_el_protocolo_registrado_trae_el_file_id_de_los_40`, "
-        "borra esta prueba y actualiza DIGEST_REGISTRADO_ANTES_DE_MEDIR en "
-        "tests/test_c101_c1_protocolo_fase0.py")
-
-
-@pytest.mark.skip(reason=(
-    "ESPERA LA RE-FIRMA, que es decisión de Roberto. Añadir `file_id` cambia "
-    "el digest del protocolo, y ese digest está citado dentro de evidencia ya "
-    "commiteada (pasada_exploratoria_101_c3_conforme_20260914.json cita "
-    "eb54f42166835ad1…): re-firmar es escribir un protocolo nuevo, no reparar "
-    "uno. Hay otras dos correcciones esperando la misma re-firma y Roberto "
-    "decidió que las tres entran juntas o ninguna. El código que lo hace ya "
-    "está probado aquí arriba; el guion es "
-    "`python3 benchmarks/fase0/file_id_para_la_re_firma.py --escribir`. "
-    "`test_HOY_el_protocolo_registrado_sigue_SIN_file_id_y_por_eso_hay_un_skip` "
-    "se pone ROJA en cuanto esto deje de aplicar."))
 def test_el_protocolo_registrado_trae_el_file_id_de_los_40():
     """Lo que un protocolo reproducible tiene que decir: con qué FICHERO
     exacto se midió, sin depender de que un catálogo vivo siga contestando lo

@@ -288,7 +288,7 @@ class ProtocoloRealRegistradoTest(unittest.TestCase):
     #: El digest VIGENTE, tras la ÚNICA re-firma. Escrito a mano, como el
     #: anterior: es el ancla, y un ancla calculada no ancla nada.
     DIGEST_REGISTRADO_ANTES_DE_MEDIR = (
-        "eb54f42166835ad158b4d879ebfbe085ad8c8eaedf4895cfcb5d220a032756dc")
+        "ea50ca482a815627364b3439bfcf10e78295a13ae5f821219d0fb40329e65301")
 
     def test_el_digest_es_EL_MISMO_que_antes_de_medir(self):
         """El ancla, y no existía: **nada ataba el digest a su valor
