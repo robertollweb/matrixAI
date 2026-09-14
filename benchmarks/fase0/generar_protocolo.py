@@ -50,6 +50,7 @@ from benchmarks.fase0.protocolo import (  # noqa: E402
     ReglaDeCierre,
     calcular_coste,
 )
+from benchmarks.fase0.file_id_para_la_re_firma import file_id_desde_url  # noqa: E402
 
 #: Los tres estudios de origen (medido en el anexo C del 100: ids reales,
 #: consultados el 2026-09-04/06). TabArena (457) y CTR23 (353) quedan fuera
@@ -349,7 +350,20 @@ def construir_protocolo(seleccion: list[dict], hashes: dict[int, str]) -> Protoc
             # no pueden separarse, y en un fichero editado a mano tampoco.
             alta_cardinalidad=r["max_cardinalidad_nominal"] >= UMBRAL_ALTA_CARDINALIDAD,
             desbalanceado=r["desbalanceado"], solo_numericas=r["solo_numericas"],
-            licencia=r["licencia"], sellado=r["sellado"]))
+            licencia=r["licencia"], sellado=r["sellado"],
+            # EL `file_id`, QUE LA API YA DABA Y EL CATÁLOGO TIRABA. `_info`
+            # se trae `info["url"]` —de hecho `descargar_y_hashear` descarga
+            # POR ESA URL— y el dataset registrado se quedaba solo con
+            # `data_id`. El hueco estaba en el cableado, no en el API: el dato
+            # llegaba y el llamante no lo usaba. De los 40 registrados, 31
+            # tienen `file_id` distinto de `data_id`, así que no se puede
+            # deducir después.
+            #
+            # Un protocolo generado HOY sí lo lleva; el registrado el
+            # 2026-09-06 no, y añadírselo es re-firmarlo — eso lo hace
+            # `file_id_para_la_re_firma.py`, a propósito y con el sí de
+            # Roberto, no este generador por la puerta de atrás.
+            file_id=file_id_desde_url(r["url"])))
 
     motores = (
         Motor(id="dummy", configuraciones=1),

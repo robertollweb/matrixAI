@@ -59,6 +59,8 @@ __all__ = [
     "alcance_de_una_pasada",
     "aplicar_regla_de_cierre",
     "calcular_coste",
+    "dispersion_de_un_motor",
+    "estabilidad_del_ganador",
     "veredicto_con_su_alcance",
     "cpus_disponibles",
     "nucleos_fisicos",
@@ -428,6 +430,25 @@ def _contar_niveles(declaracion: str) -> int:
     return len([n for n in niveles if n != ""])
 
 
+def _file_id_entero(valor: Any) -> int:
+    """El `file_id` tal como llega, convertido a entero SIN redondear nada.
+
+    `int(valor)` a secas parecía bastar —la API de OpenML devuelve `file_id`
+    como cadena de dígitos, y convertirla es correcto— pero `int(3.5)` da `3`
+    en silencio: un identificador equivocado, dentro del sello, sin una línea
+    en ningún sitio. Lo cazó su propia prueba. Una cadena de dígitos sí se
+    convierte; un flotante, un booleano o cualquier otra cosa, no.
+    """
+    if isinstance(valor, bool):
+        raise ProtocoloError(f"file_id no puede ser un booleano: {valor!r}")
+    if isinstance(valor, int):
+        return valor
+    if isinstance(valor, str) and valor.strip().isdigit():
+        return int(valor.strip())
+    raise ProtocoloError(
+        f"file_id no es un entero ni una cadena de digitos: {valor!r}")
+
+
 @dataclass(frozen=True)
 class DatasetRegistrado:
     """Un dataset PRE-REGISTRADO: el sha256 es del ARFF tal como se descargó,
@@ -468,6 +489,29 @@ class DatasetRegistrado:
     solo_numericas: bool
     licencia: str
     sellado: bool = False
+    #: EL IDENTIFICADOR DEL FICHERO EN OPENML, opcional HASTA LA RE-FIRMA.
+    #:
+    #: `data_id` identifica el DATASET; `file_id` identifica el FICHERO que se
+    #: descargó. No son lo mismo: de los 40 del protocolo, **31 tienen un
+    #: `file_id` distinto de su `data_id`** (medido el 2026-09-14), así que
+    #: quien suponga que coinciden acierta en 9.
+    #:
+    #: Con él, el ARFF exacto se pide por URL directa
+    #: (`file_id_para_la_re_firma.url_de_descarga`). Sin él se llega igual
+    #: —`GET /api/v1/json/data/{data_id}` lo devuelve, y el 2026-09-14 los 40
+    #: resolvían al mismo fichero, mismo `md5_checksum` que los ARFF
+    #: descargados—, pero por una indirección VIVA: la reproducción depende de
+    #: que ese mapa siga siendo el mismo dentro de cinco años. El
+    #: `sha256_arff` detecta que dejó de serlo; detectarlo no es repararlo.
+    #:
+    #: **`None` por omisión NO es «este dataset no tiene fichero»**: es «el
+    #: protocolo registrado es anterior a la re-firma que añade el campo».
+    #: Para que esa tolerancia no se convierta en un campo a medias,
+    #: `ProtocoloExploratorio.__post_init__` exige que lo traigan TODOS los
+    #: datasets o NINGUNO, y `a_json` solo lo emite cuando lo hay — así el
+    #: digest de hoy no se mueve, y el día que se re-firme SÍ se mueve, que es
+    #: lo que mete el campo dentro del sello.
+    file_id: int | None = None
 
     def __post_init__(self) -> None:
         _exigir(self.tarea in TAREAS, f"tarea desconocida: {self.tarea!r}")
@@ -481,6 +525,10 @@ class DatasetRegistrado:
         _exigir(bool(self.licencia), "licencia no puede estar vacía — no fabricar lo que no se midió")
         _exigir(self.max_cardinalidad_nominal >= 0,
                "max_cardinalidad_nominal no puede ser negativo")
+        _exigir(self.file_id is None
+                or (isinstance(self.file_id, int) and not isinstance(self.file_id, bool)
+                    and self.file_id > 0),
+               f"file_id tiene que ser un entero positivo o no estar: {self.file_id!r}")
         # El booleano NO se calcula aquí en vez de exigirse: si se calculase,
         # un catálogo con el booleano mal escrito se «arreglaría» solo al
         # cargarlo y nadie se enteraría de que el fichero registrado miente.
@@ -492,7 +540,7 @@ class DatasetRegistrado:
                f"{UMBRAL_ALTA_CARDINALIDAD} del anexo C §2.2")
 
     def a_json(self) -> dict[str, Any]:
-        return {
+        payload = {
             "data_id": self.data_id, "nombre": self.nombre, "fuente": self.fuente,
             "version": self.version, "sha256_arff": self.sha256_arff,
             "columna_objetivo": self.columna_objetivo, "tarea": self.tarea,
@@ -503,6 +551,18 @@ class DatasetRegistrado:
             "solo_numericas": self.solo_numericas, "licencia": self.licencia,
             "sellado": self.sellado,
         }
+        # LA CLAVE SE EMITE SOLO CUANDO HAY VALOR, y no es cosmética: `a_json`
+        # es lo que se hashea (`ProtocoloExploratorio.digest`). Emitir
+        # `"file_id": null` movería el digest del protocolo YA REGISTRADO sin
+        # añadir ni un dato — y ese digest está citado dentro de evidencia
+        # commiteada. Omitirlo deja el digest de hoy donde está y hace que el
+        # día de la re-firma el digest cambie SOLO porque el campo entró.
+        #
+        # Lo que esto NO permite es un protocolo medio poblado: eso lo corta
+        # `ProtocoloExploratorio.__post_init__`, que exige todos o ninguno.
+        if self.file_id is not None:
+            payload["file_id"] = self.file_id
+        return payload
 
     @classmethod
     def desde_json(cls, payload: dict[str, Any]) -> "DatasetRegistrado":
@@ -510,11 +570,19 @@ class DatasetRegistrado:
         # a la re-firma no trae `max_cardinalidad_nominal`, y rellenarlo con un
         # 0 por defecto lo haría pasar por «ninguna columna nominal» —
         # **un valor ausente no es un cero**. Que reviente por su nombre.
-        return cls(**{k: payload[k] for k in (
+        campos = {k: payload[k] for k in (
             "data_id", "nombre", "fuente", "version", "sha256_arff", "columna_objetivo",
             "tarea", "cubo_de_tamano", "n_filas", "n_columnas", "tiene_faltantes",
             "max_cardinalidad_nominal", "alta_cardinalidad", "desbalanceado",
-            "solo_numericas", "licencia", "sellado")})
+            "solo_numericas", "licencia", "sellado")}
+        # `file_id` SÍ con `.get`, al revés que los de arriba, y la diferencia
+        # tiene motivo: ausente no significa «cero columnas nominales» ni nada
+        # medible, significa «protocolo anterior a la re-firma del campo». La
+        # tolerancia no abre el agujero de la mitad porque el protocolo entero
+        # exige después que lo traigan todos o ninguno.
+        if payload.get("file_id") is not None:
+            campos["file_id"] = _file_id_entero(payload["file_id"])
+        return cls(**campos)
 
 
 @dataclass(frozen=True)
@@ -913,6 +981,15 @@ class ProtocoloExploratorio:
         _exigir(len(self.motores) > 0, "el protocolo tiene que traer al menos un motor")
         ids = [d.data_id for d in self.datasets]
         _exigir(len(ids) == len(set(ids)), "hay un data_id repetido en la lista de datasets")
+        # `file_id`: TODOS O NINGUNO. Media limpieza es peor que ninguna — un
+        # protocolo con 38 de 40 se lee como «se puede bajar por URL directa»
+        # y se puede bajar 38. Ausente en los 40 es el estado legítimo de
+        # antes de la re-firma; ausente en algunos es un campo roto.
+        con_file_id = [d.data_id for d in self.datasets if d.file_id is not None]
+        _exigir(len(con_file_id) in (0, len(self.datasets)),
+               f"file_id a medias: lo traen {len(con_file_id)} de {len(self.datasets)} "
+               f"datasets. O lo traen todos o ninguno — un catálogo con el campo en "
+               f"parte de las filas promete algo que no cumple")
 
     def a_json(self) -> dict[str, Any]:
         return {
@@ -1305,6 +1382,230 @@ def _configuraciones_por_motor_en_texto(bloque: dict[str, Any]) -> str:
     return f"entre {bajo} y {alto} familias de ajuste segun el motor"
 
 
+def _medidas_por_pliegue(resultados: Sequence[dict], metrica: str,
+                         ) -> dict[str, dict[str, dict[tuple, float]]]:
+    """`dataset -> motor -> (repeticion, pliegue) -> valor`, de los intentos
+    COMPLETADOS que traen la métrica y su pliegue.
+
+    Es el mismo reparto que hace `aplicar_regla_de_cierre`; se extrae aquí
+    porque ya lo quieren dos funciones y **dos sitios declarando lo mismo
+    acaban divergiendo**. La regla de cierre sigue con su copia porque además
+    necesita contar los FALLOS, y tocarla movería un veredicto publicado."""
+    por_pliegue: dict[str, dict[str, dict[tuple, float]]] = {}
+    for r in resultados:
+        if r.get("estado") != "completed":
+            continue
+        valor = r.get(metrica)
+        if valor is None or r.get("repeticion") is None or r.get("pliegue") is None:
+            continue
+        por_pliegue.setdefault(r["dataset"], {}).setdefault(r["motor"], {})[
+            (r["repeticion"], r["pliegue"])] = float(valor)
+    return por_pliegue
+
+
+def _mediana(valores: Sequence[float]) -> float | None:
+    if not valores:
+        return None
+    x = sorted(valores)
+    n = len(x)
+    return x[n // 2] if n % 2 else (x[n // 2 - 1] + x[n // 2]) / 2.0
+
+
+def _desviacion_tipica(valores: Sequence[float]) -> float | None:
+    """Desviación típica MUESTRAL (n-1). Con menos de dos medidas no hay
+    dispersión que declarar, y devolver 0.0 diría que no la hay: **un valor
+    ausente no es un cero**."""
+    if len(valores) < 2:
+        return None
+    media = sum(valores) / len(valores)
+    return (sum((v - media) ** 2 for v in valores) / (len(valores) - 1)) ** 0.5
+
+
+def dispersion_de_un_motor(resultados: Sequence[dict], *, motor: str,
+                           metrica: str = "auroc",
+                           liston_en_puntos: float | None = None) -> dict[str, Any]:
+    """LA DISPERSIÓN DE UN MOTOR, dataset a dataset, en las mismas unidades
+    que `distancia_en_puntos` (puntos porcentuales de la métrica).
+
+    **Por qué existe (2026-09-14).** El veredicto se lee con MEDIAS, y dos
+    motores con la misma media y dispersiones muy distintas no son el mismo
+    resultado. El propio protocolo registrado lo exige desde el primer día:
+    `metricas_por_tarea.siempre` incluye `dispersion_entre_semillas`, y no se
+    calculaba en ninguna parte — ni en el script de la pasada ni en el
+    artefacto. Un campo prerregistrado que nadie calcula es una promesa, no
+    una medida.
+
+    Se declaran DOS dispersiones porque responden a preguntas distintas:
+
+    * `sd` y `rango` sobre los 15 pliegues (3 repeticiones x 5 pliegues):
+      cuánto se mueve el motor entre particiones **y** semillas juntas.
+    * `sd_entre_semillas` y `rango_entre_semillas` sobre las 3 medias por
+      repetición: **la que el protocolo pide por su nombre**, y la que aisla
+      la inicialización del reparto de filas.
+
+    `liston_en_puntos` es el margen de la regla de cierre (2,0). Sirve para
+    contar cuántos datasets tienen un rango MAYOR que el margen entero con el
+    que se decide quién cumple: ahí la media sola no describe al motor.
+    """
+    por_pliegue = _medidas_por_pliegue(resultados, metrica)
+    por_dataset: dict[str, dict[str, Any]] = {}
+    for dataset in sorted(por_pliegue):
+        medidas = por_pliegue[dataset].get(motor)
+        if not medidas:
+            continue
+        valores = [v * 100.0 for v in medidas.values()]
+        por_semilla: dict[Any, list[float]] = {}
+        for (repeticion, _pliegue), valor in medidas.items():
+            por_semilla.setdefault(repeticion, []).append(valor * 100.0)
+        medias_por_semilla = [sum(v) / len(v) for _k, v in sorted(por_semilla.items())]
+        por_dataset[dataset] = {
+            "n_medidas": len(valores),
+            "media": sum(valores) / len(valores),
+            "sd": _desviacion_tipica(valores),
+            "rango": (max(valores) - min(valores)) if valores else None,
+            "n_semillas": len(medias_por_semilla),
+            "sd_entre_semillas": _desviacion_tipica(medias_por_semilla),
+            "rango_entre_semillas": ((max(medias_por_semilla) - min(medias_por_semilla))
+                                     if medias_por_semilla else None),
+        }
+
+    def _columna(clave: str) -> list[float]:
+        return [d[clave] for d in por_dataset.values() if d.get(clave) is not None]
+
+    sds, rangos = _columna("sd"), _columna("rango")
+    sds_semilla = _columna("sd_entre_semillas")
+    peor = max(por_dataset, key=lambda d: por_dataset[d]["rango"] or -1.0) if por_dataset else None
+    sobre_el_liston = None if liston_en_puntos is None else [
+        d for d, v in por_dataset.items()
+        if v["rango"] is not None and v["rango"] > liston_en_puntos]
+    salida: dict[str, Any] = {
+        "motor": motor,
+        "metrica": metrica,
+        "unidad": "puntos porcentuales de la metrica, igual que distancia_en_puntos",
+        "n_datasets": len(por_dataset),
+        "sd_mediana": _mediana(sds),
+        "sd_maxima": max(sds) if sds else None,
+        "rango_mediano": _mediana(rangos),
+        "rango_maximo": max(rangos) if rangos else None,
+        "dataset_mas_disperso": peor,
+        "sd_entre_semillas_mediana": _mediana(sds_semilla),
+        "sd_entre_semillas_maxima": max(sds_semilla) if sds_semilla else None,
+        "liston_en_puntos": liston_en_puntos,
+        "datasets_con_rango_mayor_que_el_liston": (
+            None if sobre_el_liston is None else len(sobre_el_liston)),
+        "cuales_con_rango_mayor_que_el_liston": (
+            None if sobre_el_liston is None else sorted(sobre_el_liston)),
+        "por_dataset": por_dataset,
+    }
+    # Redactada con los números, no guardada escrita: una frase compuesta y
+    # almacenada deja de ser verdad en cuanto cambian los números que la
+    # sostenían, y sigue sonando razonable.
+    if por_dataset:
+        # `_pt` y no un `:.3f` directo: con UNA sola medida la sd es `None` a
+        # propósito (ausente no es cero) y formatear `None` reventaba la
+        # función entera. Lo cazó su propia prueba: el bloque que declara la
+        # dispersión no puede caerse justo cuando no hay dispersión que
+        # declarar — y escribir «0,000» ahí sería peor todavía.
+        def _pt(valor: float | None) -> str:
+            return "no medible" if valor is None else f"{valor:.3f}"
+
+        salida["como_hay_que_leer_este_numero"] = (
+            f"{motor}: la media de cada dataset sale de "
+            f"{por_dataset[next(iter(por_dataset))]['n_medidas']} "
+            f"medidas cuya desviacion tipica mediana es {_pt(salida['sd_mediana'])} puntos "
+            f"(maxima {_pt(salida['sd_maxima'])}, en {peor}); rango mediano "
+            f"{_pt(salida['rango_mediano'])} puntos y maximo {_pt(salida['rango_maximo'])}. "
+            + (f"En {len(sobre_el_liston)} de {len(por_dataset)} datasets el rango supera "
+               f"los {liston_en_puntos} puntos del liston entero de la regla: ahi la media "
+               f"sola NO describe al motor. " if sobre_el_liston is not None else "")
+            + (f"Dispersion ENTRE SEMILLAS (la que el protocolo exige por su nombre): "
+               f"mediana {_pt(salida['sd_entre_semillas_mediana'])}, maxima "
+               f"{_pt(salida['sd_entre_semillas_maxima'])} puntos."
+               if salida["sd_entre_semillas_mediana"] is not None else
+               "Sin repeticiones suficientes para la dispersion entre semillas."))
+    else:
+        salida["como_hay_que_leer_este_numero"] = (
+            f"{motor}: no hay ni una medida con pliegue declarado, asi que no hay "
+            "dispersion que declarar. NO es dispersion cero.")
+    return salida
+
+
+def estabilidad_del_ganador(resultados: Sequence[dict], *,
+                            metrica: str = "auroc",
+                            baseline: str = "baseline") -> dict[str, Any]:
+    """¿El ganador POR MEDIA de cada dataset gana de verdad, o gana el
+    promedio?
+
+    La regla de cierre define «mejor» como la mejor MEDIA de los ajustes, y
+    eso se queda. Lo que esto añade es el dato que falta para leer esa media:
+    emparejando por `(repeticion, pliegue)` —las mismas filas para los dos
+    motores—, en cuántos de los 15 pliegues el primero le gana al segundo, y
+    quién habría ganado con cada semilla por separado.
+
+    `se_discute` es verdad cuando el primero gana MENOS de la mitad de los
+    pliegues emparejados o cuando el ganador cambia según la semilla. No
+    cambia ningún veredicto: el veredicto es el de la regla registrada. Dice
+    cuándo la diferencia que lo decide es más pequeña que el ruido que la
+    rodea.
+    """
+    por_pliegue = _medidas_por_pliegue(resultados, metrica)
+    detalle: list[dict[str, Any]] = []
+    for dataset in sorted(por_pliegue):
+        medidas = {m: v for m, v in por_pliegue[dataset].items() if m != baseline}
+        medias = {m: sum(v.values()) / len(v) for m, v in medidas.items() if v}
+        if len(medias) < 2:
+            continue
+        orden = sorted(medias, key=lambda m: medias[m], reverse=True)
+        primero, segundo = orden[0], orden[1]
+        comunes = sorted(set(medidas[primero]) & set(medidas[segundo]))
+        diferencias = [(medidas[primero][k] - medidas[segundo][k]) * 100.0 for k in comunes]
+        ganados = sum(1 for d in diferencias if d > 0)
+        semillas = sorted({rep for rep, _ in comunes})
+        ganador_por_semilla = {}
+        for rep in semillas:
+            medias_rep = {}
+            for m, v in medidas.items():
+                suyos = [x for (r, _f), x in v.items() if r == rep]
+                if suyos:
+                    medias_rep[m] = sum(suyos) / len(suyos)
+            if medias_rep:
+                ganador_por_semilla[str(rep)] = max(medias_rep, key=lambda m: medias_rep[m])
+        distintos = len(set(ganador_por_semilla.values())) > 1
+        detalle.append({
+            "dataset": dataset,
+            "mejor_por_media": primero,
+            "segundo": segundo,
+            "ventaja_en_puntos": (medias[primero] - medias[segundo]) * 100.0,
+            "pliegues_emparejados": len(diferencias),
+            "pliegues_que_le_gana_al_segundo": ganados,
+            "sd_de_la_diferencia": _desviacion_tipica(diferencias),
+            "ganador_por_semilla": ganador_por_semilla,
+            "el_ganador_cambia_con_la_semilla": distintos,
+            "se_discute": distintos or (len(diferencias) > 0
+                                        and ganados * 2 < len(diferencias)),
+        })
+    discutidos = [d["dataset"] for d in detalle if d["se_discute"]]
+    pierde_la_mayoria = [d["dataset"] for d in detalle
+                         if d["pliegues_emparejados"]
+                         and d["pliegues_que_le_gana_al_segundo"] * 2 < d["pliegues_emparejados"]]
+    return {
+        "metrica": metrica,
+        "emparejado_por": "repeticion y pliegue",
+        "n_datasets": len(detalle),
+        "datasets_en_los_que_la_ordenacion_se_discute": sorted(discutidos),
+        "datasets_en_los_que_el_mejor_por_media_PIERDE_la_mayoria_de_pliegues":
+            sorted(pierde_la_mayoria),
+        "detalle": detalle,
+        "como_hay_que_leer_este_numero": (
+            f"La regla decide con la MEDIA, y eso no cambia. En {len(discutidos)} de "
+            f"{len(detalle)} datasets la ordenacion primero/segundo se discute al mirar "
+            f"los pliegues emparejados o al separar las semillas; en "
+            f"{len(pierde_la_mayoria)} el mejor por media PIERDE la mayoria de los "
+            f"pliegues emparejados contra el segundo. Ahi «gano» significa «gano el "
+            f"promedio», no «gano»."),
+    }
+
+
 def veredicto_con_su_alcance(protocolo: "ProtocoloExploratorio",
                              resultados: Sequence[dict], *,
                              motor: str,
@@ -1332,6 +1633,14 @@ def veredicto_con_su_alcance(protocolo: "ProtocoloExploratorio",
     compitieron = [m for m in alcance["motores"]["observados_en_los_resultados"]
                    if m != "baseline"]
     regla["alcance"] = alcance
+    # LA DISPERSIÓN, EN EL MISMO OBJETO QUE EL VEREDICTO, por el mismo motivo
+    # que el alcance: quien lea `cumple_la_regla` tiene delante, sin abrir otro
+    # fichero, cuánto se mueve ese motor. Un veredicto leído solo con medias
+    # da el mismo número para un motor estable y para uno que varía más que el
+    # listón entero.
+    regla["dispersion"] = dispersion_de_un_motor(
+        resultados, motor=motor, metrica=metrica,
+        liston_en_puntos=protocolo.regla_de_cierre.puntos)
     # La advertencia se REDACTA con los números medidos, no se guarda escrita:
     # una frase compuesta y guardada deja de ser verdad en cuanto cambian los
     # números que la sostenían, y sigue sonando razonable.
@@ -1362,5 +1671,6 @@ def veredicto_con_su_alcance(protocolo: "ProtocoloExploratorio",
            else f"NO cumple: le faltan {regla['datasets_que_le_faltan_para_cumplir']} "
                 f"dataset(s) para llegar al liston. ") +
         f"Sin medir: {', '.join(alcance['sin_medir']['tareas']) or 'ninguna tarea'}; "
-        f"cubos {', '.join(alcance['sin_medir']['cubos_de_tamano']) or 'todos cubiertos'}.")
+        f"cubos {', '.join(alcance['sin_medir']['cubos_de_tamano']) or 'todos cubiertos'}. "
+        + regla["dispersion"]["como_hay_que_leer_este_numero"])
     return regla

@@ -90,7 +90,49 @@ class CriterioLiteralTest(unittest.TestCase):
                                    comparacion_lider=_comparacion("inconcluso"))
         self.assertIn("mejora demostrada", r_mejora.reason["es"])
         self.assertNotIn("mejora demostrada", r_inconcluso.reason["es"])
-        self.assertIn("criterio operativo", r_inconcluso.reason["es"])
+        # Y la mitad positiva: cuando NO hay mejora demostrada, la frase tiene
+        # que decirlo, no limitarse a callar.
+        self.assertIn("NO demuestra una mejora", r_inconcluso.reason["es"])
+        self.assertIn("incertidumbre", r_inconcluso.reason["es"])
+
+    def test_la_eleccion_bajo_incertidumbre_NO_INVENTA_un_criterio_operativo(self):
+        """DECLARAR LO QUE PASÓ, NO LO QUE SE PIDIÓ — 2026-09-14.
+
+        Esta frase decía que el ganador «se elige por criterio operativo
+        (sencillez o recursos, DECLARADO)». **No existe ningún criterio de
+        sencillez ni de recursos en toda la selección**: el ganador sale de un
+        `functools.reduce` sobre la métrica de calidad y no hay ni un
+        desempate por otra cosa. La frase inventaba el motivo, y lo inventaba
+        **justo cuando la evidencia es más débil** — hacía sonar a decisión de
+        ingeniería deliberada lo que es «salió un número más alto y la
+        diferencia no se sostiene».
+
+        LAS DOS MITADES, y la segunda es la que tiene dientes de verdad:
+        la frase no lo afirma, **y el código sigue sin tener ese criterio**.
+        Se mide sobre el FUENTE porque si algún día se añade un desempate por
+        recursos, esta prueba se pone roja y entonces la frase vieja sería la
+        correcta — que es exactamente cuando hay que volver a mirarla.
+        """
+        evaluaciones = {
+            "lider": _ev("p8", sensitivity=0.9, specificity=0.9),
+            "segundo": _ev("p9", sensitivity=0.85, specificity=0.85),
+        }
+        r = seleccionar(evaluaciones, restricciones=[], metric_id_calidad="sensitivity",
+                        decision_id="d4c", split_plan_digest="split-1",
+                        comparacion_lider=_comparacion("inconcluso"))
+        for inventado in ("criterio operativo", "sencillez", "recursos",
+                          "operational grounds", "simplicity"):
+            self.assertNotIn(inventado, r.reason["es"] + " " + r.reason["en"],
+                             f"la frase afirma «{inventado}», y eso no es lo que decidió")
+
+        import inspect
+        from matrixai.estudio import seleccion as modulo
+        fuente = inspect.getsource(modulo)
+        for palabra in ("sencillez", "simplicidad", "recursos_del_candidato", "desempate"):
+            self.assertNotIn(palabra, fuente,
+                             f"«{palabra}» aparece en seleccion.py: si ahora SÍ hay un "
+                             "criterio operativo, la frase de la decisión tiene que "
+                             "volver a contarlo")
 
 
 class ResultadosNoSeleccionadosTest(unittest.TestCase):

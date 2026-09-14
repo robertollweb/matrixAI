@@ -725,14 +725,30 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "{campo} has a demonstrated improvement over the next best "
               "candidate, with a paired difference that excludes a tie",
     },
+    # DECLARAR LO QUE PASÓ, NO LO QUE SE PIDIÓ — corregido el 2026-09-14.
+    #
+    # Este texto decía «se elige por criterio operativo (sencillez o recursos,
+    # DECLARADO)». **No existe ningún criterio de sencillez ni de recursos en
+    # toda la selección**: medido, `seleccionar()` elige por `functools.reduce`
+    # sobre la métrica de calidad y no hay ni un desempate por otra cosa en
+    # `seleccion.py`. O sea que la frase inventaba el motivo — y lo inventaba
+    # **justo cuando la evidencia es más débil**, que es cuando más importa no
+    # adornar: hacía sonar a decisión de ingeniería deliberada lo que es
+    # «salió un número más alto y la diferencia no se sostiene».
+    #
+    # Se vio de punta a punta el 2026-09-14 dentro de la imagen del producto:
+    # lightgbm ganaba los CINCO pliegues de la búsqueda (media 0,924) y la
+    # selección eligió la densa (0,885) sobre 52 observaciones de un solo
+    # ajuste. La comparación emparejada hace su trabajo y dice que no hay
+    # mejora demostrada; lo que fallaba era la frase que lo contaba.
     "seleccion_eleccion_operativa": {
-        "es": "{campo} se elige por criterio operativo (sencillez o recursos, "
-              "declarado): la evidencia frente al siguiente mejor candidato no "
-              "demuestra una mejora, es una elección bajo incertidumbre",
-        "en": "{campo} is chosen on operational grounds (simplicity or "
-              "resources, declared): the evidence against the next best "
-              "candidate does not demonstrate an improvement, it is a choice "
-              "made under uncertainty",
+        "es": "{campo} tiene el número más alto, pero la comparación emparejada "
+              "frente al siguiente mejor candidato NO demuestra una mejora: es "
+              "una elección bajo incertidumbre, no un ganador claro",
+        "en": "{campo} has the highest number, but the paired comparison "
+              "against the next best candidate does NOT demonstrate an "
+              "improvement: this is a choice under uncertainty, not a clear "
+              "winner",
     },
     "seleccion_mayor_utilidad_medida": {
         "es": "{campo} tiene la mayor utilidad medida entre los candidatos que "

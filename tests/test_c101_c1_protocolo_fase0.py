@@ -1282,7 +1282,13 @@ class ConstruirProtocoloDerivaLaCardinalidadTest(unittest.TestCase):
     booleano a mano. Esto prueba el GENERADOR."""
 
     def _seleccion(self, maximo: int) -> list[dict]:
+        # `url` no estaba, y el registro que produce `_candidato` SIEMPRE la
+        # trae —`descargar_y_hashear` descarga por ella—, así que el fixture
+        # describía un registro que no existe. Se completó el 2026-09-14, al
+        # empezar el generador a sacar de ahí el `file_id`: un fixture que
+        # miente por omisión deja de avisar justo cuando el productor cambia.
         return [dict(data_id=1, nombre="x", version=1, objetivo="y",
+                     url="https://openml.org/data/v1/download/9999/x.arff",
                      n_filas=1000, n_columnas=10, bucket="pequeno",
                      tiene_faltantes=False, max_cardinalidad_nominal=maximo,
                      desbalanceado=False, solo_numericas=False, licencia="Public",

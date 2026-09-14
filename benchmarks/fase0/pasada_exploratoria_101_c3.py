@@ -98,6 +98,7 @@ if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lector_arff  # noqa: E402
 from protocolo import (ProtocoloExploratorio,  # noqa: E402
+                       estabilidad_del_ganador,
                        veredicto_con_su_alcance)
 
 ARFF_DIR = Path.home() / "fase0_openml_datos" / "arff"
@@ -990,7 +991,16 @@ def _alcance_y_veredicto(resultados) -> dict:
     alcance = next(iter(por_motor.values()))["alcance"] if por_motor else {}
     for v in por_motor.values():
         v.pop("alcance", None)
-    return {"alcance": alcance, "por_motor": por_motor}
+    # LA ESTABILIDAD DEL GANADOR va UNA VEZ arriba, como el alcance: no
+    # depende del motor que se mire, describe cada dataset. La dispersión SÍ
+    # es de cada motor y viaja dentro de su veredicto.
+    #
+    # Añadido el 2026-09-14. NO reescribe la evidencia ya commiteada: los JSON
+    # anteriores no lo traen y siguen cuadrando con su propio digest; lo
+    # traerán las pasadas siguientes.
+    return {"alcance": alcance,
+            "estabilidad_del_ganador": estabilidad_del_ganador(resultados),
+            "por_motor": por_motor}
 
 
 def presupuesto_declarado_de_la_pasada(protocolo: ProtocoloExploratorio | None = None) -> dict:
