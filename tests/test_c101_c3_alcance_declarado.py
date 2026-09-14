@@ -60,6 +60,22 @@ _FASE0 = Path(__file__).resolve().parents[1] / "benchmarks" / "fase0"
 #: árbol, y un salto silencioso ante un fichero ausente es exactamente el banco
 #: de pruebas sin dientes que este hallazgo denuncia — se quedaría verde sin
 #: haber comprobado nada.
+#: LA EVIDENCIA QUE ESTE FICHERO AUDITA, y por qué sigue siendo la de CUATRO
+#: motores teniendo ya una de siete.
+#:
+#: `test_los_motores_declarados_son_los_que_el_SCRIPT_corre_hoy` está **ROJO a
+#: propósito** desde el 2026-09-13: esta evidencia declara 4 motores y el
+#: script corre 7. Es **verdad**, y taparlo sería apagar justo el guardia que
+#: avisa de que la evidencia se ha quedado atrás.
+#:
+#: Por qué no se apunta ya a `..._siete_motores_20260913.json`: **medido, da 5
+#: rojos**, porque varias pruebas de este fichero codifican el veredicto de
+#: cuatro motores (el margen de UN dataset, los 8 aciertos a distancia cero).
+#: Cambiar la evidencia es reescribir esas pruebas, y eso es aceptar el nuevo
+#: veredicto — que **es una decisión de Roberto**, pendiente: la pasada de
+#: siete corrió 1 de las 2 configuraciones que el protocolo exige.
+#:
+#: Se cierra al re-medir con todo conforme, y entonces se apunta aquí.
 _JSON = "pasada_exploratoria_101_c3_remedida_20260913.json"
 
 
@@ -91,7 +107,13 @@ class ElArtefactoDeclaraSuAlcanceTest(unittest.TestCase):
         """La frase que acompaña a cada número nombra los motores que faltan.
         No es decoración: es lo único que ve quien lee el JSON por encima."""
         faltan = self.alcance["motores"]["que_faltan"]
-        self.assertTrue(faltan, "si no falta ninguno, esta pasada ya no es la recortada")
+        if not faltan:
+            # Desde el 2026-09-13 la pasada puede correr los SIETE motores del
+            # protocolo, y entonces no hay recorte que anunciar. No se salta la
+            # comprobación en silencio: se dice por qué no aplica, porque un
+            # `skip` mudo es indistinguible de una prueba que dejó de mirar.
+            self.skipTest("esta pasada corre los siete motores: no hay recorte de "
+                          "motores que anunciar en la lectura del veredicto")
         for motor, veredicto in self.bloque["por_motor"].items():
             lectura = veredicto["como_hay_que_leer_este_numero"]
             for ausente in faltan:
@@ -159,8 +181,32 @@ class ElSELLO_CUBRE_AL_ALCANCE_EnElCODIGO_NoSoloEnElFicheroTest(unittest.TestCas
         seguiría cumpliendo si `alcance_y_veredicto` fuera `{}`, porque quitar
         una clave vacía también mueve el digest. Esta es la otra mitad."""
         bloque = self._payload_recien_compuesto()["alcance_y_veredicto"]
-        self.assertTrue(bloque.get("alcance", {}).get("motores", {}).get("que_faltan"),
-                        "el alcance recién compuesto no nombra ni un motor ausente")
+        motores = bloque.get("alcance", {}).get("motores", {})
+        # **Esto exigía que FALTARA algún motor**, y el 2026-09-13 dejó de ser
+        # verdad: se construyeron los tres que faltaban y la pasada corre los
+        # siete del protocolo. Un aserto que da por supuesto el recorte
+        # convierte el recorte en contrato, y quien lo cerrara vería la suite
+        # en rojo creyendo que se equivoca él.
+        #
+        # Lo que hay que exigir no es que falte alguien: es que el alcance
+        # DIGA algo comprobable. Reescrito conservando su intención.
+        self.assertTrue(motores.get("del_protocolo"),
+                        "el alcance recién compuesto no dice qué motores pide el protocolo")
+        self.assertTrue(motores.get("declarados_por_la_pasada"),
+                        "el alcance recién compuesto no dice qué motores corre la pasada")
+        # CON el mapa de equivalencias, no a pelo. El protocolo llama `dummy`
+        # al `baseline` y `sklearn.logreg` al `sklearn.lineal`; restadas a
+        # secas, las listas dicen que faltan CINCO motores en vez de los que
+        # de verdad faltan — un número falso en la dirección alarmista, que
+        # miente igual que el tranquilizador. Está documentado desde el 13-09
+        # y aun así caí en ello al escribir este aserto.
+        corren = {EQUIVALENCIAS_DE_NOMBRE_DE_MOTOR.get(m, m)
+                  for m in motores["declarados_por_la_pasada"]}
+        self.assertEqual(
+            set(motores["del_protocolo"]) - corren,
+            set(motores.get("que_faltan") or []),
+            "«los que faltan» no es la resta real entre lo que el protocolo pide y "
+            "lo que la pasada corre: es un texto, no un hecho derivado")
         self.assertTrue(bloque.get("por_motor"),
                         "el alcance recién compuesto no trae veredicto por motor")
 
