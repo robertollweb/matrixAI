@@ -356,3 +356,161 @@ class TestEtiquetasConSigno:
     def test_un_valor_sin_nada_alfanumerico_sigue_siendo_error(self):
         with pytest.raises(DatasetProjectError):
             _normalize_labels(["###", "otro"], "col")
+
+
+class TestEtiquetasDeAdultQueChocaban:
+    """101-C5, preparando la pasada amplia — `<=50K` y `>50K` daban las dos
+    `class_50k`.
+
+    Es el mismo fallo que el del signo menos, un escalón más arriba: `_slug`
+    nombraba el menos pero seguía metiendo `<`, `>` y `=` en la clase de
+    «cualquier símbolo», así que los borraba — y en `adult` (el dataset de
+    renta de OpenML) esos signos son **lo único** que distingue las dos
+    clases. `_normalize_labels` las declaraba indistinguibles y la densa
+    perdía el dataset ENTERO, los 15 pliegues, antes de entrenar nada.
+
+    Medido el 2026-09-14 sobre los 30 datasets de clasificación del protocolo
+    de Fase 0 leyendo su ARFF real: `adult` es el ÚNICO con este choque.
+    """
+
+    def test_las_dos_clases_de_adult_YA_NO_son_la_misma_etiqueta(self):
+        etiquetas, mapa = _normalize_labels(["<=50K", ">50K"], "class")
+        assert len(set(etiquetas)) == 2, etiquetas
+        assert mapa["<=50K"] != mapa[">50K"]
+
+    def test_el_signo_se_VE_en_la_etiqueta_no_solo_se_evita_el_choque(self):
+        """La otra mitad, igual que en `TestEtiquetasConSigno`: un sufijo `_2`
+        también evitaría el choque y dejaría dos etiquetas que no dicen de qué
+        valor salieron. Quien lea `class_le_50k` tiene que reconocer `<=50K`."""
+        assert _slug("<=50K") == "le_50k"
+        assert _slug(">50K") == "gt_50k"
+
+    def test_ningun_par_que_se_diferencie_solo_en_un_RELACIONAL_choca(self):
+        """La propiedad, no el caso. Cada par de esta lista se diferencia
+        ÚNICAMENTE en el signo relacional, que es justo lo que se borraba."""
+        pares = [("<=50K", ">50K"), ("<18", ">18"), (">=65", "<=65"),
+                 ("<5", ">5"), ("a=b", "a!=b"), ("x<y", "x>y")]
+        for uno, otro in pares:
+            assert _slug(uno) != _slug(otro), (uno, otro, _slug(uno))
+            etiquetas, mapa = _normalize_labels([uno, otro], "col")
+            assert len(set(etiquetas)) == 2, (uno, otro, etiquetas)
+            assert mapa[uno] != mapa[otro], (uno, otro)
+
+    def test_el_orden_de_dos_caracteres_importa(self):
+        """Con `<` mirado antes que `<=`, el `<=` se parte y sale `lt_eq_50k`.
+        No sería un choque, pero sí una etiqueta distinta de la declarada — y
+        esta prueba es lo único que sostiene el orden de la tabla."""
+        assert _slug("<=50K") == "le_50k"
+        assert _slug(">=50K") == "ge_50k"
+        assert _slug("<>a") == "ne_a"
+
+    def test_un_separador_NO_es_un_signo(self):
+        """La mitad que evita el sesgo contrario: si esto se hubiera arreglado
+        nombrando toda la puntuación, un espacio o un punto también tendrían
+        nombre y `alto-riesgo` o `0.5` cambiarían de etiqueta — moviendo
+        números ya medidos. Solo los relacionales se nombran."""
+        assert _slug("alto-riesgo") == "alto_riesgo"
+        assert _slug("0.5") == "0_5"
+        assert _slug("dos palabras") == "dos_palabras"
+
+    def test_las_etiquetas_YA_MEDIDAS_no_se_mueven(self):
+        """101-C3 está commiteado y su evidencia cita un digest de código. Los
+        valores que pasaron por aquí en aquella pasada (`PhishingWebsites` con
+        `-1`/`1`, `Internet-Advertisements` con `0`/`1`) tienen que salir con
+        LA MISMA etiqueta que entonces, o el arreglo de hoy invalida una
+        medición de ayer sin decirlo."""
+        assert _slug("-1") == "neg_1"
+        assert _slug("1") == "1"
+        assert _slug("0") == "0"
+        assert _slug("-0.5") == "neg_0_5"
+        assert _normalize_labels(["-1", "1"], "Result")[1] == {
+            "-1": "class_neg_1", "1": "class_1"}
+        assert _normalize_labels(["0", "1"], "x")[1] == {
+            "0": "class_0", "1": "class_1"}
+
+    def test_un_par_que_choca_por_un_signo_NO_relacional_sigue_avisando(self):
+        """La línea del docstring de `_slug` que explica por qué NO se nombra
+        el resto de la puntuación, con su prueba. `a+` y `a*` siguen dando la
+        misma etiqueta; lo que NO puede pasar es que se fundan en silencio."""
+        assert _slug("a+") == _slug("a*")
+        with pytest.raises(DatasetProjectError) as exc:
+            _normalize_labels(["a+", "a*"], "col")
+        assert "la misma etiqueta tras normalizar" in str(exc.value)
+
+
+from matrixai.training.dataset_project import (  # noqa: E402
+    _normalize_feature_names, generate_project_from_dataset)
+from matrixai.playground import _validate_training_csv  # noqa: E402
+
+
+class TestColumnasQueEmpiezanPorDigito:
+    """101-C5, preparando la pasada amplia — `1stFlrSF` tiraba el dataset.
+
+    Es el MISMO fallo que el de las etiquetas, en el otro lado del CSV: un
+    identificador no puede empezar por número, así que `_identifier('1stFlrSF')`
+    sale vacío y `_normalize_feature_names` levantaba «no tiene un nombre de
+    campo válido tras normalizar (solo símbolos/espacios)» — sobre una columna
+    con ocho letras dentro. Un mensaje correcto sobre un diagnóstico
+    equivocado.
+
+    Medido el 2026-09-14 sobre los 40 datasets del protocolo de Fase 0: el
+    único afectado es `house_prices_nominal` (`1stFlrSF`, `2ndFlrSF`,
+    `3SsnPorch`), y perdía **los 15 pliegues** con los 7 motores, antes de
+    entrenar nada. `_normalize_labels` ya rescataba con `class_` el valor que
+    empieza por dígito; aquí se rescata con `campo_`.
+    """
+
+    def test_una_columna_que_empieza_por_digito_YA_NO_tira_el_dataset(self):
+        mapa = _normalize_feature_names(["1stFlrSF", "LotArea"], "predicted_value")
+        assert mapa["1stFlrSF"] == "campo_1stflrsf"
+
+    def test_el_nombre_ORIGINAL_se_reconoce_en_el_nuevo(self):
+        """Un `campo_1`, un `col_0` o un hash también evitarían el choque y
+        dejarían un nombre que no dice de qué columna salió."""
+        mapa = _normalize_feature_names(
+            ["1stFlrSF", "2ndFlrSF", "3SsnPorch"], "predicted_value")
+        assert mapa == {"1stFlrSF": "campo_1stflrsf",
+                        "2ndFlrSF": "campo_2ndflrsf",
+                        "3SsnPorch": "campo_3ssnporch"}
+
+    def test_una_columna_NORMAL_no_cambia_de_nombre(self):
+        """La mitad que evita el sesgo contrario: si el rescate se aplicara
+        siempre, TODAS las columnas cambiarían de nombre y con ellas el CSV
+        preparado de todos los datasets que hoy funcionan."""
+        mapa = _normalize_feature_names(
+            ["LotArea", "alto-riesgo", "Año de alta"], "predicted_value")
+        assert mapa == {"LotArea": "lotarea", "alto-riesgo": "alto_riesgo",
+                        "Año de alta": "ano_de_alta"}
+
+    def test_una_columna_SIN_NADA_alfanumerico_sigue_siendo_error(self):
+        """El rescate no puede tragárselo todo: `###` sí es lo que el mensaje
+        decía, y ahí el error es correcto."""
+        with pytest.raises(DatasetProjectError):
+            _normalize_feature_names(["###", "otra"], "predicted_value")
+
+    def test_el_rescate_no_puede_colarse_encima_de_otra_columna(self):
+        with pytest.raises(DatasetProjectError) as exc:
+            _normalize_feature_names(["1stFlrSF", "campo_1stFlrSF"], "predicted_value")
+        assert "el mismo nombre de campo" in str(exc.value)
+
+    def test_el_proyecto_se_genera_Y_valida_con_esa_columna(self):
+        """Probar la función no es probar el producto: el nombre rescatado
+        tiene que sobrevivir al prompt, al modelo generado y a la validación
+        del CSV contra ese modelo."""
+        import csv as _csv
+        import io as _io
+        alturas = ["150.5", "163.2", "171.9", "158.4", "180.1", "149.7",
+                   "167.3", "175.8", "152.6", "169.0", "177.4", "161.1"]
+        out = _io.StringIO()
+        w = _csv.DictWriter(out, fieldnames=["1stFlrSF", "altura", "target"])
+        w.writeheader()
+        for i in range(12):
+            w.writerow({"1stFlrSF": str(900 + i * 37), "altura": alturas[i],
+                        "target": ["si", "no"][i % 2]})
+        res = generate_project_from_dataset(out.getvalue(), target_column="target")
+        assert res["ok"]
+        assert "campo_1stflrsf" in res["csv_text"].splitlines()[0].split(",")
+        assert "campo_1stflrsf" in res["mxai"]
+        v = _validate_training_csv(res["mxai"], res["training_text"], res["csv_text"],
+                                   field_ranges=res.get("field_ranges"))
+        assert v.get("ok"), v.get("errors") or v.get("error")

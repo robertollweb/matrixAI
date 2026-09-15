@@ -34,6 +34,7 @@ from matrixai.training.dataset_project import (
     prepare_dataset_from_provenance,
 )
 from matrixai.training.dense_generator import _ONEHOT_MAX
+from matrixai.training.preparacion import CATEGORIA_DESCONOCIDA
 
 
 def _csv(n_alta: int, filas: int = 14) -> str:
@@ -98,7 +99,13 @@ class TestCategoricaMixta:
         filas = list(csv.DictReader(io.StringIO(res["csv_text"])))
         assert len(filas) == 14
         vocab = res["provenance"]["preparation_spec"]["category_vocabularies"]["cat_baja"]
-        assert vocab == ["a", "b"]
+        # Los valores REALES primero y en su orden; detrás, el código
+        # reservado que este modelo lleva por ir por embedding (ver
+        # `_reservar_codigo_de_desconocida`). Lo que esta prueba defiende es
+        # que el índice escrito es la POSICIÓN en el vocabulario, y eso vale
+        # igual con el código detrás.
+        assert vocab[:2] == ["a", "b"]
+        assert vocab[-1] == CATEGORIA_DESCONOCIDA
         # La fila 0 del crudo es "a" (índice 0) y la 1 es "b" (índice 1).
         assert filas[0]["cat_baja"] == "0"
         assert filas[1]["cat_baja"] == "1"

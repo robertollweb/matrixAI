@@ -829,6 +829,85 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "`elegir_umbral` produces): applying a raw probability against "
               "that threshold here would cut in the wrong place",
     },
+    # ---- el perfil de la tarea, clínico (109-C2) ---------------------------
+    "intervalo_derivado_sin_punto": {
+        "es": "{campo} no está en el catálogo de métricas: un intervalo "
+              "derivado tiene que llegar con su punto ya calculado por la "
+              "misma fórmula, o no se sabe de qué número es el intervalo",
+        "en": "{campo} is not in the metric catalogue: a derived interval "
+              "must arrive together with its point already computed by that "
+              "same formula, or nobody knows which number it belongs to",
+    },
+    "ppv_npv_sin_prevalencia_declarada": {
+        "es": "PPV y NPV no se publican: nadie ha declarado la prevalencia de "
+              "la población destino, y los de esta muestra describen a esta "
+              "muestra, no a esa población -- calcularlos con la prevalencia "
+              "de la muestra y presentarlos como suyos sería un número exacto "
+              "y falso",
+        "en": "PPV and NPV are not published: nobody declared target "
+              "population prevalence, and this sample's values describe this "
+              "sample, not that population -- computing them at sample "
+              "prevalence and presenting them as theirs would be an exact, "
+              "false number",
+    },
+    "transporte_sin_sensibilidad_ni_especificidad": {
+        "es": "{campo} no se puede transportar a la prevalencia declarada: "
+              "{valor} salió indefinida en esta muestra",
+        "en": "{campo} cannot be transported to declared prevalence: "
+              "{valor} came out undefined on this sample",
+    },
+    "transporte_con_denominador_cero": {
+        "es": "{campo} a la prevalencia declarada tiene denominador cero: "
+              "ni esta muestra ni esa prevalencia dan un número",
+        "en": "{campo} at declared prevalence has a zero denominator: "
+              "neither this sample nor that prevalence yields a number",
+    },
+    "umbrales_no_declarados": {
+        "es": "el perfil necesita los umbrales que declara quien decide: "
+              "no se inventa un 0,5 ni se barre toda la escala en su nombre",
+        "en": "this profile needs thresholds declared by whoever decides: "
+              "no invented 0.5, no full sweep in their name",
+    },
+    "umbral_de_probabilidad_uno": {
+        "es": "{campo} vale 1: a ese umbral, el cambio de FP por TP "
+              "(pt/(1-pt)) divide por cero -- no es un beneficio neto "
+              "enorme, es que no existe",
+        "en": "{campo} equals 1: at that threshold, exchanging FP for TP "
+              "(pt/(1-pt)) divides by zero -- this is not a huge net "
+              "benefit, it does not exist",
+    },
+    "umbral_de_probabilidad_repetido": {
+        "es": "{campo} aparece dos veces en la curva de decisión: dos filas "
+              "iguales no son dos medidas",
+        "en": "{campo} appears twice in this decision curve: two identical "
+              "rows are not two measurements",
+    },
+    "dca_con_etiquetas_declaradas": {
+        "es": "la muestra trae la clase ya decidida ({campo}), y una curva "
+              "de decisión mueve el umbral: sobre etiquetas fijas saldría la "
+              "misma fila en todos los umbrales y parecería una curva plana "
+              "de verdad",
+        "en": "this sample carries its class already decided ({campo}), and "
+              "a decision curve moves the threshold: over fixed labels every "
+              "threshold would yield an identical row, looking like a real "
+              "flat curve",
+    },
+    "dca_sin_probabilidad_calibrada": {
+        "es": "{campo} necesita probabilidades: un umbral de probabilidad "
+              "(pt) no vive en una puntuación cruda, y compararlos daría un "
+              "cambio de FP por TP que no significa nada",
+        "en": "{campo} needs probabilities: a probability threshold (pt) "
+              "does not live on a raw score, and comparing them would give "
+              "an FP-for-TP exchange rate meaning nothing",
+    },
+    "segmento_confirmatorio_sin_equipo": {
+        "es": "{campo} viaja marcado como predefinido y nadie consta como "
+              "quien lo predefinió: un subgrupo hallado mirando los datos "
+              "presentado igual que uno predefinido es el error clásico",
+        "en": "{campo} travels marked as predefined and nobody is recorded "
+              "as having predefined it: a subgroup found by looking at data "
+              "and presented like a predefined one is the classic mistake",
+    },
 }
 
 

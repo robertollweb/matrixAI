@@ -58,6 +58,7 @@ __all__ = [
     "EQUIVALENCIAS_DE_NOMBRE_DE_MOTOR",
     "alcance_de_una_pasada",
     "aplicar_regla_de_cierre",
+    "metrica_del_dataset",
     "calcular_coste",
     "dispersion_de_un_motor",
     "estabilidad_del_ganador",
@@ -817,11 +818,61 @@ def _intervalo_de_la_distancia(medidas_por_pliegue: Mapping[str, Mapping[tuple, 
     }
 
 
+def metrica_del_dataset(dataset: str, metrica: str,
+                        metrica_por_dataset: Mapping[str, str] | None) -> str | None:
+    """Con qué métrica se mide ESTE dataset.
+
+    Sin mapa, la de siempre para todos —el comportamiento con el que se
+    midieron los doce de 101-C3, que no se mueve—. Con mapa, la suya; y si el
+    mapa no lo nombra devuelve `None`, que el llamante tiene que DECLARAR en
+    vez de tragarse. Un dataset sin métrica declarada no es un dataset que
+    cumpla ni uno que falle: es uno del que no se sabe, y los tres se escriben
+    distinto.
+    """
+    if metrica_por_dataset is None:
+        return metrica
+    return metrica_por_dataset.get(dataset)
+
+
 def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
                             motor: str, metrica: str = "auroc",
-                            baseline: str = "baseline") -> dict[str, Any]:
+                            baseline: str = "baseline",
+                            metrica_por_dataset: Mapping[str, str] | None = None,
+                            datasets_exigidos: Sequence[str] | None = None,
+                            ) -> dict[str, Any]:
     """¿`motor` queda a menos de `regla.puntos` del mejor en al menos
     `regla.fraccion_minima` de los datasets?
+
+    **UNA MÉTRICA PARA TODOS LOS DATASETS SOLO VALE SI TODOS SON DE LA MISMA
+    TAREA, y esto lo daba por hecho (2026-09-14, al construir 101-C5).** La
+    `regla_de_cierre` registrada trae `metrica_por_tarea` desde 101-C1 —AUROC
+    en binaria, accuracy/F1-macro en multiclase, R² en regresión— y esta
+    función recibía UN nombre de métrica para los cuarenta datasets. Medido
+    sobre registros de las tres tareas con `metrica="auroc"`:
+
+      · con todos los intentos completados, los datasets de multiclase y de
+        regresión **desaparecen del denominador sin dejar rastro** (entran
+        tres, sale «1/1 = 1,000 CUMPLE»);
+      · basta UN intento fallido en uno de ellos para que **reaparezca, y
+        contado como perdido** («1/2 = 0,500»).
+
+    O sea que el denominador de «cumple en el 80 % de los datasets» dependía
+    de si un motor ajeno se había caído, y en la dirección tranquilizadora
+    cuando no se caía nadie. `metrica_por_dataset` lo cierra: cada dataset se
+    mide con la métrica de SU tarea.
+
+    `datasets_exigidos` es la otra mitad, y sin ella la primera no basta: un
+    dataset en el que NINGÚN motor produjo la métrica sigue cayéndose del
+    recuento porque no aparece en los registros con valor. Pasando la lista
+    declarada, aparece en el detalle con `sin_medida` y su motivo — un aserto
+    negativo lo pasa un `{}`, y un denominador que encoge solo se lee igual de
+    bien que uno correcto.
+
+    **Los dos parámetros son opcionales y su ausencia NO cambia nada.** Con
+    los dos a `None` esta función devuelve exactamente el mismo diccionario
+    que devolvía antes, con las mismas claves y sin ninguna nueva: los
+    artefactos de 101-C3 ya commiteados cuadran con su digest y tienen que
+    seguir cuadrando (`test_sin_los_parametros_nuevos_el_veredicto_es_identico`).
 
     AUDITORÍA PROPIA 2026-09-11: esta regla estaba REGISTRADA CON HASH desde
     101-C1 —fijada antes de medir, que es justo su razón de ser (invariante
@@ -848,12 +899,23 @@ def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
     # se toca y sigue saliendo de la lista de siempre.
     por_pliegue: dict[str, dict[str, dict[tuple, float]]] = {}
     sin_pliegue = 0
+    #: Los datasets que el mapa por tarea no nombra. Se cuentan y se declaran:
+    #: tragárselos es volver al denominador que encoge solo.
+    sin_metrica_declarada: set[str] = set()
+    #: Con qué se midió cada dataset de verdad, para que el artefacto no
+    #: obligue a recomponer el mapa desde fuera para entenderse.
+    metrica_usada_por_dataset: dict[str, str] = {}
     for r in resultados:
         ds, mt = r["dataset"], r["motor"]
         if r.get("estado") != "completed":
             fallos.setdefault(ds, set()).add(mt)
             continue
-        valor = r.get(metrica)
+        metrica_de_este = metrica_del_dataset(ds, metrica, metrica_por_dataset)
+        if metrica_de_este is None:
+            sin_metrica_declarada.add(ds)
+            continue
+        metrica_usada_por_dataset[ds] = metrica_de_este
+        valor = r.get(metrica_de_este)
         if valor is None:
             continue
         por_dataset.setdefault(ds, {}).setdefault(mt, []).append(float(valor))
@@ -865,7 +927,12 @@ def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
 
     detalle: list[dict[str, Any]] = []
     cumplidos = 0
-    for ds in sorted(set(por_dataset) | set(fallos)):
+    #: Modo ampliado: solo cuando quien llama ha pedido una de las dos cosas
+    #: nuevas. Sin eso, ni una clave de más — los artefactos de C3 ya escritos
+    #: cuadran con su digest y tienen que seguir cuadrando.
+    ampliado = metrica_por_dataset is not None or datasets_exigidos is not None
+    exigidos = set(datasets_exigidos or ())
+    for ds in sorted(set(por_dataset) | set(fallos) | exigidos):
         medias = {m: sum(v) / len(v) for m, v in por_dataset.get(ds, {}).items()
                   if m != baseline}
         perdido = motor in fallos.get(ds, set())
@@ -908,12 +975,32 @@ def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
         # que añade es el dato que faltaba para leerlo.
         intervalo = _intervalo_de_la_distancia(
             por_pliegue.get(ds, {}), motor=motor, mejor=mejor_motor, puntos=regla.puntos)
-        detalle.append({"dataset": ds, "cumple": cumple, "perdido_por_fallo": perdido,
-                        "mejor": mejor_motor, "distancia_en_puntos": distancia,
-                        "segundo": segundo if mejor_motor == motor else None,
-                        "ventaja_sobre_el_segundo_en_puntos": ventaja,
-                        "intervalo_de_la_distancia": intervalo,
-                        "motores_que_compitieron": sorted(medias)})
+        entrada = {"dataset": ds, "cumple": cumple, "perdido_por_fallo": perdido,
+                   "mejor": mejor_motor, "distancia_en_puntos": distancia,
+                   "segundo": segundo if mejor_motor == motor else None,
+                   "ventaja_sobre_el_segundo_en_puntos": ventaja,
+                   "intervalo_de_la_distancia": intervalo,
+                   "motores_que_compitieron": sorted(medias)}
+        if ampliado:
+            # POR QUÉ este dataset no tiene número, cuando no lo tiene. Las
+            # tres ausencias se escriben distinto porque son distintas: no se
+            # declaró con qué medirlo, se declaró y ningún motor lo produjo, o
+            # este motor concreto no lo produjo aunque otros sí.
+            if ds in sin_metrica_declarada and ds not in metrica_usada_por_dataset:
+                sin_medida = ("no se declaro con que metrica se mide este dataset: "
+                              "el mapa por tarea no lo nombra")
+            elif not medias and not perdido:
+                sin_medida = ("ningun motor produjo la metrica de cierre de este "
+                              "dataset, y no consta ningun intento fallido: el "
+                              "dataset entro en el denominador y no se midio")
+            elif mio is None and not perdido:
+                sin_medida = (f"{motor} no produjo la metrica de cierre de este "
+                              f"dataset en ningun pliegue completado")
+            else:
+                sin_medida = None
+            entrada["metrica"] = metrica_usada_por_dataset.get(ds)
+            entrada["sin_medida"] = sin_medida
+        detalle.append(entrada)
 
     total = len(detalle)
     fraccion = (cumplidos / total) if total else 0.0
@@ -948,17 +1035,31 @@ def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
     no_cumplen_con_el_liston_dentro = sum(
         1 for d in detalle
         if not d["cumple"] and (d["intervalo_de_la_distancia"] or {}).get("cruza_el_liston"))
-    return {"motor": motor, "metrica": metrica, "puntos_exigidos": regla.puntos,
-            "intervalos_de_los_que_NO_cumplen_que_cruzan_el_liston":
-                no_cumplen_con_el_liston_dentro,
-            "n_medidas_sin_pliegue_declarado": sin_pliegue,
-            "fraccion_minima": regla.fraccion_minima, "datasets": total,
-            "cumplidos": cumplidos, "fraccion": fraccion,
-            "cumple_la_regla": fraccion >= regla.fraccion_minima,
-            "aciertos_por_ser_el_mejor": por_distancia_cero,
-            "datasets_que_puede_perder_sin_incumplir": margen,
-            "datasets_que_le_faltan_para_cumplir": le_faltan,
-            "definicion_de_mejor": regla.definicion_de_mejor, "detalle": detalle}
+    veredicto = {"motor": motor, "metrica": metrica, "puntos_exigidos": regla.puntos,
+                 "intervalos_de_los_que_NO_cumplen_que_cruzan_el_liston":
+                     no_cumplen_con_el_liston_dentro,
+                 "n_medidas_sin_pliegue_declarado": sin_pliegue,
+                 "fraccion_minima": regla.fraccion_minima, "datasets": total,
+                 "cumplidos": cumplidos, "fraccion": fraccion,
+                 "cumple_la_regla": fraccion >= regla.fraccion_minima,
+                 "aciertos_por_ser_el_mejor": por_distancia_cero,
+                 "datasets_que_puede_perder_sin_incumplir": margen,
+                 "datasets_que_le_faltan_para_cumplir": le_faltan,
+                 "definicion_de_mejor": regla.definicion_de_mejor, "detalle": detalle}
+    if ampliado:
+        # `metrica` de arriba sigue diciendo el valor por omisión, que con un
+        # mapa por tarea NO es lo que se midió. Se deja donde estaba —quitarla
+        # movería un artefacto— y al lado va lo que de verdad se usó, dataset a
+        # dataset. Media verdad tranquilizadora también es media limpieza.
+        veredicto["metrica_por_dataset"] = dict(metrica_usada_por_dataset)
+        veredicto["datasets_sin_metrica_declarada"] = sorted(sin_metrica_declarada)
+        veredicto["datasets_exigidos_que_no_se_midieron"] = sorted(
+            d["dataset"] for d in detalle if d.get("sin_medida"))
+        veredicto["la_metrica_de_arriba_no_gobierna"] = (
+            "hay un mapa por tarea: `metrica` es el valor por omision del "
+            "parametro y NO es con lo que se midio. Lo que gobierna cada "
+            "dataset esta en `metrica_por_dataset`.")
+    return veredicto
 
 
 @dataclass(frozen=True)
@@ -1383,6 +1484,7 @@ def _configuraciones_por_motor_en_texto(bloque: dict[str, Any]) -> str:
 
 
 def _medidas_por_pliegue(resultados: Sequence[dict], metrica: str,
+                         metrica_por_dataset: Mapping[str, str] | None = None,
                          ) -> dict[str, dict[str, dict[tuple, float]]]:
     """`dataset -> motor -> (repeticion, pliegue) -> valor`, de los intentos
     COMPLETADOS que traen la métrica y su pliegue.
@@ -1390,12 +1492,19 @@ def _medidas_por_pliegue(resultados: Sequence[dict], metrica: str,
     Es el mismo reparto que hace `aplicar_regla_de_cierre`; se extrae aquí
     porque ya lo quieren dos funciones y **dos sitios declarando lo mismo
     acaban divergiendo**. La regla de cierre sigue con su copia porque además
-    necesita contar los FALLOS, y tocarla movería un veredicto publicado."""
+    necesita contar los FALLOS, y tocarla movería un veredicto publicado.
+
+    `metrica_por_dataset` hace aquí lo mismo que en la regla: con mapa, cada
+    dataset se lee con la métrica de su tarea. Sin mapa, todo con `metrica`,
+    que es como se midieron los doce de 101-C3."""
     por_pliegue: dict[str, dict[str, dict[tuple, float]]] = {}
     for r in resultados:
         if r.get("estado") != "completed":
             continue
-        valor = r.get(metrica)
+        metrica_de_este = metrica_del_dataset(r["dataset"], metrica, metrica_por_dataset)
+        if metrica_de_este is None:
+            continue
+        valor = r.get(metrica_de_este)
         if valor is None or r.get("repeticion") is None or r.get("pliegue") is None:
             continue
         por_pliegue.setdefault(r["dataset"], {}).setdefault(r["motor"], {})[
@@ -1423,7 +1532,9 @@ def _desviacion_tipica(valores: Sequence[float]) -> float | None:
 
 def dispersion_de_un_motor(resultados: Sequence[dict], *, motor: str,
                            metrica: str = "auroc",
-                           liston_en_puntos: float | None = None) -> dict[str, Any]:
+                           liston_en_puntos: float | None = None,
+                           metrica_por_dataset: Mapping[str, str] | None = None,
+                           ) -> dict[str, Any]:
     """LA DISPERSIÓN DE UN MOTOR, dataset a dataset, en las mismas unidades
     que `distancia_en_puntos` (puntos porcentuales de la métrica).
 
@@ -1447,7 +1558,7 @@ def dispersion_de_un_motor(resultados: Sequence[dict], *, motor: str,
     contar cuántos datasets tienen un rango MAYOR que el margen entero con el
     que se decide quién cumple: ahí la media sola no describe al motor.
     """
-    por_pliegue = _medidas_por_pliegue(resultados, metrica)
+    por_pliegue = _medidas_por_pliegue(resultados, metrica, metrica_por_dataset)
     por_dataset: dict[str, dict[str, Any]] = {}
     for dataset in sorted(por_pliegue):
         medidas = por_pliegue[dataset].get(motor)
@@ -1532,7 +1643,9 @@ def dispersion_de_un_motor(resultados: Sequence[dict], *, motor: str,
 
 def estabilidad_del_ganador(resultados: Sequence[dict], *,
                             metrica: str = "auroc",
-                            baseline: str = "baseline") -> dict[str, Any]:
+                            baseline: str = "baseline",
+                            metrica_por_dataset: Mapping[str, str] | None = None,
+                            ) -> dict[str, Any]:
     """¿El ganador POR MEDIA de cada dataset gana de verdad, o gana el
     promedio?
 
@@ -1548,7 +1661,7 @@ def estabilidad_del_ganador(resultados: Sequence[dict], *,
     cuándo la diferencia que lo decide es más pequeña que el ruido que la
     rodea.
     """
-    por_pliegue = _medidas_por_pliegue(resultados, metrica)
+    por_pliegue = _medidas_por_pliegue(resultados, metrica, metrica_por_dataset)
     detalle: list[dict[str, Any]] = []
     for dataset in sorted(por_pliegue):
         medidas = {m: v for m, v in por_pliegue[dataset].items() if m != baseline}
@@ -1589,7 +1702,11 @@ def estabilidad_del_ganador(resultados: Sequence[dict], *,
                          if d["pliegues_emparejados"]
                          and d["pliegues_que_le_gana_al_segundo"] * 2 < d["pliegues_emparejados"]]
     return {
-        "metrica": metrica,
+        "metrica": (metrica if metrica_por_dataset is None else
+                    "por tarea, ver `metrica_por_dataset`"),
+        **({} if metrica_por_dataset is None
+           else {"metrica_por_dataset": {d: metrica_del_dataset(d, metrica, metrica_por_dataset)
+                                         for d in sorted(por_pliegue)}}),
         "emparejado_por": "repeticion y pliegue",
         "n_datasets": len(detalle),
         "datasets_en_los_que_la_ordenacion_se_discute": sorted(discutidos),
@@ -1614,15 +1731,26 @@ def veredicto_con_su_alcance(protocolo: "ProtocoloExploratorio",
                              criterio_del_subconjunto: str = "",
                              configuraciones_declaradas: Mapping[str, Sequence[str]] | None = None,
                              criterio_de_las_configuraciones: str = "",
-                             metrica: str = "auroc") -> dict[str, Any]:
+                             metrica: str = "auroc",
+                             metrica_por_dataset: Mapping[str, str] | None = None,
+                             datasets_exigidos: Sequence[str] | None = None,
+                             ) -> dict[str, Any]:
     """El número y su alcance, EN EL MISMO OBJETO.
 
     Lo no negociable de la reparación del 2026-09-12: quien lea
     `cumple_la_regla` tiene delante, sin abrir otro fichero, contra cuántos
     motores se midió y cuáles faltan por nombre.
+
+    `metrica_por_dataset` y `datasets_exigidos` se pasan TAL CUAL a la regla,
+    a la dispersión y a la estabilidad — las tres leen el mismo mapa. Pasarlo
+    a una y no a las otras daría un veredicto medido con la métrica de cada
+    tarea y una dispersión medida con la de otra, y las dos viajan en el mismo
+    objeto como si dijeran lo mismo.
     """
     regla = aplicar_regla_de_cierre(resultados, protocolo.regla_de_cierre,
-                                    motor=motor, metrica=metrica)
+                                    motor=motor, metrica=metrica,
+                                    metrica_por_dataset=metrica_por_dataset,
+                                    datasets_exigidos=datasets_exigidos)
     alcance = alcance_de_una_pasada(
         protocolo, resultados, motores_declarados=motores_declarados,
         datasets_declarados=datasets_declarados,
@@ -1640,11 +1768,27 @@ def veredicto_con_su_alcance(protocolo: "ProtocoloExploratorio",
     # listón entero.
     regla["dispersion"] = dispersion_de_un_motor(
         resultados, motor=motor, metrica=metrica,
-        liston_en_puntos=protocolo.regla_de_cierre.puntos)
+        liston_en_puntos=protocolo.regla_de_cierre.puntos,
+        metrica_por_dataset=metrica_por_dataset)
     # La advertencia se REDACTA con los números medidos, no se guarda escrita:
     # una frase compuesta y guardada deja de ser verdad en cuanto cambian los
     # números que la sostenían, y sigue sonando razonable.
+    # CON QUE SE MIDIO CADA DATASET, en la primera frase y no en un campo
+    # aparte. Un "32/40 CUMPLE" de tres tareas medidas cada una con su metrica
+    # y uno de tres tareas medidas todas con AUROC se escriben igual, y el
+    # segundo tiene 20 datasets fuera del denominador sin decirlo.
+    con_que_se_midio = ""
+    if metrica_por_dataset is not None:
+        usadas = sorted(set((regla.get("metrica_por_dataset") or {}).values()))
+        faltan_medida = regla.get("datasets_exigidos_que_no_se_midieron") or []
+        con_que_se_midio = (
+            f"Cada dataset se midio con la metrica de SU tarea ({', '.join(usadas) or 'ninguna'}), "
+            f"no con una sola para todos. "
+            + (f"{len(faltan_medida)} dataset(s) exigido(s) SIN medida: "
+               f"{', '.join(faltan_medida)}. " if faltan_medida
+               else "Todos los datasets exigidos tienen medida. "))
     regla["como_hay_que_leer_este_numero"] = (
+        con_que_se_midio +
         f"{regla['cumplidos']}/{regla['datasets']} sobre un ALCANCE RECORTADO: "
         f"{alcance['motores']['n_que_corrieron']} de "
         f"{alcance['motores']['n_del_protocolo']} motores del protocolo y "

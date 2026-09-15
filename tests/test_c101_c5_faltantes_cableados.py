@@ -41,6 +41,7 @@ from matrixai.training.dataset_project import (
 )
 from matrixai.training.dense_generator import _ONEHOT_MAX
 from matrixai.training.preparacion import (
+    CATEGORIA_DESCONOCIDA,
     CATEGORIA_FALTANTE,
     ajustar_preparacion,
     nombre_de_indicador,
@@ -170,9 +171,17 @@ class TestHuecoCategorico:
         assert embedding_source_columns(res["mxai"]) == {"cat"}
         filas = _filas(res)
         vocab = res["provenance"]["preparation_spec"]["category_vocabularies"]["cat"]
-        assert vocab[-1] == CATEGORIA_FALTANTE
+        # `__faltante__` está, detrás de los valores reales. Ya no es el
+        # ÚLTIMO porque este modelo va por embedding y lleva además el código
+        # reservado de «categoría nunca vista»
+        # (`_reservar_codigo_de_desconocida`), que es otra cosa: un hueco no es
+        # un valor nuevo. Lo que esta prueba defiende —que el hueco escribe el
+        # índice de SU categoría y no una celda vacía— se comprueba ahora
+        # preguntando por la posición en vez de darla por hecha.
+        assert CATEGORIA_FALTANTE in vocab
+        assert vocab[-1] == CATEGORIA_DESCONOCIDA
         # El índice escrito es el de `__faltante__`, no una celda vacía.
-        assert filas[2]["cat"] == str(len(vocab) - 1)
+        assert filas[2]["cat"] == str(vocab.index(CATEGORIA_FALTANTE))
         assert filas[0]["cat"] == "0"
 
     def test_un_hueco_en_una_categorica_ONE_HOT_deja_de_ser_una_fila_a_cero(self):

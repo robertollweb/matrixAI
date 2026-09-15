@@ -152,6 +152,7 @@ from matrixai.training.dense_generator import _identifier, _ONEHOT_MAX
 # del núcleo, y lo único que vive aquí es la traducción del CSV crudo —que
 # es todo texto— a los valores tipados que `ajustar_preparacion` exige.
 from matrixai.training.preparacion import (
+    CATEGORIA_DESCONOCIDA,
     CATEGORIA_FALTANTE,
     PoliticaDePreparacion,
     ajustar_preparacion,
@@ -716,6 +717,9 @@ def generate_project_from_dataset(
                 "de origen antes de generar el modelo."
             )
         category_vocabularies[col] = [*valores_reales, CATEGORIA_FALTANTE]
+
+    _reservar_codigo_de_desconocida(
+        rows, feature_columns, columns, category_vocabularies)
 
     feature_lines: list[str] = []
     for col in feature_columns:
@@ -1709,11 +1713,61 @@ def prepare_dataset_from_provenance(
 
     # Vocabulario congelado: un valor nuevo cambiaría el VECTOR (una columna
     # one-hot más), así que NUNCA se amplía en silencio.
+    #
+    # PERO `__desconocida__` NO ES UN VALOR NUEVO DEL USUARIO: es la marca que
+    # el propio núcleo (`preparacion.transformar_fila`, 103-C3) pone donde
+    # había un valor presente que el entrenamiento no vio. Rechazarla era el
+    # núcleo sin reconocer su propio vocabulario, y costaba el dataset entero
+    # —11 de los 15 pliegues de `Moneyball`, medido el 2026-09-14, por 1 a 3
+    # filas de 246—. Se codifica como «ninguna de las conocidas» (el grupo
+    # one-hot a 0) y se DECLARA, con su recuento, en vez de abortar.
+    #
+    # En EMBEDDING no hay «ninguna de las conocidas»: el CSV lleva el índice
+    # del valor. Si la receta congelada no reservó el código (un modelo
+    # anterior a `_reservar_codigo_de_desconocida`), la fila no se puede
+    # representar y se sigue abortando — pero diciendo QUÉ falta, no
+    # llamándolo «un valor que el modelo no conoce».
+    #
+    # AUSENTE no es VACÍA, igual que en `_prepare_v1`: una receta anterior a
+    # `embedding_columns` no sabe qué columnas fueron a embedding, y el
+    # preparador aplica entonces el criterio de aquel momento
+    # (`len(vocab) > _ONEHOT_MAX`). Aquí se pregunta lo mismo, o el aviso
+    # describiría una codificación que no es la que se va a escribir.
+    embebidas_declaradas = (set(spec["embedding_columns"])
+                            if "embedding_columns" in spec else None)
+
+    def _va_por_embedding(col: str, vocab: list[str]) -> bool:
+        if embebidas_declaradas is None:
+            return len(vocab) > _ONEHOT_MAX
+        return (spec.get("feature_name_map") or {}).get(col) in embebidas_declaradas
+
+    # El recuento se lleva SIEMPRE, no solo cuando el vocabulario no trae el
+    # código. En un modelo de embedding sí lo trae —lo reservó al generarse—,
+    # así que el centinela no aparecería como «nuevo» y las filas que el
+    # modelo no puede situar se colarían sin que nadie las contara. Salvar el
+    # dataset y no decir cuántas filas se salvaron a ciegas sería media
+    # verdad tranquilizadora.
+    filas_desconocidas: dict[str, tuple[int, bool]] = {}
     for col, vocab in (spec.get("category_vocabularies") or {}).items():
         if col not in present:
             continue
         observed = _distinct_non_null(rows, col)
         nuevos = [v for v in observed if v not in vocab]
+        afectadas = sum(1 for row in rows
+                        if (row.get(col) or "").strip() == CATEGORIA_DESCONOCIDA)
+        por_embedding = _va_por_embedding(col, list(vocab))
+        if afectadas:
+            nuevos = [v for v in nuevos if v != CATEGORIA_DESCONOCIDA]
+            if por_embedding and CATEGORIA_DESCONOCIDA not in vocab:
+                errors.append(
+                    f"La columna {col!r} trae categorías que el entrenamiento "
+                    f"no vio ({afectadas} filas), y este modelo la consume "
+                    "como EMBEDDING: su vocabulario no reservó un código "
+                    f"{CATEGORIA_DESCONOCIDA!r} y un índice inexistente no se "
+                    "puede escribir. Regenera el proyecto para que lo reserve."
+                )
+            else:
+                filas_desconocidas[col] = (afectadas, por_embedding)
         if nuevos:
             errors.append(
                 f"La columna {col!r} trae valores que el modelo no conoce: "
@@ -1721,6 +1775,15 @@ def prepare_dataset_from_provenance(
                 f"modelo ({sorted(vocab)}); para incorporarlos hay que regenerar "
                 "el proyecto."
             )
+    for col, (filas_afectadas, por_embedding) in sorted(filas_desconocidas.items()):
+        como = ("el código reservado del vocabulario, cuyo vector no se "
+                "entrenó con ningún ejemplo" if por_embedding else
+                "«ninguna de las conocidas» (todo el grupo a 0), no como la "
+                "categoría de referencia ni como un dato ausente")
+        warnings.append(
+            f"La columna {col!r} trae en {filas_afectadas} filas una categoría "
+            f"que el entrenamiento nunca vio: se codifica como {como}."
+        )
 
     if errors:
         report = CompatibilityReport(
@@ -1917,6 +1980,23 @@ def _normalize_feature_names(feature_columns: list[str], target_header: str) -> 
     for col in feature_columns:
         safe = _identifier(col)
         if not safe:
+            # EMPEZAR POR DÍGITO NO ES «NO TENER NOMBRE», y el mensaje de
+            # abajo lo decía igual: un identificador no puede empezar por
+            # número, así que `_identifier` devuelve vacío para `1stFlrSF` —
+            # que tiene ocho letras dentro. Se rescata con el prefijo
+            # `campo_`, exactamente como `_normalize_labels` rescata con
+            # `class_` un valor que empieza por dígito, y por el mismo motivo:
+            # no es un dato ambiguo, es la normalización tirándolo.
+            #
+            # Medido el 2026-09-14 sobre los 40 datasets del protocolo de
+            # Fase 0: el único afectado es `house_prices_nominal`
+            # (`1stFlrSF`, `2ndFlrSF`, `3SsnPorch`), y perdía **los 15
+            # pliegues**, con los 7 motores, antes de entrenar nada. Nada de
+            # lo que hoy funciona cambia de nombre: este camino solo se toma
+            # donde antes se levantaba una excepción.
+            slug = _slug(col)
+            safe = f"campo_{slug}" if slug else ""
+        if not safe:
             raise DatasetProjectError(
                 f"La columna {col!r} no tiene un nombre de campo válido tras "
                 "normalizar (solo símbolos/espacios) — renómbrala en el CSV."
@@ -1954,10 +2034,141 @@ def _check_categorical_values_safe(values: list[str], col: str) -> None:
             )
 
 
+#: Los signos RELACIONALES, con el nombre que los sustituye. Son los únicos
+#: caracteres no alfanuméricos que este módulo NOMBRA en vez de borrar, y la
+#: lista no es de gusto: son los que **distinguen un valor de otro** en una
+#: etiqueta de clase (`<=50K` frente a `>50K`, `<18` frente a `>=18`), mientras
+#: que un espacio, un punto o un guion dentro de una palabra son SEPARADORES y
+#: tienen que seguir dando `_` (ver `test_un_guion_EN_MEDIO_no_es_un_signo`).
+#:
+#: Las formas de dos caracteres van PRIMERO: con `<` antes que `<=`, el `<=`
+#: de `<=50K` se comería por la izquierda y daría `lt_eq_50k` — que no está
+#: mal, pero deja de coincidir con lo que escribe quien lee `le`.
+_SIGNOS_RELACIONALES: tuple[tuple[str, str], ...] = (
+    ("<=", "le"), (">=", "ge"), ("<>", "ne"), ("!=", "ne"),
+    ("<", "lt"), (">", "gt"), ("=", "eq"),
+)
+
+
+def _nombrar_signos_relacionales(raw: str) -> str:
+    """Sustituye cada signo relacional por su nombre, EN SU SITIO.
+
+    Va en su propia función porque hacen falta los DOS caminos de
+    `_normalize_labels`: `<=50K` cae en `_slug` (su contenido alfanumérico
+    empieza por dígito) pero `a<b` lo resuelve `_identifier` sin pasar por
+    ahí, y sin esto `a<b` y `a>b` seguirían dando los dos `a_b`. Una sola
+    tabla y un solo sitio que la aplica: copiarla al otro camino es
+    exactamente lo que acaba divergiendo.
+
+    Es IDEMPOTENTE —lo que sale no tiene ya ningún relacional—, así que
+    aplicarla dos veces (una aquí y otra dentro de `_slug`) no cambia nada.
+    """
+    for signo, nombre in _SIGNOS_RELACIONALES:
+        raw = raw.replace(signo, f"_{nombre}_")
+    return raw
+
+
+def _reservar_codigo_de_desconocida(
+    rows: list[dict[str, str]],
+    feature_columns: list[str],
+    columns: dict[str, dict[str, Any]],
+    category_vocabularies: dict[str, list[str]],
+) -> None:
+    """Reserva `__desconocida__` en el vocabulario **solo si el modelo va a ir
+    por EMBEDDING**, que son los únicos que no pueden representarla de otra
+    forma. Modifica `category_vocabularies` en sitio.
+
+    EL PROBLEMA. `preparacion.transformar_fila` (103-C3) marca con
+    `CATEGORIA_DESCONOCIDA` un valor PRESENTE que el train de ese pliegue no
+    vio — el tercer estado que el núcleo declara no colapsar. Ese centinela
+    llega luego a `prepare_dataset_from_provenance` como si fuera un valor
+    nuevo del usuario, y el vocabulario congelado no lo trae: el dataset
+    ENTERO se perdía. Medido el 2026-09-14 sobre `Moneyball` (columna `Team`,
+    39 categorías, ~788 filas de train): **11 de los 15 pliegues** caídos, con
+    1 a 3 filas afectadas de 246 de test. Los 4 que pasaban lo hacían por
+    CASUALIDAD —la validación de ese pliegue traía el centinela, así que
+    entraba al vocabulario como una categoría más—, que es peor que fallar:
+    el mismo dato daba un resultado u otro según qué filas cayeran en
+    validación.
+
+    POR QUÉ SOLO EMBEDDING, Y NO SIEMPRE. En one-hot, un valor que el
+    vocabulario no trae ya se escribe como **el grupo entero a 0** —«ninguna
+    de las conocidas»— y eso es mejor que reservarle una columna: una columna
+    que vale 0 en TODAS las filas de train no recibe gradiente, así que su
+    peso se queda en la inicialización y al predecir metería un peso SIN
+    ENTRENAR donde el todo-a-cero no mete nada. En embedding no hay
+    «todo a cero»: el CSV lleva el ÍNDICE del valor, y un valor sin índice se
+    escribía `""` y el modelo rechazaba su propia fila. Ahí sí hace falta un
+    código reservado, aunque su vector tampoco se entrene: la alternativa es
+    perder la fila.
+
+    POR QUÉ NO CAMBIA EL ENRUTADO, que es la trampa de tocar esto. El
+    generador manda el prompt ENTERO al camino composite (embedding) en
+    cuanto UNA categórica pasa de `_ONEHOT_MAX`. Aquí solo se añade el código
+    cuando alguna YA lo pasa **sin contarlo**, así que añadirlo no puede
+    convertir en composite un modelo que no lo fuera: la decisión de
+    enrutado es exactamente la misma con y sin esta función. Un modelo
+    one-hot no gana ni una columna y su CSV preparado sale byte a byte igual
+    que antes de esto.
+
+    LO QUE SÍ MUEVE. Un dataset con una categórica de más de `_ONEHOT_MAX`
+    valores cambia su vocabulario, su `.mxai` y su CSV preparado. De los 40
+    del protocolo de Fase 0 son 7 (medido el 2026-09-14): `splice`,
+    `KDDCup09_appetency`, `adult`, `okcupid-stem`, `Moneyball`,
+    `house_prices_nominal` y `Allstate_Claims_Severity`.
+    """
+    categoricas = [col for col in feature_columns
+                   if columns[col]["type"] == "categorical"]
+    vocabularios = {
+        col: list(category_vocabularies.get(col) or _distinct_non_null(rows, col))
+        for col in categoricas
+    }
+    # Sin contar el código que se va a añadir: ver «POR QUÉ NO CAMBIA EL
+    # ENRUTADO» en el docstring.
+    if not any(len(valores) > _ONEHOT_MAX for valores in vocabularios.values()):
+        return
+    for col, valores in vocabularios.items():
+        if len(valores) < 2:
+            # Cardinalidad<2 -> la columna se excluye más abajo; darle un
+            # código reservado la rescataría por la puerta de atrás.
+            continue
+        if CATEGORIA_DESCONOCIDA in valores:
+            # YA ESTABA EN LOS DATOS, Y NO ES UN CHOQUE — a diferencia de
+            # `__faltante__`, que sí levanta. Quien escribe esta cadena es
+            # `transformar_fila`, y lo que dice es exactamente lo que el
+            # código reservado significa: aquí había una categoría que el
+            # train no vio. Reordenarla al final es lo único que hace falta,
+            # para que el índice del código NO dependa de en qué fila
+            # apareciera — que es como los 4 pliegues «buenos» de `Moneyball`
+            # lo estaban resolviendo, por casualidad y en un sitio distinto
+            # cada vez. Ver `test_el_codigo_reservado_va_SIEMPRE_al_final`.
+            valores = [v for v in valores if v != CATEGORIA_DESCONOCIDA]
+        category_vocabularies[col] = [*valores, CATEGORIA_DESCONOCIDA]
+
+
 def _slug(raw: str) -> str:
-    """Como `_identifier` pero SIN el veto de dígito inicial — solo se usa
-    como base del prefijo `class_` cuando `_identifier` rechaza un valor
-    por empezar con número (ver `_normalize_labels`).
+    """Como `_identifier` pero SIN el veto de dígito inicial — la base de los
+    dos rescates que este módulo hace cuando `_identifier` devuelve vacío por
+    empezar con número: el prefijo `class_` de una ETIQUETA
+    (`_normalize_labels`) y el prefijo `campo_` de un NOMBRE DE COLUMNA
+    (`_normalize_feature_names`).
+
+    **LOS SIGNOS RELACIONALES TAMBIÉN SE CONSERVAN** (`<=50K` → `le_50k`,
+    `>50K` → `gt_50k`), y por el mismo motivo que el menos. `adult` —el
+    dataset de renta de OpenML, y el único de los 30 de clasificación del
+    protocolo con este choque, barrido el 2026-09-14— tiene exactamente esas
+    dos clases: `<` y `>` caían en «cualquier símbolo», los dos valores daban
+    `class_50k` y `_normalize_labels` los declaraba indistinguibles. La densa
+    perdía el dataset ENTERO, igual que perdió `PhishingWebsites` por el menos.
+
+    **Lo que este módulo NO hace, y por qué.** No nombra el resto de la
+    puntuación: un espacio, un punto o un guion dentro de una palabra son
+    SEPARADORES —`alto-riesgo` tiene que seguir dando `alto_riesgo`— y no hay
+    ninguna medida detrás de inventarles un nombre. Un par que se diferencie
+    solo en un signo que no está en `_SIGNOS_RELACIONALES` (`a+` frente a
+    `a*`) sigue chocando, y `_normalize_labels` lo sigue diciendo con un error
+    accionable en vez de fundir las dos clases en silencio: ver
+    `test_un_par_que_choca_por_un_signo_NO_relacional_sigue_avisando`.
 
     **El SIGNO se conserva** (`-1` → `neg_1`), y no es un detalle de estilo.
     Antes el menos caía en la clase de «cualquier símbolo» y se convertía en
@@ -1984,6 +2195,10 @@ def _slug(raw: str) -> str:
     # Solo un signo de VERDAD al principio, no un guion en medio de una
     # palabra: «alto-riesgo» tiene que seguir dando `alto_riesgo`.
     negativo = bool(re.match(r"^\s*-\s*[0-9.,]", text))
+    # Los relacionales, ANTES del barrido de «cualquier símbolo» — que es
+    # justo lo que los borraba. Se sustituyen EN SU SITIO, no como prefijo:
+    # `50K+` y `<=50K` no dicen lo mismo y la etiqueta tiene que enseñarlo.
+    text = _nombrar_signos_relacionales(text)
     text = re.sub(r"[^0-9A-Za-z_]+", "_", text)
     text = re.sub(r"_+", "_", text).strip("_").lower()
     return f"neg_{text}" if (negativo and text) else text
@@ -2009,9 +2224,13 @@ def _normalize_labels(
     normalized: dict[str, str] = {}  # etiqueta -> primer valor crudo (para colisiones)
     raw_to_label: dict[str, str] = {}
     for raw in raw_values:
-        norm = _identifier(raw)
+        # LOS SIGNOS RELACIONALES, ANTES DE LAS DOS NORMALIZACIONES. Sin esto
+        # `a<b` y `a>b` dan los dos `a_b` por el camino de `_identifier`, que
+        # es el que NO pasa por `_slug`. Ver `_nombrar_signos_relacionales`.
+        con_signos = _nombrar_signos_relacionales(raw)
+        norm = _identifier(con_signos)
         if not norm:
-            slug = _slug(raw)
+            slug = _slug(con_signos)
             norm = f"class_{slug}" if slug else ""
         if not norm:
             raise DatasetProjectError(

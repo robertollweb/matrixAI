@@ -369,7 +369,9 @@ def _percentil(ordenados: Sequence[float], proporcion: float) -> float:
 def intervalo(metric_id: str, muestra: Muestra, *, diseno: str, estimando: str,
               semilla: int, remuestras: int = 1000, nivel: float = 0.95,
               umbral: float | None = None, longitud_de_bloque: int | None = None,
-              valor: ValorDeMetrica | None = None) -> Intervalo:
+              valor: ValorDeMetrica | None = None,
+              formula: Callable[[Muestra, float | None],
+                                "float | Indefinida"] | None = None) -> Intervalo:
     """El intervalo de confianza de `metric_id` sobre `muestra`, según `diseno`.
 
     `diseno` y `estimando` son OBLIGATORIOS y sin valor por omisión: elegir por
@@ -380,7 +382,22 @@ def intervalo(metric_id: str, muestra: Muestra, *, diseno: str, estimando: str,
     levanta `EntradaNoMedible` cuando la propia PETICIÓN está mal cableada
     (IID sobre una muestra con unidades repetidas, grupos sin unidad
     declarada), que es la misma frontera error/indefinición que traza C1.
+
+    `formula` es la puerta para una cifra DERIVADA que no está —ni debe
+    estar— en el catálogo de C1 porque necesita un parámetro que el catálogo
+    no conoce: el PPV/NPV transportado a una prevalencia declarada (109-C2)
+    es el caso que la abrió. Sin ella, cada cifra derivada se traería su
+    propio bootstrap y acabaríamos con dos remuestreos que divergen; con
+    ella, **el remuestreo se decide en un solo sitio**, que es este. Va
+    siempre acompañada de `valor` —el punto ya calculado con esa misma
+    fórmula—: pedir un intervalo derivado sin decir de qué punto es sería
+    dejar que `calcular()` buscase en el catálogo un `metric_id` que por
+    definición no está, y el rechazo llegaría con un motivo que no explica
+    nada. `formula` recibe `(muestra, umbral)` y devuelve un número o
+    `Indefinida`, exactamente como las del registro.
     """
+    if formula is not None and valor is None:
+        raise EntradaNoMedible("intervalo_derivado_sin_punto", campo=metric_id)
     exigir_opcion(diseno, "diseno", TIPOS_DE_PARTICION)
     exigir_opcion(estimando, "estimando", ESTIMANDOS_DE_INTERVALO)
     exigir_entero(semilla, "semilla")
@@ -447,13 +464,13 @@ def intervalo(metric_id: str, muestra: Muestra, *, diseno: str, estimando: str,
         generador = lambda: _bloques_circulares(  # noqa: E731
             muestra.n, longitud_bloque_declarada, rng)
 
-    registrada = REGISTRO[metric_id]
+    regla = formula if formula is not None else REGISTRO[metric_id].formula
     valores: list[float] = []
     degeneradas = 0
     empieza = time.perf_counter()
     for _ in range(remuestras):
         recorte = _recortar(muestra, generador())
-        resultado = registrada.formula(recorte, umbral)
+        resultado = regla(recorte, umbral)
         if isinstance(resultado, Indefinida):
             degeneradas += 1
         else:
