@@ -63,13 +63,35 @@ secuencia, no método.
 
 ## La que está corriendo
 
-**`pasada_amplia_101_c5_resultado.json`** — lanzada el 2026-09-15
+**`pasada_amplia_101_c5_resultado.json`** — lanzada el 2026-09-15, **parada a
+las 2 horas y relanzada**
 · **40 conjuntos de datos, con los 8 sellados dentro** · 7 motores · 3.479
 intentos previstos · un punto de control por repetición
 · **Esta sí se declara a sí misma**: lleva `corte: "101-C5"` dentro. El guion
 nuevo aprendió lo que a los cuatro de arriba les falta.
+· **Y es la PRIMERA ANCLABLE de las cinco** (`anclable: true`, sin avisos). Las
+cuatro de arriba no lo son. Salió así porque antes de relanzar se commiteó la
+reparación y **se retiró el JSON parcial**, dejando los dos repos limpios: el
+número que salga de aquí se podrá volver a atar a un commit.
 · Mientras el fichero diga `parcial: true`, **está a medias**: no es evidencia
 de nada todavía.
+
+**POR QUÉ SE PARÓ, que es lo que hay que saber para leerla.** A los 1.904
+intentos aparecieron sus primeros 15 fallos: todos del mismo conjunto
+(`house_prices_nominal`) y del mismo motor —el nuestro—, muriendo en **0,9 s de
+un tope de 120**. No era el reloj. La causa: la lista de marcadores de dato
+ausente del núcleo incluye `"none"`, y ese conjunto **declara `None` en su
+cabecera ARFF como nivel válido** —«sin revestimiento de mampostería»—: **864 de
+1.460 filas** se leían como ausentes. La guarda que hizo saltar todo **no era el
+defecto: detectó una ambigüedad que existía de verdad.**
+
+Se reparó en la raíz (un nivel declarado es una categoría, no un ausente;
+`b2fad46` y `83b7f70`) y se relanzó con `--forzar`, porque el fichero tocado
+entra en la huella del caché. **Los 1.904 intentos se re-ejecutaron**: es el
+coste de que el código cambiara, y fue una decisión, no un descuido.
+
+**El artefacto parado se conserva** como registro de ese defecto, fuera del
+árbol, en el scratchpad de la sesión: `c5_parcial_antes_de_parar.json`.
 
 ---
 
