@@ -23,6 +23,11 @@ from typing import Any
 from matrixai.ir import MatrixAIProgram
 from matrixai.parameters.store import ParameterSet
 from matrixai.export.onnx_exporter import OnnxExportResult
+from matrixai.export.terceros import (
+    CLAVE_EN_LA_SPEC as _CLAVE_PROVEEDOR,
+    ComponenteDeTercerosIncompleto,
+    bloque_para_la_spec,
+)
 from matrixai.training.categorical import _build_group_names
 
 SPEC_VERSION = 1
@@ -45,6 +50,7 @@ def build_inference_spec(
     labels: list[str] | None = None,
     example_input: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
+    embedding_provider: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return the inference_spec.json payload for an exported model.
 
@@ -77,8 +83,32 @@ def build_inference_spec(
     # C5. La señal es EXPLÍCITA (nunca se infiere de vocab_size==259: sería
     # el mismo error de clasificación por coincidencia que ya se corrigió en
     # la auditoría C3 [MEDIA] para el routing de dataset).
+    # 107-C2 / invariante 6: las TRES cosas que hacen falta para prometer el
+    # mismo vector fuera —digest de los pesos, digest del tokenizer y el
+    # truncado con su fuente— viajan en la spec, que es el contrato que
+    # `predict.py` cumple. Se comprueba entera aquí: una spec con medio
+    # proveedor promete lo que no puede cumplir.
+    bloque_del_proveedor = None
+    if embedding_provider is not None:
+        try:
+            bloque_del_proveedor = bloque_para_la_spec(embedding_provider)
+        except ComponenteDeTercerosIncompleto as exc:
+            raise InferenceSpecError(
+                f"embedding_provider incompleto: falta o no vale {exc.faltan}"
+            ) from None
+
     sequences = list(getattr(program, "sequences", []) or [])
     if sequences:
+        if bloque_del_proveedor is not None:
+            # Una entrada SEQUENCE es el transformer PROPIO por bytes, con su
+            # tokenizador embebido: ahí no hay pesos de terceros que declarar.
+            # Un proveedor colado aquí sería un fallo de cableado que produce
+            # un paquete cuya spec dice dos cosas a la vez, y eso no se ve.
+            raise InferenceSpecError(
+                "embedding_provider con una entrada SEQUENCE: ese camino usa el "
+                "tokenizador propio embebido, no un proveedor de terceros. Las "
+                "columnas de texto de 107-C3 son columnas del VECTOR."
+            )
         return _build_sequence_inference_spec(
             program, parameter_set, export_result,
             labels=labels, example_input=example_input, field_seq=field_seq,
@@ -204,6 +234,8 @@ def build_inference_spec(
         "output": _build_output(program, export_result, labels, target_range),
         "notes": _NORMALIZE_NOTE,
     }
+    if bloque_del_proveedor is not None:
+        spec[_CLAVE_PROVEEDOR] = bloque_del_proveedor
     if example_input is not None:
         _validate_example_input(example_input, fields)
     return spec

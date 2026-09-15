@@ -79,6 +79,21 @@ _MOTIVOS: dict[str, dict[str, str]] = {
         "m_ficheros_sin_cubrir": ("el paquete lleva ficheros que el manifiesto no "
                                   "cubre, así que su integridad no se puede "
                                   "comprobar"),
+        # -- componente de terceros (107-C2) ------------------------------------
+        "tp_texto_sin_proveedor": (
+            "{fichero} dice que este modelo recibe columnas calculadas por un "
+            "proveedor de embeddings, y el manifiesto no declara ninguno: no consta "
+            "qué pesos de terceros produjeron esos números"),
+        "tp_proveedor_incompleto": (
+            "el paquete declara un proveedor de embeddings y su declaración está a "
+            "medias; falta o no vale: {faltan}"),
+        "tp_spec_sin_proveedor": (
+            "{fichero} no dice con qué proveedor se calcularon las columnas de texto, "
+            "así que fuera del paquete no se puede reproducir el mismo vector"),
+        "tp_no_cuadra": (
+            "el manifiesto y {fichero} declaran proveedores de embeddings que no "
+            "cuadran en {claves}: con otro tokenizer o con otro truncado el vector es "
+            "otro, aunque los pesos sean los mismos"),
         # -- etapa `R1` --------------------------------------------------------
         "r1_no_posible_segun_el_paquete": ("el propio paquete declara que R1 no es "
                                            "posible: «{cita}»"),
@@ -176,6 +191,21 @@ _MOTIVOS: dict[str, dict[str, str]] = {
                                 "declared sha256"),
         "m_ficheros_sin_cubrir": ("the package ships files the manifest does not "
                                   "cover, so their integrity cannot be checked"),
+        # -- third-party component (107-C2) --------------------------------------
+        "tp_texto_sin_proveedor": (
+            "{fichero} states this model takes columns computed by an embedding "
+            "provider, and the manifest declares none: which third-party weights "
+            "produced those numbers is not recorded"),
+        "tp_proveedor_incompleto": (
+            "the package declares an embedding provider and its declaration is "
+            "incomplete; missing or invalid: {faltan}"),
+        "tp_spec_sin_proveedor": (
+            "{fichero} does not say which provider computed the text columns, so the "
+            "same vector cannot be reproduced outside the package"),
+        "tp_no_cuadra": (
+            "the manifest and {fichero} declare embedding providers that disagree on "
+            "{claves}: with another tokenizer or another truncation the vector is a "
+            "different one, even with the same weights"),
         "r1_no_posible_segun_el_paquete": ("the package itself declares R1 is not "
                                            "possible: \"{cita}\""),
         "r1_no_posible": "R1 is not possible for this package",

@@ -26,6 +26,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from matrixai.export.terceros import (
+    CLAVE_EN_EL_MANIFIESTO as _CLAVE_PROVEEDOR,
+    componente_para_el_bom,
+    referencia_en_el_bom,
+    validar as _validar_proveedor,
+)
+
 __all__ = ["BomNoDisponible", "SPEC_VERSION", "ml_bom", "lo_que_falta"]
 
 #: La versión del esquema contra la que se emite y se VALIDA. La 1.5 fue la
@@ -93,6 +100,20 @@ def ml_bom(bundle_dir: str | Path) -> dict[str, Any]:
         _propiedad("matrixai:recipe.sha256", (art.get("recipe") or {}).get("sha256")),
         _propiedad("matrixai:training_contract.sha256", (art.get("training") or {}).get("sha256")),
     ]
+
+    # EL COMPONENTE DE TERCEROS (107-C2). Si el paquete declara un proveedor de
+    # embeddings, el BOM lo enumera con su licencia; si lo declara a medias, NO
+    # se enumera a medias —un componente sin licencia se lee como si estuviera
+    # declarado— y lo que sale es qué le falta, por su nombre.
+    proveedor = m.get(_CLAVE_PROVEEDOR)
+    faltan_del_proveedor = _validar_proveedor(proveedor) if proveedor is not None else []
+    if proveedor is not None:
+        if faltan_del_proveedor:
+            propiedades.append(_propiedad("matrixai:embedding_provider.missing",
+                                          ", ".join(faltan_del_proveedor)))
+        else:
+            propiedades.append(_propiedad("matrixai:embedding_provider",
+                                          str(proveedor.get("id"))))
 
 
     # LAS MÉTRICAS, con lo que hace falta para poder contrastarlas. Una métrica
@@ -176,6 +197,22 @@ def ml_bom(bundle_dir: str | Path) -> dict[str, Any]:
         }
         componentes.append(componente_datos)
 
+    # EL PROVEEDOR DE EMBEDDINGS, enumerado como lo que es: otro
+    # `machine-learning-model` del BOM, con su licencia y sus enlaces al origen.
+    # Y ENLAZADO al modelo por `dependencies`, que es la vía que CycloneDX tiene
+    # para decir «este modelo no funciona sin aquel»: una lista de componentes
+    # sueltos no dice quién usa a quién, y quien lea el BOM tiene que poder ver
+    # que sin esos pesos ajenos el paquete no predice.
+    dependencias_del_bom: list[dict[str, Any]] = []
+    if proveedor is not None and not faltan_del_proveedor:
+        componente_proveedor = componente_para_el_bom(proveedor)
+        componentes.append(componente_proveedor)
+        dependencias_del_bom.append({
+            "ref": modelo["bom-ref"],
+            "dependsOn": [referencia_en_el_bom(proveedor)],
+        })
+        dependencias_del_bom.append({"ref": referencia_en_el_bom(proveedor), "dependsOn": []})
+
     bom: dict[str, Any] = {
         "bomFormat": "CycloneDX",
         "specVersion": SPEC_VERSION,
@@ -190,6 +227,8 @@ def ml_bom(bundle_dir: str | Path) -> dict[str, Any]:
         },
         "components": componentes,
     }
+    if dependencias_del_bom:
+        bom["dependencies"] = dependencias_del_bom
     return bom
 
 
@@ -216,6 +255,17 @@ def _consideraciones(m: dict[str, Any], gen: dict[str, Any]) -> dict[str, Any]:
         limitaciones.append(
             "The dataset was generated in random mode: the target does not depend "
             "on the inputs, so the model cannot have learned anything")
+    # 107-C2: un componente de terceros declarado A MEDIAS es un aviso, no un
+    # detalle de formato. Quien lea el BOM tiene que enterarse de que el paquete
+    # dice usar unos pesos ajenos y no dice cuáles.
+    proveedor = m.get(_CLAVE_PROVEEDOR)
+    if proveedor is not None:
+        faltan = _validar_proveedor(proveedor)
+        if faltan:
+            limitaciones.append(
+                "This package declares a third-party embedding provider whose "
+                f"declaration is incomplete (missing: {', '.join(faltan)}): what "
+                "produced the model's text columns cannot be identified from here")
     return {"technicalLimitations": limitaciones} if limitaciones else {}
 
 
@@ -247,6 +297,14 @@ def lo_que_falta(bom: dict[str, Any]) -> list[str]:
         faltan.append(
             "licenses: the package does not declare a license for the model, and one "
             "is not invented here")
+    # 107-C2. Se dice QUÉ le falta al componente de terceros, no «hay un
+    # problema»: el que lee esto es quien tiene que ir a arreglarlo.
+    for propiedad in componente.get("properties") or []:
+        if propiedad.get("name") == "matrixai:embedding_provider.missing":
+            faltan.append(
+                "third-party embedding provider: the package declares one but its "
+                f"declaration is incomplete ({propiedad.get('value')}), so it is not "
+                "enumerated as a component — half a component reads like a whole one")
     # Y DÓNDE SE FUE EL CONTEXTO DE LAS MÉTRICAS: `performanceMetric` de
     # CycloneDX no admite más campos que `type`, `value`, `slice` y
     # `confidenceInterval`, así que el digest del dataset y la dirección viajan

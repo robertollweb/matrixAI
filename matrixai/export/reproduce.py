@@ -69,6 +69,11 @@ from matrixai.training.metric_identity import (
     identidad_de_metrica,
     tolerancia_medida,
 )
+from matrixai.export.terceros import (
+    CLAVE_EN_EL_MANIFIESTO as EMBEDDING_PROVIDER_KEY,
+    ComponenteDeTercerosIncompleto,
+    bloque_para_el_manifiesto,
+)
 
 #: Versión del formato de ESTE manifiesto (§5-C1 del contrato lo fija en "1.0").
 #: Un consumidor que no la reconozca debe negarse a interpretarlo, no adivinar.
@@ -77,6 +82,15 @@ from matrixai.training.metric_identity import (
 #: las clases** y la clase positiva—. `verify` ya acepta 1.0, 1.1 y 1.2, así que
 #: un paquete nuevo no se vuelve ilegible; y un manifiesto 1.0 no lleva
 #: `problem`, que es distinto de llevarlo vacío.
+#:
+#: **107-C2 añade `embedding_provider` y NO sube la versión, a sabiendas.** El
+#: precedente (1.0 → 1.1 por `problem`) diría que sí, pero subirla aquí no
+#: compra lo que parece: `verify` ya acepta 1.0, 1.1 y 1.2, así que un
+#: verificador viejo no rechazaría un paquete con texto por la versión —lo
+#: rechaza por el bloque, que es donde se comprueba (`_verificar_terceros`)—.
+#: Y sí cuesta: la lista de versiones es vocabulario compartido con el Studio.
+#: Queda declarado como decisión pendiente, no como olvido, y hay una prueba a
+#: su nombre de que la puerta cierra igual con 1.1.
 REPRODUCE_SCHEMA_VERSION = "1.1"
 
 REPRODUCE_MANIFEST_FILENAME = "reproduce.json"
@@ -1381,6 +1395,7 @@ def build_reproduce_manifest(
     run_provenance: dict[str, Any] | None = None,
     weights_source: str | None = None,
     problem: Any | None = None,
+    embedding_provider: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Construye el `reproduce.json` de un bundle YA escrito en `bundle_dir`.
 
@@ -1435,6 +1450,20 @@ def build_reproduce_manifest(
     # puede arreglar, y el CLI valida su sidecar llamando aquí (ensayo en seco
     # sobre un directorio vacío, `cli.py::_load_reproduce_metadata`).
     validate_generation_payload(generation)
+    # EL COMPONENTE DE TERCEROS (107-C2), también ANTES de escribir nada. Un
+    # embedding preentrenado es opaco y el expediente lo escribe así; si la
+    # declaración llega a medias, el paquete se para aquí —donde todavía se
+    # puede arreglar— en vez de viajar con medio componente, que se lee como
+    # si el proveedor estuviera declarado. `None` es «este paquete no usa
+    # ninguno», que no es lo mismo que «no consta»: sin columnas de texto no
+    # hay proveedor que declarar.
+    if embedding_provider is not None:
+        try:
+            embedding_provider = bloque_para_el_manifiesto(embedding_provider)
+        except ComponenteDeTercerosIncompleto as exc:
+            raise ReproduceManifestError(
+                f"embedding_provider incompleto: falta o no vale {exc.faltan}"
+            ) from None
     # El problema se valida ANTES de escribir nada, igual que todo lo de arriba:
     # un `positive_label` que no está entre las clases es un fallo de cableado y
     # se corta donde todavía se puede arreglar.
@@ -1941,6 +1970,12 @@ def build_reproduce_manifest(
         # no es un cero, y un paquete que no declara su problema no es un
         # paquete cuyo problema esté vacío.
         "problem": problem_block,
+        # EL COMPONENTE DE TERCEROS (107-C2). Va SIEMPRE, con `null` cuando no
+        # hay ninguno: un paquete que calla no dice «no uso pesos ajenos», dice
+        # nada — y un embedding preentrenado es lo más opaco que puede llevar
+        # dentro. Lo que hay aquí sale del catálogo MEDIDO de 107-C1
+        # (`matrixai.text.embeddings.declaracion`), nunca de números tecleados.
+        EMBEDDING_PROVIDER_KEY: embedding_provider,
         "generation": generation_block,
         "environment": build_environment(),
         "metrics": metrics_block,

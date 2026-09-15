@@ -45,6 +45,16 @@ from matrixai.export.inference_spec import (
     build_inference_spec,
     build_example_input,
 )
+# 107-C2. Se reexportan solo los nombres que no se pueden confundir con otra
+# cosa dentro de `matrixai.export`: `validar` y `exigir_completo` a secas se
+# quedan en su módulo, porque en este paquete hay más de una cosa que validar.
+from matrixai.export.terceros import (
+    ComponenteDeTercerosIncompleto,
+    bloque_para_el_manifiesto,
+    bloque_para_la_spec,
+    componente_para_el_bom,
+    la_spec_usa_un_proveedor,
+)
 from matrixai.export.wasm_exporter import (
     WasmExportError,
     WasmExportResult,
@@ -87,6 +97,11 @@ __all__ = [
     "InferenceSpecError",
     "build_inference_spec",
     "build_example_input",
+    "ComponenteDeTercerosIncompleto",
+    "bloque_para_el_manifiesto",
+    "bloque_para_la_spec",
+    "componente_para_el_bom",
+    "la_spec_usa_un_proveedor",
     "WasmExportError",
     "WasmExportResult",
     "WasmExporter",

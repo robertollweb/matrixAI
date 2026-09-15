@@ -30,6 +30,15 @@ import json
 from pathlib import Path
 from typing import Any
 
+from matrixai.export.expediente_clinico import (
+    DOMINIOS,
+    POR_CLAVE,
+    ExpedienteClinico,
+    linea_de_campo,
+    rotulo_de_dominio,
+    sin_veredicto_de_riesgo,
+)
+
 __all__ = ["FichaNoDisponible", "ficha_tripod"]
 
 
@@ -37,37 +46,57 @@ class FichaNoDisponible(RuntimeError):
     """No hay paquete del que sacar la ficha."""
 
 
-#: Lo que este informe NO puede rellenar, y por qué. La lista es CERRADA y se
-#: imprime SIEMPRE: una ficha con huecos explicados es útil; una con huecos
-#: mudos se lee como un descuido, y una rellenada a ojo es peor que las dos.
-_NO_DISPONIBLE = {
-    "es": [
-        ("Datos ausentes", "el core no declara hoy ninguna política de valores "
-                           "ausentes, así que no se puede afirmar qué se hizo con ellos"),
-        ("Calibración", "no se calcula: el paquete publica exactitud y pérdidas, "
-                        "no una curva de calibración"),
-        ("Equidad por subgrupos", "no se calcula: haría falta declarar los "
-                                  "subgrupos y medir en cada uno"),
-        ("Financiación", "es del autor del estudio, no del run"),
-        ("Conflictos de interés", "ídem"),
-        ("Aprobación ética y registro del estudio", "ídem"),
-        ("Uso previsto y población destinataria", "lo escribe una persona; este "
-                                                  "informe lo pide, no lo inventa"),
-    ],
-    "en": [
-        ("Missing data", "the core declares no missing-data policy today, so what "
-                         "was done with them cannot be stated"),
-        ("Calibration", "not computed: the package publishes accuracy and losses, "
-                        "not a calibration curve"),
-        ("Subgroup fairness", "not computed: it would need the subgroups declared "
-                              "and measured one by one"),
-        ("Funding", "belongs to the study's author, not to the run"),
-        ("Conflicts of interest", "idem"),
-        ("Ethical approval and study registration", "idem"),
-        ("Intended use and target population", "a person writes this; this report "
-                                               "asks for it, it does not invent it"),
-    ],
-}
+#: Lo que este informe NO puede rellenar, y por qué.
+#:
+#: **LA LISTA YA NO ES CERRADA, Y ESA ES LA CORRECCIÓN DE 109-C3.** Cuando se
+#: escribió (85-C6) el core no medía calibración ni subgrupos ni declaraba
+#: política de ausentes, así que decir «no se calcula» era verdad. Desde
+#: 105-C3/C4 y 109-C2 lo mide, y dejar el aviso puesto lo convertiría en una
+#: frase falsa dentro de una ficha cuyo único valor es no decir ninguna: un
+#: apaño que caduca sin avisar es peor que no ponerlo.
+#:
+#: Ahora cada línea lleva **la clave del inventario que la rellenaría**. Si ese
+#: campo está en el paquete, la línea no se imprime — porque ya no falta. Las
+#: que llevan `None` no las puede rellenar ningún run: son del autor del
+#: estudio.
+#:
+#: Y los motivos de las que SÍ tienen clave se han reescrito: lo que pasa hoy
+#: no es que el core no sepa medirlo, es que ESTE paquete no lo trae.
+_NO_DISPONIBLE: tuple[tuple[str | None, dict[str, tuple[str, str]]], ...] = (
+    ("politica_de_faltantes", {
+        "es": ("Datos ausentes",
+               "este paquete no declara ninguna política de valores ausentes, así "
+               "que no se puede afirmar qué se hizo con ellos"),
+        "en": ("Missing data",
+               "this package declares no missing-value policy, so what was done "
+               "with them cannot be stated")}),
+    ("calibracion", {
+        "es": ("Calibración",
+               "este paquete no trae la curva de calibración que el core sabe "
+               "medir (105-C3)"),
+        "en": ("Calibration",
+               "this package ships no calibration curve, which the core does know "
+               "how to measure (105-C3)")}),
+    ("subgrupos", {
+        "es": ("Equidad por subgrupos",
+               "este paquete no trae ningún subgrupo medido; hace falta que el "
+               "equipo los predefina (105-C4)"),
+        "en": ("Subgroup fairness",
+               "this package ships no measured subgroup; it needs a team to "
+               "predefine them (105-C4)")}),
+    (None, {"es": ("Financiación", "es del autor del estudio, no del run"),
+            "en": ("Funding", "belongs to a study's author, not to a run")}),
+    (None, {"es": ("Conflictos de interés", "ídem"),
+            "en": ("Conflicts of interest", "idem")}),
+    (None, {"es": ("Aprobación ética y registro del estudio", "ídem"),
+            "en": ("Ethical approval and study registration", "idem")}),
+    ("uso_previsto", {
+        "es": ("Uso previsto y población destinataria",
+               "lo escribe una persona; este informe lo pide, no lo inventa"),
+        "en": ("Intended use and target population",
+               "a person writes this; this report asks for it, it does not invent "
+               "it")}),
+)
 
 _T = {
     "es": {
@@ -93,6 +122,17 @@ _T = {
         "disponibilidad": "Disponibilidad del modelo",
         "reproducibilidad": "Reproducibilidad",
         "no_disponible": "Lo que esta ficha NO puede rellenar",
+        "perfil": "Perfil clínico de la tarea (109-C2)",
+        "perfil_intro": "Lo que este paquete sostiene de lo que un revisor "
+                        "pregunta, y el campo del que sale cada línea. Se rellena "
+                        "lo medido, se marca lo declarado y se enumera lo que "
+                        "falta; **esta ficha no emite ningún juicio sobre el "
+                        "riesgo de sesgo**, que lo pone quien revisa el estudio.",
+        "perfil_sin_piloto": "**El corte que escribe esta sección está marcado "
+                             "«solo si el piloto lo necesita», y no hay piloto.** "
+                             "El contrato 109 se abrió el 2026-09-14 sin "
+                             "disparador, a sabiendas.",
+        "perfil_avisos": "Avisos sobre el propio paquete",
         "sin_dato": "no disponible",
         "paquete_usable": "El paquete incluye `model.onnx`, `predict.py` e "
                           "`inference_spec.json`: predice con valores crudos sin "
@@ -127,6 +167,17 @@ _T = {
         "disponibilidad": "Model availability",
         "reproducibilidad": "Reproducibility",
         "no_disponible": "What this record CANNOT fill in",
+        "perfil": "Clinical task profile (109-C2)",
+        "perfil_intro": "What this package supports of what a reviewer asks, and "
+                        "where every line comes from. Measured items are filled "
+                        "in, declared items are marked, missing items are listed; "
+                        "**this record passes no judgement on risk of bias**, "
+                        "which is made by whoever reviews a study.",
+        "perfil_sin_piloto": "**The cut writing this section is marked «only if a "
+                             "pilot needs it», and there is no pilot.** Contract "
+                             "109 was opened on 2026-09-14 without a trigger, "
+                             "knowingly.",
+        "perfil_avisos": "Warnings about this package itself",
         "sin_dato": "not available",
         "paquete_usable": "The package ships `model.onnx`, `predict.py` and "
                           "`inference_spec.json`: it predicts from raw values with no "
@@ -145,14 +196,23 @@ def _t(locale: str) -> dict[str, str]:
     return _T.get(str(locale or "en").strip().lower(), _T["en"])
 
 
-def _linea(rotulo: str, valor: Any, sin_dato: str, motivo: str = "") -> str:
-    """Una línea de la ficha: su valor, o que no lo hay **y por qué**."""
+def _linea(rotulo: str, valor: Any, sin_dato: str, motivo: str = "",
+           ruta: str = "") -> str:
+    """Una línea de la ficha: su valor, o que no lo hay **y por qué**, y SU RUTA.
+
+    La ruta (`fichero#campo`) cierra el criterio de terminado del 109-C3: cada
+    frase de la ficha traza a un campo. Va también cuando el dato no está —
+    sobre todo entonces—: saber QUÉ campo lo arreglaría es la mitad útil de un
+    hueco, y una ficha de reporte cuyo lector no puede comprobar una línea vale
+    lo mismo que una rellenada de memoria.
+    """
+    cola_ruta = f" · `{ruta}`" if ruta else ""
     if valor in (None, "", [], {}):
         cola = f" ({motivo})" if motivo else ""
-        return f"- **{rotulo}**: _{sin_dato}_{cola}"
+        return f"- **{rotulo}**: _{sin_dato}_{cola}{cola_ruta}"
     if isinstance(valor, (list, tuple)):
         valor = ", ".join(str(v) for v in valor)
-    return f"- **{rotulo}**: {valor}"
+    return f"- **{rotulo}**: {valor}{cola_ruta}"
 
 
 def _campos_del_modelo(bundle: Path) -> list[str]:
@@ -222,9 +282,12 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
     modo = gen.get("mode")
     filas.append(_linea(t["fuente"],
                         f"`{modo}`" if modo else None, t["sin_dato"],
-                        t["m_sin_modo"]))
-    filas.append(_linea(t["filas"], (art.get("dataset") or {}).get("rows"), t["sin_dato"]))
-    filas.append(_linea(t["huella_datos"], (art.get("dataset") or {}).get("sha256"), t["sin_dato"]))
+                        t["m_sin_modo"], "reproduce.json#generation.mode"))
+    filas.append(_linea(t["filas"], (art.get("dataset") or {}).get("rows"),
+                        t["sin_dato"], ruta="reproduce.json#artifacts.dataset.rows"))
+    filas.append(_linea(t["huella_datos"], (art.get("dataset") or {}).get("sha256"),
+                        t["sin_dato"],
+                        ruta="reproduce.json#artifacts.dataset.sha256"))
     # LOS PREDICTORES, DEL MODELO SI EL MANIFIESTO NO LOS TRAE.
     #
     # La primera ficha de la galería decía «Predictores: no disponible» sobre un
@@ -234,15 +297,21 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
     #
     # Leerlos del modelo empaquetado no es inventarlos: es citar el fichero que
     # viaja al lado, y por eso se dice de dónde salen.
-    _predictores = list((gen.get("field_types") or {}).keys()) or _campos_del_modelo(bundle)
+    _del_manifiesto = list((gen.get("field_types") or {}).keys())
+    _predictores = _del_manifiesto or _campos_del_modelo(bundle)
     filas.append(_linea(t["predictores"], _predictores or None,
-                        t["sin_dato"], t["m_sin_tipos"]))
-    filas.append(_linea(t["excluidas"], gen.get("excluded_identifiers"), t["sin_dato"]))
+                        t["sin_dato"], t["m_sin_tipos"],
+                        ruta=("reproduce.json#generation.field_types"
+                              if _del_manifiesto else "model.mxai#vectors")))
+    filas.append(_linea(t["excluidas"], gen.get("excluded_identifiers"),
+                        t["sin_dato"],
+                        ruta="reproduce.json#generation.excluded_identifiers"))
     filas.append(_linea(t["particion"], json.dumps(gen.get("seeds"), sort_keys=True)
-                        if gen.get("seeds") else None, t["sin_dato"]))
+                        if gen.get("seeds") else None, t["sin_dato"],
+                        ruta="reproduce.json#generation.seeds"))
     if receta_txt:
         filas.append("")
-        filas.append(f"**{t['receta']}** (`data_recipe.txt`):")
+        filas.append(f"**{t['receta']}** · `data_recipe.txt#`:")
         filas.append("")
         filas.append("```")
         filas.append(receta_txt)
@@ -250,8 +319,11 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
     filas.append("")
 
     filas.append(f"## {t['modelo']}")
-    filas.append(_linea(t["arquitectura"], (art.get("model") or {}).get("sha256"), t["sin_dato"]))
-    filas.append(_linea(t["hiperparametros"], (art.get("training") or {}).get("sha256"), t["sin_dato"]))
+    filas.append(_linea(t["arquitectura"], (art.get("model") or {}).get("sha256"),
+                        t["sin_dato"], ruta="reproduce.json#artifacts.model.sha256"))
+    filas.append(_linea(t["hiperparametros"], (art.get("training") or {}).get("sha256"),
+                        t["sin_dato"],
+                        ruta="reproduce.json#artifacts.training.sha256"))
     # LAS TRES ÉPOCAS, Y NINGUNA COMO `None`. Imprimir «60 / None / None» pone
     # tres números en fila donde solo hay uno: un valor ausente no es un dato, y
     # aquí encima parece uno. Cada hueco se marca por su cuenta.
@@ -259,7 +331,8 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
     filas.append(_linea(
         t["epocas"],
         " / ".join(str(v) if v is not None else f"_{t['sin_dato']}_" for v in _epocas)
-        if any(v is not None for v in _epocas) else None, t["sin_dato"]))
+        if any(v is not None for v in _epocas) else None, t["sin_dato"],
+        ruta="reproduce.json#generation.epochs_declared+effective+ran"))
     _piezas = [
         f"matrixai {env['matrixai_version']}" if env.get("matrixai_version") else None,
         f"python {(env.get('python') or {}).get('version')}"
@@ -268,7 +341,7 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
         else (gen.get("backend") or gen.get("device")),
     ]
     filas.append(_linea(t["entorno"], " · ".join(p for p in _piezas if p) or None,
-                        t["sin_dato"]))
+                        t["sin_dato"], ruta="reproduce.json#environment"))
     filas.append("")
 
     filas.append(f"## {t['metricas']}")
@@ -279,24 +352,70 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
                 continue
             sobre = metrica.get("dataset_sha256")
             cola = f" ({t['medido_sobre']} `{str(sobre)[:12]}…`)" if sobre else ""
-            filas.append(f"- **{metrica.get('name')}**: {metrica.get('value')}{cola}")
+            filas.append(f"- **{metrica.get('name')}**: {metrica.get('value')}{cola}"
+                         f" · `reproduce.json#metrics`")
     else:
         # Y esto es lo que más importa de la sección: un modelo sin métricas
         # publicadas no se presenta con una tabla vacía que parezca un formato.
-        filas.append(f"- _{t['sin_dato']}_ ({t['m_sin_metricas']})")
+        filas.append(f"- _{t['sin_dato']}_ ({t['m_sin_metricas']}) "
+                     f"· `reproduce.json#metrics`")
     filas.append("")
+
+    # ── EL PERFIL CLÍNICO (109-C3) ────────────────────────────────────────────
+    #
+    # Solo si el paquete lo trae. Un paquete que no es clínico no necesita
+    # veinticuatro líneas diciendo que le falta todo lo clínico: el invariante 7
+    # del 109 dice que las funciones clínicas se construyen cuando un piloto las
+    # pide, y una sección entera de huecos sobre algo que nadie pidió es ruido,
+    # no rigor.
+    idioma = "es" if _t(locale) is _T["es"] else "en"
+    expediente = ExpedienteClinico.desde_paquete(bundle)
+    resueltos, avisos = expediente.resolver(idioma)
+    por_clave = {evidencia.clave: campo for evidencia, campo in resueltos}
+    if expediente.hay_perfil or expediente.tiene("team_declaration.json"):
+        filas.append(f"## {t['perfil']}")
+        filas.append("")
+        filas.append(f"> {t['perfil_intro']}")
+        filas.append(">")
+        filas.append(f"> {t['perfil_sin_piloto']}")
+        filas.append("")
+        for dominio in DOMINIOS:
+            entradas = [(e, c) for e, c in resueltos if e.dominio == dominio]
+            if not entradas:
+                continue
+            filas.append(f"### {rotulo_de_dominio(dominio, idioma)}")
+            filas.append("")
+            for evidencia, campo in entradas:
+                filas.append(linea_de_campo(evidencia, campo, idioma))
+            filas.append("")
+        if avisos:
+            filas.append(f"**{t['perfil_avisos']}**")
+            filas.append("")
+            for aviso in avisos:
+                filas.append(f"- {aviso}")
+            filas.append("")
 
     filas.append(f"## {t['disponibilidad']} · {t['reproducibilidad']}")
     filas.append(f"- {t['paquete_usable']}")
     if m.get("reproducible"):
-        filas.append(f"- {t['reproducible_si']}")
+        filas.append(f"- {t['reproducible_si']} · `reproduce.json#reproducible`")
     else:
         motivo = m.get("reproducible_reason") or ""
-        filas.append(f"- {t['reproducible_no']}: {motivo}")
+        filas.append(f"- {t['reproducible_no']}: {motivo} "
+                     f"· `reproduce.json#reproducible_reason`")
     filas.append("")
 
     filas.append(f"## {t['no_disponible']}")
-    for rotulo, motivo in _NO_DISPONIBLE[("es" if _t(locale) is _T["es"] else "en")]:
-        filas.append(f"- **{rotulo}**: {motivo}")
+    for clave, textos in _NO_DISPONIBLE:
+        # Lo que el paquete SÍ trae ya no falta, y decir que falta sería la
+        # media verdad tranquilizadora al revés: un hueco inventado.
+        if clave is not None and por_clave[clave].hay_dato:
+            continue
+        rotulo, motivo = textos[idioma]
+        cola = f" · `{POR_CLAVE[clave].ruta}`" if clave is not None else ""
+        filas.append(f"- **{rotulo}**: {motivo}{cola}")
     filas.append("")
-    return "\n".join(filas)
+    # LA ÚLTIMA PUERTA (invariante 6 del 109). Una ficha de reporte no califica
+    # el riesgo de sesgo ni en un sentido ni en el otro; si alguna redacción
+    # llega a hacerlo, esto revienta en vez de publicarlo.
+    return sin_veredicto_de_riesgo("\n".join(filas), origen="tripod.ficha_tripod")

@@ -45,6 +45,13 @@ from matrixai.export.reproduce import (
     manifest_digest,
     sha256_file,
 )
+from matrixai.export.terceros import (
+    CLAVE_EN_EL_MANIFIESTO as _CLAVE_PROVEEDOR,
+    CLAVE_EN_LA_SPEC as _CLAVE_PROVEEDOR_SPEC,
+    la_spec_usa_un_proveedor,
+    las_tres_cosas,
+    validar as _validar_proveedor,
+)
 from matrixai.export.verify_textos import IDIOMA_POR_DEFECTO, motivo
 
 __all__ = ["ESTADOS", "SALIDAS", "verify_package"]
@@ -180,6 +187,87 @@ def _ruta_fuera_del_paquete(
     return None
 
 
+#: El fichero del paquete que describe cómo se codifica la entrada. Es donde
+#: se ve si este paquete lleva TEXTO servido por un proveedor de terceros.
+_SPEC = "inference_spec.json"
+
+
+def _leer_la_spec(bundle: Path) -> dict[str, Any] | None:
+    """La `inference_spec` del paquete, o nada.
+
+    **Ilegible se trata como «no se puede saber», no como fallo**, y no es
+    dejadez: el inventario del manifiesto cubre TODOS los ficheros del paquete
+    con su sha256, así que una spec corrompida —o borrada para esquivar la
+    puerta de 107-C2— ya sale `FAIL` un par de líneas más arriba. Acusar aquí
+    otra vez convertiría un fichero roto en una acusación de manipulación, que
+    es exactamente lo que el 81 separa: *un fallo por falta de acceso no es una
+    manipulación*. Hay una prueba a nombre de esto.
+    """
+    ruta = bundle / _SPEC
+    if not ruta.is_file() or ruta.is_symlink():
+        return None
+    try:
+        datos = json.loads(ruta.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return datos if isinstance(datos, dict) else None
+
+
+def _verificar_terceros(
+    bundle: Path, manifiesto: dict[str, Any], *, locale: str = IDIOMA_POR_DEFECTO,
+) -> dict[str, Any] | None:
+    """107-C2 — un paquete con texto sin `embedding_provider` completo NO valida.
+
+    Devuelve la etapa fallada, o `None` si no hay nada que reprochar.
+
+    Tres cosas distintas, y cada una con su motivo, porque obligan a mirar
+    sitios distintos:
+
+    * el paquete tiene columnas de texto y no declara de dónde salen;
+    * declara un proveedor y la declaración está a medias (se nombran los
+      campos: un «está incompleto» obliga a adivinar cuál);
+    * el manifiesto y la `inference_spec` declaran proveedores que no cuadran
+      —y eso se mira por las TRES cosas del invariante 6, no solo por el id:
+      mismo modelo con otro tokenizer, o con otro truncado, es otro vector—.
+    """
+    declarado = manifiesto.get(_CLAVE_PROVEEDOR)
+    spec = _leer_la_spec(bundle)
+    lleva_texto = la_spec_usa_un_proveedor(spec)
+
+    if declarado is None:
+        if lleva_texto:
+            return _etapa("FAIL", motivo("tp_texto_sin_proveedor", locale, fichero=_SPEC))
+        return None
+
+    faltan = _validar_proveedor(declarado)
+    if faltan:
+        return _etapa("FAIL", motivo("tp_proveedor_incompleto", locale,
+                                     faltan=", ".join(faltan)),
+                      embedding_provider={"missing": faltan})
+
+    if not lleva_texto:
+        return None
+
+    en_la_spec = spec.get(_CLAVE_PROVEEDOR_SPEC) if isinstance(spec, dict) else None
+    if not isinstance(en_la_spec, dict):
+        # El paquete lleva columnas de texto y la spec no dice con qué se
+        # calcularon: `predict.py` no puede reproducir el mismo vector fuera, y
+        # ese es justo el criterio de 107-C4.
+        return _etapa("FAIL", motivo("tp_spec_sin_proveedor", locale, fichero=_SPEC))
+
+    del_manifiesto = las_tres_cosas(declarado)
+    de_la_spec = las_tres_cosas(en_la_spec)
+    discrepan = sorted(k for k in del_manifiesto if del_manifiesto[k] != de_la_spec[k])
+    if str(en_la_spec.get("revision") or "") != str(declarado.get("revision") or ""):
+        discrepan.append("revision")
+    if str(en_la_spec.get("id") or "") != str(declarado.get("id") or ""):
+        discrepan.append("id")
+    if discrepan:
+        return _etapa("FAIL", motivo("tp_no_cuadra", locale, fichero=_SPEC,
+                                     claves=", ".join(sorted(set(discrepan)))))
+    return None
+
+
 def _verificar_manifiesto(
     bundle: Path, manifiesto: dict[str, Any], *, locale: str = IDIOMA_POR_DEFECTO,
 ) -> dict[str, Any]:
@@ -300,6 +388,15 @@ def _verificar_manifiesto(
     if rotos_del_inventario:
         return _etapa("FAIL", motivo("m_fichero_no_cuadra", locale),
                       artifacts=rotos_del_inventario)
+    # 107-C2 — LO QUE EL PAQUETE USA DE TERCEROS. Va aquí y no en una etapa
+    # nueva: las cuatro etapas son vocabulario público (`_ORDEN`) y quien
+    # encadena `verify && desplegar` depende de ellas. Y va ANTES del
+    # `INCOMPARABLE` de abajo porque un `FAIL` no se degrada: que además falten
+    # ficheros por cubrir no hace menos cierto que el paquete no dice con qué
+    # pesos ajenos calculó sus columnas.
+    fallo_de_terceros = _verificar_terceros(bundle, manifiesto, locale=locale)
+    if fallo_de_terceros is not None:
+        return fallo_de_terceros
     if sin_cubrir:
         # NO es `FAIL`: el paquete no miente, es que no cubre esos
         # ficheros — y decir `PASS` sería afirmar sobre lo que no se ha
