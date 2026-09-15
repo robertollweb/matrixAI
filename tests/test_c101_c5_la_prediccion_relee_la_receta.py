@@ -198,5 +198,50 @@ class AusenteNoEsVaciaYSeNotaAlRELEERTest(unittest.TestCase):
         self.assertIn("no conoce", str(e.exception))
 
 
+class ElObjetivoCONSTANTE_dependeDeQuienLeeLosNulosTest(unittest.TestCase):
+    """**Un parámetro con cero llamantes de producción y cero dientes** — así lo
+    encontró la auditoría del 2026-09-15: `constant_target_error` creció
+    `tokens_de_ausencia` con un docstring explicando por qué hacía falta («las
+    haría divergir sin que nadie lo notara»), y **ignorarlo por completo dejaba
+    las 19 pruebas del arreglo en verde**.
+
+    Lo que no se había medido es **qué le pasa a quien usa esto**, y es peor de
+    lo que suena. Con un objetivo cuyos niveles incluyan `None` —«sin
+    revestimiento», «sin complicación», «ninguno»—:
+
+    · **sin declarar**, los `None` se leen como huecos, queda un solo valor, y
+      el producto RECHAZA el CSV diciendo «no hay nada que aprender»;
+    · **declarando**, son dos clases y el estudio arranca.
+
+    O sea que el parámetro es la diferencia entre **entrenar** y **que te digan
+    que tus datos no sirven**. Medido abajo, no razonado.
+
+    Y nadie de producción lo pasa todavía: es una defensa colocada antes de su
+    llamante. Que esté probada es lo único que impide que alguien la
+    «simplifique» por no ver quién la usa.
+    """
+
+    _CSV = ("revestimiento,objetivo\n"
+            "A,None\nB,None\nC,None\nD,Piedra\nE,None\nF,Piedra\n")
+
+    def test_sin_declarar_un_objetivo_ENTRENABLE_se_rechaza(self):
+        from matrixai.training.dataset_analysis import constant_target_error
+
+        error = constant_target_error(self._CSV, "objetivo")
+        self.assertIsNotNone(
+            error, "sin declaración, los `None` son huecos y queda un solo "
+                   "valor: el producto tiene que decirlo")
+        self.assertIn("un único valor", error)
+
+    def test_declarando_la_ausencia_el_MISMO_csv_es_entrenable(self):
+        from matrixai.training.dataset_analysis import constant_target_error
+
+        self.assertIsNone(
+            constant_target_error(self._CSV, "objetivo", tokens_de_ausencia={""}),
+            "con la declaración, `None` es una clase más y hay DOS: rechazar "
+            "este CSV sería decirle a quien lo trae que sus datos no sirven "
+            "cuando el que no sirve es nuestro criterio de lectura")
+
+
 if __name__ == "__main__":
     unittest.main()
