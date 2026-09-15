@@ -203,6 +203,24 @@ def validar(componente: Any) -> list[str]:
     if not _texto(componente.get("opacidad")):
         faltan.append("opacidad")
 
+    # Y LA OTRA MITAD DEL INVARIANTE 4, que faltaba: «declarar lo que se conoce
+    # Y LO QUE NO». Hasta el 2026-09-15 esto no se exigía, y el hueco no era
+    # teórico: el único de los seis proveedores que cubre el español producía
+    # un componente VÁLIDO con esta mitad vacía. Medido entonces, las TRES
+    # variantes pasaban el validador — sin la clave, con la lista vacía, y con
+    # cadenas en blanco dentro.
+    #
+    # Las tres se rechazan, y son tres a propósito: «no hay clave» es un
+    # olvido, «lista vacía» AFIRMA que de este modelo se sabe todo —que de un
+    # embedding preentrenado es siempre falso— y «entradas en blanco» es la
+    # forma de cumplir el tipo sin decir nada. La segunda es la peligrosa: se
+    # lee como una respuesta.
+    no_se_sabe = componente.get("lo_que_no_se_sabe")
+    if not isinstance(no_se_sabe, list) or not no_se_sabe:
+        faltan.append("lo_que_no_se_sabe")
+    elif not all(_texto(entrada) for entrada in no_se_sabe):
+        faltan.append("lo_que_no_se_sabe")
+
     # «mientras no se ajuste nada» (107-C2). Cualquier otro valor describe un
     # modelo que ya no es el del catálogo, y este expediente no lo cubre.
     if componente.get("datos_de_ajuste") != "ninguno":
