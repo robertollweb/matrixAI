@@ -10,6 +10,14 @@
 # `matrixai/ci/verify_action.py`, en Python, donde la suite lo prueba y se
 # puede sabotear. Si este YAML crece, es que algo se ha escapado al sitio
 # que nadie puede medir.
+#
+# NINGUNA ENTRADA SE INTERPOLA DENTRO DE UN `run:`. Las seis entraban como
+# `${{ inputs.X }}` dentro del guion, que es sustitución de TEXTO antes de
+# que bash lea nada: con `package: 'pkg.zip" ; curl … ; echo "'` se
+# ejecutaba código arbitrario en el runner de quien usara la acción, y de
+# paso el `;` se comía el `--require`, así que la verificación corría con el
+# defecto sin que se viera. Van por `env:` y se leen entrecomilladas, que es
+# lo único que hace que su contenido sea un VALOR y no un trozo de guion.
 name: matrixai verify
 description: >-
   Verifies a MatrixAI package and fails the job with the verdict and the
@@ -27,13 +35,17 @@ inputs:
     required: false
     default: manifest,R1
   retrain:
-    description: Pass --retrain to verify (needed for training and R3).
+    description: >-
+      Pass --retrain to verify (needed for training and R3). One of
+      true/1/yes/on or false/0/no/off. Anything else is REJECTED, not read
+      as "no": guessing "no" here silently skips two of the four scopes.
     required: false
     default: 'false'
   engines:
     description: >-
       auto (install matrixai-engines only if the package asks for it),
-      skip, or an explicit requirement string.
+      skip, or an explicit pip requirement string, which IS installed
+      whether or not the package asks for it.
     required: false
     default: auto
   locale:
@@ -41,42 +53,98 @@ inputs:
     required: false
     default: en
   matrixai-version:
-    description: Version spec for matrixai-core, e.g. "==1.7.1".
+    description: >-
+      Version spec for matrixai-core, e.g. "==1.7.2". Empty takes the
+      latest release, which only works once a release ships
+      matrixai/ci/ — the second step says so out loud if it does not.
     required: false
     default: ''
+
+# Las tres salidas que el módulo escribe en `$GITHUB_OUTPUT`. Sin declararlas
+# aquí (y sin `id:` en el paso), se escribían y NADIE podía leerlas: un flujo
+# que quisiera decidir algo con el veredicto tenía que volver a parsear el
+# resumen. Se escriben SIEMPRE, también cuando la acción no pudo ni empezar.
+outputs:
+  verdict:
+    description: VERIFIED, PARTIAL, FAILED or NOT VERIFIED.
+    value: ${{ steps.verify.outputs.verdict }}
+  exit-code:
+    description: >-
+      0 everything required was carried out and nothing failed; 1 the action
+      could not start; 2 something was checked and was wrong; 3 something
+      required was not carried out.
+    value: ${{ steps.verify.outputs.exit-code }}
+  unperformed-scopes:
+    description: Comma-separated scopes that were NOT carried out.
+    value: ${{ steps.verify.outputs.unperformed-scopes }}
 
 runs:
   using: composite
   steps:
-    # 1/3 — el intérprete. Sin versión fijada aquí a propósito: quien use la
+    # 1/4 — el intérprete. Sin versión fijada aquí a propósito: quien use la
     # acción decide la suya con `actions/setup-python` antes, que es donde su
     # flujo ya declara el resto de su entorno.
+    #
+    # Y la ruta del informe se declara UNA vez, aquí, antes de nada: estaba
+    # escrita en dos sitios (`${RUNNER_TEMP:-/tmp}` en el guion y
+    # `${{ runner.temp }}` en la subida) y *dos sitios declarando lo mismo
+    # acaban divergiendo* — con `RUNNER_TEMP` vacío se escribía en `/tmp` y
+    # se subía desde otro lado, sin más síntoma que un artefacto vacío.
     - name: Install matrixai-core
       shell: bash
-      run: python -m pip install --disable-pip-version-check "matrixai-core${{ inputs.matrixai-version }}"
+      env:
+        MATRIXAI_VERSION: ${{ inputs.matrixai-version }}
+        MATRIXAI_REPORT_PATH: ${{ runner.temp }}/matrixai-verify.json
+      run: |
+        echo "MATRIXAI_VERIFY_REPORT=$MATRIXAI_REPORT_PATH" >> "$GITHUB_ENV"
+        python -m pip install --disable-pip-version-check "matrixai-core$MATRIXAI_VERSION"
 
-    # 2/3 — TODO lo que decide. `matrixai-engines` se instala AQUÍ DENTRO y
+    # 2/4 — LA GUARDA. Que el paquete instalado traiga de verdad el módulo que
+    # el paso siguiente ejecuta. Sin esto, un matrixai-core sin `matrixai/ci/`
+    # —todos los publicados hasta 1.7.1 incluido, medido— mataba la acción con
+    # «No module named matrixai.ci» y nada más. Vive en un fichero de la propia
+    # acción porque lo que comprueba es justo que el módulo NO está.
+    - name: Check this matrixai-core ships the verify action
+      shell: bash
+      run: python "$GITHUB_ACTION_PATH/preflight.py"
+
+    # 3/4 — TODO lo que decide. `matrixai-engines` se instala AQUÍ DENTRO y
     # solo si el paquete lo pide: instalarlo siempre haría que un paquete que
     # declara no necesitarlo se verificara igual, tapando justo el fallo que
     # `verify` existe para encontrar.
     - name: Verify
+      id: verify
       shell: bash
+      env:
+        MATRIXAI_PACKAGE: ${{ inputs.package }}
+        MATRIXAI_REQUIRE: ${{ inputs.require }}
+        MATRIXAI_RETRAIN: ${{ inputs.retrain }}
+        MATRIXAI_ENGINES: ${{ inputs.engines }}
+        MATRIXAI_LOCALE: ${{ inputs.locale }}
       run: |
         python -m matrixai.ci.verify_action \
-          --package "${{ inputs.package }}" \
-          --require "${{ inputs.require }}" \
-          --retrain "${{ inputs.retrain }}" \
-          --engines "${{ inputs.engines }}" \
-          --locale  "${{ inputs.locale }}" \
-          --report  "${RUNNER_TEMP:-/tmp}/matrixai-verify.json"
+          --package "$MATRIXAI_PACKAGE" \
+          --require "$MATRIXAI_REQUIRE" \
+          --retrain "$MATRIXAI_RETRAIN" \
+          --engines "$MATRIXAI_ENGINES" \
+          --locale  "$MATRIXAI_LOCALE" \
+          --report  "$MATRIXAI_VERIFY_REPORT"
 
-    # 3/3 — el informe crudo, SIEMPRE, también cuando el paso anterior falló.
-    # Un trabajo rojo sin el informe obliga a repetir la verificación para
-    # saber qué pasó, y repetirla puede dar otra cosa.
+    # 4/4 — el informe, SIEMPRE, también cuando el paso anterior falló. Un
+    # trabajo rojo sin el informe obliga a repetir la verificación para saber
+    # qué pasó, y repetirla puede dar otra cosa.
+    #
+    # Qué lleva dentro, dicho con precisión porque antes se prometía «crudo» y
+    # era un `json.dumps(indent=2)`: la salida de `matrixai verify` TAL CUAL
+    # cuando `verify` llegó a hablar, y si no llegó —entrada mala, paquete que
+    # no existe, `matrixai-engines` que no se pudo instalar, salida ilegible—,
+    # un registro de la propia acción (`matrixai_verify_action`) que dice qué
+    # pasó y con qué código se salió. Nunca vacío y nunca disfrazado de
+    # informe de `verify`.
     - name: Upload verify report
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: matrixai-verify-report
-        path: ${{ runner.temp }}/matrixai-verify.json
+        path: ${{ env.MATRIXAI_VERIFY_REPORT }}
         if-no-files-found: warn

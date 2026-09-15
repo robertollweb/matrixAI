@@ -56,8 +56,10 @@ from typing import Any, Callable, Sequence
 __all__ = [
     "ALCANCES", "ESTADOS_REALIZADOS", "REQUERIDOS_POR_DEFECTO", "SALIDAS",
     "Alcance", "PeticionDeEngines", "Veredicto",
+    "VALORES_VERDADEROS", "VALORES_FALSOS",
     "alcances_del_informe", "decidir", "peticion_de_engines",
-    "anotaciones", "resumen_markdown", "main",
+    "peticion_de_engines_de_la_ruta",
+    "anotaciones", "resumen_markdown", "main", "parser",
 ]
 
 #: Los cuatro alcances de `matrixai verify`, en su orden y con su nombre.
@@ -141,6 +143,11 @@ class Alcance:
     estado: str
     motivo: str | None = None
     exigido: bool = False
+    #: ¿Es uno de los cuatro de `ALCANCES`? Una etapa que `verify` traiga y
+    #: esta acción no conozca NO desaparece —se enseña marcada—, porque un
+    #: dibujo afirma por omisión: una fila que falta se lee como que no
+    #: había nada que decir, y el recuento seguiría diciendo «4 of 4».
+    conocido: bool = True
 
     @property
     def realizado(self) -> bool:
@@ -217,6 +224,25 @@ def alcances_del_informe(
             continue
         salida.append(Alcance(nombre, str(etapa.get("status") or "MISSING"),
                               etapa.get("reason") or None, nombre in exigidos))
+
+    # Y al revés: una etapa que el informe TRAE y esta acción no conoce
+    # tampoco se cae. `verify` puede crecer una quinta —la lista que manda
+    # es la suya, no la de aquí—, y sin esto desaparecía del resumen
+    # mientras el recuento seguía diciendo «4 of 4»: exactamente el «no se
+    # midió» que se lee como «no había nada que mirar».
+    for nombre, etapa in etapas.items():
+        if nombre in ALCANCES:
+            continue
+        nombre = str(nombre)
+        if isinstance(etapa, dict):
+            salida.append(Alcance(nombre, str(etapa.get("status") or "MISSING"),
+                                  etapa.get("reason") or None,
+                                  nombre in exigidos, conocido=False))
+        else:
+            salida.append(Alcance(nombre, "MISSING",
+                                  "verify reported this scope in a shape this "
+                                  "action does not understand",
+                                  nombre in exigidos, conocido=False))
     return tuple(salida)
 
 
@@ -369,7 +395,8 @@ _NOTA_106 = (
 
 def resumen_markdown(veredicto: Veredicto, *, paquete: str, orden: Sequence[str],
                      engines: PeticionDeEngines,
-                     engines_instalado: str | None = None) -> str:
+                     engines_instalado: str | None = None,
+                     modo_engines: str = "auto") -> str:
     """El resumen que se pega en `$GITHUB_STEP_SUMMARY`.
 
     Los alcances no realizados salen DOS veces a propósito: en la tabla,
@@ -397,7 +424,8 @@ def resumen_markdown(veredicto: Veredicto, *, paquete: str, orden: Sequence[str]
                "|---|---|---|---|---|"]
     for a in veredicto.alcances:
         motivo = (a.motivo or "").replace("|", "\\|")
-        lineas.append(f"| `{a.nombre}` | `{a.estado}` | "
+        nombre = f"`{a.nombre}`" if a.conocido else f"`{a.nombre}` (unknown)"
+        lineas.append(f"| {nombre} | `{a.estado}` | "
                       f"{'yes' if a.realizado else '**NO**'} | "
                       f"{'yes' if a.exigido else 'no'} | {motivo} |")
     lineas += ["", _LEYENDA, ""]
@@ -412,21 +440,50 @@ def resumen_markdown(veredicto: Veredicto, *, paquete: str, orden: Sequence[str]
                           f"{a.motivo or 'no reason given'}")
         lineas.append("")
 
+    desconocidas = [a for a in veredicto.alcances if not a.conocido]
+    if desconocidas:
+        lineas.append("### Scopes this action does not know")
+        lineas.append(
+            "`matrixai verify` reported these, and they are **not** among the "
+            "four this action knows ("
+            + ", ".join(f"`{n}`" for n in ALCANCES)
+            + "). They are listed and counted instead of dropped: a scope that "
+              "vanishes from the summary reads as a scope that had nothing to "
+              f"say, and the count above would still have said "
+              f"{len(ALCANCES)} of {len(ALCANCES)}.")
+        for a in desconocidas:
+            lineas.append(f"* `{a.nombre}` — `{a.estado}` — "
+                          f"{a.motivo or 'no reason given'}")
+        lineas.append("")
+
+    # Lo que PASÓ primero, y el porqué después. Esto decía «Not requested by
+    # the package… It was **not** installed» mirando solo al paquete, así que
+    # con `engines: matrixai-engines==0.3` —una petición EXPLÍCITA de quien
+    # escribe el flujo— el resumen negaba una instalación que sí había pasado.
+    modo = (modo_engines or "").strip()
     lineas.append("### matrixai-engines")
-    if engines.problema:
-        lineas.append(f"Could not be determined: {engines.problema}. "
-                      "It was **not** installed.")
+    if engines_instalado:
+        porque = (f"the package asks for it in `{engines.declarado_en}`"
+                  if engines.pedido and modo.lower() == "auto"
+                  else f"the workflow asked for it explicitly (`engines: {modo}`)")
+        lineas.append(f"**Installed** from `{engines_instalado}` — {porque}.")
+    elif modo.lower() == "skip":
+        lineas.append("**Not installed** — the workflow set `engines: skip`."
+                      + (f" Note the package DOES ask for it in "
+                         f"`{engines.declarado_en}`: verify may fail for that "
+                         f"reason alone." if engines.pedido else ""))
+    elif engines.problema:
+        lineas.append(f"**Not installed** — it could not be determined whether "
+                      f"the package asks for it: {engines.problema}.")
     elif engines.pedido:
-        lineas.append(f"Requested by the package (`{engines.declarado_en}`). "
-                      + (f"Installed from `{engines_instalado}`."
-                         if engines_instalado else
-                         "**NOT installed** — see the step log."))
+        lineas.append(f"**NOT installed** although the package asks for it in "
+                      f"`{engines.declarado_en}` — see the step log.")
     else:
         mirado = ", ".join(f"`{m}`" for m in engines.mirado_en) or "no dependency file"
-        lineas.append(f"Not requested by the package (looked in: {mirado}). "
-                      "It was **not** installed: installing it anyway would let a "
-                      "package that declares it does not need it verify all the "
-                      "same, hiding the very failure `verify` exists to find.")
+        lineas.append(f"**Not installed** — not requested by the package (looked "
+                      f"in: {mirado}). Installing it anyway would let a package "
+                      f"that declares it does not need it verify all the same, "
+                      f"hiding the very failure `verify` exists to find.")
     lineas += ["", _NOTA_106, ""]
     return "\n".join(lineas)
 
@@ -489,6 +546,40 @@ def _instalar_engines(requisito: str) -> tuple[bool, str]:
     return proceso.returncode == 0, salida.strip()
 
 
+#: Lo que `--retrain` entiende, y NADA MÁS. Cerrada a propósito y con las
+#: dos listas enteras en el mensaje de error.
+#:
+#: Esto era `in ("true","1","yes")`, de forma que cualquier otro valor
+#: significaba «no reentrenar», EN SILENCIO. MEDIDO el 2026-09-15: con
+#: `--retrain si` el informe salía diciendo «retraining was not requested
+#: (use --retrain)» —le decía a quien verifica que no lo había pedido y le
+#: sugería la bandera que acababa de poner—, y `training` y `R3` quedaban
+#: sin medir bajo un trabajo que podía acabar verde. Se falla CERRADO, como
+#: `--require`: un dedo no puede apagar dos evidencias sin que se vea.
+VALORES_VERDADEROS = ("true", "1", "yes", "on")
+VALORES_FALSOS = ("false", "0", "no", "off")
+
+#: Cuánto `stderr` de `verify` se guarda cuando no hubo informe que subir.
+#: Suficiente para ver la traza y no tanto como para que el artefacto sea
+#: el registro entero.
+_TOPE_STDERR = 4000
+
+
+def _booleano(texto: str) -> bool:
+    """Un sí/no de una entrada de flujo, FALLANDO CERRADO."""
+    t = str(texto).strip().lower()
+    if t in VALORES_VERDADEROS:
+        return True
+    if t in VALORES_FALSOS:
+        return False
+    raise ValueError(
+        f"{texto!r} is not a yes/no value; use one of "
+        f"{', '.join(VALORES_VERDADEROS)} (yes) or "
+        f"{', '.join(VALORES_FALSOS)} (no). It was NOT read as 'no': an input "
+        f"this action does not understand is rejected instead of guessed, "
+        f"because guessing 'no' here silently skips two of the four scopes")
+
+
 def _escribir(fichero_env: str, texto: str) -> None:
     destino = os.environ.get(fichero_env)
     if not destino:
@@ -497,10 +588,81 @@ def _escribir(fichero_env: str, texto: str) -> None:
         fh.write(texto + "\n")
 
 
-def main(argv: Sequence[str] | None = None, *,
-         ejecutar: Callable[[list[str]], tuple[int, str, str]] | None = None,
-         instalar: Callable[[str], tuple[bool, str]] | None = None) -> int:
-    """Lo que la acción ejecuta. Devuelve el código de salida del trabajo."""
+def _escribir_informe(ruta: str, texto: str) -> None:
+    """Deja el informe en `ruta`. No poder escribirlo NO cambia el veredicto.
+
+    Y se DICE con un `::warning` en vez de callarlo: el trabajo puede ser
+    verde de verdad y el artefacto haber quedado vacío, y quien se lo
+    descargue tiene que poder saber por qué sin repetir la verificación.
+    """
+    if not ruta:
+        return
+    try:
+        Path(ruta).write_text(texto, encoding="utf-8")
+    except OSError as exc:
+        print(f"::warning title=matrixai verify: report not written::{ruta}: {exc}")
+
+
+def _registro_de_la_accion(motivo: str, detalle: str, codigo: int,
+                           **extra: Any) -> str:
+    """El informe que se sube cuando `verify` NO llegó a hablar.
+
+    NO se le da forma de informe de `verify` —no trae `stages`— a
+    propósito: un fichero que se parece a un informe y no lo es se lee
+    como un informe. Dice de quién es, qué pasó y con qué código se salió.
+    """
+    return json.dumps({"matrixai_verify_action": {
+        "verify_ran": False, "outcome": motivo, "detail": detalle,
+        "exit_code": codigo, **extra}}, indent=2, ensure_ascii=False) + "\n"
+
+
+def _resumen_de_error(titular: str, detalle: str, codigo: int) -> str:
+    """El resumen de un retorno TEMPRANO: los cuatro alcances sin realizar.
+
+    Los cuatro retornos tempranos de este módulo no escribían NI informe NI
+    resumen NI salidas. Quien se encontraba el trabajo rojo por una entrada
+    mala se bajaba un artefacto que no existía y una página de trabajo sin
+    una palabra de por qué — y el `action.yml` promete el informe SIEMPRE.
+    """
+    return "\n".join([
+        "## matrixai verify — NOT VERIFIED", "",
+        f"**0 of {len(ALCANCES)} scopes were actually checked.** "
+        f"`matrixai verify` did not produce a report.", "",
+        f"**{titular}:** {detalle}", "",
+        "**NOT PERFORMED:** " + ", ".join(f"`{a}`" for a in ALCANCES)
+        + ". A scope that was not performed is not a scope that passed.", "",
+        f"* action exit code: `{codigo}`", "",
+        _LEYENDA, "", _NOTA_106, ""])
+
+
+def _terminar(codigo: int, *, report: str, informe: str, resumen: str,
+              titulo: str, sin_realizar: Sequence[str] = ()) -> int:
+    """EL ÚNICO sitio por el que se sale, para que no haya salidas mudas.
+
+    Informe, resumen y las tres salidas se escriben aquí y en ningún otro
+    lado: mientras cada retorno escribía lo suyo, cuatro de ellos no
+    escribían nada y nadie lo notaba porque el trabajo ya salía rojo.
+    """
+    print(resumen)
+    _escribir_informe(report, informe)
+    _escribir("GITHUB_STEP_SUMMARY", resumen)
+    _escribir("GITHUB_OUTPUT", f"verdict={titulo}")
+    _escribir("GITHUB_OUTPUT", f"exit-code={codigo}")
+    _escribir("GITHUB_OUTPUT", f"unperformed-scopes={','.join(sin_realizar)}")
+    return codigo
+
+
+def parser() -> argparse.ArgumentParser:
+    """La línea de órdenes, aparte de `main` Y PÚBLICA a propósito.
+
+    `action.yml` declara un defecto por entrada y este parser declara otro
+    para la misma bandera. *Dos sitios declarando lo mismo acaban
+    divergiendo*, y aquí divergir no se nota: el que manda es el del YAML
+    —que es el que nadie puede ejecutar fuera de GitHub— y quien lea el
+    módulo creerá otra cosa. Sacándolo de dentro de `main`, la suite puede
+    comparar los cuatro defectos uno a uno en vez de fiarse del que se
+    acordó de mirar.
+    """
     p = argparse.ArgumentParser(prog="matrixai-verify-action", add_help=True)
     p.add_argument("--package", required=True)
     p.add_argument("--require", default=",".join(REQUERIDOS_POR_DEFECTO))
@@ -510,44 +672,86 @@ def main(argv: Sequence[str] | None = None, *,
                    help="'auto' (install matrixai-engines only if the package "
                         "asks for it), 'skip', or a pip requirement to install")
     p.add_argument("--report", default="", help="Where to write verify's JSON report")
-    args = p.parse_args(list(argv) if argv is not None else None)
+    return p
+
+
+def main(argv: Sequence[str] | None = None, *,
+         ejecutar: Callable[[list[str]], tuple[int, str, str]] | None = None,
+         instalar: Callable[[str], tuple[bool, str]] | None = None) -> int:
+    """Lo que la acción ejecuta. Devuelve el código de salida del trabajo."""
+    args = parser().parse_args(list(argv) if argv is not None else None)
+    report = args.report
+
+    def _no_pudo_empezar(titular: str, motivo: str, detalle: str) -> int:
+        """Rojo, con el motivo arriba del todo Y en el informe que se sube."""
+        codigo = SALIDAS["error_de_uso"]
+        print(f"::error title=matrixai verify: {titular}::{detalle}")
+        return _terminar(codigo, report=report,
+                         informe=_registro_de_la_accion(motivo, detalle, codigo),
+                         resumen=_resumen_de_error(titular, detalle, codigo),
+                         titulo="NOT VERIFIED", sin_realizar=ALCANCES)
 
     try:
         requeridos = _requeridos(args.require)
     except ValueError as exc:
-        print(f"::error title=matrixai verify: bad input::require: {exc}")
-        return SALIDAS["error_de_uso"]
+        return _no_pudo_empezar("bad input", "bad-require", f"require: {exc}")
+
+    try:
+        reentrenar = _booleano(args.retrain)
+    except ValueError as exc:
+        return _no_pudo_empezar("bad input", "bad-retrain", f"retrain: {exc}")
 
     ruta = Path(args.package)
     if not ruta.exists():
         # `verify` sobre una ruta inexistente contesta «the package carries no
         # reproduce.json», que es verdad y ENGAÑA: suena a paquete incompleto
         # cuando lo que pasa es que ahí no hay nada. MEDIDO el 2026-09-15.
-        print(f"::error title=matrixai verify: package not found::"
-              f"{args.package} does not exist on the runner")
-        return SALIDAS["error_de_uso"]
+        return _no_pudo_empezar(
+            "package not found", "package-not-found",
+            f"{args.package} does not exist on the runner")
+
+    modo = args.engines.strip()
+    if not modo:
+        return _no_pudo_empezar(
+            "bad input", "bad-engines",
+            "engines: an empty value is not understood; use 'auto', 'skip', or "
+            "a pip requirement string")
 
     engines = peticion_de_engines_de_la_ruta(ruta)
     engines_instalado: str | None = None
-    if args.engines.strip().lower() == "skip":
-        pass
-    elif engines.pedido:
-        requisito = (_NOMBRE_ENGINES if args.engines.strip().lower() == "auto"
-                     else args.engines.strip())
+    requisito: str | None = None
+    if modo.lower() == "skip":
+        requisito = None
+    elif modo.lower() == "auto":
+        # `matrixai-engines` SOLO si el paquete lo pide: instalarlo siempre
+        # haría que un paquete que declara no necesitarlo se verificara
+        # igual, tapando justo el fallo que `verify` existe para encontrar.
+        if engines.pedido:
+            requisito = _NOMBRE_ENGINES
+    else:
+        # Una cadena explícita ES la petición, y viene de quien escribe el
+        # flujo. Esto estaba DOCUMENTADO en `action.yml` y no hacía nada:
+        # solo se miraba dentro del `elif engines.pedido`, así que
+        # `engines: matrixai-engines==0.3` sobre un paquete que no lo
+        # declara no instalaba nada y nadie lo decía.
+        requisito = modo
+
+    if requisito is not None:
         ok, log = (instalar or _instalar_engines)(requisito)
         print(log)
-        if ok:
-            engines_instalado = requisito
-        else:
-            # NO se sigue como si nada: el paquete dijo que lo necesita.
-            print(f"::error title=matrixai verify: matrixai-engines::the package "
-                  f"declares matrixai-engines in {engines.declarado_en} and it "
-                  f"could not be installed from '{requisito}'")
-            return SALIDAS["error_de_uso"]
+        if not ok:
+            # NO se sigue como si nada: alguien dijo que hacía falta.
+            quien = (f"the package declares matrixai-engines in "
+                     f"{engines.declarado_en}" if engines.pedido
+                     else f"the workflow asked for `engines: {modo}`")
+            return _no_pudo_empezar(
+                "matrixai-engines", "engines-install-failed",
+                f"{quien} and it could not be installed from '{requisito}'")
+        engines_instalado = requisito
 
     orden = [sys.executable, "-m", "matrixai", "verify", str(ruta), "--json",
              "--locale", args.locale]
-    if str(args.retrain).strip().lower() in ("true", "1", "yes"):
+    if reentrenar:
         orden.append("--retrain")
 
     if ejecutar is None:
@@ -556,32 +760,42 @@ def main(argv: Sequence[str] | None = None, *,
     else:
         codigo, salida, error = ejecutar(orden)
 
+    # Lo que se sube es la salida de `verify` TAL CUAL. Era un
+    # `json.dumps(indent=2)` —reordenado y reindentado— mientras el YAML lo
+    # anunciaba como «el informe crudo»: media verdad tranquilizadora, y
+    # además borraba justo lo que hay que mirar cuando el informe no se
+    # puede leer.
+    crudo = salida if salida.strip() else _registro_de_la_accion(
+        "verify-wrote-nothing",
+        "`matrixai verify` exited without writing anything to stdout",
+        SALIDAS["error_de_uso"], verify_exit_code=codigo,
+        verify_stderr=(error or "")[:_TOPE_STDERR])
+
     try:
         informe = json.loads(salida)
         if not isinstance(informe, dict):
             raise ValueError("the report is not a JSON object")
     except ValueError as exc:
-        print(f"::error title=matrixai verify: unreadable report::{exc}")
         if error:
             print(error)
-        return SALIDAS["error_de_uso"]
-
-    if args.report:
-        Path(args.report).write_text(json.dumps(informe, indent=2, ensure_ascii=False),
-                                     encoding="utf-8")
+        codigo_de_uso = SALIDAS["error_de_uso"]
+        detalle = (f"`matrixai verify` exited {codigo} and its output could not "
+                   f"be read as a JSON report: {exc}")
+        print(f"::error title=matrixai verify: unreadable report::{detalle}")
+        return _terminar(codigo_de_uso, report=report, informe=crudo,
+                         resumen=_resumen_de_error("unreadable report", detalle,
+                                                   codigo_de_uso),
+                         titulo="NOT VERIFIED", sin_realizar=ALCANCES)
 
     veredicto = decidir(informe, codigo, requeridos)
     for anotacion in anotaciones(veredicto):
         print(anotacion)
     resumen = resumen_markdown(veredicto, paquete=args.package, orden=orden,
-                               engines=engines, engines_instalado=engines_instalado)
-    print(resumen)
-    _escribir("GITHUB_STEP_SUMMARY", resumen)
-    _escribir("GITHUB_OUTPUT", f"verdict={veredicto.titulo}")
-    _escribir("GITHUB_OUTPUT", f"exit-code={veredicto.codigo}")
-    _escribir("GITHUB_OUTPUT",
-              f"unperformed-scopes={','.join(veredicto.sin_realizar)}")
-    return veredicto.codigo
+                               engines=engines, engines_instalado=engines_instalado,
+                               modo_engines=modo)
+    return _terminar(veredicto.codigo, report=report, informe=crudo,
+                     resumen=resumen, titulo=veredicto.titulo,
+                     sin_realizar=veredicto.sin_realizar)
 
 
 if __name__ == "__main__":  # pragma: no cover
