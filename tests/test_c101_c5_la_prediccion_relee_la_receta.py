@@ -139,5 +139,64 @@ class LaRecetaCongeladaLLEGA_A_LaPrediccionTest(unittest.TestCase):
         self.assertEqual(faltantes["revestimiento"]["category"], "__faltante__")
 
 
+class AusenteNoEsVaciaYSeNotaAlRELEERTest(unittest.TestCase):
+    """**La línea lo declara desde el primer día; la prueba con su nombre no
+    existía** (`dataset_project.py:1026`: «Se OMITE la clave cuando no se
+    declaró nada — AUSENTE no es VACÍA»).
+
+    Lo encontró la auditoría del 2026-09-15: escribir siempre la clave con `[]`
+    en vez de omitirla dejaba las 19 pruebas del arreglo **en verde**. Es el
+    patrón que esta casa persigue — *una línea que explica por qué NO hace lo
+    obvio necesita una prueba con su nombre*, o el siguiente que pase la
+    «simplifica» y el comentario se queda ahí sonando razonable.
+
+    Y no es una distinción de estilo: son dos afirmaciones **distintas**.
+    · **Ausente** = «quien compuso esta receta no dijo nada», así que se relee
+      con la heurística de entonces, que es lo correcto para el CSV de un
+      cliente escrito a mano.
+    · **Vacía** = «lo dijo, y dijo que aquí NO FALTA NADA».
+
+    Medido abajo: las dos dan resultados incompatibles, y el producto lo nota.
+    """
+
+    def test_una_receta_nacida_SIN_declarar_se_relee_con_la_heuristica(self):
+        """Los `None` cuentan como huecos, que es lo que quiso quien la hizo."""
+        res = generate_project_from_dataset(_csv(), target_column="precio")
+        faltantes = res["provenance"]["missing_values"]["missing_category"]
+        self.assertEqual(
+            faltantes["revestimiento"]["cells"], 7,
+            "sin declaración, los SEIS `None` y la celda vacía son huecos: son "
+            "siete. Si esto dijera 1, la heurística habría dejado de aplicarse "
+            "donde SÍ debe — el CSV de un cliente escrito a mano. (El número va "
+            "contado del propio `_csv()`, no estimado: mi primera versión puso "
+            "4 porque lo conté sobre otra tabla, y el aserto salió rojo. Un "
+            "aserto que falla puede estar mal EL ASERTO.)")
+
+    def test_meterle_la_lista_VACIA_a_esa_misma_receta_la_ROMPE(self):
+        """La prueba de que vacía y ausente no son lo mismo, por sus efectos.
+
+        La receta se compuso tratando `None` como hueco, así que su vocabulario
+        no contiene ese nivel. Decirle después «aquí no falta nada» hace que
+        `''` y `'None'` pasen a ser valores que el modelo **no conoce**, y la
+        re-preparación aborta en vez de inventarse una categoría.
+
+        Si algún día se escribiera `[]` donde hoy se omite la clave, esto se
+        pone rojo — y ésa es toda la diferencia que la línea declaraba.
+        """
+        crudo = _csv()
+        res = generate_project_from_dataset(crudo, target_column="precio")
+        spec = res["provenance"]["preparation_spec"]
+        self.assertNotIn("tokens_de_ausencia", spec)  # el control: nace omitida
+
+        con_lista_vacia = {
+            **res["provenance"],
+            "preparation_spec": {**spec, "tokens_de_ausencia": []},
+        }
+        with self.assertRaises(DatasetProjectError) as e:
+            prepare_dataset_from_provenance(
+                crudo, con_lista_vacia, allow_incompatible_spec=True)
+        self.assertIn("no conoce", str(e.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
