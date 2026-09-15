@@ -74,6 +74,24 @@ _BOOL_TRUE = {"true", "verdadero", "si", "sí", "yes", "y", "t", "1"}
 _BOOL_FALSE = {"false", "falso", "no", "n", "f", "0"}
 
 # Marcadores de nulo habituales en CSVs reales (case-insensitive).
+#
+# ESTA LISTA NO ES UN ERROR Y NO SE BORRA: en un CSV tecleado a mano —que es
+# el caso para el que se escribió— «none», «NA» o «-» casi siempre SÍ
+# significan «aquí no había dato», y quitarlos metería esas cadenas al modelo
+# como categorías inventadas. Es una HEURÍSTICA, y como tal solo vale cuando
+# nadie ha dicho nada mejor.
+#
+# LO QUE FALTABA ERA LA FORMA DE DECIR ALGO MEJOR. Medido el 2026-09-15 sobre
+# `house_prices_nominal` (OpenML 42563): su cabecera ARFF declara
+# `@ATTRIBUTE MasVnrType {BrkCmn, BrkFace, None, Stone}` — `None` es un NIVEL
+# de la columna, significa «sin revestimiento de mampostería», y aparece en
+# **864 de 1.460 filas (59,18 %)**. Los ausentes de verdad son 8 y llegan como
+# `?`. Con la heurística sola, esas 864 filas se contaban como ausentes
+# (`null_ratio` medido: 0,5918) y el nivel `None` DESAPARECÍA del vocabulario
+# (`cardinality` 4 en vez de 5, contando el centinela).
+#
+# `tokens_de_ausencia` es esa forma: quien produce el CSV y SABE cómo marca la
+# ausencia lo declara, y entonces la heurística no se aplica. Ver `_is_null`.
 _NULL_TOKENS = {"", "na", "n/a", "null", "nan", "none", "-", "?"}
 
 # Formatos de fecha/hora probados en orden — el primero que casa el 100% de
@@ -200,8 +218,13 @@ class DatasetAnalysisError(ValueError):
         self.details = details
 
 
-def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
+def analyze_dataset_csv(csv_text: str, *,
+                        tokens_de_ausencia: set[str] | None = None) -> dict[str, Any]:
     """Analiza un CSV real y propone un esquema — SUGERENCIA, no decisión.
+
+    `tokens_de_ausencia` lo declara quien PRODUJO el CSV y por tanto sabe cómo
+    marca lo que falta (ver `_is_null`). Sin él —el caso del CSV que alguien
+    sube a mano, y el que no cambia— se aplica la heurística de `_NULL_TOKENS`.
 
     Devuelve un dict con: `columns` (tipo/nulos/rango u vocabulario u
     unicidad por columna, según tipo), `column_order`, `duplicate_rows`,
@@ -310,7 +333,8 @@ def analyze_dataset_csv(csv_text: str) -> dict[str, Any]:
     column_infos: dict[str, dict[str, Any]] = {}
     for col in columns:
         raw_values = [row.get(col) for row in rows]
-        column_infos[col] = _analyze_column(raw_values, rows_analyzed, col)
+        column_infos[col] = _analyze_column(raw_values, rows_analyzed, col,
+                                            tokens_de_ausencia=tokens_de_ausencia)
 
     target_candidates = _rank_target_candidates(columns, column_infos)
     temporal_columns = [c for c in columns if column_infos[c]["type"] == "date"]
@@ -501,9 +525,47 @@ def _structural_damage(
 # Por columna
 # ---------------------------------------------------------------------------
 
-def _is_null(value: str | None) -> bool:
+#: Lo que un origen puede declarar sobre la ausencia en SU CSV.
+#:
+#: `None` (el valor por defecto en TODO este camino) significa «nadie lo ha
+#: declarado»: se aplica la heurística `_NULL_TOKENS` de siempre, y ese es el
+#: camino del CSV tecleado a mano, que no cambia.
+#:
+#: Un conjunto —incluido el conjunto VACÍO, que dice «en este CSV no falta
+#: nada»— significa «lo sé y te lo digo»: ausente es EXACTAMENTE lo que está
+#: aquí dentro, y cualquier otro valor es un valor, aunque se llame «None».
+TokensDeAusencia = "frozenset[str] | set[str] | None"
+
+
+def _is_null(value: str | None, tokens_de_ausencia: set[str] | None = None) -> bool:
+    """¿Esta celda dice «no hay dato»?
+
+    DOS CRITERIOS, y cuál se usa lo decide quien llama, no esta función:
+
+    * **Declarado** (`tokens_de_ausencia is not None`): ausente es estar en esa
+      lista, LITERAL y sin bajar a minúsculas. Una declaración no es una
+      corazonada: si el origen dice que su marca es `?`, entonces `NA` es un
+      valor y `?` no lo es al revés. Bajar a minúsculas convertiría la
+      declaración en otra heurística, que es justo lo que se está evitando.
+    * **Heurístico** (`tokens_de_ausencia is None`, el defecto): `_NULL_TOKENS`
+      sin distinguir mayúsculas, como toda la vida.
+
+    `None` de Python (la columna no está en la fila) es ausente en los dos
+    casos: eso no lo declara un origen, es que no hay celda.
+
+    POR QUÉ SE DECLARA LA MARCA DE AUSENCIA Y NO LA LISTA DE NIVELES. Son la
+    MISMA información vista del derecho y del revés —«estos son mis niveles» y
+    «así marco yo lo que falta» se implican en cualquier origen que declare su
+    esquema (en ARFF, el ausente es `?` y todo lo demás es un nivel
+    declarado)—, pero la marca cabe en un conjunto de cadenas y los niveles
+    necesitan un mapa columna→lista que el productor de un CSV generado no
+    siempre puede componer sin re-analizar el CSV, que es justo el análisis que
+    aquí está en duda. Ver el bloque de `_NULL_TOKENS` para el caso medido.
+    """
     if value is None:
         return True
+    if tokens_de_ausencia is not None:
+        return value.strip() in tokens_de_ausencia
     return value.strip().lower() in _NULL_TOKENS
 
 
@@ -524,8 +586,10 @@ def _integer_run_density(values: list[str]) -> float:
 
 def _analyze_column(
     raw_values: list[str | None], rows_analyzed: int, column_name: str = "",
+    *, tokens_de_ausencia: set[str] | None = None,
 ) -> dict[str, Any]:
-    non_null = [v.strip() for v in raw_values if not _is_null(v)]
+    non_null = [v.strip() for v in raw_values
+                if not _is_null(v, tokens_de_ausencia)]
     null_count = rows_analyzed - len(non_null)
     info: dict[str, Any] = {
         "null_count": null_count,
@@ -774,8 +838,16 @@ def _round_range(range_pair: list[float], numeric_kind: str) -> list[float | int
 # El objetivo
 # ---------------------------------------------------------------------------
 
-def constant_target_error(csv_text: str, target_column: str) -> str | None:
+def constant_target_error(csv_text: str, target_column: str, *,
+                          tokens_de_ausencia: set[str] | None = None) -> str | None:
     """Por qué esta columna no puede ser el OBJETIVO por no variar, o `None`.
+
+    `tokens_de_ausencia` va aquí por la misma razón que en
+    `analyze_dataset_csv`, y no por simetría de adorno: esta función y el
+    análisis miran el MISMO CSV para decidir lo MISMO —qué celdas cuentan—, y
+    dejarla con la heurística cuando el resto del camino ya sabe la verdad las
+    haría divergir sin que nadie lo notara (un objetivo con `None` declarado
+    como nivel y un solo valor más se declararía constante siendo binario).
 
     El caso, medido conduciendo el producto el 2026-08-13: un CSV de 300
     filas con `y = 7` en todas, elegido como objetivo. El modelo se
@@ -849,7 +921,7 @@ def constant_target_error(csv_text: str, target_column: str) -> str | None:
             value = row.get(target_column)
             if value is None:
                 return None
-            if _is_null(value):
+            if _is_null(value, tokens_de_ausencia):
                 continue
             if value.endswith(("\n", "\r")) or _CONTROL_RE.search(value):
                 return None  # comilla sin cerrar o celda binaria: no es una tabla

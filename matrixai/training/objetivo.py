@@ -286,7 +286,8 @@ def corte_de_entrenamiento(total: int, *, ratio: float | None = None) -> int:
 
 def no_entrenable_en_train(valores: Sequence[str], *, objetivo: str,
                            ratio: float | None = None,
-                           filas_de_train: Sequence[int] | None = None) -> Bloqueo | None:
+                           filas_de_train: Sequence[int] | None = None,
+                           tokens_de_ausencia: set[str] | None = None) -> Bloqueo | None:
     """`Bloqueo` si el objetivo no varía en las filas de ENTRENAMIENTO.
 
     `valores` son los valores del objetivo **en el orden del fichero**, que es el
@@ -311,7 +312,11 @@ def no_entrenable_en_train(valores: Sequence[str], *, objetivo: str,
         train = [valores[i] for i in filas_de_train if 0 <= i < len(valores)]
     distintos: list[str] = []
     for value in train:
-        if _is_null(value):
+        # El MISMO criterio de ausencia que el resto del camino: contar como
+        # nulo un nivel legítimo llamado «None» dejaba esta comprobación viendo
+        # una sola clase donde había dos, y declaraba no entrenable un objetivo
+        # binario perfectamente válido.
+        if _is_null(value, tokens_de_ausencia):
             continue
         limpio = str(value).strip()
         if limpio not in distintos:
@@ -407,6 +412,13 @@ def confirmar_desde_csv(
     problem_id: str | None = None,
     analisis: Mapping[str, Any] | None = None,
     filas: Sequence[Mapping[str, Any]] | None = None,
+    # Cómo marca la ausencia el origen de este CSV (ver `dataset_analysis.
+    # _is_null`). `analisis` ya llega medido con este criterio cuando lo compone
+    # el generador, pero los VALORES CRUDOS del objetivo se vuelven a medir aquí
+    # sobre las filas: sin esto, un objetivo con un nivel legítimo llamado
+    # «None» se declaraba `objetivo_con_una_sola_clase`. Medido el 2026-09-15
+    # con su control (un objetivo Ladrillo/Piedra no levanta ese bloqueo).
+    tokens_de_ausencia: set[str] | None = None,
 ) -> Confirmacion:
     """Propone el objetivo con su motivo y CONFIRMA el problema, o pregunta.
 
@@ -517,7 +529,7 @@ def confirmar_desde_csv(
     cardinalidad = int(info.get("cardinality") or 0)
     if filas is None:
         filas = _read_rows(csv_text)
-    valores_crudos = _distinct_non_null(list(filas), objetivo)
+    valores_crudos = _distinct_non_null(list(filas), objetivo, tokens_de_ausencia)
     if tarea is None:
         tarea = _tarea_de_la_columna(tipo, cardinalidad)
         if tarea is None:
@@ -580,7 +592,8 @@ def confirmar_desde_csv(
     # -- el objetivo, en las filas que de verdad entrenan ------------------
     bloqueo_train = no_entrenable_en_train(
         [str(row.get(objetivo) or "") for row in filas], objetivo=objetivo,
-        ratio=ratio_de_train, filas_de_train=filas_de_train)
+        ratio=ratio_de_train, filas_de_train=filas_de_train,
+        tokens_de_ausencia=tokens_de_ausencia)
     if bloqueo_train is not None and not any(
             b.clave == "objetivo_con_una_sola_clase" for b in bloqueos):
         bloqueos.append(bloqueo_train)

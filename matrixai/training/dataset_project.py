@@ -335,6 +335,14 @@ def generate_project_from_dataset(
     momento_de_prediccion: str | None = None,
     horizonte: Any | None = None,
     uso_previsto: str | None = None,
+    # Cómo marca la AUSENCIA el origen de este CSV, si es que lo sabe. `None`
+    # —el defecto, y el camino de un CSV subido a mano— deja la heurística
+    # `_NULL_TOKENS` de siempre. Ver `dataset_analysis._is_null`: se declara
+    # aquí y gobierna TODO el paso (análisis, vocabularios, política de
+    # faltantes y escritura del CSV preparado), no solo el análisis — si solo
+    # gobernara el análisis, la preparación seguiría escribiendo `__faltante__`
+    # en celdas que sí traían dato, que es el defecto con otra cara.
+    tokens_de_ausencia: set[str] | None = None,
 ) -> dict[str, Any]:
     """Genera un proyecto MatrixAI completo A PARTIR de datos reales.
 
@@ -382,7 +390,7 @@ def generate_project_from_dataset(
             "use_intent_llm=true requiere una intención declarada (user_intent está vacío)."
         )
 
-    analysis = analyze_dataset_csv(csv_text)
+    analysis = analyze_dataset_csv(csv_text, tokens_de_ausencia=tokens_de_ausencia)
     schema_inferred = analysis["columns"]
     # CONTRATO 59 C2: se necesitan los valores CRUDOS antes de aplicar los
     # overrides (para recalcular rango si el usuario corrige el tipo a
@@ -414,7 +422,8 @@ def generate_project_from_dataset(
         if new_type in ("number", "integer") and not (
             columns[col].get("proposed_range") or columns[col].get("observed_range")
         ):
-            recomputed = _numeric_range_from_raw_values([row.get(col) for row in rows])
+            recomputed = _numeric_range_from_raw_values(
+                [row.get(col) for row in rows], tokens_de_ausencia)
             if recomputed is not None:
                 _, (rng_lo, rng_hi) = recomputed
                 columns[col]["observed_range"] = [rng_lo, rng_hi]
@@ -567,7 +576,8 @@ def generate_project_from_dataset(
         for col in analysis["column_order"]:
             if col == target_column or columns[col]["type"] != "identifier":
                 continue
-            recomputed = _numeric_range_from_raw_values([row.get(col) for row in rows])
+            recomputed = _numeric_range_from_raw_values(
+                [row.get(col) for row in rows], tokens_de_ausencia)
             if recomputed is None:
                 continue
             numeric_kind, (rng_lo, rng_hi) = recomputed
@@ -609,7 +619,7 @@ def generate_project_from_dataset(
     # usa para el target y para las categóricas de alta cardinalidad
     # (vocabulario completo, no la muestra de C1 — ver docstring de C1
     # sobre `vocabulary_sample`).
-    target_values_raw = _distinct_non_null(rows, target_column)
+    target_values_raw = _distinct_non_null(rows, target_column, tokens_de_ausencia)
     category_vocabularies: dict[str, list[str]] = {}
     for col, raw_values in (column_category_overrides or {}).items():
         if col not in columns:
@@ -641,7 +651,7 @@ def generate_project_from_dataset(
                 f"column_category_overrides[{col!r}] contiene valores duplicados."
             )
         _check_categorical_values_safe(values, col)
-        observed = _distinct_non_null(rows, col)
+        observed = _distinct_non_null(rows, col, tokens_de_ausencia)
         missing = [value for value in observed if value not in values]
         if missing:
             raise DatasetProjectError(
@@ -683,11 +693,13 @@ def generate_project_from_dataset(
     # que antes de esto.
     missing_policy = _ajustar_politica_de_faltantes(
         rows, feature_columns, columns, feature_safe_names, target_column,
+        tokens_de_ausencia,
     )
     for col in feature_columns:
         if columns[col]["type"] != "categorical":
             continue
-        valores_reales = category_vocabularies.get(col) or _distinct_non_null(rows, col)
+        valores_reales = category_vocabularies.get(col) or _distinct_non_null(
+            rows, col, tokens_de_ausencia)
         # AQUÍ IBA UNA GUARDA `len(valores_reales) < 2` PARA QUE EL CENTINELA NO
         # RESCATARA UNA COLUMNA QUE SE IBA A CAER. Se quitó porque NO PODÍA
         # PASAR: una categórica con un solo valor es `constant` y se excluye de
@@ -706,8 +718,8 @@ def generate_project_from_dataset(
         # modelo una columna que luego nadie marca (una constante a 0 que
         # además afirmaría que este dataset tiene faltantes donde no los
         # tiene). Mismo criterio que usa la política numérica.
-        if not any(_is_null(row.get(col)) for row in rows
-                   if not _is_null(row.get(target_column))):
+        if not any(_is_null(row.get(col), tokens_de_ausencia) for row in rows
+                   if not _is_null(row.get(target_column), tokens_de_ausencia)):
             continue
         if CATEGORIA_FALTANTE in valores_reales:
             raise DatasetProjectError(
@@ -719,7 +731,7 @@ def generate_project_from_dataset(
         category_vocabularies[col] = [*valores_reales, CATEGORIA_FALTANTE]
 
     _reservar_codigo_de_desconocida(
-        rows, feature_columns, columns, category_vocabularies)
+        rows, feature_columns, columns, category_vocabularies, tokens_de_ausencia)
 
     feature_lines: list[str] = []
     for col in feature_columns:
@@ -735,7 +747,8 @@ def generate_project_from_dataset(
             lo, hi = _range_for(info, col)
             feature_lines.append(f"  {safe_name}: Scalar en [{_fmt_num(lo)}, {_fmt_num(hi)}]")
         elif col_type == "categorical":
-            values = category_vocabularies.get(col) or _distinct_non_null(rows, col)
+            values = category_vocabularies.get(col) or _distinct_non_null(
+                rows, col, tokens_de_ausencia)
             if len(values) < 2:
                 # Cardinalidad<2 tras corregir el tipo a mano — no aporta
                 # señal; se excluye en vez de fallar todo el proyecto.
@@ -801,7 +814,8 @@ def generate_project_from_dataset(
                         if columns[col]["type"] in ("number", "integer") else None
                     ),
                     "categories": (
-                        category_vocabularies.get(col) or _distinct_non_null(rows, col)
+                        category_vocabularies.get(col)
+                        or _distinct_non_null(rows, col, tokens_de_ausencia)
                         if columns[col]["type"] == "categorical" else None
                     ),
                 }
@@ -850,7 +864,8 @@ def generate_project_from_dataset(
         # calculaba sobre 100 y no sobre las 10 entrenables: además de falsear la
         # auditoría, podía elegir una red más ancha de la que los datos sostienen.
         # Se usa el MISMO criterio (`_is_null`) que la preparación real.
-        "dataset_rows": sum(1 for r in rows if not _is_null(r.get(target_column))),
+        "dataset_rows": sum(1 for r in rows
+                            if not _is_null(r.get(target_column), tokens_de_ausencia)),
         **({"architecture_hints": architecture_hints} if architecture_hints else {}),
     })
     if not res.get("ok"):
@@ -915,6 +930,7 @@ def generate_project_from_dataset(
         # categórica por encima de `_ONEHOT_MAX` junto a otra por debajo.
         embedding_sources=embedding_source_columns(res.get("mxai") or ""),
         missing_policy=missing_policy,
+        tokens_de_ausencia=tokens_de_ausencia,
     )
     prepared_csv = prepared.text
 
@@ -1004,6 +1020,16 @@ def generate_project_from_dataset(
         # de entonces (`_prepare_v1`); una lista VACÍA significa "ninguna", que
         # no es lo mismo que "no se sabe".
         "embedding_columns": list(prepared.embedding_source_names),
+        # CÓMO SE LEYÓ LA AUSENCIA, congelado. Sin esto la receta MENTIRÍA por
+        # omisión: re-preparar volvería a aplicar la heurística `_NULL_TOKENS`
+        # sobre un CSV que se preparó con una declaración, y un nivel legítimo
+        # llamado «None» pasaría a ausente en la re-preparación aunque no lo
+        # fuera al generar — el CSV re-preparado dejaría de ser el que entrenó
+        # este modelo. Se OMITE la clave cuando no se declaró nada (AUSENTE no
+        # es VACÍA, igual que `embedding_columns`): ausente pide la heurística
+        # de entonces, y una lista vacía dice «declarado: aquí no falta nada».
+        **({"tokens_de_ausencia": sorted(tokens_de_ausencia)}
+           if tokens_de_ausencia is not None else {}),
         # LA POLÍTICA DE FALTANTES, CONGELADA. La mediana se ajustó sobre ESTAS
         # filas: re-preparar recalculándola daría otro número en cuanto el CSV
         # cambiara una fila, y el dataset dejaría de ser el que entrenó el
@@ -1081,7 +1107,7 @@ def generate_project_from_dataset(
         feature_columns=list(feature_columns),
         unidad_de_observacion=unidad_de_observacion, clase_positiva=clase_positiva,
         momento_de_prediccion=momento_de_prediccion, horizonte=horizonte,
-        uso_previsto=uso_previsto)
+        uso_previsto=uso_previsto, tokens_de_ausencia=tokens_de_ausencia)
     # field_ranges/field_types/field_categories YA vienen en `res` (extraídos
     # del prompt sintetizado por analyze_playground_request) — no se
     # duplican aquí, se devuelven tal cual llegaron.
@@ -1118,6 +1144,12 @@ def generate_temporal_project_from_dataset(
     momento_de_prediccion: str | None = None,
     horizonte: Any | None = None,
     uso_previsto: str | None = None,
+    # Mismo motivo que los parámetros del 103-C1 de arriba: un envoltorio que
+    # se come un parámetro deja media aplicación sin él. Aquí, además, el
+    # envoltorio ANALIZA el CSV crudo por su cuenta (`original_analysis`) antes
+    # de delegar, así que sin esto los dos análisis del mismo fichero usarían
+    # criterios de ausencia distintos.
+    tokens_de_ausencia: set[str] | None = None,
 ) -> dict[str, Any]:
     """C4 — flujo A, caso serie temporal: "columna temporal + ventana +
     horizonte → operaciones de C3" (contrato 57). Envoltorio DELGADO
@@ -1181,7 +1213,8 @@ def generate_temporal_project_from_dataset(
     # describían el CSV post-pipeline, no el que el usuario vio y corrigió
     # — imposible reconstruir "CSV subido → esquema editado → pipeline →
     # CSV final" (invariante 3 del contrato).
-    original_analysis = analyze_dataset_csv(csv_text)
+    original_analysis = analyze_dataset_csv(csv_text,
+                                            tokens_de_ausencia=tokens_de_ausencia)
     original_csv_sha256 = _sha256_text(csv_text)
 
     rows = _read_rows(csv_text)
@@ -1286,6 +1319,7 @@ def generate_temporal_project_from_dataset(
 
     result = generate_project_from_dataset(
         prepared_csv, effective_target,
+        tokens_de_ausencia=tokens_de_ausencia,
         column_type_overrides=type_overrides or None,
         column_range_overrides=range_overrides or None,
         column_category_overrides=category_overrides or None,
@@ -1490,6 +1524,11 @@ def _prepare_v1(
         # entonces; una lista (aunque sea vacía) es una respuesta.
         embedding_sources=(set(spec["embedding_columns"])
                            if "embedding_columns" in spec else None),
+        # Ver la clave homónima en `preparation_spec`: ausente = la heurística
+        # de entonces, presente (aunque sea vacía) = lo que aquel origen
+        # declaró.
+        tokens_de_ausencia=(set(spec["tokens_de_ausencia"])
+                            if "tokens_de_ausencia" in spec else None),
         # LA MEDIANA NO SE RECALCULA: se lee de la receta. Recalcularla sobre
         # el CSV que ahora se re-prepara daría otro número en cuanto cambiara
         # una fila, y `prepare_dataset_from_provenance` abortaría —con razón—
@@ -1735,6 +1774,12 @@ def prepare_dataset_from_provenance(
     # describiría una codificación que no es la que se va a escribir.
     embebidas_declaradas = (set(spec["embedding_columns"])
                             if "embedding_columns" in spec else None)
+    # El MISMO criterio de ausencia con el que se va a re-preparar (`_prepare_
+    # v1` lo lee de la misma clave). Con la heurística aquí y la declaración
+    # allí, este informe contaría como «valores que el modelo no conoce» justo
+    # los niveles que el preparador sí va a escribir.
+    tokens_de_ausencia = (set(spec["tokens_de_ausencia"])
+                          if "tokens_de_ausencia" in spec else None)
 
     def _va_por_embedding(col: str, vocab: list[str]) -> bool:
         if embebidas_declaradas is None:
@@ -1751,7 +1796,7 @@ def prepare_dataset_from_provenance(
     for col, vocab in (spec.get("category_vocabularies") or {}).items():
         if col not in present:
             continue
-        observed = _distinct_non_null(rows, col)
+        observed = _distinct_non_null(rows, col, tokens_de_ausencia)
         nuevos = [v for v in observed if v not in vocab]
         afectadas = sum(1 for row in rows
                         if (row.get(col) or "").strip() == CATEGORIA_DESCONOCIDA)
@@ -1837,7 +1882,11 @@ def prepare_dataset_from_provenance(
     # invariante 3), pero sí hay que registrar lo OBSERVADO ahora, separado.
     try:
         new_provenance["observed_schema"] = analyze_dataset_csv(
-            _rows_to_csv_text(rows))["columns"]
+            _rows_to_csv_text(rows),
+            # El MISMO criterio con el que se acaba de re-preparar. Con la
+            # heurística aquí, el esquema OBSERVADO que se registra describiría
+            # un CSV distinto del que se escribió dos pasos más arriba.
+            tokens_de_ausencia=tokens_de_ausencia)["columns"]
     except Exception:  # noqa: BLE001
         # Nunca bloquea la re-preparación: es trazabilidad, no corrección.
         new_provenance["observed_schema"] = None
@@ -1881,11 +1930,12 @@ def _rows_to_csv_text(rows: list[dict[str, str]]) -> str:
     return out.getvalue()
 
 
-def _distinct_non_null(rows: list[dict[str, str]], col: str) -> list[str]:
+def _distinct_non_null(rows: list[dict[str, str]], col: str,
+                       tokens_de_ausencia: set[str] | None = None) -> list[str]:
     seen: dict[str, None] = {}
     for row in rows:
         value = row.get(col)
-        if _is_null(value):
+        if _is_null(value, tokens_de_ausencia):
             continue
         v = value.strip()
         if v not in seen:
@@ -1902,6 +1952,7 @@ def _range_for(info: dict[str, Any], col: str) -> tuple[float, float]:
 
 def _numeric_range_from_raw_values(
     raw_values: list[str | None],
+    tokens_de_ausencia: set[str] | None = None,
 ) -> tuple[str, tuple[float, float]] | None:
     """CONTRATO 59 C2 — recalcula tipo numérico + rango (con margen) de una
     columna a partir de sus valores CRUDOS del CSV: mismo cálculo EXACTO
@@ -1920,7 +1971,7 @@ def _numeric_range_from_raw_values(
     el caller decide qué hacer con ese `None` (mantener el tipo pedido sin
     rango sigue fallando más adelante en `_range_for`, con el mismo
     mensaje accionable de siempre)."""
-    non_null = [v.strip() for v in raw_values if not _is_null(v)]
+    non_null = [v.strip() for v in raw_values if not _is_null(v, tokens_de_ausencia)]
     if not non_null:
         return None
     numeric_kind = (
@@ -2073,6 +2124,7 @@ def _reservar_codigo_de_desconocida(
     feature_columns: list[str],
     columns: dict[str, dict[str, Any]],
     category_vocabularies: dict[str, list[str]],
+    tokens_de_ausencia: set[str] | None = None,
 ) -> None:
     """Reserva `__desconocida__` en el vocabulario **solo si el modelo va a ir
     por EMBEDDING**, que son los únicos que no pueden representarla de otra
@@ -2120,7 +2172,8 @@ def _reservar_codigo_de_desconocida(
     categoricas = [col for col in feature_columns
                    if columns[col]["type"] == "categorical"]
     vocabularios = {
-        col: list(category_vocabularies.get(col) or _distinct_non_null(rows, col))
+        col: list(category_vocabularies.get(col)
+                  or _distinct_non_null(rows, col, tokens_de_ausencia))
         for col in categoricas
     }
     # Sin contar el código que se va a añadir: ver «POR QUÉ NO CAMBIA EL
@@ -2274,7 +2327,8 @@ def _nombres_de_indicador(politica: PoliticaDePreparacion) -> dict[str, str]:
             for nombre in politica.columnas_de_salida() if nombre not in fuentes}
 
 
-def _valor_numerico_o_none(valor: str | None) -> float | None | str:
+def _valor_numerico_o_none(valor: str | None,
+                           tokens_de_ausencia: set[str] | None = None) -> float | None | str:
     """El valor tipado que `ajustar_preparacion` espera, desde texto de CSV.
 
     `None` si el CSV dice que no hay dato (`_is_null`, la MISMA definición que
@@ -2288,7 +2342,7 @@ def _valor_numerico_o_none(valor: str | None) -> float | None | str:
     algo que el dato sí decía — mal; el texto viaja tal cual y el verificador
     del modelo lo rechaza con «must be numeric», que es la verdad.
     """
-    if _is_null(valor):
+    if _is_null(valor, tokens_de_ausencia):
         return None
     try:
         return float(str(valor).strip())
@@ -2344,6 +2398,7 @@ def _ajustar_politica_de_faltantes(
     columns: dict[str, dict[str, Any]],
     feature_safe_names: dict[str, str],
     target_column: str,
+    tokens_de_ausencia: set[str] | None = None,
 ) -> PoliticaDePreparacion | None:
     """Ajusta la política de faltantes DEL NÚCLEO sobre las numéricas que de
     verdad tienen huecos. `None` si no hay ninguna: un CSV sin faltantes no
@@ -2368,7 +2423,8 @@ def _ajustar_politica_de_faltantes(
     # SOLO LAS FILAS QUE SE VAN A ESCRIBIR. Una fila sin objetivo la descarta
     # `_prepare_training_csv`, así que su hueco no puede decidir la forma del
     # modelo: añadiría un indicador que después nadie marca.
-    con_objetivo = [row for row in rows if not _is_null(row.get(target_column))]
+    con_objetivo = [row for row in rows
+                    if not _is_null(row.get(target_column), tokens_de_ausencia)]
     for col in feature_columns:
         # NUMÉRICAS, NO BOOLEANAS, y es una decisión declarada, no un olvido.
         # Una `boolean` de este camino se escribe 0/1 pero su tipo declarado no
@@ -2382,7 +2438,8 @@ def _ajustar_politica_de_faltantes(
         # su nombre en `tests/test_c101_c5_faltantes_cableados.py`).
         if columns[col]["type"] not in ("number", "integer"):
             continue
-        valores = [_valor_numerico_o_none(row.get(col)) for row in con_objetivo]
+        valores = [_valor_numerico_o_none(row.get(col), tokens_de_ausencia)
+                   for row in con_objetivo]
         # Una columna solo entra si TIENE hueco, si le queda algún valor con
         # el que calcular la mediana, y si TODOS los presentes son números:
         # con un valor sin parsear, `ajustar_preparacion` la vería categórica
@@ -2414,10 +2471,12 @@ def _ajustar_politica_de_faltantes(
             # otras filas. Mismo truco que `_RESERVED_TARGET_SENTINEL` usa
             # unas líneas más arriba para el otro choque de nombres.
             _SENTINELA_OBJETIVO: (
-                None if _is_null(row.get(target_column)) else row.get(target_column)),
+                None if _is_null(row.get(target_column), tokens_de_ausencia)
+                else row.get(target_column)),
         }
         for col in candidatas:
-            fila[feature_safe_names[col]] = _valor_numerico_o_none(row.get(col))
+            fila[feature_safe_names[col]] = _valor_numerico_o_none(
+                row.get(col), tokens_de_ausencia)
         filas_tipadas.append(fila)
 
     return ajustar_preparacion(
@@ -2448,6 +2507,7 @@ def _prepare_training_csv(
     *,
     embedding_sources: set[str] | None = None,
     missing_policy: PoliticaDePreparacion | None = None,
+    tokens_de_ausencia: set[str] | None = None,
 ) -> _PreparedCSV:
     # Grupos one-hot/embedding + los mapas valor_crudo->columna o índice,
     # calculados UNA VEZ (no por fila — recalcular _distinct_non_null
@@ -2463,7 +2523,8 @@ def _prepare_training_csv(
         safe_name = feature_safe_names[col]
         col_type = columns[col]["type"]
         if col_type == "categorical":
-            values = category_vocabularies.get(col) or _distinct_non_null(rows, col)
+            values = category_vocabularies.get(col) or _distinct_non_null(
+                rows, col, tokens_de_ausencia)
             if len(values) < 2:
                 continue
             effective_vocabularies[col] = list(values)
@@ -2557,7 +2618,7 @@ def _prepare_training_csv(
     rows_dropped = 0
     for row in rows:
         target_raw = row.get(target_column)
-        if _is_null(target_raw):
+        if _is_null(target_raw, tokens_de_ausencia):
             rows_dropped += 1
             continue  # sin target no hay fila que entrenar (nunca se inventa uno)
         prepared: dict[str, str] = {}
@@ -2565,7 +2626,8 @@ def _prepare_training_csv(
         # aplica la política tal como quedó ajustada (mediana congelada) y
         # devuelve, junto al valor, su indicador 0.0/1.0. Aquí solo se traduce
         # el texto del CSV a valores tipados y el resultado de vuelta a texto.
-        tipados = {safe: _valor_numerico_o_none(row.get(col)) for safe, col in imputadas.items()}
+        tipados = {safe: _valor_numerico_o_none(row.get(col), tokens_de_ausencia)
+                   for safe, col in imputadas.items()}
         # Un valor PRESENTE que no parsea (`"?" ` no: eso es `_is_null`; esto es
         # basura real en una columna que el usuario declaró numérica a mano, o
         # un valor nuevo al re-preparar otro CSV con la misma receta) se aparta
@@ -2592,7 +2654,7 @@ def _prepare_training_csv(
                 # categoría más. Que el vocabulario CONGELADO la traiga o no es
                 # lo que distingue una receta nueva de una anterior a esto —
                 # una vieja se sigue reproduciendo con el criterio de entonces.
-                if _is_null(raw) and CATEGORIA_FALTANTE in vocabulario:
+                if _is_null(raw, tokens_de_ausencia) and CATEGORIA_FALTANTE in vocabulario:
                     raw = CATEGORIA_FALTANTE
                     missing_category_cells[safe_name] = missing_category_cells.get(safe_name, 0) + 1
                 if col in onehot_columns:
@@ -2671,6 +2733,7 @@ def _confirmacion_del_problema(
     feature_columns: list[str], unidad_de_observacion: str | None,
     clase_positiva: str | None, momento_de_prediccion: str | None,
     horizonte: Any | None, uso_previsto: str | None,
+    tokens_de_ausencia: set[str] | None = None,
 ) -> dict[str, Any]:
     """El documento del 103-C1 para este proyecto, en JSON.
 
@@ -2697,6 +2760,7 @@ def _confirmacion_del_problema(
             clase_positiva=clase_positiva,
             momento_de_prediccion=momento_de_prediccion, horizonte=horizonte,
             uso_previsto=uso_previsto, analisis=analysis,
+            tokens_de_ausencia=tokens_de_ausencia,
         ).a_json()
     except Exception as exc:  # noqa: BLE001
         return {"confirmado": False, "problema": None, "propuesta": {},
