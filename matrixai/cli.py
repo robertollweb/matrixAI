@@ -1050,8 +1050,14 @@ def main() -> int:
     report_p.add_argument(
         "--tripod", action="store_true",
         help="TRIPOD+AI record (clinical prediction models). Required rather than "
-             "assumed: the day there is a second format, this command must not "
+             "assumed: there is now a second format, and this command must not "
              "change meaning in silence for whoever already has it in a script")
+    report_p.add_argument(
+        "--probast", action="store_true",
+        help="PROBAST+AI gaps (109-C3): what this package supports, what a person "
+             "declared and what is missing, each with the field behind it. It does "
+             "not score and it does not rate risk of bias: that judgement is made "
+             "by whoever reviews the study")
     report_p.add_argument("--locale", default="en", choices=["en", "es"],
                           help="Language of the record (default: en)")
     report_p.add_argument("-o", "--output", help="Write to this file instead of stdout")
@@ -3618,23 +3624,34 @@ def _cmd_bom(args) -> int:
 
 
 def _cmd_report(args) -> int:
-    """La ficha TRIPOD+AI de un paquete (85-C6)."""
+    """La ficha TRIPOD+AI (85-C6) o los huecos PROBAST+AI (109-C3) de un paquete."""
+    from matrixai.export.expediente_clinico import (  # noqa: PLC0415
+        ExpedienteNoDisponible,
+    )
+    from matrixai.export.probast import huecos_probast  # noqa: PLC0415
     from matrixai.export.tripod import FichaNoDisponible, ficha_tripod  # noqa: PLC0415
 
-    if not args.tripod:
-        print("Error: say which record you want. Today there is one: --tripod",
+    if not (args.tripod or args.probast):
+        print("Error: say which record you want: --tripod or --probast",
+              file=sys.stderr)
+        return 2
+    if args.tripod and args.probast:
+        # Dos informes distintos en una sola salida no se pueden distinguir
+        # después: se pide uno, o se llama dos veces.
+        print("Error: ask for one record at a time: --tripod or --probast",
               file=sys.stderr)
         return 2
     try:
-        ficha = ficha_tripod(args.package, locale=args.locale)
-    except FichaNoDisponible as exc:
+        texto = (ficha_tripod(args.package, locale=args.locale) if args.tripod
+                 else huecos_probast(args.package, locale=args.locale))
+    except (FichaNoDisponible, ExpedienteNoDisponible) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     if args.output:
-        Path(args.output).write_text(ficha, encoding="utf-8")
+        Path(args.output).write_text(texto, encoding="utf-8")
         print(f"Record written to {args.output}")
     else:
-        print(ficha)
+        print(texto)
     return 0
 
 
