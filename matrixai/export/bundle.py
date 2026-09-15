@@ -148,6 +148,15 @@ class EdgeBundler:
         # y la clase positiva salgan DENTRO del paquete: un vector de
         # probabilidades sin el orden de sus clases no se puede leer.
         problem: Any | None = None,
+        # CONTRATO 109-C3 — el expediente clínico. `expediente_clinico.py` ya
+        # sabe LEER `clinical_profile.json` (lo MIDIÓ el core, un
+        # `PerfilClinico` de 109-C2 o su `a_json()`) y `team_declaration.json`
+        # (lo DECLARÓ una persona: población, uso previsto, criterios de
+        # inclusión...). Los dos son opcionales y los dos se omiten del
+        # paquete cuando no hay nada que escribir — el núcleo no fabrica una
+        # declaración que nadie hizo.
+        clinical_profile: Any | None = None,
+        team_declaration: dict[str, Any] | None = None,
     ) -> EdgeBundleResult:
         """PESOS_GRANDES C7b: `state_dict` (tensores torch crudos de un modelo
         grande guardado en `.mxw`) es la alternativa a un `parameter_set` con
@@ -378,6 +387,35 @@ class EdgeBundler:
                     data_recipe.strip() + "\n", encoding="utf-8")
                 recipe_filename = "data_recipe.txt"
 
+            # 5b2. EL EXPEDIENTE CLÍNICO (contrato 109-C3).
+            #
+            # `matrixai.export.expediente_clinico` ya sabe LEER estos dos
+            # ficheros y de ellos componer la ficha TRIPOD+AI y los huecos
+            # PROBAST+AI — pero hasta este corte nadie los ESCRIBÍA: el
+            # lector estaba probado sobre un fichero que ningún paquete real
+            # llegaba a traer nunca. `clinical_profile.json` es lo que MIDIÓ
+            # el core (109-C2, `PerfilClinico.a_json()`, tal cual, sin
+            # tocarlo — dos sitios recomponiendo el mismo sobre acaban
+            # divergiendo). `team_declaration.json` es DISTINTO: lo declara
+            # una persona, y el núcleo no puede inventar población, uso
+            # previsto, criterios de inclusión, ni el resto — solo lo acepta
+            # si se lo dan (109-C3, invariante 5).
+            #
+            # LOS DOS SE OMITEN EN SILENCIO cuando no hay nada que escribir:
+            # un fichero vacío o inventado sería peor que su ausencia, porque
+            # `ExpedienteClinico.desde_paquete()` lo daría por bueno y diría
+            # «declarado» de algo que nadie declaró.
+            perfil_bloque = build_clinical_profile_block(clinical_profile)
+            if perfil_bloque is not None:
+                (work / "clinical_profile.json").write_text(
+                    json.dumps(perfil_bloque, indent=2, ensure_ascii=False),
+                    encoding="utf-8")
+            declaracion_bloque = build_team_declaration_block(team_declaration)
+            if declaracion_bloque is not None:
+                (work / "team_declaration.json").write_text(
+                    json.dumps(declaracion_bloque, indent=2, ensure_ascii=False),
+                    encoding="utf-8")
+
             # 5c. EL MANIFIESTO REPRODUCIBLE (contrato 82-C1).
             #
             # Se escribe SIEMPRE, tenga receta o no: un paquete que calla no
@@ -575,6 +613,8 @@ def create_edge_bundle(
     run_provenance: dict[str, Any] | None = None,
     weights_source: str | None = None,
     problem: Any | None = None,
+    clinical_profile: Any | None = None,
+    team_declaration: dict[str, Any] | None = None,
 ) -> EdgeBundleResult:
     return EdgeBundler().bundle(
         program, parameter_set, mxai_path, params_path, outdir,
@@ -598,6 +638,8 @@ def create_edge_bundle(
         run_provenance=run_provenance,
         weights_source=weights_source,
         problem=problem,
+        clinical_profile=clinical_profile,
+        team_declaration=team_declaration,
     )
 
 
@@ -621,6 +663,68 @@ def _run_prediction(bundle_work: Path, record: dict[str, Any]) -> Any | None:
     spec.loader.exec_module(module)
     model = module.MatrixAIModel(str(bundle_work / "inference_spec.json"))
     return model.predict(record)
+
+
+# ---------------------------------------------------------------------------
+# El expediente clínico (contrato 109-C3): qué se escribe, y qué no se fabrica
+# ---------------------------------------------------------------------------
+
+def build_clinical_profile_block(clinical_profile: Any) -> dict[str, Any] | None:
+    """El perfil clínico de 109-C2 que viaja en el paquete, o `None` si no hay.
+
+    Acepta un `PerfilClinico` (o cualquier objeto con `.a_json()`) o el mapa
+    que ya produce esa llamada — el mismo doble camino que `build_problem_
+    block` para el problema confirmado. Ausente es `None` y se ve: un
+    paquete sin perfil clínico no es un paquete con un perfil vacío, que es
+    justo lo que `ExpedienteClinico` necesita para no dar un hueco por
+    relleno (`hay_perfil` mira si el fichero está, no si está vacío).
+
+    Fail-closed, como el resto de este fichero: NO reimplementa las
+    comprobaciones de `PerfilClinico.__post_init__` —eso dejaría dos sitios
+    validando lo mismo, la fuente de fallos que más se repite en este
+    repositorio—, solo confirma que lo que llega es de verdad el SOBRE de un
+    `PerfilClinico` (su `schema`). Un objeto de otra forma revienta aquí, no
+    se empaqueta a medias ni con el esquema equivocado.
+    """
+    if clinical_profile is None:
+        return None
+    cuerpo = clinical_profile.a_json() if hasattr(clinical_profile, "a_json") \
+        else clinical_profile
+    if not isinstance(cuerpo, dict) or not cuerpo:
+        raise EdgeBundleError(
+            "clinical_profile must be a PerfilClinico (matrixai.estudio."
+            f"perfil_clinico) or its a_json() mapping; got {cuerpo!r}")
+    from matrixai.estudio.perfil_clinico import PerfilClinico  # noqa: PLC0415
+    esquema = cuerpo.get("schema")
+    if esquema != PerfilClinico.ESQUEMA:
+        raise EdgeBundleError(
+            f"clinical_profile carries schema {esquema!r}, expected "
+            f"{PerfilClinico.ESQUEMA!r}: packaging it under the wrong "
+            "schema is exactly what schema_version exists to prevent")
+    return cuerpo
+
+
+def build_team_declaration_block(team_declaration: Any) -> dict[str, Any] | None:
+    """Lo que el equipo declaró sobre el uso clínico, o `None` si nadie lo hizo.
+
+    Población, uso previsto, criterios de inclusión, definición y momento
+    del desenlace, proceso actual: el núcleo NO PUEDE inventarlos (109-C3,
+    invariante 5). Esta función no juzga su contenido campo a campo —quién
+    decide qué cuenta como declarado y qué falta es `ExpedienteClinico`, y
+    duplicar ese criterio aquí sería el mismo hueco de «dos sitios
+    declarando lo mismo»—; si el equipo lo dio, se empaqueta tal cual.
+
+    Un mapa vacío (`{}`, `None`) es «nadie declaró nada» y no se escribe:
+    un `team_declaration.json` vacío es peor que su ausencia, porque
+    `ExpedienteClinico.tiene()` lo daría por presente.
+    """
+    if not team_declaration:
+        return None
+    if not isinstance(team_declaration, dict):
+        raise EdgeBundleError(
+            "team_declaration must be a mapping, got "
+            f"{type(team_declaration).__name__}")
+    return dict(team_declaration)
 
 
 # ---------------------------------------------------------------------------

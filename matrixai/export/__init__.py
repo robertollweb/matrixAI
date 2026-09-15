@@ -24,6 +24,8 @@ from matrixai.export.bundle import (
     EdgeBundleResult,
     EdgeBundler,
     create_edge_bundle,
+    build_clinical_profile_block,
+    build_team_declaration_block,
 )
 from matrixai.export.reproduce import (
     REPRODUCE_SCHEMA_VERSION,
@@ -81,6 +83,8 @@ __all__ = [
     "EdgeBundleResult",
     "EdgeBundler",
     "create_edge_bundle",
+    "build_clinical_profile_block",
+    "build_team_declaration_block",
     "REPRODUCE_SCHEMA_VERSION",
     "REPRODUCE_MANIFEST_FILENAME",
     "TRAINING_ARTIFACT_NAME",
