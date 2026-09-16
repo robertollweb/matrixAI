@@ -804,3 +804,183 @@ def c3_digest_con_un_fichero_cambiado(c5):
     for i, fichero in enumerate(c5._FICHEROS_COMPARTIDOS):
         trozos.append("0" * 16 if i == 0 else _digest_fichero(fichero))
     return hashlib.sha256("".join(trozos).encode()).hexdigest()[:16]
+
+
+# ---------------------------------------------------------------------------
+# HALLAZGO M1, REPARADO EL 2026-09-16: 3.500 no eran 3.500.
+#
+# El artefacto llevaba `plan.n_intentos = 3500` y `n_intentos = 3479` uno al
+# lado del otro **y nada que los reconciliara**. El motivo estaba dentro, en
+# `particion_por_dataset.yeast.limites` —su clase minoritaria deja 4 eventos y
+# el quinto pliegue no se puede formar—, pero habia que ir a buscarlo sabiendo
+# ya que existia. Medido: 3.479 + 7 motores x 1 pliegue x 3 repeticiones = 3.500.
+# ---------------------------------------------------------------------------
+
+import pasada_amplia_101_c5 as _c5  # noqa: E402
+
+_RUTA_AMPLIA = RAIZ / "benchmarks" / "fase0" / "pasada_amplia_101_c5_resultado.json"
+
+
+def _amplia() -> dict:
+    if not _RUTA_AMPLIA.exists():
+        pytest.skip("la pasada amplia no esta en este arbol")
+    return json.loads(_RUTA_AMPLIA.read_text(encoding="utf-8"))
+
+
+def test_el_hueco_entre_el_plan_y_lo_medido_queda_EXPLICADO():
+    d = _amplia()
+    r = _c5.reconciliar_el_plan_con_lo_medido(
+        d["plan"], d["particion_por_dataset"], d["resultados"], n_motores=7)
+    assert (r["plan"], r["medidos"], r["hueco"]) == (3500, 3479, 21)
+    assert r["cuadra"] is True
+    assert r["resto_sin_explicar"] == 0
+    assert [e["dataset"] for e in r["por_dataset"]] == ["yeast"]
+    assert r["por_dataset"][0]["intentos_que_explica"] == 21
+
+
+def test_el_motivo_MEDIDO_viaja_con_la_reconciliacion():
+    """No basta con «faltan 21»: tiene que decir POR QUE, y con el numero.
+
+    `limites` trae la medida real —4 eventos en la clase minoritaria— y sin
+    ella «yeast dio 4 pliegues» es una afirmacion sin respaldo dentro del
+    propio artefacto.
+    """
+    d = _amplia()
+    r = _c5.reconciliar_el_plan_con_lo_medido(
+        d["plan"], d["particion_por_dataset"], d["resultados"], n_motores=7)
+    limites = r["por_dataset"][0]["limites"]
+    assert limites, "sin `limites` la explicacion no tiene respaldo"
+    assert limites[0]["clave"] == "pliegues_reducidos_por_eventos"
+    assert limites[0]["medida"]["eventos_clase_minoritaria"] == 4
+
+
+def test_CUADRA_es_una_conclusion_y_no_un_adorno():
+    """La mitad sin la que esto seria un sello de goma.
+
+    Se inventa un hueco que ninguna particion justifica. Si `cuadra` saliera
+    `true` igualmente, el campo diria «todo explicado» sobre 21 intentos que
+    nadie explica — que es justo peor que no tener campo.
+    """
+    d = _amplia()
+    plan_inflado = dict(d["plan"], n_intentos=d["plan"]["n_intentos"] + 100)
+    r = _c5.reconciliar_el_plan_con_lo_medido(
+        plan_inflado, d["particion_por_dataset"], d["resultados"], n_motores=7)
+    assert r["cuadra"] is False
+    assert r["resto_sin_explicar"] == 100
+
+
+def test_sin_n_intentos_en_el_plan_NO_se_inventa_una_reconciliacion():
+    d = _amplia()
+    plan_mudo = {k: v for k, v in d["plan"].items() if k != "n_intentos"}
+    r = _c5.reconciliar_el_plan_con_lo_medido(
+        plan_mudo, d["particion_por_dataset"], d["resultados"], n_motores=7)
+    assert r["plan"] is None
+    assert "cuadra" not in r, "sin plan no hay veredicto que dar"
+    assert "nada que reconciliar" in r["motivo"]
+
+
+def test_un_dataset_con_su_particion_COMPLETA_no_aparece_en_el_hueco():
+    """Solo los recortados explican algo: si apareciera uno intacto, el
+    recuento sumaria intentos que nunca faltaron."""
+    d = _amplia()
+    r = _c5.reconciliar_el_plan_con_lo_medido(
+        d["plan"], d["particion_por_dataset"], d["resultados"], n_motores=7)
+    nombrados = {e["dataset"] for e in r["por_dataset"]}
+    for nombre, particion in d["particion_por_dataset"].items():
+        if particion.get("n_pliegues_pedidos") == particion.get("n_pliegues_obtenidos"):
+            assert nombre not in nombrados
+
+
+# ---------------------------------------------------------------------------
+# HALLAZGO A3, REPARADO EL 2026-09-16: el punto de control fallaba justo en el
+# cubo para el que se escribio.
+#
+# `guardar(parcial=True)` colgaba del bucle de REPETICIONES, y el protocolo
+# registra `repeticiones_grande = 1`: en el cubo grande cada repeticion ES el
+# dataset entero, asi que los 10 datasets mas caros tenian UN solo guardado, al
+# final. Su propio comentario decia que existia para que morir a mitad no
+# costase todo lo hecho, y era exactamente lo que pasaba.
+#
+# La nota lo daba por ACEPTADO —«una perdida garantizada de 1 h contra una
+# probable de 2 h»— y esa aceptacion se tomo **sin medir el coste de guardar**.
+# Medido el 2026-09-16 sobre los 3.479 resultados: **0,90 s** (0,67 el veredicto
+# con su bootstrap, 0,04 la dispersion, 0,19 serializar 5,2 MB). El intercambio
+# real era 36 s contra hasta hora y media.
+#
+# Se lee del CODIGO con `ast` y no con una expresion regular: lo que hay que
+# comprobar es en que BUCLE esta la llamada, y eso una regex no lo ve.
+# ---------------------------------------------------------------------------
+
+import ast as _ast  # noqa: E402
+
+
+def _cuerpo_de_main() -> _ast.FunctionDef:
+    fuente = (RAIZ / "benchmarks" / "fase0" / "pasada_amplia_101_c5.py").read_text(
+        encoding="utf-8")
+    arbol = _ast.parse(fuente)
+    for nodo in _ast.walk(arbol):
+        if isinstance(nodo, _ast.FunctionDef) and nodo.name == "main":
+            return nodo
+    raise AssertionError("no se encuentra `main()` en el guion de la pasada")
+
+
+def _profundidad_de_los_guardados() -> set[int]:
+    """Cuantos `for` anidados envuelven a cada `guardar(parcial=True)`.
+
+    En `main()` los bucles son: datasets (1) -> repeticiones (2) -> pliegues (3).
+    Un guardado a profundidad 2 solo corre al acabar cada repeticion; a
+    profundidad 3, tras cada pliegue.
+    """
+    profundidades: set[int] = set()
+
+    def recorrer(nodo, nivel: int) -> None:
+        for hijo in _ast.iter_child_nodes(nodo):
+            siguiente = nivel + 1 if isinstance(hijo, (_ast.For, _ast.AsyncFor)) else nivel
+            if (isinstance(hijo, _ast.Call)
+                    and isinstance(hijo.func, _ast.Name) and hijo.func.id == "guardar"
+                    and any(k.arg == "parcial"
+                            and getattr(k.value, "value", None) is True
+                            for k in hijo.keywords)):
+                profundidades.add(nivel)
+            recorrer(hijo, siguiente)
+
+    recorrer(_cuerpo_de_main(), 0)
+    return profundidades
+
+
+def test_hay_un_punto_de_control_al_nivel_del_PLIEGUE_y_no_solo_de_la_repeticion():
+    """El defecto que esta prueba existe para impedir que vuelva."""
+    profundidades = _profundidad_de_los_guardados()
+    assert 3 in profundidades, (
+        f"todos los `guardar(parcial=True)` estan a profundidad {sorted(profundidades)}: "
+        "con `repeticiones_grande = 1`, eso deja los 10 datasets del cubo grande "
+        "con un solo guardado al final del dataset entero")
+
+
+def test_el_guardado_de_cada_repeticion_SIGUE_ahi_como_suelo():
+    """El de reloj es un anadido, no un sustituto: si el pliegue durase menos
+    que el tope, sin este no habria ningun guardado garantizado por vuelta."""
+    assert 2 in _profundidad_de_los_guardados()
+
+
+def test_el_punto_de_control_del_pliegue_va_por_RELOJ_y_no_en_cada_vuelta():
+    """Bajarlo a cada pliegue a secas daria 15 guardados por dataset del cubo
+    pequeno —que entero dura dos minutos—: un 11 % de sobrecoste donde no hay
+    nada que proteger. Con tope de tiempo, la granularidad la pone el coste
+    real de lo que se mide."""
+    fuente = (RAIZ / "benchmarks" / "fase0" / "pasada_amplia_101_c5.py").read_text(
+        encoding="utf-8")
+    assert "SEGUNDOS_ENTRE_PUNTOS_DE_CONTROL" in fuente
+    assert "ultimo_punto_de_control" in fuente
+    tope = _c5.__dict__.get("SEGUNDOS_ENTRE_PUNTOS_DE_CONTROL")
+    if tope is None:  # es local a `main()`, se lee del fuente
+        import re
+        m = re.search(r"SEGUNDOS_ENTRE_PUNTOS_DE_CONTROL\s*=\s*([\d.]+)", fuente)
+        assert m, "la constante no declara su valor"
+        tope = float(m.group(1))
+    # 0,90 s por guardado medido: con 60 s de tope, el sobrecoste queda por
+    # debajo del 1,5 % aunque cada pliegue durase justo un tope entero.
+    assert 10.0 <= tope <= 300.0, (
+        f"un tope de {tope}s no tiene sentido: por debajo de 10 s el guardado "
+        "(0,90 s medidos) empieza a pesar, y por encima de 300 s deja de "
+        "proteger al cubo grande, que es para lo que se puso")

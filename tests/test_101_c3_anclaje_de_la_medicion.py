@@ -509,3 +509,120 @@ def test_el_informe_de_101_C4_tambien_cablea_la_procedencia_a_SU_salida():
     assert escrituras, "no se encontró el diccionario `salida` de informe_101_c4"
     claves = {k.value for k in escrituras[0].value.keys if isinstance(k, ast.Constant)}
     assert "procedencia" in claves, "el JSON de 101-C4 se escribe sin procedencia"
+
+
+# ---------------------------------------------------------------------------
+# EL `False` CON MOTIVO — 2026-09-16
+#
+# `anclable` era un si/no que no distingue «sucio con codigo que corre» de
+# «sucio con un JSON de resultados ahi puesto». De las cinco mediciones de Fase
+# 0, TRES dicen `anclable: false` por algo que no puede mover un solo numero, y
+# UNA lo dice por el propio guion de la pasada, que los mueve todos — y las
+# cuatro se leen igual. Un guardia que dice que no casi siempre deja de leerse:
+# la misma familia que la nota «este fichero es sensible a la carga», que tapo
+# un 500 de producto dos dias.
+#
+# Estas pruebas fijan las dos mitades: que AFILA (dice cual esta en el grafo) y
+# que NO ABLANDA (nadie pasa a `anclable: true` por lo que diga este bloque).
+# ---------------------------------------------------------------------------
+
+def test_la_suciedad_dice_QUE_fichero_y_de_que_repositorio(tmp_path, monkeypatch):
+    raiz = tmp_path / "sucio"
+    _repo_de_juguete(raiz)
+    (raiz / "motor.py").write_text("# sin commitear\n", encoding="utf-8")
+    monkeypatch.setattr(pasada, "_RUTAS_DE_REPOSITORIO", {"uno": raiz})
+    bloque = pasada.procedencia_de_la_medicion(
+        digests_de_codigo={}, datos_de_entrada={})
+    ficheros = bloque["suciedad"]["ficheros"]
+    assert [(f["repositorio"], f["ruta"], f["tipo"]) for f in ficheros] == [
+        ("uno", "motor.py", "modificado")]
+    assert bloque["suciedad"]["n_sucios"] == 1
+
+
+def test_un_fichero_sucio_QUE_ESTE_IMPORTADO_se_declara_en_el_grafo(tmp_path, monkeypatch):
+    """La mitad que AFILA, y se mide contra `sys.modules`, no contra una lista.
+
+    Una lista de rutas escrita a mano seria un segundo sitio declarando lo que
+    `CLAUDE.md` ya declara — y dos sitios declarando lo mismo acaban
+    divergiendo. Aqui el propio guion de la pasada se ensucia a proposito: esta
+    importado por este proceso (lo importa este fichero de pruebas), asi que
+    tiene que salir demostrado.
+    """
+    raiz = Path(pasada.__file__).resolve().parents[2]
+    relativa = str(Path(pasada.__file__).resolve().relative_to(raiz))
+    monkeypatch.setattr(pasada, "_RUTAS_DE_REPOSITORIO", {"core": raiz})
+    monkeypatch.setattr(pasada, "_estado_del_repositorio", lambda _r: {
+        "commit": "0" * 40, "arbol_sucio": True,
+        "ficheros_modificados": [relativa], "ficheros_sin_seguimiento": [],
+        "motivo": None})
+    s = pasada.procedencia_de_la_medicion(
+        digests_de_codigo={}, datos_de_entrada={})["suciedad"]
+    assert s["n_demostrablemente_en_el_grafo"] == 1
+    assert s["rutas_demostrablemente_en_el_grafo"] == [relativa]
+    assert s["ficheros"][0]["importado_al_sellar"] is True
+
+
+def test_un_fichero_sucio_que_NADIE_importa_no_sale_en_el_grafo(tmp_path, monkeypatch):
+    raiz = tmp_path / "sucio"
+    _repo_de_juguete(raiz)
+    (raiz / "resultados.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(pasada, "_RUTAS_DE_REPOSITORIO", {"uno": raiz})
+    s = pasada.procedencia_de_la_medicion(
+        digests_de_codigo={}, datos_de_entrada={})["suciedad"]
+    assert s["n_sucios"] == 1
+    assert s["n_demostrablemente_en_el_grafo"] == 0
+    assert s["ficheros"][0]["importado_al_sellar"] is False
+
+
+def test_el_bloque_AFILA_pero_NO_ABLANDA_el_anclaje(tmp_path, monkeypatch):
+    """La mitad que impide que esto se convierta en una coartada.
+
+    Un fichero sucio que nadie importa sigue dejando la medicion NO anclable.
+    Sin este aserto, el paso siguiente «obvio» —«si no esta en el grafo, que
+    cuente como limpio»— convertiria una COTA INFERIOR en un alta: los intentos
+    corren en hijos de `multiprocessing.spawn` que re-importan desde disco y
+    pueden cargar mas modulos que el proceso que sella.
+    """
+    raiz = tmp_path / "sucio"
+    _repo_de_juguete(raiz)
+    (raiz / "resultados.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(pasada, "_RUTAS_DE_REPOSITORIO", {"uno": raiz})
+    bloque = pasada.procedencia_de_la_medicion(
+        digests_de_codigo={}, datos_de_entrada={})
+    assert bloque["anclable"] is False
+    assert bloque["avisos"], "un arbol sucio sigue teniendo su aviso"
+    assert bloque["suciedad"]["n_demostrablemente_en_el_grafo"] == 0
+
+
+def test_el_campo_se_llama_importado_al_sellar_y_NO_esta_fuera_del_grafo():
+    """El nombre es la mitad de la honestidad de este bloque.
+
+    `importado_al_sellar: false` significa «no se ha podido demostrar que
+    corra», no «esta fuera». Un campo llamado `esta_fuera_del_grafo` afirmaria
+    lo segundo, que es justo lo que esta medicion NO puede sostener. Y el propio
+    bloque lleva escrito por que.
+    """
+    bloque = pasada.procedencia_de_la_medicion(
+        digests_de_codigo={}, datos_de_entrada={})
+    s = bloque["suciedad"]
+    assert "por_que_un_False_aqui_NO_absuelve" in s
+    assert "COTA INFERIOR" in s["por_que_un_False_aqui_NO_absuelve"]
+    for f in s["ficheros"]:
+        assert "importado_al_sellar" in f
+        assert "esta_fuera_del_grafo" not in f
+
+
+def test_la_suciedad_entra_en_el_procedencia_id(tmp_path, monkeypatch):
+    """Dos pasadas del mismo commit sucias de formas DISTINTAS no son la misma
+    procedencia, y no pueden compartir identificador."""
+    raiz = tmp_path / "sucio"
+    _repo_de_juguete(raiz)
+    monkeypatch.setattr(pasada, "_RUTAS_DE_REPOSITORIO", {"uno": raiz})
+    (raiz / "a.py").write_text("# a\n", encoding="utf-8")
+    uno = pasada.procedencia_de_la_medicion(
+        digests_de_codigo={}, datos_de_entrada={})["procedencia_id"]
+    (raiz / "a.py").unlink()
+    (raiz / "b.py").write_text("# b\n", encoding="utf-8")
+    otro = pasada.procedencia_de_la_medicion(
+        digests_de_codigo={}, datos_de_entrada={})["procedencia_id"]
+    assert uno != otro

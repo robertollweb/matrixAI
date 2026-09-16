@@ -23,6 +23,8 @@ from pathlib import Path
 
 from benchmarks.fase0.protocolo import (
     ANCLAS_DE_ESCALADO,
+    ESTADOS_QUE_CUENTAN_COMO_MEDIDA,
+    dispersion_de_un_motor,
     UMBRAL_ALTA_CARDINALIDAD,
     aplicar_regla_de_cierre,
     cardinalidad_nominal_declarada,
@@ -1321,3 +1323,101 @@ class ConstruirProtocoloDerivaLaCardinalidadTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _regla(puntos: float, fraccion: float) -> ReglaDeCierre:
+    """La regla registrada, con sus cuatro campos. Los dos ultimos son texto
+    declarativo que `aplicar_regla_de_cierre` no lee, pero el tipo los exige —
+    y exigirlos es el punto: una regla sin decir con que metrica ni que es «el
+    mejor» no es una regla."""
+    return ReglaDeCierre(
+        puntos=puntos, fraccion_minima=fraccion,
+        metrica_por_tarea={"binary_classification": "AUROC",
+                           "multiclass_classification": "accuracy_o_f1_macro",
+                           "regression": "R2"},
+        definicion_de_mejor="mejor media excluyendo el baseline dummy")
+
+
+class UnaParadaCOOPERATIVA_NoEsUnFalloTest(unittest.TestCase):
+    """HALLAZGO M4, REPARADO EL 2026-09-16.
+
+    La regla registrada dice, con estas palabras, «un fallo (**timeout/crash**)
+    cuenta como dataset perdido». `completed_budget_limited` no es ninguna de
+    las dos: `matrixai_engines.motor` lo documenta como el estado de un motor
+    que **entrego predictor e informe** tras limitarse para caber en el
+    presupuesto — LA forma de cooperar con el tope, y justo lo que se espera de
+    un motor pesado en el cubo grande. El codigo lo trataba como fallo, y eso
+    contradice el texto que se sello.
+
+    **POR QUE SE ARREGLA HOY Y NO CUANDO PASE**: medido sobre la pasada de los
+    40, los 3.479 registros son `completed` o `failed` y **ningun motor emite
+    ese estado todavia**, asi que este cambio no puede mover un solo numero
+    publicado. El dia que un motor lo emita, el mismo arreglo seria cambiar la
+    regla despues de ver los numeros. La primera prueba de abajo fija eso.
+    """
+
+    _RUTA_AMPLIA = (Path(__file__).resolve().parent.parent
+                    / "benchmarks" / "fase0" / "pasada_amplia_101_c5_resultado.json")
+
+    def _filas(self, estado_del_segundo: str) -> list[dict]:
+        """Dos motores en un dataset: uno perfecto y otro a 1 punto.
+
+        Con el segundo `completed*` el dataset CUMPLE para el (1,0 < 2,0);
+        con el como fallo, lo pierde. Un solo bit de diferencia.
+        """
+        filas = []
+        for pliegue in range(3):
+            filas.append({"dataset": "d", "motor": "bueno", "estado": "completed",
+                          "auroc": 0.90, "repeticion": 0, "pliegue": pliegue})
+            filas.append({"dataset": "d", "motor": "otro", "estado": estado_del_segundo,
+                          "auroc": 0.89, "repeticion": 0, "pliegue": pliegue,
+                          "motivo_del_estado": "se limito para caber en el presupuesto"})
+        return filas
+
+    def _cumple(self, estado: str) -> bool:
+        salida = aplicar_regla_de_cierre(
+            self._filas(estado), _regla(2.0, 0.8), motor="otro")
+        return bool(salida["cumple_la_regla"])
+
+    def test_sobre_la_pasada_REAL_el_veredicto_no_se_mueve_ni_un_dataset(self):
+        """El control que hace legitimo el arreglo: no cambia nada publicado."""
+        if not self._RUTA_AMPLIA.exists():
+            self.skipTest("la pasada amplia no esta en este arbol")
+        datos = json.loads(self._RUTA_AMPLIA.read_text(encoding="utf-8"))
+        estados = {r["estado"] for r in datos["resultados"]}
+        self.assertEqual(estados, {"completed", "failed"},
+                         "si un motor ya emitiera `completed_budget_limited`, este "
+                         "arreglo dejaria de ser neutral y pasaria a mover el veredicto")
+        for motor, bloque in datos["alcance_y_veredicto"]["por_motor"].items():
+            salida = aplicar_regla_de_cierre(
+                datos["resultados"],
+                _regla(bloque["puntos_exigidos"], bloque["fraccion_minima"]),
+                motor=motor,
+                metrica_por_dataset=datos["alcance_y_veredicto"][
+                    "metrica_de_cierre_por_dataset"])
+            self.assertEqual(salida["cumplidos"], bloque["cumplidos"], motor)
+
+    def test_una_parada_cooperativa_CUENTA_como_medida(self):
+        self.assertTrue(self._cumple("completed_budget_limited"))
+
+    def test_un_fallo_de_verdad_SIGUE_perdiendo_el_dataset(self):
+        self.assertFalse(self._cumple("failed"))
+        self.assertFalse(self._cumple("timeout"))
+
+    def test_es_una_LISTA_BLANCA_y_no_un_prefijo(self):
+        """Un `startswith("completed")` aceptaria en silencio cualquier estado
+        futuro que alguien bautice `completed_lo_que_sea`, traiga medida o no.
+        Entrar aqui tiene que costar una linea y una mirada."""
+        self.assertFalse(self._cumple("completed_pero_sin_modelo"))
+        self.assertEqual(ESTADOS_QUE_CUENTAN_COMO_MEDIDA,
+                         frozenset({"completed", "completed_budget_limited"}))
+
+    def test_la_DISPERSION_usa_la_misma_lista_que_la_regla(self):
+        """Dos criterios distintos darian una dispersion calculada sobre menos
+        medidas que el veredicto, y las dos viajan en el mismo objeto como si
+        hablaran de lo mismo."""
+        bloque = dispersion_de_un_motor(
+            self._filas("completed_budget_limited"), motor="otro")
+        self.assertEqual(bloque["n_datasets"], 1)
+        vacio = dispersion_de_un_motor(self._filas("failed"), motor="otro")
+        self.assertEqual(vacio["n_datasets"], 0)

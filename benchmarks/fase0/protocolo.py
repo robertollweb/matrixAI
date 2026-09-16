@@ -818,6 +818,31 @@ def _intervalo_de_la_distancia(medidas_por_pliegue: Mapping[str, Mapping[tuple, 
     }
 
 
+#: LOS ESTADOS QUE CUENTAN COMO MEDIDA — hallazgo M4, 2026-09-16.
+#:
+#: La regla registrada dice, con estas palabras, «un fallo (**timeout/crash**)
+#: cuenta como dataset perdido». `completed_budget_limited` no es ninguna de las
+#: dos: es un motor que **entrego predictor e informe** tras limitarse para
+#: caber en el presupuesto, y `matrixai_engines.motor` lo documenta como LA
+#: forma de cooperar con el tope — justo lo que se espera de un motor pesado en
+#: el cubo grande. Tratarlo como fallo contradice el texto que se sello.
+#:
+#: **SE ARREGLA HOY PRECISAMENTE PORQUE HOY NO PUEDE CAMBIAR NADA**: medido
+#: sobre la pasada de los 40, los 3.479 registros son `completed` (3.464) o
+#: `failed` (15), y **ningun motor emite este estado todavia**. Hacerlo ahora es
+#: alinear el codigo con la regla registrada; hacerlo el dia que un motor lo
+#: emita seria cambiar la regla despues de ver los numeros. Hay una prueba que
+#: fija que sobre el artefacto real el veredicto es identico.
+#:
+#: Es una LISTA BLANCA y no un `startswith("completed")`: un estado nuevo tiene
+#: que entrar aqui a mano, con alguien mirando si de verdad trae medida. Un
+#: prefijo aceptaria en silencio cualquier `completed_lo_que_sea` futuro.
+ESTADOS_QUE_CUENTAN_COMO_MEDIDA: frozenset[str] = frozenset({
+    "completed",
+    "completed_budget_limited",
+})
+
+
 def metrica_del_dataset(dataset: str, metrica: str,
                         metrica_por_dataset: Mapping[str, str] | None) -> str | None:
     """Con qué métrica se mide ESTE dataset.
@@ -907,7 +932,7 @@ def aplicar_regla_de_cierre(resultados: Sequence[dict], regla: ReglaDeCierre, *,
     metrica_usada_por_dataset: dict[str, str] = {}
     for r in resultados:
         ds, mt = r["dataset"], r["motor"]
-        if r.get("estado") != "completed":
+        if r.get("estado") not in ESTADOS_QUE_CUENTAN_COMO_MEDIDA:
             fallos.setdefault(ds, set()).add(mt)
             continue
         metrica_de_este = metrica_del_dataset(ds, metrica, metrica_por_dataset)
@@ -1499,7 +1524,7 @@ def _medidas_por_pliegue(resultados: Sequence[dict], metrica: str,
     que es como se midieron los doce de 101-C3."""
     por_pliegue: dict[str, dict[str, dict[tuple, float]]] = {}
     for r in resultados:
-        if r.get("estado") != "completed":
+        if r.get("estado") not in ESTADOS_QUE_CUENTAN_COMO_MEDIDA:
             continue
         metrica_de_este = metrica_del_dataset(r["dataset"], metrica, metrica_por_dataset)
         if metrica_de_este is None:
@@ -1608,6 +1633,29 @@ def dispersion_de_un_motor(resultados: Sequence[dict], *, motor: str,
             None if sobre_el_liston is None else sorted(sobre_el_liston)),
         "por_dataset": por_dataset,
     }
+    # LA MISMA MEDIA VERDAD QUE LA REGLA YA CERRO, y aqui seguia abierta —
+    # hallazgo M2, reparado el 2026-09-16. Con un mapa por tarea, `metrica`
+    # sigue diciendo `auroc` mientras el bloque agrega rangos y desviaciones de
+    # datasets medidos en `accuracy` y en `r2`. Los NUMEROS eran correctos
+    # —cada dataset se midio con la suya, comprobado— pero la ETIQUETA no, y un
+    # lector que viera «rango mediano 1,118 puntos, metrica: auroc» creeria que
+    # los 40 son AUROC.
+    #
+    # Se usa la convencion que `aplicar_regla_de_cierre` ya tiene en vez de
+    # inventar otra: `metrica` se queda donde estaba —quitarla moveria un
+    # artefacto— y al lado va lo que de verdad se uso, dataset a dataset. Dos
+    # bloques del mismo fichero declarando lo mismo de dos formas distintas es
+    # como empieza la divergencia.
+    if metrica_por_dataset:
+        salida["metrica_por_dataset"] = {
+            d: metrica_del_dataset(d, metrica, metrica_por_dataset)
+            for d in por_dataset}
+        salida["la_metrica_de_arriba_no_gobierna"] = (
+            "hay un mapa por tarea: `metrica` es el valor por omision del "
+            "parametro y NO es con lo que se midio. Lo que gobierna cada "
+            "dataset esta en `metrica_por_dataset`. Y ojo al agregar: "
+            "`rango_mediano`, `rango_maximo` y las desviaciones mezclan "
+            "escalas de tareas distintas bajo una sola cifra.")
     # Redactada con los números, no guardada escrita: una frase compuesta y
     # almacenada deja de ser verdad en cuanto cambian los números que la
     # sostenían, y sigue sonando razonable.

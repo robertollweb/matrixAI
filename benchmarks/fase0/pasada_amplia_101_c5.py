@@ -695,6 +695,64 @@ def metricas_del_informe(informe: dict | None) -> dict:
         return {}
     return {m["metric_id"]: m.get("value") for m in informe.get("metrics", [])}
 
+def reconciliar_el_plan_con_lo_medido(plan: dict, particiones: dict,
+                                      resultados: list, n_motores: int) -> dict:
+    """POR QUE `n_intentos` NO ES EL DEL PLAN — hallazgo M1, 2026-09-16.
+
+    El artefacto lleva `plan.n_intentos = 3500` y `n_intentos = 3479` uno al
+    lado del otro **y nada que los reconcilie**. El motivo esta dentro, en
+    `particion_por_dataset.<ds>.limites`, pero hay que ir a buscarlo dataset a
+    dataset sabiendo ya que existe. Quien no lo sepa lee dos numeros distintos
+    para lo mismo y se queda con la duda — o peor, con la sospecha.
+
+    **NO SE ESCRIBE LA FRASE: SE CALCULA.** Una explicacion redactada y
+    guardada deja de ser verdad en cuanto cambian los numeros que la sostenian
+    y sigue sonando razonable. Aqui se suma lo que cada particion recortada
+    explica y **se compara con el hueco de verdad**.
+
+    **Y `cuadra` es una CONCLUSION, no un deseo.** Si lo explicado no cubre el
+    hueco entero queda un `resto_sin_explicar` distinto de cero, y eso es
+    exactamente lo que hay que ver: un intento que falta y que ninguna
+    particion justifica no es un detalle de recuento, es una medicion que se
+    perdio sin que nadie lo dijera.
+    """
+    esperados = plan.get("n_intentos")
+    medidos = len(resultados)
+    if esperados is None:
+        return {"plan": None, "medidos": medidos,
+                "motivo": "el plan no declara `n_intentos`; no hay nada que reconciliar"}
+    explicado: list[dict] = []
+    for nombre, particion in sorted(particiones.items()):
+        pedidos = particion.get("n_pliegues_pedidos")
+        obtenidos = particion.get("n_pliegues_obtenidos")
+        if pedidos is None or obtenidos is None or pedidos == obtenidos:
+            continue
+        explicado.append({
+            "dataset": nombre,
+            "pliegues_pedidos": pedidos,
+            "pliegues_obtenidos": obtenidos,
+            "intentos_que_explica": (pedidos - obtenidos) * n_motores,
+            "limites": particion.get("limites"),
+        })
+    suma = sum(e["intentos_que_explica"] for e in explicado)
+    hueco = esperados - medidos
+    return {
+        "plan": esperados,
+        "medidos": medidos,
+        "hueco": hueco,
+        "explicado_por_particiones_recortadas": suma,
+        "resto_sin_explicar": hueco - suma,
+        "cuadra": hueco == suma,
+        "por_dataset": explicado,
+        "como_se_lee": (
+            "`plan.n_intentos` es lo que se pedia ANTES de particionar; "
+            "`n_intentos` es lo que se pudo medir. La diferencia se explica "
+            "dataset a dataset con los pliegues que su clase minoritaria no "
+            "dio. Si `cuadra` es false, queda un hueco que ninguna particion "
+            "justifica y eso SI es un problema."),
+    }
+
+
 
 #: Los campos del registro que NO son métricas. Aplanar las métricas encima del
 #: registro es lo que permite que `aplicar_regla_de_cierre` lea `r.get(metrica)`
@@ -800,7 +858,30 @@ def main(argv=None) -> None:
     reusados = 0
     inicio = time.perf_counter()
 
+    #: CADA CUANTO, COMO MUCHO, se escribe un punto de control — 2026-09-16.
+    #:
+    #: El guardado colgaba del bucle de REPETICIONES, y el protocolo registra
+    #: `repeticiones_grande = 1`: en el cubo grande cada repeticion ES el
+    #: dataset entero, asi que los 10 datasets mas caros tenian UN solo
+    #: guardado, al final. Morir a la hora y veinte costaba la hora y veinte —
+    #: justo lo que el comentario de abajo dice evitar (hallazgo A3).
+    #:
+    #: **Se acepto sin medir el coste, y medido no habia nada que aceptar**: un
+    #: guardado completo tarda **0,90 s** sobre los 3.479 resultados (0,67 s el
+    #: veredicto con su bootstrap, 0,04 s la dispersion, 0,19 s serializar 5,2
+    #: MB). El intercambio real no era «1 h garantizada contra 2 h probables»:
+    #: era **36 s contra hasta hora y media**.
+    #:
+    #: **Va por RELOJ y no por vuelta de bucle**, que es lo que lo hace gratis
+    #: en los dos extremos: bajarlo al nivel de pliegue a secas daria 15
+    #: guardados por dataset del cubo pequeno —donde el dataset entero dura dos
+    #: minutos— y eso si seria un 11 % de sobrecoste. Con un tope de tiempo, la
+    #: granularidad la pone el coste real de lo que se esta midiendo.
+    SEGUNDOS_ENTRE_PUNTOS_DE_CONTROL = 60.0
+    ultimo_punto_de_control = [time.perf_counter()]
+
     def guardar(parcial: bool) -> dict:
+        ultimo_punto_de_control[0] = time.perf_counter()
         return _componer_y_guardar(
             resultados, procedencia, payload_previo, ruta_salida, datasets=datasets,
             plan=plan, protocolo=protocolo, metrica_por_dataset=metrica_por_dataset,
@@ -900,11 +981,17 @@ def main(argv=None) -> None:
                     and r["pliegue"] == pliegue_i and r["estado"] == "completed")
                 print(f"  rep={repeticion} pliegue={pliegue_i}: "
                       f"{completados}/{len(motores)} completed", flush=True)
-            # AL TERMINAR CADA REPETICION, no solo cada dataset. Una repeticion
-            # del cubo grande son 35 intentos; un dataset entero puede ser hora
-            # y media, y morir a la hora y veinte no puede costar la hora y
-            # veinte. C3 guardaba por dataset porque su dataset mas caro eran
-            # doce minutos.
+                # Y TAMBIEN AQUI SI HA PASADO EL TIEMPO. Sin esto, el cubo
+                # grande —una sola repeticion por dataset— solo guardaba al
+                # terminar el dataset entero. Ver la constante de arriba: el
+                # guardado cuesta 0,90 s, asi que el tope de 60 s lo deja por
+                # debajo del 1,5 % aunque cada pliegue durase justo un minuto.
+                if (time.perf_counter() - ultimo_punto_de_control[0]
+                        >= SEGUNDOS_ENTRE_PUNTOS_DE_CONTROL):
+                    guardar(parcial=True)
+            # AL TERMINAR CADA REPETICION, siempre — es el SUELO, no el techo.
+            # C3 guardaba por dataset porque su dataset mas caro eran doce
+            # minutos; aqui un dataset del cubo grande puede ser hora y media.
             guardar(parcial=True)
 
     total = time.perf_counter() - inicio
@@ -1019,6 +1106,11 @@ def _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida, *,
         "medidas_siempre_que_no_se_pueden_dar": dict(MEDIDAS_SIEMPRE_QUE_NO_SE_PUEDEN_DAR),
         "total_wall_s": round(total_wall_s, 1),
         "n_intentos": len(resultados),
+        # LOS DOS NUMEROS, RECONCILIADOS. Ver la funcion: se calcula, no se
+        # redacta, y `cuadra` es una conclusion.
+        "por_que_n_intentos_no_es_el_del_plan": reconciliar_el_plan_con_lo_medido(
+            plan, dict(particiones), resultados,
+            n_motores=len(nombres_de_los_motores_de_la_pasada())),
         "n_reusados": reusados,
         "lectura_de_los_datos": dict(c3.LECTURA_DECLARADA),
         "resultados": resultados,

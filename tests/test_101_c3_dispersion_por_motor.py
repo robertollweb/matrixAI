@@ -252,3 +252,93 @@ def test_la_evidencia_YA_COMMITEADA_no_se_reescribe():
     assert "estabilidad_del_ganador" not in EVIDENCIA["alcance_y_veredicto"]
     assert all("dispersion" not in v
                for v in EVIDENCIA["alcance_y_veredicto"]["por_motor"].values())
+
+
+# ---------------------------------------------------------------------------
+# HALLAZGO M2, REPARADO EL 2026-09-16: la etiqueta era falsa, no los numeros.
+#
+# Con `metrica_por_dataset` (la pasada de 40, con las tres tareas dentro), el
+# bloque de dispersion declaraba `metrica: "auroc"` mientras agregaba rangos y
+# desviaciones de datasets medidos en `accuracy` y en `r2`. Comprobado sobre la
+# pasada amplia: `letter` iba en accuracy (95,22) y `diamonds` en r2 (98,09),
+# o sea que CADA dataset se midio con la suya y los numeros estaban bien. Lo
+# falso era el rotulo — y un lector que viera «rango mediano 1,118 puntos,
+# metrica: auroc» creeria que los cuarenta son AUROC.
+#
+# `aplicar_regla_de_cierre` ya habia cerrado esa misma media verdad con
+# `la_metrica_de_arriba_no_gobierna`; aqui seguia abierta. Se reusa esa
+# convencion en vez de inventar otra.
+#
+# EL ARTEFACTO YA COMMITEADO (`pasada_amplia_101_c5_resultado.json`) LLEVA LA
+# ETIQUETA VIEJA y no se puede reescribir: `digest_resultados_crudos` se calcula
+# sobre TODO el objeto de salida —veredicto incluido, pese a lo que su nombre
+# sugiere— y es el que la cartera aprobada sella en `evidencia_digest`.
+# ---------------------------------------------------------------------------
+
+RUTA_PASADA_AMPLIA = _FASE0 / "pasada_amplia_101_c5_resultado.json"
+
+
+def _amplia() -> dict:
+    if not RUTA_PASADA_AMPLIA.exists():
+        pytest.skip("la pasada amplia no esta en este arbol")
+    return json.loads(RUTA_PASADA_AMPLIA.read_text(encoding="utf-8"))
+
+
+def test_con_un_mapa_POR_TAREA_la_dispersion_dice_que_metrica_no_gobierna():
+    d = _amplia()
+    met = d["alcance_y_veredicto"]["metrica_de_cierre_por_dataset"]
+    s = dispersion_de_un_motor(d["resultados"], motor="lightgbm",
+                               liston_en_puntos=2.0, metrica_por_dataset=met)
+    assert "la_metrica_de_arriba_no_gobierna" in s, (
+        "el bloque agrega rangos de auroc, accuracy y r2 bajo una sola cifra: "
+        "sin este descargo, `metrica: auroc` es una etiqueta falsa")
+    assert "metrica_por_dataset" in s
+    assert {s["metrica_por_dataset"][d_] for d_ in ("letter", "diamonds", "adult")} == {
+        "accuracy", "r2", "auroc"}, "el mapa tiene que decir la de CADA dataset"
+
+
+def test_SIN_mapa_por_tarea_NO_se_pone_el_descargo():
+    """La otra mitad: un descargo puesto siempre no distingue nada.
+
+    Con una sola metrica para todos, `metrica: "auroc"` es cierto y anadirle
+    «esto no gobierna» seria ruido que ensena a no leer los descargos.
+    """
+    s = dispersion_de_un_motor(RESULTADOS, motor="lightgbm", liston_en_puntos=2.0)
+    assert "la_metrica_de_arriba_no_gobierna" not in s
+    assert "metrica_por_dataset" not in s
+    assert s["metrica"] == "auroc"
+
+
+def test_la_reparacion_NO_movio_un_solo_numero():
+    """Lo que esta prueba impide: arreglar una etiqueta y mover una medida.
+
+    Se re-calcula la dispersion con el codigo de HOY y se compara contra la que
+    el artefacto lleva escrita, que se calculo con el codigo de ANTES. Si algun
+    numero hubiera cambiado, la etiqueta no seria lo unico que se toco.
+    """
+    d = _amplia()
+    met = d["alcance_y_veredicto"]["metrica_de_cierre_por_dataset"]
+    for motor in ("lightgbm", "catboost", "sklearn.hgb", "matrixai.dense.torch_cpu"):
+        guardada = d["alcance_y_veredicto"]["por_motor"][motor]["dispersion"]
+        recalculada = dispersion_de_un_motor(
+            d["resultados"], motor=motor,
+            liston_en_puntos=guardada["liston_en_puntos"], metrica_por_dataset=met)
+        for campo in ("n_datasets", "sd_mediana", "sd_maxima", "rango_mediano",
+                      "rango_maximo", "dataset_mas_disperso",
+                      "sd_entre_semillas_mediana", "sd_entre_semillas_maxima",
+                      "datasets_con_rango_mayor_que_el_liston"):
+            assert recalculada[campo] == guardada[campo], (
+                f"{motor}: la reparacion de la etiqueta movio {campo!r} "
+                f"({guardada[campo]!r} -> {recalculada[campo]!r})")
+
+
+def test_la_dispersion_SIGUE_redactando_su_lectura():
+    """Cazo un error que cometi al reparar: un `return` puesto antes de tiempo
+    se comia `como_hay_que_leer_este_numero` entero, y el bloque habria salido
+    sin la frase que explica como leerlo — en verde, porque nada la exigia."""
+    d = _amplia()
+    met = d["alcance_y_veredicto"]["metrica_de_cierre_por_dataset"]
+    s = dispersion_de_un_motor(d["resultados"], motor="lightgbm",
+                               liston_en_puntos=2.0, metrica_por_dataset=met)
+    assert "como_hay_que_leer_este_numero" in s
+    assert s["como_hay_que_leer_este_numero"].startswith("lightgbm")

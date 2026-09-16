@@ -503,6 +503,92 @@ def _estado_del_repositorio(raiz: Path) -> dict:
             "motivo": None}
 
 
+def _ficheros_importados_por_este_proceso() -> set[str]:
+    """Las rutas de los modulos que ESTE proceso tiene importados, medidas.
+
+    No es una lista escrita a mano de «que entra en el grafo»: eso seria un
+    segundo sitio declarando lo que `CLAUDE.md` ya declara, y dos sitios
+    declarando lo mismo acaban divergiendo. Se pregunta a `sys.modules`, que
+    dice lo que de verdad se cargo.
+
+    **ES UNA COTA INFERIOR, y eso decide como se puede leer.** El proceso que
+    sella la procedencia ha importado el camino de medicion, pero cada intento
+    corre en un hijo de `multiprocessing.spawn` que re-importa desde disco y
+    puede cargar mas cosas por el camino (importaciones perezosas dentro de un
+    motor, un backend de ONNX que solo aparece al exportar). Asi que:
+
+    - que un fichero sucio SI este aqui **demuestra** que entra en lo que se
+      ejecuta;
+    - que NO este **no demuestra lo contrario**, y por eso el campo se llama
+      `importado_al_sellar` y no `esta_fuera_del_grafo`.
+
+    Lo primero afila el aviso; lo segundo no absuelve a nadie. Un campo que
+    dijera «esta fuera» convertiria una cota inferior en una coartada.
+    """
+    rutas: set[str] = set()
+    for modulo in list(sys.modules.values()):
+        fichero = getattr(modulo, "__file__", None)
+        if not fichero:
+            continue
+        try:
+            rutas.add(str(Path(fichero).resolve()))
+        except OSError:  # un modulo con __file__ raro no tumba el sellado
+            continue
+    return rutas
+
+
+def _suciedad_con_motivo(repositorios: dict, raices: dict[str, Path]) -> dict:
+    """QUE estaba sucio, y si se puede DEMOSTRAR que corre — 2026-09-16.
+
+    `anclable` es un si/no y no cambia aqui: sigue valiendo `False` en cuanto
+    hay un fichero sucio, sea el que sea. Lo que faltaba es el motivo. Tres de
+    las cuatro mediciones anteriores dicen `anclable: False` **por un JSON de
+    resultados ahi puesto**, que no puede afectar a un solo numero; una lo dice
+    por el propio guion de la pasada, que los afecta todos. Las cuatro se leen
+    igual, y un guardia que dice que no casi siempre deja de leerse — la misma
+    familia que la nota «este fichero es sensible a la carga», que tapo un 500
+    de producto durante dos dias.
+
+    Asi que esto **afila, no ablanda**: nadie pasa de `False` a `True` por lo
+    que diga este bloque.
+    """
+    importados = _ficheros_importados_por_este_proceso()
+    ficheros: list[dict] = []
+    for nombre, estado in sorted(repositorios.items()):
+        raiz = raices.get(nombre)
+        for tipo, lista in (("modificado", estado.get("ficheros_modificados") or []),
+                            ("sin_seguimiento", estado.get("ficheros_sin_seguimiento") or [])):
+            for relativa in lista:
+                absoluta = None
+                if raiz is not None:
+                    try:
+                        absoluta = str((Path(raiz) / relativa).resolve())
+                    except OSError:
+                        absoluta = None
+                ficheros.append({
+                    "repositorio": nombre,
+                    "ruta": relativa,
+                    "tipo": tipo,
+                    "importado_al_sellar": bool(absoluta and absoluta in importados),
+                })
+    demostrados = [f for f in ficheros if f["importado_al_sellar"]]
+    return {
+        "ficheros": ficheros,
+        "n_sucios": len(ficheros),
+        "n_demostrablemente_en_el_grafo": len(demostrados),
+        "rutas_demostrablemente_en_el_grafo": sorted(f["ruta"] for f in demostrados),
+        "como_se_midio": (
+            "`sys.modules` del proceso que sella, resuelto a rutas absolutas. "
+            "Medido, no declarado."),
+        "por_que_un_False_aqui_NO_absuelve": (
+            "`importado_al_sellar: false` es una COTA INFERIOR, no un alta: cada "
+            "intento corre en un hijo de multiprocessing.spawn que re-importa "
+            "desde disco y puede cargar mas modulos por el camino. Que este "
+            "demuestra que corre; que no este, no demuestra nada. `anclable` "
+            "sigue siendo `false` con cualquier fichero sucio."),
+    }
+
+
 def procedencia_de_la_medicion(*, digests_de_codigo: dict,
                                datos_de_entrada: dict[str, Path]) -> dict:
     """El bloque que convierte un numero medido en un numero ANCLABLE.
@@ -551,6 +637,11 @@ def procedencia_de_la_medicion(*, digests_de_codigo: dict,
         "datos_de_entrada": datos,
         "anclable": not avisos,
         "avisos": avisos,
+        # QUE estaba sucio y si se puede demostrar que corre. Va DENTRO del
+        # bloque —y por tanto dentro de `procedencia_id`— porque dos pasadas
+        # del mismo commit sucias de formas distintas no son la misma
+        # procedencia. Afila el `False`; no lo ablanda.
+        "suciedad": _suciedad_con_motivo(repositorios, _RUTAS_DE_REPOSITORIO),
     }
     # El id se calcula sobre TODO lo anterior, avisos incluidos: dos pasadas del
     # mismo commit con el arbol sucio de formas distintas no son la misma
