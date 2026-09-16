@@ -2265,24 +2265,6 @@ def _cmd_train(args) -> int:
     return 0
 
 
-def _rangos_declarados(program) -> dict[str, tuple[float, float]]:
-    """Los dominios que el `.mxai` declara para sus entradas.
-
-    `edad: Scalar[18, 100]` es el dominio del que muestrea el generador; sin
-    declaración, muestrea `[0, 1]`. Lo que no traiga rango **no entra en el
-    mapa**: quien lo lea usará su valor por defecto, que es esa misma
-    suposición, en vez de una inventada aquí.
-    """
-    dominios: dict[str, tuple[float, float]] = {}
-    for vector in getattr(program, "vectors", []) or []:
-        for nombre, tipo in (getattr(vector, "field_types", None) or {}).items():
-            rango = getattr(tipo, "range", None)
-            minimo, maximo = getattr(rango, "minimum", None), getattr(rango, "maximum", None)
-            if isinstance(minimo, (int, float)) and isinstance(maximo, (int, float)):
-                dominios[str(nombre)] = (float(minimo), float(maximo))
-    return dominios
-
-
 def _generacion_declarada(args) -> tuple[int | None, int | None, str]:
     """Semilla, filas TOTALES y modo con los que se generó el dataset.
 
@@ -3752,15 +3734,19 @@ def _cmd_generate_dataset(args) -> int:
         # Callarlo deja media receta muerta dentro de un dataset con aspecto de
         # bueno, que es peor que una receta que no se lee.
         if _domain_rules is not None:
-            from matrixai.training.domain_rules import condiciones_imposibles  # noqa: PLC0415
+            from matrixai.training.domain_rules import (  # noqa: PLC0415
+                condiciones_imposibles, dominios_de_muestreo)
             # CON LOS RANGOS QUE EL MODELO DECLARA, y esto lo enseñó el propio
             # producto: sin ellos, este aviso daba un FALSO POSITIVO sobre un
             # `.mxai` con `edad: Scalar[18, 100]` —decía «edad va de 0 a 1»
             # cuando el generador estaba muestreando 23,7 y 53,0—, o sea que
             # mandaba a arreglar lo que ya estaba bien, que es justo el defecto
-            # que este aviso venía a quitar.
+            # que este aviso venía a quitar. Sin `field_ranges`: aquí la receta
+            # se resuelve con `{}` y el generador no los recibe. El mapa es el
+            # mismo que usa el playground (lo tenía solo este camino hasta el
+            # 2026-09-16, y el Studio seguía acusando).
             for _muerta in condiciones_imposibles(
-                    getattr(_domain_rules, "rules", []), _rangos_declarados(program)):
+                    getattr(_domain_rules, "rules", []), dominios_de_muestreo(program)):
                 print(f"Warning: {_muerta}", file=sys.stderr)
 
         generator = SyntheticDataGenerator(

@@ -770,11 +770,22 @@ def _generate_synthetic_dataset(
         # camino degenerado pone `domain_rules = None` y se llevaba por delante
         # justo el caso que más importa: una regla tan muerta que todo cayó en
         # el DEFAULT. Medido — la prueba se puso roja enseñándolo.
+        #
+        # Y SE JUZGAN EN LAS UNIDADES DE LA RECETA, con el dominio de cada campo
+        # (2026-09-16). Aquí se juzgaban las reglas ya normalizadas contra
+        # [0, 1] para todo, y eso solo vale para los campos con `field_ranges`:
+        # un rango DECLARADO (`edad: Scalar[18, 100]`) no normaliza la receta y
+        # el generador muestrea en años, así que el caso clínico —`alto: edad >
+        # 75`— salía «muerto» con 65 filas `alto` solo por la edad. Y con rango
+        # pasado el aviso decía «edad > 1.07143 — va de 0 a 1» a quien había
+        # escrito 95. `dominios_de_muestreo` es el mismo mapa que usa la CLI.
         _condiciones_muertas: list[str] = []
         if domain_rules is not None:
-            from matrixai.training.domain_rules import condiciones_imposibles  # noqa: PLC0415
+            from matrixai.training.domain_rules import (  # noqa: PLC0415
+                condiciones_imposibles, dominios_de_muestreo, parse_domain_rules)
             _condiciones_muertas = condiciones_imposibles(
-                getattr(domain_rules, "rules", []))
+                getattr(parse_domain_rules(recipe_text or ""), "rules", []),
+                dominios_de_muestreo(program, field_ranges))
 
         if (domain_rules is None and mode == "coherent" and use_llm and is_multiclass
                 and _detect_llm_mode().get("active", False)):
@@ -977,10 +988,10 @@ def _generate_synthetic_dataset(
                 "valor`, con `AND`/`OR` simples (no mezclados en la misma línea) "
                 "y sin paréntesis."
             )
-        # LAS CONDICIONES MUERTAS (hallazgo 11, 2026-08-25). Se miran sobre las
-        # reglas YA NORMALIZADAS, que es el espacio en el que muestrea el
-        # generador: un umbral en unidades reales contra un modelo sin rangos
-        # declarados cae fuera de [0, 1] y no se cumple jamás. La receta es
+        # LAS CONDICIONES MUERTAS (hallazgo 11, 2026-08-25). Se calculan arriba,
+        # en las unidades de la receta y contra el dominio en el que muestrea el
+        # generador cada campo: un umbral en unidades reales contra un modelo
+        # sin rangos cae fuera de [0, 1] y no se cumple jamás. La receta es
         # válida, discrimina por lo demás, y nadie lo decía.
         if _condiciones_muertas:
             result["recipe_dead_conditions"] = _condiciones_muertas

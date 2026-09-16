@@ -248,6 +248,43 @@ def lineas_que_no_se_leyeron(texto: str, reglas: Any) -> list[str]:
     return caidas
 
 
+def dominios_de_muestreo(program: Any, field_ranges: Any = None) -> dict[str, tuple[float, float]]:
+    """El dominio de cada entrada EN LAS UNIDADES DE LA RECETA, para juzgarla.
+
+    Es el mapa que necesita `condiciones_imposibles` y lo usan los dos caminos
+    —la CLI y el playground del Studio—. Estaba solo en la CLI
+    (`_rangos_declarados`) y el Studio juzgaba todo contra [0, 1]: medido el
+    2026-09-16 con el caso clínico, `edad: Scalar[18, 100]` y `alto: edad > 75`
+    sacaban «nunca se cumple» con 65 filas que eran `alto` SOLO por la edad.
+
+    Precedencia, la misma de `SyntheticDataGenerator._sample_type`:
+      · un rango PASADO (`field_ranges`, del LLM o de la persona) manda — el
+        generador muestrea en [0, 1] y la receta se normaliza con él, así que
+        en unidades de la receta el dominio es ese rango;
+      · si no, el DECLARADO en el `.mxai` (`edad: Scalar[18, 100]`), del que el
+        generador muestrea tal cual;
+      · lo que no traiga ninguno **no entra en el mapa**: quien lo lea usará su
+        valor por defecto, [0, 1], que es esa misma suposición.
+
+    **Se juzga con las reglas SIN normalizar**, no con las que recibe el
+    generador. Con las normalizadas y este mapa, un rango pasado da un falso
+    positivo (0,786 contra 20–90: «se cumple siempre»); y con las normalizadas
+    contra [0, 1] acierta, pero el aviso dice «edad > 1.07143 — va de 0 a 1» a
+    quien escribió `edad > 95` con un rango de 20 a 90.
+    """
+    dominios: dict[str, tuple[float, float]] = {}
+    for vector in getattr(program, "vectors", []) or []:
+        for nombre, tipo in (getattr(vector, "field_types", None) or {}).items():
+            rango = getattr(tipo, "range", None)
+            minimo, maximo = getattr(rango, "minimum", None), getattr(rango, "maximum", None)
+            if isinstance(minimo, (int, float)) and isinstance(maximo, (int, float)):
+                dominios[str(nombre)] = (float(minimo), float(maximo))
+    for nombre, rango in (field_ranges or {}).items():
+        # Tal cual: si no se puede leer, `condiciones_imposibles` no lo juzga.
+        dominios[str(nombre)] = tuple(rango)
+    return dominios
+
+
 def condiciones_imposibles(reglas: Any, dominios: Any = None) -> list[str]:
     """Las condiciones que NUNCA pueden cumplirse (o que se cumplen SIEMPRE).
 

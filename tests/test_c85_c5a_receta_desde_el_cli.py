@@ -120,22 +120,22 @@ class LosRangosDeclaradosMandanTest(unittest.TestCase):
             "GRAPH\n  E -> N\nEND\n")
 
     def test_los_rangos_del_mxai_llegan_al_aviso(self):
-        from matrixai.cli import _rangos_declarados
-        self.assertEqual(_rangos_declarados(self._programa(True)), {"edad": (18.0, 100.0)})
+        from matrixai.training.domain_rules import dominios_de_muestreo
+        self.assertEqual(dominios_de_muestreo(self._programa(True)), {"edad": (18.0, 100.0)})
 
     def test_un_campo_sin_rango_no_entra_en_el_mapa(self):
         """Quien lo lea usará su valor por defecto —que es la misma suposición—
         en vez de uno inventado aquí."""
-        from matrixai.cli import _rangos_declarados
-        self.assertEqual(_rangos_declarados(self._programa(False)), {})
+        from matrixai.training.domain_rules import dominios_de_muestreo
+        self.assertEqual(dominios_de_muestreo(self._programa(False)), {})
 
     def test_con_rangos_declarados_la_condicion_esta_VIVA(self):
-        from matrixai.cli import _rangos_declarados
+        from matrixai.training.domain_rules import dominios_de_muestreo
         from matrixai.training.domain_rules import condiciones_imposibles, parse_domain_rules
         dr = parse_domain_rules("alto: edad > 75\nDEFAULT: bajo")
         self.assertEqual(
-            condiciones_imposibles(dr.rules, _rangos_declarados(self._programa(True))), [])
+            condiciones_imposibles(dr.rules, dominios_de_muestreo(self._programa(True))), [])
         # Y sin declararlos, sigue muerta: el aviso no se ha apagado, se ha
         # informado.
         self.assertEqual(
-            len(condiciones_imposibles(dr.rules, _rangos_declarados(self._programa(False)))), 1)
+            len(condiciones_imposibles(dr.rules, dominios_de_muestreo(self._programa(False)))), 1)
