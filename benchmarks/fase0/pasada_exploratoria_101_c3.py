@@ -589,6 +589,44 @@ def _suciedad_con_motivo(repositorios: dict, raices: dict[str, Path]) -> dict:
     }
 
 
+#: LO QUE CUBRE `digest_resultados_crudos`, dicho DENTRO del artefacto.
+QUE_CUBRE_EL_DIGEST_RESULTADOS_CRUDOS = (
+    "TODO el objeto de salida salvo este mismo campo —incluidos "
+    "`alcance_y_veredicto`, el plan y la procedencia—, no solo `resultados`. El "
+    "nombre es historico y NO se cambia: lo citan cinco artefactos y el "
+    "`evidencia_digest` de la cartera aprobada. El digest de los resultados "
+    "crudos a secas es `digest_solo_de_resultados`.")
+
+
+def sellar_la_salida(salida: dict) -> dict:
+    """Pone los digests de un artefacto de Fase 0, y DICE QUÉ CUBRE CADA UNO.
+
+    **EL NOMBRE PROMETÍA UNA COSA Y CUBRÍA OTRA — medido el 2026-09-16.**
+    `digest_resultados_crudos` se calculaba con `digest_canonico(salida)`, o
+    sea sobre TODO el objeto, veredicto incluido. Sobre la pasada amplia: el
+    grabado es `3646af61…` y el digest de `resultados` a secas es `d06c76c5…`.
+    Dos consecuencias, las dos concretas:
+
+    - **un tercero que quiera comprobar el sello de la cartera** re-derivando
+      «el digest de los resultados crudos» desde `resultados` saca otro número
+      y concluye que el artefacto está manipulado — cuando no lo está;
+    - y al revés: **cambiar una etiqueta del veredicto**, que no toca un solo
+      número medido, invalida el sello.
+
+    **No se renombra**, porque lo citan cinco artefactos ya escritos y la
+    cartera aprobada: se AÑADE al lado el digest que el nombre prometía y se
+    declara, dentro del propio JSON, qué cubre el viejo. Los dos van dentro del
+    digest principal, que se calcula el último — así que añadirlos no cambia
+    cómo se verifica: sigue siendo «todo menos `digest_resultados_crudos`».
+
+    Vive aquí y la llaman C3 y C5: el mismo defecto estaba escrito dos veces.
+    """
+    salida["digest_solo_de_resultados"] = digest_canonico(salida["resultados"])
+    salida["que_cubre_digest_resultados_crudos"] = QUE_CUBRE_EL_DIGEST_RESULTADOS_CRUDOS
+    salida["digest_resultados_crudos"] = digest_canonico(salida)
+    return salida
+
+
 def procedencia_de_la_medicion(*, digests_de_codigo: dict,
                                datos_de_entrada: dict[str, Path]) -> dict:
     """El bloque que convierte un numero medido en un numero ANCLABLE.
@@ -1178,7 +1216,7 @@ def _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida, *,
     # podría editar sin que el fichero dejara de cuadrar consigo mismo, y un
     # alcance que se puede reescribir en silencio no declara nada.
     salida["alcance_y_veredicto"] = _alcance_y_veredicto(resultados)
-    salida["digest_resultados_crudos"] = digest_canonico(salida)
+    sellar_la_salida(salida)
     # Escritura ATÓMICA: a un temporal y luego `replace`. Sin esto, morir a
     # mitad de escribir dejaría un JSON truncado, y un fichero corrupto es
     # peor que ninguno — el caché lo leería y fallaría sin decir por qué.

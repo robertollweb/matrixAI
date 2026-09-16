@@ -1033,3 +1033,194 @@ def test_sin_procesos_registrados_NO_se_inventa_un_veredicto():
     assert r["registrados"] is None
     assert "conservadora_para_el_veredicto" not in r
     assert "nada que reconciliar" in r["motivo"]
+
+
+# ---------------------------------------------------------------------------
+# `digest_resultados_crudos` NO ERA EL DIGEST DE LOS RESULTADOS CRUDOS — 2026-09-16.
+#
+# Se calculaba sobre TODO el objeto de salida, veredicto incluido. Medido sobre
+# la pasada amplia: el grabado es `3646af61…` y el de `resultados` a secas es
+# `d06c76c5…`. Un tercero que quisiera comprobar el sello de la cartera
+# re-derivando «el digest de los resultados crudos» sacaría otro número y
+# concluiría que el artefacto está manipulado.
+#
+# No se renombra —lo citan cinco artefactos y la cartera—: se añade al lado el
+# digest que el nombre prometía y se declara dentro del JSON qué cubre el viejo.
+# Se prueba sobre un artefacto COMPUESTO con `_componer_y_guardar`, el código que
+# corre de verdad: el JSON ya escrito no lleva los campos nuevos y cuadraría
+# igual aunque el sellado estuviera roto.
+# ---------------------------------------------------------------------------
+
+def _compuesto(protocolo, tmp_path) -> dict:
+    from benchmarks.fase0 import pasada_amplia_101_c5 as c5
+
+    datasets = [d for d in c5.datasets_de_la_pasada(protocolo)
+                if d.nombre in ("kc2", "yeast", "Moneyball")]
+    for ds in datasets:
+        ds.objetivo = "y"
+        if ds.tarea != "regression":
+            ds.clases, ds.positiva = ("a", "b"), "a"
+    mapa = c5.metrica_de_cierre_por_dataset(protocolo, datasets)
+    resultados = []
+    for ds in datasets:
+        resultados += _registros(ds.nombre, mapa[ds.nombre],
+                                 {"lightgbm": 0.9, "catboost": 0.8, "baseline": 0.5})
+    ruta = tmp_path / "sellado.json"
+    c5._componer_y_guardar(
+        resultados, {"procedencia_id": "prueba", "anclable": False, "avisos": ["de prueba"]},
+        {}, ruta, datasets=datasets, plan=c5.plan_de_la_pasada(datasets, protocolo),
+        protocolo=protocolo, metrica_por_dataset=mapa, particiones={}, subconjunto=None,
+        total_wall_s=1.0, reusados=0, parcial=False)
+    return json.loads(ruta.read_text(encoding="utf-8"))
+
+
+def test_el_artefacto_lleva_el_digest_que_el_NOMBRE_prometia(protocolo, tmp_path):
+    """El defecto que esta prueba existe para impedir."""
+    from matrixai.estudio.validacion import digest_canonico
+
+    escrito = _compuesto(protocolo, tmp_path)
+    assert escrito["digest_solo_de_resultados"] == digest_canonico(escrito["resultados"])
+    assert escrito["digest_solo_de_resultados"] != escrito["digest_resultados_crudos"], (
+        "si los dos coinciden, uno de los dos no está cubriendo lo que dice")
+
+
+def test_el_artefacto_DICE_que_cubre_su_digest_historico(protocolo, tmp_path):
+    escrito = _compuesto(protocolo, tmp_path)
+    texto = escrito["que_cubre_digest_resultados_crudos"]
+    assert "TODO el objeto" in texto
+    assert "digest_solo_de_resultados" in texto
+
+
+def test_la_verificacion_de_SIEMPRE_sigue_valiendo(protocolo, tmp_path):
+    """La mitad que impide que el arreglo rompa lo que ya funcionaba: quien
+    comprobaba el digest como «todo menos `digest_resultados_crudos`» tiene que
+    seguir pudiendo. Los campos nuevos van DENTRO del sello, no fuera."""
+    from matrixai.estudio.validacion import digest_canonico
+
+    escrito = _compuesto(protocolo, tmp_path)
+    cuerpo = dict(escrito)
+    guardado = cuerpo.pop("digest_resultados_crudos")
+    assert digest_canonico(cuerpo) == guardado
+    # y el digest nuevo está dentro del sello: tocarlo lo rompe
+    cuerpo["digest_solo_de_resultados"] = "0" * 64
+    assert digest_canonico(cuerpo) != guardado
+
+
+def test_C3_y_C5_sellan_con_la_MISMA_funcion():
+    """El mismo defecto estaba escrito dos veces. Si alguien vuelve a calcular
+    el digest a mano en uno de los dos, los artefactos dejan de decir lo mismo.
+
+    Se mira con `ast` EN QUÉ FUNCIÓN se asigna `digest_resultados_crudos`, y no
+    buscando el texto: la primera versión de esta prueba buscaba la línea y
+    salió roja porque la línea existe —legítimamente— DENTRO de
+    `sellar_la_salida`. Lo que hay que prohibir no es la línea, es que viva
+    fuera de su único sitio.
+    """
+    import ast
+
+    raiz = RAIZ / "benchmarks" / "fase0"
+    for nombre in ("pasada_exploratoria_101_c3.py", "pasada_amplia_101_c5.py"):
+        arbol = ast.parse((raiz / nombre).read_text(encoding="utf-8"))
+        fuera: list[str] = []
+
+        def recorrer(nodo, funcion):
+            for hijo in ast.iter_child_nodes(nodo):
+                dentro = hijo.name if isinstance(hijo, ast.FunctionDef) else funcion
+                if isinstance(hijo, ast.Assign):
+                    for destino in hijo.targets:
+                        if (isinstance(destino, ast.Subscript)
+                                and isinstance(destino.slice, ast.Constant)
+                                and destino.slice.value == "digest_resultados_crudos"
+                                and dentro != "sellar_la_salida"):
+                            fuera.append(f"{funcion or '<modulo>'}:{hijo.lineno}")
+                recorrer(hijo, dentro)
+
+        recorrer(arbol, None)
+        assert fuera == [], (
+            f"{nombre} asigna `digest_resultados_crudos` fuera de `sellar_la_salida`, "
+            f"en {fuera}: vuelve a sellar a mano y el artefacto dejaría de llevar "
+            "el digest de los resultados de verdad")
+        assert "sellar_la_salida(salida)" in (raiz / nombre).read_text(encoding="utf-8"), nombre
+
+
+# ---------------------------------------------------------------------------
+# EL HUECO NOMINAL, CERRADO EL 2026-09-16: cada medida que el protocolo exige
+# tiene casa DECLARADA en el artefacto, y el mapa se construye desde el protocolo.
+# ---------------------------------------------------------------------------
+
+class _ProtocoloDePrueba:
+    def __init__(self, siempre):
+        self.metricas_por_tarea = {"siempre": list(siempre)}
+
+
+def test_ninguna_medida_del_protocolo_se_queda_SIN_CASA(protocolo):
+    """El defecto que esta prueba existe para impedir: `tasa_de_fallo` y
+    `dispersion_entre_semillas` se medían con otros nombres y el puente vivía
+    en un comentario del fuente, así que quien comparaba el protocolo con el
+    JSON las veía faltar."""
+    from benchmarks.fase0 import pasada_amplia_101_c5 as c5
+
+    mapa = c5.donde_vive_cada_medida_siempre(protocolo, [])
+    registradas = list(protocolo.metricas_por_tarea["siempre"])
+    assert list(mapa) == registradas, "el mapa tiene que salir DEL protocolo, en su orden"
+    sin_casa = [n for n, v in mapa.items() if v["estado"] == "SIN_CASA"]
+    assert sin_casa == [], f"medidas registradas sin casa: {sin_casa}"
+
+
+def test_una_medida_NUEVA_del_protocolo_aparece_SIN_CASA_y_no_desaparece():
+    """La mitad que hace que el mapa no caduque: si el protocolo registrara un
+    séptimo nombre, una lista escrita a mano seguiría con los seis de hoy y el
+    nuevo desaparecería sin ruido."""
+    from benchmarks.fase0 import pasada_amplia_101_c5 as c5
+
+    mapa = c5.donde_vive_cada_medida_siempre(
+        _ProtocoloDePrueba(["tiempo_de_ajuste", "latencia_p99"]), [])
+    assert mapa["latencia_p99"]["estado"] == "SIN_CASA"
+    assert mapa["tiempo_de_ajuste"]["estado"] == "guardada"
+
+
+def test_la_tasa_de_fallo_derivada_CUADRA_con_los_fallos_medidos():
+    """Sobre la pasada real: los 15 fallos son todos de la densa."""
+    from benchmarks.fase0 import pasada_amplia_101_c5 as c5
+
+    if not _RUTA_AMPLIA.exists():
+        pytest.skip("la pasada amplia no esta en este arbol")
+    datos = json.loads(_RUTA_AMPLIA.read_text(encoding="utf-8"))
+    tasa = c5.donde_vive_cada_medida_siempre(
+        c5.protocolo_registrado(), datos["resultados"])["tasa_de_fallo"]["valor_por_motor"]
+    assert tasa["matrixai.dense.torch_cpu"]["fallidos"] == 15
+    assert sum(v["fallidos"] for v in tasa.values()) == 15
+    for motor, v in tasa.items():
+        assert v["intentos"] == sum(1 for r in datos["resultados"] if r["motor"] == motor)
+
+
+def test_la_tasa_usa_la_MISMA_lista_blanca_que_la_regla():
+    """Una parada cooperativa no es un fallo para la regla de cierre (M4); si la
+    tasa usara otro criterio, diría que falló algo que la regla no cuenta como
+    perdido."""
+    from benchmarks.fase0 import pasada_amplia_101_c5 as c5
+
+    registros = [{"motor": "m", "estado": "completed"},
+                 {"motor": "m", "estado": "completed_budget_limited"},
+                 {"motor": "m", "estado": "failed"}]
+    v = c5.donde_vive_cada_medida_siempre(
+        _ProtocoloDePrueba(["tasa_de_fallo"]), registros)["tasa_de_fallo"]["valor_por_motor"]["m"]
+    assert (v["fallidos"], v["intentos"]) == (1, 3)
+
+
+def test_las_casas_que_el_mapa_DECLARA_existen_de_verdad():
+    """Un mapa que apunta a sitios que no existen es otro comentario que
+    promete. Se comprueba contra la pasada real."""
+    if not _RUTA_AMPLIA.exists():
+        pytest.skip("la pasada amplia no esta en este arbol")
+    datos = json.loads(_RUTA_AMPLIA.read_text(encoding="utf-8"))
+    for campo in ("tiempo_de_ajuste", "cpu_segundos"):
+        assert campo in datos["resultados"][0], campo
+    disp = datos["alcance_y_veredicto"]["por_motor"]["lightgbm"]["dispersion"]
+    assert "sd_entre_semillas_mediana" in disp and "sd_entre_semillas_maxima" in disp
+
+
+def test_el_artefacto_COMPUESTO_lleva_el_mapa(protocolo, tmp_path):
+    escrito = _compuesto(protocolo, tmp_path)
+    assert set(escrito["donde_vive_cada_medida_siempre"]) == set(
+        protocolo.metricas_por_tarea["siempre"])

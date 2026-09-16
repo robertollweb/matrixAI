@@ -117,7 +117,8 @@ from matrixai.training.preparacion import tipar_columnas_numericas  # noqa: E402
 from matrixai_engines.particiones import Particion, Presupuesto  # noqa: E402
 from matrixai_engines.subproceso import ejecutar_intento_aislado  # noqa: E402
 
-from protocolo import (ProtocoloExploratorio,  # noqa: E402
+from protocolo import (ESTADOS_QUE_CUENTAN_COMO_MEDIDA,  # noqa: E402
+                       ProtocoloExploratorio,
                        estabilidad_del_ganador,
                        veredicto_con_su_alcance)
 
@@ -247,6 +248,67 @@ MEDIDAS_SIEMPRE_QUE_NO_SE_PUEDEN_DAR = {
         "pico acumulado de todos los hijos seria un numero falso, y uno falso "
         "es peor que uno ausente."),
 }
+
+def donde_vive_cada_medida_siempre(protocolo: ProtocoloExploratorio,
+                                   resultados: list) -> dict:
+    """UN MAPA DE CADA MEDIDA QUE EL PROTOCOLO EXIGE A DÓNDE VIVE EN EL ARTEFACTO.
+
+    `metricas_por_tarea.siempre` registra seis nombres. Hasta el 2026-09-16 dos
+    salían con su nombre en cada registro, dos se declaraban imposibles, y las
+    otras dos —`tasa_de_fallo` y `dispersion_entre_semillas`— **no aparecían
+    con ese nombre en ningún sitio**: el puente vivía solo en un comentario de
+    este fuente. Quien comparara el protocolo con el JSON —una persona o un
+    comprobador— las veía FALTAR. Y medido: `tasa_de_fallo` no estaba en
+    ninguna parte, ni con otro nombre; lo único cercano era un booleano por
+    dataset, `perdido_por_fallo`.
+
+    **Se construye DESDE la lista del protocolo, no desde una lista propia.** Si
+    el protocolo registra un séptimo nombre y nadie le da casa, aparece aquí con
+    `estado: "SIN_CASA"` en vez de desaparecer — y la prueba que acompaña a
+    esta función no admite ninguno. Una lista escrita a mano se quedaría con
+    los seis de hoy.
+
+    `tasa_de_fallo` se DERIVA aquí, de `estado`, con la MISMA lista blanca que
+    usa la regla de cierre (`ESTADOS_QUE_CUENTAN_COMO_MEDIDA`): dos criterios
+    distintos de «fallo» darían una tasa que no cuadra con los datasets que la
+    regla cuenta como perdidos.
+    """
+    siempre = list((protocolo.metricas_por_tarea or {}).get("siempre") or [])
+    por_motor: dict[str, dict] = {}
+    for r in resultados:
+        m = por_motor.setdefault(r["motor"], {"intentos": 0, "fallidos": 0})
+        m["intentos"] += 1
+        if r.get("estado") not in ESTADOS_QUE_CUENTAN_COMO_MEDIDA:
+            m["fallidos"] += 1
+    for m in por_motor.values():
+        m["tasa"] = (m["fallidos"] / m["intentos"]) if m["intentos"] else None
+
+    casas = {
+        "tiempo_de_ajuste": {
+            "estado": "guardada", "donde": "resultados[].tiempo_de_ajuste"},
+        "cpu_segundos": {
+            "estado": "guardada", "donde": "resultados[].cpu_segundos"},
+        "dispersion_entre_semillas": {
+            "estado": "derivada",
+            "donde": ("alcance_y_veredicto.por_motor.<motor>.dispersion."
+                      "sd_entre_semillas_mediana / sd_entre_semillas_maxima, y por "
+                      "dataset en .por_dataset.<dataset>.sd_entre_semillas")},
+        "tasa_de_fallo": {
+            "estado": "derivada",
+            "donde": "aqui mismo, en `valor_por_motor`",
+            "como": ("intentos cuyo `estado` no esta en "
+                     "ESTADOS_QUE_CUENTAN_COMO_MEDIDA, sobre el total del motor"),
+            "valor_por_motor": dict(sorted(por_motor.items()))},
+    }
+    for nombre, motivo in MEDIDAS_SIEMPRE_QUE_NO_SE_PUEDEN_DAR.items():
+        casas[nombre] = {"estado": "imposible", "motivo": motivo}
+
+    return {nombre: casas.get(nombre, {
+                "estado": "SIN_CASA",
+                "motivo": ("el protocolo la registra y esta pasada no dice donde "
+                           "vive: ni guardada, ni derivada, ni declarada imposible")})
+            for nombre in siempre}
+
 
 #: Los ficheros compartidos cuyo cambio invalida TODO el caché: los de C3 (que
 #: ya incluyen el harness, el subproceso, las particiones, la preparación, el
@@ -1148,6 +1210,10 @@ def _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida, *,
         "particion_por_dataset": dict(particiones),
         "criterio_de_la_estratificacion": CRITERIO_DE_LA_ESTRATIFICACION,
         "medidas_siempre_que_no_se_pueden_dar": dict(MEDIDAS_SIEMPRE_QUE_NO_SE_PUEDEN_DAR),
+        # EL MAPA COMPLETO, desde la lista del protocolo: con esto el protocolo
+        # se puede comprobar CONTRA EL ARTEFACTO sin leer este fuente.
+        "donde_vive_cada_medida_siempre": donde_vive_cada_medida_siempre(
+            protocolo, resultados),
         "total_wall_s": round(total_wall_s, 1),
         "n_intentos": len(resultados),
         # LOS DOS NUMEROS, RECONCILIADOS. Ver la funcion: se calcula, no se
@@ -1168,7 +1234,7 @@ def _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida, *,
     }
     salida["alcance_y_veredicto"] = _alcance_y_veredicto(
         resultados, datasets, protocolo, metrica_por_dataset, subconjunto)
-    salida["digest_resultados_crudos"] = digest_canonico(salida)
+    c3.sellar_la_salida(salida)
     temporal = ruta_salida.with_suffix(ruta_salida.suffix + ".parcial")
     temporal.write_text(json.dumps(salida, indent=2, ensure_ascii=False), encoding="utf-8")
     temporal.replace(ruta_salida)
