@@ -84,10 +84,21 @@ Verificado empíricamente contra el generador real (no asumido):
    real "red,blue" se leería como DOS categorías distintas mientras el CSV
    preparado seguiría tratándolo como un único valor, produciendo un
    desalineamiento silencioso entre modelo y CSV (auditoría C2 [ALTA],
-   reproducido). Se detecta ANTES de sintetizar el prompt y se rechaza con
-   un error accionable (invariante 7) — GEN no tiene mecanismo de escape
-   para este vocabulario, así que no hay forma segura de "arreglarlo" en
-   silencio.
+   reproducido). El lenguaje (`prompt_field_specs.py`) no cambia — GEN
+   sigue sin mecanismo de escape para este vocabulario —, así que SE
+   RENOMBRA en vez de rechazarse: solo el valor inseguro (medido sobre
+   `okcupid-stem` de OpenML, 2026-09-16 — 4 de 18 columnas categóricas,
+   hasta 7.015 de 7.018 niveles en una de ellas, valores naturales como
+   "doesn't have kids, but might want them") se traduce a un token seguro,
+   igual en el `Categorical[...]` del prompt y en las celdas del CSV
+   preparado, con el mapa valor_crudo->valor_usado congelado en la receta
+   (`preparation_spec["category_value_renames"]`) para que la PREDICCIÓN
+   (`prepare_dataset_from_provenance`) traduzca la misma fila igual — ver
+   `_rename_unsafe_category_values`. Un valor YA seguro no se toca nunca
+   (cambiarlo rompería toda receta existente). Solo cuando el renombrado
+   mismo no puede distinguir dos valores (colisión irresoluble) se rechaza
+   con un error accionable (invariante 7), y con un mensaje que no culpa al
+   CSV: la limitación es del prompt tipado, no del dato.
 9. **Un hueco no se puede escribir tal cual.** Una celda vacía en una
    FEATURE hacía que el modelo recién generado rechazara su propio CSV
    ("DATASET row N field X is empty") y el proyecto entero moría —
@@ -621,6 +632,14 @@ def generate_project_from_dataset(
     # sobre `vocabulary_sample`).
     target_values_raw = _distinct_non_null(rows, target_column, tokens_de_ausencia)
     category_vocabularies: dict[str, list[str]] = {}
+    # DECISIÓN (ver punto 8 del docstring, revisado): un valor con ',', ']' o
+    # salto de línea ya NO se rechaza — se RENOMBRA, igual en el prompt y en
+    # el CSV preparado, y el mapa valor_crudo->valor_usado viaja en la receta
+    # (`preparation_spec["category_value_renames"]`) para que la PREDICCIÓN
+    # (`prepare_dataset_from_provenance`) traduzca la misma fila igual. Solo
+    # los valores que la guarda rechazaría se tocan — ver
+    # `_rename_unsafe_category_values`.
+    category_value_renames: dict[str, dict[str, str]] = {}
     for col, raw_values in (column_category_overrides or {}).items():
         if col not in columns:
             raise DatasetProjectError(
@@ -650,7 +669,11 @@ def generate_project_from_dataset(
             raise DatasetProjectError(
                 f"column_category_overrides[{col!r}] contiene valores duplicados."
             )
-        _check_categorical_values_safe(values, col)
+        # LA CORRESPONDENCIA CONTRA LO OBSERVADO VA CON LOS VALORES CRUDOS,
+        # antes de renombrar nada: lo que trae el CSV es crudo, y lo que este
+        # override promete cubrir también lo es todavía en este punto — el
+        # renombrado es un detalle de representación interna, no cambia qué
+        # valores existen.
         observed = _distinct_non_null(rows, col, tokens_de_ausencia)
         missing = [value for value in observed if value not in values]
         if missing:
@@ -658,6 +681,10 @@ def generate_project_from_dataset(
                 f"column_category_overrides[{col!r}] omite valores presentes en "
                 f"el CSV: {missing}. Añádelos al vocabulario o corrige los datos."
             )
+        values, col_renames = _rename_unsafe_category_values(values, col)
+        _check_categorical_values_safe(values, col)  # defensa: el renombrado debe dejarlos seguros
+        if col_renames:
+            category_value_renames[col] = col_renames
         category_vocabularies[col] = values
 
     effective_target_values = category_vocabularies.get(target_column, target_values_raw)
@@ -732,6 +759,25 @@ def generate_project_from_dataset(
 
     _reservar_codigo_de_desconocida(
         rows, feature_columns, columns, category_vocabularies, tokens_de_ausencia)
+
+    # EL RENOMBRADO, UNA SOLA VEZ Y AQUÍ: con el vocabulario ya completo
+    # (override + `__faltante__` + `__desconocida__` resueltos arriba), se fija
+    # el vocabulario EFECTIVO de cada categórica y se renombra lo que la
+    # guarda de `Categorical[...]` rechazaría — antes de que nada lo lea para
+    # el prompt o el CSV. Una columna ya cubierta por `column_category_
+    # overrides` vuelve a pasar por aquí (`category_vocabularies.get(col)` ya
+    # la tiene, renombrada), pero `_rename_unsafe_category_values` es
+    # idempotente sobre valores ya seguros — no hay nada que reescribir,
+    # `col_renames` sale vacío y no pisa el mapa que el override ya registró.
+    for col in feature_columns:
+        if columns[col]["type"] != "categorical":
+            continue
+        values = category_vocabularies.get(col) or _distinct_non_null(
+            rows, col, tokens_de_ausencia)
+        values, col_renames = _rename_unsafe_category_values(values, col)
+        if col_renames:
+            category_value_renames[col] = col_renames
+        category_vocabularies[col] = values
 
     feature_lines: list[str] = []
     for col in feature_columns:
@@ -931,6 +977,7 @@ def generate_project_from_dataset(
         embedding_sources=embedding_source_columns(res.get("mxai") or ""),
         missing_policy=missing_policy,
         tokens_de_ausencia=tokens_de_ausencia,
+        category_value_renames=category_value_renames,
     )
     prepared_csv = prepared.text
 
@@ -1014,6 +1061,19 @@ def generate_project_from_dataset(
         "feature_name_map": dict(feature_safe_names),
         "column_types": {col: columns[col]["type"] for col in feature_columns},
         "category_vocabularies": dict(prepared.effective_vocabularies),
+        # EL RENOMBRADO CONGELADO: valor_crudo -> valor usado en el prompt y
+        # en el CSV, solo para las columnas donde algún valor lo necesitó
+        # (coma, ']' o salto de línea — ver `_rename_unsafe_category_values`).
+        # Sin esto la PREDICCIÓN (`prepare_dataset_from_provenance` ->
+        # `_prepare_v1` -> `_prepare_training_csv`) no sabría traducir una
+        # fila nueva que trae el valor crudo tal cual, y lo buscaría contra un
+        # vocabulario que ya solo conoce el nombre renombrado — mismo
+        # mecanismo que `target_label_map` para el target, aplicado a
+        # FEATURES. Siempre presente (aunque sea `{}`): a diferencia de
+        # `tokens_de_ausencia`, aquí no hay heurística de la que depender si
+        # falta, así que ausente y vacío significan lo mismo — se sigue el
+        # estilo de `category_vocabularies`, que tampoco distingue las dos.
+        "category_value_renames": dict(category_value_renames),
         # CONGELADO, no recalculable: qué categóricas fueron a índice de
         # embedding lo decidió el generador que produjo ESTE modelo. Una receta
         # SIN esta clave es anterior al arreglo y se re-prepara con el criterio
@@ -1485,6 +1545,11 @@ def _validate_preparation_spec(spec: dict[str, Any]) -> None:
     vocab = spec.get("category_vocabularies")
     if vocab is not None and not isinstance(vocab, dict):
         raise DatasetProjectError("La receta de preparación tiene `category_vocabularies` inválido.")
+    renames = spec.get("category_value_renames")
+    if renames is not None and (not isinstance(renames, dict)
+                                or not all(isinstance(v, dict) for v in renames.values())):
+        raise DatasetProjectError(
+            "La receta de preparación tiene `category_value_renames` inválido.")
     # Igual que arriba: una receta corrupta (editada a mano, truncada al
     # guardar) no puede salir como un KeyError dentro de
     # `PoliticaDePreparacion.desde_json` — eso en el producto es un error
@@ -1542,6 +1607,13 @@ def _prepare_v1(
         # entonces sin que haya que preguntarle nada más.
         missing_policy=(PoliticaDePreparacion.desde_json(spec["missing_policy"])
                         if spec.get("missing_policy") else None),
+        # EL RENOMBRADO CONGELADO, para que la PREDICCIÓN traduzca la fila
+        # nueva igual que se tradujo al generar. Ausente y vacío significan
+        # lo mismo aquí (ver el comentario homónimo en `preparation_spec`):
+        # una receta anterior a esta clave nunca pudo tener un valor inseguro
+        # (la guarda lo rechazaba en vez de renombrarlo), así que "no lo sé"
+        # es "no hacía falta".
+        category_value_renames=dict(spec.get("category_value_renames") or {}),
     )
 
 
@@ -1793,11 +1865,21 @@ def prepare_dataset_from_provenance(
     # dataset y no decir cuántas filas se salvaron a ciegas sería media
     # verdad tranquilizadora.
     filas_desconocidas: dict[str, tuple[int, bool]] = {}
+    # EL MISMO RENOMBRADO QUE `_prepare_training_csv` VA A APLICAR, pero
+    # aquí solo para SABER si un valor observado es nuevo de verdad — el
+    # vocabulario congelado (`vocab`, abajo) ya solo conoce el valor USADO,
+    # así que comparar el crudo tal cual contra él marcaría como "nuevo" un
+    # valor que el entrenamiento SÍ vio (p.ej. "asian, pacific islander"
+    # frente a "asian_pacific_islander"). El mensaje de error sigue
+    # nombrando el valor CRUDO (`nuevos` guarda lo observado, no lo
+    # traducido) — es lo que el usuario reconoce en su CSV.
+    renombrados = spec.get("category_value_renames") or {}
     for col, vocab in (spec.get("category_vocabularies") or {}).items():
         if col not in present:
             continue
+        renombres_col = renombrados.get(col) or {}
         observed = _distinct_non_null(rows, col, tokens_de_ausencia)
-        nuevos = [v for v in observed if v not in vocab]
+        nuevos = [v for v in observed if renombres_col.get(v, v) not in vocab]
         afectadas = sum(1 for row in rows
                         if (row.get(col) or "").strip() == CATEGORIA_DESCONOCIDA)
         por_embedding = _va_por_embedding(col, list(vocab))
@@ -2303,6 +2385,78 @@ def _normalize_labels(
     return sorted(normalized.keys()), raw_to_label
 
 
+def _rename_unsafe_category_values(
+    values: list[str], col: str
+) -> tuple[list[str], dict[str, str]]:
+    """Simétrica a `_normalize_labels`, pero para valores de FEATURE y solo
+    para los que `_check_categorical_values_safe` rechazaría (',', ']' o un
+    salto de línea — ver punto 8 del docstring del módulo).
+
+    LA DIFERENCIA A PROPÓSITO CON `_normalize_labels`: allí TODO valor se
+    normaliza (el target ya sale siempre en minúsculas por `ProbabilityMap`,
+    así que no hay "antes" que preservar). Aquí un valor YA SEGURO se
+    devuelve BYTE A BYTE igual — cambiarlo rompería toda receta existente
+    que ya lo usa tal cual (la inmensa mayoría de columnas de cualquier CSV).
+    Solo el valor inseguro se renombra, con la MISMA normalización
+    (`_identifier`, con el rescate de `_slug` si empieza por dígito o queda
+    vacío) que ya usa `_normalize_labels` — para que el resultado sea un
+    token válido dentro de `Categorical[...]`.
+
+    Devuelve `(valores_a_escribir, mapa_valor_crudo->valor_usado)` — el mapa
+    SOLO trae los valores que de verdad cambiaron (un valor ausente del mapa
+    se usa tal cual, `.get(raw, raw)`, en el punto donde se escribe cada
+    celda) y viaja en la receta (`preparation_spec["category_value_renames"]`)
+    para que `_prepare_training_csv` traduzca la misma fila igual en el
+    prompt Y en cada CSV que se prepare después — generación Y predicción,
+    ver `prepare_dataset_from_provenance`.
+
+    Colisión = dos valores crudos DISTINTOS que acaban siendo el mismo token
+    (uno inseguro que renombra igual que otro ya seguro, o dos inseguros que
+    renombran igual): error accionable, nunca un colapso silencioso — mismo
+    principio que la colisión de `_normalize_labels`. El mensaje no culpa al
+    CSV: la ambigüedad la introduce el renombrado, no el dato original.
+    """
+    used: list[str] = []
+    seen: dict[str, str] = {}  # token usado -> primer valor crudo que lo generó
+    renames: dict[str, str] = {}
+    for raw in values:
+        if not any(ch in raw for ch in _UNSAFE_CATEGORY_CHARS):
+            token = raw
+        else:
+            # Mismo camino que `_normalize_labels`: los signos relacionales
+            # antes de `_identifier` (que los borraría sin nombrarlos), y
+            # `_slug` con un prefijo como único rescate de un valor que
+            # empiece por dígito o quede vacío tras quitar lo inseguro.
+            con_signos = _nombrar_signos_relacionales(raw)
+            token = _identifier(con_signos)
+            if not token:
+                slug = _slug(con_signos)
+                token = f"valor_{slug}" if slug else ""
+            if not token:
+                raise DatasetProjectError(
+                    f"El valor {raw!r} de la columna categórica {col!r} contiene "
+                    "una coma, ']' o un salto de línea, y no le queda ningún "
+                    "carácter alfanumérico al quitarlos para poder representarlo "
+                    "dentro del prompt tipado. Es una limitación nuestra, no de "
+                    "tus datos: renombra ese valor en el CSV de origen antes de "
+                    "generar el modelo."
+                )
+            renames[raw] = token
+        if token in seen and seen[token] != raw:
+            raise DatasetProjectError(
+                f"Los valores {seen[token]!r} y {raw!r} de la columna "
+                f"categórica {col!r} no se pueden distinguir dentro del "
+                "prompt tipado: uno de ellos contiene una coma, ']' o un "
+                "salto de línea, y al quitarlos para poder representarlo "
+                f"coincide con el otro ({token!r}). Es una limitación "
+                "nuestra, no de tus datos: renombra uno de los dos valores "
+                "en el CSV de origen antes de generar el modelo."
+            )
+        seen[token] = raw
+        used.append(token)
+    return used, renames
+
+
 def _nombres_de_indicador(politica: PoliticaDePreparacion) -> dict[str, str]:
     """Los indicadores que `politica` EMITE -> cómo se llaman en este camino.
 
@@ -2508,6 +2662,12 @@ def _prepare_training_csv(
     embedding_sources: set[str] | None = None,
     missing_policy: PoliticaDePreparacion | None = None,
     tokens_de_ausencia: set[str] | None = None,
+    # EL RENOMBRADO DE CATEGÓRICAS INSEGURAS (ver `_rename_unsafe_category_
+    # values`): `category_vocabularies` ya llega con los valores USADOS
+    # (renombrados), así que la celda cruda de cada fila necesita el mismo
+    # mapa para encontrarse en `onehot_columns`/`embedding_columns`, que
+    # quedan indexados por el valor USADO, no por el crudo.
+    category_value_renames: dict[str, dict[str, str]] | None = None,
 ) -> _PreparedCSV:
     # Grupos one-hot/embedding + los mapas valor_crudo->columna o índice,
     # calculados UNA VEZ (no por fila — recalcular _distinct_non_null
@@ -2645,6 +2805,17 @@ def _prepare_training_csv(
             if info["type"] == "categorical":
                 raw = row.get(col)
                 raw = raw.strip() if raw is not None else raw
+                # EL MISMO RENOMBRADO QUE EL PROMPT, sobre la celda cruda.
+                # Una fila nueva (re-preparación / predicción, ver
+                # `prepare_dataset_from_provenance`) trae el valor TAL COMO
+                # lo escribió quien preparó el CSV origen —con su coma, si la
+                # tiene— y `onehot_columns`/`embedding_columns` (más abajo)
+                # están indexados por el valor USADO (ya renombrado). Sin
+                # esta traducción, "asian, pacific islander" nunca
+                # encontraría su columna one-hot ni su índice de embedding,
+                # aunque el entrenamiento SÍ conociera ese valor.
+                if raw is not None and category_value_renames:
+                    raw = category_value_renames.get(col, {}).get(raw, raw)
                 vocabulario = onehot_columns.get(col) or embedding_columns.get(col) or {}
                 # EL TERCER ESTADO DEL NÚCLEO, cuando el vocabulario lo declara.
                 # Un hueco en una categórica no es «ninguna de las categorías»

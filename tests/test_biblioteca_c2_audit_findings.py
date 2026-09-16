@@ -15,6 +15,7 @@ from matrixai.playground import _validate_training_csv
 from matrixai.training.dataset_project import (
     DatasetProjectError,
     generate_project_from_dataset,
+    prepare_dataset_from_provenance,
 )
 
 
@@ -63,25 +64,121 @@ class TestAltaHeaderNormalization:
 
 # ---------------------------------------------------------------------------
 # ALTA-2 — categorías sin serialización segura en el prompt
+#
+# DECISIÓN REVISADA (2026-09-16, Roberto): el hallazgo original rechazaba
+# CUALQUIER valor con ',', ']' o salto de línea — correcto en su razón (el
+# prompt tipado no tiene escape), pero perdía datasets reales enteros
+# (`okcupid-stem` de OpenML: 4 de 18 columnas categóricas, hasta 7.015 de
+# 7.018 niveles en una sola, valores naturales como "doesn't have kids, but
+# might want them"). Ahora se RENOMBRA en vez de rechazar — mismo valor en el
+# `Categorical[...]` del prompt y en el CSV preparado, con el mapa congelado
+# en la receta para que la predicción traduzca la fila igual. La guarda
+# original sigue viva para lo que el renombrado no pueda resolver (una
+# colisión irresoluble): ver `TestAlta2ColisionesTrasRenombrar`.
 # ---------------------------------------------------------------------------
 
 class TestAltaUnsafeCategoryValues:
-    def test_comma_in_categorical_value_raises_actionable_error(self):
+    def test_comma_in_categorical_value_is_renamed_not_rejected(self):
         csv_text = (
             'cat,x,resultado\n'
             '"red,blue",1,si\ngreen,2,no\n"red,blue",3,si\n'
             'green,4,no\n"red,blue",5,si\ngreen,6,no\n'
         )
-        with pytest.raises(DatasetProjectError, match="coma"):
-            generate_project_from_dataset(csv_text, target_column="resultado")
+        res = generate_project_from_dataset(csv_text, target_column="resultado")
+        _assert_prepared_csv_validates(res)
+        assert "red,blue" not in res["training_text"]
+        renames = res["provenance"]["preparation_spec"]["category_value_renames"]
+        assert renames["cat"]["red,blue"]
+        assert "," not in renames["cat"]["red,blue"]
+        # El valor SEGURO ("green") no se toca.
+        assert "green" in res["provenance"]["preparation_spec"]["category_vocabularies"]["cat"]
 
-    def test_closing_bracket_in_categorical_value_raises(self):
+    def test_closing_bracket_in_categorical_value_is_renamed_not_rejected(self):
         csv_text = (
             "cat,x,resultado\n"
             "a]b,1,si\nverde,2,no\na]b,3,si\nverde,4,no\na]b,5,si\nverde,6,no\n"
         )
-        with pytest.raises(DatasetProjectError, match="coma"):
+        res = generate_project_from_dataset(csv_text, target_column="resultado")
+        _assert_prepared_csv_validates(res)
+        renames = res["provenance"]["preparation_spec"]["category_value_renames"]
+        assert renames["cat"]["a]b"]
+        assert "]" not in renames["cat"]["a]b"]
+        assert "verde" in res["provenance"]["preparation_spec"]["category_vocabularies"]["cat"]
+
+    def test_la_prediccion_relee_el_renombrado_con_el_valor_crudo(self):
+        """La vuelta: una fila NUEVA que trae el valor crudo (con su coma) se
+        predice bien — `prepare_dataset_from_provenance` es el camino real de
+        predicción del motor denso (ver `tests/test_c101_c5_la_prediccion_
+        relee_la_receta.py`)."""
+        csv_text = (
+            'cat,x,resultado\n'
+            '"red,blue",1,si\ngreen,2,no\n"red,blue",3,si\n'
+            'green,4,no\n"red,blue",5,si\ngreen,6,no\n'
+        )
+        res = generate_project_from_dataset(csv_text, target_column="resultado")
+        nuevo_csv = 'cat,x,resultado\n"red,blue",9,si\ngreen,10,no\n'
+        re_prep = prepare_dataset_from_provenance(nuevo_csv, res["provenance"])
+        assert not re_prep.compatibility.errors
+        filas = re_prep.csv_text.splitlines()
+        header = filas[0].split(",")
+        idx_red_blue = header.index("cat__red_blue")
+        # La fila con el valor crudo "red,blue" tiene que activar la MISMA
+        # columna one-hot que activó al entrenar.
+        assert filas[1].split(",")[idx_red_blue] == "1"
+
+    def test_dos_valores_que_colisionan_tras_renombrar_siguen_dando_error(self):
+        """Un valor inseguro y uno ya seguro que renombran al mismo token no
+        se pueden distinguir — sigue siendo un error accionable, nunca un
+        colapso silencioso (mismo principio que la colisión de
+        `_normalize_labels`, y el mensaje tampoco culpa al CSV)."""
+        csv_text = (
+            'cat,x,resultado\n'
+            '"red,blue",1,si\nred_blue,2,no\n"red,blue",3,si\n'
+            'red_blue,4,no\n"red,blue",5,si\nred_blue,6,no\n'
+        )
+        with pytest.raises(DatasetProjectError) as exc_info:
             generate_project_from_dataset(csv_text, target_column="resultado")
+        msg = str(exc_info.value)
+        assert "red,blue" in msg and "red_blue" in msg
+        assert "limitación nuestra" in msg
+
+    def test_valores_ya_seguros_no_cambian_ni_un_byte(self):
+        """No-regresión: una columna categórica SIN valores inseguros tiene
+        que producir EXACTAMENTE el mismo CSV/prompt que antes de este
+        arreglo — renombrar algo que ya era seguro rompería toda receta
+        existente que lo usa tal cual."""
+        csv_text = (
+            "tipo,x,resultado\n"
+            "Alto Riesgo,1,si\nBajo riesgo,2,no\nAlto Riesgo,3,si\n"
+            "Bajo riesgo,4,no\nAlto Riesgo,5,si\nBajo riesgo,6,no\n"
+        )
+        res = generate_project_from_dataset(csv_text, target_column="resultado")
+        assert res["provenance"]["preparation_spec"]["category_value_renames"] == {}
+        assert set(res["provenance"]["preparation_spec"]["category_vocabularies"]["tipo"]) == {
+            "Alto Riesgo", "Bajo riesgo"}
+        # El prompt sintetizado es donde el valor CRUDO viaja tal cual — la
+        # cabecera one-hot del CSV ya tenía su PROPIA normalización
+        # (`_build_group_names`/`_sanitize_value`, ajena a este arreglo) y no
+        # es lo que este test tiene que vigilar.
+        assert "Categorical[Alto Riesgo, Bajo riesgo]" in res["provenance"]["synthesized_prompt"]
+
+    def test_column_category_overrides_con_un_valor_con_coma_ya_funciona(self):
+        csv_text = (
+            "cat,x,resultado\n"
+            "red,1,si\ngreen,2,no\nred,3,si\ngreen,4,no\nred,5,si\ngreen,6,no\n"
+        )
+        res = generate_project_from_dataset(
+            csv_text, target_column="resultado",
+            column_category_overrides={"cat": ["red", "green", "blue,violet"]},
+        )
+        _assert_prepared_csv_validates(res)
+        spec = res["provenance"]["preparation_spec"]
+        assert spec["category_value_renames"]["cat"]["blue,violet"]
+        assert "," not in spec["category_value_renames"]["cat"]["blue,violet"]
+        # `column_category_overrides` en la procedencia sigue siendo lo que
+        # el usuario declaró, sin renombrar — es SU entrada, no lo usado.
+        assert res["provenance"]["column_category_overrides"]["cat"] == [
+            "red", "green", "blue,violet"]
 
 
 # ---------------------------------------------------------------------------
@@ -290,3 +387,60 @@ class TestMediaReservedTargetNameCollision:
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+class TestLaGuardaResidualTieneSuPropiaPrueba:
+    """AUDITORIA DEL CONTROLADOR, 2026-09-16 — el hueco que dejó la reparación.
+
+    Tras el renombrado, `_check_categorical_values_safe` se queda puesta como
+    **defensa en profundidad**: en el camino normal ya no dispara nunca, porque
+    el vocabulario llega renombrado. Medido ese día: **desactivarla entera dejó
+    las 33 pruebas del fichero en verde**.
+
+    Eso es exactamente el patrón que en esta casa ha costado tres sabotajes
+    verdes en un solo día — «una línea que explica por qué NO hace lo obvio
+    necesita una prueba con su nombre». Sin esto, el siguiente que pase la
+    «simplifica» por muerta, y el día que el renombrado tenga un hueco el aborto
+    ruidoso tampoco estará: se generaría un modelo desalineado **en silencio**,
+    que es justo lo que la guarda existía para impedir.
+
+    Dos mitades: que la guarda SIGUE mordiendo, y que SIGUE en el camino.
+    """
+
+    def test_la_guarda_SIGUE_rechazando_un_valor_inseguro(self):
+        from matrixai.training.dataset_project import _check_categorical_values_safe
+        with pytest.raises(DatasetProjectError) as exc:
+            _check_categorical_values_safe(["red,blue", "green"], "cat")
+        assert "red,blue" in str(exc.value)
+
+    def test_la_guarda_SIGUE_EN_EL_CAMINO_despues_de_renombrar(self):
+        """La otra mitad: una guarda que muerde pero a la que ya nadie llama
+        protege lo mismo que una borrada. Se cuenta cuántas veces la invoca la
+        generación de un proyecto con un valor inseguro dentro."""
+        from matrixai.training import dataset_project as dp
+
+        llamadas: list[tuple] = []
+        original = dp._check_categorical_values_safe
+
+        def espia(values, col):
+            llamadas.append((tuple(values), col))
+            return original(values, col)
+
+        csv_text = (
+            'cat,x,resultado\n'
+            '"red,blue",1,si\ngreen,2,no\n"red,blue",3,si\n'
+            'green,4,no\n"red,blue",5,si\ngreen,6,no\n'
+        )
+        dp._check_categorical_values_safe = espia
+        try:
+            dp.generate_project_from_dataset(csv_text=csv_text, target_column="resultado")
+        finally:
+            dp._check_categorical_values_safe = original
+
+        assert llamadas, (
+            "nadie llama ya a `_check_categorical_values_safe`: la defensa en "
+            "profundidad que el comentario promete no existe")
+        for values, _col in llamadas:
+            assert not [v for v in values if "," in v or "]" in v], (
+                "la guarda recibe valores SIN renombrar: o el renombrado no ha "
+                "pasado antes, o la guarda esta puesta en el sitio equivocado")
