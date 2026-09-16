@@ -63,14 +63,26 @@ cableado, así que se levanta excepción, no se calcula a medias.
 
 EL CONTROL CONOCIDO-BUENO, Y LO QUE MIDE DE VERDAD. El criterio de terminado
 pide que «invertir la probabilidad intercambie sens/esp y la prueba lo cace».
-Medido (`test_c109_c2_perfil_clinico.py`), son DOS hechos distintos y conviene
-no confundirlos: cambiar `p` por `1−p` **dejando el mismo umbral y la misma
-clase positiva COMPLEMENTA** —`sens' = 1−sens`, `esp' = 1−esp`—, y el
-INTERCAMBIO exacto aparece cuando la inversión se escribe entera: `1−p` es la
-probabilidad de la OTRA clase, así que la clase positiva pasa a ser la otra y
-el umbral se refleja a `1−t`; entonces sí, `sens' = esp` y `esp' = sens`. Las
-dos están probadas, con sus números, porque una nota que dice «intercambia»
-sin decir bajo qué inversión se hereda igual que un dato falso.
+Medido (`test_c109_c2_perfil_clinico.py`), son DOS hechos distintos, y cada uno
+vale en un umbral concreto que hay que decir:
+
+* cambiar `p` por `1−p` **dejando la misma clase positiva y el MISMO umbral
+  `t`** da `sens'(t) = 1 − sens(1−t)` y `esp'(t) = 1 − esp(1−t)`: complementa
+  las métricas del umbral REFLEJADO, no las del mismo. Solo en `t = 0,5` —el
+  punto fijo del reflejo— las dos cosas coinciden. En `t = 0,15`, medido: la
+  directa da 1,0/0,333 y la invertida 0,750/0,0, que NO es su complemento
+  (0,0/0,667) y SÍ el de la directa en 0,85.
+* el INTERCAMBIO exacto aparece cuando la inversión se escribe entera: `1−p` es
+  la probabilidad de la OTRA clase, así que la clase positiva pasa a ser la
+  otra **y el umbral se refleja a `1−t`**; entonces `sens' = esp` y
+  `esp' = sens`. Sin reflejar el umbral no hay intercambio, salvo otra vez en
+  `t = 0,5`.
+
+Las dos igualdades valen salvo por las filas que caen justo en el umbral (la
+matriz de confusión decide con `>=`). Están probadas en 0,5 **y fuera de 0,5**:
+un criterio comprobado solo en su punto fijo no está comprobado, y una nota
+que dice «intercambia» sin decir en qué umbral se hereda igual que un dato
+falso.
 
 STDLIB PURO, como el resto del paquete, y lo que redacta el core se traduce en
 el core: los motivos salen de `textos.py` y la ficha lleva sus dos redacciones
@@ -79,6 +91,9 @@ aquí mismo.
 
 from __future__ import annotations
 
+import json
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Sequence
 
@@ -94,11 +109,12 @@ from matrixai.estudio.metricas import (
     matriz_de_confusion,
 )
 from matrixai.estudio.segmentos import AnalisisDeSegmento
-from matrixai.estudio.textos import motivo
+from matrixai.estudio.textos import IDIOMAS, motivo
 from matrixai.estudio.validacion import (
     digest_canonico,
     exigir_booleano,
     exigir_entero,
+    exigir_mapa,
     exigir_real,
     exigir_texto,
     exigir_texto_o_nulo,
@@ -155,6 +171,13 @@ BENEFICIO_NETO_NO_TRATAR = 0.0
 #:   por muy reservada que estuviera esa partición.
 ALCANCES_DE_VALIDACION = ("internal_only", "temporal", "external")
 
+#: Los tipos de partición (103-C4) que SEPARAN POR TIEMPO. Vive una vez y lo
+#: leen dos sitios: `alcance_de_validacion()`, para decidir si cabe hablar de
+#: validación temporal, y la ficha, para no negar una separación temporal que
+#: existe cuando la evidencia no llega a sostenerla — que es justo lo que la
+#: ficha escribía en 6 de las 24 combinaciones (auditoría del 2026-09-15).
+_DISENOS_CON_SEPARACION_TEMPORAL = ("temporal", "groups_and_time")
+
 
 def alcance_de_validacion(*, evidencia: str, diseno: str) -> str:
     """El alcance, DERIVADO de lo que ya se declaró en otro sitio.
@@ -169,7 +192,7 @@ def alcance_de_validacion(*, evidencia: str, diseno: str) -> str:
     if evidencia == "external_validation":
         return "external"
     if evidencia in ("independent_test", "repeated_test_use") \
-            and diseno in ("temporal", "groups_and_time"):
+            and diseno in _DISENOS_CON_SEPARACION_TEMPORAL:
         return "temporal"
     return "internal_only"
 
@@ -600,6 +623,24 @@ class PerfilClinico:
             raise EsquemaInvalido("no_es_mapa", campo="curva", valor=repr(self.curva))
         if self.curva.segmento_id is not None:
             raise EsquemaInvalido("falta_campo", campo="curva.segmento_id")
+        self._exigir_tabla_y_curva_de_la_misma_muestra()
+        # Mapas LIBRES a propósito: sus productores les dan formas distintas (el
+        # Studio, `RecalibracionLogistica.a_json()` y la política que midió
+        # `ajustar_preparacion`; las pruebas del 109-C3, una política declarada
+        # a mano) y aquí no se inventa un esquema que nadie más use. Lo que sí
+        # se exige es lo que el propio perfil necesita para no mentir: que sea
+        # un mapa —un objeto sin copiar revienta tarde, en `a_json()`, lejos de
+        # quien lo pasó— y que no venga vacío, porque `{}` salía `null` en el
+        # JSON y una sección muda en la ficha: dos documentos diciendo cosas
+        # distintas del mismo campo. `None` es la forma de decir «no consta».
+        for nombre in ("recalibracion", "politica_de_faltantes"):
+            valor = getattr(self, nombre)
+            if valor is None:
+                continue
+            mapa = exigir_mapa(valor, nombre)
+            if not mapa:
+                raise EsquemaInvalido("falta_campo", campo=nombre)
+            object.__setattr__(self, nombre, mapa)
         object.__setattr__(self, "segmentos", tuple(self.segmentos))
         object.__setattr__(self, "curvas_por_segmento", tuple(self.curvas_por_segmento))
         exigir_texto_o_nulo(self.segmentos_predefinidos_por, "segmentos_predefinidos_por")
@@ -626,6 +667,37 @@ class PerfilClinico:
             if curva.predefinido and self.segmentos_predefinidos_por is None:
                 raise EsquemaInvalido("segmento_confirmatorio_sin_equipo",
                                       campo=curva.segmento_id)
+
+    def _exigir_tabla_y_curva_de_la_misma_muestra(self) -> None:
+        """La tabla y la curva describen la MISMA muestra, o no hay perfil.
+
+        El documento afirma dos veces la prevalencia «observada en esta
+        muestra», una de cada objeto: la tabla la guarda junto a la declarada
+        (y la ficha la escribe ahí cuando hay declarada), y la curva la escribe
+        encima del beneficio neto. Con tabla y curva de cohortes distintas el
+        perfil se sellaba afirmando dos prevalencias contradictorias de «esta
+        muestra» (medido el 2026-09-16: 0.4000 y 0.5000). Lo que se compara
+        es lo que el documento AFIRMA de la muestra (`n` y prevalencia
+        observada), no su identidad: ninguno de los dos objetos guarda una
+        huella de las filas, así que dos cohortes con el mismo `n` y los mismos
+        positivos no se distinguen aquí.
+        """
+        for fila in self.tabla.filas:
+            if fila.n != self.curva.n:
+                raise EsquemaInvalido("filas_desalineadas", campo="curva_de_decision",
+                                      valor=self.curva.n, opciones=fila.n)
+        de_la_tabla = self.tabla.prevalencia_observada
+        de_la_curva = self.curva.prevalencia_observada
+        if (de_la_tabla is None) != (de_la_curva is None):
+            ausente = ("tabla_de_umbrales" if de_la_tabla is None
+                       else "curva_de_decision")
+            raise EsquemaInvalido("falta_campo", campo=f"{ausente}.prevalencia_observada")
+        if de_la_tabla is not None and not math.isclose(de_la_tabla, de_la_curva,
+                                                         rel_tol=0.0, abs_tol=1e-12):
+            raise EsquemaInvalido("fuera_de_rango",
+                                  campo="curva_de_decision.prevalencia_observada",
+                                  minimo=de_la_tabla, maximo=de_la_tabla,
+                                  valor=repr(de_la_curva))
 
     @property
     def alcance(self) -> str:
@@ -671,6 +743,16 @@ _T: dict[str, dict[str, str]] = {
                                  "se midió dentro de la misma fuente de datos, así "
                                  "que no dice cómo se comportaría en otro sitio ni "
                                  "en otro periodo.",
+        "alcance_internal_only_con_tiempo": "**VALIDACIÓN INTERNA ÚNICAMENTE.** No hay "
+                                            "cohorte externa. La partición SÍ separa "
+                                            "por tiempo, pero la etiqueta de evidencia "
+                                            "no la sostiene como validación temporal: "
+                                            "lo medido sobre el periodo reservado no "
+                                            "consta como una prueba independiente. Todo "
+                                            "lo que sigue se midió dentro de la misma "
+                                            "fuente de datos, así que no sostiene cómo "
+                                            "se comportaría en otro sitio ni en otro "
+                                            "periodo.",
         "alcance_temporal": "**VALIDACIÓN TEMPORAL (misma fuente, periodo distinto).** "
                             "No hay cohorte externa: no dice cómo se comportaría en "
                             "otro centro.",
@@ -708,6 +790,10 @@ _T: dict[str, dict[str, str]] = {
         "calibracion_bins": "método de bins",
         "calibracion_no_medida": "No se ha medido la calibración. No medirla no la "
                                  "vuelve buena.",
+        "recalibracion": "Recalibración que consta en el perfil",
+        "recalibracion_no_consta": "No consta ninguna recalibración: este perfil no "
+                                   "dice si las probabilidades se recalibraron antes "
+                                   "de medir.",
         "dca": "Beneficio neto (curva de decisión)",
         "dca_formula": "beneficio neto = TP/n − FP/n · pt/(1−pt); «a nadie» vale 0 "
                        "por definición.",
@@ -726,6 +812,8 @@ _T: dict[str, dict[str, str]] = {
                             "umbral declarado**: en todos ellos se decide igual o "
                             "mejor sin él.",
         "dca_no_medida": "No se ha podido medir la curva de decisión",
+        "dca_prevalencia_segmento": "Beneficio neto medido SOBRE ESTE SUBGRUPO, a su "
+                                    "prevalencia observada",
         "segmentos": "Subgrupos",
         "segmentos_predefinidos_por": "Subgrupos predefinidos por",
         "segmentos_sin_equipo": "**Nadie ha predefinido subgrupos.** Sin equipo que "
@@ -747,6 +835,16 @@ _T: dict[str, dict[str, str]] = {
                                  "measured inside one single data source, so it does "
                                  "not tell how it would behave elsewhere or at "
                                  "another time.",
+        "alcance_internal_only_con_tiempo": "**INTERNAL VALIDATION ONLY.** There is no "
+                                            "external cohort. The split DOES separate "
+                                            "by time, but its evidence label does not "
+                                            "support it as temporal validation: what "
+                                            "was measured on the held-out period is "
+                                            "not on record as an independent test. "
+                                            "Everything below was measured inside one "
+                                            "single data source, so it supports no "
+                                            "claim about how it would behave elsewhere "
+                                            "or at another time.",
         "alcance_temporal": "**TEMPORAL VALIDATION (same source, different period).** "
                             "There is no external cohort: it does not tell how it "
                             "would behave at another centre.",
@@ -785,6 +883,10 @@ _T: dict[str, dict[str, str]] = {
         "calibracion_bins": "binning method",
         "calibracion_no_medida": "Calibration was not measured. Not measuring it does "
                                  "not make it good.",
+        "recalibracion": "Recalibration on record in this profile",
+        "recalibracion_no_consta": "No recalibration is on record: this profile does "
+                                   "not say whether probabilities were recalibrated "
+                                   "before measuring.",
         "dca": "Net benefit (decision curve)",
         "dca_formula": "net benefit = TP/n − FP/n · pt/(1−pt); treat-none is 0 by "
                        "definition.",
@@ -804,6 +906,8 @@ _T: dict[str, dict[str, str]] = {
                             "threshold**: at every one of them, deciding without it "
                             "is as good or better.",
         "dca_no_medida": "Decision curve could not be measured",
+        "dca_prevalencia_segmento": "Net benefit measured ON THIS SUBGROUP, at its "
+                                    "observed prevalence",
         "segmentos": "Subgroups",
         "segmentos_predefinidos_por": "Subgroups predefined by",
         "segmentos_sin_equipo": "**Nobody predefined any subgroup.** Without a team "
@@ -883,7 +987,14 @@ def ficha_del_perfil(perfil: PerfilClinico, *, locale: str = "en") -> str:
     lineas: list[str] = [f"# {textos['titulo']}", ""]
 
     # --- arriba del todo: alcance, datos sintéticos y prevalencia ----------
-    lineas.append(f"> {textos['alcance_' + perfil.alcance]}")
+    # La frase depende del DISEÑO además del alcance: con evidencia débil y una
+    # partición temporal el alcance es interno —bien—, pero decir entonces «no
+    # hay separación temporal» negaría una que existe.
+    clave_de_alcance = "alcance_" + perfil.alcance
+    if perfil.alcance == "internal_only" \
+            and perfil.diseno in _DISENOS_CON_SEPARACION_TEMPORAL:
+        clave_de_alcance = "alcance_internal_only_con_tiempo"
+    lineas.append(f"> {textos[clave_de_alcance]}")
     if perfil.datos_sinteticos:
         lineas.append(">")
         lineas.append(f"> {textos['aviso_sintetico']}")
@@ -936,6 +1047,15 @@ def ficha_del_perfil(perfil: PerfilClinico, *, locale: str = "en") -> str:
                       f"{_cifra(perfil.calibracion.ece)} "
                       f"({textos['calibracion_bins']}: "
                       f"{perfil.calibracion.metodo_de_bins})")
+    # La recalibración cambia qué probabilidades se midieron en TODO el
+    # documento; sellarla en el JSON y no escribirla aquí la escondía a quien
+    # lee la ficha. Sin ella, se dice que no consta — no que no se hizo.
+    lineas.append("")
+    if perfil.recalibracion is None:
+        lineas.append(textos["recalibracion_no_consta"])
+    else:
+        lineas.append(f"**{textos['recalibracion']}**:")
+        lineas.extend(_lineas_de_un_mapa_libre(perfil.recalibracion, idioma))
     lineas.append("")
 
     # --- curva de decisión -------------------------------------------------
@@ -958,6 +1078,12 @@ def ficha_del_perfil(perfil: PerfilClinico, *, locale: str = "en") -> str:
         marca = textos["predefinido"] if curva.predefinido else textos["exploratorio"]
         lineas.append("")
         lineas.append(f"### {curva.segmento_id} ({marca})")
+        # La prevalencia DEL SUBGRUPO, no la de la muestra entera: el beneficio
+        # neto de un subgrupo se lee a la suya, y callarla dejaba leerlo a la de
+        # arriba, que es otra.
+        lineas.append(f"{textos['dca_prevalencia_segmento']}: "
+                      f"{_cifra(curva.prevalencia_observada)} (n={curva.n}).")
+        lineas.append("")
         lineas.extend(_tabla_de_la_curva(curva, textos, idioma))
     lineas.append("")
 
@@ -991,10 +1117,32 @@ def ficha_del_perfil(perfil: PerfilClinico, *, locale: str = "en") -> str:
     if perfil.politica_de_faltantes is None:
         lineas.append(textos["faltantes_no_declarada"])
     else:
-        for clave in sorted(perfil.politica_de_faltantes):
-            lineas.append(f"- **{clave}**: {perfil.politica_de_faltantes[clave]}")
+        lineas.extend(_lineas_de_un_mapa_libre(perfil.politica_de_faltantes, idioma))
     lineas.append("")
     return "\n".join(lineas)
+
+
+def _lineas_de_un_mapa_libre(mapa: Mapping[str, Any], idioma: str) -> list[str]:
+    """Un mapa libre (`recalibracion`, `politica_de_faltantes`), clave a clave.
+
+    Sin esquema propio, porque no lo tienen (ver `PerfilClinico.__post_init__`).
+    Lo que no es texto se escribe en JSON y no con el `repr` de Python: el
+    productor del Studio mete aquí listas de objetos, y `False`, `None` y las
+    comillas simples son de Python, no de un documento —y el expediente del
+    109-C3 ya escribe este mismo campo en JSON—. Un motivo bilingüe (`es`/`en`,
+    la forma de este paquete) se escribe en el idioma de la ficha.
+    """
+    lineas = []
+    for clave in sorted(mapa):
+        valor = mapa[clave]
+        if isinstance(valor, str):
+            texto = valor
+        elif isinstance(valor, Mapping) and set(valor) == set(IDIOMAS):
+            texto = str(valor[idioma])
+        else:
+            texto = json.dumps(valor, ensure_ascii=False, sort_keys=True)
+        lineas.append(f"- **{clave}**: {texto}")
+    return lineas
 
 
 def _tabla_de_la_curva(curva: CurvaDeDecision, textos: dict[str, str],

@@ -14,21 +14,25 @@ de diez filas. No se comparan contra otra ejecución del mismo código —eso so
 demostraría que el código es consistente consigo mismo—: se comparan contra la
 aritmética hecha con lápiz, que está en el docstring de cada prueba.
 
-Y LA INVERSIÓN, que es el control conocido-bueno de todo lo demás: hay DOS
-pruebas porque, MEDIDO, son dos hechos distintos. Cambiar `p` por `1−p`
-dejando el mismo umbral y la misma clase positiva **COMPLEMENTA** sens y esp
-(`1−sens`, `1−esp`), no las intercambia. El intercambio exacto aparece cuando
-la inversión se escribe entera —`1−p` es la probabilidad de la OTRA clase, y el
-umbral se refleja a `1−t`—: entonces sí, sens ↔ esp. Las dos están medidas
-abajo con sus números.
+Y LA INVERSIÓN, que es el control conocido-bueno de todo lo demás: MEDIDO,
+son dos hechos distintos, y cada uno vale en un umbral que hay que decir.
+Cambiar `p` por `1−p` dejando la misma clase positiva y el MISMO umbral `t` da
+`sens'(t) = 1 − sens(1−t)`: complementa las métricas del umbral REFLEJADO, que
+solo coinciden con las del mismo umbral en `t = 0,5`. El intercambio exacto
+aparece cuando la inversión se escribe entera —`1−p` es la probabilidad de la
+OTRA clase, y el umbral se refleja a `1−t`—: entonces sí, sens ↔ esp. Las dos
+están medidas abajo con sus números **en 0,5 y en 0,15**: 0,5 es el punto fijo
+del reflejo, el único umbral donde reflejar y no reflejar dan lo mismo, así que
+comprobarlas solo ahí no comprobaba nada del reflejo.
 """
 from __future__ import annotations
 
+import dataclasses
 import random
 import unittest
 
 from matrixai.estudio import EsquemaInvalido
-from matrixai.estudio.calibracion import curva_de_fiabilidad
+from matrixai.estudio.calibracion import ajustar_recalibracion_logistica, curva_de_fiabilidad
 from matrixai.estudio.incertidumbre import intervalo
 from matrixai.estudio.metricas import EntradaNoMedible, Muestra, calcular, matriz_de_confusion
 from matrixai.estudio.perfil_clinico import (
@@ -47,6 +51,7 @@ from matrixai.estudio.perfil_clinico import (
 )
 from matrixai.estudio.segmentos import analizar_segmento
 from matrixai.estudio.textos import IDIOMAS, huecos_de
+from matrixai.estudio.vocabulario import ETIQUETAS_DE_EVIDENCIA, TIPOS_DE_PARTICION
 
 # ---------------------------------------------------------------------------
 # La cohorte de diez filas sobre la que se hacen las cuentas a mano.
@@ -74,6 +79,24 @@ def _cohorte_clinica_sintetica(n: int = 400, *, seed: int = 20260825
     """La forma del caso clínico SINTÉTICO de `/casos`: reingreso hospitalario,
     con la receta que viaja en ese paquete —`alto: edad > 75 OR
     reingreso_previo > 0.5`, si no `bajo`— y un modelo que la aprende a medias.
+
+    DÓNDE ESTÁ LA CITA, porque no está en este repositorio y una auditoría del
+    2026-09-15 la dio por fabricada tras buscarla en `examples/readmission/`,
+    que es OTRO caso (81-C6, clases `reingreso`/`no_reingreso`). `/casos` es la
+    página de casos de la web pública, en el repositorio del Studio:
+    `matrixaistudio/frontend/public/casos/clinico/receta.txt` dice exactamente
+    `alto: edad > 75 OR reingreso_previo > 0.5` / `DEFAULT: bajo`, y es también
+    el `data_recipe.txt` de su `paquete.zip`. Semilla 20260825, 400 filas y
+    las cuatro columnas con sus rangos (edad 18–100, dias_ingresado 0–60,
+    num_diagnosticos 0–15, reingreso_previo 0–1) son las de ese caso.
+    Comprobado el 2026-09-16.
+
+    LO QUE NO ES IGUAL, dicho para que nadie lo lea de más: las filas de aquí
+    se sortean con `random.Random`, no con el generador del core, así que NO
+    son las de `/casos` (prevalencia 0,6925 aquí; 0,6575 allí, 263 de 400,
+    medido regenerando ese dataset con el generador del core, cuya huella
+    coincide con la publicada, `1cefbf74…`). Y el «modelo» es una logística
+    con ruido escrita abajo, no el que se entrenó en `/casos`.
 
     **Datos sintéticos: aquí no hay precisión clínica que atribuir a nadie.**
     Lo que se comprueba con esto es el CÁLCULO del perfil, no un modelo.
@@ -222,14 +245,16 @@ class InversionDeLaProbabilidadTest(unittest.TestCase):
     """El control conocido-bueno. Si esto no casa, ningún número de arriba
     vale nada."""
 
-    def test_invertir_p_con_el_MISMO_umbral_COMPLEMENTA_sens_y_esp(self):
+    def test_en_0_5_invertir_p_con_el_MISMO_umbral_COMPLEMENTA_sens_y_esp(self):
         """Original en t=0,5: TP=3 (0,90 0,75 0,60), FN=1 (0,35), TN=5, FP=1
         (0,55) → sens = 3/4 = **0,75**, esp = 5/6 = **0,8333…**.
         Invertida (p → 1−p, misma clase positiva, mismo t=0,5): se predice `si`
         cuando 1−p >= 0,5, o sea p <= 0,5 → 0,35 (`si`) y 0,45 0,30 0,20 0,10
         0,05 (`no`) → TP=1, FN=3, FP=5, TN=1 → sens = 1/4 = **0,25** = 1−0,75 y
         esp = 1/6 = **0,1666…** = 1−0,8333.
-        Eso es el COMPLEMENTO, no el intercambio: medido, no supuesto."""
+        Eso es el COMPLEMENTO, no el intercambio: medido, no supuesto. Y SOLO
+        EN 0,5: lo que complementa es el umbral reflejado, 1−t, que aquí es el
+        mismo. Fuera de 0,5, ver la prueba siguiente."""
         directa = _a_mano()
         invertida = Muestra.binaria(_Y, classes=("no", "si"), positive_label="si",
                                     probabilidades=[1 - p for p in _P])
@@ -247,6 +272,44 @@ class InversionDeLaProbabilidadTest(unittest.TestCase):
         # Y NO es un intercambio: decirlo así sería heredar una frase sin medirla.
         self.assertNotAlmostEqual(sens_inv, esp, places=6)
         self.assertNotAlmostEqual(esp_inv, sens, places=6)
+
+    def test_fuera_de_0_5_el_MISMO_umbral_NO_complementa_y_el_REFLEJADO_si(self):
+        """t=0,15, que no cae sobre ningún `p` ni sobre ningún `1−p` (por eso
+        0,15: en 0,40 la fila 3 cae justo en 1−t=0,60 y el empate rompe la
+        igualdad por una fila).
+
+        Directa en t=0,15: los cuatro `si` tienen p >= 0,15 → TP=4, FN=0 →
+        sens = **1,0**; de los `no`, 0,55 0,45 0,30 0,20 son FP y 0,10 0,05 TN
+        → esp = 2/6 = **0,3333…**.
+        Directa en 1−t=0,85: solo 0,90 → TP=1, FN=3 → sens = **0,25**; ningún
+        `no` llega → TN=6 → esp = **1,0**.
+        Invertida (p → 1−p, misma clase `si`, MISMO t=0,15): `si` cuando
+        1−p >= 0,15 ⟺ p <= 0,85 → 0,75 0,60 0,35 son TP y 0,90 FN → sens' =
+        **0,75**; los seis `no` tienen p <= 0,85 → FP=6, TN=0 → esp' = **0,0**.
+
+        Complemento en el MISMO umbral: 1−1,0 = 0,0 y 1−0,333 = 0,667. NO
+        casa. Complemento en el REFLEJADO: 1−0,25 = 0,75 y 1−1,0 = 0,0. Casa."""
+        directa = _a_mano()
+        invertida = Muestra.binaria(_Y, classes=("no", "si"), positive_label="si",
+                                    probabilidades=[1 - p for p in _P])
+        sens_t = calcular("sensitivity", directa, umbral=0.15).value
+        esp_t = calcular("specificity", directa, umbral=0.15).value
+        sens_reflejado = calcular("sensitivity", directa, umbral=0.85).value
+        esp_reflejado = calcular("specificity", directa, umbral=0.85).value
+        sens_inv = calcular("sensitivity", invertida, umbral=0.15).value
+        esp_inv = calcular("specificity", invertida, umbral=0.15).value
+        self.assertAlmostEqual(sens_t, 1.0, places=12)
+        self.assertAlmostEqual(esp_t, 1 / 3, places=12)
+        self.assertAlmostEqual(sens_reflejado, 0.25, places=12)
+        self.assertAlmostEqual(esp_reflejado, 1.0, places=12)
+        self.assertAlmostEqual(sens_inv, 0.75, places=12)
+        self.assertAlmostEqual(esp_inv, 0.0, places=12)
+        # lo que es verdad: el complemento del umbral reflejado
+        self.assertAlmostEqual(sens_inv, 1 - sens_reflejado, places=12)
+        self.assertAlmostEqual(esp_inv, 1 - esp_reflejado, places=12)
+        # lo que el docstring decía y es falso fuera de 0,5
+        self.assertNotAlmostEqual(sens_inv, 1 - sens_t, places=6)
+        self.assertNotAlmostEqual(esp_inv, 1 - esp_t, places=6)
 
     def test_invertir_la_probabilidad_ENTERA_INTERCAMBIA_sens_y_esp(self):
         """La inversión escrita entera: `1−p` es la probabilidad de la OTRA
@@ -270,6 +333,37 @@ class InversionDeLaProbabilidadTest(unittest.TestCase):
         self.assertAlmostEqual(esp_inv, sens, places=12)
         self.assertAlmostEqual(sens_inv, 5 / 6, places=12)
         self.assertAlmostEqual(esp_inv, 0.75, places=12)
+
+    def test_fuera_de_0_5_el_intercambio_EXIGE_reflejar_el_umbral(self):
+        """La prueba de arriba usa t=0,5 = 1−t, así que no distingue reflejar
+        de no reflejar. Aquí, t=0,15: directa sens = 1,0 y esp = 1/3 (ver la
+        prueba del complemento).
+
+        Inversión entera REFLEJANDO a 0,85: predice `no` cuando 1−p >= 0,85
+        ⟺ p <= 0,15 → 0,10 y 0,05 → TP(no)=2, FN(no)=4 → sens_inv = 2/6 =
+        **0,3333…** = esp directa; ningún `si` tiene p <= 0,15 → TN(no)=4 →
+        esp_inv = **1,0** = sens directa. INTERCAMBIO.
+
+        Inversión entera SIN reflejar (0,15): predice `no` cuando p <= 0,85 →
+        los seis `no` → sens_inv = **1,0**; y 0,75 0,60 0,35 → FP(no)=3, 0,90
+        → TN(no)=1 → esp_inv = **0,25**. NO es el intercambio (pediría 1/3 y
+        1,0)."""
+        directa = _a_mano()
+        invertida = Muestra.binaria(_Y, classes=("no", "si"), positive_label="no",
+                                    probabilidades=[1 - p for p in _P])
+        sens = calcular("sensitivity", directa, umbral=0.15).value
+        esp = calcular("specificity", directa, umbral=0.15).value
+        reflejada = (calcular("sensitivity", invertida, umbral=0.85).value,
+                     calcular("specificity", invertida, umbral=0.85).value)
+        sin_reflejar = (calcular("sensitivity", invertida, umbral=0.15).value,
+                        calcular("specificity", invertida, umbral=0.15).value)
+        self.assertAlmostEqual(reflejada[0], 1 / 3, places=12)
+        self.assertAlmostEqual(reflejada[1], 1.0, places=12)
+        self.assertAlmostEqual(reflejada[0], esp, places=12)
+        self.assertAlmostEqual(reflejada[1], sens, places=12)
+        self.assertAlmostEqual(sin_reflejar[0], 1.0, places=12)
+        self.assertAlmostEqual(sin_reflejar[1], 0.25, places=12)
+        self.assertNotAlmostEqual(sin_reflejar[0], esp, places=6)
 
     def test_el_intercambio_exacto_se_ROMPE_con_un_empate_en_el_umbral(self):
         """Por qué la cohorte de arriba no tiene ningún `p` igual a 0,5, y no
@@ -304,6 +398,27 @@ class InversionDeLaProbabilidadTest(unittest.TestCase):
                                places=12)
         self.assertAlmostEqual(invertida.especificidad.value, directa.sensibilidad.value,
                                places=12)
+        self.assertEqual((invertida.tp, invertida.fn), (directa.tn, directa.fp))
+
+    def test_la_TABLA_intercambia_fuera_de_0_5_con_el_umbral_reflejado(self):
+        """La prueba de arriba es en 0,5, el punto fijo del reflejo: una tabla
+        que calculase sens/esp en `1−umbral` en vez de en `umbral` la pasaría
+        entera. Aquí los números van a mano (ver
+        `test_fuera_de_0_5_el_intercambio_EXIGE_reflejar_el_umbral`): directa
+        en 0,15 → sens 1,0 y esp 1/3; invertida entera en 0,85 → sens 1/3 y
+        esp 1,0."""
+        comun = dict(diseno="iid", estimando="fixed_model_on_population", semilla=1,
+                     remuestras=50)
+        directa = tabla_de_umbrales(_a_mano(), umbrales=(0.15,), **comun).filas[0]
+        invertida = tabla_de_umbrales(
+            Muestra.binaria(_Y, classes=("no", "si"), positive_label="no",
+                            probabilidades=[1 - p for p in _P]),
+            umbrales=(0.85,), **comun).filas[0]
+        self.assertAlmostEqual(directa.sensibilidad.value, 1.0, places=12)
+        self.assertAlmostEqual(directa.especificidad.value, 1 / 3, places=12)
+        self.assertAlmostEqual(invertida.sensibilidad.value, 1 / 3, places=12)
+        self.assertAlmostEqual(invertida.especificidad.value, 1.0, places=12)
+        self.assertEqual((directa.tp, directa.fp, directa.tn, directa.fn), (4, 4, 2, 0))
         self.assertEqual((invertida.tp, invertida.fn), (directa.tn, directa.fp))
 
 
@@ -430,6 +545,29 @@ class UmbralesYCableadoTest(unittest.TestCase):
         with self.assertRaises(EntradaNoMedible) as e:
             curva_de_decision(con_etiquetas, umbrales_de_probabilidad=(0.2, 0.5))
         self.assertEqual(e.exception.clave, "dca_con_etiquetas_declaradas")
+
+    def test_la_TABLA_de_umbrales_tambien_rechaza_la_clase_YA_decidida(self):
+        """La otra guarda con la MISMA clave, la de `tabla_de_umbrales`. La
+        prueba de arriba solo llama a la curva y no podía cubrirla: medido el
+        2026-09-16, quitar esta guarda dejaba todas las pruebas verdes y la
+        tabla publicaba en 0,1 0,2 0,5 0,8 y 0,9 la MISMA fila (3/1/5/1, sens
+        0,75, esp 0,833), porque `matriz_de_confusion` da prioridad a
+        `predictions` sobre el umbral. Plana, creíble y falsa, en la mitad del
+        corte que no es la curva.
+
+        El control de que la guarda protege algo: la misma muestra SIN la clase
+        decidida da filas distintas en 0,2 y en 0,8."""
+        con_etiquetas = Muestra.binaria(
+            _Y, classes=("no", "si"), positive_label="si", probabilidades=_P,
+            predicciones=["si" if p >= 0.5 else "no" for p in _P])
+        comun = dict(umbrales=(0.2, 0.8), diseno="iid",
+                     estimando="fixed_model_on_population", semilla=1, remuestras=20)
+        with self.assertRaises(EntradaNoMedible) as e:
+            tabla_de_umbrales(con_etiquetas, **comun)
+        self.assertEqual(e.exception.clave, "dca_con_etiquetas_declaradas")
+
+        filas = tabla_de_umbrales(_a_mano(), **comun).filas
+        self.assertNotEqual((filas[0].tp, filas[0].fp), (filas[1].tp, filas[1].fp))
 
     def test_una_muestra_de_puntuaciones_crudas_no_tiene_curva_de_decision(self):
         cruda = Muestra.binaria(_Y, classes=("no", "si"), positive_label="si",
@@ -564,6 +702,128 @@ class SegmentosPredefinidosTest(unittest.TestCase):
                             undefined_reason={"es": "a", "en": "b"})
 
 
+class TablaYCurvaDeLaMismaMuestraTest(unittest.TestCase):
+    """La ficha escribe dos veces la prevalencia «observada en esta muestra»,
+    una de la tabla y otra de la curva. Medido el 2026-09-16: con tabla y curva
+    de cohortes distintas el perfil se sellaba y la ficha decía 0.4000 arriba y
+    0.5000 encima de la curva, las dos «de esta muestra»."""
+
+    def test_una_curva_de_OTRO_n_no_hace_perfil_con_esta_tabla(self):
+        otra = curva_de_decision(_recorte(_a_mano(), [0, 1, 4, 5]),
+                                 umbrales_de_probabilidad=(0.2, 0.5))
+        with self.assertRaises(EsquemaInvalido) as e:
+            _perfil(curva=otra)
+        self.assertEqual(e.exception.clave, "filas_desalineadas")
+
+    def test_el_mismo_n_con_OTRA_prevalencia_tampoco(self):
+        """Diez filas también, pero la fila 5 pasa a `si`: prevalencia 0,5 y no
+        0,4. El `n` solo no lo habría cazado."""
+        y_otra = tuple("si" if i == 4 else y for i, y in enumerate(_Y))
+        otra = curva_de_decision(_a_mano(y=y_otra), umbrales_de_probabilidad=(0.2, 0.5))
+        self.assertEqual(otra.n, 10)
+        self.assertAlmostEqual(otra.prevalencia_observada, 0.5)
+        with self.assertRaises(EsquemaInvalido) as e:
+            _perfil(curva=otra)
+        self.assertEqual(e.exception.clave, "fuera_de_rango")
+
+    def test_la_misma_muestra_en_DOS_objetos_si_hace_perfil(self):
+        """La otra mitad: lo que se compara es lo que el documento afirma de la
+        muestra, no la identidad del objeto — el productor del Studio construye
+        la curva sobre una copia reexpandida de la misma muestra."""
+        perfil = _perfil(curva=curva_de_decision(_a_mano(),
+                                                 umbrales_de_probabilidad=(0.2, 0.5)))
+        self.assertEqual(perfil.tabla.prevalencia_observada,
+                         perfil.curva.prevalencia_observada)
+
+
+class MapasLibresDelPerfilTest(unittest.TestCase):
+    """`recalibracion` y `politica_de_faltantes` no tienen esquema propio —sus
+    productores les dan formas distintas— pero tienen que ser un mapa, no venir
+    vacíos, y salir en la ficha."""
+
+    def test_un_objeto_que_no_es_un_mapa_se_rechaza_AL_CONSTRUIR(self):
+        """Medido el 2026-09-16: pasar el `RecalibracionLogistica` en vez de su
+        `a_json()` se aceptaba, y reventaba después con un `TypeError` dentro
+        de `a_json()`, lejos de quien lo pasó."""
+        recal = ajustar_recalibracion_logistica(_a_mano())
+        for campo in ("recalibracion", "politica_de_faltantes"):
+            for valor in (recal, ["edad", "mediana"], "mediana"):
+                with self.subTest(campo=campo, valor=type(valor).__name__):
+                    with self.assertRaises(EsquemaInvalido) as e:
+                        _perfil(**{campo: valor})
+                    self.assertEqual(e.exception.clave, "no_es_mapa")
+
+    def test_un_mapa_VACIO_no_es_ni_una_politica_ni_su_ausencia(self):
+        """`{}` salía `null` en el JSON y una sección muda en la ficha: dos
+        documentos diciendo cosas distintas del mismo campo. La ausencia se
+        dice con `None`."""
+        for campo in ("recalibracion", "politica_de_faltantes"):
+            with self.subTest(campo=campo):
+                with self.assertRaises(EsquemaInvalido) as e:
+                    _perfil(**{campo: {}})
+                self.assertEqual(e.exception.clave, "falta_campo")
+
+    def test_la_recalibracion_sale_en_la_ficha_dentro_de_calibracion(self):
+        """Se sellaba en el JSON y la ficha no la nombraba nunca."""
+        recal = ajustar_recalibracion_logistica(_a_mano()).a_json()
+        perfil = _perfil(recalibracion=recal)
+        self.assertEqual(perfil.a_json()["recalibracion"], recal)
+        for locale, calibracion, dca, rotulo in (
+                ("es", "## Calibración", "## Beneficio neto",
+                 "Recalibración que consta en el perfil"),
+                ("en", "## Calibration", "## Net benefit",
+                 "Recalibration on record in this profile")):
+            with self.subTest(locale=locale):
+                ficha = ficha_del_perfil(perfil, locale=locale)
+                seccion = ficha[ficha.index(calibracion):ficha.index(dca)]
+                self.assertIn(rotulo, seccion)
+                self.assertIn("- **metodo**: logistico_completo", seccion)
+                self.assertIn(f"- **a**: {recal['a']!r}", seccion)
+                self.assertIn(f"- **b**: {recal['b']!r}", seccion)
+                self.assertIn("- **convergio**: true", seccion)
+                self.assertIn("- **undefined_reason**: null", seccion)
+
+    def test_sin_recalibracion_la_ficha_dice_que_NO_CONSTA_y_con_ella_no(self):
+        """«No consta», no «no se hizo»: `None` no dice cuál de las dos."""
+        con = _perfil(recalibracion=ajustar_recalibracion_logistica(_a_mano()).a_json())
+        for locale, frase in (("es", "No consta ninguna recalibración"),
+                              ("en", "No recalibration is on record")):
+            with self.subTest(locale=locale):
+                self.assertIn(frase, ficha_del_perfil(_perfil(), locale=locale))
+                self.assertNotIn(frase, ficha_del_perfil(con, locale=locale))
+
+    def test_la_politica_con_la_forma_del_productor_del_Studio_sale_en_JSON(self):
+        """La forma que de verdad llega (`perfil_clinico_del_estudio.py`): una
+        lista de objetos. Con el `repr` de Python salía `'columna'` y `False`
+        en un documento; en JSON, como la escribe el expediente del 109-C3."""
+        politica = {"fuente": "medida", "filas_de_train_efectivas": 320,
+                    "columnas": [{"columna": "edad", "proporcion_faltante": 0.1,
+                                  "admite_nativo": False}]}
+        ficha = ficha_del_perfil(_perfil(politica_de_faltantes=politica), locale="en")
+        self.assertIn('- **columnas**: [{"admite_nativo": false, "columna": "edad", '
+                      '"proporcion_faltante": 0.1}]', ficha)
+        self.assertIn("- **filas_de_train_efectivas**: 320", ficha)
+        self.assertIn("- **fuente**: medida", ficha)
+        self.assertNotIn("'columna'", ficha)
+        self.assertNotIn("False", ficha)
+
+    def test_un_motivo_bilingue_dentro_del_mapa_sale_en_el_idioma_de_la_ficha(self):
+        """Una recalibración que no se pudo ajustar (una sola clase) trae su
+        `undefined_reason` en los dos idiomas: la ficha inglesa no puede llevar
+        la redacción castellana."""
+        una_clase = Muestra.binaria(("si", "si", "si"), classes=("no", "si"),
+                                    positive_label="si", probabilidades=(0.9, 0.8, 0.7))
+        recal = ajustar_recalibracion_logistica(una_clase).a_json()
+        self.assertIsNone(recal["a"])
+        perfil = _perfil(recalibracion=recal)
+        for locale, otro in (("es", "en"), ("en", "es")):
+            with self.subTest(locale=locale):
+                ficha = ficha_del_perfil(perfil, locale=locale)
+                self.assertIn(f"- **undefined_reason**: {recal['undefined_reason'][locale]}",
+                              ficha)
+                self.assertNotIn(recal["undefined_reason"][otro], ficha)
+
+
 class FichaDelPerfilTest(unittest.TestCase):
     """Lo que lee una persona. El alcance va ARRIBA, y lo que no se publica se
     dice con su motivo."""
@@ -589,6 +849,60 @@ class FichaDelPerfilTest(unittest.TestCase):
         ficha = ficha_del_perfil(_perfil(evidencia="external_validation"), locale="es")
         self.assertNotIn("VALIDACIÓN INTERNA ÚNICAMENTE", ficha)
         self.assertIn("VALIDACIÓN EXTERNA", ficha)
+
+    #: Lo que la ficha escribe arriba para cada alcance, y la frase que NIEGA
+    #: una separación temporal. Medidas sobre la redacción, en los dos idiomas.
+    _MARCA_DE_ALCANCE = {
+        "es": {"internal_only": "VALIDACIÓN INTERNA ÚNICAMENTE",
+               "temporal": "VALIDACIÓN TEMPORAL", "external": "VALIDACIÓN EXTERNA"},
+        "en": {"internal_only": "INTERNAL VALIDATION ONLY",
+               "temporal": "TEMPORAL VALIDATION", "external": "EXTERNAL VALIDATION"},
+    }
+    _NIEGA_SEPARACION_TEMPORAL = {"es": "ni separación temporal", "en": "no temporal split"}
+    _AFIRMA_SEPARACION_TEMPORAL = {"es": "SÍ separa por tiempo", "en": "DOES separate by time"}
+
+    def test_el_alcance_no_niega_una_separacion_temporal_que_existe_en_las_24(self):
+        """Las 24 combinaciones de evidencia × diseño, y no una muestra: el
+        defecto vivía justo en las seis que nadie miró (auditoría del
+        2026-09-15). Con evidencia débil (`test_used_for_development`,
+        `development_estimate`, `not_evaluated`) y diseño `temporal` o
+        `groups_and_time` el alcance es `internal_only` —bien—, y la ficha
+        escribía «no hay cohorte externa NI SEPARACIÓN TEMPORAL»: falso, la
+        partición sí separa por tiempo.
+
+        Para cada una, en los dos idiomas: la marca del alcance es la suya; con
+        un diseño que separa por tiempo la ficha no niega esa separación, y si
+        el alcance es interno lo DICE (un aserto negativo lo pasa una ficha en
+        blanco); y sin separación temporal la negación sigue escrita, porque ahí
+        es verdad."""
+        base = _perfil()
+        con_tiempo_e_interna = 0
+        combinaciones = 0
+        for evidencia in ETIQUETAS_DE_EVIDENCIA:
+            for diseno in TIPOS_DE_PARTICION:
+                perfil = dataclasses.replace(base, evidencia=evidencia, diseno=diseno)
+                alcance = alcance_de_validacion(evidencia=evidencia, diseno=diseno)
+                con_tiempo = diseno in ("temporal", "groups_and_time")
+                combinaciones += 1
+                if con_tiempo and alcance == "internal_only":
+                    con_tiempo_e_interna += 1
+                for locale in ("es", "en"):
+                    with self.subTest(evidencia=evidencia, diseno=diseno, locale=locale):
+                        ficha = ficha_del_perfil(perfil, locale=locale)
+                        cabecera = next(l for l in ficha.splitlines() if l.startswith("> "))
+                        self.assertIn(self._MARCA_DE_ALCANCE[locale][alcance], cabecera)
+                        niega = self._NIEGA_SEPARACION_TEMPORAL[locale]
+                        afirma = self._AFIRMA_SEPARACION_TEMPORAL[locale]
+                        if con_tiempo:
+                            self.assertNotIn(niega, ficha)
+                            if alcance == "internal_only":
+                                self.assertIn(afirma, cabecera)
+                        elif alcance == "internal_only":
+                            self.assertIn(niega, cabecera)
+                            self.assertNotIn(afirma, ficha)
+        # el recorrido es el entero, y las seis que fallaban están dentro
+        self.assertEqual(combinaciones, 24)
+        self.assertEqual(con_tiempo_e_interna, 6)
 
     def test_los_datos_sinteticos_se_avisan_y_no_se_les_atribuye_precision(self):
         self.assertIn("SINTÉTICOS", ficha_del_perfil(_perfil(), locale="es"))
@@ -648,6 +962,59 @@ class FichaDelPerfilTest(unittest.TestCase):
     def test_y_cuando_SI_supera_no_lo_dice(self):
         ficha = ficha_del_perfil(_perfil(), locale="es")
         self.assertNotIn("no supera a las dos referencias en ningún", ficha)
+
+    def test_la_curva_de_CADA_SUBGRUPO_sale_en_la_ficha_con_sus_numeros(self):
+        """Medido el 2026-09-16: vaciar el bucle que escribe `curvas_por_
+        segmento` borraba todas las curvas por subgrupo del documento y las 67
+        pruebas seguían verdes.
+
+        El subgrupo son las filas 1, 2, 5 y 6: `si` 0,90 0,75 y `no` 0,55 0,45.
+        n=4, dos positivos → prevalencia **0,5** (la de la muestra entera es
+        0,4, así que la del subgrupo no se puede confundir con ella).
+        pt=0,20 → los cuatro tienen p >= 0,20: TP=2, FP=2.
+          NB = 2/4 − (2/4)·0,25 = **0,375**; tratar a todos, lo mismo → no supera.
+        pt=0,50 → 0,90 0,75 (`si`) y 0,55 (`no`): TP=2, FP=1.
+          NB = 2/4 − (1/4)·1 = **0,25**; tratar a todos = 2/4 − 2/4 = **0** → supera.
+        Ninguna de esas filas coincide con las de la muestra entera (0,30/0,25
+        y 0,20/−0,20)."""
+        indices = [0, 1, 4, 5]
+        curva = curva_de_decision(_recorte(_a_mano(), indices),
+                                  umbrales_de_probabilidad=(0.2, 0.5),
+                                  segmento_id="mayores_de_75", predefinido=False)
+        perfil = _perfil(curvas_por_segmento=(curva,))
+        for locale, dca, subgrupos, marca, si, sin_ventaja in (
+                ("es", "## Beneficio neto", "## Subgrupos", "exploratorio", "sí",
+                 "NO supera a las dos referencias en estos umbrales**: 0.200"),
+                ("en", "## Net benefit", "## Subgroups", "exploratory", "yes",
+                 "does NOT beat both references at these thresholds**: 0.200")):
+            with self.subTest(locale=locale):
+                ficha = ficha_del_perfil(perfil, locale=locale)
+                inicio = self._indice(ficha, f"### mayores_de_75 ({marca})")
+                # dentro de la sección de la curva de decisión, no en otra
+                self.assertLess(self._indice(ficha, dca), inicio)
+                seccion = ficha[inicio:self._indice(ficha, subgrupos)]
+                self.assertIn("| 0.200 | 0.3750 | 0.3750 | 0.0000 | no |", seccion)
+                self.assertIn(f"| 0.500 | 0.2500 | 0.0000 | 0.0000 | {si} |", seccion)
+                self.assertIn(sin_ventaja, seccion)
+
+    def test_la_curva_de_cada_subgrupo_dice_SU_prevalencia(self):
+        """El beneficio neto depende de la prevalencia, y la de un subgrupo no
+        es la de la muestra: la curva la guardaba y la ficha no la escribía, así
+        que se leía a la de arriba. Subgrupo de la prueba anterior:
+        prevalencia 0,5 con n=4; la muestra entera, 0,4 con n=10."""
+        curva = curva_de_decision(_recorte(_a_mano(), [0, 1, 4, 5]),
+                                  umbrales_de_probabilidad=(0.2, 0.5),
+                                  segmento_id="mayores_de_75", predefinido=False)
+        perfil = _perfil(curvas_por_segmento=(curva,))
+        for locale, subgrupos, frase in (
+                ("es", "## Subgrupos", "SOBRE ESTE SUBGRUPO, a su prevalencia observada"),
+                ("en", "## Subgroups", "ON THIS SUBGROUP, at its observed prevalence")):
+            with self.subTest(locale=locale):
+                ficha = ficha_del_perfil(perfil, locale=locale)
+                inicio = self._indice(ficha, "### mayores_de_75")
+                seccion = ficha[inicio:self._indice(ficha, subgrupos)]
+                self.assertIn(f"{frase}: 0.5000 (n=4).", seccion)
+                self.assertNotIn("0.4000", seccion)
 
     def test_la_ficha_dice_que_el_BENEFICIO_NETO_tambien_es_de_esta_muestra(self):
         """`TP/n` y `FP/n` son proporciones de la muestra: el beneficio neto
@@ -834,7 +1201,9 @@ class CasoClinicoSinteticoTest(unittest.TestCase):
 
     def test_la_prevalencia_de_esta_cohorte_NO_es_la_de_un_hospital(self):
         """La receta del caso (`edad > 75 OR reingreso_previo > 0.5`) produce
-        una prevalencia de ~65 %. Un PPV calculado ahí y enseñado a un equipo
+        una prevalencia de ~65 % en `/casos` (0,6575) y de 0,6925 en la cohorte
+        de esta prueba, que sortea sus propias filas (ver
+        `_cohorte_clinica_sintetica`). Un PPV calculado ahí y enseñado a un equipo
         cuya población reingresa al 10 % sería un número que miente sin
         equivocarse en ninguna cuenta — y por eso, sin prevalencia declarada,
         no se publica."""

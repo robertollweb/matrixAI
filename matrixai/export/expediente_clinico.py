@@ -43,12 +43,17 @@ sale. Aquí se vuelve a derivar con la misma función del core
 (`alcance_de_validacion`) y **se compara con lo guardado**: si no coinciden, el
 paquete se editó por fuera y eso se dice en vez de creerle al campo.
 
-Y UNA COSA QUE NO SE COPIA A PROPÓSITO: la ficha de `perfil_clinico.py` afirma
-en su redacción de `internal_only` que «no hay separación temporal», y eso es
-falso en las combinaciones en que el diseño SÍ es temporal y la etiqueta de
-evidencia no llega (auditoría del 2026-09-15, hallazgo abierto y congelado).
-Este módulo no reusa esas frases: publica el token del alcance y **los dos
-campos de los que se deriva**, que es lo que se puede afirmar.
+Y UNA COSA QUE NO SE COPIA A PROPÓSITO: la prosa de la ficha. Este módulo
+publica el token del alcance y **los dos campos de los que se deriva**, que es lo
+que se puede afirmar y re-derivar; una frase redactada no se puede comprobar
+contra nada.
+*(Historia, porque este párrafo daba antes OTRO motivo: la redacción de
+`internal_only` de `perfil_clinico.py` afirmaba «no hay separación temporal»
+también cuando el diseño SÍ era temporal —6 de las 24 combinaciones, auditoría
+del 2026-09-15—. **Se reparó el 2026-09-16** y ya dice que la partición separa
+por tiempo aunque la etiqueta de evidencia no la sostenga. El motivo de no
+copiar la prosa sigue siendo bueno por sí solo; el defecto que lo ilustraba, ya
+no existe.)*
 
 STDLIB PURO, como el resto del paquete.
 """
@@ -599,12 +604,12 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
     """
     valor = campo.valor
     if evidencia.resumen == "alcance" and isinstance(valor, dict):
-        # EL ALCANCE, CON LOS DOS CAMPOS DE LOS QUE SALE. No se copia la frase
-        # de la ficha del perfil: su redacción de `internal_only` afirma que «no
-        # hay separación temporal», y eso es falso cuando el diseño SÍ es
-        # temporal y la etiqueta de evidencia no llega (hallazgo abierto de la
-        # auditoría del 2026-09-15). El token y sus dos entradas se pueden
-        # afirmar; aquella frase no.
+        # EL ALCANCE, CON LOS DOS CAMPOS DE LOS QUE SALE, y no la frase de la
+        # ficha del perfil: el token y sus dos entradas se pueden re-derivar y
+        # comprobar; una frase redactada, no. (Hasta el 2026-09-16 este
+        # comentario decía además que aquella frase era FALSA para diseños
+        # temporales con evidencia débil. Era cierto entonces y se reparó ese
+        # día; ver el docstring del módulo.)
         return (f"{valor['alcance']} · evidencia={valor['evidencia']} · "
                 f"diseno={valor['diseno']}")
     if isinstance(valor, float):
