@@ -115,6 +115,22 @@ guarda**, así que hoy ese CSV no se puede usar de ninguna forma.
 0,017 puntos, o sea nada) y **`Satellite`, que es SELLADO**, por 0,96 puntos
 sobre el segundo.
 
+**Y CÓMO HAY QUE LEER LOS INTERVALOS, que es más estrecho de lo que parece.**
+Los 15 pliegues de cada dataset puntúan contra **el mismo conjunto de prueba**
+—`test_ids` se calcula una vez por dataset, fuera de los bucles—, así que lo que
+varía entre pliegues es con qué datos se ENTRENA, no contra cuáles se mide. El
+intervalo mide «cuánto se mueve el número si vuelvo a entrenar» y **no** «cuánto
+se movería con otros datos». Desde el 2026-09-16 cada intervalo lo dice de sí
+mismo, en `lo_que_este_intervalo_NO_recoge`.
+
+**Hacia dónde empuja esto, dicho sin adornos**: la incertidumbre real es MAYOR
+que la publicada. Eso no debilita ninguna conclusión de arriba — al contrario:
+si con los intervalos estrechos los rangos de lightgbm (33..38) y catboost
+(30..35) ya se solapan, con la incertidumbre entera se solapan más. «No se sigue
+que lightgbm sea mejor» queda más firme, no menos. Donde sí habría que tener
+cuidado es al revés: para afirmar que dos motores SÍ se distinguen, estos
+intervalos no bastan.
+
 **CÓMO HAY QUE LEER «2 PUNTOS» EN CADA TAREA, porque no significa lo mismo.**
 La regla registrada dice «a menos de 2 puntos del mejor» y el código multiplica
 las tres métricas por 100 por igual. O sea que en las 10 tareas de regresión el

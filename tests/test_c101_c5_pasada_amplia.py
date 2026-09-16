@@ -984,3 +984,52 @@ def test_el_punto_de_control_del_pliegue_va_por_RELOJ_y_no_en_cada_vuelta():
         f"un tope de {tope}s no tiene sentido: por debajo de 10 s el guardado "
         "(0,90 s medidos) empieza a pesar, y por encima de 300 s deja de "
         "proteger al cubo grande, que es para lo que se puso")
+
+
+# ---------------------------------------------------------------------------
+# LA OTRA PAREJA DE NUMEROS SIN PUENTE, cerrada el 2026-09-16.
+#
+# El artefacto llevaba `procesos_en_paralelo: 1` y
+# `presupuesto.procesos_en_paralelo_registrados: 2` uno al lado del otro, sin
+# una frase que dijera que es deliberado ni por que. Misma familia que el
+# «3.500 contra 3.479».
+# ---------------------------------------------------------------------------
+
+def test_los_procesos_que_corrieron_se_reconcilian_con_los_registrados():
+    d = _amplia()
+    r = _c5.reconciliar_los_procesos_con_lo_registrado(
+        d["procesos_en_paralelo"], d["presupuesto"])
+    assert (r["registrados"], r["usados"]) == (2, 1)
+    assert r["coincide"] is False
+    assert r["conservadora_para_el_veredicto"] is True
+    assert "PROCESOS_A_LA_VEZ" in r["donde_se_decide"]
+
+
+def test_la_DIRECCION_de_la_desviacion_se_calcula_y_no_se_escribe():
+    """La mitad sin la que esto seria una frase tranquilizadora permanente.
+
+    Hoy la desviacion es conservadora —menos procesos, menos competencia, topes
+    de reloj mas faciles—. Pero una frase GUARDADA diciendolo seguiria ahi,
+    sonando razonable, el dia que alguien suba los procesos por encima de lo
+    registrado: y entonces la desviacion aprieta los topes, un intento que se
+    pasa cuenta como dataset perdido, y el veredicto SI se mueve.
+    """
+    d = _amplia()
+    arriba = _c5.reconciliar_los_procesos_con_lo_registrado(4, d["presupuesto"])
+    assert arriba["conservadora_para_el_veredicto"] is False
+    assert "MAS DIFICILES" in arriba["por_que"]
+    assert "dataset perdido" in arriba["por_que"]
+
+    igual = _c5.reconciliar_los_procesos_con_lo_registrado(2, d["presupuesto"])
+    assert igual["coincide"] is True
+    assert igual["conservadora_para_el_veredicto"] is True
+
+
+def test_sin_procesos_registrados_NO_se_inventa_un_veredicto():
+    d = _amplia()
+    mudo = {k: v for k, v in d["presupuesto"].items()
+            if k != "procesos_en_paralelo_registrados"}
+    r = _c5.reconciliar_los_procesos_con_lo_registrado(1, mudo)
+    assert r["registrados"] is None
+    assert "conservadora_para_el_veredicto" not in r
+    assert "nada que reconciliar" in r["motivo"]

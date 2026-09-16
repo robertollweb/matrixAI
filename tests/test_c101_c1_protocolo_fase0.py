@@ -1421,3 +1421,79 @@ class UnaParadaCOOPERATIVA_NoEsUnFalloTest(unittest.TestCase):
         self.assertEqual(bloque["n_datasets"], 1)
         vacio = dispersion_de_un_motor(self._filas("failed"), motor="otro")
         self.assertEqual(vacio["n_datasets"], 0)
+
+
+class ElIntervaloDICE_LO_QUE_NO_RECOGETest(unittest.TestCase):
+    """HALLAZGO B4, REPARADO EL 2026-09-16.
+
+    El campo ya declaraba DE QUE esta hecho —remuestreo de PLIEGUES, no de
+    filas—. Faltaba lo que un lector supone sin querer: **los 15 pliegues
+    puntuan contra EL MISMO conjunto de prueba**. `test_ids` se calcula una vez
+    por dataset, fuera de los bucles de repeticion y pliegue (comprobado en
+    `pasada_amplia_101_c5.py`), asi que lo que varia entre pliegues es con que
+    datos se ENTRENA, no contra cuales se mide.
+
+    O sea que el intervalo mide «cuanto se mueve el numero si vuelvo a
+    entrenar» y NO «cuanto se moveria con otros datos» — es **mas estrecho**
+    que lo segundo, que es justo lo que uno cree leer en un «intervalo al
+    95 %». Y no es un malentendido teorico: la ficha de cartera de catboost usa
+    uno de estos para decir que `ozone-level-8hr` cumple DENTRO DEL RUIDO.
+
+    **Se declara, no se ensancha.** Inventar una correccion aqui seria afirmar
+    una precision que este diseno no puede dar.
+    """
+
+    _RUTA = (Path(__file__).resolve().parent.parent
+             / "benchmarks" / "fase0" / "pasada_amplia_101_c5_resultado.json")
+
+    def _un_intervalo(self) -> dict:
+        filas = []
+        for pliegue in range(5):
+            filas.append({"dataset": "d", "motor": "bueno", "estado": "completed",
+                          "auroc": 0.90 + pliegue * 0.001, "repeticion": 0, "pliegue": pliegue})
+            filas.append({"dataset": "d", "motor": "otro", "estado": "completed",
+                          "auroc": 0.88 + pliegue * 0.002, "repeticion": 0, "pliegue": pliegue})
+        salida = aplicar_regla_de_cierre(filas, _regla(2.0, 0.8), motor="otro")
+        intervalo = salida["detalle"][0]["intervalo_de_la_distancia"]
+        self.assertIsNotNone(intervalo, "sin intervalo no hay nada que comprobar")
+        return intervalo
+
+    def test_declara_que_NO_recoge_el_muestreo_del_test(self):
+        """El defecto que esta prueba existe para impedir."""
+        intervalo = self._un_intervalo()
+        self.assertIn("lo_que_este_intervalo_NO_recoge", intervalo)
+        texto = intervalo["lo_que_este_intervalo_NO_recoge"]
+        self.assertIn("test fijo", texto)
+        self.assertIn("mas estrecho", texto)
+
+    def test_SIGUE_declarando_de_que_esta_hecho(self):
+        """La otra mitad, que ya estaba: las dos frases dicen cosas distintas y
+        quitar una por tener la otra deja media verdad."""
+        intervalo = self._un_intervalo()
+        self.assertIn("remuestreo", intervalo)
+        self.assertIn("PLIEGUES", intervalo["remuestreo"])
+
+    def test_la_declaracion_NO_movio_ningun_numero(self):
+        """Lo que impide arreglar una etiqueta y mover una medida: se compara
+        el intervalo re-derivado con el que el artefacto lleva escrito, que se
+        calculo con el codigo de ANTES."""
+        if not self._RUTA.exists():
+            self.skipTest("la pasada amplia no esta en este arbol")
+        datos = json.loads(self._RUTA.read_text(encoding="utf-8"))
+        met = datos["alcance_y_veredicto"]["metrica_de_cierre_por_dataset"]
+        for motor, bloque in datos["alcance_y_veredicto"]["por_motor"].items():
+            guardados = {d["dataset"]: d.get("intervalo_de_la_distancia")
+                         for d in bloque["detalle"]}
+            salida = aplicar_regla_de_cierre(
+                datos["resultados"],
+                _regla(bloque["puntos_exigidos"], bloque["fraccion_minima"]),
+                motor=motor, metrica_por_dataset=met)
+            for d in salida["detalle"]:
+                nuevo, viejo = d.get("intervalo_de_la_distancia"), guardados.get(d["dataset"])
+                if nuevo is None or viejo is None:
+                    self.assertEqual(nuevo is None, viejo is None, (motor, d["dataset"]))
+                    continue
+                with self.subTest(motor=motor, dataset=d["dataset"]):
+                    for campo in ("bajo", "alto", "n_pliegues_emparejados",
+                                  "contra", "cruza_el_liston"):
+                        self.assertEqual(nuevo[campo], viejo[campo])

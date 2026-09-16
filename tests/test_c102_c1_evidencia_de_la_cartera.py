@@ -766,3 +766,65 @@ class LaEvidenciaNoDiceDeMASDeLoQueSeMIDIOTest(_ContraLaPasadaQueLaEntradaCITA):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LaCarteraMIRA_LA_PROCEDENCIA_DeSuEvidenciaTest(_ContraLaPasadaQueLaEntradaCITA):
+    """UN SELLO SOBRE EVIDENCIA IRREPRODUCIBLE — cerrado el 2026-09-16.
+
+    Hasta hoy la entrada citaba un digest y **nadie comprobaba que ese artefacto
+    fuera anclable**. Y no es teórico: de las cinco mediciones de Fase 0, CUATRO
+    dicen `anclable: false`, y una de ellas por un motivo serio —se midió con el
+    propio guion de la pasada modificado y sin commitear, así que el commit que
+    declara **no identifica el código que produjo esos números**—. Un sello
+    sobre eso es exactamente lo que el sello existe para impedir.
+
+    **Por qué la comprobación vive AQUÍ y no en `__post_init__`.**
+    `matrixai_engines` no alcanza `benchmarks/fase0/`: allí un campo obligatorio
+    solo garantizaría que alguien escribió un `True`, y un `True` escrito a mano
+    sobre una pasada sucia se lee igual que uno medido — sería peor que no tener
+    campo. Este fichero SÍ abre el JSON, así que aquí el campo es obligatorio y
+    además se contrasta. **Obligatorio donde se puede medir, declarado donde se
+    lee.**
+    """
+
+    def test_toda_entrada_DECLARA_si_su_evidencia_es_anclable(self):
+        for entrada in CARTERA_APROBADA:
+            with self.subTest(motor=entrada.motor):
+                self.assertIsNotNone(
+                    entrada.evidencia_anclable,
+                    f"la entrada de {entrada.motor!r} no dice si su evidencia se "
+                    "puede volver a atar a un commit. `None` aquí no es «da "
+                    "igual»: es que nadie lo miró.")
+
+    def test_lo_que_DECLARA_es_lo_que_el_artefacto_dice_de_si_mismo(self):
+        """La mitad que impide que el campo sea una firma en blanco."""
+        medido = self.payload["procedencia"]["anclable"]
+        for entrada in CARTERA_APROBADA:
+            with self.subTest(motor=entrada.motor):
+                self.assertEqual(
+                    entrada.evidencia_anclable, medido,
+                    f"{entrada.motor!r} declara `evidencia_anclable="
+                    f"{entrada.evidencia_anclable}` y el artefacto que cita dice "
+                    f"{medido}. Un campo que no coincide con lo medido no es una "
+                    "declaración: es una afirmación sin respaldo dentro del sello.")
+
+    def test_una_entrada_APROBADA_se_sostiene_en_evidencia_ANCLABLE(self):
+        """El invariante entero, y el que de verdad protege a quien lo lea."""
+        for entrada in CARTERA_APROBADA:
+            with self.subTest(motor=entrada.motor):
+                self.assertTrue(
+                    entrada.evidencia_anclable,
+                    f"{entrada.motor!r} lleva el sello de «soportado» sobre una "
+                    "medición que NO se puede reproducir. Si de verdad hay que "
+                    "aprobarlo, lo que se mueve es la medición —repetirla con el "
+                    "árbol limpio—, no el sello.")
+
+    def test_y_el_artefacto_NO_trae_avisos_de_procedencia(self):
+        """`anclable` es la conclusión; `avisos` es el detalle que la sostiene.
+        Si algún día salieran incoherentes, el que manda es el detalle."""
+        avisos = self.payload["procedencia"]["avisos"]
+        self.assertEqual(
+            avisos, [],
+            f"el artefacto que la cartera sella trae avisos de procedencia: "
+            f"{avisos}")
+        self.assertEqual(self.payload["procedencia"]["anclable"], not avisos)

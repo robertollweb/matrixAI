@@ -695,6 +695,50 @@ def metricas_del_informe(informe: dict | None) -> dict:
         return {}
     return {m["metric_id"]: m.get("value") for m in informe.get("metrics", [])}
 
+def reconciliar_los_procesos_con_lo_registrado(usados: int, presupuesto: dict) -> dict:
+    """POR QUE LA PASADA CORRE CON UN PROCESO Y EL PROTOCOLO REGISTRA DOS.
+
+    El artefacto llevaba `procesos_en_paralelo: 1` y
+    `presupuesto.procesos_en_paralelo_registrados: 2` **uno al lado del otro**,
+    sin una frase que dijera que es deliberado ni por que. Misma familia que el
+    «3.500 contra 3.479»: dos numeros verdaderos juntos y ningun puente.
+
+    **LA DIRECCION SE CALCULA, NO SE ESCRIBE.** Hoy la desviacion es
+    conservadora —menos procesos = menos competencia por la maquina = topes de
+    reloj mas faciles de cumplir, no mas dificiles—, asi que no ensucia el
+    veredicto. Pero una frase guardada diciendo «es conservadora» seguiria ahi,
+    sonando razonable, el dia que alguien suba los procesos por encima de lo
+    registrado — y ENTONCES la desviacion apretaria los topes y si podria
+    costar datasets. Por eso `conservadora` es una conclusion.
+    """
+    registrados = presupuesto.get("procesos_en_paralelo_registrados")
+    if registrados is None:
+        return {"registrados": None, "usados": usados,
+                "motivo": "el presupuesto no registra procesos; no hay nada que reconciliar"}
+    conservadora = usados <= registrados
+    return {
+        "registrados": registrados,
+        "usados": usados,
+        "coincide": usados == registrados,
+        "conservadora_para_el_veredicto": conservadora,
+        "por_que": (
+            "MENOS procesos que los registrados: menos competencia por la maquina, "
+            "o sea topes de reloj de pared mas faciles de cumplir, no mas dificiles. "
+            "La desviacion no puede inflar el recuento de datasets cumplidos."
+            if usados < registrados else
+            "los procesos coinciden con lo registrado."
+            if usados == registrados else
+            "MAS procesos que los registrados: mas competencia por la maquina, o sea "
+            "topes de reloj MAS DIFICILES de cumplir. Un intento que se pasa del tope "
+            "cuenta como dataset perdido, asi que esta desviacion SI puede mover el "
+            "veredicto, y en la direccion de perjudicar a los motores lentos."),
+        "donde_se_decide": (
+            "`PROCESOS_A_LA_VEZ` en `benchmarks/fase0/pasada_exploratoria_101_c3.py`. "
+            "El protocolo registra el reparto; esta constante dice lo que la maquina "
+            "de casa aguanta."),
+    }
+
+
 def reconciliar_el_plan_con_lo_medido(plan: dict, particiones: dict,
                                       resultados: list, n_motores: int) -> dict:
     """POR QUE `n_intentos` NO ES EL DEL PLAN — hallazgo M1, 2026-09-16.
@@ -1108,6 +1152,13 @@ def _componer_y_guardar(resultados, procedencia, payload_previo, ruta_salida, *,
         "n_intentos": len(resultados),
         # LOS DOS NUMEROS, RECONCILIADOS. Ver la funcion: se calcula, no se
         # redacta, y `cuadra` es una conclusion.
+        # LA OTRA PAREJA DE NUMEROS SIN PUENTE: `procesos_en_paralelo` dice 1 y
+        # `presupuesto.procesos_en_paralelo_registrados` dice 2. Misma familia,
+        # misma disciplina: la direccion de la desviacion se CALCULA.
+        "por_que_los_procesos_no_son_los_registrados": (
+            reconciliar_los_procesos_con_lo_registrado(
+                PROCESOS_A_LA_VEZ,
+                presupuesto_declarado_de_la_pasada(datasets, protocolo))),
         "por_que_n_intentos_no_es_el_del_plan": reconciliar_el_plan_con_lo_medido(
             plan, dict(particiones), resultados,
             n_motores=len(nombres_de_los_motores_de_la_pasada())),

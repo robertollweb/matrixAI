@@ -815,6 +815,31 @@ def _intervalo_de_la_distancia(medidas_por_pliegue: Mapping[str, Mapping[tuple, 
                        f"{SEMILLA_DEL_INTERVALO}"),
         "contra": mejor,
         "cruza_el_liston": bajo <= puntos <= alto,
+        # QUE ES LO QUE ESTE INTERVALO NO RECOGE — hallazgo B4, 2026-09-16.
+        #
+        # El campo ya decia DE QUE esta hecho (remuestreo de pliegues, no de
+        # filas). Faltaba lo otro, que es lo que un lector supone sin querer:
+        # **los 15 pliegues puntuan contra EL MISMO conjunto de prueba**, fijo
+        # por dataset (`test_ids` se calcula una vez, fuera de los bucles de
+        # repeticion y pliegue — comprobado en `pasada_amplia_101_c5.py`). Lo
+        # que varia entre pliegues es con que datos se ENTRENA, no contra
+        # cuales se mide.
+        #
+        # Consecuencia, y es la que importa al leer un veredicto: este
+        # intervalo mide «cuanto se mueve el numero si vuelvo a entrenar», NO
+        # «cuanto se moveria con otros datos». Es **mas estrecho** que lo
+        # segundo, que es lo que uno cree estar leyendo cuando ve un intervalo
+        # al 95 %. Y el contrato ya uso uno de estos para matizar
+        # `ozone-level-8hr`, asi que el malentendido no es teorico.
+        #
+        # Se declara, no se ensancha: inventar una correccion aqui seria
+        # afirmar una precision que este diseno no puede dar. Media verdad
+        # tranquilizadora tambien es media limpieza.
+        "lo_que_este_intervalo_NO_recoge": (
+            "el muestreo del conjunto de prueba. Los pliegues comparten UN "
+            "test fijo por dataset y solo cambian los datos de entrenamiento, "
+            "asi que esto mide la variabilidad del ENTRENAMIENTO y es mas "
+            "estrecho que un intervalo sobre datos nuevos."),
     }
 
 
