@@ -508,13 +508,20 @@ class TestFinalValidationReceivesTheKnownSchema:
         captured: dict = {}
         real = pipeline_mod.validate_pipeline_output
 
-        def _spy(rows, *, target_column, feature_columns=None, expected_types=None, min_rows=2):
+        # `tokens_de_ausencia` entra en la firma el 2026-09-16: el envoltorio
+        # temporal reenviaba la declaración de ausencia a sus dos extremos pero
+        # NO a esta validación ni al pipeline de en medio. Esta prueba ya
+        # existía para comprobar que lo conocido LLEGA aquí — es la misma
+        # intención, y se captura también lo nuevo.
+        def _spy(rows, *, target_column, feature_columns=None, expected_types=None,
+                 min_rows=2, tokens_de_ausencia=None):
             captured["feature_columns"] = feature_columns
             captured["expected_types"] = expected_types
+            captured["tokens_de_ausencia"] = tokens_de_ausencia
             return real(
                 rows, target_column=target_column,
                 feature_columns=feature_columns, expected_types=expected_types,
-                min_rows=min_rows,
+                min_rows=min_rows, tokens_de_ausencia=tokens_de_ausencia,
             )
 
         with unittest.mock.patch.object(pipeline_mod, "validate_pipeline_output", _spy):

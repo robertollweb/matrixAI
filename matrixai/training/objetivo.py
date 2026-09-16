@@ -442,7 +442,16 @@ def confirmar_desde_csv(
     )
 
     if analisis is None:
-        analisis = analyze_dataset_csv(csv_text)
+        # CON LA MISMA DECLARACIÓN que se usa más abajo para re-medir el
+        # objetivo. Sin ella, este camino medía las columnas con la heurística
+        # y el otro —el que recibe `analisis` ya compuesto— con lo declarado, y
+        # el mismo CSV con la misma declaración daba DOS respuestas. Medido el
+        # 2026-09-16: una columna con un nivel legítimo «None» salía propuesta
+        # como objetivo por un camino (cardinalidad 2) y desaparecía por el otro
+        # (cardinalidad 1, veinte celdas leídas como ausentes). Y el docstring
+        # de arriba prometía que pasar o no `analisis` «no cambia nada del
+        # resultado», que era justo lo que dejaba de ser cierto.
+        analisis = analyze_dataset_csv(csv_text, tokens_de_ausencia=tokens_de_ausencia)
     columnas: dict[str, Any] = dict(analisis.get("columns") or {})
     orden = list(analisis.get("column_order") or [])
     candidatas = list(analisis.get("target_candidates") or [])

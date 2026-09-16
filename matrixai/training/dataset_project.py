@@ -1319,7 +1319,10 @@ def generate_temporal_project_from_dataset(
         range_overrides[effective_target] = column_range_overrides[target_column]
 
     try:
-        pipeline_result = run_pipeline(rows, ops)
+        # LA DECLARACIÓN LLEGA TAMBIÉN AL MEDIO, no solo a los extremos. Ver
+        # `run_pipeline`: sin ella, declarar «None» como nivel legítimo daba
+        # exactamente el mismo resultado que no declararlo.
+        pipeline_result = run_pipeline(rows, ops, tokens_de_ausencia=tokens_de_ausencia)
     except PipelineError as exc:
         raise DatasetProjectError(f"Serie temporal: {exc}") from exc
 
@@ -1372,6 +1375,7 @@ def generate_temporal_project_from_dataset(
     validation_errors = validate_pipeline_output(
         pipeline_result.rows, target_column=effective_target,
         feature_columns=feature_columns, expected_types=expected_types,
+        tokens_de_ausencia=tokens_de_ausencia,
     )
     if validation_errors:
         raise DatasetProjectError("Serie temporal: " + "; ".join(validation_errors))
@@ -1669,7 +1673,8 @@ def _spec_from_legacy_provenance(provenance: dict[str, Any]) -> dict[str, Any] |
 
 
 def _replay_temporal_pipeline(
-    rows: list[dict[str, str]], temporal: dict[str, Any]
+    rows: list[dict[str, str]], temporal: dict[str, Any],
+    tokens_de_ausencia: set[str] | None = None,
 ) -> list[dict[str, str]]:
     """Reconstruye el CSV post-pipeline de un modelo temporal desde el bloque
     ESTRUCTURADO de la procedencia — nunca desde las cadenas de `operations`,
@@ -1691,7 +1696,7 @@ def _replay_temporal_pipeline(
         )
     ops = [{"op": step["operation"], **(step.get("params") or {})} for step in steps]
     try:
-        return run_pipeline(rows, ops).rows
+        return run_pipeline(rows, ops, tokens_de_ausencia=tokens_de_ausencia).rows
     except PipelineError as exc:
         raise DatasetProjectError(f"Serie temporal (reconstrucción): {exc}") from exc
 
@@ -1798,7 +1803,15 @@ def prepare_dataset_from_provenance(
 
     temporal = provenance.get("temporal")
     if temporal:
-        rows = _replay_temporal_pipeline(rows, temporal)
+        # LA RECETA DICE CÓMO SE LEYÓ LA AUSENCIA AL ENTRENAR, y la reconstrucción
+        # tiene que leerla igual: si al generar se conservaron las filas con un
+        # «None» declarado y aquí se tiran, la PREDICCIÓN trabajaría sobre otras
+        # filas que el entrenamiento. Se lee aquí y no más abajo, que es donde
+        # el resto de esta función la usa, porque la reconstrucción va antes.
+        rows = _replay_temporal_pipeline(
+            rows, temporal,
+            tokens_de_ausencia=(set(spec["tokens_de_ausencia"])
+                                if "tokens_de_ausencia" in spec else None))
         if not rows:
             raise DatasetProjectError(
                 "Tras reconstruir la serie temporal no queda ninguna fila."

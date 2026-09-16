@@ -375,3 +375,238 @@ class TestElFicheroQueDeVerdadSePerdia:
         assert escritas == 864
         assert sum(1 for f in filas
                    if f[safe] == str(indice[CATEGORIA_FALTANTE])) == 8
+
+
+class TestElObjetivoDaUNASolaRespuestaPorLosDosCaminos:
+    """HALLAZGO MEDIO de la auditoría de `b2fad46`, REPARADO el 2026-09-16.
+
+    `confirmar_desde_csv` tiene dos caminos: quien llama le pasa `analisis` ya
+    compuesto (el flujo desde datos, que lo calcula una vez), o no se lo pasa y
+    lo compone ella. El primero llegaba medido CON la declaración de ausencia;
+    el segundo lo recalculaba **sin ella**, con la heurística.
+
+    Medido antes de reparar: con el mismo CSV y la misma declaración, una
+    columna con un nivel legítimo «None» salía **propuesta como objetivo** por
+    un camino (cardinalidad 2) y **desaparecía** por el otro (cardinalidad 1,
+    veinte celdas leídas como ausentes). O sea que la lista de «qué podrías
+    predecir» dependía de un detalle de cableado del llamante. Y el docstring
+    prometía que pasar o no `analisis` «no cambia nada del resultado».
+
+    Es literalmente una promesa de docstring que nada sostenía — por eso esta
+    prueba lleva su nombre.
+    """
+
+    @staticmethod
+    def _csv() -> str:
+        filas = ["revestimiento,area,precio"]
+        for i in range(40):
+            filas.append(f"{'None' if i % 2 else 'Ladrillo'},{100 + i},{200000 + i * 1000}")
+        return "\n".join(filas) + "\n"
+
+    @staticmethod
+    def _documento(conf):
+        return conf.a_json() if hasattr(conf, "a_json") else conf
+
+    def test_pasar_o_no_el_analisis_NO_cambia_el_documento(self):
+        """La promesa del docstring, medida."""
+        from matrixai.training.objetivo import confirmar_desde_csv
+
+        csv_text, tokens = self._csv(), {""}
+        con = confirmar_desde_csv(
+            csv_text, objetivo="precio", tokens_de_ausencia=tokens,
+            analisis=analyze_dataset_csv(csv_text, tokens_de_ausencia=tokens))
+        sin = confirmar_desde_csv(csv_text, objetivo="precio", tokens_de_ausencia=tokens)
+        assert self._documento(con) == self._documento(sin)
+
+    def test_el_nivel_declarado_SIGUE_proponiendose_como_objetivo_sin_analisis(self):
+        """El síntoma concreto, por su nombre: la columna no puede desaparecer
+        de la lista de candidatos por no haber traído `analisis`."""
+        from matrixai.training.objetivo import confirmar_desde_csv
+
+        doc = self._documento(confirmar_desde_csv(
+            self._csv(), objetivo="precio", tokens_de_ausencia={""}))
+        candidatos = {c["column"]: c for c in doc["propuesta"]["candidatos"]}
+        assert "revestimiento" in candidatos, (
+            "sin `analisis`, la columna con un nivel «None» declarado ya no se "
+            "ofrece como objetivo: se está midiendo con la heurística y no con "
+            "lo que el productor del CSV declaró")
+        codigos = candidatos["revestimiento"]["reason_codes"]
+        assert {"code": "low_cardinality", "cardinality": 2} in codigos
+
+    def test_SIN_declaracion_la_heuristica_sigue_mandando(self):
+        """La otra mitad: arreglar el reenvío no puede apagar la heurística donde
+        SÍ debe aplicarse. Sin declarar nada, «None» sigue siendo ausencia."""
+        from matrixai.training.objetivo import confirmar_desde_csv
+
+        doc = self._documento(confirmar_desde_csv(self._csv(), objetivo="precio"))
+        assert "revestimiento" not in {c["column"] for c in doc["propuesta"]["candidatos"]}
+
+
+class TestLaSerieTemporalRespetaLaDeclaracionDePuntaAPunta:
+    """HALLAZGO MEDIO «el cuarto sitio», REPARADO el 2026-09-16.
+
+    El envoltorio temporal reenviaba `tokens_de_ausencia` a sus dos extremos,
+    pero `run_pipeline` y `validate_pipeline_output` —lo de en medio— no lo
+    admitían ni en la firma, y sus ocho llamadas a `_is_null` usaban la
+    heurística. **El arreglo de los nulos declarados había partido un camino que
+    antes era coherente**: media aplicación declaraba y media no.
+
+    Medido antes de reparar, por el camino real del producto, con `horizon=1`
+    sobre 40 filas que declaran «None» como nivel legítimo: **salían 20 en vez
+    de 39**, y **declarar o no declarar daba exactamente lo mismo**. Las 19 filas
+    con ese nivel se tiraban como huecos, en silencio.
+    """
+
+    @staticmethod
+    def _csv() -> str:
+        filas = ["fecha,revestimiento,area,ventas"]
+        for i in range(40):
+            filas.append(f"2026-01-{(i % 28) + 1:02d}T{i % 24:02d}:00:00,"
+                         f"{'None' if i % 2 else 'Ladrillo'},{100 + i},{500 + i * 3}")
+        return "\n".join(filas) + "\n"
+
+    @staticmethod
+    def _filas_tras_el_pipeline(resultado) -> int:
+        pasos = resultado["provenance"]["temporal"]["pipeline_operations"]
+        return pasos[-1]["rows_after"]
+
+    def test_declarando_solo_cae_la_fila_sin_objetivo_futuro(self):
+        """El defecto que esta prueba existe para impedir."""
+        from matrixai.training.dataset_project import generate_temporal_project_from_dataset
+
+        r = generate_temporal_project_from_dataset(
+            self._csv(), "ventas", temporal_column="fecha", horizon=1,
+            tokens_de_ausencia={""})
+        assert self._filas_tras_el_pipeline(r) == 39, (
+            "con «None» declarado como nivel, el pipeline temporal solo puede "
+            "quitar la última fila (no tiene objetivo a horizonte 1); si salen "
+            "menos, está leyendo el nivel declarado como hueco")
+
+    def test_declarar_y_no_declarar_YA_NO_dan_lo_mismo(self):
+        """El síntoma más elocuente del defecto, por su nombre: una declaración
+        que no cambia nada no está llegando a ningún sitio."""
+        from matrixai.training.dataset_project import generate_temporal_project_from_dataset
+
+        con = generate_temporal_project_from_dataset(
+            self._csv(), "ventas", temporal_column="fecha", horizon=1,
+            tokens_de_ausencia={""})
+        sin = generate_temporal_project_from_dataset(
+            self._csv(), "ventas", temporal_column="fecha", horizon=1)
+        assert self._filas_tras_el_pipeline(con) != self._filas_tras_el_pipeline(sin)
+        assert self._filas_tras_el_pipeline(sin) == 20, (
+            "sin declarar, la heurística tiene que SEGUIR mandando: «None» es "
+            "ausencia y esas filas se quitan")
+
+    def test_la_prediccion_RECONSTRUYE_las_mismas_filas_que_el_entrenamiento(self):
+        """La mitad que no se ve arreglando la generación.
+
+        Si al generar se conservan las filas con el «None» declarado y al
+        reconstruir para predecir se tiran, el modelo PREDICE sobre filas
+        distintas de las que APRENDIÓ. Arreglar un lado solo habría creado el
+        defecto contrario — por eso la reconstrucción lee la declaración de la
+        receta congelada.
+        """
+        from matrixai.training.dataset_project import (
+            generate_temporal_project_from_dataset,
+            prepare_dataset_from_provenance,
+        )
+
+        for tokens in ({""}, None):
+            r = generate_temporal_project_from_dataset(
+                self._csv(), "ventas", temporal_column="fecha", horizon=1,
+                tokens_de_ausencia=tokens)
+            entrena = len(r["csv_text"].strip().splitlines()) - 1
+            predice = len(prepare_dataset_from_provenance(
+                self._csv(), r["provenance"]).csv_text.strip().splitlines()) - 1
+            assert entrena == predice, (
+                f"con tokens={tokens!r}: el entrenamiento vio {entrena} filas y la "
+                f"reconstrucción para predecir {predice}")
+
+
+class TestCadaEslabonDelPipelineRecibeLaDeclaracion:
+    """LOS TRES ESLABONES QUE NADIE VIGILABA — auditoría del 2026-09-16.
+
+    La reparación hiló `tokens_de_ausencia` por SIETE eslabones del camino: el
+    objetivo, las operaciones de huecos, convertir tipos, ordenar e interpolar,
+    y la generación y la predicción en `dataset_project`. Al adoptarla se
+    saboteó cada eslabón por separado, y **tres salían VERDES**: quitarle la
+    declaración a convertir tipos, a ordenar o a interpolar dejaba las 61
+    pruebas de este fichero y de `test_biblioteca_c4_temporal_project.py`
+    intactas.
+
+    **Y no son eslabones inertes, medido llamando a cada función con y sin la
+    declaración** sobre una celda `"?"` que quien produjo el CSV declara que NO
+    es ausencia (solo lo es la celda vacía):
+
+    · **interpolar** la rellenaba con el valor anterior: `["1","?","3"]` →
+      `["1","1","3"]`. **El modelo se entrenaría con un dato inventado**, que es
+      lo contrario de lo declarado y el peor de los tres.
+    · **convertir tipos** la dejaba pasar como hueco, en silencio.
+    · **ordenar** la mandaba al principio como si fuera la fecha mínima.
+
+    Con la declaración, los tres ABORTAN — que es lo correcto: `"?"` es un dato
+    según quien lo produjo, y no es un número ni una fecha. Sin estas pruebas,
+    el día que alguien «simplifique» uno de esos eslabones, esa operación
+    vuelve a ignorar la declaración y nada lo dice. Es la misma familia que el
+    `None` de `house_prices_nominal`: **un eslabón olvidado reintroduce el
+    defecto en silencio**.
+    """
+
+    _DECLARADA = {""}   # solo la celda vacia es ausencia
+
+    @staticmethod
+    def _numericas():
+        return [{"t": f"2020-01-0{i}", "x": v} for i, v in enumerate(["1", "?", "3"], 1)]
+
+    def test_INTERPOLAR_no_se_inventa_un_valor_que_la_declaracion_dice_que_existe(self):
+        from matrixai.training import dataset_pipeline as dp
+        filas = self._numericas()
+        with pytest.raises(dp.PipelineError, match="no es numérico"):
+            dp._interpolate_column(filas, "x", self._DECLARADA)
+        # la otra mitad: sin declaracion, la heuristica SIGUE rellenando —
+        # que es lo que tiene que hacer cuando nadie ha dicho nada
+        filas = self._numericas()
+        dp._interpolate_column(filas, "x", None)
+        assert [f["x"] for f in filas] == ["1", "1", "3"]
+
+    def test_CONVERTIR_TIPOS_no_deja_pasar_como_hueco_lo_que_no_lo_es(self):
+        from matrixai.training import dataset_pipeline as dp
+        with pytest.raises(dp.PipelineError, match="no es numérico"):
+            dp._op_cast(self._numericas(), {"column": "x", "to": "number"},
+                        ["t", "x"], self._DECLARADA)
+        filas = self._numericas()   # control: sin declaracion, no aborta
+        dp._op_cast(filas, {"column": "x", "to": "number"}, ["t", "x"], None)
+        assert [f["x"] for f in filas][1] == "?"
+
+    def test_ORDENAR_no_toma_por_fecha_minima_un_valor_declarado(self):
+        from matrixai.training import dataset_pipeline as dp
+        filas = [{"t": v, "x": "1"} for v in ["2020-01-02", "?", "2020-01-01"]]
+        with pytest.raises(dp.PipelineError, match="formato de fecha"):
+            dp._op_sort_temporal(filas, {"column": "t"}, ["t", "x"], self._DECLARADA)
+        # control: sin declaracion, ordena y no aborta
+        filas = [{"t": v, "x": "1"} for v in ["2020-01-02", "?", "2020-01-01"]]
+        dp._op_sort_temporal(filas, {"column": "t"}, ["t", "x"], None)
+
+    def test_y_el_pipeline_ENTERO_se_la_pasa_a_los_tres(self):
+        """Las tres de arriba prueban la FUNCION; esta, el CABLEADO. El hueco
+        de esta casa casi nunca esta en la funcion: esta en que el llamante no
+        le pase el dato. Si `run_pipeline` dejara de reenviar la declaracion a
+        una operacion, las de arriba seguirian verdes."""
+        from matrixai.training import dataset_pipeline as dp
+        # EL MENSAJE SE COMPRUEBA, no solo el tipo: un `PipelineError` por
+        # «parametro desconocido» pasaria un `raises` a secas por el motivo
+        # equivocado. Paso al escribir esto: `sort_temporal` NO admite
+        # `format` —la fecha se autodetecta— y la primera version lo pasaba.
+        casos = [
+            ("cast", [{"op": "cast", "column": "x", "to": "number"}], "no es numérico"),
+            ("interpolar", [{"op": "missing_values", "strategy": "interpolate",
+                             "columns": ["x"]}], "no es numérico"),
+            ("ordenar", [{"op": "sort_temporal", "column": "t"}], "formato de fecha"),
+        ]
+        for nombre, ops, mensaje in casos:
+            def filas():
+                return (self._numericas() if nombre != "ordenar"
+                        else [{"t": v, "x": "1"} for v in ["2020-01-02", "?", "2020-01-01"]])
+            with pytest.raises(dp.PipelineError, match=mensaje):
+                dp.run_pipeline(filas(), ops, tokens_de_ausencia=self._DECLARADA)
+            dp.run_pipeline(filas(), ops, tokens_de_ausencia=None)   # control

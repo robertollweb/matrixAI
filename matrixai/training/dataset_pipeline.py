@@ -161,12 +161,22 @@ def _check_interpolate_after_sort(operations: list[dict[str, Any]]) -> None:
 
 
 def run_pipeline(
-    rows: list[dict[str, str]], operations: list[dict[str, Any]]
+    rows: list[dict[str, str]], operations: list[dict[str, Any]], *,
+    tokens_de_ausencia: set[str] | None = None,
 ) -> PipelineResult:
     """Ejecuta las `operations` (vocabulario cerrado, ver docstring del
     módulo) EN ORDEN sobre `rows`. Nunca muta la lista/dicts de entrada del
     caller (copia defensiva) — devuelve un `PipelineResult` nuevo con la
-    procedencia completa de cada paso y el linaje temporal final."""
+    procedencia completa de cada paso y el linaje temporal final.
+
+    `tokens_de_ausencia` es cómo marca la ausencia QUIEN PRODUJO el CSV (ver
+    `dataset_analysis._is_null`), y llega a TODA operación que decide si una
+    celda es un hueco. Sin esto —medido el 2026-09-16— el envoltorio temporal
+    reenviaba la declaración a sus dos extremos pero lo de en medio la
+    ignoraba: con `horizon=1`, un CSV de 40 filas que declara «None» como nivel
+    legítimo salía con **20** en vez de 39, y **declarar o no declarar daba
+    exactamente lo mismo**. Las 19 filas con ese nivel se tiraban como huecos,
+    en silencio."""
     if not rows:
         raise PipelineError("El pipeline necesita al menos una fila de entrada.")
     _check_interpolate_after_sort(operations)
@@ -195,15 +205,16 @@ def run_pipeline(
         rows_before, cols_before = len(current), list(columns_order)
 
         if op == "sort_temporal":
-            _op_sort_temporal(current, params, columns_order)
+            _op_sort_temporal(current, params, columns_order, tokens_de_ausencia)
         elif op == "drop_duplicates":
             current = _op_drop_duplicates(current, columns_order)
         elif op == "missing_values":
-            current = _op_missing_values(current, params, columns_order)
+            current = _op_missing_values(current, params, columns_order,
+                                         tokens_de_ausencia)
         elif op == "rename":
             columns_order = _op_rename(current, params, columns_order, column_offsets)
         elif op == "cast":
-            _op_cast(current, params, columns_order)
+            _op_cast(current, params, columns_order, tokens_de_ausencia)
         elif op == "lag_window":
             columns_order = _op_lag_window(current, params, columns_order, column_offsets)
         elif op == "shift_target":
@@ -249,6 +260,7 @@ def validate_pipeline_output(
     feature_columns: list[str] | None = None,
     expected_types: dict[str, str] | None = None,
     min_rows: int = 2,
+    tokens_de_ausencia: set[str] | None = None,
 ) -> list[str]:
     """Validación final del contrato ("min_rows, tipos, nulos residuales,
     target presente"): min_rows, target presente, nulos residuales en el
@@ -271,7 +283,8 @@ def validate_pipeline_output(
     if target_column not in rows[0]:
         return [f"La columna objetivo {target_column!r} no existe tras el pipeline."]
     errors: list[str] = []
-    residual_target_nulls = sum(1 for row in rows if _is_null(row.get(target_column)))
+    residual_target_nulls = sum(1 for row in rows
+                                if _is_null(row.get(target_column), tokens_de_ausencia))
     if residual_target_nulls:
         errors.append(
             f"{residual_target_nulls} fila(s) se quedan sin valor en la columna "
@@ -283,7 +296,7 @@ def validate_pipeline_output(
         if col not in rows[0]:
             errors.append(f"La columna feature {col!r} no existe tras el pipeline.")
             continue
-        null_count = sum(1 for row in rows if _is_null(row.get(col)))
+        null_count = sum(1 for row in rows if _is_null(row.get(col), tokens_de_ausencia))
         if null_count:
             errors.append(
                 f"{null_count} fila(s) se quedan sin valor en la feature {col!r} "
@@ -306,7 +319,7 @@ def validate_pipeline_output(
             continue
         for row in rows:
             raw = row.get(col)
-            if _is_null(raw):
+            if _is_null(raw, tokens_de_ausencia):
                 continue
             try:
                 value = float(raw)
@@ -335,9 +348,12 @@ def _require_column(col: Any, columns_order: list[str], op: str, field_name: str
     return col
 
 
-def _op_sort_temporal(rows: list[dict[str, str]], params: dict[str, Any], columns_order: list[str]) -> None:
+def _op_sort_temporal(rows: list[dict[str, str]], params: dict[str, Any],
+                      columns_order: list[str],
+                      tokens_de_ausencia: set[str] | None = None) -> None:
     column = _require_column(params.get("column"), columns_order, "sort_temporal")
-    values = [row.get(column) for row in rows if not _is_null(row.get(column))]
+    values = [row.get(column) for row in rows
+              if not _is_null(row.get(column), tokens_de_ausencia)]
     # `_detect_date_format` (dataset_analysis.py, reutilizado — misma
     # detección que usa C1) devuelve el PRIMER formato de la lista sin
     # validar nada cuando `values` está vacía — guardia explícita aquí:
@@ -351,7 +367,7 @@ def _op_sort_temporal(rows: list[dict[str, str]], params: dict[str, Any], column
 
     def _key(row: dict[str, str]) -> datetime:
         v = row.get(column)
-        return datetime.min if _is_null(v) else datetime.strptime(v, fmt)
+        return datetime.min if _is_null(v, tokens_de_ausencia) else datetime.strptime(v, fmt)
 
     rows.sort(key=_key)  # estable: filas con la misma fecha conservan su orden relativo
 
@@ -369,7 +385,8 @@ def _op_drop_duplicates(rows: list[dict[str, str]], columns_order: list[str]) ->
 
 
 def _op_missing_values(
-    rows: list[dict[str, str]], params: dict[str, Any], columns_order: list[str]
+    rows: list[dict[str, str]], params: dict[str, Any], columns_order: list[str],
+    tokens_de_ausencia: set[str] | None = None,
 ) -> list[dict[str, str]]:
     strategy = params.get("strategy")
     if strategy not in _MISSING_STRATEGIES:
@@ -383,13 +400,15 @@ def _op_missing_values(
     for c in columns:
         _require_column(c, columns_order, "missing_values", "columns")
     if strategy == "drop":
-        return [row for row in rows if not any(_is_null(row.get(c)) for c in columns)]
+        return [row for row in rows
+                if not any(_is_null(row.get(c), tokens_de_ausencia) for c in columns)]
     for c in columns:
-        _interpolate_column(rows, c)
+        _interpolate_column(rows, c, tokens_de_ausencia)
     return rows
 
 
-def _interpolate_column(rows: list[dict[str, str]], column: str) -> None:
+def _interpolate_column(rows: list[dict[str, str]], column: str,
+                        tokens_de_ausencia: set[str] | None = None) -> None:
     """Auditoría [ALTA, reauditoría 2026-07-17]: interpolación CAUSAL
     (forward-fill) — solo usa el ÚLTIMO valor CONOCIDO hacia atrás, NUNCA
     uno posterior. La versión anterior interpolaba linealmente entre el
@@ -403,7 +422,7 @@ def _interpolate_column(rows: list[dict[str, str]], column: str) -> None:
     last_known: float | None = None
     for row in rows:
         raw = row.get(column)
-        if _is_null(raw):
+        if _is_null(raw, tokens_de_ausencia):
             if last_known is not None:
                 row[column] = _fmt_num(last_known)
             continue
@@ -455,7 +474,8 @@ def _op_rename(
     return [mapping.get(c, c) for c in columns_order]
 
 
-def _op_cast(rows: list[dict[str, str]], params: dict[str, Any], columns_order: list[str]) -> None:
+def _op_cast(rows: list[dict[str, str]], params: dict[str, Any], columns_order: list[str],
+             tokens_de_ausencia: set[str] | None = None) -> None:
     column = _require_column(params.get("column"), columns_order, "cast")
     to = params.get("to")
     if to not in _CAST_TYPES:
@@ -464,7 +484,7 @@ def _op_cast(rows: list[dict[str, str]], params: dict[str, Any], columns_order: 
         return
     for row in rows:
         raw = row.get(column)
-        if _is_null(raw):
+        if _is_null(raw, tokens_de_ausencia):
             continue
         try:
             value = float(raw)
