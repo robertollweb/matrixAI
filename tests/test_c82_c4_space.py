@@ -155,15 +155,42 @@ class ElSpaceLLEVA_LoQueNecesitaParaARRANCARTest(unittest.TestCase):
     def test_lleva_matrixai_que_es_lo_que_app_py_EJECUTA(self):
         from matrixai.export.space import space_app_py, space_requirements_txt
 
+        # `app.py` IMPORTA `matrixai`, pero lo que pip instala se llama
+        # `matrixai-core`: ver la prueba del nombre publicado, justo debajo.
         self.assertIn('"-m", "matrixai", "verify"', space_app_py())
-        self.assertIn("matrixai==1.5.0", space_requirements_txt("1.5.0"))
+        self.assertIn("matrixai-core==1.5.0", space_requirements_txt("1.5.0"))
 
     def test_sin_version_conocida_se_pide_SIN_fijar_en_vez_de_inventarla(self):
         from matrixai.export.space import space_requirements_txt
 
         requisitos = space_requirements_txt(None)
-        self.assertIn("matrixai\n", requisitos)
-        self.assertNotIn("matrixai==", requisitos)
+        self.assertIn("matrixai-core\n", requisitos)
+        self.assertNotIn("matrixai-core==", requisitos)
+
+    def test_lo_que_pide_es_el_nombre_que_SE_PUBLICA_en_PyPI(self):
+        """EL DEFECTO QUE LAS DOS PRUEBAS DE ARRIBA DEJABAN PASAR — 2026-09-16.
+
+        Comprobaban que el `requirements.txt` dijera `matrixai==1.5.0`, y lo
+        decía: la CADENA estaba bien. Pero en PyPI el paquete se llama
+        `matrixai-core`, y `matrixai` no existe (404), así que **todo Space
+        exportado fallaba al construir** y nada lo avisaba.
+
+        Aquí no se escribe el nombre a mano por tercera vez: se lee de
+        `pyproject.toml`, que es lo que de verdad decide cómo se llama lo que se
+        publica. Dos sitios declarando el mismo nombre acaban divergiendo, y
+        eso es exactamente lo que pasó.
+        """
+        import tomllib
+        from pathlib import Path
+        from matrixai.export.space import space_requirements_txt
+
+        raiz = Path(__file__).resolve().parents[1]
+        publicado = tomllib.loads((raiz / "pyproject.toml").read_text(encoding="utf-8"))["project"]["name"]
+        lineas = {l.split("==")[0] for l in space_requirements_txt("1.5.0").splitlines() if l}
+        self.assertIn(publicado, lineas,
+                      f"el Space pide {sorted(lineas)} y el paquete que se publica en "
+                      f"PyPI se llama {publicado!r}: pip no lo encontraría")
+        self.assertIn(publicado, {l for l in space_requirements_txt(None).splitlines() if l})
 
     def test_el_front_matter_FIJA_la_version_del_sdk(self):
         """Sin `sdk_version`, Hugging Face elige la que quiera el día que

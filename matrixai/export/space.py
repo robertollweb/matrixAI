@@ -47,7 +47,14 @@ def space_requirements_txt(matrixai_version: str | None = None) -> str:
     compararía contra reglas que no son las suyas. `None` = no consta, y
     entonces se pide sin fijar en vez de inventarse un número.
     """
-    pin = f"matrixai=={matrixai_version}" if matrixai_version else "matrixai"
+    # EL NOMBRE DE DISTRIBUCIÓN, no el de importación — reparado el 2026-09-16.
+    # Se importa como `matrixai` (`python -m matrixai verify`, en `app.py`),
+    # pero en PyPI el paquete se llama `matrixai-core` (`pyproject.toml`), y
+    # `matrixai` NO EXISTE allí (404, medido). Con `matrixai==<versión>` todo
+    # Space exportado fallaba al construir: pip no encontraba el paquete. Sus
+    # pruebas comprobaban la CADENA, no que el paquete existiera, así que el
+    # defecto pasaba en verde. Ahora la prueba lee el nombre de `pyproject.toml`.
+    pin = f"matrixai-core=={matrixai_version}" if matrixai_version else "matrixai-core"
     return (
         f"gradio=={SDK_VERSION}\n"
         "numpy>=1.24\n"
