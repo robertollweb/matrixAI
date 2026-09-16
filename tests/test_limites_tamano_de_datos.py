@@ -261,5 +261,87 @@ class GuardaDeMemoriaTest(unittest.TestCase):
         self.assertTrue(ok["ok"], ok.get("error"))
 
 
+class ElTopeDeENTRENAMIENTO_TambienCaeDentroDelBancoTest(unittest.TestCase):
+    """EL TOPE DE 300 s QUE `sin_topes()` NO APAGABA — reparado el 2026-09-16.
+
+    `sin_topes()` promete, con estas palabras, que dentro del bloque «TODOS los
+    topes de producto valen sin tope». El de entrenamiento se le escapaba:
+    `playground._P9_TRAIN_TIMEOUT` sale de una variable de entorno **cacheada en
+    el import**, asi que el `setdefault` que el banco hacia para quitarlo llegaba
+    SIEMPRE tarde — el modulo ya estaba importado. Dos mecanismos que nadie
+    habia unido: una env var cacheada y un `ContextVar`.
+
+    **Lo que costaba**: un ajuste denso EN PROCESO que pasara de 300 s devolvia
+    «Entrenamiento supero el limite de 300s», y el banco lo registraba como
+    `ajuste_del_core_fallido` — un dataset perdido por un tope de producto, que
+    es justo la clase de perdida que `sin_topes()` existe para impedir.
+
+    **Y la pasada de 101-C5 NO esta contaminada, medido antes de tocar nada**:
+    cero resultados mencionan el tope y 10 ajustes densos completaron por encima
+    de 300 s (maximo 425,1 s), porque el banco los corre en un SUBPROCESO
+    aislado donde esta ruta no se usa. El defecto era real y estaba a un cambio
+    de camino de morder.
+    """
+
+    def test_fuera_del_banco_el_tope_SIGUE_puesto(self):
+        """La mitad que impide que esto se lea como «quitar el tope».
+
+        Es un tope de PRODUCTO y sigue valiendo para quien usa el producto. Sin
+        este aserto, la reparacion podria haber sido «devolver None siempre» y
+        nadie lo notaria hasta que un entrenamiento colgado se comiera el hilo.
+        """
+        from matrixai.playground import _P9_TRAIN_TIMEOUT, _train_join_timeout
+
+        self.assertFalse(_limits.en_banco_de_pruebas())
+        self.assertEqual(_train_join_timeout(), _P9_TRAIN_TIMEOUT)
+        self.assertGreater(_train_join_timeout(), 0)
+
+    def test_dentro_del_banco_NO_hay_tope_de_entrenamiento(self):
+        """El defecto que esta prueba existe para impedir."""
+        from matrixai.playground import _train_join_timeout
+
+        with _limits.sin_topes():
+            self.assertIsNone(
+                _train_join_timeout(),
+                "un ajuste del banco que pase de 300 s vuelve a morir por un tope "
+                "de producto, y el banco lo cuenta como dataset perdido")
+
+    def test_el_bloque_no_se_escapa(self):
+        """Mismo criterio que el resto del fichero: lo que vale dentro del
+        `with` no puede seguir valiendo fuera, ni al reves."""
+        from matrixai.playground import _train_join_timeout
+
+        antes = _train_join_timeout()
+        with _limits.sin_topes():
+            pass
+        self.assertEqual(_train_join_timeout(), antes)
+
+    def test_lo_decide_el_CONTEXTO_y_no_la_variable_de_entorno(self):
+        """La raiz del defecto, fijada por su nombre.
+
+        `_P9_TRAIN_TIMEOUT` se congela en el import: cambiar la env var DESPUES
+        no mueve nada, y por eso el `setdefault` del banco no servia. La
+        reparacion no puede depender de la env var o vuelve el mismo problema.
+        """
+        import os
+        from matrixai import playground
+
+        previo = os.environ.get("MATRIXAI_TRAIN_TIMEOUT")
+        os.environ["MATRIXAI_TRAIN_TIMEOUT"] = "0"
+        try:
+            self.assertEqual(playground._train_join_timeout(),
+                             playground._P9_TRAIN_TIMEOUT,
+                             "la env var de despues del import NO debe influir: si "
+                             "influyera, el arreglo estaria colgando del mecanismo "
+                             "que ya habia fallado")
+            with _limits.sin_topes():
+                self.assertIsNone(playground._train_join_timeout())
+        finally:
+            if previo is None:
+                os.environ.pop("MATRIXAI_TRAIN_TIMEOUT", None)
+            else:
+                os.environ["MATRIXAI_TRAIN_TIMEOUT"] = previo
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

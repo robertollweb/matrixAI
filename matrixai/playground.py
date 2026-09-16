@@ -353,7 +353,36 @@ _P9_TRAIN_TIMEOUT = int(os.environ.get("MATRIXAI_TRAIN_TIMEOUT", "300"))
 
 
 def _train_join_timeout() -> float | None:
-    """None (block until done) when the wall-clock budget is disabled (<=0)."""
+    """None (block until done) when the wall-clock budget is disabled (<=0).
+
+    **Y TAMBIÉN DENTRO DE `sin_topes()` — reparado el 2026-09-16.** Este tope de
+    300 s es un tope de PRODUCTO, y `limits.sin_topes()` promete, con estas
+    palabras, que dentro del bloque «TODOS los topes de producto valen sin
+    tope». Éste se le escapaba: `_P9_TRAIN_TIMEOUT` se lee de una variable de
+    entorno **cacheada en el import**, así que el `setdefault` que el banco hacía
+    para quitarlo llegaba SIEMPRE tarde — el módulo ya estaba importado. Dos
+    mecanismos distintos (una env var cacheada y un `ContextVar`) que nadie
+    había unido.
+
+    **Lo que costaba**: un ajuste denso EN PROCESO que pasara de 300 s devolvía
+    «Entrenamiento superó el límite de 300s» y el banco lo registraba como
+    `ajuste_del_core_fallido` — o sea un dataset perdido por un tope de
+    producto, que es exactamente la clase de pérdida que `sin_topes()` existe
+    para impedir.
+
+    **Medido antes de tocar nada**: la pasada amplia de 101-C5 NO está
+    contaminada. Cero resultados mencionan el tope, y **10 ajustes densos
+    completaron por encima de 300 s** (máximo 425,1 s) — porque el banco los
+    corre en un SUBPROCESO aislado, donde esta ruta en proceso no se usa. El
+    defecto es real y estaba a un cambio de camino de morder.
+
+    El `join` lo hace el hilo LLAMANTE, que es el que está dentro del `with`, así
+    que el `ContextVar` sí se ve aquí. (No sería verdad dentro del hilo
+    trabajador: un `threading.Thread` arranca con contexto vacío, y eso está
+    dicho en el docstring de `sin_topes()`.)
+    """
+    if _limits.en_banco_de_pruebas():
+        return None
     return _P9_TRAIN_TIMEOUT if _P9_TRAIN_TIMEOUT and _P9_TRAIN_TIMEOUT > 0 else None
 
 # P9 async job store
