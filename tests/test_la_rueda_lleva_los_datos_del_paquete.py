@@ -8,13 +8,19 @@ Quien instalara desde PyPI —y la imagen del Studio, que instala el núcleo con
 `pip install` normal— se quedaba sin el catálogo que usan los proveedores de
 texto de `matrixai-engines`.
 
-Esta prueba no construye nada: compara cada fichero que NO es Python bajo
-`matrixai/`, de los que git sigue, con los patrones de `package-data`. Un dato
-nuevo sin su patrón la pone en rojo aquí, no en casa de quien lo instala.
+Esta prueba no construye nada: expande los patrones de `package-data` con
+`Path.glob` —como setuptools, donde `*` NO cruza `/`— y exige que cada fichero no
+Python que git sigue bajo `matrixai/` salga en esa expansión. Un dato nuevo sin su
+patrón la pone en rojo aquí, no en casa de quien lo instala.
+
+**Y NO CON `fnmatch`**, que es como se escribió primero: ahí `*` sí cruza `/`, así
+que `text/embeddings/*.json` daba por cubierto un `text/embeddings/extra/nuevo.json`
+que la rueda real NO lleva, y al revés marcaba fuera un hijo directo de
+`templates/` que la rueda SÍ lleva. Lo midió deployer-02 el 2026-09-17
+construyendo ruedas reales de los dos casos.
 """
 from __future__ import annotations
 
-import fnmatch
 import subprocess
 import tomllib
 from pathlib import Path
@@ -34,10 +40,15 @@ def _ficheros_no_python_seguidos_por_git() -> list[str]:
             if f and not f.endswith(".py")]
 
 
+def _lo_que_empaqueta_package_data() -> set[str]:
+    paquete = RAIZ / "matrixai"
+    return {p.relative_to(paquete).as_posix()
+            for patron in _patrones() for p in paquete.glob(patron) if p.is_file()}
+
+
 def test_cada_fichero_de_datos_del_paquete_casa_con_package_data():
-    patrones = _patrones()
-    fuera = [f for f in _ficheros_no_python_seguidos_por_git()
-             if not any(fnmatch.fnmatch(f, p) for p in patrones)]
+    empaquetados = _lo_que_empaqueta_package_data()
+    fuera = [f for f in _ficheros_no_python_seguidos_por_git() if f not in empaquetados]
     assert not fuera, (
         "ficheros del paquete que NO viajarían en la rueda (añade su patrón a "
         f"[tool.setuptools.package-data] en pyproject.toml): {fuera}")
@@ -48,4 +59,4 @@ def test_y_el_caso_que_lo_destapo_esta_cubierto():
     arriba."""
     ficheros = _ficheros_no_python_seguidos_por_git()
     assert "text/embeddings/catalogo_medido.json" in ficheros
-    assert any(fnmatch.fnmatch("text/embeddings/catalogo_medido.json", p) for p in _patrones())
+    assert "text/embeddings/catalogo_medido.json" in _lo_que_empaqueta_package_data()
