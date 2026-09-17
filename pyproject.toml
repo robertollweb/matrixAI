@@ -45,4 +45,9 @@ license-files = ["LICENSE"]
 include = ["matrixai*"]
 
 [tool.setuptools.package-data]
-matrixai = ["templates/**/*"]
+# Todo fichero que NO es Python y que el paquete lee en tiempo de ejecución va
+# aquí, o no viaja en la rueda. Medido el 2026-09-17 construyendo la 1.8.0 en un
+# contenedor limpio: `text/embeddings/catalogo_medido.json` faltaba, y desde el
+# árbol editable todo pasaba. `tests/test_la_rueda_lleva_los_datos_del_paquete.py`
+# compara cada fichero con esta lista.
+matrixai = ["templates/**/*", "text/embeddings/*.json"]

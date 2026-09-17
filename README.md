@@ -305,7 +305,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 7813 passed, 30 skipped
+# 7815 passed, 30 skipped
 ```
 
 ---
