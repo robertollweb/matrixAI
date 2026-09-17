@@ -338,11 +338,24 @@ class Muestra:
 
     @property
     def puntuacion_del_positivo(self) -> tuple[float, ...] | None:
-        """La puntuación que ORDENA. Una probabilidad ES una puntuación ordenada;
-        al revés no (invariante 2)."""
-        if self.scores is not None:
-            return self.scores
-        return self.probabilidad_del_positivo
+        """La puntuación que ORDENA, en la MISMA escala que declara
+        `escala_de_decision`. Una probabilidad ES una puntuación ordenada; al
+        revés no (invariante 2).
+
+        CON LAS DOS PRESENTES MANDA LA PROBABILIDAD. Hasta el 2026-09-17 mandaba
+        `scores`, mientras `escala_de_decision` dice `calibrated_probability` en
+        cuanto hay `probabilities`: la muestra declaraba una escala y ordenaba
+        por otra, y `matriz_de_confusion` sin umbral aplicaba el 0,5 —un umbral de
+        PROBABILIDAD— sobre logits. Medido el 2026-09-16, mismo modelo y datos:
+        solo probabilidades, VP=3 FN=0; con las dos, VP=1 FN=2, declarando
+        «escala de probabilidad, umbral 0,5» y sin error. Los motores de la casa
+        no lo pisaban porque su `scores` es la columna positiva de
+        `predict_proba`, el mismo número; uno que expusiera su margen crudo, sí.
+        Si hay probabilidades pero no se puede saber cuál es la del positivo,
+        `None`: volver a `scores` sería ordenar otra vez en otra escala."""
+        if self.probabilities is not None:
+            return self.probabilidad_del_positivo
+        return self.scores
 
     @property
     def probabilidad_del_positivo(self) -> tuple[float, ...] | None:

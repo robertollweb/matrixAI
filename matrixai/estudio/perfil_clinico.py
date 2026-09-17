@@ -348,14 +348,14 @@ def curva_de_decision(muestra: Muestra, *, umbrales_de_probabilidad: Sequence[fl
                                opciones=["binary_classification"], valor=muestra.task)
     if muestra.predictions is not None:
         raise EntradaNoMedible("dca_con_etiquetas_declaradas", campo="predictions")
-    # `probabilities` NO basta: `Muestra.puntuacion_del_positivo` da prioridad a
-    # `scores`, así que una muestra que traiga las dos cosas se corta —dentro de
-    # `matriz_de_confusion`— sobre la PUNTUACIÓN CRUDA, mientras
-    # `escala_de_decision` sigue diciendo `calibrated_probability`. Medido el
-    # 2026-09-14. Comparar un `pt` de probabilidad contra un logit daría una
-    # curva perfectamente creíble sobre un eje que no es el suyo, así que aquí
-    # se exige que la única salida sea la probabilidad.
-    if muestra.probabilities is None or muestra.scores is not None:
+    # Cada `pt` es una PROBABILIDAD, así que hace falta probabilidad. Una muestra
+    # que además traiga `scores` vale igual: desde el 2026-09-17
+    # `Muestra.puntuacion_del_positivo` corta sobre la probabilidad cuando la
+    # hay, la misma escala que declara. Hasta entonces se rechazaba, porque el
+    # corte ocurría —dentro de `matriz_de_confusion`— sobre la puntuación
+    # cruda, y un `pt` comparado contra un logit da una curva creíble sobre un
+    # eje que no es el suyo (medido el 2026-09-14).
+    if muestra.probabilities is None:
         raise EntradaNoMedible("dca_sin_probabilidad_calibrada", campo="curva_de_decision")
 
     valores = _umbrales_declarados(umbrales_de_probabilidad, "umbrales_de_probabilidad")
@@ -544,12 +544,12 @@ def tabla_de_umbrales(muestra: Muestra, *, umbrales: Sequence[float], diseno: st
 
     valores = _umbrales_declarados(umbrales, "umbrales")
     for umbral in valores:
-        # La condición mira `scores` y no `probabilities` porque es `scores`
-        # quien MANDA en `Muestra.puntuacion_del_positivo`: con las dos
-        # presentes el corte ocurre sobre la puntuación cruda, y exigir ahí un
-        # umbral en [0,1] rechazaría umbrales legítimos o —peor— aceptaría uno
-        # de probabilidad para cortar sobre un logit.
-        if muestra.scores is None:
+        # El umbral vive en la escala en que se CORTA, que es la que la muestra
+        # declara: con probabilidades —aunque traiga también `scores`—, en
+        # [0,1], porque desde el 2026-09-17 `Muestra.puntuacion_del_positivo`
+        # corta sobre ellas; solo con puntuaciones crudas, cualquier real.
+        # Antes miraba `scores`, porque entonces mandaba `scores`.
+        if muestra.probabilities is not None:
             exigir_real(umbral, "umbrales", minimo=0.0, maximo=1.0)
         else:
             exigir_real(umbral, "umbrales")

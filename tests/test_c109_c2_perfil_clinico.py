@@ -576,25 +576,44 @@ class UmbralesYCableadoTest(unittest.TestCase):
             curva_de_decision(cruda, umbrales_de_probabilidad=(0.2,))
         self.assertEqual(e.exception.clave, "dca_sin_probabilidad_calibrada")
 
-    def test_una_muestra_con_probabilidad_Y_puntuacion_cruda_se_rechaza(self):
-        """Medido el 2026-09-14: `Muestra.escala_de_decision` dice
-        `calibrated_probability` en cuanto hay `probabilities`, pero
-        `puntuacion_del_positivo` —la que usa `matriz_de_confusion`— da
-        prioridad a `scores`. Con las dos presentes, un `pt` de probabilidad
-        acabaría comparándose contra un logit y la curva saldría creíble sobre
-        un eje que no es el suyo."""
+    def test_con_probabilidad_Y_puntuacion_cruda_la_curva_corta_sobre_la_PROBABILIDAD(self):
+        """Lo que se protege no ha cambiado: un `pt` de probabilidad no se compara
+        NUNCA contra un logit. Hasta el 2026-09-17 se protegía rechazando la
+        muestra, porque `puntuacion_del_positivo` daba prioridad a `scores`
+        (medido el 2026-09-14). Desde que la probabilidad manda en la fuente
+        (`test_c105_c1_una_muestra_una_escala.py`), la muestra con las dos cosas
+        da EXACTAMENTE la curva de la de solo probabilidades."""
+        crudas = [p * 10 - 5 for p in _P]
         ambigua = Muestra.binaria(_Y, classes=("no", "si"), positive_label="si",
-                                  probabilidades=_P,
-                                  puntuaciones=[p * 10 - 5 for p in _P])
+                                  probabilidades=_P, puntuaciones=crudas)
+        solo = Muestra.binaria(_Y, classes=("no", "si"), positive_label="si",
+                               probabilidades=_P)
         self.assertEqual(ambigua.escala_de_decision, "calibrated_probability")
-        with self.assertRaises(EntradaNoMedible) as e:
-            curva_de_decision(ambigua, umbrales_de_probabilidad=(0.2,))
-        self.assertEqual(e.exception.clave, "dca_sin_probabilidad_calibrada")
+        umbrales = (0.2, 0.5, 0.58)
+        self.assertEqual(curva_de_decision(ambigua, umbrales_de_probabilidad=umbrales).puntos,
+                         curva_de_decision(solo, umbrales_de_probabilidad=umbrales).puntos)
+
+    def test_con_probabilidad_Y_puntuacion_cruda_la_tabla_exige_umbral_de_PROBABILIDAD(self):
+        """La tabla corta en la escala declarada: con probabilidades, un umbral
+        fuera de [0,1] se rechaza aunque la muestra traiga también `scores`
+        (antes se aceptaba y cortaba sobre el logit), y uno válido da la misma
+        fila que la muestra de solo probabilidades."""
+        comun = dict(diseno="iid", estimando="fixed_model_on_population", semilla=1,
+                     remuestras=20)
+        ambigua = Muestra.binaria(_Y, classes=("no", "si"), positive_label="si",
+                                  probabilidades=_P, puntuaciones=[p * 10 - 5 for p in _P])
+        solo = Muestra.binaria(_Y, classes=("no", "si"), positive_label="si",
+                               probabilidades=_P)
+        with self.assertRaises(EsquemaInvalido):
+            tabla_de_umbrales(ambigua, umbrales=(3.0,), **comun)
+        a = tabla_de_umbrales(ambigua, umbrales=(0.58,), **comun).filas[0]
+        b = tabla_de_umbrales(solo, umbrales=(0.58,), **comun).filas[0]
+        self.assertEqual((a.tp, a.fp, a.tn, a.fn), (b.tp, b.fp, b.tn, b.fn))
 
     def test_la_tabla_sobre_puntuaciones_crudas_admite_umbrales_fuera_de_0_1(self):
         """La otra mitad: con puntuaciones crudas el umbral NO vive en [0,1], y
-        exigirlo ahí rechazaría un umbral legítimo. Lo que manda es `scores`,
-        que es lo que mira la matriz de confusión."""
+        exigirlo ahí rechazaría un umbral legítimo. Sin probabilidades, el corte
+        es sobre `scores`, que es lo que mira la matriz de confusión."""
         cruda = Muestra.binaria(_Y, classes=("no", "si"), positive_label="si",
                                 puntuaciones=[p * 10 - 5 for p in _P])
         tabla = tabla_de_umbrales(cruda, umbrales=(0.0,), diseno="iid",
