@@ -450,7 +450,7 @@
     "spdx": "MIT",
     "tal_como_lo_declara_el_origen": "mit",
     "fuente": "https://huggingface.co/api/models/minishlab/potion-multilingual-128M/revision/73908c3438cf03b6a01bcb9611d62b23d0726f08",
-    "leida_el": "2026-09-14T19:43:17+00:00",
+    "leida_el": "2026-09-17T07:49:52+00:00",
     "compatible": true,
     "motivo_si_no": ""
    },
@@ -500,8 +500,161 @@
     "idiomas_segun_su_autor": "101 idiomas, español incluido",
     "fuente_de_esa_cita": "https://huggingface.co/minishlab/potion-multilingual-128M",
     "motivo": "El único estático de la lista que dice cubrir español. Es la opción natural si se quiere texto en es sin pagar un transformer por fila.",
-    "no_descargado_porque": "537 MB por una tabla de vectores, y su tokenizador Unigram exige la misma dependencia que el multilingüe de la otra familia, que sí se bajó por ser cuatro veces más pequeño. Queda medido en lo que se puede medir sin bajarlo (tamaño, licencia, tokenizador) y su descarga es una decisión, no un descuido.",
+    "no_descargado_porque": "",
     "notas": []
+   },
+   "descargado": true,
+   "aceptacion_de_licencia": {
+    "spdx": "MIT",
+    "aceptada_el": "2026-09-17T07:05:52+00:00",
+    "por": "quien ejecutó este guión con --acepto-la-licencia-de"
+   },
+   "medicion": {
+    "entorno": {
+     "maquina": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+     "cpu": "AMD EPYC-Milan Processor",
+     "nucleos": 8,
+     "python": "3.12.3",
+     "onnxruntime": "1.26.0",
+     "numpy": "2.4.4",
+     "carga_al_empezar": "0.44",
+     "medido_el": "2026-09-17T10:40:01+00:00",
+     "carga_al_terminar": "0.48"
+    },
+    "describe": {
+     "id": "potion-multilingual-128M",
+     "familia": "estatica",
+     "repo": "minishlab/potion-multilingual-128M",
+     "revision": "73908c3438cf03b6a01bcb9611d62b23d0726f08",
+     "modelo": "onnx/model.onnx",
+     "forma_del_grafo": "bolsa",
+     "entradas": [
+      "input_ids",
+      "offsets"
+     ],
+     "dimension": 256,
+     "pooling": "en_el_grafo",
+     "normaliza": true,
+     "leido_de": "modules.json + config.json",
+     "tokenizador": "unigram_sentencepiece",
+     "tokenizador_de_fuera_del_nucleo": true,
+     "tokens_especiales": false,
+     "max_tokens": 4096,
+     "max_tokens_por_que": "no la declara ningún fichero del paquete: es la que aplica su librería (valor por defecto de max_length en model2vec.StaticModel.encode (model2vec 0.9.0), leído con inspect.signature)",
+     "max_tokens_declarados_por_el_paquete": [
+      {
+       "donde": "config.json:seq_length",
+       "valor": 1000000
+      }
+     ],
+     "opaco": true,
+     "opacidad": "pesos de terceros no auditados; lo que el vector representa no se puede explicar desde aquí, solo declarar de dónde viene"
+    },
+    "dimension": 256,
+    "carga_del_modelo_s": 2.941,
+    "hilos": 1,
+    "medido_con_tokenizador_de_fuera_del_nucleo": true,
+    "que_significa_eso": "el núcleo NO puede producir estos vectores tal cual: su tokenizador es Unigram de SentencePiece y hace falta la dependencia `tokenizers`. El número es real, pero solo se obtiene con esa dependencia instalada.",
+    "control_del_instrumento": {
+     "tamanos": [
+      {
+       "n": 250,
+       "n_textos": 250,
+       "repeticiones": 3,
+       "lote": 32,
+       "segundos_mediana": 0.0722,
+       "segundos_min": 0.06,
+       "segundos_max": 0.0902,
+       "segundos_por_1000_textos": 0.2889,
+       "textos_por_segundo": 3461.7
+      },
+      {
+       "n": 500,
+       "n_textos": 500,
+       "repeticiones": 3,
+       "lote": 32,
+       "segundos_mediana": 0.1454,
+       "segundos_min": 0.1452,
+       "segundos_max": 0.1548,
+       "segundos_por_1000_textos": 0.2909,
+       "textos_por_segundo": 3438.1
+      },
+      {
+       "n": 1000,
+       "n_textos": 1000,
+       "repeticiones": 3,
+       "lote": 32,
+       "segundos_mediana": 0.2573,
+       "segundos_min": 0.2034,
+       "segundos_max": 0.3432,
+       "segundos_por_1000_textos": 0.2573,
+       "textos_por_segundo": 3885.8
+      }
+     ],
+     "dispersion_relativa": 0.1155,
+     "lineal": true,
+     "que_significa": "el segundos-por-1.000 se mantiene al cambiar el número de textos: el reloj mide el trabajo, no el arranque"
+    },
+    "tiempo": {
+     "es": {
+      "n_textos": 1000,
+      "repeticiones": 5,
+      "lote": 32,
+      "segundos_mediana": 0.2863,
+      "segundos_min": 0.2222,
+      "segundos_max": 0.3736,
+      "segundos_por_1000_textos": 0.2863,
+      "textos_por_segundo": 3493.3
+     },
+     "en": {
+      "n_textos": 1000,
+      "repeticiones": 5,
+      "lote": 32,
+      "segundos_mediana": 0.2109,
+      "segundos_min": 0.1849,
+      "segundos_max": 0.2286,
+      "segundos_por_1000_textos": 0.2109,
+      "textos_por_segundo": 4740.7
+     }
+    },
+    "tokenizacion": {
+     "es": {
+      "n_textos": 1000,
+      "tokens_por_palabra": 1.382,
+      "porcentaje_unk": 0.0,
+      "textos_truncados": 0
+     },
+     "en": {
+      "n_textos": 1000,
+      "tokens_por_palabra": 1.36,
+      "porcentaje_unk": 0.0,
+      "textos_truncados": 0
+     }
+    },
+    "recuperacion_translingue_es_en": {
+     "n_pares": 1000,
+     "p_at_1_a_b": 0.958,
+     "p_at_1_b_a": 0.955,
+     "azar": 0.001
+    },
+    "coherencia_por_documento": {
+     "es": {
+      "auc": 0.872,
+      "pares_mismo_articulo": 1464,
+      "pares_distinto_articulo": 498036,
+      "azar": 0.5
+     },
+     "en": {
+      "auc": 0.9076,
+      "pares_mismo_articulo": 1464,
+      "pares_distinto_articulo": 498036,
+      "azar": 0.5
+     }
+    },
+    "metodo": {
+     "tiempo": "5 repeticiones sobre 1000 textos reales por idioma, una pasada de calentamiento tirada, reloj solo alrededor de codificar (tokenizar + inferir + agrupar); la carga del modelo va aparte",
+     "idiomas": "tokens por palabra y % de [UNK] miden lo que el TOKENIZADOR cubre; la coherencia por documento (AUC) mide si el modelo distingue temas DENTRO de cada idioma; la recuperación translingüe mide si los dos idiomas comparten espacio (un modelo monolingüe da ahí casi el azar aunque el idioma le funcione)"
+    }
    }
   },
   "all-MiniLM-L6-v2-onnx": {
@@ -1044,7 +1197,7 @@
    }
   }
  },
- "escrito_el": "2026-09-14T19:50:42+00:00",
+ "escrito_el": "2026-09-17T10:40:08+00:00",
  "entorno_de_medida": {
   "maquina": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
   "cpu": "AMD EPYC-Milan Processor",

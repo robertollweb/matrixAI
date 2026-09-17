@@ -217,6 +217,35 @@ def accion_descargar(ids: list[str], aceptadas: set[str]) -> None:
     escribir_artefacto(datos)
 
 
+def tokens_especiales_de(ruta: Path) -> tuple[str, str | None]:
+    """El token DESCONOCIDO y el de RELLENO, leídos del `tokenizer.json` que de
+    verdad ejecuta `tokenizers`, no de `tokenizer_config.json` ni escritos aquí.
+
+    Estaban escritos a mano (`<unk>`, `<pad>`), que es lo que usa el MiniLM
+    multilingüe. MEDIDO el 2026-09-17 con `potion-multilingual-128M`: su
+    `tokenizer_config.json` dice `<pad>`/`<unk>` —heredado de XLM-R— y NINGUNO
+    de los dos existe en su vocabulario; los reales son `[PAD]` (id 0) y
+    `[UNK]` (id 1). Con `<unk>` a mano, la cobertura cuenta los desconocidos
+    comparando con un token que nunca sale: la cobertura saldría INFLADA y sin
+    un error. Con el MiniLM, leer de aquí da `<unk>` y `<pad>`, los mismos de
+    siempre: su medida no se mueve.
+
+    El desconocido es `vocab[unk_id]` del modelo, que es el que el tokenizador
+    emite. El relleno es el que declara el bloque `padding`; si no declara
+    ninguno, `None`: un modelo estático (forma «bolsa», `input_ids` + `offsets`)
+    no rellena, y exigírselo impedía medirlo.
+    """
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    modelo = datos.get("model") or {}
+    unk_id = modelo.get("unk_id")
+    vocab = modelo.get("vocab")
+    if unk_id is None or not isinstance(vocab, list) or not 0 <= unk_id < len(vocab):
+        raise SystemExit(f"{ruta}: no declara un token desconocido (`model.unk_id`) que exista en su vocabulario")
+    desconocido = vocab[unk_id][0]
+    relleno = (datos.get("padding") or {}).get("pad_token")
+    return desconocido, relleno
+
+
 class _TokenizadorDeFuera:
     """Envuelve `tokenizers` (Rust) para poder MEDIR los proveedores cuyo
     tokenizador el núcleo no reproduce en stdlib — Unigram de SentencePiece,
@@ -236,10 +265,10 @@ class _TokenizadorDeFuera:
         self._t.no_padding()
         self._t.enable_truncation(max_length=max_longitud)
         self.max_longitud = max_longitud
-        self.unk_token = "<unk>"
-        self.pad_id = self._t.token_to_id("<pad>")
-        if self.pad_id is None:
-            raise SystemExit(f"{ruta}: sin token <pad>, no se puede rellenar el lote")
+        self.unk_token, relleno = tokens_especiales_de(ruta)
+        # `None` si el tokenizador no declara relleno: solo lo necesita un grafo
+        # transformer, y eso se comprueba al cargar el proveedor, no aquí.
+        self.pad_id = self._t.token_to_id(relleno) if relleno is not None else None
 
     def codificar(self, texto: str, *, con_especiales: bool = True):
         from types import SimpleNamespace
@@ -284,6 +313,9 @@ def accion_medir(ids: list[str], repeticiones: int, hilos: int, tokenizador_exte
             bloque["medicion"] = {"no_medido_porque": str(e)}
             print(f"NO MEDIDO {cid}: {e}")
             continue
+
+        if externo is not None and proveedor.forma != "bolsa" and externo.pad_id is None:
+            raise SystemExit(f"{cid}: su grafo rellena lotes y su tokenizer.json no declara `padding`")
 
         import time
 

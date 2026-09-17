@@ -149,11 +149,11 @@ CANDIDATOS: tuple[Candidato, ...] = (
         fuente_de_esa_cita="https://huggingface.co/minishlab/potion-multilingual-128M",
         motivo="El único estático de la lista que dice cubrir español. Es la opción "
         "natural si se quiere texto en es sin pagar un transformer por fila.",
-        no_descargado_porque="537 MB por una tabla de vectores, y su tokenizador "
-        "Unigram exige la misma dependencia que el multilingüe de la otra familia, "
-        "que sí se bajó por ser cuatro veces más pequeño. Queda medido en lo que se "
-        "puede medir sin bajarlo (tamaño, licencia, tokenizador) y su descarga es "
-        "una decisión, no un descuido.",
+        # Se bajó el 2026-09-17 por decisión de Roberto del 16-09 («Sí, descargarlo
+        # y medirlo»). El motivo de antes —537 MB por una tabla de vectores, y un
+        # tokenizador Unigram que exige la misma dependencia que el multilingüe
+        # de la otra familia— era una decisión pendiente, no una imposibilidad.
+        no_descargado_porque="",
     ),
     # ------------------------------------------------------------ transformers
     Candidato(

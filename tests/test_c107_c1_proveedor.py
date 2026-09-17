@@ -261,11 +261,24 @@ class TestUnIdiomaNoCubiertoSeDeclara(unittest.TestCase):
         self.assertNotEqual(cobertura.NO_MEDIDO, cobertura.NO_CUBIERTO)
 
     def test_la_ficha_del_autor_no_entra_en_el_veredicto(self):
-        """`potion-multilingual-128M` dice cubrir 101 idiomas; como no se ha
-        medido, el veredicto es «no medido», no «cubierto»."""
-        c = por_id("potion-multilingual-128M")
+        """`multilingual-e5-small` dice cubrir español; como no se ha medido, el
+        veredicto es «no medido», no «cubierto».
+
+        Hasta el 2026-09-17 el ejemplo era `potion-multilingual-128M`. Ese día se
+        midió, y su propia ficha («101 idiomas») tampoco decidió: el veredicto en
+        es salió «limitado» (AUC 0,872 frente a 0,908 en en). La intención de la
+        prueba es la misma; cambia el candidato que sigue sin medir."""
+        c = por_id("multilingual-e5-small-onnx-int8")
         self.assertIn("español", c.idiomas_segun_su_autor)
         self.assertEqual(cobertura.veredicto(c.id, "es").estado, cobertura.NO_MEDIDO)
+
+    def test_y_la_de_potion_multilingual_TAMPOCO_ahora_que_esta_medido(self):
+        """La otra mitad: medido, su veredicto sale de la medida y no de su
+        ficha — que dice cubrir español y sale «limitado», no «cubierto»."""
+        c = por_id("potion-multilingual-128M")
+        self.assertIn("español", c.idiomas_segun_su_autor)
+        self.assertNotEqual(cobertura.veredicto(c.id, "es").estado, cobertura.NO_MEDIDO)
+        self.assertNotEqual(cobertura.veredicto(c.id, "es").estado, cobertura.CUBIERTO)
 
 
 class TestSobreLosPesosDeVerdad(unittest.TestCase):

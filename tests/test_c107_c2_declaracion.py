@@ -342,12 +342,28 @@ class TestUnProveedorQueNuncaSeEjecutoNoSeDeclara(unittest.TestCase):
     puede declarar como el componente que produce sus vectores a algo de lo que
     no se conoce ni la dimensión."""
 
-    def test_el_multilingue_estatico_no_se_puede_declarar_y_dice_por_que(self):
+    def test_un_multilingue_nunca_ejecutado_no_se_puede_declarar_y_dice_por_que(self):
+        """Hasta el 2026-09-17 el ejemplo era `potion-multilingual-128M`, y
+        asertaba su motivo («537 MB»). Ese día se midió: ya no es «nunca
+        ejecutado», y su declaración se rechaza por OTRA razón (la longitud que
+        se fija no es la medida), que es la prueba de abajo. La intención se
+        conserva con el que sigue sin ejecutarse."""
+        longitud = dict(LONGITUD_DEL_ESTATICO, fijada_en="da igual")
+        with self.assertRaises(DeclaracionImposible) as e:
+            componente_de_terceros("multilingual-e5-small-onnx-int8", longitud=longitud,
+                                   ejecutado_por="matrixai-engines")
+        self.assertIn("nunca se ha ejecutado", str(e.exception))
+        self.assertIn("135 MB", str(e.exception))
+
+    def test_y_potion_multilingual_medido_TAMPOCO_se_declara_con_otra_longitud(self):
+        """Medido no es declarable a cualquier longitud: lo medido describe el
+        vector a la longitud con que se midió."""
         longitud = dict(LONGITUD_DEL_ESTATICO, fijada_en="da igual")
         with self.assertRaises(DeclaracionImposible) as e:
             componente_de_terceros("potion-multilingual-128M", longitud=longitud,
                                    ejecutado_por="matrixai-engines")
-        self.assertIn("537 MB", str(e.exception))
+        self.assertNotIn("nunca se ha ejecutado", str(e.exception))
+        self.assertIn("se midió con", str(e.exception))
 
     def test_un_proveedor_que_no_esta_en_el_catalogo_tampoco(self):
         with self.assertRaises(DeclaracionImposible):
