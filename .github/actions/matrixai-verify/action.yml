@@ -54,9 +54,9 @@ inputs:
     default: en
   matrixai-version:
     description: >-
-      Version spec for matrixai-core, e.g. "==1.7.2". Empty takes the
-      latest release, which only works once a release ships
-      matrixai/ci/ — the second step says so out loud if it does not.
+      Version spec for matrixai-core, e.g. ">=1.8.0". Empty takes the
+      latest release. matrixai/ci/ ships from 1.8.0 on; with an older
+      version the second step says so out loud instead of crashing.
     required: false
     default: ''
 

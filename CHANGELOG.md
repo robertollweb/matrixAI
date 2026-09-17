@@ -7,6 +7,122 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.8.0] — 2026-09-17
+
+This release ships a GitHub Action that runs `matrixai verify` in CI, a
+PROBAST+AI gap report next to the TRIPOD+AI one, the first modules of the
+model-study workflow (`matrixai.estudio`, `matrixai.text.embeddings`), and
+the closed Fase 0 benchmark. It removes the fixed 50 MB / 50,000-row ceiling on
+CSV input in favour of a measured memory guard, and fixes several places where
+`attest` or data generation could silently produce a wrong number.
+
+### Added
+- **`matrixai-verify` GitHub Action** (`.github/actions/matrixai-verify/`)
+  — runs `matrixai verify` against an exported package in CI and fails the
+  job with the verdict and the scopes **not** carried out, instead of a
+  bare pass/fail. `require` (default `manifest,R1`) can only tighten which
+  scopes are mandatory, never loosen; `matrixai-engines` installs only if
+  the package's own manifest asks for it; `retrain` rejects anything other
+  than `true`/`false` instead of a typo silently reading as "no". Outputs
+  `verdict`, `exit-code`, `unperformed-scopes`, and always uploads the raw
+  `verify` report. Never reports greener than `verify` itself. Requires
+  `matrixai-core >= 1.8.0` — the first release with `matrixai/ci/` — and a
+  `preflight.py` step fails loudly with a fix-it message (installed
+  version, import error) instead of a bare `No module named matrixai.ci`
+  against 1.7.1 or older.
+- **`matrixai report --probast`** — the PROBAST+AI counterpart to
+  `--tripod`: what an exported package supports for risk-of-bias review,
+  what a person declared, and what's missing, each tied to the manifest
+  field that would back it. It does not score or rate risk of bias.
+  `--tripod`/`--probast` are now mutually exclusive, and asking for
+  neither is an explicit error.
+- **`matrixai.estudio`** — stdlib-only schemas and guards for the
+  model-study workflow (problem/split/metric specs, an access registry
+  that raises if a test partition is read during development,
+  calibration, paired comparisons, leaderboard forms, thresholding).
+  **Not yet documented as a stable public API** (no `docs/en`/`docs/es`
+  entry, no CLI command) — it's what MatrixAI Studio's study flow runs on;
+  orchestration lives in the separate `matrixai-engines` package.
+- **`matrixai.text.embeddings`** — a measured catalog of downloadable text
+  embedding providers (static tables and small ONNX sentence transformers
+  from Hugging Face), digest-verified downloads and a fixed host allowlist.
+  Pooling/normalization come from each provider's own declared config.
+  `numpy`/`onnxruntime` import lazily, so core stays dependency-free. Not
+  reachable from the CLI; import it directly.
+- **`matrixai attest --metric`** now also accepts `macro_f1`, `rmse` and
+  `r2` (previously only `accuracy`/`mae`), computed by the same metrics
+  registry the rest of the package uses. `matrixai.pipelines.receipt` also
+  gains a `study_execution` receipt type, additive alongside the existing
+  three, produced by `matrixai-engines`' study runs.
+- **Fase 0 benchmark closed for this cycle**
+  (`benchmarks/fase0/pasada_amplia_101_c5.py`, result at
+  `benchmarks/fase0/pasada_amplia_101_c5_resultado.json`): 7 engines, the 40
+  datasets of the pre-registered protocol, 3,479 attempts, ~17.2 h wall-clock.
+  An engine meets the closing rule when it stays **within 2.0 points of the
+  best engine on that dataset** (task's own metric; a timeout or crash counts
+  as a lost dataset) on at least 80% of datasets: `lightgbm` and
+  `sklearn.hgb` do on 34/40, `catboost` on 33/40; `xgboost`,
+  `sklearn.lineal` and `matrixai.dense.torch_cpu` do not. **Each engine ran
+  its default configuration only** — no hyperparameter search — so nothing
+  follows about any engine at its best, and in 17 of 40 datasets the order of
+  the top two changes across folds or seeds. A committed artifact, not a
+  runtime feature; its provenance anchors the exact commit of **both** repos
+  (`matrixAI` and `matrixai-engines`).
+
+### Changed
+- **CSV input has no fixed 50 MB / 50,000-row ceiling** for local/
+  self-hosted use. In its place, a measured memory guard (empirically ×12
+  the CSV's byte size) rejects a file only when it's likely to exhaust
+  RAM, and can be disabled with `MATRIXAI_GUARDIA_MEMORIA=0`. The shared
+  demo at matrixaistudio.org is unaffected: with `MATRIXAI_HOSTED=1` the
+  old 50 MB/50,000-row limits still apply first. Compute-cost limits
+  (`max_epochs`, `max_depth`, `max_labels`, `max_params`, ...) are
+  untouched.
+- **A categorical value containing a comma is renamed, not rejected.**
+  `Categorical[...]` parses on an unescaped `,`, so a legitimate raw value
+  like `"asian, pacific islander"` used to abort dataset generation.
+  Unsafe values are now renamed to a safe token (recorded and applied
+  consistently both ways); already-safe values are untouched, and two raw
+  values that would collide on one token still raise an error instead of
+  silently merging.
+- **A declared training split (`SPLIT ... protocol=2` in a `.mxtrain`) is
+  honoured end to end** — seed, mode, and a held-out test tranche no
+  trainer touches until final scoring. Without `protocol=2`, training is
+  bit-for-bit what it always was, so `matrixai verify --retrain` still
+  reproduces existing projects; declaring it fixes a prior gap where the
+  seed was accepted but ignored and there was no real test partition (the
+  validation split both chose the best epoch and reported the metric).
+
+### Fixed
+- **`matrixai attest` no longer computes its own accuracy/MAE formulas**;
+  it calls the shared metrics registry, which also rejects a
+  metric/output mismatch (e.g. `--metric mae` against a classification
+  output) instead of silently reporting a meaningless number.
+- **A categorical code with a significant leading zero is no longer
+  treated as equal to the same number without it** (`"01"` vs `"1"`) —
+  `attest` now compares labels numerically only when both are already in
+  canonical numeric form, and as text otherwise. Also fixes two identical
+  `"nan"` string labels wrongly counting as different classes.
+- **`attest` no longer infers an ambiguous ONNX output's meaning from its
+  shape.** A `[N, 2]` float output from a bare `MatMul` is no longer read
+  as "2 probabilities per row" just because argmax happens to be invariant
+  to that guess; an output whose meaning can't be determined is refused
+  rather than guessed, consistently across the CLI, HTTP and direct-call
+  paths.
+- **The dead-recipe warning in `matrixai.playground` judged domain rules
+  against the wrong scale** (a hard-coded `[0, 1]` instead of the field's
+  declared range), so a rule like `age > 75` on `age: Scalar[18, 95]` was
+  reported as permanently true. The CLI's own `generate-dataset` path had
+  a separate fix for this since 1.7.0; both now share one domain-aware
+  check.
+- **An exported Hugging Face Space's `requirements.txt` asked for a
+  package that doesn't exist on PyPI** (`matrixai` instead of
+  `matrixai-core`), so an exported Space could not install its dependencies.
+  It now asks for `matrixai-core`, pinned to the exporting version when that
+  version is known.
+
+---
+
 ## [1.7.1] — 2026-09-06
 
 `attest` read the first ONNX output and thresholded it at 0.5 — right by

@@ -8,7 +8,7 @@ instala `matrixai-core` de PyPI y luego ejecuta
 `python -m matrixai.ci.verify_action`. Ese módulo **no viaja en 1.7.0 ni
 en 1.7.1** —comprobado el 2026-09-15 con `git cat-file -e` sobre las dos
 etiquetas, y 1.7.1 era la última publicada—, así que la acción, hoy, en
-la máquina de cualquiera que la use, muere con
+la máquina de cualquiera que la use, moría con
 
     /usr/bin/python: No module named matrixai.ci
 
@@ -47,14 +47,13 @@ MODULO = "matrixai.ci.verify_action"
 #: versión que trajera `matrixai/ci/` con otra forma rompería igual.
 ATRIBUTO = "main"
 
-#: La primera versión de `matrixai-core` que puede traer este módulo.
-#: MEDIDO el 2026-09-15: `matrixai/ci/` NO está en v1.7.0 ni en v1.7.1, y
-#: v1.7.1 era la última etiqueta publicada. Este número es, por tanto, una
-#: versión que **todavía no existe en PyPI** el día que se escribe esto:
-#: hasta que se publique, el defecto de `matrixai-version` (vacío → la
-#: última) NO puede funcionar, y eso es exactamente lo que el mensaje de
-#: abajo dice en vez de dejar que se descubra con un error de Python.
-VERSION_MINIMA = "1.7.2"
+#: La primera versión de `matrixai-core` que trae este módulo.
+#: MEDIDO el 2026-09-15: `matrixai/ci/` NO está en v1.7.0 ni en v1.7.1. Se
+#: iba a publicar como 1.7.2; el 2026-09-17 Roberto decidió **1.8.0**, porque
+#: esa release trae módulos públicos nuevos y SemVer la hace menor. La guarda
+#: sigue haciendo falta después de publicarla: quien fije una versión anterior
+#: (o un espejo de PyPI atrasado) recibe el motivo en vez de un error de Python.
+VERSION_MINIMA = "1.8.0"
 
 #: Dónde preguntar la versión, en orden. `pip install matrixai-core` deja
 #: la distribución `matrixai-core`; el árbol editable de desarrollo deja
@@ -110,13 +109,11 @@ def diagnostico(problema: str | None, version: str) -> tuple[int, list[str]]:
         f"This action runs `python -m {MODULO}`, and the matrixai-core "
         f"installed on this runner does NOT provide it.",
         f"Installed matrixai-core: {version}. Import failed with: {problema}.",
-        f"It needs matrixai-core >= {VERSION_MINIMA}. Measured on 2026-09-15: "
-        f"1.7.0 and 1.7.1 do NOT ship `matrixai/ci/`, and 1.7.1 was the latest "
-        f"release, so the default (empty `matrixai-version`, which takes the "
-        f"latest) cannot work until {VERSION_MINIMA} is published.",
-        f"Fix it by setting `matrixai-version: '=={VERSION_MINIMA}'` (or newer) "
-        f"on this action once it is released, or by installing matrixai-core "
-        f"from source in a step before this action.",
+        f"It needs matrixai-core >= {VERSION_MINIMA}, the first release that "
+        f"ships `matrixai/ci/`; 1.7.1 and earlier do NOT.",
+        f"Fix it by leaving `matrixai-version` empty (it takes the latest "
+        f"release) or setting it to '>={VERSION_MINIMA}', or by installing "
+        f"matrixai-core from source in a step before this action.",
         "The job is failing HERE, on purpose. The alternative is a green tick "
         "for a verification that never ran, and in CI nobody opens the log of "
         "a green job.",

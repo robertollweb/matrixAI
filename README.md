@@ -89,6 +89,33 @@ matrixai --help
   that changes on every run can be neither compared nor signed), and `--sigstore` signs
   with Sigstore — which does **not** raise the assurance level, because A0–A4 describe
   what was checked, not how strong the signature is
+- **CI verification as a GitHub Action**: `matrixai-verify` (a composite
+  action shipped in this repo, `.github/actions/matrixai-verify/`) runs
+  `matrixai verify` against an exported package and fails the job with the
+  verdict and the exact scopes that were **not** carried out — it never
+  reports greener than `verify` itself, and `require` can only tighten
+  which scopes are mandatory, never loosen them. `matrixai-engines` is
+  installed only if the package's own manifest asks for it. Needs
+  `matrixai-core >= 1.8.0` — the first release that ships `matrixai/ci/` —
+  and says so out loud instead of crashing if an older version is pinned
+- **PROBAST+AI gaps alongside TRIPOD+AI**: `matrixai report --probast`
+  reports what an exported package supports for risk-of-bias and
+  applicability review, what a person declared, and what's missing with
+  the manifest field that would back it — same discipline as the existing
+  `--tripod` report: it enumerates gaps, it does not score or rate risk of
+  bias
+- **No arbitrary ceiling on CSV size for your own machine**: the old fixed
+  50 MB / 50,000-row limit is gone for local and self-hosted use; a
+  measured memory guard (empirically ×12 the CSV's byte size) refuses a
+  file only when it is actually likely to exhaust RAM, and can be turned
+  off. The shared matrixaistudio.org demo keeps the old hard limits, since
+  there the machine isn't the uploader's own
+- **`matrixai attest` measures three more metrics**: `macro_f1`, `rmse`
+  and `r2`, in addition to `accuracy`/`mae`, computed by the same metrics
+  registry as the rest of the package instead of a hand-rolled formula —
+  and it now refuses a metric/output combination that doesn't match the
+  model's task (e.g. asking for MAE against a classification output)
+  instead of silently reporting a meaningless number
 - **TRIPOD+AI record**: `matrixai report <package> --tripod` writes the checklist a
   clinical-prediction journal asks for, from what the package already captured — and
   **enumerates every box it cannot fill** instead of filling it
@@ -278,7 +305,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 6197 passed, 21 skipped
+# 7813 passed, 30 skipped
 ```
 
 ---
