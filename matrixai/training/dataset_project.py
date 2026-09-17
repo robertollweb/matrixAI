@@ -624,6 +624,40 @@ def generate_project_from_dataset(
     # C2 [MEDIA, residual]).
     feature_safe_names = _normalize_feature_names(feature_columns, target_header)
 
+    # DECISIÓN DE ROBERTO 2026-09-16 — «tratarla como categórica sola»: una
+    # BOOLEANA con huecos pasa a `categorical` AQUÍ MISMO, antes de que nada
+    # ramifique por tipo (vocabularios, `_ajustar_politica_de_faltantes`,
+    # `_prepare_training_csv`, las líneas del prompt más abajo), así que el
+    # resto de la función ve exactamente la misma columna que si el usuario
+    # hubiera escrito `column_type_overrides={col: "categorical"}` a mano —
+    # mismo mecanismo que ese override (solo cambia `columns[col]["type"]`,
+    # sin recalcular nada más: una categórica no necesita rango) y mismo
+    # resultado, medido en `tests/test_c101_c5_faltantes_cableados.py`
+    # (`TestBooleanaConHuecosPasaACategorica`, equivalencia byte a byte).
+    #
+    # INVARIANTE 8, el usuario SIEMPRE gana: una columna que el usuario ya
+    # declaró en `column_type_overrides` —aunque la declare `boolean` a
+    # mano— no se toca aquí. Declararla `boolean` a mano con huecos se sigue
+    # rechazando, igual que hoy (ver el comentario «NUMÉRICAS, NO BOOLEANAS»
+    # en `_ajustar_politica_de_faltantes`).
+    #
+    # SOLO SI TIENE UN HUECO QUE SE VA A ESCRIBIR DE VERDAD: mismo criterio
+    # que usa la política numérica y el rescate categórico de más abajo — una
+    # fila sin objetivo la descarta `_prepare_training_csv`, así que su hueco
+    # no puede decidir el tipo de una columna que luego nadie marca. Una
+    # booleana cuyos únicos huecos caen en filas sin objetivo no se convierte:
+    # su CSV preparado no tiene huecos, y convertirla añadiría
+    # `flag__faltante` como columna constante a cero.
+    _tipos_declarados_por_usuario = set(column_type_overrides or {})
+    boolean_missing_as_categorical_columns: list[str] = []
+    for col in feature_columns:
+        if columns[col]["type"] != "boolean" or col in _tipos_declarados_por_usuario:
+            continue
+        if any(_is_null(row.get(col), tokens_de_ausencia) for row in rows
+               if not _is_null(row.get(target_column), tokens_de_ausencia)):
+            columns[col]["type"] = "categorical"
+            boolean_missing_as_categorical_columns.append(col)
+
     # `rows` (leído al principio de la función, CONTRATO 59 C2) tiene los
     # valores REALES, con su case original — C1 no guarda vocabulario para
     # 'boolean' y lo trunca para categóricas de cardinalidad alta; aquí se
@@ -1143,6 +1177,7 @@ def generate_project_from_dataset(
         intent_llm=intent_llm,
         target_range=target_range,
         reconsidered_identifier_columns=reconsidered_columns,
+        boolean_with_missing_as_categorical_columns=boolean_missing_as_categorical_columns,
         missing_values=_declaracion_de_faltantes(missing_policy, prepared),
     )
 
@@ -2599,10 +2634,18 @@ def _ajustar_politica_de_faltantes(
         # puede salir 0,5 —un valor que esa columna no tuvo nunca— y rellenar
         # con la más frecuente es justo lo que el núcleo NO hace con una
         # categórica. Inventar aquí una tercera política sería fabricar lo que
-        # el núcleo no ha dicho. Una booleana con huecos sigue, por tanto,
-        # rechazándose; `column_type_overrides={col: "categorical"}` la lleva a
-        # la rama categórica, que sí tiene política (medido, y con prueba con
-        # su nombre en `tests/test_c101_c5_faltantes_cableados.py`).
+        # el núcleo no ha dicho.
+        #
+        # Y UNA `boolean` CON HUECOS YA NO LLEGA AQUÍ COMO BOOLEANA (decisión de
+        # Roberto, 2026-09-16): `generate_project_from_dataset` la convierte a
+        # `categorical` —el hueco, su propia categoría— antes de llamar aquí, en
+        # cuanto una fila que se va a escribir trae una celda ausente. La única
+        # que sigue llegando con huecos, y se sigue rechazando, es la que el
+        # usuario declaró `column_type_overrides={col: "boolean"}` a mano
+        # (invariante 8). La que solo tiene huecos en filas sin objetivo sigue
+        # booleana y NO se rechaza: esas filas no se escriben. Las dos, con
+        # prueba en `tests/test_c101_c5_faltantes_cableados.py`
+        # (`TestBooleanaConHuecosPasaACategorica`).
         if columns[col]["type"] not in ("number", "integer"):
             continue
         valores = [_valor_numerico_o_none(row.get(col), tokens_de_ausencia)
@@ -2977,6 +3020,7 @@ def _build_provenance(
     intent_llm: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
     reconsidered_identifier_columns: list[str] | None = None,
+    boolean_with_missing_as_categorical_columns: list[str] | None = None,
     missing_values: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from matrixai.export.inference_spec import _matrixai_version
@@ -2998,6 +3042,14 @@ def _build_provenance(
     # la procedencia — la única otra vía para que el tipo cambiara.
     for col in (reconsidered_identifier_columns or []):
         operations.append(f"reconsidered_identifier_as_feature:{col}")
+    # DECISIÓN DE ROBERTO 2026-09-16: mismo precedente que la línea de
+    # arriba — un cambio de tipo AUTOMÁTICO (sin `column_type_overrides` del
+    # usuario) tiene que quedar declarado, o «se hizo» es indistinguible de
+    # «no se hizo» para quien lee la procedencia. `column_type_overrides`
+    # (más abajo) sigue siendo el del usuario tal cual lo mandó — vacío si no
+    # declaró nada — porque se declara lo que PASÓ, no lo que se pidió.
+    for col in (boolean_with_missing_as_categorical_columns or []):
+        operations.append(f"boolean_with_missing_as_categorical:{col}")
     operations.extend(feature_operations)
 
     return {

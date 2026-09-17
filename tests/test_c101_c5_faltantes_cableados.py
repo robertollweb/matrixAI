@@ -532,42 +532,143 @@ class TestLoQueNoSeImputa:
             generate_project_from_dataset(out.getvalue(), target_column="target")
 
 
-class TestUnaBooleanaConHuecosSigueSinPolitica:
-    """LA DEUDA, CON SU NOMBRE Y MEDIDA — no un comentario que nadie ejecuta.
-
-    El núcleo tiene dos ramas: numérica (mediana + indicador) y categórica
-    (`__faltante__`). Una `boolean` de este camino no es ninguna: la mediana
-    de 0/1 puede salir 0,5 —un valor que la columna nunca tuvo— y rellenar con
-    la más frecuente es exactamente lo que el núcleo NO hace con una
-    categórica. Fabricar aquí una tercera política sería inventar lo que el
-    núcleo no ha dicho, así que se deja rechazada y se fija su comportamiento
-    de HOY para que no cambie en silencio.
+class TestBooleanaConHuecosPasaACategorica:
+    """DECISIÓN DE ROBERTO 2026-09-16 — «tratarla como categórica sola»: una
+    BOOLEANA con huecos pasa a `categorical` SOLA en cuanto tiene un hueco que
+    se va a escribir de verdad, con el hueco como su propia categoría
+    (`__faltante__`) — no se inventa ningún valor. Reemplaza a
+    `TestUnaBooleanaConHuecosSigueSinPolitica`: aquella medía la DEUDA (se
+    rechazaba sin más); esta mide el cierre, sobre la misma columna `flag` y
+    el mismo CSV, y añade la equivalencia con el override manual, la
+    procedencia, los dos casos que NO cambian y la receta re-aplicada.
     """
 
-    def _csv_booleano(self) -> str:
+    def _csv_booleano(self, huecos: tuple[int, ...] = (2, 5),
+                       targets: list[str] | None = None) -> str:
         out = io.StringIO()
         w = csv.DictWriter(out, fieldnames=["flag", "altura", "target"])
         w.writeheader()
         for i in range(12):
-            w.writerow({"flag": "" if i in (2, 5) else ["si", "no"][i % 2],
-                        "altura": _ALTURAS[i], "target": ["si", "no"][i % 2]})
+            w.writerow({"flag": "" if i in huecos else ["si", "no"][i % 2],
+                        "altura": _ALTURAS[i],
+                        "target": (targets[i] if targets is not None
+                                   else ["si", "no"][i % 2])})
         return out.getvalue()
 
-    def test_una_booleana_con_huecos_se_sigue_rechazando(self):
-        with pytest.raises(DatasetProjectError, match="flag is empty"):
-            generate_project_from_dataset(self._csv_booleano(), target_column="target")
-
-    def test_declararla_categorica_a_mano_SI_la_desbloquea(self):
-        """La salida que existe hoy, medida: la rama categórica sí tiene
-        política, y con ella la columna entra con sus tres estados."""
-        res = generate_project_from_dataset(
-            self._csv_booleano(), target_column="target",
-            column_type_overrides={"flag": "categorical"})
+    def test_sin_override_se_convierte_sola_y_trae_su_indicador(self):
+        """(a) Sin override: ok, valida contra su propio modelo, y
+        `flag__faltante` sale 1 justo en las filas con hueco (2 y 5)."""
+        res = generate_project_from_dataset(self._csv_booleano(), target_column="target")
         assert res["ok"]
         _valida_contra_su_modelo(res)
         assert "flag__faltante" in _cabecera(res)
-        assert _filas(res)[2]["flag__faltante"] == "1"
-        assert _filas(res)[0]["flag__faltante"] == "0"
+        filas = _filas(res)
+        for i, fila in enumerate(filas):
+            assert fila["flag__faltante"] == ("1" if i in (2, 5) else "0")
+
+    def test_es_exactamente_igual_al_override_manual(self):
+        """(b) EQUIVALENCIA: mismo `csv_text`, mismo modelo (`mxai`/
+        `training_text`) y misma `preparation_spec` que declararla a mano
+        `column_type_overrides={"flag": "categorical"}`."""
+        raw = self._csv_booleano()
+        auto = generate_project_from_dataset(raw, target_column="target")
+        manual = generate_project_from_dataset(
+            raw, target_column="target",
+            column_type_overrides={"flag": "categorical"})
+        assert auto["csv_text"] == manual["csv_text"]
+        assert auto["mxai"] == manual["mxai"]
+        assert auto["training_text"] == manual["training_text"]
+        assert (auto["provenance"]["preparation_spec"]
+                == manual["provenance"]["preparation_spec"])
+
+    def test_procedencia_declara_lo_que_paso_no_lo_que_se_pidio(self):
+        """(c) `column_type_overrides` sigue siendo el del usuario —vacío,
+        porque no pidió nada— y `operations` gana la marca del cambio
+        AUTOMÁTICO; el override manual no la lleva, porque a él nadie se lo
+        cambió: ya lo pidió él."""
+        raw = self._csv_booleano()
+        auto = generate_project_from_dataset(raw, target_column="target")
+        assert auto["provenance"]["column_type_overrides"] == {}
+        assert "boolean_with_missing_as_categorical:flag" in auto["provenance"]["operations"]
+
+        manual = generate_project_from_dataset(
+            raw, target_column="target",
+            column_type_overrides={"flag": "categorical"})
+        assert "boolean_with_missing_as_categorical:flag" not in manual["provenance"]["operations"]
+
+    def test_una_booleana_sin_huecos_no_cambia(self):
+        """(d) Sin huecos: sigue `boolean` en la receta y sin la operación —
+        un dataset limpio no gana ni una columna ni un cambio de tipo."""
+        res = generate_project_from_dataset(
+            self._csv_booleano(huecos=()), target_column="target")
+        assert res["ok"]
+        assert res["provenance"]["preparation_spec"]["column_types"]["flag"] == "boolean"
+        assert not any(op.startswith("boolean_with_missing_as_categorical")
+                       for op in res["provenance"]["operations"])
+
+    def test_huecos_solo_en_filas_sin_objetivo_no_cambia(self):
+        """(e) Los huecos de `flag` (filas 2 y 5) caen exactamente en las
+        filas SIN objetivo: esas filas no se escriben, así que el CSV
+        preparado no tiene ningún hueco que convertir — sigue `boolean`."""
+        objetivos = ["si", "no", "", "si", "no", "", "si", "no", "si", "no", "si", "no"]
+        res = generate_project_from_dataset(
+            self._csv_booleano(huecos=(2, 5), targets=objetivos), target_column="target")
+        assert res["ok"]
+        _valida_contra_su_modelo(res)
+        assert res["provenance"]["preparation_spec"]["column_types"]["flag"] == "boolean"
+        assert not any(op.startswith("boolean_with_missing_as_categorical")
+                       for op in res["provenance"]["operations"])
+
+    def test_con_marca_de_ausencia_DECLARADA_cuenta_esa_marca(self):
+        """El camino de la Fase 0 declara su marca de ausencia
+        (`tokens_de_ausencia`), y con ella ausente es SOLO lo declarado. La
+        marca va a propósito fuera de la heurística (`?` está dentro): si la
+        conversión mirase la heurística en vez de la declaración, `SIN_DATO`
+        sería un valor, la columna seguiría booleana y el verificador la
+        rechazaría."""
+        out = io.StringIO()
+        w = csv.DictWriter(out, fieldnames=["flag", "altura", "target"])
+        w.writeheader()
+        for i in range(12):
+            w.writerow({"flag": "SIN_DATO" if i in (2, 5) else ["si", "no"][i % 2],
+                        "altura": _ALTURAS[i], "target": ["si", "no"][i % 2]})
+        res = generate_project_from_dataset(out.getvalue(), target_column="target",
+                                            tokens_de_ausencia={"SIN_DATO"})
+        assert res["ok"]
+        _valida_contra_su_modelo(res)
+        assert "boolean_with_missing_as_categorical:flag" in res["provenance"]["operations"]
+        for i, fila in enumerate(_filas(res)):
+            assert fila["flag__faltante"] == ("1" if i in (2, 5) else "0")
+
+    def test_override_explicito_a_boolean_con_huecos_se_sigue_rechazando(self):
+        """(f) Invariante 8, el usuario manda incluso para pedir el tipo que
+        se rechaza: declararla `column_type_overrides={"flag": "boolean"}` a
+        mano la deja FUERA de esta conversión a propósito, no por descuido —
+        sigue rechazándose exactamente igual que antes de este corte."""
+        with pytest.raises(DatasetProjectError, match="flag is empty"):
+            generate_project_from_dataset(
+                self._csv_booleano(), target_column="target",
+                column_type_overrides={"flag": "boolean"})
+
+    def test_la_receta_automatica_re_aplicada_sigue_tratando_flag_como_categorica(self):
+        """(g) La RECETA que salió del camino automático, re-aplicada
+        (`prepare_dataset_from_provenance` -> `_prepare_v1`, la misma función
+        pública que usan el reentrenamiento y la predicción) sobre un CSV
+        NUEVO donde `flag` YA NO tiene huecos: sigue tratándola como
+        categórica —one-hot con `flag__faltante` en el vocabulario, congelado
+        en la receta— y lo preparado sigue validando contra el modelo. La
+        receta es la fuente de verdad, no una relectura del CSV nuevo."""
+        raw = self._csv_booleano()
+        res = generate_project_from_dataset(raw, target_column="target")
+        raw_nuevo = self._csv_booleano(huecos=())
+        re_prep = prepare_dataset_from_provenance(raw_nuevo, res["provenance"])
+        cabecera_nueva = re_prep.csv_text.splitlines()[0].split(",")
+        assert "flag__faltante" in cabecera_nueva
+        v = _validate_training_csv(
+            res["mxai"], res["training_text"], re_prep.csv_text,
+            field_ranges=res.get("field_ranges"),
+        )
+        assert v.get("ok"), v.get("errors") or v.get("error")
 
 
 # ---------------------------------------------------------------------------
