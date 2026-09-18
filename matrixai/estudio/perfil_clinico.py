@@ -98,6 +98,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Sequence
 
 from matrixai.estudio.calibracion import CurvaDeFiabilidad
+from matrixai.estudio.comparaciones import ComparacionEmparejada
 from matrixai.estudio.errores import EsquemaInvalido
 from matrixai.estudio.esquemas import ValorDeMetrica, _sobre
 from matrixai.estudio.incertidumbre import intervalo, medir
@@ -127,6 +128,7 @@ from matrixai.estudio.vocabulario import (
 
 __all__ = [
     "ALCANCES_DE_VALIDACION",
+    "MOTIVOS_SIN_COMPARACION_CON_EL_BASELINE",
     "BENEFICIO_NETO_NO_TRATAR",
     "PPV_A_PREVALENCIA",
     "NPV_A_PREVALENCIA",
@@ -146,6 +148,16 @@ __all__ = [
 #: La versión de fórmula de lo que ESTE módulo calcula: el transporte a
 #: prevalencia y el beneficio neto. Las de C1 siguen siendo las suyas.
 VERSION_DEL_PERFIL = "1.0.0"
+
+#: POR QUÉ UN PERFIL PUEDE NO TRAER LA COMPARACIÓN CON EL BASELINE (109-C3).
+#: Cerrado, como todo vocabulario de esta casa: una clave suelta no tiene texto
+#: en la ficha. Son los dos casos en que la pregunta no se puede plantear, no
+#: dos maneras de perderla: si el ganador ES el baseline no hay «contra quién»,
+#: y un baseline que no puntuó no tiene muestra que emparejar. Cuando SÍ se
+#: pudo plantear pero las filas no casan, eso no es un motivo de ausencia: es
+#: una comparación con veredicto `incomparable`, que dice por qué.
+MOTIVOS_SIN_COMPARACION_CON_EL_BASELINE = ("el_ganador_es_el_baseline",
+                                           "el_baseline_no_puntuo")
 
 #: Los `metric_id` del transporte. **No son `ppv`/`npv`**, que en el registro
 #: de 105-C1 son los observados en la muestra: confundirlos es exactamente el
@@ -611,6 +623,13 @@ class PerfilClinico:
     curvas_por_segmento: tuple[CurvaDeDecision, ...] = ()
     segmentos_predefinidos_por: str | None = None
     politica_de_faltantes: dict[str, Any] | None = None
+    #: 109-C3. La comparación EMPAREJADA del modelo contra el baseline sobre las
+    #: mismas filas de este perfil, y quién era el baseline. O, si no se pudo
+    #: plantear, por qué (`MOTIVOS_SIN_COMPARACION_CON_EL_BASELINE`). Los tres
+    #: en `None` significan «no consta», que no es lo mismo que «no se pudo».
+    comparacion_con_el_baseline: ComparacionEmparejada | None = None
+    baseline_comparado: str | None = None
+    sin_comparacion_con_el_baseline: str | None = None
 
     def __post_init__(self) -> None:
         exigir_texto(self.perfil_id, "perfil_id")
@@ -624,6 +643,7 @@ class PerfilClinico:
         if self.curva.segmento_id is not None:
             raise EsquemaInvalido("falta_campo", campo="curva.segmento_id")
         self._exigir_tabla_y_curva_de_la_misma_muestra()
+        self._exigir_una_comparacion_coherente()
         # Mapas LIBRES a propósito: sus productores les dan formas distintas (el
         # Studio, `RecalibracionLogistica.a_json()` y la política que midió
         # `ajustar_preparacion`; las pruebas del 109-C3, una política declarada
@@ -667,6 +687,39 @@ class PerfilClinico:
             if curva.predefinido and self.segmentos_predefinidos_por is None:
                 raise EsquemaInvalido("segmento_confirmatorio_sin_equipo",
                                       campo=curva.segmento_id)
+
+    def _exigir_una_comparacion_coherente(self) -> None:
+        """La comparación con el baseline, o por qué no la hay: nunca las dos.
+
+        Un perfil con comparación Y motivo de ausencia diría dos cosas del
+        mismo hecho. Una comparación sin baseline nombrado no dice contra qué.
+        Y la comparación tiene que remuestrear con el MISMO diseño que el resto
+        del perfil: con otro, su intervalo trataría como independientes filas
+        que la tabla trata como agrupadas o encadenadas en el tiempo, y el
+        documento afirmaría dos incertidumbres distintas de la misma muestra.
+        Lo que NO se puede comprobar aquí: que describa las mismas filas que la
+        tabla. `ComparacionEmparejada` no guarda ni el `n` ni una huella de la
+        muestra; eso lo garantiza el productor (en el Studio, la misma muestra
+        de test que alimenta la tabla).
+        """
+        comparacion = self.comparacion_con_el_baseline
+        if comparacion is None:
+            if self.baseline_comparado is not None:
+                raise EsquemaInvalido("falta_campo", campo="comparacion_con_el_baseline")
+            if self.sin_comparacion_con_el_baseline is not None:
+                exigir_opcion(self.sin_comparacion_con_el_baseline,
+                              "sin_comparacion_con_el_baseline",
+                              MOTIVOS_SIN_COMPARACION_CON_EL_BASELINE)
+            return
+        if not isinstance(comparacion, ComparacionEmparejada):
+            raise EsquemaInvalido("no_es_mapa", campo="comparacion_con_el_baseline",
+                                  valor=repr(comparacion))
+        if self.sin_comparacion_con_el_baseline is not None:
+            raise EsquemaInvalido("metrica_con_valor_y_motivo",
+                                  campo="comparacion_con_el_baseline")
+        exigir_texto(self.baseline_comparado, "baseline_comparado")
+        exigir_opcion(comparacion.diseno, "comparacion_con_el_baseline.diseno",
+                      (self.diseno,))
 
     def _exigir_tabla_y_curva_de_la_misma_muestra(self) -> None:
         """La tabla y la curva describen la MISMA muestra, o no hay perfil.
@@ -722,6 +775,11 @@ class PerfilClinico:
             "segmentos_predefinidos_por": self.segmentos_predefinidos_por,
             "politica_de_faltantes": (dict(self.politica_de_faltantes)
                                       if self.politica_de_faltantes else None),
+            "comparacion_con_el_baseline": (
+                {"baseline": self.baseline_comparado,
+                 **self.comparacion_con_el_baseline.a_json()}
+                if self.comparacion_con_el_baseline is not None else None),
+            "sin_comparacion_con_el_baseline": self.sin_comparacion_con_el_baseline,
         }
 
     def a_json(self) -> dict[str, Any]:
@@ -794,6 +852,31 @@ _T: dict[str, dict[str, str]] = {
         "recalibracion_no_consta": "No consta ninguna recalibración: este perfil no "
                                    "dice si las probabilidades se recalibraron antes "
                                    "de medir.",
+        "comparacion": "Comparación con el baseline",
+        "comparacion_que": "Emparejada sobre las mismas filas de este perfil: "
+                           "`{metrica}` del modelo menos la del baseline "
+                           "«{baseline}».",
+        "comparacion_diferencia": "Diferencia (modelo − baseline)",
+        "comparacion_mejora": "El modelo MEJORA al baseline: el intervalo entero "
+                              "queda a su favor.",
+        "comparacion_inferioridad": "El modelo es PEOR que el baseline: el "
+                                    "intervalo entero queda en su contra.",
+        "comparacion_equivalencia_practica": "Equivalencia práctica: el intervalo "
+                                             "entero cabe dentro del margen "
+                                             "declarado.",
+        "comparacion_inconcluso": "Inconcluso: esta muestra no demuestra que el "
+                                  "modelo mejore al baseline.",
+        "comparacion_no_consta": "No consta ninguna comparación con el baseline en "
+                                 "este perfil: no dice si el modelo aporta algo "
+                                 "frente a la referencia más simple.",
+        "sin_comparacion_el_ganador_es_el_baseline": "No hay comparación con el "
+                                                     "baseline: el candidato ganador "
+                                                     "ES el baseline, así que no hay "
+                                                     "contra quién compararlo.",
+        "sin_comparacion_el_baseline_no_puntuo": "No hay comparación con el "
+                                                 "baseline: el baseline no llegó a "
+                                                 "puntuar, así que no hay muestra "
+                                                 "suya que emparejar.",
         "dca": "Beneficio neto (curva de decisión)",
         "dca_formula": "beneficio neto = TP/n − FP/n · pt/(1−pt); «a nadie» vale 0 "
                        "por definición.",
@@ -887,6 +970,31 @@ _T: dict[str, dict[str, str]] = {
         "recalibracion_no_consta": "No recalibration is on record: this profile does "
                                    "not say whether probabilities were recalibrated "
                                    "before measuring.",
+        "comparacion": "Comparison against the baseline",
+        "comparacion_que": "Paired on the same rows as this profile: the model's "
+                           "`{metrica}` minus that of the baseline «{baseline}».",
+        "comparacion_diferencia": "Difference (model − baseline)",
+        "comparacion_mejora": "The model IMPROVES on the baseline: the whole "
+                              "interval is in its favour.",
+        "comparacion_inferioridad": "The model is WORSE than the baseline: the "
+                                    "whole interval is against it.",
+        "comparacion_equivalencia_practica": "Practical equivalence: the whole "
+                                             "interval fits within the declared "
+                                             "margin.",
+        "comparacion_inconcluso": "Inconclusive: this sample does not show that the "
+                                  "model improves on the baseline.",
+        "comparacion_no_consta": "No comparison against the baseline is on record "
+                                 "in this profile: it does not say whether the model "
+                                 "adds anything over the simplest reference.",
+        "sin_comparacion_el_ganador_es_el_baseline": "No comparison against the "
+                                                     "baseline: the winning "
+                                                     "candidate IS the baseline, so "
+                                                     "there is nothing to compare "
+                                                     "it against.",
+        "sin_comparacion_el_baseline_no_puntuo": "No comparison against the "
+                                                 "baseline: the baseline did not "
+                                                 "score, so there is no sample of "
+                                                 "its own to pair.",
         "dca": "Net benefit (decision curve)",
         "dca_formula": "net benefit = TP/n − FP/n · pt/(1−pt); treat-none is 0 by "
                        "definition.",
@@ -1058,6 +1166,11 @@ def ficha_del_perfil(perfil: PerfilClinico, *, locale: str = "en") -> str:
         lineas.extend(_lineas_de_un_mapa_libre(perfil.recalibracion, idioma))
     lineas.append("")
 
+    # --- comparación con el baseline (109-C3) ------------------------------
+    lineas.append(f"## {textos['comparacion']}")
+    lineas.extend(_lineas_de_la_comparacion(perfil, textos, idioma))
+    lineas.append("")
+
     # --- curva de decisión -------------------------------------------------
     lineas.append(f"## {textos['dca']}")
     lineas.append(textos["dca_formula"])
@@ -1120,6 +1233,39 @@ def ficha_del_perfil(perfil: PerfilClinico, *, locale: str = "en") -> str:
         lineas.extend(_lineas_de_un_mapa_libre(perfil.politica_de_faltantes, idioma))
     lineas.append("")
     return "\n".join(lineas)
+
+
+def _lineas_de_la_comparacion(perfil: "PerfilClinico", textos: dict[str, str],
+                              idioma: str) -> list[str]:
+    """La comparación con el baseline, su ausencia con motivo, o que no consta.
+
+    Tres casos distintos y tres frases distintas: «no se pudo plantear» y «no
+    consta» no son lo mismo, y confundirlos es decir de un perfil viejo que el
+    estudio lo intentó. El veredicto se escribe con la frase de su categoría, y
+    un intervalo que no se pudo calcular dice por qué en vez de quedar mudo.
+    """
+    comparacion = perfil.comparacion_con_el_baseline
+    if comparacion is None:
+        motivo_de_ausencia = perfil.sin_comparacion_con_el_baseline
+        if motivo_de_ausencia is None:
+            return [textos["comparacion_no_consta"]]
+        return [textos[f"sin_comparacion_{motivo_de_ausencia}"]]
+    lineas = [textos["comparacion_que"].format(metrica=comparacion.metric_id,
+                                               baseline=perfil.baseline_comparado)]
+    if comparacion.veredicto == "incomparable":
+        lineas.append(str((comparacion.undefined_reason or {}).get(idioma, "")))
+        return lineas
+    lineas.append(f"- **{textos['comparacion_diferencia']}**: "
+                  f"{_cifra(comparacion.diferencia_puntual)}")
+    ic = comparacion.intervalo
+    if ic is not None and ic.disponible:
+        lineas.append(f"- **{textos['ic']} {ic.level * 100:.0f} %**: "
+                      f"[{_cifra(ic.ci_low)}, {_cifra(ic.ci_high)}]")
+    elif ic is not None:
+        lineas.append(f"- **{textos['sin_ic']}**: "
+                      f"{(ic.undefined_reason or {}).get(idioma, '')}")
+    lineas.append(textos[f"comparacion_{comparacion.veredicto}"])
+    return lineas
 
 
 def _lineas_de_un_mapa_libre(mapa: Mapping[str, Any], idioma: str) -> list[str]:

@@ -560,10 +560,12 @@ INVENTARIO: tuple[Evidencia, ...] = (
     _e("comparacion_con_el_baseline", "analisis",
        "clinical_profile.json#comparacion_con_el_baseline",
        "Comparación con el baseline", "Comparison against the baseline",
-       "el paquete no la trae: el core la mide (105-C5) y hoy no se escribe ni "
-       "en el perfil ni en el manifiesto",
-       "the package does not ship it: the core measures it (105-C5) and today it "
-       "is written neither in the profile nor in the manifest"),
+       "el perfil clínico no la trae: o el estudio no pudo plantearla —y el "
+       "perfil dice por qué en `sin_comparacion_con_el_baseline`— o el paquete "
+       "es anterior a 109-C3",
+       "the clinical profile does not ship it: either the study could not pose "
+       "it —and the profile says why in `sin_comparacion_con_el_baseline`— or "
+       "the package predates 109-C3", "comparacion"),
     _e("proceso_actual", "analisis", "team_declaration.json#proceso_actual",
        "Comparación con el proceso actual", "Comparison against current practice",
        "invariante 4 del contrato 109: sin proceso actual declarado, se dice",
@@ -612,6 +614,18 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
         # día; ver el docstring del módulo.)
         return (f"{valor['alcance']} · evidencia={valor['evidencia']} · "
                 f"diseno={valor['diseno']}")
+    if evidencia.resumen == "comparacion" and isinstance(valor, dict):
+        # Las fichas de la comparación, no una frase: la métrica, la diferencia
+        # con su intervalo, el veredicto y contra quién. Un veredicto
+        # `incomparable` no tiene diferencia ni intervalo, y no se le inventan.
+        ic = valor.get("intervalo") or {}
+        punto = valor.get("diferencia_puntual")
+        tramo = (f" [{_numero(ic['ci_low'])}, {_numero(ic['ci_high'])}]"
+                 if ic.get("ci_low") is not None and ic.get("ci_high") is not None
+                 else "")
+        return (f"{valor.get('metric_id')} "
+                f"{_numero(punto) if punto is not None else '—'}{tramo} · "
+                f"{valor.get('veredicto')} · baseline={valor.get('baseline')}")
     if isinstance(valor, float):
         return _numero(valor)
     if evidencia.resumen == "booleano":
