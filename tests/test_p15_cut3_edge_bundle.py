@@ -42,11 +42,14 @@ _FALL_RISK_MXAI = _BASE / "examples" / "fall-risk.mxai"
 # casilla aparte, apagada por defecto. Se añade a la lista porque el
 # paquete tiene que DECLARAR lo que lleva: llevar ficheros que su propia
 # lista no nombra es la omisión que el 82 combate.
-#: Y sus REQUISITOS (82-C4, 2026-08-20): el Space importa `gradio` y
-#: ejecuta `python -m matrixai verify`, y ninguno de los dos iba en el
-#: `requirements.txt` del paquete —que es el de PREDECIR—. Lo cazó
-#: Roberto probando la publicación.
-_SPACE_FILES = {"space/app.py", "space/README.md", "space/requirements.txt"}
+#: Revisión 2026-09-16: Space ESTÁTICO (HTML + `predict.js` con ONNX
+#: Runtime Web), no Gradio — decisión de Roberto por lo medido el
+#: 2026-08-21 (un Space de Gradio da 402 a cualquier cuenta sin HF PRO;
+#: uno estático se crea igual con una cuenta gratuita). Ya no lleva su
+#: propio `requirements.txt`: no hay Python que instalar dentro del
+#: Space, y ejecutar `matrixai verify` ahí ya no es posible (la página lo
+#: dice y da el comando para correrlo en local).
+_SPACE_FILES = {"space/index.html", "space/predict.js", "space/README.md"}
 _BUNDLE_FILES = {"README.md", "export_manifest.json", "model.mxai",
                  "model.onnx", "model_manifest.json", "params.best.json",
                  "reproduce.json"} | _SPACE_FILES

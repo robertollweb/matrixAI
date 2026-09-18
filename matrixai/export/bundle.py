@@ -27,12 +27,11 @@ from matrixai.export.inference_spec import (
 # The standalone predict.py shipped inside every usable bundle (copied verbatim).
 _PREDICT_TEMPLATE = str(Path(__file__).resolve().parent / "predict_template.py")
 _REQUIREMENTS = "numpy>=1.24\nonnxruntime>=1.16\n"
-from matrixai.export.space import (
-    SPACE_DIR,
-    space_app_py,
-    space_readme_md,
-    space_requirements_txt,
-)
+from matrixai.export.space import SPACE_DIR, space_index_html, space_readme_md
+# `predict.js` del Space: EL MISMO que genera el bundle WASM (contrato
+# WASM_EXPORT), no una segunda implementación — ver el comentario junto a
+# donde se escribe, más abajo.
+from matrixai.export.wasm_exporter import _build_predict_js
 from matrixai.export.reproduce import (
     TRAINING_ARTIFACT_NAME,
     write_reproduce_manifest,
@@ -461,28 +460,38 @@ class EdgeBundler:
             # cuenta de nadie. Publicar el Space es una casilla al
             # publicar, nunca un efecto de exportar — crear repositorios
             # porque sí es lo que este proyecto evita en todo lo demás.
+            #
+            # REVISIÓN 2026-09-16: Space ESTÁTICO (HTML + ONNX Runtime Web
+            # en el navegador de quien visita), no Gradio — decisión de
+            # Roberto, por lo medido el 2026-08-21: un Space de Gradio
+            # devuelve 402 a cualquier cuenta sin HF PRO, así que ningún
+            # usuario gratuito llegaba nunca a ver la demo; uno estático se
+            # crea igual con una cuenta gratuita. El historial de por qué
+            # la plantilla anterior llevaba `gradio` y su propio
+            # `requirements.txt` queda en el historial de git de
+            # `matrixai/export/space.py` — ya no describe lo que se genera.
             _space = work / SPACE_DIR
             _space.mkdir(parents=True, exist_ok=True)
-            (_space / "app.py").write_text(space_app_py(), encoding="utf-8")
+            _space_name = getattr(program, "name", None) or "matrixai-model"
+            (_space / "index.html").write_text(
+                space_index_html(_space_name), encoding="utf-8")
             (_space / "README.md").write_text(
-                space_readme_md(getattr(program, "name", None) or "matrixai-model"),
-                encoding="utf-8")
-            # Y SUS REQUISITOS, que NO son los del paquete.
+                space_readme_md(_space_name), encoding="utf-8")
+            # `predict.js` — EL MISMO generador que usa el bundle WASM
+            # (`wasm_exporter._build_predict_js`), no una segunda
+            # implementación: dos generadores de la parte que habla con
+            # ONNX Runtime acabarían divergiendo, y la que correría en el
+            # navegador de alguien no sería la que se probó aquí.
+            # `export_result` es el mismo `OnnxExportResult` que ya
+            # describe el `model.onnx` de este mismo paquete.
             #
-            # El `requirements.txt` de la raíz lleva lo que hace falta
-            # para PREDECIR (`numpy`, `onnxruntime`). El Space además
-            # importa `gradio` y ejecuta `python -m matrixai verify`, y
-            # ninguno de los dos viajaba: el botón «Is this package
-            # intact?» —criterio de cierre del 82-C4— no podía contestar
-            # nunca. Lo cazó Roberto probándolo (2026-08-20).
-            #
-            # Va en `space/` y no en la raíz porque al publicar el Space
-            # su contenido sube A LA RAÍZ y pisa al del paquete: quien se
-            # descargue el paquete sigue viendo los requisitos mínimos de
-            # `predict.py`, sin arrastrar gradio para predecir en su
-            # máquina.
-            (_space / "requirements.txt").write_text(
-                space_requirements_txt(_matrixai_version()), encoding="utf-8")
+            # Un Space estático no tiene Python, así que ya no lleva
+            # `requirements.txt` propio (era `gradio` + `matrixai-core`
+            # para el botón «Is this package intact?», que ejecutaba
+            # `matrixai verify` dentro del Space — imposible sin proceso).
+            # La página lo dice y da el comando para correrlo en local.
+            (_space / "predict.js").write_text(
+                _build_predict_js(program, export_result), encoding="utf-8")
 
             (work / "README.md").write_text(
                 _build_readme(program, export_result, eq_result,
@@ -532,8 +541,11 @@ class EdgeBundler:
                 shutil.rmtree(str(outdir))
             # EL INVENTARIO, AL FINAL: cuando ya está todo dentro. El
             # `space/` y el `README.md` se escriben después del
-            # manifiesto, así que hacerlo antes dejaría fuera justo el
-            # `predict.py` que el Space ejecuta. (Refutación 2026-08-20.)
+            # manifiesto, así que hacerlo antes dejaría fuera justo los
+            # ficheros que la página del Space carga (`predict.js`, y
+            # `model.onnx`/`inference_spec.json` de la raíz del paquete —
+            # revisión 2026-09-16: ya no es `predict.py`, la página no
+            # ejecuta Python). (Refutación 2026-08-20.)
             from matrixai.export.reproduce import añadir_inventario_de_ficheros
 
             # Y EL RESULTADO SE QUEDA CON EL MANIFIESTO DE VERDAD, el que
@@ -1141,7 +1153,7 @@ Actions remain `simulate_only`. This bundle only provides predictions.
 {mxtrain_row}{params_row}| `model.onnx` | ONNX model, opset {export_result.opset_version} |
 {onnx_data_row}| `model_manifest.json` | Model metadata, hashes and backend contract |
 | `export_manifest.json` | Export metadata, tolerance and equivalence check |
-{recipe_row}{reproduce_row}{usable_files}| `space/` | A Hugging Face Space template — yours to publish, or to ignore |
+{recipe_row}{reproduce_row}{usable_files}| `space/` | A static Hugging Face Space template (runs the model in the browser with ONNX Runtime Web) — yours to publish, or to ignore |
 | `README.md` | This file |
 {reproduce_note}
 ## Model info

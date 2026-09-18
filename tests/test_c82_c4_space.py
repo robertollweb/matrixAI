@@ -4,16 +4,21 @@ Corrección de Roberto (2026-08-19): *«El Space no es de MatrixAI, es de
 cada usuario: su modelo, sus datos, su Space.»* Con eso el motivo para
 posponerlo desaparece — no hay nada que sostener.
 
-Este fichero cubre la **pieza 1**, la que no consume nada de nadie: la
-plantilla viaja DENTRO del paquete. Publicar el Space es otra cosa y es
-una casilla al publicar, nunca un efecto automático: crear repos en la
-cuenta de alguien porque sí es justo lo que este proyecto evita en todo
-lo demás.
+REVISIÓN 2026-09-16 — Space ESTÁTICO con ONNX Runtime Web, no Gradio.
+Decisión de Roberto por lo medido el 2026-08-21: un Space de Gradio
+devuelve 402 a cualquier cuenta sin HF PRO (público o privado), así que
+ningún usuario gratuito podía llegar nunca a ver la demo; uno estático se
+crea igual con una cuenta gratuita. Este fichero cubre la **pieza 1**, la
+que no consume nada de nadie: la plantilla viaja DENTRO del paquete.
+Publicar el Space es otra cosa y es una casilla al publicar, nunca un
+efecto automático: crear repos en la cuenta de alguien porque sí es
+justo lo que este proyecto evita en todo lo demás.
 """
 
 import unittest
 
-from matrixai.export.space import space_app_py, space_readme_md
+from matrixai.export.space import space_index_html, space_readme_md
+from matrixai.export.wasm_exporter import ORT_WEB_MIN_VERSION, _build_predict_js
 
 
 class LaPlantillaViajaEnElPaqueteTest(unittest.TestCase):
@@ -26,37 +31,48 @@ class LaPlantillaViajaEnElPaqueteTest(unittest.TestCase):
             self.assertIn(clave, texto)
         self.assertIn("mi_modelo", texto)
 
-    def test_la_app_es_python_valido(self):
-        """Una plantilla que no compila no es una plantilla: es un fichero
-        que alguien va a pegar en su Space para que falle."""
-        compile(space_app_py(), "app.py", "exec")
+    def test_el_front_matter_declara_sdk_static_y_app_file_index(self):
+        """Confirmado localmente contra el `huggingface_hub` instalado:
+        `constants.SPACES_SDK_TYPES` incluye `"static"`, y
+        `SpaceCardData.app_file` es "Path to your main application file
+        (... or static html code)"."""
+        front = space_readme_md("M").split("---")[1]
+        self.assertIn("sdk: static", front)
+        self.assertIn("app_file: index.html", front)
+        # Y NO gradio: ese SDK es justo lo que se ha dejado por el 402.
+        self.assertNotIn("gradio", front.lower())
 
-    def test_la_app_usa_lo_que_el_paquete_YA_trae(self):
-        codigo = space_app_py()
-        # `predict.py` e `inference_spec.json` viajan en el bundle desde el
-        # contrato EXPORT: la plantilla los usa en vez de reimplementar la
-        # inferencia, que acabaría divergiendo.
-        self.assertIn("predict", codigo)
-        self.assertIn("inference_spec.json", codigo)
+    def test_sin_sdk_version_que_ya_no_significa_nada(self):
+        """`sdk_version` solo aplica a Gradio/Streamlit (documentado así en
+        `huggingface_hub.repocard_data.SpaceCardData`): un Space estático
+        no arranca ningún runtime, así que fijar una versión que nadie usa
+        sería inventar precisión donde no la hay."""
+        self.assertNotIn("sdk_version", space_readme_md("m"))
 
-    def test_declara_sus_LIMITES_y_remite_al_paquete(self):
-        """Un Space gratuito es CPU con tope de tiempo. Cuando no quepa,
-        **lo dice y remite al paquete descargable** —el camino sin
-        límites—, en vez de quedarse colgado o enseñar medio resultado."""
-        codigo = space_app_py()
-        texto = space_readme_md("m")
-        junto = codigo + texto
-        self.assertIn("CPU", junto)
-        # Y nombra la salida: descargar el paquete y verificar en local.
-        self.assertIn("matrixai verify", junto)
+    def test_la_pagina_es_html_valido_minimo(self):
+        """Una plantilla que no es HTML reconocible no es una plantilla: es
+        un fichero que alguien va a publicar en su Space para que falle."""
+        pagina = space_index_html("m")
+        self.assertTrue(pagina.strip().startswith("<!doctype html>"))
+        self.assertIn("<html", pagina)
+        self.assertIn("</html>", pagina)
+
+    def test_la_pagina_usa_lo_que_el_paquete_YA_trae(self):
+        pagina = space_index_html("m")
+        # `predict.js` (ORT Web) e `inference_spec.json` viajan en el
+        # bundle desde el contrato EXPORT: la plantilla los usa en vez de
+        # reimplementar la inferencia, que acabaría divergiendo.
+        self.assertIn("predict.js", pagina)
+        self.assertIn("inference_spec.json", pagina)
+        self.assertIn("example_input.json", pagina)
 
     def test_no_crea_nada_en_la_cuenta_de_nadie(self):
-        """La plantilla es TEXTO. Si tuviera una llamada a `create_repo`,
-        estaría creando recursos por su cuenta, que es lo que el contrato
-        prohíbe explícitamente."""
-        codigo = space_app_py()
-        for prohibido in ("create_repo", "HfApi(", "upload_file", "login("):
-            self.assertNotIn(prohibido, codigo)
+        """La plantilla es TEXTO. Si tuviera una llamada a un cliente de
+        Hugging Face, estaría creando recursos por su cuenta, que es lo
+        que el contrato prohíbe explícitamente."""
+        pagina = space_index_html("m")
+        for prohibido in ("create_repo", "HfApi(", "upload_file", "huggingface_hub"):
+            self.assertNotIn(prohibido, pagina)
 
 
 if __name__ == "__main__":
@@ -67,7 +83,7 @@ class LaPlantillaLLEGAAlPaqueteTest(unittest.TestCase):
     """Que exista la función no sirve de nada si el ZIP no la lleva. Este
     proyecto lleva dieciséis huecos de cableado documentados."""
 
-    def test_el_bundler_escribe_space_app_py_y_su_readme(self):
+    def test_el_bundler_escribe_space_index_html_y_su_readme(self):
         import inspect
         from matrixai.export import bundle
         fuente = inspect.getsource(bundle)
@@ -75,9 +91,9 @@ class LaPlantillaLLEGAAlPaqueteTest(unittest.TestCase):
         # ONNX entero a propósito: el bundle completo necesita
         # onnxruntime, y una prueba que se salta cuando falta no prueba
         # nada.
-        self.assertIn("space_app_py()", fuente)
+        self.assertIn("space_index_html(", fuente)
         self.assertIn("space_readme_md(", fuente)
-        self.assertIn('"app.py"', fuente)
+        self.assertIn('"index.html"', fuente)
 
     def test_el_nombre_del_space_sale_del_modelo_no_de_una_constante(self):
         """Un Space llamado «matrixai-model» para todos los modelos del
@@ -86,135 +102,140 @@ class LaPlantillaLLEGAAlPaqueteTest(unittest.TestCase):
         from matrixai.export import bundle
         self.assertIn('getattr(program, "name"', inspect.getsource(bundle))
 
-
-class LaPlantillaValeEnLosDosSitiosTest(unittest.TestCase):
-    """Dentro del paquete vive en `space/` y los artefactos están arriba;
-    publicada como Space, HF exige `app.py` en la RAÍZ y los artefactos
-    quedan a su lado. **El mismo fichero para los dos casos**: dos
-    versiones de esto acabarían divergiendo, y la que se ve en el Space no
-    sería la que se probó."""
-
-    def _ejecutar_en(self, carpeta_app, carpeta_artefactos):
-        """Ejecuta el `_junto_a_mi` de la plantilla en un disco de mentira."""
-        import tempfile
-        from pathlib import Path
-        raiz = Path(tempfile.mkdtemp())
-        (raiz / carpeta_app).mkdir(parents=True, exist_ok=True)
-        (raiz / carpeta_artefactos).mkdir(parents=True, exist_ok=True)
-        (raiz / carpeta_artefactos / "predict.py").write_text("x = 1\n")
-        (raiz / carpeta_artefactos / "inference_spec.json").write_text('{"inputs": []}')
-        app = raiz / carpeta_app / "app.py"
-        app.write_text(space_app_py(), encoding="utf-8")
-
-        # Se ejecuta SOLO la parte de localización, sin gradio: importar la
-        # app entera exigiría la dependencia y la prueba se saltaría — y una
-        # prueba que se salta no prueba nada.
-        codigo = space_app_py().split("import gradio")[0]
-        entorno: dict = {"__file__": str(app)}
-        exec(compile(codigo, str(app), "exec"), entorno)  # noqa: S102
-        resto = space_app_py()
-        inicio = resto.index("AQUI = ")
-        fin = resto.index("# Un Space gratuito")
-        exec(compile(resto[inicio:fin], str(app), "exec"), entorno)  # noqa: S102
-        return entorno
-
-    def test_dentro_del_paquete_encuentra_los_artefactos_arriba(self):
-        e = self._ejecutar_en("space", ".")
-        self.assertTrue(str(e["PREDICT"]).endswith("predict.py"))
-        self.assertTrue(e["PREDICT"].is_file(), "no encontró predict.py un nivel arriba")
-
-    def test_publicada_como_Space_los_encuentra_a_su_lado(self):
-        e = self._ejecutar_en(".", ".")
-        self.assertTrue(e["PREDICT"].is_file(), "no encontró predict.py a su lado")
+    def test_el_predict_js_del_space_es_EL_QUE_GENERA_wasm_exporter(self):
+        """No una copia que puede divergir: el bundler tiene que llamar al
+        MISMO generador que usa el bundle WASM, no reimplementar la parte
+        que habla con ONNX Runtime por segunda vez."""
+        import inspect
+        from matrixai.export import bundle
+        fuente = inspect.getsource(bundle)
+        self.assertIn("_build_predict_js(", fuente)
+        self.assertIn(
+            "from matrixai.export.wasm_exporter import _build_predict_js",
+            fuente,
+        )
+        # Y NO una escritura literal de otro contenido bajo ese nombre —
+        # si el bundler escribiera su propio texto a `predict.js` en vez
+        # de llamar al generador, esta prueba pasaría por el motivo
+        # equivocado.
+        i_predict_js = fuente.index('"predict.js"')
+        alrededor = fuente[i_predict_js - 40:i_predict_js + 200]
+        self.assertIn("_build_predict_js(program, export_result)", alrededor)
 
 
-class ElSpaceLLEVA_LoQueNecesitaParaARRANCARTest(unittest.TestCase):
-    """Roberto, 2026-08-20: «lo he probado y no funciona».
+class ElSpaceNoDuplicaElModeloEnElZipTest(unittest.TestCase):
+    """Diseño (82-C4 revisión 2026-09-16): `model.onnx` YA está en la raíz
+    del paquete (para predecir en local); duplicarlo dentro de `space/`
+    doblaría el tamaño del ZIP descargable sin necesidad — al publicar,
+    `publish_hf._upload_space` aplana el paquete entero (menos `space/`) y
+    ENCIMA el contenido de `space/`, así que `model.onnx` acaba junto a
+    `index.html`/`predict.js` en el Space publicado sin haber viajado dos
+    veces en el ZIP."""
 
-    Midiéndolo salió que el Space subía con el `requirements.txt` del
-    PAQUETE —`numpy` y `onnxruntime`, que es lo que hace falta para
-    PREDECIR— y que le faltaban las dos cosas que solo el Space usa:
+    def test_el_bundler_NO_escribe_model_onnx_dentro_de_space(self):
+        import inspect
+        from matrixai.export import bundle
+        fuente = inspect.getsource(bundle)
+        self.assertNotIn('_space / "model.onnx"', fuente)
 
-    * **`gradio`**, que `app.py` importa en su primera línea;
-    * **`matrixai`**, que `app.py` ejecuta (`python -m matrixai verify`)
-      para el bloque «Is this package intact?» — que es literalmente el
-      criterio de cierre del 82-C4.
+    def test_predict_js_pide_el_modelo_con_ruta_relativa_al_Space_aplanado(self):
+        """`_build_predict_js` (reusado, sin tocar) pide `./model.onnx`:
+        una ruta relativa a donde SE SIRVA `predict.js`. Al publicar,
+        `_upload_space` deja `model.onnx` justo ahí (ver test en
+        studio-backend); en el ZIP sin publicar `space/index.html` no lo
+        encontrará junto a él, y la página lo dice en vez de fallar en
+        silencio (ver `LaPaginaDeclaraLoQueHaceYLoQueNoTest`)."""
+        # La cadena buscada es literal en el generador, independiente del
+        # modelo — no hace falta construir un programa real para leerla.
+        self.assertIn("'./model.onnx'", _fuente_predict_js())
 
-    Un botón que siempre contesta «no puedo comprobarlo» es peor que no
-    tenerlo, porque se lee como que **el paquete** es el que falla.
-    """
 
-    def test_lleva_gradio_que_es_lo_que_app_py_importa(self):
-        from matrixai.export.space import space_app_py, space_requirements_txt
+def _fuente_predict_js() -> str:
+    import inspect
+    from matrixai.export import wasm_exporter
+    return inspect.getsource(wasm_exporter._build_predict_js)
 
-        # El otro lado primero: si `app.py` no lo importara, pedirlo
-        # sobraría — y esta prueba pasaría por el motivo equivocado.
-        self.assertIn("import gradio", space_app_py())
-        self.assertIn("gradio==", space_requirements_txt("1.5.0"))
 
-    def test_lleva_matrixai_que_es_lo_que_app_py_EJECUTA(self):
-        from matrixai.export.space import space_app_py, space_requirements_txt
+class LaPaginaDeclaraLoQueHaceYLoQueNoTest(unittest.TestCase):
+    """82-C4 revisión 2026-09-16 [reemplaza a H9 de la auditoría del
+    2026-08-20]: un Space ESTÁTICO no tiene Python ni proceso, así que YA
+    NO puede ejecutar `matrixai verify` dentro. Callarlo sería media
+    verdad tranquilizadora; la página lo DICE y da el comando en local —
+    que es donde `verify` siempre pudo demostrar algo de verdad."""
 
-        # `app.py` IMPORTA `matrixai`, pero lo que pip instala se llama
-        # `matrixai-core`: ver la prueba del nombre publicado, justo debajo.
-        self.assertIn('"-m", "matrixai", "verify"', space_app_py())
-        self.assertIn("matrixai-core==1.5.0", space_requirements_txt("1.5.0"))
+    def _pagina(self):
+        return space_index_html("m")
 
-    def test_sin_version_conocida_se_pide_SIN_fijar_en_vez_de_inventarla(self):
-        from matrixai.export.space import space_requirements_txt
+    def test_dice_que_corre_en_el_navegador_y_no_manda_los_datos(self):
+        pagina = self._pagina()
+        self.assertIn("in your browser", pagina)
+        self.assertIn("never", pagina.lower())
 
-        requisitos = space_requirements_txt(None)
-        self.assertIn("matrixai-core\n", requisitos)
-        self.assertNotIn("matrixai-core==", requisitos)
+    def test_dice_QUE_NO_verifica_y_por_que(self):
+        pagina = self._pagina()
+        self.assertIn("does NOT", pagina)
+        self.assertIn("does not verify", pagina.lower())
 
-    def test_lo_que_pide_es_el_nombre_que_SE_PUBLICA_en_PyPI(self):
-        """EL DEFECTO QUE LAS DOS PRUEBAS DE ARRIBA DEJABAN PASAR — 2026-09-16.
+    def test_da_el_comando_LOCAL_para_verificar_de_verdad(self):
+        pagina = self._pagina()
+        self.assertIn("matrixai verify .", pagina)
+        self.assertIn("matrixai verify . --retrain", pagina)
 
-        Comprobaban que el `requirements.txt` dijera `matrixai==1.5.0`, y lo
-        decía: la CADENA estaba bien. Pero en PyPI el paquete se llama
-        `matrixai-core`, y `matrixai` no existe (404), así que **todo Space
-        exportado fallaba al construir** y nada lo avisaba.
+    def test_NO_finge_ejecutar_verify_dentro_del_Space(self):
+        """El defecto que reemplaza esta prueba: la plantilla anterior
+        ejecutaba `python -m matrixai verify` vía `subprocess` DENTRO del
+        Space. Un Space estático no tiene proceso — si esta cadena
+        reapareciera, la página fingiría un botón que no puede
+        funcionar."""
+        pagina = self._pagina()
+        self.assertNotIn("subprocess", pagina)
+        self.assertNotIn('"-m", "matrixai", "verify"', pagina)
 
-        Aquí no se escribe el nombre a mano por tercera vez: se lee de
-        `pyproject.toml`, que es lo que de verdad decide cómo se llama lo que se
-        publica. Dos sitios declarando el mismo nombre acaban divergiendo, y
-        eso es exactamente lo que pasó.
-        """
-        import tomllib
-        from pathlib import Path
-        from matrixai.export.space import space_requirements_txt
+    def test_no_declara_limites_de_CPU_de_un_Space_que_ya_no_ejecuta_nada(self):
+        """La plantilla de Gradio hablaba de "free CPU Space with a time
+        limit" porque el servidor de HF ejecutaba Python. Un Space
+        estático no ejecuta nada en el servidor — repetir esa frase sería
+        describir un límite que ya no existe."""
+        junto = space_readme_md("m") + self._pagina()
+        self.assertNotIn("CPU Space", junto)
+        self.assertNotIn("time limit", junto)
 
-        raiz = Path(__file__).resolve().parents[1]
-        publicado = tomllib.loads((raiz / "pyproject.toml").read_text(encoding="utf-8"))["project"]["name"]
-        lineas = {l.split("==")[0] for l in space_requirements_txt("1.5.0").splitlines() if l}
-        self.assertIn(publicado, lineas,
-                      f"el Space pide {sorted(lineas)} y el paquete que se publica en "
-                      f"PyPI se llama {publicado!r}: pip no lo encontraría")
-        self.assertIn(publicado, {l for l in space_requirements_txt(None).splitlines() if l})
 
-    def test_el_front_matter_FIJA_la_version_del_sdk(self):
-        """Sin `sdk_version`, Hugging Face elige la que quiera el día que
-        se cree el Space: el mismo paquete publicado con seis meses de
-        diferencia arrancaría sobre dos Gradio distintos, y el que falle
-        lo haría sin que nadie hubiera tocado nada."""
-        from matrixai.export.space import SDK_VERSION, space_readme_md
+class LaVersionDeOrtWebEsLaMismaQueEnElBundleWasmTest(unittest.TestCase):
+    """Dos sitios fijando la versión de ONNX Runtime Web acabarían
+    divergiendo: la que carga la página del Space tiene que ser la MISMA
+    que la que espera el `predict.js` que la propia página incluye."""
 
-        front = space_readme_md("MiModelo").split("---")[1]
-        self.assertIn(f"sdk_version: {SDK_VERSION}", front)
+    def test_el_cdn_de_la_pagina_usa_ORT_WEB_MIN_VERSION(self):
+        pagina = space_index_html("m")
+        self.assertIn(f"onnxruntime-web@{ORT_WEB_MIN_VERSION}", pagina)
 
-    def test_y_la_version_del_sdk_es_LA_MISMA_en_los_dos_sitios(self):
-        """Dos sitios declarando lo mismo acaban divergiendo: el
-        front-matter y los requisitos tienen que fijar la MISMA."""
-        from matrixai.export.space import SDK_VERSION, space_readme_md, space_requirements_txt
+    def test_y_es_la_MISMA_constante_que_importa_wasm_exporter(self):
+        import inspect
+        from matrixai.export import space
+        fuente = inspect.getsource(space)
+        self.assertIn(
+            "from matrixai.export.wasm_exporter import ORT_WEB_MIN_VERSION",
+            fuente,
+        )
+        # Y NO una segunda constante local con el mismo valor a mano —
+        # eso es justo lo que hace que dos sitios acaben divergiendo.
+        self.assertNotIn('ORT_WEB_MIN_VERSION = "', fuente)
 
-        self.assertIn(f"sdk_version: {SDK_VERSION}", space_readme_md("M"))
-        self.assertIn(f"gradio=={SDK_VERSION}", space_requirements_txt(None))
 
-    def test_el_paquete_NO_arrastra_gradio_para_predecir_en_tu_maquina(self):
-        """El otro lado, que es el que se rompe al apretar: los requisitos
-        del Space NO son los del paquete. Quien se descargue el ZIP para
-        predecir en su máquina no tiene por qué instalar gradio."""
-        from matrixai.export.bundle import _REQUIREMENTS
+class ElNombreDelModeloSeEscapaEnLaPaginaTest(unittest.TestCase):
+    """El nombre del modelo lo escribe el USUARIO y va dentro del HTML de un
+    Space que puede ser público. `space_index_html` lo pasa por
+    `html.escape` — y hasta el 2026-09-18 ninguna prueba lo sostenía: quitar
+    esa línea dejaba las 46 pruebas de este fichero en verde (sabotaje de la
+    auditoría). Una línea que hace algo no obvio necesita su prueba."""
 
-        self.assertNotIn("gradio", _REQUIREMENTS)
-        self.assertIn("onnxruntime", _REQUIREMENTS)
+    def test_un_nombre_con_marcado_no_llega_crudo_a_la_pagina(self):
+        malicioso = 'modelo</title><script>alert("x")</script>'
+        html = space_index_html(malicioso)
+        self.assertNotIn("<script>alert(", html)
+        self.assertNotIn("</title><script>", html)
+        self.assertIn("&lt;script&gt;alert(", html)
+
+    def test_y_un_nombre_normal_sale_tal_cual(self):
+        self.assertIn("<h1>riesgo de caída</h1>", space_index_html("riesgo de caída"))

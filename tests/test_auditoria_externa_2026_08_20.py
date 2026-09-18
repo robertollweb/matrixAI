@@ -375,34 +375,54 @@ class H8_INCOMPARABLE_NoEsExitoTest(unittest.TestCase):
 
 
 class H9_ElSpaceEnseñaElResultadoDeC2Test(unittest.TestCase):
-    """82-4 [BLOQUEANTE de cierre]. La plantilla solo ejecutaba
+    """82-4 [BLOQUEANTE de cierre, 2026-08-20]. La plantilla solo ejecutaba
     `predict.py`. Un Space que invita a probar un modelo sin decir si el
-    paquete está íntegro convierte una ficha ejecutable en una demo."""
+    paquete está íntegro convierte una ficha ejecutable en una demo.
+
+    SUPERADO el 2026-09-16: el Space pasó de Gradio a **estático**
+    (decisión de Roberto — un Space de Gradio devuelve 402 a cualquier
+    cuenta sin HF PRO, medido el 2026-08-21; uno estático se crea con una
+    cuenta gratuita). Un Space estático no tiene Python ni proceso, así
+    que **ya no puede ejecutar `matrixai verify` dentro** — el arreglo de
+    este hallazgo (un botón que corre el verificador y enseña su
+    resultado) ya no es alcanzable con este diseño.
+
+    Lo que el hallazgo original pedía —que el Space no invite a probar un
+    modelo sin decir qué garantiza sobre su integridad— se sigue
+    cumpliendo, pero de otra forma: la página DICE explícitamente que no
+    verifica y da el comando para hacerlo en local, en vez de fingir un
+    botón que no puede funcionar sin servidor. Ver el contrato completo en
+    `tests/test_c82_c4_space.py::LaPaginaDeclaraLoQueHaceYLoQueNoTest`."""
 
     def _plantilla(self):
-        from matrixai.export.space import space_app_py
+        from matrixai.export.space import space_index_html
 
-        return space_app_py()
+        return space_index_html("m")
 
-    def test_la_plantilla_ejecuta_matrixai_verify(self):
+    def test_ya_NO_finge_ejecutar_matrixai_verify_dentro(self):
+        """Un Space estático no tiene proceso: si la página prometiera
+        ejecutar `verify` DENTRO de sí misma, sería una promesa que no
+        puede cumplir."""
         plantilla = self._plantilla()
-        self.assertIn("verify", plantilla)
-        self.assertIn("def verificar", plantilla)
+        self.assertNotIn("subprocess", plantilla)
+        self.assertNotIn('"-m", "matrixai", "verify"', plantilla)
 
-    def test_y_lo_enseña_ANTES_de_invitar_a_probar(self):
+    def test_y_lo_dice_ANTES_de_invitar_a_probar(self):
+        """El aviso de que NO verifica va arriba, antes del formulario de
+        predicción — la misma posición que antes ocupaba el botón de
+        verificar, y por el mismo motivo: quien prueba el modelo necesita
+        saberlo antes, no después."""
         plantilla = self._plantilla()
-        self.assertLess(plantilla.index("Is this package intact?"),
-                        plantilla.index("## Try it"))
+        self.assertLess(plantilla.index("does NOT"),
+                        plantilla.index('id="formulario"'))
 
-    def test_los_tres_codigos_NO_se_colapsan(self):
+    def test_da_el_comando_para_verificar_EN_LOCAL(self):
+        """Sin servidor que lo ejecute, el sitio donde `verify` puede
+        demostrar algo de verdad sigue siendo la máquina de quien lo
+        corre — la página lo remite ahí en vez de callarlo."""
         plantilla = self._plantilla()
-        for texto in ("PASS", "FAIL", "NOT FULLY CHECKED"):
-            self.assertIn(texto, plantilla)
-
-    def test_si_matrixai_no_esta_se_DICE(self):
-        """Un botón que falla en silencio se lee como que no hay nada que
-        comprobar."""
-        self.assertIn("is not installed", self._plantilla())
+        self.assertIn("matrixai verify .", plantilla)
+        self.assertIn("matrixai verify . --retrain", plantilla)
 
 
 if __name__ == "__main__":

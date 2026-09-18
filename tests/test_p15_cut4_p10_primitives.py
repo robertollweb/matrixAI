@@ -374,7 +374,7 @@ class TestTransformerEdgeBundle(unittest.TestCase):
                         "reproduce.json",
                         # 82-C4: y la plantilla del Space, que viaja en todo
                         # paquete: el paquete DECLARA lo que lleva.
-                        "space/app.py", "space/README.md", "space/requirements.txt",
+                        "space/index.html", "space/predict.js", "space/README.md",
                         }
             self.assertEqual(set(result.files), expected)
             self.assertIsNotNone(result.inference_spec_skipped_reason)

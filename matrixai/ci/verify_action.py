@@ -119,8 +119,11 @@ SALIDAS = {
 #: no puede aparecer ahí ni aunque estuviera instalado. Buscarlo ahí sería
 #: una sonda que nunca puede dar positivo.
 #:
-#: Tampoco se mira `space/requirements.txt`: son las dependencias de la
-#: demo de Hugging Face, no las de verificar.
+#: Tampoco se mira dentro de `space/`: desde que el Space pasó a ser
+#: ESTÁTICO (revisión 2026-09-16, `matrixai/export/space.py`) ya no lleva
+#: ningún fichero de dependencias propio —no hay Python que instalar en
+#: una página que solo corre ONNX Runtime Web en el navegador—, así que
+#: no hay nada ahí que este escaneo pudiera encontrar de todas formas.
 FUENTES_DE_DEPENDENCIAS = ("requirements.txt", "dependencias.json")
 
 _NOMBRE_ENGINES = "matrixai-engines"

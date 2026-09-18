@@ -268,7 +268,10 @@ class IntegrationC2Test(unittest.TestCase):
                # 82-C4: la plantilla del Space viaja en todo paquete, y la
                # lista tiene que nombrarla — un paquete que lleva dentro
                # cosas que no declara es la omisión que el 82 combate.
-               "space/app.py", "space/README.md", "space/requirements.txt"}
+               # Revisión 2026-09-16: Space ESTÁTICO (HTML + predict.js
+               # con ONNX Runtime Web), no Gradio — ya no lleva su propio
+               # `requirements.txt` (no hay Python que instalar nada).
+               "space/index.html", "space/predict.js", "space/README.md"}
 
     def setUp(self):
         from matrixai.parser import parse_file
