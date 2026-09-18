@@ -36,7 +36,19 @@ from matrixai.export.equivalence import (
 )
 
 WASM_RUNTIME = "onnxruntime-web"
-ORT_WEB_MIN_VERSION = "1.14"
+# LA VERSIÓN DE ONNX RUNTIME WEB QUE CARGAN `predict.js` Y EL SPACE, fijada
+# EXACTA en la URL del CDN. Era "1.14" desde la 1.0.0, y desde el corte
+# PESOS C7 (julio) el exportador escribe `model.ir_version = 10`
+# (`onnx_exporter.py`): ORT Web 1.14 solo entiende hasta IR 8, así que TODO
+# paquete WASM nuevo fallaba al predecir con «Can't create a session /
+# Unsupported model IR version: 10, max supported IR version: 8». Ninguna
+# prueba lo veía: comprobaban el texto, no que el modelo se ejecutara.
+# MEDIDO el 2026-09-18 en Chromium con el mismo modelo exportado: 1.14 y 1.17
+# fallan; 1.18.0, 1.20.1 y 1.30.0 predicen 0.5062496662139893, idéntico a
+# `expected_output.json`. Se fija 1.20.1: funciona y es la más conservadora de
+# las medidas. `tests/test_p15_cut6_wasm.py` exige que esta versión pueda con
+# la IR que escribe el exportador.
+ORT_WEB_MIN_VERSION = "1.20.1"
 _BUNDLE_FILES = {"model.onnx", "wasm_manifest.json", "predict.js"}
 
 

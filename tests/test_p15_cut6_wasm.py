@@ -143,7 +143,27 @@ class TestWasmManifestSequence(unittest.TestCase):
         self.assertEqual(self.manifest["wasm_runtime"], "onnxruntime-web")
 
     def test_ort_web_min_version(self):
-        self.assertEqual(self.manifest["ort_web_min_version"], "1.14")
+        from matrixai.export.wasm_exporter import ORT_WEB_MIN_VERSION
+        self.assertEqual(self.manifest["ort_web_min_version"], ORT_WEB_MIN_VERSION)
+
+    def test_la_version_de_ORT_web_PUEDE_con_la_IR_que_escribe_el_exportador(self):
+        """Medido el 2026-09-18 en Chromium sobre un modelo exportado de verdad:
+        ORT Web 1.14 y 1.17 NO cargan IR 10 («max supported IR version: 8»);
+        1.18.0, 1.20.1 y 1.30.0 sí, y predicen lo mismo que `expected_output.json`.
+        Con la versión fijada en 1.14 y el exportador escribiendo IR 10 desde julio,
+        todo paquete WASM nuevo fallaba al predecir y esta suite seguía verde.
+        Si el exportador sube la IR, o alguien baja la versión, esto se pone rojo:
+        hay que volver a medir en un navegador y actualizar la tabla."""
+        import onnx
+        from matrixai.export.wasm_exporter import ORT_WEB_MIN_VERSION
+        # IR máxima que carga cada versión de ORT Web, MEDIDA (no de memoria).
+        primera_version_que_carga = {10: (1, 18), 9: (1, 18), 8: (1, 14)}
+        ir = onnx.load(str(self.bundle_dir / "model.onnx")).ir_version
+        self.assertIn(ir, primera_version_que_carga,
+                      f"el exportador escribe IR {ir}, que nadie ha medido en ORT Web")
+        fijada = tuple(int(x) for x in ORT_WEB_MIN_VERSION.split(".")[:2])
+        self.assertGreaterEqual(fijada, primera_version_que_carga[ir],
+                                f"ORT Web {ORT_WEB_MIN_VERSION} no carga modelos IR {ir}")
 
     def test_model_hash(self):
         self.assertEqual(self.manifest["model_hash"], self.ps.model_hash)
