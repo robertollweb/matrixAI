@@ -23,7 +23,8 @@ from tempfile import TemporaryDirectory
 sys.path.insert(0, str(Path(__file__).parent))
 
 from matrixai.estudio import EsquemaInvalido  # noqa: E402
-from matrixai.estudio.comparaciones import comparar_candidatos  # noqa: E402
+from matrixai.estudio.comparaciones import ComparacionEmparejada, comparar_candidatos  # noqa: E402
+from matrixai.estudio.incertidumbre import Intervalo  # noqa: E402
 from matrixai.estudio.metricas import Muestra  # noqa: E402
 from matrixai.estudio.perfil_clinico import (  # noqa: E402
     _T,
@@ -34,6 +35,7 @@ from matrixai.estudio.perfil_clinico import (  # noqa: E402
     tabla_de_umbrales,
 )
 from matrixai.export.expediente_clinico import (  # noqa: E402
+    _MOTIVOS,
     FALTA,
     MEDIDO,
     POR_CLAVE,
@@ -62,6 +64,34 @@ def _comparacion(*, diseno: str = "iid", baseline: Muestra | None = None):
     return comparar_candidatos("auroc", _modelo(), baseline or _baseline(), diseno=diseno,
                                estimando="fixed_model_on_population", semilla=3,
                                remuestras=200)
+
+
+VEREDICTOS_CON_INTERVALO = ("mejora", "inferioridad", "equivalencia_practica", "inconcluso")
+_MOTIVO_DE_PRUEBA = {"es": "motivo de prueba en castellano", "en": "test reason in English"}
+
+
+def _a_mano(veredicto, *, intervalo_disponible=True, motivo=None):
+    """Una comparación construida a mano, para ejercitar cada veredicto: el
+    cálculo real (`comparar_candidatos`) ya tiene sus pruebas, y aquí lo que se
+    prueba es cómo lo ESCRIBE el perfil."""
+    comun = dict(metric_id="auroc", design="iid", estimand="fixed_model_on_population",
+                 seed=0, n_resamples=10, level=0.95)
+    if veredicto == "incomparable":
+        return ComparacionEmparejada(metric_id="auroc", diseno="iid",
+                                     estimando="fixed_model_on_population",
+                                     veredicto="incomparable", margen_equivalencia=None,
+                                     diferencia_puntual=None, intervalo=None,
+                                     undefined_reason=motivo or _MOTIVO_DE_PRUEBA)
+    if intervalo_disponible:
+        intervalo = Intervalo(**comun, resampling_unit="row", method="iid_paired_bootstrap_stratified",
+                              ci_low=0.1234, ci_high=0.5678)
+    else:
+        intervalo = Intervalo(**comun, resampling_unit="none",
+                              undefined_reason=motivo or _MOTIVO_DE_PRUEBA)
+    return ComparacionEmparejada(
+        metric_id="auroc", diseno="iid", estimando="fixed_model_on_population",
+        veredicto=veredicto, margen_equivalencia=0.01 if veredicto == "equivalencia_practica" else None,
+        diferencia_puntual=0.3456, intervalo=intervalo)
 
 
 def _perfil(**cambios) -> PerfilClinico:
@@ -124,6 +154,12 @@ class NoSeContradiceTest(unittest.TestCase):
         with self.assertRaises(EsquemaInvalido):
             _perfil(sin_comparacion_con_el_baseline="no_me_apetecia")
 
+    def test_la_comparacion_tiene_que_ser_una_ComparacionEmparejada(self):
+        """Un mapa con la misma forma no vale: el núcleo la valida porque es tipada."""
+        with self.assertRaises(EsquemaInvalido):
+            _perfil(comparacion_con_el_baseline=_comparacion().a_json(),
+                    baseline_comparado="baseline-seleccion")
+
     def test_la_comparacion_remuestrea_con_el_MISMO_diseno_que_el_perfil(self):
         """Con otro diseño, el intervalo de la comparación y los de la tabla
         tratarían las mismas filas de dos maneras distintas."""
@@ -153,6 +189,43 @@ class LaFichaLoDiceTest(unittest.TestCase):
                 self.assertIn("baseline-seleccion", ficha)
                 self.assertIn(_T[idioma][f"comparacion_{comparacion.veredicto}"], ficha)
                 self.assertNotIn(_T[idioma]["comparacion_no_consta"], ficha)
+
+    def test_cada_veredicto_escribe_SU_frase_y_ninguna_otra(self):
+        """Solo se ejercitaba `mejora`: cruzar las frases de dos veredictos dejaba
+        todo verde (re-auditoría del 2026-09-18)."""
+        for veredicto in VEREDICTOS_CON_INTERVALO:
+            perfil = _perfil(comparacion_con_el_baseline=_a_mano(veredicto),
+                             baseline_comparado="baseline-seleccion")
+            for idioma in ("es", "en"):
+                ficha = ficha_del_perfil(perfil, locale=idioma)
+                with self.subTest(veredicto=veredicto, idioma=idioma):
+                    self.assertIn(_T[idioma][f"comparacion_{veredicto}"], ficha)
+                    for otro in set(VEREDICTOS_CON_INTERVALO) - {veredicto}:
+                        self.assertNotIn(_T[idioma][f"comparacion_{otro}"], ficha)
+                    self.assertIn("[0.1234, 0.5678]", ficha)
+
+    def test_un_intervalo_que_no_se_pudo_calcular_dice_POR_QUE_en_su_idioma(self):
+        perfil = _perfil(comparacion_con_el_baseline=_a_mano("inconcluso", intervalo_disponible=False),
+                         baseline_comparado="baseline-seleccion")
+        for idioma, otro in (("es", "en"), ("en", "es")):
+            ficha = ficha_del_perfil(perfil, locale=idioma)
+            with self.subTest(idioma=idioma):
+                self.assertIn(f"**{_T[idioma]['sin_ic']}**: {_MOTIVO_DE_PRUEBA[idioma]}", ficha)
+                self.assertNotIn(_MOTIVO_DE_PRUEBA[otro], ficha)
+
+    def test_incomparable_dice_que_se_intento_y_por_que_en_su_idioma_sin_decir_mismas_filas(self):
+        perfil = _perfil(comparacion_con_el_baseline=_a_mano("incomparable"),
+                         baseline_comparado="baseline-seleccion")
+        for idioma, otro in (("es", "en"), ("en", "es")):
+            ficha = ficha_del_perfil(perfil, locale=idioma)
+            with self.subTest(idioma=idioma):
+                self.assertIn(_T[idioma]["comparacion_incomparable_que"].format(
+                    baseline="baseline-seleccion"), ficha)
+                self.assertIn(_MOTIVO_DE_PRUEBA[idioma], ficha)
+                self.assertNotIn(_MOTIVO_DE_PRUEBA[otro], ficha)
+                lead = _T[idioma]["comparacion_que"].split("{")[0].strip()
+                self.assertNotIn(lead, ficha, "dice «emparejada sobre las mismas filas» de unas "
+                                              "filas que no lo eran")
 
     def test_cada_motivo_de_ausencia_tiene_SU_frase(self):
         for motivo in MOTIVOS_SIN_COMPARACION_CON_EL_BASELINE:
@@ -197,6 +270,38 @@ class ElExpedienteLaLeeTest(unittest.TestCase):
         texto = texto_del_valor(POR_CLAVE["comparacion_con_el_baseline"], campo, "es")
         self.assertTrue(texto.startswith("auroc 0.4167 ["), texto)
         self.assertIn(f"· {comparacion.veredicto} · baseline=baseline-seleccion", texto)
+
+    def _resuelto(self, perfil, idioma):
+        """Por el camino que usan los DOS informes (`resolver`), no por `campo()`."""
+        with TemporaryDirectory() as d:
+            expediente = ExpedienteClinico.desde_paquete(paquete_clinico(Path(d), perfil=perfil))
+            pares, _ = expediente.resolver(idioma)
+        return next(c for e, c in pares if e.clave == "comparacion_con_el_baseline")
+
+    def test_una_comparacion_incomparable_NO_sale_medida_y_dice_por_que(self):
+        perfil = _perfil(comparacion_con_el_baseline=_a_mano("incomparable"),
+                         baseline_comparado="baseline-seleccion")
+        for idioma in ("es", "en"):
+            campo = self._resuelto(perfil, idioma)
+            with self.subTest(idioma=idioma):
+                self.assertEqual(campo.estado, FALTA)
+                self.assertIn(_MOTIVOS[idioma]["comparacion_incomparable"], campo.motivo)
+                self.assertIn(_MOTIVO_DE_PRUEBA[idioma], campo.motivo)
+
+    def test_con_motivo_de_ausencia_el_expediente_dice_ESE_motivo_y_no_el_generico(self):
+        for motivo in MOTIVOS_SIN_COMPARACION_CON_EL_BASELINE:
+            perfil = _perfil(sin_comparacion_con_el_baseline=motivo)
+            for idioma in ("es", "en"):
+                campo = self._resuelto(perfil, idioma)
+                with self.subTest(motivo=motivo, idioma=idioma):
+                    self.assertEqual(campo.estado, FALTA)
+                    self.assertEqual(campo.motivo, _T[idioma][f"sin_comparacion_{motivo}"])
+
+    def test_una_comparacion_de_verdad_sigue_saliendo_medida_por_el_resolver(self):
+        """La otra mitad: que lo anterior no convierta en FALTA lo que sí se midió."""
+        perfil = _perfil(comparacion_con_el_baseline=_comparacion(),
+                         baseline_comparado="baseline-seleccion")
+        self.assertEqual(self._resuelto(perfil, "es").estado, MEDIDO)
 
     def test_sin_comparacion_sale_FALTA_y_el_motivo_ya_no_dice_que_no_se_escribe(self):
         for perfil in (_perfil(), _perfil(sin_comparacion_con_el_baseline="el_baseline_no_puntuo")):

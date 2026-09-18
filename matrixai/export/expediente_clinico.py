@@ -135,9 +135,13 @@ VEREDICTOS_DE_RIESGO: tuple[str, ...] = (
 #: pidió, sino del estado del fichero.
 _MOTIVOS: dict[str, dict[str, str]] = {
     "es": {"roto": "no se puede leer", "sin_fichero": "el paquete no trae",
-           "sin_campo": "no declara"},
+           "sin_campo": "no declara",
+           "comparacion_incomparable": "el estudio intentó compararlo con el baseline y no "
+                                       "pudo"},
     "en": {"roto": "cannot be read", "sin_fichero": "the package does not ship",
-           "sin_campo": "does not declare"},
+           "sin_campo": "does not declare",
+           "comparacion_incomparable": "the study tried to compare it against the baseline "
+                                       "and could not"},
 }
 
 
@@ -366,6 +370,8 @@ class ExpedienteClinico:
                     avisos.append(aviso)
                 if not campo.hay_dato:
                     campo = Campo(evidencia.ruta, FALTA, motivo=motivo)
+            elif evidencia.clave == "comparacion_con_el_baseline":
+                campo = self.comparacion_con_el_baseline(motivo, idioma)
             else:
                 campo = self.campo(evidencia.ruta, motivo_si_falta=motivo,
                                    locale=idioma)
@@ -373,6 +379,34 @@ class ExpedienteClinico:
         return tuple(pares), tuple(avisos)
 
     # -- lo derivado ---------------------------------------------------------
+
+    def comparacion_con_el_baseline(self, motivo_generico: str, idioma: str) -> Campo:
+        """La comparación con el baseline, o POR QUÉ no la hay, dicho con lo que el
+        paquete trae y no con un genérico.
+
+        Re-auditoría del 2026-09-18: una comparación `incomparable` (el estudio la
+        intentó y las filas no casaban) salía MEDIDA, con «auroc — · incomparable»
+        como valor, y un perfil que traía el motivo de su ausencia
+        (`sin_comparacion_con_el_baseline`) recibía el «o esto o paquete viejo» de
+        siempre. Las dos cosas son lo contrario de declarar lo que pasó: la primera
+        cuenta como medido algo que no se pudo medir, la segunda calla un motivo
+        que está en el paquete."""
+        ruta = "clinical_profile.json#comparacion_con_el_baseline"
+        campo = self.campo(ruta, motivo_si_falta=motivo_generico, locale=idioma)
+        if campo.hay_dato:
+            valor = campo.valor
+            if isinstance(valor, dict) and valor.get("veredicto") == "incomparable":
+                razon = (valor.get("undefined_reason") or {}).get(idioma) or ""
+                texto = _MOTIVOS[idioma]["comparacion_incomparable"]
+                return Campo(ruta, FALTA, motivo=f"{texto}: {razon}" if razon else texto)
+            return campo
+        sin = self.campo("clinical_profile.json#sin_comparacion_con_el_baseline")
+        if sin.hay_dato:
+            from matrixai.estudio.perfil_clinico import _T  # noqa: PLC0415
+            texto = _T[idioma].get(f"sin_comparacion_{sin.valor}")
+            if texto:
+                return Campo(ruta, FALTA, motivo=texto)
+        return campo
 
     def alcance_de_validacion(self) -> tuple[Campo, str]:
         """El alcance RE-DERIVADO de `evidencia` y `diseno`, y lo que discrepe.

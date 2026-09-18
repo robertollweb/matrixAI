@@ -859,6 +859,8 @@ _T: dict[str, dict[str, str]] = {
         "comparacion_que": "Emparejada sobre las mismas filas de este perfil: "
                            "`{metrica}` del modelo menos la del baseline "
                            "«{baseline}».",
+        "comparacion_incomparable_que": "Se intentó comparar con el baseline «{baseline}» "
+                                        "y no se pudo:",
         "comparacion_diferencia": "Diferencia (modelo − baseline)",
         "comparacion_mejora": "El modelo MEJORA al baseline: el intervalo entero "
                               "queda a su favor.",
@@ -980,6 +982,8 @@ _T: dict[str, dict[str, str]] = {
         "comparacion": "Comparison against the baseline",
         "comparacion_que": "Paired on the same rows as this profile: the model's "
                            "`{metrica}` minus that of the baseline «{baseline}».",
+        "comparacion_incomparable_que": "A comparison against the baseline «{baseline}» "
+                                        "was attempted and could not be made:",
         "comparacion_diferencia": "Difference (model − baseline)",
         "comparacion_mejora": "The model IMPROVES on the baseline: the whole "
                               "interval is in its favour.",
@@ -1261,11 +1265,13 @@ def _lineas_de_la_comparacion(perfil: "PerfilClinico", textos: dict[str, str],
         if motivo_de_ausencia is None:
             return [textos["comparacion_no_consta"]]
         return [textos[f"sin_comparacion_{motivo_de_ausencia}"]]
+    if comparacion.veredicto == "incomparable":
+        # Re-auditoría del 2026-09-18: aquí se escribía primero «emparejada
+        # sobre las mismas filas» y a renglón seguido que no lo eran.
+        return [textos["comparacion_incomparable_que"].format(baseline=perfil.baseline_comparado),
+                str((comparacion.undefined_reason or {}).get(idioma, ""))]
     lineas = [textos["comparacion_que"].format(metrica=comparacion.metric_id,
                                                baseline=perfil.baseline_comparado)]
-    if comparacion.veredicto == "incomparable":
-        lineas.append(str((comparacion.undefined_reason or {}).get(idioma, "")))
-        return lineas
     lineas.append(f"- **{textos['comparacion_diferencia']}**: "
                   f"{_cifra(comparacion.diferencia_puntual)}")
     ic = comparacion.intervalo
