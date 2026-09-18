@@ -151,13 +151,16 @@ VERSION_DEL_PERFIL = "1.0.0"
 
 #: POR QUÉ UN PERFIL PUEDE NO TRAER LA COMPARACIÓN CON EL BASELINE (109-C3).
 #: Cerrado, como todo vocabulario de esta casa: una clave suelta no tiene texto
-#: en la ficha. Son los dos casos en que la pregunta no se puede plantear, no
-#: dos maneras de perderla: si el ganador ES el baseline no hay «contra quién»,
-#: y un baseline que no puntuó no tiene muestra que emparejar. Cuando SÍ se
-#: pudo plantear pero las filas no casan, eso no es un motivo de ausencia: es
+#: en la ficha. Son los casos en que la pregunta no se puede plantear, cada uno
+#: con lo que PASÓ: si el ganador ES el baseline no hay «contra quién»; un
+#: baseline que no puntuó no tiene muestra que emparejar; y uno que SÍ puntuó
+#: en la selección pero falló al evaluarse en test tampoco —y decir de él que
+#: «no puntuó» sería falso (lo vio deployer-91 al aplicar el Studio)—. Cuando sí
+#: se pudo plantear pero las filas no casan, eso no es un motivo de ausencia: es
 #: una comparación con veredicto `incomparable`, que dice por qué.
 MOTIVOS_SIN_COMPARACION_CON_EL_BASELINE = ("el_ganador_es_el_baseline",
-                                           "el_baseline_no_puntuo")
+                                           "el_baseline_no_puntuo",
+                                           "el_baseline_no_se_pudo_evaluar_en_test")
 
 #: Los `metric_id` del transporte. **No son `ppv`/`npv`**, que en el registro
 #: de 105-C1 son los observados en la muestra: confundirlos es exactamente el
@@ -877,6 +880,10 @@ _T: dict[str, dict[str, str]] = {
                                                  "baseline: el baseline no llegó a "
                                                  "puntuar, así que no hay muestra "
                                                  "suya que emparejar.",
+        "sin_comparacion_el_baseline_no_se_pudo_evaluar_en_test": (
+            "No hay comparación con el baseline: puntuó en la selección, pero "
+            "falló al evaluarse sobre las filas de test, así que no hay muestra "
+            "suya que emparejar con la del modelo."),
         "dca": "Beneficio neto (curva de decisión)",
         "dca_formula": "beneficio neto = TP/n − FP/n · pt/(1−pt); «a nadie» vale 0 "
                        "por definición.",
@@ -995,6 +1002,10 @@ _T: dict[str, dict[str, str]] = {
                                                  "baseline: the baseline did not "
                                                  "score, so there is no sample of "
                                                  "its own to pair.",
+        "sin_comparacion_el_baseline_no_se_pudo_evaluar_en_test": (
+            "No comparison against the baseline: it scored during selection, but "
+            "failed when evaluated on the test rows, so there is no sample of its "
+            "own to pair with the model's."),
         "dca": "Net benefit (decision curve)",
         "dca_formula": "net benefit = TP/n − FP/n · pt/(1−pt); treat-none is 0 by "
                        "definition.",
