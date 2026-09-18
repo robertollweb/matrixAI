@@ -244,27 +244,49 @@ function parseBoolField(field, value) {
   throw new Error('Field "' + field + '": expected a boolean (true/false, yes/no).');
 }
 
+// A value that is absent, null or only blanks is a MISSING field — never 0.
+// `Number("  ")` and `Number(null)` are 0 in JavaScript, and predict.py
+// rejects both: coding them as 0 would predict with a value nobody typed.
+function requireField(field, record) {
+  const raw = record[field];
+  if (raw === undefined || raw === null || String(raw).trim() === "")
+    throw new Error('Missing required field "' + field + '".');
+  return raw;
+}
+
+// Same rule as predict.py's _parse_number / _parse_int: a finite number and,
+// for an integer, a WHOLE one. Not parseInt: parseInt("3.5") is 3 and
+// parseInt("1e1") is 1, so the page would predict with an index predict.py
+// rejects (audit of 2026-09-18, reachable from the number input).
+function parseNumberField(field, raw, integer) {
+  const number = Number(raw);
+  if (!Number.isFinite(number))
+    throw new Error('Field "' + field + '": expected a number, got "' + raw + '".');
+  if (integer && !Number.isInteger(number))
+    throw new Error('Field "' + field + '": expected an integer, got "' + raw + '".');
+  return number;
+}
+
+// Returns {vector, clipped}. `clipped` has the same shape as predict.py's
+// meta["clipped"]: a value outside its declared range is clamped to the
+// nearest end BY BOTH, and predict.py says so — the page must too, or
+// whoever types 15 on a [0, 10] field gets the prediction for 10 in silence.
 function encodeRecord(spec, record) {
   const order = spec.input_order;
   const vector = new Array(order.length).fill(0);
+  const clipped = [];
   const indexOf = {};
   order.forEach(function (name, i) { indexOf[name] = i; });
 
   for (const [field, entry] of Object.entries(spec.fields)) {
     const enc = entry.encoding;
     if (enc === "scalar" || enc === "scalar01") {
-      const raw = record[field];
-      if (raw === undefined || raw === "")
-        throw new Error('Missing required field "' + field + '".');
+      const raw = requireField(field, record);
       let number;
       if (entry.type === "boolean") {
         number = parseBoolField(field, raw);
       } else {
-        number = Number(raw);
-        if (!Number.isFinite(number))
-          throw new Error('Field "' + field + '": expected a number, got "' + raw + '".');
-        if (entry.type === "integer" && !Number.isInteger(number))
-          throw new Error('Field "' + field + '": expected an integer, got "' + raw + '".');
+        number = parseNumberField(field, raw, entry.type === "integer");
       }
       let normalized = number;
       if (enc === "scalar") {
@@ -273,7 +295,10 @@ function encodeRecord(spec, record) {
         const span = (hi - lo) || 1;
         normalized = (number - lo) / span;
       }
-      vector[indexOf[field]] = Math.min(1, Math.max(0, normalized));
+      const value = Math.min(1, Math.max(0, normalized));
+      if (value !== normalized)
+        clipped.push({ field: field, raw_value: raw, normalized_value: value });
+      vector[indexOf[field]] = value;
     } else if (enc === "one_hot") {
       const raw = String(record[field] !== undefined ? record[field] : "");
       const match = entry.values.find(function (v) { return String(v.raw) === raw; });
@@ -288,16 +313,16 @@ function encodeRecord(spec, record) {
         if (idx < 0)
           throw new Error('Field "' + field + '": unknown category "' + record[field] + '".');
       } else {
-        idx = parseInt(record[field], 10);
-        if (!Number.isInteger(idx) || idx < 0 || idx >= entry.vocab_size)
-          throw new Error('Field "' + field + '": index out of range [0, ' + (entry.vocab_size - 1) + '].');
+        idx = parseNumberField(field, requireField(field, record), true);
+        if (idx < 0 || idx >= entry.vocab_size)
+          throw new Error('Field "' + field + '": embedding index ' + idx + ' out of range [0, ' + (entry.vocab_size - 1) + '].');
       }
       vector[indexOf[column]] = idx;
     } else {
       throw new Error('Field "' + field + '": encoding "' + enc + '" is not supported by this browser demo.');
     }
   }
-  return vector;
+  return { vector: vector, clipped: clipped };
 }
 
 function decodeOutput(spec, raw) {
@@ -441,9 +466,18 @@ async function arrancar() {
       for (const campo of formulario.elements) {
         if (campo.name) record[campo.name] = campo.value;
       }
-      const vector = encodeRecord(spec, record);
-      const raw = await predict(vector);
-      resultado.textContent = JSON.stringify(decodeOutput(spec, raw), null, 2);
+      const encoded = encodeRecord(spec, record);
+      const raw = await predict(encoded.vector);
+      // No backslashes anywhere in this template: it is a plain Python
+      // string, so a backslash-n here reaches the page as a REAL line break,
+      // inside a JS string literal or a // comment alike (a syntax error that
+      // kills the whole script). Measured on 2026-09-18, twice.
+      const lines = [JSON.stringify(decodeOutput(spec, raw), null, 2)];
+      for (const c of encoded.clipped) {
+        lines.push('Note: "' + c.field + '" = ' + c.raw_value
+          + ' is outside the range the model was trained on; it was predicted as the nearest end of that range.');
+      }
+      resultado.textContent = lines.join(String.fromCharCode(10, 10));
     } catch (err) {
       resultado.textContent = "Error: " + err.message;
     } finally {

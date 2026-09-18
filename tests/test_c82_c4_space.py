@@ -239,3 +239,44 @@ class ElNombreDelModeloSeEscapaEnLaPaginaTest(unittest.TestCase):
 
     def test_y_un_nombre_normal_sale_tal_cual(self):
         self.assertIn("<h1>riesgo de caída</h1>", space_index_html("riesgo de caída"))
+
+
+class ElScriptDeLaPaginaEsJavaScriptValidoTest(unittest.TestCase):
+    """La plantilla de `index.html` es una cadena NORMAL de Python: una barra
+    invertida seguida de `n` dentro de ella llega a la página como un salto de
+    línea REAL, y dentro de un literal de JavaScript o de un comentario `//` es
+    un error de sintaxis que mata el script entero — la página se queda en
+    «Loading…» sin decir por qué. Pasó DOS veces seguidas el 2026-09-18 al
+    arreglar el codificador, y ninguna prueba de este fichero lo habría visto:
+    todas comparan texto. Esta pasa el script generado por `node --check`."""
+
+    def _script_de_la_pagina(self) -> str:
+        html = space_index_html("modelo")
+        inicio = html.index('"use strict"')
+        return html[inicio:html.index("</script>", inicio)]
+
+    def test_el_script_generado_pasa_node_check(self):
+        import shutil
+        import subprocess
+        import tempfile
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("sin `node` en esta máquina: no se puede comprobar la sintaxis del script")
+        with tempfile.TemporaryDirectory() as tmp:
+            ruta = f"{tmp}/pagina.js"
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write(self._script_de_la_pagina())
+            r = subprocess.run([node, "--check", ruta], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, f"el script de la página no es JavaScript válido:\n{r.stderr}")
+
+    def test_y_el_FUENTE_de_la_plantilla_no_lleva_ninguna_barra_invertida(self):
+        # La causa, además del síntoma. Se lee el FUENTE de `space.py`, no el
+        # HTML generado: en el generado Python ya ha convertido el escape y la
+        # barra no está (la primera versión de esta prueba miraba ahí y un
+        # sabotaje con una barra invertida y una `n` la dejó VERDE).
+        from pathlib import Path
+        import matrixai.export.space as space
+        fuente = Path(space.__file__).read_text(encoding="utf-8")
+        inicio = fuente.index('_INDEX_HTML_TEMPLATE = """') + len('_INDEX_HTML_TEMPLATE = """')
+        plantilla = fuente[inicio:fuente.index('"""', inicio)]
+        self.assertNotIn(chr(92), plantilla)
