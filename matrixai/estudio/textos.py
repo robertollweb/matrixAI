@@ -760,6 +760,47 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "es": "supera las restricciones, pero {opciones} tiene más utilidad medida",
         "en": "clears the constraints, but {opciones} has higher measured utility",
     },
+    # LAS MISMAS CUATRO, SIN NOMBRAR AL CANDIDATO (2026-09-21, decisión de
+    # Roberto: «el motor en grande, el id pequeño»). Quien pinta la decisión ya
+    # pone el nombre —en el Studio, «Campeón: LightGBM» de su propio catálogo—, y
+    # si la frase lo repitiera saldrían dos grafías del mismo nombre en la misma
+    # sección («Campeón: LightGBM» y justo debajo «lightgbm tiene una mejora…»).
+    # Tampoco podía llevar el nombre bonito: ese vive en la pantalla y aquí
+    # habría sido un segundo catálogo que acabaría divergiendo. Así que la frase
+    # dice el PORQUÉ y deja el QUIÉN a quien lo pinta, y solo hay un sitio que
+    # nombra. Con sujeto, «el campeón» —la misma palabra del rótulo—: un «Tiene
+    # una mejora…» suelto se leía con el sujeto de la frase de encima, y en el
+    # JSON exportado viaja sin rótulo (lo pidió deployer-40 midiendo la pantalla). Las de arriba siguen para quien no pinte el nombre aparte.
+    "seleccion_mejora_demostrada_sin_nombre": {
+        "es": "El campeón tiene una mejora demostrada frente al siguiente mejor "
+              "candidato, "
+              "con una diferencia emparejada que excluye el empate",
+        "en": "The champion has a demonstrated improvement over the next best "
+              "candidate, "
+              "with a paired difference that excludes a tie",
+    },
+    "seleccion_eleccion_operativa_sin_nombre": {
+        "es": "El campeón tiene el número más alto, pero la comparación emparejada "
+              "frente al "
+              "siguiente mejor candidato NO demuestra una mejora: es una elección "
+              "bajo incertidumbre, no un ganador claro",
+        "en": "The champion has the highest number, but the paired comparison "
+              "against the "
+              "next best candidate does NOT demonstrate an improvement: this is a "
+              "choice under uncertainty, not a clear winner",
+    },
+    "seleccion_mayor_utilidad_medida_sin_nombre": {
+        "es": "El campeón tiene la mayor utilidad medida entre los candidatos que "
+              "superan las "
+              "restricciones",
+        "en": "The champion has the highest measured utility among the candidates "
+              "that clear "
+              "the constraints",
+    },
+    "seleccion_otro_con_mas_utilidad_sin_nombre": {
+        "es": "supera las restricciones, pero el campeón tiene más utilidad medida",
+        "en": "clears the constraints, but the champion has higher measured utility",
+    },
     # ---- umbral y calibrador (104-C4) --------------------------------------
     "umbral_sin_probabilidades": {
         "es": "{campo} no trae probabilidades: sin una escala continua no hay "

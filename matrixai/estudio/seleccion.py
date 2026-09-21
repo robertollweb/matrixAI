@@ -109,13 +109,31 @@ def seleccionar(evaluaciones: Mapping[str, EvaluationResult], *, restricciones: 
                 metric_id_calidad: str, decision_id: str, split_plan_digest: str,
                 politica: str = POLITICA_UTILIDAD_MAXIMA,
                 necesita_red: Mapping[str, bool] | None = None,
-                comparacion_lider: ComparacionEmparejada | None = None) -> SelectionDecision:
+                comparacion_lider: ComparacionEmparejada | None = None,
+                nombrar_candidatos: bool = True) -> SelectionDecision:
     """`evaluaciones` mapea `candidate -> EvaluationResult` (evidencia de
     DESARROLLO, nunca de test — `SelectionDecision` lo rechaza si se intenta).
     `comparacion_lider`, si se da, es la `ComparacionEmparejada` (105-C5) del
     candidato ganador contra el segundo mejor por `metric_id_calidad` — la
-    calcula el llamante, que sí tiene las muestras por fila."""
+    calcula el llamante, que sí tiene las muestras por fila.
+
+    `nombrar_candidatos` (2026-09-21): si las frases de la decisión NOMBRAN
+    al candidato o no. Por omisión sí, como siempre —nadie que ya llame a esto
+    ve cambiar una palabra—. El Studio lo apaga: allí el ganador es el reajuste
+    final, `lightgbm-seleccion`, y la pantalla decía «Campeón:
+    lightgbm-seleccion» y «lightgbm-seleccion tiene una mejora demostrada…».
+    Roberto decidió que se nombre el MOTOR, en grande y una sola vez; así que la
+    pantalla pone el nombre de su propio catálogo y la frase dice solo el
+    porqué. Pasarle aquí el nombre bonito habría sido un segundo catálogo de
+    nombres, y el id del motor habría dejado dos grafías del mismo nombre en la
+    misma sección.
+
+    Lo que NO cambia, a propósito: `chosen_candidate` sigue siendo el id. Es
+    lo que se audita, y es lo que compara `verificar_seleccion_recomputada`
+    (outcome + chosen_candidate, nunca la frase), así que cambiar la
+    redacción no puede volver en falso esa etapa."""
     necesita_red = necesita_red or {}
+    sufijo = "" if nombrar_candidatos else "_sin_nombre"
     for evaluacion in evaluaciones.values():
         if evaluacion.evaluated_role in ROLES_RESERVADOS:
             raise EsquemaInvalido("seleccionar_con_el_test", valor=evaluacion.evaluated_role)
@@ -175,16 +193,16 @@ def seleccionar(evaluaciones: Mapping[str, EvaluationResult], *, restricciones: 
         feasibles_medibles)
 
     if comparacion_lider is not None and comparacion_lider.veredicto == "mejora":
-        razon_ganador = motivo("seleccion_mejora_demostrada", campo=ganador)
+        razon_ganador = motivo("seleccion_mejora_demostrada" + sufijo, campo=ganador)
     elif comparacion_lider is not None and comparacion_lider.veredicto in ("inconcluso", "equivalencia_practica"):
-        razon_ganador = motivo("seleccion_eleccion_operativa", campo=ganador)
+        razon_ganador = motivo("seleccion_eleccion_operativa" + sufijo, campo=ganador)
     else:
-        razon_ganador = motivo("seleccion_mayor_utilidad_medida", campo=ganador)
+        razon_ganador = motivo("seleccion_mayor_utilidad_medida" + sufijo, campo=ganador)
 
     for candidato in feasibles_medibles:
         if candidato != ganador:
             rechazados.append({"candidate": candidato,
-                               "reason": motivo("seleccion_otro_con_mas_utilidad", opciones=ganador)})
+                               "reason": motivo("seleccion_otro_con_mas_utilidad" + sufijo, opciones=ganador)})
 
     return SelectionDecision(
         decision_id=decision_id, outcome="selected", chosen_candidate=ganador,

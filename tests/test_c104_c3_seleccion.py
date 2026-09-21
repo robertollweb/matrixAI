@@ -135,6 +135,70 @@ class CriterioLiteralTest(unittest.TestCase):
                              "volver a contarlo")
 
 
+class LaFraseNoNombraAlCandidatoTest(unittest.TestCase):
+    """`nombrar_candidatos=False` — decisión de Roberto del 2026-09-21: «el
+    motor en grande, el id pequeño».
+
+    En el Studio el ganador es el reajuste final, `lightgbm-seleccion`, y la
+    pantalla decía «Campeón: lightgbm-seleccion» y «lightgbm-seleccion tiene una
+    mejora demostrada…». Ahora la pantalla pone el nombre del motor de su propio
+    catálogo, UNA vez, y la frase dice solo el porqué con «el campeón» de sujeto
+    —la misma palabra del rótulo—. Si la frase siguiera nombrándolo, habría dos
+    grafías del mismo nombre en la misma sección.
+
+    Tres cosas que no pueden cambiar con esto, y cada una con su prueba: que
+    por omisión todo siga igual (Fase 0 y los benchmarks llaman a esta función),
+    que `chosen_candidate` siga siendo el id (es lo que se audita), y que la
+    RAMA que corresponde siga siendo la misma (una mejora demostrada no puede
+    volverse otra frase por no nombrar a nadie)."""
+
+    EVALUACIONES = {
+        "lightgbm-seleccion": _ev("p8", sensitivity=0.9, specificity=0.9),
+        "baseline-seleccion": _ev("p9", sensitivity=0.85, specificity=0.85),
+    }
+
+    def _decidir(self, **kw):
+        return seleccionar(self.EVALUACIONES, restricciones=[], metric_id_calidad="sensitivity",
+                           decision_id="d-nombre", split_plan_digest="split-1", **kw)
+
+    def test_la_razon_y_los_rechazados_no_llevan_el_id_en_ningun_idioma(self):
+        for veredicto in ("mejora", "inconcluso", None):
+            kw = {"comparacion_lider": _comparacion(veredicto, ci_low=0.01, ci_high=0.09)} if veredicto else {}
+            d = self._decidir(nombrar_candidatos=False, **kw)
+            for idioma in ("es", "en"):
+                self.assertNotIn("seleccion", d.reason[idioma], (veredicto, idioma, d.reason[idioma]))
+                self.assertNotIn("lightgbm", d.reason[idioma], (veredicto, idioma))
+                for r in d.rejected:
+                    self.assertNotIn("lightgbm", r["reason"][idioma], (veredicto, idioma, r))
+            # Con sujeto, y el MISMO que el rótulo: un «Tiene…» suelto se leería
+            # con el sujeto de la frase de encima.
+            self.assertTrue(d.reason["es"].startswith("El campeón"), d.reason["es"])
+            self.assertTrue(d.reason["en"].startswith("The champion"), d.reason["en"])
+
+    def test_el_id_SIGUE_en_chosen_candidate_que_es_lo_que_se_audita(self):
+        d = self._decidir(nombrar_candidatos=False,
+                          comparacion_lider=_comparacion("mejora", ci_low=0.01, ci_high=0.09))
+        self.assertEqual(d.chosen_candidate, "lightgbm-seleccion")
+        self.assertEqual({r["candidate"] for r in d.rejected}, {"baseline-seleccion"})
+
+    def test_la_rama_no_cambia_por_no_nombrar(self):
+        """Callar el nombre no puede convertir una elección bajo incertidumbre
+        en una mejora demostrada, ni al revés: es la parte que más importa de
+        esa frase y la que menos se ve."""
+        mejora = self._decidir(nombrar_candidatos=False,
+                               comparacion_lider=_comparacion("mejora", ci_low=0.01, ci_high=0.09))
+        dudosa = self._decidir(nombrar_candidatos=False, comparacion_lider=_comparacion("inconcluso"))
+        self.assertIn("mejora demostrada", mejora.reason["es"])
+        self.assertIn("NO demuestra una mejora", dudosa.reason["es"])
+        self.assertIn("incertidumbre", dudosa.reason["es"])
+
+    def test_por_omision_todo_sigue_como_antes(self):
+        """Fase 0 y los benchmarks llaman a `seleccionar()` sin la bandera: para
+        ellos no puede cambiar ni una palabra."""
+        d = self._decidir(comparacion_lider=_comparacion("mejora", ci_low=0.01, ci_high=0.09))
+        self.assertTrue(d.reason["es"].startswith("lightgbm-seleccion tiene una mejora"), d.reason["es"])
+
+
 class ResultadosNoSeleccionadosTest(unittest.TestCase):
     def test_no_feasible_model_con_evidencia_completa(self):
         """Todos medidos, ninguno supera las restricciones -- veredicto
