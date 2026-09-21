@@ -130,10 +130,14 @@ matrixai --help
 - **HTTP server**: `/predict`, `/metrics` (Prometheus), `/execute-action`, `/feedback` with API key auth
 - **ONNX / WASM export**: edge deployment bundles and browser-ready WASM packages — for
   dense **and composite** networks (residual blocks, LayerNorm, embeddings, concat), with
-  output equivalence validated against the reference forward pass
+  output equivalence validated against the reference forward pass; the browser runtime is
+  pinned to ONNX Runtime Web 1.20.1, and a test requires it to load the model IR version
+  the exporter actually writes
 - **Self-usable model bundles**: the exported bundle ships `model.onnx` + `predict.py` +
   `inference_spec.json` — it predicts from **raw human values** (same normalization and
-  one-hot encoding as training) with no MatrixAI installation, only `onnxruntime`
+  one-hot encoding as training) with no MatrixAI installation, only `onnxruntime` — plus a
+  `space/` folder for a **static** Hugging Face Space that runs the model in the visitor's
+  browser (no paid account needed; it states that it does not verify the package)
 - **Studio**: browser-based model development environment — a separate product at [matrixaistudio.org](https://matrixaistudio.org), built on this core
 
 ---
@@ -305,7 +309,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 7815 passed, 30 skipped
+# 7900 passed, 22 skipped
 ```
 
 ---

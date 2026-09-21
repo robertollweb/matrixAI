@@ -7,6 +7,70 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.9.0] — 2026-09-21
+
+This release makes every WASM export run in a browser again (the pinned ONNX
+Runtime Web could not load any model the exporter has written since July),
+turns the Hugging Face Space into a static page that runs the model in the
+visitor's browser, lets the clinical profile carry its comparison against the
+baseline, and fixes a decision sample that declared one scale while ordering by
+another.
+
+### Fixed
+- **WASM exports run in a browser again.** `ORT_WEB_MIN_VERSION` had been
+  pinned at 1.14 since 1.0.0, while the ONNX exporter writes `ir_version = 10`
+  since the large-weights work: every `predict.js` exported since then failed
+  with «Unsupported model IR version: 10, max supported IR version: 8». Pinned
+  to ONNX Runtime Web **1.20.1** — measured in Chromium on the same exported
+  model: 1.14 and 1.17 fail; 1.18.0, 1.20.1 and 1.30.0 reproduce the package's
+  own `expected_output.json` exactly. A test now requires the pinned version
+  to load the IR version the exporter actually writes. Affects 1.7.x and 1.8.0.
+- **A decision sample orders on the scale it declares**
+  (`matrixai.estudio`): with both `probabilities` and `scores` present it
+  ordered by `scores` while declaring `calibrated_probability`, so an
+  unthresholded confusion matrix applied the 0.5 *probability* threshold to
+  logits. Now probabilities win when both are present, `scores` are used only
+  on their own, and the result is `None` if the positive class's probability
+  cannot be identified. The clinical decision curve and threshold table were
+  aligned in the same change.
+- **An inferred boolean feature with missing cells becomes categorical**
+  (dataset pipeline) before anything branches on type — byte-for-byte what the
+  manual override produces — and the provenance records
+  `boolean_with_missing_as_categorical:{column}` in `operations`. Declaring it
+  `boolean` by hand is still rejected.
+- **The embeddings measurement script** read `<unk>`/`<pad>` hard-coded; it now
+  reads the special tokens from the `tokenizer.json` that actually runs.
+  `potion-multilingual-128M` is now measured (dim 256; per-document AUC 0.872
+  es / 0.908 en; es→en P@1 0.958; 0 % unknown tokens): Spanish coverage
+  «limited», English «covered».
+
+### Changed
+- **The Hugging Face Space is static.** A Gradio Space returns HTTP 402 to
+  accounts without HF PRO, so a free user could never run the demo. The
+  package's `space/` now holds `index.html` — a form built from
+  `inference_spec.json` — and the same `predict.js` the WASM exporter
+  generates, with `sdk: static`. The page states what it does (the model runs
+  in your browser; nothing you type leaves it) and what it does not (it does
+  not verify the package; it gives the local `matrixai verify` command). Its
+  form encodes like `predict.py`: an index must be a whole number in range, a
+  blank field is missing rather than 0, and a clamped value is stated.
+
+### Added
+- **The clinical profile can record the comparison against the baseline**:
+  `PerfilClinico` gains `comparacion_con_el_baseline` (a typed paired
+  comparison), `baseline_comparado`, and `sin_comparacion_con_el_baseline`
+  with a closed vocabulary of reasons. The report writes the difference, its
+  interval and the verdict in both languages; a comparison that was attempted
+  but is `incomparable` is reported as missing, with its reason — not as
+  measured.
+- **`seleccionar(..., nombrar_candidatos=False)`**: the selection's reasons can
+  say «the champion» instead of naming the candidate id, for interfaces that
+  already show the engine's name. The default is unchanged, `chosen_candidate`
+  is still the id, and `verificar_seleccion_recomputada` never compares the
+  sentence.
+
+---
+
 ## [1.8.0] — 2026-09-17
 
 This release ships a GitHub Action that runs `matrixai verify` in CI, a
