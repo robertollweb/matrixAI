@@ -149,6 +149,50 @@ class Pista:
 
 
 @dataclass(frozen=True)
+class Exclusion:
+    """Una columna que NO entra en el estudio, con su motivo y la medida que lo
+    sostiene (114-C0). No bloquea: el estudio sigue con las demás, y lo que se
+    dejó fuera se DICE en vez de callarse."""
+
+    clave: str
+    campo: str
+    motivo: dict[str, str]
+    evidencia: dict[str, Any] = field(default_factory=dict)
+
+    def a_json(self) -> dict[str, Any]:
+        return {"clave": self.clave, "campo": self.campo, "motivo": dict(self.motivo),
+                "evidencia": dict(self.evidencia)}
+
+
+def _sin_texto_libre(predictores: Sequence[str], columnas: Mapping[str, Any]
+                     ) -> tuple[tuple[str, ...], tuple[Exclusion, ...]]:
+    """Las entradas sin las columnas de TEXTO LIBRE, y esas columnas con su motivo.
+
+    DECIDIDO por Roberto el 2026-09-21 (107-C3, decisión 1c; contrato 114-C0).
+    Medido el 2026-09-18: una nota clínica entraba en el estudio como categórica,
+    con 200 categorías en 200 filas de entrenamiento y las 100 de prueba en
+    `__desconocida__`, sin un solo aviso. El camino del prompt ya la excluía
+    (`dataset_analysis._free_text_evidence`); este no la miraba. Se usa la MISMA
+    detección, no una segunda: vale también cuando la lista de entradas viene
+    declarada, porque la pantalla reenvía la que le propone el núcleo."""
+    quedan: list[str] = []
+    fuera: list[Exclusion] = []
+    for columna in predictores:
+        info = columnas.get(columna) or {}
+        evidencia = info.get("free_text_evidence") if info.get("looks_like_free_text") else None
+        if not evidencia:
+            quedan.append(columna)
+            continue
+        fuera.append(Exclusion(
+            clave="texto_libre_excluido", campo=columna,
+            motivo=motivo("texto_libre_excluido", campo=repr(columna),
+                          palabras=int(round(float(evidencia["median_words"]))),
+                          distintas=int(round(100 * float(evidencia["distinct_word_ratio"])))),
+            evidencia=dict(evidencia)))
+    return tuple(quedan), tuple(fuera)
+
+
+@dataclass(frozen=True)
 class Confirmacion:
     """El problema, confirmado o con lo que le falta para estarlo."""
 
@@ -157,6 +201,7 @@ class Confirmacion:
     preguntas: tuple[Pregunta, ...] = ()
     bloqueos: tuple[Bloqueo, ...] = ()
     pistas: tuple[Pista, ...] = ()
+    excluidas: tuple[Exclusion, ...] = ()
 
     @property
     def confirmado(self) -> bool:
@@ -177,6 +222,7 @@ class Confirmacion:
             "preguntas": [p.a_json() for p in self.preguntas],
             "bloqueos": [b.a_json() for b in self.bloqueos],
             "pistas": [p.a_json() for p in self.pistas],
+            "excluidas": [e.a_json() for e in self.excluidas],
         }
 
 
@@ -532,6 +578,24 @@ def confirmar_desde_csv(
             bloqueos.append(Bloqueo(
                 clave="objetivo_entre_las_entradas", campo=objetivo,
                 motivo=motivo("objetivo_entre_las_entradas", campo=repr(objetivo))))
+    # -- el texto libre, fuera con su motivo (114-C0) -----------------------
+    predictores, excluidas = _sin_texto_libre(predictores, columnas)
+    # Y las de texto libre que ni siquiera venían declaradas: también se quedan
+    # fuera, y también se dice. Hace falta para que el ARRANQUE del estudio las
+    # vea: la pantalla reenvía la lista que le propuso el núcleo, ya sin la nota,
+    # y sin esto la confirmación de ese momento no tendría nada que contar.
+    ya_dichas = {e.campo for e in excluidas}
+    _, no_declaradas = _sin_texto_libre(
+        [c for c in orden if c not in (objetivo, "row_id") and c not in predictores
+         and c not in ya_dichas], columnas)
+    excluidas = excluidas + no_declaradas
+    if excluidas and not predictores:
+        # Sin esto, un CSV cuyas únicas entradas fueran texto libre daba el
+        # problema por CONFIRMADO con cero predictores (medido el 2026-09-21).
+        bloqueos.append(Bloqueo(
+            clave="sin_entradas_utilizables", campo=None,
+            motivo=motivo("sin_entradas_utilizables",
+                          excluidas=", ".join(repr(e.campo) for e in excluidas))))
     pistas = pistas_por_nombre(objetivo, predictores)
 
     # -- la tarea ----------------------------------------------------------
@@ -621,6 +685,7 @@ def confirmar_desde_csv(
         unidad_de_observacion=unidad_de_observacion, predictores=predictores,
         momento_de_prediccion=momento_de_prediccion, horizonte=horizonte,
         uso_previsto=uso_previsto, restricciones=restricciones,
+        excluidas=excluidas,
         proceso_actual=proceso_actual)
 
 
@@ -767,12 +832,13 @@ def _confirmar(*, propuesta: dict[str, Any], preguntas: list[Pregunta],
                momento_de_prediccion: str | None, horizonte: Horizonte | None,
                uso_previsto: str | None,
                restricciones: Sequence[Restriccion],
-               proceso_actual: ProcesoActual | None = None) -> Confirmacion:
+               proceso_actual: ProcesoActual | None = None,
+               excluidas: tuple[Exclusion, ...] = ()) -> Confirmacion:
     """El `ProblemSpec` solo si no falta nada. Un sitio, para las dos rutas."""
     if preguntas or bloqueos or tarea is None:
         return Confirmacion(problema=None, propuesta=propuesta,
                             preguntas=tuple(preguntas), bloqueos=tuple(bloqueos),
-                            pistas=pistas)
+                            pistas=pistas, excluidas=excluidas)
     problema = ProblemSpec(
         problem_id=problem_id,
         target=objetivo,
@@ -787,4 +853,5 @@ def _confirmar(*, propuesta: dict[str, Any], preguntas: list[Pregunta],
         constraints=tuple(restricciones),
         current_process=proceso_actual,
     )
-    return Confirmacion(problema=problema, propuesta=propuesta, pistas=pistas)
+    return Confirmacion(problema=problema, propuesta=propuesta, pistas=pistas,
+                        excluidas=excluidas)

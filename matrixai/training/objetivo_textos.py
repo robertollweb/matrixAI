@@ -124,6 +124,29 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "within a year are not the same problem and are not measured alike",
     },
     # ---- bloqueos: errores estructurales del diseño ----------------------
+    "sin_entradas_utilizables": {
+        "es": "no queda ninguna columna con la que predecir: {excluidas} quedaron fuera "
+              "(ver su motivo) y no hay otras entradas. Un estudio sin entradas no puede "
+              "aprender nada; añade al CSV alguna columna que se conozca en el momento de "
+              "predecir",
+        "en": "no column is left to predict with: {excluidas} were left out (see their "
+              "reason) and there are no other inputs. A study without inputs cannot learn "
+              "anything; add to the CSV some column that is known at prediction time",
+    },
+    "texto_libre_excluido": {
+        "es": "{campo} es texto libre escrito por una persona (mediana de {palabras} "
+              "palabras por valor; {distintas} de cada 100 palabras son distintas) y "
+              "queda fuera del estudio: como categoría, cada valor sería casi único, "
+              "el modelo solo podría memorizar las filas de entrenamiento y en las "
+              "nuevas saldría «desconocida». Usar texto libre en el estudio llegará "
+              "con su propio camino (contrato 107)",
+        "en": "{campo} is free text written by a person (median of {palabras} words per "
+              "value; {distintas} out of every 100 words are distinct) and is left out "
+              "of the study: as a category every value would be almost unique, the "
+              "model could only memorise the training rows and new rows would come "
+              "out as «unknown». Using free text in the study will come with its own "
+              "path (contract 107)",
+    },
     "objetivo_entre_las_entradas": {
         "es": "{campo} es a la vez el objetivo confirmado y una entrada: el modelo "
               "acertaría el 100 % copiando la respuesta que ya le damos, y ese 100 % "
