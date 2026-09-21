@@ -1808,12 +1808,27 @@ def _collect_training_result(
     }
 
 
+#: `MATRIXAI_TRAIN_BACKEND=torch_cpu`: el camino torch EN CPU, haya CUDA o no
+#: (2026-09-21). Lo pide quien necesita que su nombre diga la verdad —el motor
+#: `matrixai.dense.torch_cpu` de `matrixai-engines`—, y lo hace SIN preguntar
+#: a CUDA: preguntar ya la inicializa, y torch se queda con esa respuesta para
+#: todo el proceso. Hasta ese día no había forma de pedirlo: con 'torch' y una
+#: GPU presente el core iba a CUDA, y el motor, que intentaba esconderla con
+#: `CUDA_VISIBLE_DEVICES=""`, llegaba tarde — medido en el paquete GPU del
+#: Studio: la densa fallaba sus cinco intentos, y el reajuste final, que corre
+#: dentro del servidor (que ya ha preguntado por la GPU para enseñarla),
+#: tumbaba el estudio entero.
+MODO_TORCH_EN_CPU = "torch_cpu"
+
+
 def _select_train_backend() -> tuple[bool, str]:
     """GPU-C3 — (use_torch, device) for Studio training.
 
     Policy via MATRIXAI_TRAIN_BACKEND: 'auto' (default) → torch on CUDA when
     available, else stdlib; 'torch' → force the torch path (cuda if present, else
-    cpu — useful to test the torch path on a CPU box); 'stdlib' → never torch.
+    cpu — useful to test the torch path on a CPU box); 'torch_cpu' → the torch
+    path on CPU even when CUDA is present, without asking CUDA at all
+    (`MODO_TORCH_EN_CPU`); 'stdlib' → never torch.
     The downloadable Studio 'just works': GPU accelerates, CPU-only falls back to
     stdlib with no config and no regression."""
     mode = os.environ.get("MATRIXAI_TRAIN_BACKEND", "auto").strip().lower()
@@ -1823,6 +1838,8 @@ def _select_train_backend() -> tuple[bool, str]:
         from matrixai.parameters.tensor_bridge import torch_available
         if not torch_available():
             return (False, "cpu")
+        if mode == MODO_TORCH_EN_CPU:
+            return (True, "cpu")
         import torch
         cuda = bool(torch.cuda.is_available())
     except Exception:  # noqa: BLE001
@@ -1850,6 +1867,11 @@ def _select_transformer_train_device() -> tuple[bool, str]:
         from matrixai.parameters.tensor_bridge import torch_available
         if not torch_available():
             return (False, "cpu")
+        # La misma regla que `_select_train_backend`: 'torch_cpu' es CPU sin
+        # preguntar a CUDA. Si solo la cumpliera uno de los dos, un proceso
+        # que pidió CPU acabaría en CUDA por el otro camino.
+        if mode == MODO_TORCH_EN_CPU:
+            return (True, "cpu")
         import torch
         cuda = bool(torch.cuda.is_available())
     except Exception:  # noqa: BLE001
