@@ -7,6 +7,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.9.1] — 2026-09-21
+
+A fix release: the torch training path can now run on CPU when a GPU is present.
+
+### Fixed
+- **`MATRIXAI_TRAIN_BACKEND=torch_cpu` — the torch path on CPU even when CUDA
+  is available, without querying CUDA.** With `torch`, the core went to CUDA as
+  soon as it saw a GPU, and there was no way to ask for torch on CPU on a GPU
+  machine: hiding the GPU with `CUDA_VISIBLE_DEVICES=""` only works before
+  anything in the process has queried CUDA, because torch keeps the first
+  answer. MatrixAI Studio's GPU package hit exactly that: its CPU dense-network
+  engine stopped instead of training on a device its name does not declare,
+  and a model study there ended with no winner. Both device policies
+  (dense/composite and block transformer) honour the new mode, exposed as
+  `matrixai.playground.MODO_TORCH_EN_CPU`; `auto`, `torch` and `stdlib` behave
+  exactly as before.
+
+---
+
 ## [1.9.0] — 2026-09-21
 
 This release makes every WASM export run in a browser again (the pinned ONNX

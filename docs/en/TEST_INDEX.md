@@ -1,7 +1,7 @@
 # MatrixAI — Test Index
 
-**7900 tests across 356 files**, organised by theme (measured on the suite
-that ships with this release: `7900 passed, 22 skipped`).
+**7909 tests across 357 files**, organised by theme (measured on the suite
+that ships with this release: `7909 passed, 22 skipped`).
 
 The per-theme counts below are older than that total and no longer add up
 to it: they are kept as a map of what each area covers, not as a census.
