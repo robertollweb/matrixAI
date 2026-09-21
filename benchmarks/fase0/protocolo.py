@@ -586,6 +586,46 @@ class DatasetRegistrado:
         return cls(**campos)
 
 
+#: Las claves de `Motor.receta` y de su sub-mapa `early_stop` — CERRADAS: una
+#: clave que no está aquí no se cuela en silencio, revienta al construir el
+#: `Motor` (113-C0, receta de la densa del contrato 113-C1, fijada ANTES de
+#: medir). El mismo patrón que `DatasetRegistrado.file_id`: el campo es
+#: opcional (motores que no la declaran no traen `receta`, y `a_json` la omite
+#: cuando no hay valor, así que un protocolo que no la usa no mueve su
+#: digest), pero cuando SÍ está, no admite media receta ni una clave de más.
+_CLAVES_RECETA = frozenset({"optimizador", "learning_rate", "early_stop", "epochs", "batch_size"})
+_CLAVES_EARLY_STOP = frozenset({"patience", "metric"})
+
+
+def _validar_receta(receta: Any) -> None:
+    _exigir(isinstance(receta, Mapping), f"receta tiene que ser un mapeo: {receta!r}")
+    desconocidas = set(receta) - _CLAVES_RECETA
+    _exigir(not desconocidas, f"receta trae claves desconocidas: {sorted(desconocidas)}")
+    faltan = _CLAVES_RECETA - set(receta)
+    _exigir(not faltan, f"a receta le faltan claves: {sorted(faltan)}")
+    _exigir(bool(receta["optimizador"]), "receta.optimizador no puede estar vacío")
+    _exigir(isinstance(receta["learning_rate"], (int, float))
+            and not isinstance(receta["learning_rate"], bool)
+            and receta["learning_rate"] > 0,
+           f"receta.learning_rate tiene que ser positivo: {receta['learning_rate']!r}")
+    _exigir(isinstance(receta["epochs"], int) and not isinstance(receta["epochs"], bool)
+            and receta["epochs"] > 0,
+           f"receta.epochs tiene que ser un entero positivo: {receta['epochs']!r}")
+    _exigir(isinstance(receta["batch_size"], int) and not isinstance(receta["batch_size"], bool)
+            and receta["batch_size"] > 0,
+           f"receta.batch_size tiene que ser un entero positivo: {receta['batch_size']!r}")
+    early = receta["early_stop"]
+    _exigir(isinstance(early, Mapping), f"receta.early_stop tiene que ser un mapeo: {early!r}")
+    desconocidas_es = set(early) - _CLAVES_EARLY_STOP
+    _exigir(not desconocidas_es, f"receta.early_stop trae claves desconocidas: {sorted(desconocidas_es)}")
+    faltan_es = _CLAVES_EARLY_STOP - set(early)
+    _exigir(not faltan_es, f"a receta.early_stop le faltan claves: {sorted(faltan_es)}")
+    _exigir(isinstance(early["patience"], int) and not isinstance(early["patience"], bool)
+            and early["patience"] > 0,
+           f"receta.early_stop.patience tiene que ser un entero positivo: {early['patience']!r}")
+    _exigir(bool(early["metric"]), "receta.early_stop.metric no puede estar vacío")
+
+
 @dataclass(frozen=True)
 class Motor:
     """Un motor que compite en el ranking, y cuántas configuraciones publica.
@@ -597,17 +637,35 @@ class Motor:
     `defaults` habría sido injusto en el sentido que perjudica al árbol, no a
     MatrixAI). `dummy` no tiene hiperparámetro que buscar: una sola
     configuración es honesta, no un descuido.
+
+    `receta`, aditivo desde 113-C0: la receta de entrenamiento declarada ANTES
+    de medir, para el motor que la necesita (la densa: Adam, tasa, parada
+    temprana — 113-C1). `None` por omisión NO es «este motor no tiene
+    receta», es «este protocolo no declara una receta distinta de los valores
+    por omisión del motor» — igual que `DatasetRegistrado.file_id`, la
+    tolerancia no abre una media receta: si está, `_validar_receta` exige
+    todas sus claves y ninguna de más.
     """
 
     id: str
     configuraciones: int = 2
+    receta: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         _exigir(bool(self.id), "el id del motor no puede estar vacío")
         _exigir(self.configuraciones >= 1, "configuraciones tiene que ser >= 1")
+        if self.receta is not None:
+            _validar_receta(self.receta)
 
     def a_json(self) -> dict[str, Any]:
-        return {"id": self.id, "configuraciones": self.configuraciones}
+        payload = {"id": self.id, "configuraciones": self.configuraciones}
+        # LA CLAVE SE EMITE SOLO CUANDO HAY VALOR — el mismo motivo que
+        # `DatasetRegistrado.file_id`: `a_json()` es lo que se hashea, y un
+        # protocolo que no declara receta no puede ver moverse su digest
+        # porque el campo exista en el esquema.
+        if self.receta is not None:
+            payload["receta"] = dict(self.receta)
+        return payload
 
 
 @dataclass(frozen=True)
