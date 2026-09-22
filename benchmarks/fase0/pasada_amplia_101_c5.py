@@ -145,9 +145,11 @@ from pasada_exploratoria_101_c3 import (ARFF_DIR,  # noqa: E402
                                         protocolo_registrado,
                                         wall_seconds_del_cubo)
 
-#: EL PROTOCOLO con el que esta pasada se mide. El MISMO fichero registrado y
-#: firmado de 101-C1, leído por la MISMA función que lo lee en C3.
-RUTA_DEL_PROTOCOLO = c3.RUTA_DEL_PROTOCOLO
+#: EL PROTOCOLO con el que esta pasada se mide: `c3.RUTA_DEL_PROTOCOLO`, leída por la
+#: MISMA función que lo lee en C3 (`protocolo_registrado`). Aquí había una COPIA
+#: (`RUTA_DEL_PROTOCOLO = c3.RUTA_DEL_PROTOCOLO`), tomada al importar: la v2 cambia la
+#: de C3 después, y la copia seguía en la v1. Nadie la leía; se quitó el 2026-09-22
+#: antes de que alguien la leyera.
 
 #: EL CRITERIO DEL SUBCONJUNTO, escrito para que viaje AL JSON. En C5 no hay
 #: subconjunto: es el protocolo entero, que es exactamente lo que el criterio

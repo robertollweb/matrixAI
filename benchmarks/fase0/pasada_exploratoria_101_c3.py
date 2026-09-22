@@ -784,6 +784,9 @@ def _cargar_cache(ruta: Path) -> tuple[dict[tuple, dict], dict]:
 #: una vez y se cachea: `cargar_arff` lo necesita en cada dataset y el fichero
 #: no cambia a mitad de una pasada.
 _CATALOGO_POR_DATA_ID: dict[int, dict] | None = None
+#: De qué protocolo salió `_CATALOGO_POR_DATA_ID`. Sin esto, la pasada v2 leía el
+#: catálogo de la v1 (auditoría del 2026-09-22: `kick` tomó `WarrantyCost` como objetivo).
+_RUTA_DEL_CATALOGO: Path | None = None
 
 
 def _catalogo_registrado() -> dict[int, dict]:
@@ -794,9 +797,12 @@ def _catalogo_registrado() -> dict[int, dict]:
     identificadora sobrante—, PERO lo dice: un catálogo que no se pudo leer no
     es un catálogo que diga «nada que excluir».
     """
-    global _CATALOGO_POR_DATA_ID
-    if _CATALOGO_POR_DATA_ID is None:
-        ruta = Path(__file__).resolve().parent / "protocolo_exploratorio.json"
+    global _CATALOGO_POR_DATA_ID, _RUTA_DEL_CATALOGO
+    # EL PROTOCOLO EN USO, leído AHORA y no al importar: `pasada_v2_113.py` cambia
+    # `RUTA_DEL_PROTOCOLO` a la v2 después de importar este módulo.
+    ruta = RUTA_DEL_PROTOCOLO
+    if _CATALOGO_POR_DATA_ID is None or _RUTA_DEL_CATALOGO != ruta:
+        _RUTA_DEL_CATALOGO = ruta
         try:
             payload = json.loads(ruta.read_text(encoding="utf-8"))
             _CATALOGO_POR_DATA_ID = {d["data_id"]: d for d in payload["datasets"]}
@@ -1096,7 +1102,7 @@ def _alcance_y_veredicto(resultados) -> dict:
     que no lo pudo determinar. Un alcance a medias tranquiliza igual que uno
     falso.
     """
-    ruta_protocolo = Path(__file__).resolve().parent / "protocolo_exploratorio.json"
+    ruta_protocolo = RUTA_DEL_PROTOCOLO
     try:
         protocolo = ProtocoloExploratorio.cargar(ruta_protocolo)
     except (OSError, ValueError) as exc:

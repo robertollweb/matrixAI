@@ -50,7 +50,14 @@ __all__ = ["AtestacionImposible", "METRICAS", "atestiguar"]
 #: `probabilidades` se lee para sacar la clase del máximo, no se publica como
 #: distribución—, ni puntuaciones, ni pesos de muestreo. Declararlo aquí es lo
 #: que permite que la LISTA de métricas la decida el registro y no esta línea.
-_LO_QUE_APORTA_ATESTIGUAR = ("y_true", "classes", "labels", "positive_label")
+#:
+#: Y NO APORTA LA CLASE POSITIVA, aunque `_muestra` tenga que poner una (desde el
+#: 115-C2). Declara la última del vocabulario porque `Muestra` no se construye
+#: binaria sin ella, y con las clases sacadas de lo observado esa es arbitraria.
+#: Con `accuracy` y `macro_f1` no importa (está probado); con sensibilidad o VPP
+#: el número cambiaba con el ORDEN de las filas (0,75 o 0,50 para los mismos
+#: datos, medido), y el registro las abrió a las etiquetas en el 115-C2.
+_LO_QUE_APORTA_ATESTIGUAR = ("y_true", "classes", "labels")
 
 
 def _se_puede_atestiguar(registrada: Any) -> bool:

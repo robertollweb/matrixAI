@@ -192,6 +192,23 @@ def _sin_texto_libre(predictores: Sequence[str], columnas: Mapping[str, Any]
     return tuple(quedan), tuple(fuera)
 
 
+def _sin_el_proceso_actual(predictores: Sequence[str], proceso_actual: ProcesoActual | None
+                           ) -> tuple[tuple[str, ...], tuple[Exclusion, ...]]:
+    """Las entradas sin la columna del PROCESO ACTUAL, y esa columna con su motivo.
+
+    Medido el 2026-09-22 (115-C2): con `proceso_actual=columna("decision_hoy")`,
+    `decision_hoy` salía entre los predictores —sin declarar las entradas y
+    declarándolas—, sin un aviso. El modelo aprendía a copiar la decisión de hoy
+    y sus métricas lo premiaban. Va en `_confirmar`, el sitio de las dos rutas."""
+    if proceso_actual is None or proceso_actual.tipo != "columna" \
+            or proceso_actual.columna not in predictores:
+        return tuple(predictores), ()
+    columna = proceso_actual.columna
+    return (tuple(c for c in predictores if c != columna),
+            (Exclusion(clave="proceso_actual_excluido", campo=columna,
+                       motivo=motivo("proceso_actual_excluido", campo=repr(columna))),))
+
+
 @dataclass(frozen=True)
 class Confirmacion:
     """El problema, confirmado o con lo que le falta para estarlo."""
@@ -835,6 +852,14 @@ def _confirmar(*, propuesta: dict[str, Any], preguntas: list[Pregunta],
                proceso_actual: ProcesoActual | None = None,
                excluidas: tuple[Exclusion, ...] = ()) -> Confirmacion:
     """El `ProblemSpec` solo si no falta nada. Un sitio, para las dos rutas."""
+    predictores, del_proceso = _sin_el_proceso_actual(predictores, proceso_actual)
+    if del_proceso:
+        excluidas = del_proceso + tuple(excluidas)
+        if not predictores and not any(b.clave == "sin_entradas_utilizables" for b in bloqueos):
+            bloqueos = [*bloqueos, Bloqueo(
+                clave="sin_entradas_utilizables", campo=None,
+                motivo=motivo("sin_entradas_utilizables",
+                              excluidas=", ".join(repr(e.campo) for e in excluidas)))]
     if preguntas or bloqueos or tarea is None:
         return Confirmacion(problema=None, propuesta=propuesta,
                             preguntas=tuple(preguntas), bloqueos=tuple(bloqueos),

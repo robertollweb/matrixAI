@@ -85,8 +85,27 @@ def exigir_la_receta_registrada() -> dict:
     return {"registrada": registrada, "ejecutada": ejecutada}
 
 
+def fijar_el_catalogo_v2() -> dict:
+    """El catálogo que `cargar_arff` usa (objetivo declarado e identificadores que sobran),
+    el de la V2. `_catalogo_registrado()` de C3 tiene escrita la ruta de la v1 y no mira
+    `RUTA_DEL_PROTOCOLO`: sin esto, los 3 conjuntos nuevos se leían sin catálogo y `kick`
+    tomaba `WarrantyCost` como objetivo (auditoría del 2026-09-22, reproducido). Se fija aquí
+    y no en C3 porque C3 está en la huella de la caché: tocarlo obligaría a medirlo todo otra vez."""
+    import json
+
+    protocolo = json.loads(RUTA_DEL_PROTOCOLO_V2.read_text(encoding="utf-8"))
+    c3._CATALOGO_POR_DATA_ID = {d["data_id"]: d for d in protocolo["datasets"]}
+    faltan = [d["nombre"] for d in protocolo["datasets"]
+              if d["data_id"] not in c3._catalogo_registrado()]
+    if faltan:
+        raise SystemExit(f"conjuntos del protocolo v2 fuera del catálogo que se va a leer: {faltan}. "
+                         "No se mide.")
+    return c3._CATALOGO_POR_DATA_ID
+
+
 def main(argv=None) -> None:
     c3.RUTA_DEL_PROTOCOLO = RUTA_DEL_PROTOCOLO_V2
+    fijar_el_catalogo_v2()
     comprobacion = exigir_la_receta_registrada()
     print(f"receta registrada: {comprobacion['registrada']}", flush=True)
     print(f"receta ejecutada:  {comprobacion['ejecutada']}", flush=True)

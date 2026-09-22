@@ -103,7 +103,8 @@ __all__ = [
     "MetricaAplazada", "MetricaDesconocida", "MetricaRegistrada", "Muestra",
     "aplazamiento", "aptitud", "calcular", "catalogo", "digest_del_catalogo",
     "direccion_de", "distancia_al_ideal", "es_mejor", "especificacion",
-    "evaluar", "matriz_de_confusion", "metricas_aplicables", "ordenar_por",
+    "evaluar", "matriz_de_confusion", "metricas_aplicables", "nombre_de_la_metrica",
+    "ordenar_por",
 ]
 
 
@@ -930,6 +931,9 @@ class MetricaRegistrada:
     #: Si sale de la matriz de confusión: entonces necesita saber DÓNDE se corta,
     #: y sobre una puntuación sin normalizar eso no lo decide un 0,5 por omisión.
     necesita_umbral: bool = False
+    #: Cómo se llama en pantalla, `(es, en)`. Presentación: por eso vive aquí y
+    #: no en `spec`, que entra en la huella del catálogo.
+    nombre: tuple[str, str] = ("", "")
 
     @property
     def metric_id(self) -> str:
@@ -947,6 +951,33 @@ _CLASIFICACION = TAREAS_DE_CLASIFICACION
 _REGRESION = ("regression",)
 _PUNTUACION = (("scores", "probabilities"),)
 _CLASE_PREDICHA = (("labels", "probabilities", "scores"),)
+#: Las cuatro de la matriz de confusión (sensibilidad, especificidad, VPP y VPN)
+#: usan el MISMO grupo que `accuracy` desde el 115-C2, y piden `labels` como ella:
+#: salen de los recuentos al umbral, y `matriz_de_confusion` ya da prioridad a la
+#: etiqueta declarada, así que una decisión ya tomada —la del proceso actual— las
+#: sostiene. Pedían `_PUNTUACION`, y eso dejaba comparar con el proceso actual
+#: solo en `accuracy`.
+
+
+#: EL NOMBRE DE CADA MÉTRICA, `(es, en)`. `_metrica` lo exige: una métrica sin
+#: nombre no llega a registrarse, y así no puede salir en crudo en una pantalla.
+_NOMBRES: dict[str, tuple[str, str]] = {
+    "auroc": ("AUROC", "AUROC"),
+    "average_precision": ("Precisión media (AP)", "Average precision (AP)"),
+    "pr_auc_trapezoidal": ("Área bajo la curva PR (trapecios)", "PR AUC (trapezoidal)"),
+    "log_loss": ("Pérdida logarítmica", "Log loss"),
+    "brier_score": ("Puntuación de Brier", "Brier score"),
+    "calibration_in_the_large": ("Calibración global", "Calibration-in-the-large"),
+    "sensitivity": ("Sensibilidad", "Sensitivity"),
+    "specificity": ("Especificidad", "Specificity"),
+    "ppv": ("Valor predictivo positivo (VPP)", "Positive predictive value (PPV)"),
+    "npv": ("Valor predictivo negativo (VPN)", "Negative predictive value (NPV)"),
+    "accuracy": ("Exactitud", "Accuracy"),
+    "macro_f1": ("F1 macro", "Macro F1"),
+    "mae": ("MAE", "MAE"),
+    "rmse": ("RMSE", "RMSE"),
+    "r2": ("R²", "R²"),
+}
 
 
 def _metrica(metric_id: str, *, tareas: tuple[str, ...], formula, requires: tuple[str, ...],
@@ -962,7 +993,7 @@ def _metrica(metric_id: str, *, tareas: tuple[str, ...], formula, requires: tupl
                       positive_label=positive_label)
     return MetricaRegistrada(spec=spec, tareas=tareas, formula=formula,
                              alternativas=alternativas, admite_pesos=weights is not None,
-                             necesita_umbral=necesita_umbral)
+                             necesita_umbral=necesita_umbral, nombre=_NOMBRES[metric_id])
 
 
 #: La clase positiva NO se declara en el catálogo: `requires` ya dice que la
@@ -1016,29 +1047,29 @@ _CATALOGO: tuple[MetricaRegistrada, ...] = (
     _metrica("sensitivity", tareas=_BINARIA, necesita_umbral=True,
              formula=_desde_la_matriz("sensitivity", lambda m: m.tp,
                                       lambda m: m.tp + m.fn, "el numero de positivos reales"),
-             requires=("y_true", "classes", "positive_label", "scores"),
-             direction="higher_is_better", alternativas=_PUNTUACION,
+             requires=("y_true", "classes", "positive_label", "labels"),
+             direction="higher_is_better", alternativas=_CLASE_PREDICHA,
              positive_label=CLASE_POSITIVA_DE_LA_MUESTRA,
              normalization="al umbral, sobre recuentos enteros: TP / (TP + FN)"),
     _metrica("specificity", tareas=_BINARIA, necesita_umbral=True,
              formula=_desde_la_matriz("specificity", lambda m: m.tn,
                                       lambda m: m.tn + m.fp, "el numero de negativos reales"),
-             requires=("y_true", "classes", "positive_label", "scores"),
-             direction="higher_is_better", alternativas=_PUNTUACION,
+             requires=("y_true", "classes", "positive_label", "labels"),
+             direction="higher_is_better", alternativas=_CLASE_PREDICHA,
              positive_label=CLASE_POSITIVA_DE_LA_MUESTRA,
              normalization="al umbral, sobre recuentos enteros: TN / (TN + FP)"),
     _metrica("ppv", tareas=_BINARIA, necesita_umbral=True,
              formula=_desde_la_matriz("ppv", lambda m: m.tp, lambda m: m.tp + m.fp,
                                       "el numero de predichos positivos"),
-             requires=("y_true", "classes", "positive_label", "scores"),
-             direction="higher_is_better", alternativas=_PUNTUACION,
+             requires=("y_true", "classes", "positive_label", "labels"),
+             direction="higher_is_better", alternativas=_CLASE_PREDICHA,
              positive_label=CLASE_POSITIVA_DE_LA_MUESTRA,
              normalization="al umbral, sobre recuentos enteros: TP / (TP + FP)"),
     _metrica("npv", tareas=_BINARIA, necesita_umbral=True,
              formula=_desde_la_matriz("npv", lambda m: m.tn, lambda m: m.tn + m.fn,
                                       "el numero de predichos negativos"),
-             requires=("y_true", "classes", "positive_label", "scores"),
-             direction="higher_is_better", alternativas=_PUNTUACION,
+             requires=("y_true", "classes", "positive_label", "labels"),
+             direction="higher_is_better", alternativas=_CLASE_PREDICHA,
              positive_label=CLASE_POSITIVA_DE_LA_MUESTRA,
              normalization="al umbral, sobre recuentos enteros: TN / (TN + FN)"),
     _metrica("accuracy", tareas=_CLASIFICACION, formula=_accuracy,
@@ -1081,6 +1112,13 @@ def catalogo() -> tuple[MetricSpec, ...]:
 
 def especificacion(metric_id: str) -> MetricSpec:
     return _buscar(metric_id).spec
+
+
+def nombre_de_la_metrica(metric_id: str) -> dict[str, str]:
+    """Cómo se llama en pantalla, en los dos idiomas. Mismos rechazos que
+    `especificacion`: una métrica desconocida o aplazada no se nombra."""
+    es, en = _buscar(metric_id).nombre
+    return {"es": es, "en": en}
 
 
 def aplazamiento(metric_id: str) -> dict[str, str] | None:

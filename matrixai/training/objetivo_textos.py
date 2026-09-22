@@ -133,6 +133,16 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "reason) and there are no other inputs. A study without inputs cannot learn "
               "anything; add to the CSV some column that is known at prediction time",
     },
+    "proceso_actual_excluido": {
+        "es": "{campo} es la decisión que se toma hoy (el proceso actual) y queda fuera de las "
+              "entradas: si el modelo la viera aprendería a copiarla, sus métricas saldrían "
+              "buenas por eso y en uso necesitaría como entrada la decisión que viene a apoyar. "
+              "Se usa para comparar el modelo con ella",
+        "en": "{campo} is the decision made today (the current process) and is left out of the "
+              "inputs: if the model saw it, it would learn to copy it, its metrics would look "
+              "good because of that, and in use it would need as input the very decision it is "
+              "meant to support. It is used to compare the model against it",
+    },
     "texto_libre_excluido": {
         "es": "{campo} es texto libre escrito por una persona (mediana de {palabras} "
               "palabras por valor; {distintas} de cada 100 palabras son distintas) y "
