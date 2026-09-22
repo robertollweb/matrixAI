@@ -368,7 +368,28 @@ class LaEntradaDeCarteraEsLaQueSeMIDIOTest(_ContraLaPasadaQueLaEntradaCITA):
             if id_json != _ID_EN_EL_JSON[_QUE_NO_COMPITE]
             and self._regla_sobre(nombre)["cumple_la_regla"]}
         en_la_cartera = {e.motor for e in CARTERA_APROBADA}
-        self.assertEqual({_ID_EN_EL_JSON[n] for n in aprobados_por_la_regla}, en_la_cartera)
+
+        # DOS PASADAS DESDE EL 2026-09-22, y la bicondicional se lee con las dos:
+        # la cartera sella la AMPLIA porque es la anclable, pero una aprobacion se
+        # retira con la mejor medicion disponible —la v2— sin esperar a que esa
+        # sea anclable. Dejar de prometer algo y prometerlo no piden lo mismo.
+        # `catboost` es hoy el unico que cumple en la que sella y NO en la ultima.
+        ultima = json.loads((_FASE0 / "pasada_v2_113_resultado.json").read_text(encoding="utf-8"))
+        protocolo_v2 = ProtocoloExploratorio.cargar(
+            str(_FASE0 / "protocolo_exploratorio_v2.json"))
+        def cumple_en_la_ultima(nombre: str) -> bool:
+            return aplicar_regla_de_cierre(
+                ultima["resultados"], protocolo_v2.regla_de_cierre,
+                metrica_por_dataset=ultima["alcance_y_veredicto"]["metrica_de_cierre_por_dataset"],
+                motor=_ID_EN_EL_JSON[nombre])["cumple_la_regla"]
+
+        siguen_cumpliendo = {n for n in aprobados_por_la_regla if cumple_en_la_ultima(n)}
+        self.assertEqual({_ID_EN_EL_JSON[n] for n in siguen_cumpliendo}, en_la_cartera)
+        retirados = aprobados_por_la_regla - siguen_cumpliendo
+        self.assertEqual({_ID_EN_EL_JSON[n] for n in retirados}, {"catboost"},
+                         "el unico que cumple en la pasada que la cartera sella y NO en "
+                         "la ultima medida es catboost: si esto cambia, la cartera tiene "
+                         "que moverse con ello")
 
     # -- el JSON no se toca ---------------------------------------------
     def test_el_JSON_de_la_evidencia_sigue_siendo_EL_MISMO_que_se_midio(self):
@@ -481,7 +502,6 @@ class LaEvidenciaNoDiceDeMASDeLoQueSeMIDIOTest(_ContraLaPasadaQueLaEntradaCITA):
     _MARCA_DE_QUE_NO_ES_UN_DOMINIO_LIMPIO = {
         "lightgbm": "NO SON SIETE DOMINIOS",
         "sklearn.hgb": "NINGUNO lo discute la dispersion",
-        "catboost": "NO SON TRECE DOMINIOS",
     }
 
     def _detalle_de(self, motor_en_el_texto: str) -> list[dict]:
@@ -567,23 +587,6 @@ class LaEvidenciaNoDiceDeMASDeLoQueSeMIDIOTest(_ContraLaPasadaQueLaEntradaCITA):
                          "comprobaron pliegue a pliegue y ninguno se discute")
         self.assertIn("NINGUNO lo discute la dispersion", entrada.evidencia)
 
-        # -- catboost: CUATRO en la misma frase, solo la ventaja de cada uno.
-        # "gana por" solo se escribe delante del primero de la lista -- "en
-        # wilt (gana por 0,007), sick (0,014), okcupid-stem (0,022) y pc3
-        # (0,309)" -- así que el prefijo es opcional en los tres siguientes.
-        entrada = next(e for e in CARTERA_APROBADA if e.motor == "catboost")
-        vistos = re.findall(r"([\w.\-]+) \((?:gana por )?(\d,\d+)\)", entrada.evidencia)
-        self.assertTrue(vistos, "no se encontro ningun 'nombre (gana por X)' en catboost")
-        self.assertEqual({v[0] for v in vistos},
-                         set(entrada.alcance.aciertos_que_la_dispersion_discute))
-        for dataset, ventaja in vistos:
-            with self.subTest(dataset=dataset):
-                d = detalle_de["catboost"][dataset]
-                self.assertAlmostEqual(
-                    _como_numero(ventaja),
-                    round(d["ventaja_sobre_el_segundo_en_puntos"], _decimales_de(ventaja)),
-                    places=6)
-
     def test_los_cumplidos_DENTRO_DEL_RUIDO_estan_declarados_y_son_los_medidos(self):
         """La otra mitad de «gana por nada»: no ganar por poco, sino CUMPLIR
         por poco. El resumen del propio JSON no lo enseña — su contador solo
@@ -630,26 +633,6 @@ class LaEvidenciaNoDiceDeMASDeLoQueSeMIDIOTest(_ContraLaPasadaQueLaEntradaCITA):
                                        round(intervalo["alto"], _decimales_de(alto)), places=6)
                 self.assertLess(_como_numero(bajo), self.protocolo.regla_de_cierre.puntos)
                 self.assertGreater(_como_numero(alto), self.protocolo.regla_de_cierre.puntos)
-
-        # -- catboost: TRES, en una sola frase --
-        entrada = next(e for e in CARTERA_APROBADA if e.motor == "catboost")
-        vistos = re.findall(
-            r"([\w.\-]+) \((\d,\d+)(?: puntos)?, (?:intervalo )?\[(\d,\d+) \.\. (\d,\d+)\]\)",
-            entrada.evidencia)
-        self.assertTrue(vistos, "no se encontraron los tres cumplidos dentro del ruido de catboost")
-        self.assertEqual({v[0] for v in vistos},
-                         set(entrada.alcance.cumplidos_cuyo_intervalo_cruza_el_liston))
-        for dataset, distancia, bajo, alto in vistos:
-            with self.subTest(dataset=dataset):
-                d = detalle_de["catboost"][dataset]
-                intervalo = d["intervalo_de_la_distancia"]
-                self.assertAlmostEqual(_como_numero(distancia),
-                                       round(d["distancia_en_puntos"], _decimales_de(distancia)),
-                                       places=6)
-                self.assertAlmostEqual(_como_numero(bajo),
-                                       round(intervalo["bajo"], _decimales_de(bajo)), places=6)
-                self.assertAlmostEqual(_como_numero(alto),
-                                       round(intervalo["alto"], _decimales_de(alto)), places=6)
 
     def test_quien_CAMBIA_DE_LADO_DEL_LISTON_segun_la_semilla_esta_medido(self):
         """Re-aplicar la regla registrada a cada semilla por separado (una
