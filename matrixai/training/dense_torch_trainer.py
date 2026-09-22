@@ -15,6 +15,7 @@ velocidad cuando hay GPU. La selección de backend y el fallback viven en el Stu
 """
 from __future__ import annotations
 
+import time
 from typing import Any, Callable
 
 from matrixai.parameters.store import ParameterSet
@@ -90,6 +91,7 @@ def train_dense_network_torch(
     initial_state_dict: dict[str, Any] | None = None,
     optimizer: str | None = None,
     validation_examples: list[tuple[list[float], list[float]]] | None = None,
+    plazo: float | None = None,
 ) -> dict[str, Any]:
     """Train a dense_network via torch autograd.
 
@@ -98,6 +100,18 @@ def train_dense_network_torch(
     | None — CPU), epochs (trace), best_val_loss, best_epoch, backend, device,
     train_loss, materialized (bool)}.
     cancel_check: called after each batch; raise _TrainingCancelled-compatible exception to abort.
+
+    **`plazo`: PARAR A TIEMPO Y QUEDARSE CON LO APRENDIDO** (2026-09-22). Un instante de
+    `time.monotonic()`; `None` = sin plazo, como siempre. Se mira DESPUÉS DE CADA LOTE
+    —con lote 8, una época de un conjunto grande son miles de pasos—, y al pasarse se
+    sale del lote, se evalúa esa época A MEDIAS igual que una entera, se queda el MEJOR
+    estado visto y se devuelve `parado_por_plazo: True`. No es `cancel_check`: cancelar
+    tira el trabajo; esto lo entrega. Motivo, medido en Fase 0: la densa no paraba sola y
+    la mataban desde fuera a 643-646 s de un tope de 630, sin devolver ni la mejor época
+    que ya tenía; en el producto eso es «el motor falló» donde debía ser «entrené lo que
+    cupo». Con un plazo que no se alcanza, el entrenamiento es IDÉNTICO al de sin plazo
+    (misma semilla, mismos pesos): solo se compara un reloj. La época a medias lleva
+    `"parcial": True` en su traza.
 
     PESOS_GRANDES C5: `initial_state_dict` (tensores CPU, mismas claves que
     `dense_module_to_state_dict`/`.mxw`) reanuda el entrenamiento desde esos
@@ -209,6 +223,7 @@ def train_dense_network_torch(
     no_improve = 0
     patience = early_stop[0] if early_stop else None
     train_loss_val = 0.0
+    parado_por_plazo = False
 
     try:
         for epoch in range(1, epochs + 1):
@@ -228,6 +243,9 @@ def train_dense_network_torch(
                 n_batches += 1
                 if cancel_check is not None:
                     cancel_check()
+                if plazo is not None and time.monotonic() >= plazo:
+                    parado_por_plazo = True
+                    break
             train_loss_val = epoch_loss / max(1, n_batches)
 
             module.eval()
@@ -244,10 +262,14 @@ def train_dense_network_torch(
                 no_improve += 1
 
             entry = {"epoch": epoch, "loss": train_loss_val, "val_loss": val_loss}
+            if parado_por_plazo:
+                entry["parcial"] = True
             epoch_trace.append(entry)
             if epoch_callback is not None:
                 epoch_callback(entry)  # may raise to cancel (watchdog/cancel)
 
+            if parado_por_plazo:
+                break
             if patience is not None and no_improve >= patience:
                 break
 
@@ -294,6 +316,9 @@ def train_dense_network_torch(
             # deducirlas fuera, y eso ya salió mal otras veces.
             "train_rows": len(train_ex),
             "peak_vram_gb": round(peak_vram_gb, 2),
+            # Ver `plazo` en el docstring: True = se paró por reloj y esto es la
+            # mejor época vista hasta ahí, no un entrenamiento terminado.
+            "parado_por_plazo": parado_por_plazo,
         }
     finally:
         # Liberar la VRAM en el sitio donde se reservó, tanto en retorno normal como en

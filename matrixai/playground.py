@@ -1929,6 +1929,7 @@ def _dense_torch_train_result(
     cancel_check: Any = None,
     initial_state_dict: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
+    plazo: float | None = None,
 ) -> dict[str, Any]:
     """GPU-C3 — train a dense_network with the torch trainer and build the SAME
     result shape as the stdlib path (so snapshot/infer/export/M3 metrics are
@@ -2047,6 +2048,8 @@ def _dense_torch_train_result(
             # PESOS_GRANDES C5: si hay `initial_state_dict` (reentrenar un modelo
             # guardado), el trainer arranca desde esos pesos en vez de inicializar.
             initial_state_dict=initial_state_dict,
+            # Parar a tiempo y quedarse con la mejor época (ver el trainer).
+            plazo=plazo,
         )
         # Visible en Colab: batch del spec (autogenerado = 8) vs el efectivo en GPU.
         _diag(f"entrenamiento OK en {device}: batch spec={batch_size} → efectivo={tr.get('batch_size')} "
@@ -2125,6 +2128,9 @@ def _dense_torch_train_result(
         # un resultado SIN esta clave y la captura dirá `applied: false`, que es
         # lo que pasó: los pesos llegaron y no se usaron.
         "warm_start_applied": bool(initial_state_dict),
+        # DECLARAR LO QUE PASÓ: True = el entrenamiento se paró por su plazo y esto
+        # es la mejor época vista hasta ahí (`train_dense_network_torch`, `plazo`).
+        "parado_por_plazo": bool(tr.get("parado_por_plazo")),
         # El ESFUERZO, con los mismos numeros que el camino stdlib: la
         # epoca no es comparable entre maquinas, la actualizacion de
         # pesos si.
@@ -2171,6 +2177,7 @@ def _run_playground_dense_training(
     cancel_check: Any = None,
     initial_state_dict: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
+    plazo: float | None = None,
 ) -> dict[str, Any]:
     """Synchronous training for NETWORK (dense) models using DenseSupervisedTrainer.
 
@@ -2178,6 +2185,11 @@ def _run_playground_dense_training(
     (reanudar entrenamiento desde tensores guardados); el fallback stdlib lo
     ignora — reentrenar un modelo grande sin torch disponible entrena desde
     cero como siempre (nunca fue el camino de un modelo grande real).
+
+    `plazo` (2026-09-22): lo mismo, SOLO en el camino torch (ver
+    `train_dense_network_torch`). El stdlib no lo honra, y su resultado no lleva
+    `parado_por_plazo`: quien lo pida y caiga ahí lo ve por `backend`, que es lo que
+    ya comprueba el motor denso (`la_densa_no_entreno_con_torch`).
 
     CONTRATO 59 C1: `target_range` (rango de dominio del target normalizado,
     None en clasificación) reescala MAE/RMSE a la unidad real — se enhebra
@@ -2213,7 +2225,7 @@ def _run_playground_dense_training(
             return _dense_torch_train_result(mxai_text, training, spec, csv_text,
                                              device, seed, epoch_callback, cancel_check,
                                              initial_state_dict=initial_state_dict,
-                                             target_range=target_range)
+                                             target_range=target_range, plazo=plazo)
         except _TrainingCancelled:
             raise
         except Exception as exc:  # noqa: BLE001  — never let GPU break training: fall back
@@ -2889,6 +2901,7 @@ def _run_playground_training(
     field_ranges: dict[str, tuple[float, float]] | None = None,
     target_range: tuple[float, float] | None = None,
     seed: int = 42,
+    plazo: float | None = None,
 ) -> dict[str, Any]:
     """Synchronous training — used by tests and /api/train endpoint.
 
@@ -2911,7 +2924,12 @@ def _run_playground_training(
     entrenamiento real, aunque la procedencia declarara una semilla
     distinta cada vez. Mismo valor por omisión (42) que los tres trainers
     ya usaban — un llamante que no lo pase ve EXACTAMENTE el mismo
-    comportamiento que antes."""
+    comportamiento que antes.
+
+    `plazo` (2026-09-22): un instante de `time.monotonic()` para PARAR A TIEMPO y
+    devolver la mejor época vista (`train_dense_network_torch`). Lo honra SOLO la red
+    densa por torch; transformer y composite no lo reciben, y el resultado de la densa
+    dice `parado_por_plazo`. Sin él, igual que antes."""
     # BIBLIOTECA C1 (autoauditoría, sugerencia implementada): normalizar AQUÍ
     # (BOM/delimitador), no solo dentro de `_validate_training_csv` — esa
     # limpia su copia LOCAL, que nunca vuelve a este `csv_text` (los
@@ -2976,7 +2994,7 @@ def _run_playground_training(
                 seed=seed)
         return _run_playground_dense_training(
             mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
-            seed=seed)
+            seed=seed, plazo=plazo)
 
     validation = _validate_training_csv(mxai_text, training_text, csv_text)
     if not validation.get("ok"):
