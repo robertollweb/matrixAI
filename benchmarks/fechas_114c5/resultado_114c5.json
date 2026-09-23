@@ -1,0 +1,459 @@
+{
+  "protocolo": "114-C5.v1",
+  "huella_del_protocolo": "41b1e4b1b1610c8db5911c3625a336d11071317593ae3116308763661c35b412",
+  "procedencia": {
+    "matrixAI": {
+      "commit": "f6ed6abc1fc04aebdd0386358697d64e6fe0d7f3",
+      "arbol_sucio": false
+    },
+    "matrixai-engines": {
+      "commit": "2f183f3f4dbc08de18173a87bf0ea3eb4dccdba7",
+      "arbol_sucio": false
+    }
+  },
+  "creado": "2026-09-23T06:05:58Z",
+  "conjuntos": [
+    {
+      "data_id": 43820,
+      "nombre": "Avocado-Prices",
+      "sha256_arff": "4f42988d35b8ae6418e7a84b5629b644279f87dcd27ffa2ed57fcb1493acf585",
+      "n_filas": 18249,
+      "predictores": [
+        "Date",
+        "Total_Volume",
+        "4046",
+        "4225",
+        "4770",
+        "Total_Bags",
+        "Small_Bags",
+        "Large_Bags",
+        "XLarge_Bags",
+        "type",
+        "year",
+        "region"
+      ],
+      "repartos": {
+        "temporal": {
+          "n_train": 14685,
+          "n_test": 3564,
+          "sin": 0.3502637581023171,
+          "con": 0.2618454400800186,
+          "metrica": "rmse",
+          "margen": 0.003502637581023171,
+          "comparacion": {
+            "metric_id": "rmse",
+            "diseno": "temporal",
+            "estimando": "fixed_model_on_population",
+            "veredicto": "mejora",
+            "margen_equivalencia": 0.003502637581023171,
+            "diferencia_puntual": -0.08841831802229849,
+            "intervalo": {
+              "metric_id": "rmse",
+              "design": "temporal",
+              "estimand": "fixed_model_on_population",
+              "method": "circular_block_bootstrap",
+              "resampling_unit": "block",
+              "seed": 0,
+              "n_resamples": 1000,
+              "n_resamples_used": 1000,
+              "n_resamples_degenerate": 0,
+              "level": 0.95,
+              "ci_low": -0.10075332801290784,
+              "ci_high": -0.07531764344375103,
+              "block_length": 15,
+              "elapsed_seconds": 3.0333318281918764,
+              "undefined_reason": null
+            },
+            "undefined_reason": null
+          }
+        },
+        "aleatorio": {
+          "n_train": 14599,
+          "n_test": 3650,
+          "sin": 0.1335981821157335,
+          "con": 0.1268909067599429,
+          "metrica": "rmse",
+          "margen": 0.0013359818211573348,
+          "comparacion": {
+            "metric_id": "rmse",
+            "diseno": "iid",
+            "estimando": "fixed_model_on_population",
+            "veredicto": "mejora",
+            "margen_equivalencia": 0.0013359818211573348,
+            "diferencia_puntual": -0.006707275355790576,
+            "intervalo": {
+              "metric_id": "rmse",
+              "design": "iid",
+              "estimand": "fixed_model_on_population",
+              "method": "iid_paired_bootstrap",
+              "resampling_unit": "row",
+              "seed": 0,
+              "n_resamples": 1000,
+              "n_resamples_used": 1000,
+              "n_resamples_degenerate": 0,
+              "level": 0.95,
+              "ci_low": -0.009721998308494812,
+              "ci_high": -0.004055972607506122,
+              "block_length": null,
+              "elapsed_seconds": 3.181070029269904,
+              "undefined_reason": null
+            },
+            "undefined_reason": null
+          }
+        }
+      }
+    },
+    {
+      "data_id": 43771,
+      "nombre": "International-football-results",
+      "sha256_arff": "f2c00efffca5d3910b9af5e91c0ef1fadb1761f1398228f859323782bd593a4e",
+      "n_filas": 41586,
+      "predictores": [
+        "date",
+        "home_team",
+        "away_team",
+        "tournament",
+        "city",
+        "country",
+        "neutral"
+      ],
+      "repartos": {
+        "temporal": {
+          "n_train": 33287,
+          "n_test": 8299,
+          "sin": 0.7332169870770993,
+          "con": 0.7382946472575858,
+          "metrica": "auroc",
+          "margen": 0.01,
+          "comparacion": {
+            "metric_id": "auroc",
+            "diseno": "temporal",
+            "estimando": "fixed_model_on_population",
+            "veredicto": "equivalencia_practica",
+            "margen_equivalencia": 0.01,
+            "diferencia_puntual": 0.0050776601804864985,
+            "intervalo": {
+              "metric_id": "auroc",
+              "design": "temporal",
+              "estimand": "fixed_model_on_population",
+              "method": "circular_block_bootstrap",
+              "resampling_unit": "block",
+              "seed": 0,
+              "n_resamples": 1000,
+              "n_resamples_used": 1000,
+              "n_resamples_degenerate": 0,
+              "level": 0.95,
+              "ci_low": 0.0023974597528711784,
+              "ci_high": 0.007751480446468581,
+              "block_length": 20,
+              "elapsed_seconds": 16.735126035753638,
+              "undefined_reason": null
+            },
+            "undefined_reason": null
+          }
+        },
+        "aleatorio": {
+          "n_train": 33268,
+          "n_test": 8318,
+          "sin": 0.7391824892683999,
+          "con": 0.7492049648836591,
+          "metrica": "auroc",
+          "margen": 0.01,
+          "comparacion": {
+            "metric_id": "auroc",
+            "diseno": "iid",
+            "estimando": "fixed_model_on_population",
+            "veredicto": "mejora",
+            "margen_equivalencia": 0.01,
+            "diferencia_puntual": 0.010022475615259152,
+            "intervalo": {
+              "metric_id": "auroc",
+              "design": "iid",
+              "estimand": "fixed_model_on_population",
+              "method": "iid_paired_bootstrap",
+              "resampling_unit": "row",
+              "seed": 0,
+              "n_resamples": 1000,
+              "n_resamples_used": 1000,
+              "n_resamples_degenerate": 0,
+              "level": 0.95,
+              "ci_low": 0.006467103740729108,
+              "ci_high": 0.013222049388501213,
+              "block_length": null,
+              "elapsed_seconds": 20.558598124887794,
+              "undefined_reason": null
+            },
+            "undefined_reason": null
+          }
+        }
+      }
+    },
+    {
+      "data_id": 42998,
+      "nombre": "metro-interstate-traffic",
+      "sha256_arff": "4bce71925f4384437c12d0424d899d00cba528f811af53260c36119a83680c0d",
+      "n_filas": 48204,
+      "predictores": [
+        "holiday",
+        "temp",
+        "rain_1h",
+        "snow_1h",
+        "clouds_all",
+        "weather_main",
+        "weather_description",
+        "date_time"
+      ],
+      "repartos": {
+        "temporal": {
+          "n_train": 38565,
+          "n_test": 9639,
+          "sin": 1870.5207811045802,
+          "con": 526.7885833322607,
+          "metrica": "rmse",
+          "margen": 18.705207811045803,
+          "comparacion": {
+            "metric_id": "rmse",
+            "diseno": "temporal",
+            "estimando": "fixed_model_on_population",
+            "veredicto": "mejora",
+            "margen_equivalencia": 18.705207811045803,
+            "diferencia_puntual": -1343.7321977723195,
+            "intervalo": {
+              "metric_id": "rmse",
+              "design": "temporal",
+              "estimand": "fixed_model_on_population",
+              "method": "circular_block_bootstrap",
+              "resampling_unit": "block",
+              "seed": 0,
+              "n_resamples": 1000,
+              "n_resamples_used": 1000,
+              "n_resamples_degenerate": 0,
+              "level": 0.95,
+              "ci_low": -1425.7882157967933,
+              "ci_high": -1264.8613196642532,
+              "block_length": 21,
+              "elapsed_seconds": 7.971166803035885,
+              "undefined_reason": null
+            },
+            "undefined_reason": null
+          }
+        },
+        "aleatorio": {
+          "n_train": 38563,
+          "n_test": 9641,
+          "sin": 1878.3409548924733,
+          "con": 422.4327335854311,
+          "metrica": "rmse",
+          "margen": 18.783409548924734,
+          "comparacion": {
+            "metric_id": "rmse",
+            "diseno": "iid",
+            "estimando": "fixed_model_on_population",
+            "veredicto": "mejora",
+            "margen_equivalencia": 18.783409548924734,
+            "diferencia_puntual": -1455.9082213070421,
+            "intervalo": {
+              "metric_id": "rmse",
+              "design": "iid",
+              "estimand": "fixed_model_on_population",
+              "method": "iid_paired_bootstrap",
+              "resampling_unit": "row",
+              "seed": 0,
+              "n_resamples": 1000,
+              "n_resamples_used": 1000,
+              "n_resamples_degenerate": 0,
+              "level": 0.95,
+              "ci_low": -1481.8204597278063,
+              "ci_high": -1430.564067360821,
+              "block_length": null,
+              "elapsed_seconds": 10.759242082946002,
+              "undefined_reason": null
+            },
+            "undefined_reason": null
+          }
+        }
+      }
+    },
+    {
+      "data_id": 43746,
+      "nombre": "NYC-Uber-Pickups-with-Weather-and-Holidays",
+      "sha256_arff": "00723b42c8c19c9b44efffd0c0e783a44432bd7a99cab9165b88de2800038db7",
+      "n_filas": 29101,
+      "predictores": [
+        "pickup_dt",
+        "borough",
+        "spd",
+        "vsb",
+        "temp",
+        "dewp",
+        "slp",
+        "pcp01",
+        "pcp06",
+        "pcp24",
+        "sd",
+        "hday"
+      ],
+      "repartos": {
+        "temporal": {
+          "n_train": 23280,
+          "n_test": 5821,
+          "sin": 656.5047210511627,
+          "con": 363.12792200179473,
+          "metrica": "rmse",
+          "margen": 6.5650472105116275,
+          "comparacion": {
+            "metric_id": "rmse",
+            "diseno": "temporal",
+            "estimando": "fixed_model_on_population",
+            "veredicto": "mejora",
+            "margen_equivalencia": 6.5650472105116275,
+            "diferencia_puntual": -293.376799049368,
+            "intervalo": {
+              "metric_id": "rmse",
+              "design": "temporal",
+              "estimand": "fixed_model_on_population",
+              "method": "circular_block_bootstrap",
+              "resampling_unit": "block",
+              "seed": 0,
+              "n_resamples": 1000,
+              "n_resamples_used": 1000,
+              "n_resamples_degenerate": 0,
+              "level": 0.95,
+              "ci_low": -327.78928005533334,
+              "ci_high": -258.0376488076246,
+              "block_length": 18,
+              "elapsed_seconds": 5.2300843629054725,
+              "undefined_reason": null
+            },
+            "undefined_reason": null
+          }
+        },
+        "aleatorio": {
+          "n_train": 23280,
+          "n_test": 5821,
+          "sin": 470.417924915265,
+          "con": 162.01507455474783,
+          "metrica": "rmse",
+          "margen": 4.70417924915265,
+          "comparacion": {
+            "metric_id": "rmse",
+            "diseno": "iid",
+            "estimando": "fixed_model_on_population",
+            "veredicto": "mejora",
+            "margen_equivalencia": 4.70417924915265,
+            "diferencia_puntual": -308.40285036051716,
+            "intervalo": {
+              "metric_id": "rmse",
+              "design": "iid",
+              "estimand": "fixed_model_on_population",
+              "method": "iid_paired_bootstrap",
+              "resampling_unit": "row",
+              "seed": 0,
+              "n_resamples": 1000,
+              "n_resamples_used": 1000,
+              "n_resamples_degenerate": 0,
+              "level": 0.95,
+              "ci_low": -328.78843208752676,
+              "ci_high": -288.20933245385476,
+              "block_length": null,
+              "elapsed_seconds": 6.389642840251327,
+              "undefined_reason": null
+            },
+            "undefined_reason": null
+          }
+        }
+      }
+    },
+    {
+      "data_id": 43805,
+      "nombre": "Daily-Electricity-Price-and-Demand-Data",
+      "sha256_arff": "7a7b110f9c3d4b5fac4e16d33c5581e907347fe84e62a3b0b8932cba5009a666",
+      "n_filas": 2106,
+      "predictores": [
+        "date",
+        "min_temperature",
+        "max_temperature",
+        "solar_exposure",
+        "rainfall",
+        "school_day",
+        "holiday"
+      ],
+      "repartos": {
+        "temporal": {
+          "n_train": 1684,
+          "n_test": 422,
+          "sin": 9335.20597202237,
+          "con": 5297.196176730305,
+          "metrica": "rmse",
+          "margen": 93.35205972022369,
+          "comparacion": {
+            "metric_id": "rmse",
+            "diseno": "temporal",
+            "estimando": "fixed_model_on_population",
+            "veredicto": "mejora",
+            "margen_equivalencia": 93.35205972022369,
+            "diferencia_puntual": -4038.009795292065,
+            "intervalo": {
+              "metric_id": "rmse",
+              "design": "temporal",
+              "estimand": "fixed_model_on_population",
+              "method": "circular_block_bootstrap",
+              "resampling_unit": "block",
+              "seed": 0,
+              "n_resamples": 1000,
+              "n_resamples_used": 1000,
+              "n_resamples_degenerate": 0,
+              "level": 0.95,
+              "ci_low": -4522.815810648333,
+              "ci_high": -3564.219402060539,
+              "block_length": 8,
+              "elapsed_seconds": 0.3488806178793311,
+              "undefined_reason": null
+            },
+            "undefined_reason": null
+          }
+        },
+        "aleatorio": {
+          "n_train": 1684,
+          "n_test": 422,
+          "sin": 9257.479326235878,
+          "con": 4540.10577075447,
+          "metrica": "rmse",
+          "margen": 92.57479326235878,
+          "comparacion": {
+            "metric_id": "rmse",
+            "diseno": "iid",
+            "estimando": "fixed_model_on_population",
+            "veredicto": "mejora",
+            "margen_equivalencia": 92.57479326235878,
+            "diferencia_puntual": -4717.373555481408,
+            "intervalo": {
+              "metric_id": "rmse",
+              "design": "iid",
+              "estimand": "fixed_model_on_population",
+              "method": "iid_paired_bootstrap",
+              "resampling_unit": "row",
+              "seed": 0,
+              "n_resamples": 1000,
+              "n_resamples_used": 1000,
+              "n_resamples_degenerate": 0,
+              "level": 0.95,
+              "ci_low": -5365.64949987445,
+              "ci_high": -4076.2256119335525,
+              "block_length": null,
+              "elapsed_seconds": 0.36792905488982797,
+              "undefined_reason": null
+            },
+            "undefined_reason": null
+          }
+        }
+      }
+    }
+  ],
+  "criterio": {
+    "texto": "«mejora» en al menos 3 de los 5 en el reparto temporal, y NINGUNA «inferioridad»",
+    "mejoras": 4,
+    "inferioridades": 0,
+    "cumple": true
+  }
+}
