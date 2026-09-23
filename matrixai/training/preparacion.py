@@ -56,6 +56,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from matrixai.training.fechas import (RecetaDeFecha, detectar_fechas, expandir_fila,
+                                     variables_de_fecha)
 from matrixai.training.diagnostico import Limite
 from matrixai.training.preparacion_textos import motivo
 
@@ -137,7 +139,7 @@ class PropuestaDeColumna:
     para aplicarlo después (`transformar_fila`) sin volver a mirar train."""
 
     columna: str
-    tipo: str  # "numerica" | "categorica"
+    tipo: str  # "numerica" | "categorica" | "fecha"
     admite_nativo: bool
     proporcion_faltante: float
     mediana: float | None = None
@@ -160,10 +162,16 @@ class PropuestaDeColumna:
     maximo: float | None = None
     categorias_conocidas: tuple[str, ...] = ()
     categoria_de_referencia: str | None = None
+    #: 114-C5: el formato con que se lee una columna de tipo «fecha» (`fechas.py`).
+    #: `None` en las demás. La columna original se queda en la política —es lo que
+    #: pide el formulario de «Probar una fila», una fecha y no «fecha__anio»— y sus
+    #: variables van en `PoliticaDePreparacion.derivadas_de_fecha`.
+    formato_de_fecha: str | None = None
 
     def a_json(self) -> dict[str, Any]:
         return {
             "columna": self.columna, "tipo": self.tipo,
+            "formato_de_fecha": self.formato_de_fecha,
             "admite_nativo": self.admite_nativo,
             "proporcion_faltante": self.proporcion_faltante,
             "mediana": self.mediana,
@@ -184,7 +192,8 @@ class PropuestaDeColumna:
                    # rango de nada -- ese estudio no lo midió.
                    minimo=payload.get("minimo"), maximo=payload.get("maximo"),
                    categorias_conocidas=tuple(payload.get("categorias_conocidas") or ()),
-                   categoria_de_referencia=payload.get("categoria_de_referencia"))
+                   categoria_de_referencia=payload.get("categoria_de_referencia"),
+                   formato_de_fecha=payload.get("formato_de_fecha"))
 
 
 @dataclass(frozen=True)
@@ -197,6 +206,17 @@ class PoliticaDePreparacion:
     filas_excluidas_sin_objetivo: int
     filas_de_train_efectivas: int
     limites: tuple[Limite, ...] = field(default_factory=tuple)
+    #: 114-C5: las variables de cada columna de fecha (`{col}__anio`, …), como
+    #: propuestas NUMÉRICAS normales (mediana, extremos, indicador de faltante),
+    #: ajustadas sobre las mismas filas de train. Aparte de `columnas` a propósito:
+    #: quien pinta el formulario lee `columnas` y tiene que ver la fecha, no esto.
+    derivadas_de_fecha: tuple[PropuestaDeColumna, ...] = field(default_factory=tuple)
+
+    def derivadas_de(self, propuesta: PropuestaDeColumna) -> tuple[PropuestaDeColumna, ...]:
+        """Las propuestas derivadas de una columna de fecha, en el orden de su receta."""
+        receta = RecetaDeFecha(columna=propuesta.columna, formato=propuesta.formato_de_fecha)
+        por_nombre = {d.columna: d for d in self.derivadas_de_fecha}
+        return tuple(por_nombre[n] for n in receta.columnas_derivadas())
 
     def columna(self, nombre: str) -> PropuestaDeColumna | None:
         return next((c for c in self.columnas if c.columna == nombre), None)
@@ -234,7 +254,10 @@ class PoliticaDePreparacion:
         """
         salida: list[str] = []
         vistas: set[str] = set()
-        for propuesta in self.columnas:
+        # Una fecha no sale como tal: salen sus variables, cada una con su indicador.
+        emitidas = [p for propuesta in self.columnas
+                    for p in (self.derivadas_de(propuesta) if propuesta.tipo == "fecha" else (propuesta,))]
+        for propuesta in emitidas:
             for nombre in (propuesta.columna,
                            *([nombre_de_indicador(propuesta.columna)]
                              if propuesta.tipo == "numerica" else ())):
@@ -249,6 +272,7 @@ class PoliticaDePreparacion:
             "filas_excluidas_sin_objetivo": self.filas_excluidas_sin_objetivo,
             "filas_de_train_efectivas": self.filas_de_train_efectivas,
             "limites": [l.a_json() for l in self.limites],
+            "derivadas_de_fecha": [c.a_json() for c in self.derivadas_de_fecha],
         }
 
     @classmethod
@@ -257,7 +281,10 @@ class PoliticaDePreparacion:
             columnas=tuple(PropuestaDeColumna.desde_json(c) for c in payload["columnas"]),
             filas_excluidas_sin_objetivo=payload["filas_excluidas_sin_objetivo"],
             filas_de_train_efectivas=payload["filas_de_train_efectivas"],
-            limites=tuple(Limite.desde_json(l) for l in payload.get("limites") or ()))
+            limites=tuple(Limite.desde_json(l) for l in payload.get("limites") or ()),
+            # `.get()`: una política anterior al 114-C5 no trae fechas, y no se le inventan.
+            derivadas_de_fecha=tuple(PropuestaDeColumna.desde_json(c)
+                                     for c in payload.get("derivadas_de_fecha") or ()))
 
 
 def tipar_columnas_numericas(filas: list[dict[str, Any]],
@@ -318,19 +345,51 @@ def tipar_columnas_numericas(filas: list[dict[str, Any]],
 
 def ajustar_preparacion(filas: Sequence[Mapping[str, Any]], *, objetivo: str,
                         columnas: Sequence[str], admite_categoricas: bool,
-                        admite_faltantes: bool) -> PoliticaDePreparacion:
+                        admite_faltantes: bool, con_fechas: bool = False) -> PoliticaDePreparacion:
     """Ajusta SOLO sobre `filas` — se espera que sea el train de un pliegue,
     nunca test (el llamante lo garantiza, igual que en 105-C3/105-C4: este
-    módulo no tiene ningún parámetro para recibir una segunda partición)."""
+    módulo no tiene ningún parámetro para recibir una segunda partición).
+
+    `con_fechas` (114-C5, medido: «mejora» en 4 de 5 conjuntos con fecha en un
+    reparto temporal, `benchmarks/fechas_114c5/`): una columna cuyos valores de
+    train se leen todos con un mismo formato de fecha (`fechas.detectar_fechas`,
+    que no adivina las ambiguas) pasa a sus variables en vez de a categórica.
+    Por omisión NO, y es a propósito: la Fase 0 mide con su protocolo sellado, y
+    cambiar lo que su preparación hace sería medir otra cosa sin decirlo."""
     con_objetivo = [f for f in filas if not _es_faltante(f.get(objetivo))]
     excluidas = len(filas) - len(con_objetivo)
     n = len(con_objetivo)
 
     propuestas: list[PropuestaDeColumna] = []
     limites: list[Limite] = []
+    derivadas: list[PropuestaDeColumna] = []
+    recetas = {r.columna: r for r in detectar_fechas(con_objetivo, columnas)} if con_fechas else {}
 
     for columna in columnas:
         valores = [f.get(columna) for f in con_objetivo]
+        if columna in recetas:
+            receta = recetas[columna]
+            presentes = [v for v in valores if not _es_faltante(v)]
+            proporcion_faltante = (len(valores) - len(presentes)) / n if n else 0.0
+            propuestas.append(PropuestaDeColumna(
+                columna=columna, tipo="fecha", admite_nativo=admite_faltantes,
+                proporcion_faltante=proporcion_faltante, formato_de_fecha=receta.formato))
+            expandidas = [expandir_fila({columna: v}, (receta,))[0] for v in valores]
+            for nombre in receta.columnas_derivadas():
+                numericos = [float(e[nombre]) for e in expandidas if e[nombre] is not None]
+                derivadas.append(PropuestaDeColumna(
+                    columna=nombre, tipo="numerica", admite_nativo=admite_faltantes,
+                    proporcion_faltante=(n - len(numericos)) / n if n else 0.0,
+                    mediana=_mediana(numericos) if numericos else None,
+                    minimo=min(numericos) if numericos else None,
+                    maximo=max(numericos) if numericos else None))
+            if proporcion_faltante > UMBRAL_AVISO_FALTANTES:
+                limites.append(Limite(
+                    clave="faltantes_por_encima_del_umbral", campo=columna,
+                    motivo=motivo("faltantes_por_encima_del_umbral", campo=columna,
+                                  valor=f"{proporcion_faltante:.0%}"),
+                    medida={"proporcion_faltante": proporcion_faltante}))
+            continue
         presentes = [v for v in valores if not _es_faltante(v)]
         proporcion_faltante = (len(valores) - len(presentes)) / n if n else 0.0
         es_numerica = bool(presentes) and all(_es_numerica(v) for v in presentes)
@@ -372,7 +431,8 @@ def ajustar_preparacion(filas: Sequence[Mapping[str, Any]], *, objetivo: str,
 
     return PoliticaDePreparacion(
         columnas=tuple(propuestas), filas_excluidas_sin_objetivo=excluidas,
-        filas_de_train_efectivas=n, limites=tuple(limites))
+        filas_de_train_efectivas=n, limites=tuple(limites),
+        derivadas_de_fecha=tuple(derivadas))
 
 
 def transformar_fila(fila: Mapping[str, Any], politica: PoliticaDePreparacion) -> dict[str, Any]:
@@ -381,6 +441,17 @@ def transformar_fila(fila: Mapping[str, Any], politica: PoliticaDePreparacion) -
     resultado: dict[str, Any] = {}
     for propuesta in politica.columnas:
         valor = fila.get(propuesta.columna)
+        if propuesta.tipo == "fecha":
+            # Sus variables, cada una con la regla de una numérica. Una fecha que no
+            # se lee con su formato sale FALTANTE en todas —nunca un cero ni una fecha
+            # inventada—, y el indicador lo dice.
+            variables = variables_de_fecha(valor, propuesta.formato_de_fecha)
+            for i, derivada in enumerate(politica.derivadas_de(propuesta)):
+                faltante = variables is None
+                resultado[derivada.columna] = ((None if derivada.admite_nativo else derivada.mediana)
+                                               if faltante else variables[i])
+                resultado[nombre_de_indicador(derivada.columna)] = 1.0 if faltante else 0.0
+            continue
         if propuesta.tipo == "numerica":
             faltante = _es_faltante(valor)
             if faltante:

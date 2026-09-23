@@ -148,6 +148,17 @@ def comprobar_lo_visto(fila: Mapping[str, Any],
         # fila» afirmaba «todos los valores están dentro de lo visto»). Donde sí
         # faltaba al entrenar, no se marca: eso el modelo lo aprendió.
         nunca_falto = propuesta.proporcion_faltante == 0
+        if propuesta.tipo == "fecha":
+            # 114-C5: una fecha fuera del periodo visto no se marca todavía —sus
+            # extremos son días desde 1970, y un motivo en esos números no se lee—,
+            # así que se DICE que no se comprobó (`sin_rango`), nunca un «dentro»
+            # inventado. Faltar donde nunca faltó sí se marca, como en las demás.
+            if _es_faltante_crudo(fila.get(columna)):
+                if nunca_falto:
+                    marcas.append(Marca(columna=columna, tipo="faltante_nunca_visto", valor=None))
+            else:
+                sin_rango.append(columna)
+            continue
         if propuesta.tipo == "categorica":
             if transformada.get(columna) == CATEGORIA_DESCONOCIDA:
                 marcas.append(Marca(columna=columna, tipo="categoria_nueva",
@@ -167,3 +178,7 @@ def comprobar_lo_visto(fila: Mapping[str, Any],
             marcas.append(Marca(columna=columna, tipo="fuera_del_rango", valor=valor,
                                 minimo=propuesta.minimo, maximo=propuesta.maximo))
     return ComprobacionDeLoVisto(marcas=tuple(marcas), sin_rango=tuple(sin_rango))
+
+
+def _es_faltante_crudo(valor: Any) -> bool:
+    return valor is None or (isinstance(valor, str) and valor.strip() == "")
