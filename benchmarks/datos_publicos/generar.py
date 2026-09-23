@@ -8,19 +8,35 @@ que las lee del artefacto de la pasada y de su protocolo, y una prueba
 (`tests/test_117_c1_datos_publicos.py`) regenera el JSON y lo compara byte a byte con el
 publicado. Es la regla de la tabla de terceros: se mide, no se escribe.
 
-**Qué pasada.** La VIGENTE: la v2 del 113 (`pasada_v2_113_resultado.json`), la que decidió
-el 2026-09-22 que catboost sale de la cartera y la única medida con la receta nueva de la
-red densa. Su procedencia NO es anclable entera —110 de sus 3.479 intentos se midieron con
-el árbol de matrixAI sucio al relanzar tras la caída en `kick`— y eso viaja DENTRO del JSON
-(`procedencia`), no en una nota aparte: quien lo publique no puede dejárselo fuera sin
-tocar este fichero. La cartera sigue citando la v1 como evidencia anclable de lo que
-APRUEBA (`cartera.py`); para enseñar lo que se midió, lo que vale es lo último medido.
+**Qué pasadas, DECIDIDO por Roberto el 2026-09-23 (117-C5).** El JSON publicado lleva DOS
+bloques, cada uno compuesto con el MISMO `componer()` porque los dos artefactos tienen la
+misma forma (medido):
+
+- **`principal`**: la pasada AMPLIA (`pasada_amplia_101_c5_resultado.json`, protocolo v1
+  `protocolo_exploratorio.json`, digest `3646af61...`). Es la que SOSTIENE la cartera —las
+  dos entradas de `matrixai_engines.cartera.CARTERA_APROBADA` sellan este mismo
+  `evidencia_digest`— y es anclable entera (los dos repos limpios al medir). La página y las
+  fichas de «ejemplos medidos» se enseñan desde aquí.
+- **`ultima_medicion`**: la v2 del 113 (`pasada_v2_113_resultado.json`, protocolo v2
+  `protocolo_exploratorio_v2.json`, digest `600ebdaa...`), la que decidió el 2026-09-22 que
+  catboost sale de la cartera y la única medida con la receta nueva de la red densa. Su
+  procedencia NO es anclable entera —110 de sus 3.479 intentos se midieron con el árbol de
+  matrixAI sucio al relanzar tras la caída en `kick`—, y eso viaja DENTRO de su propio bloque
+  (`ultima_medicion.procedencia`), no en una nota aparte. Se enseña APARTE, como «última
+  medición, no anclable entera»: no sustituye al bloque principal ni se mezcla con él.
+
+Hasta el 2026-09-23 este fichero componía TODO desde la v2 porque era «la vigente». Se
+corrigió el mismo día: la cartera nunca dejó de citar la amplia para lo que APRUEBA, y
+enseñar al público una cifra que la propia cartera no usa para aprobar habría sido dos
+sitios declarando cosas distintas. Cuando una pasada nueva se selle y pase a sostener la
+cartera, lo que cambia aquí son las rutas de `principal` (117-C5).
 
 **Qué NO calcula.** El veredicto, las distancias al mejor, si cada motor cumple en cada
 conjunto: todo eso lo escribió la pasada y aquí se COPIA. Lo único que se calcula es la
 MEDIA de cada motor en cada conjunto —la pasada no la guarda en su detalle—, y para que no
 sea un segundo sitio con la cuenta, se COMPRUEBA contra la pasada: la distancia al mejor
-que sale de estas medias tiene que ser la que la pasada escribió, o no se genera nada.
+que sale de estas medias tiene que ser la que la pasada escribió, o no se genera nada. Esto
+se aplica a los DOS bloques por igual.
 
     python3 benchmarks/datos_publicos/generar.py            # comprueba el publicado
     python3 benchmarks/datos_publicos/generar.py --escribir # lo regenera
@@ -36,8 +52,16 @@ from typing import Any
 
 AQUI = Path(__file__).resolve().parent
 FASE0 = AQUI.parent / "fase0"
-RUTA_ARTEFACTO = FASE0 / "pasada_v2_113_resultado.json"
-RUTA_PROTOCOLO = FASE0 / "protocolo_exploratorio_v2.json"
+
+#: EL BLOQUE PRINCIPAL: la pasada que sostiene la cartera (117-C5). `matrixai_engines.
+#: cartera.CARTERA_APROBADA` sella `evidencia_digest` sobre ESTE artefacto.
+RUTA_ARTEFACTO_PRINCIPAL = FASE0 / "pasada_amplia_101_c5_resultado.json"
+RUTA_PROTOCOLO_PRINCIPAL = FASE0 / "protocolo_exploratorio.json"
+
+#: EL BLOQUE APARTE: la última medición, no anclable entera. Nunca sustituye al principal.
+RUTA_ARTEFACTO_ULTIMA_MEDICION = FASE0 / "pasada_v2_113_resultado.json"
+RUTA_PROTOCOLO_ULTIMA_MEDICION = FASE0 / "protocolo_exploratorio_v2.json"
+
 RUTA_PUBLICADO = AQUI / "fase0_publico.json"
 
 #: Qué «medida» es una media aceptable: la de los intentos COMPLETADOS con valor. Un fallo
@@ -74,7 +98,7 @@ def _media(valores: list[float]) -> float:
     return sum(valores) / len(valores)
 
 
-def componer(artefacto: dict[str, Any], protocolo: dict[str, Any]) -> dict[str, Any]:
+def componer(artefacto: dict[str, Any], protocolo: dict[str, Any], nombre_artefacto: str) -> dict[str, Any]:
     if artefacto.get("parcial") is not False:
         raise DatosQueNoCuadran("la pasada no está terminada (`parcial` no es false)")
     veredicto = artefacto["alcance_y_veredicto"]
@@ -143,7 +167,7 @@ def componer(artefacto: dict[str, Any], protocolo: dict[str, Any]) -> dict[str, 
     return {
         "formato": "117-C1.v1",
         "fuente": {
-            "artefacto": RUTA_ARTEFACTO.name,
+            "artefacto": nombre_artefacto,
             "digest_resultados_crudos": artefacto["digest_resultados_crudos"],
             "creado": artefacto["creado"],
             "n_intentos": artefacto["n_intentos"],
@@ -181,8 +205,22 @@ def serializar(datos: dict[str, Any]) -> str:
 
 
 def generar() -> str:
-    return serializar(componer(json.loads(RUTA_ARTEFACTO.read_text(encoding="utf-8")),
-                               json.loads(RUTA_PROTOCOLO.read_text(encoding="utf-8"))))
+    principal = componer(
+        json.loads(RUTA_ARTEFACTO_PRINCIPAL.read_text(encoding="utf-8")),
+        json.loads(RUTA_PROTOCOLO_PRINCIPAL.read_text(encoding="utf-8")),
+        RUTA_ARTEFACTO_PRINCIPAL.name)
+    ultima_medicion = componer(
+        json.loads(RUTA_ARTEFACTO_ULTIMA_MEDICION.read_text(encoding="utf-8")),
+        json.loads(RUTA_PROTOCOLO_ULTIMA_MEDICION.read_text(encoding="utf-8")),
+        RUTA_ARTEFACTO_ULTIMA_MEDICION.name)
+    # DOS bloques, la MISMA forma (117-C1.v1 cada uno): «principal» es lo que sostiene la
+    # cartera (evidencia_digest de matrixai_engines.cartera) y se enseña como tal; «ultima_
+    # medicion» es aparte, y su propio `procedencia.anclable_entera` dice que no lo es entera.
+    return serializar({
+        "formato": "117-C1.v2",
+        "principal": principal,
+        "ultima_medicion": ultima_medicion,
+    })
 
 
 def main(argv=None) -> int:
