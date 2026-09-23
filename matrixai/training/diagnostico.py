@@ -944,6 +944,16 @@ def diagnosticar_csv(
                 sospechas.append(s)
 
     es_binaria = problema.task == "binary_classification" and problema.positive_label is not None
+    # LA CLASE POSITIVA SE COMPARA CON LA ETIQUETA NORMALIZADA, no con el valor crudo
+    # (auditoría cruzada del 2026-09-23). `problema.positive_label` es la etiqueta que
+    # nombra la confirmación («class_1», «si», «yes») y las filas traen el valor del CSV
+    # («1», «Sí», «Yes»): comparándolos tal cual, con los objetivos más corrientes el
+    # indicador salía todo ceros y la fuga numérica y la precisión insuficiente se
+    # apagaban EN SILENCIO. Se traduce con `_normalize_labels`, la MISMA función con que
+    # la confirmación nombra las clases; si no puede (dos crudos que colisionan), se deja
+    # el valor tal cual, que es lo de antes.
+    es_la_positiva = _comparador_de_la_positiva(valores_objetivo, problema.positive_label,
+                                                objetivo) if es_binaria else None
     for predictor in predictores:
         info = columnas_info.get(predictor) or {}
         tipo = info.get("type")
@@ -960,8 +970,7 @@ def diagnosticar_csv(
                 if s is not None:
                     sospechas.append(s)
             elif es_binaria:
-                indicador = [1.0 if v.strip() == problema.positive_label else 0.0
-                            for v in valores_objetivo]
+                indicador = [1.0 if es_la_positiva(v) else 0.0 for v in valores_objetivo]
                 s = asociacion_muy_alta(valores_por_columna[predictor], indicador,
                                         columna=predictor, metodo="pearson")
                 if s is not None:
@@ -982,7 +991,7 @@ def diagnosticar_csv(
         limites.append(t)
     if es_binaria:
         eventos = sum(1 for v in valores_objetivo
-                      if not _is_null(v) and v.strip() == problema.positive_label)
+                      if not _is_null(v) and es_la_positiva(v))
         p = precision_insuficiente(eventos, len(valores_objetivo), campo=objetivo)
         if p is not None:
             limites.append(p)
@@ -990,3 +999,20 @@ def diagnosticar_csv(
     return Diagnostico(
         bloqueos=tuple(bloqueos), sospechas=tuple(sospechas), limites=tuple(limites),
         muestreado=muestreado, filas_medidas=len(filas_medidas), filas_totales=filas_totales)
+
+
+def _comparador_de_la_positiva(valores_objetivo: Sequence[Any], positiva: str, objetivo: str):
+    """`v -> bool`: ¿el valor CRUDO `v` es la clase positiva, dicha como la etiqueta
+    NORMALIZADA de la confirmación? Ver el comentario donde se usa."""
+    from matrixai.training.dataset_analysis import _is_null  # noqa: PLC0415
+    from matrixai.training.dataset_project import DatasetProjectError, _normalize_labels  # noqa: PLC0415
+    crudos = sorted({str(v).strip() for v in valores_objetivo if not _is_null(v)})
+    try:
+        _, mapa = _normalize_labels(crudos, objetivo)
+    except DatasetProjectError:
+        mapa = {}
+
+    def es_la_positiva(v: Any) -> bool:
+        crudo = str(v).strip()
+        return crudo == positiva or mapa.get(crudo) == positiva
+    return es_la_positiva
