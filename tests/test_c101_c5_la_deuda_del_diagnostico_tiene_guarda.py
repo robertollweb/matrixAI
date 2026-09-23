@@ -18,7 +18,8 @@ puede propagar una declaración aunque exista.
 
 **PERO NADIE VIGILABA SU CONDICIÓN DE CADUCIDAD, y ese es el hueco que este
 fichero cierra.** El día que alguien añada el parámetro a `diagnosticar_csv` —o
-que el Studio empiece a declarar— hay que hilarlo hasta las TRES llamadas
+que el Studio empiece a declarar— hay que hilarlo hasta las CUATRO llamadas (tres hasta el 2026-09-23; la cuarta, en
+`_comparador_de_la_positiva`, llegó con `a6627ce`)
 internas a `_is_null`. Si se añade el parámetro y se olvida una, el diagnóstico
 volvería a leer un nivel declarado como ausente **en silencio**, que es
 exactamente el defecto que costó la medición. Una deuda declarada sin guarda es
@@ -27,7 +28,7 @@ una nota que envejece: dice «hoy no diverge» y nadie vuelve a comprobar el
 
 **Está escrito para morir.** Cuando el hueco se cierre, estas pruebas se ponen
 rojas y eso es el aviso, no un estorbo: la reescritura será exigir lo contrario
-—que las tres llamadas SÍ reciban la declaración—.
+—que las cuatro llamadas SÍ reciban la declaración—.
 """
 from __future__ import annotations
 
@@ -59,31 +60,39 @@ def test_el_diagnostico_NO_acepta_la_declaracion_todavia():
     Mientras `diagnosticar_csv` no acepte `tokens_de_ausencia`, la heurística de
     dentro no puede divergir de ninguna declaración: no hay declaración que
     contradecir. El día que se añada, esto se pone rojo — y lo que toca entonces
-    es hilarlo hasta las tres llamadas de abajo, no borrar la prueba.
+    es hilarlo hasta las cuatro llamadas de abajo, no borrar la prueba.
     """
     from matrixai.training.diagnostico import diagnosticar_csv
 
     parametros = inspect.signature(diagnosticar_csv).parameters
     assert "tokens_de_ausencia" not in parametros, (
         "`diagnosticar_csv` ya acepta la declaración de ausencia. ESTA PRUEBA HA "
-        "CUMPLIDO SU FUNCIÓN: ahora hay que comprobar que llega hasta las TRES "
+        "CUMPLIDO SU FUNCIÓN: ahora hay que comprobar que llega hasta las CUATRO "
         "llamadas internas a `_is_null` (ver la prueba de abajo) y reescribir "
         "las dos para exigir lo contrario. Si se añade el parámetro y se olvida "
         "una llamada, el diagnóstico vuelve a leer un nivel declarado como "
         "ausente EN SILENCIO — el defecto que costó una medición de 17 horas.")
 
 
-def test_las_TRES_llamadas_internas_siguen_usando_la_heuristica():
+def test_las_CUATRO_llamadas_internas_siguen_usando_la_heuristica():
     """El hecho, leído del código y no supuesto.
 
-    Se cuenta cuántas son a propósito: si mañana aparece una cuarta, el número
-    cambia y alguien tiene que mirar si también necesita la declaración. Un
-    `all(...)` sin recuento dejaría entrar una llamada nueva sin ruido.
+    Se cuenta cuántas son a propósito: si aparece una nueva, el número cambia y
+    alguien tiene que mirar si también necesita la declaración. Un `all(...)` sin
+    recuento dejaría entrar una llamada nueva sin ruido.
+
+    **Y ASÍ PASÓ el 2026-09-23**: `a6627ce` (la clase positiva comparada normalizada)
+    añadió la CUARTA, en `_comparador_de_la_positiva`, y esta guarda la cazó en la
+    suite entera de la release (el commit había pasado por un agujero del hook). Se
+    miró: está en la misma situación que las otras tres —`diagnosticar_csv` sigue sin
+    aceptar `tokens_de_ausencia`, así que no hay declaración que pasarle—, y por eso
+    el número sube a 4 en vez de cambiar el código. El día que llegue la declaración,
+    son CUATRO los sitios.
     """
     llamadas = _llamadas_a_is_null()
-    assert len(llamadas) == 3, (
+    assert len(llamadas) == 4, (
         f"`diagnostico.py` tiene ahora {len(llamadas)} llamadas a `_is_null` y no "
-        "3. Si es una nueva, mira si necesita la declaración de ausencia; si se "
+        "4. Si es una nueva, mira si necesita la declaración de ausencia; si se "
         "ha ido una, actualiza este número. El recuento existe para que un "
         "cambio aquí no pase desapercibido.")
     for llamada in llamadas:
