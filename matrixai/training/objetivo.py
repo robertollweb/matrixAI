@@ -640,6 +640,7 @@ def confirmar_desde_csv(
 
     # -- las clases, EN SU ORDEN ------------------------------------------
     etiquetas: list[str] | None = None
+    mapa: dict[str, str] | None = None
     if tarea in ("binary_classification", "multiclass_classification"):
         crudas = [str(c) for c in clases] if clases is not None else list(valores_crudos)
         ausentes = [c for c in crudas if c not in valores_crudos]
@@ -671,6 +672,14 @@ def confirmar_desde_csv(
             etiquetas = None
         propuesta["clases"] = list(etiquetas) if etiquetas else []
 
+        # LA CLASE POSITIVA SE ACEPTA COMO LA ESCRIBE EL CSV (2026-09-23). Quien usa esto
+        # escribe «1» o «Sí», que es lo que ve en su columna, y las etiquetas son las
+        # NORMALIZADAS («class_1», «si»): sin esta traducción, un objetivo 0/1 o Sí/No
+        # se quedaba preguntando la clase positiva para siempre. Se traduce con el MISMO
+        # mapa con el que se nombran las clases, no con otra regla.
+        if (etiquetas is not None and clase_positiva is not None
+                and clase_positiva not in etiquetas and clase_positiva in (mapa or {})):
+            clase_positiva = mapa[clase_positiva]
         if (etiquetas is not None and tarea == "binary_classification"
                 and (clase_positiva is None or clase_positiva not in etiquetas)):
             preguntas.append(Pregunta(
