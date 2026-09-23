@@ -153,3 +153,72 @@ def test_viaja_en_json():
     politica = elegir_bandas(_muestra(300, 6), coste_falso_positivo=2.0, coste_falso_negativo=1.0,
                              coste_de_revision=0.3)
     assert PoliticaDeBandas.desde_json(politica.a_json()) == politica
+
+
+# -- LAS BANDAS NO CONTRADICEN AL UMBRAL DE SIEMPRE (auditoría del 2026-09-23) -------------
+#
+# El umbral y las bandas se elegían por separado y desempataban distinto: con los mismos
+# costes salía umbral 0,737 y bandas [0,717, 0,717], y una fila con p = 0,727 decía «no» por
+# el umbral y «positiva» por la banda. Con `umbral=` dado: bajo ≤ umbral ≤ alto, y sin zona de
+# revisión la política ES el umbral.
+
+def _muestra_sintetica(semilla, n=120):
+    rng = random.Random(semilla)
+    y, p = [], []
+    for _ in range(n):
+        pos = rng.random() < 0.35
+        y.append("si" if pos else "no")
+        p.append(round(min(1, max(0, rng.gauss(0.62 if pos else 0.4, 0.2))), 3))
+    return Muestra.binaria(y_true=tuple(y), classes=("no", "si"), positive_label="si",
+                           probabilidades=tuple(p)), p
+
+
+@pytest.mark.parametrize("coste_de_revision", [0.1, 0.3, 0.5, 0.9, 1.5])
+def test_con_el_umbral_dado_ninguna_fila_contradice_al_umbral(coste_de_revision):
+    contradicciones_sin_umbral = 0
+    for semilla in range(60):
+        muestra, p = _muestra_sintetica(semilla)
+        t = elegir_umbral(muestra, cost_false_positive=1, cost_false_negative=1).threshold
+        b = elegir_bandas(muestra, coste_falso_positivo=1, coste_falso_negativo=1,
+                          coste_de_revision=coste_de_revision, umbral=t)
+        assert b.umbral_bajo <= t <= b.umbral_alto, (semilla, t, b)
+        for pi in p:
+            banda = b.banda_de(pi)
+            if banda != "revision":
+                assert (banda == "positiva") == (pi >= t), (semilla, pi, t, b)
+        if b.umbral_bajo == b.umbral_alto:
+            assert b.umbral_bajo == t, "sin zona de revisión, la política tiene que SER el umbral"
+        viejo = elegir_bandas(muestra, coste_falso_positivo=1, coste_falso_negativo=1,
+                              coste_de_revision=coste_de_revision)
+        contradicciones_sin_umbral += any(
+            viejo.banda_de(pi) != "revision" and (viejo.banda_de(pi) == "positiva") != (pi >= t)
+            for pi in p)
+    if coste_de_revision in (0.5, 0.9):
+        # Control: sin `umbral=` el defecto está ahí; si no lo estuviera, esta prueba no miraría nada.
+        assert contradicciones_sin_umbral > 0
+
+
+def test_el_par_de_la_auditoria_umbral_0737_y_bandas_0717():
+    """El caso con nombre: la semilla y los costes con los que la auditoría lo encontró."""
+    encontrado = None
+    rng = random.Random(5)
+    for _ in range(5000):
+        y, p = [], []
+        for _ in range(120):
+            pos = rng.random() < 0.35
+            y.append("si" if pos else "no")
+            p.append(round(min(1, max(0, rng.gauss(0.62 if pos else 0.4, 0.2))), 3))
+        m = Muestra.binaria(y_true=tuple(y), classes=("no", "si"), positive_label="si",
+                            probabilidades=tuple(p))
+        t = elegir_umbral(m, cost_false_positive=1, cost_false_negative=1).threshold
+        viejo = elegir_bandas(m, coste_falso_positivo=1, coste_falso_negativo=1, coste_de_revision=0.9)
+        if not (viejo.umbral_bajo <= t <= viejo.umbral_alto):
+            encontrado = (m, t, viejo)
+            break
+    assert encontrado is not None
+    m, t, viejo = encontrado
+    assert (t, viejo.umbral_bajo, viejo.umbral_alto) == (0.737, 0.717, 0.717)
+    nuevo = elegir_bandas(m, coste_falso_positivo=1, coste_falso_negativo=1, coste_de_revision=0.9,
+                          umbral=t)
+    assert nuevo.umbral_bajo == nuevo.umbral_alto == t
+    assert nuevo.banda_de(0.727) == "negativa"

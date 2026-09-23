@@ -110,7 +110,8 @@ def _probabilidades(muestra: Muestra) -> tuple[float, ...]:
 
 def elegir_bandas(muestra_calibracion: Muestra, *, coste_falso_positivo: float,
                   coste_falso_negativo: float, coste_de_revision: float,
-                  restricciones: Sequence[Restriccion] = ()) -> PoliticaDeBandas:
+                  restricciones: Sequence[Restriccion] = (),
+                  umbral: float | None = None) -> PoliticaDeBandas:
     """Los dos umbrales que minimizan el coste REALIZADO en calibración:
     `(FP·c_fp + FN·c_fn + revisados·c_rev) / n`.
 
@@ -118,7 +119,18 @@ def elegir_bandas(muestra_calibracion: Muestra, *, coste_falso_positivo: float,
     positivos que caen por debajo, menos lo que ahorra no revisarlos) y otra
     que solo depende del alto; con el mínimo acumulado de la primera se
     recorren todos los pares con `bajo ≤ alto` en `O(n log n)`. En empate de
-    coste gana el par con MENOS casos a revisión, y después el primero."""
+    coste gana el par con MENOS casos a revisión, y después el primero.
+
+    **`umbral`: las bandas no contradicen al umbral de siempre (2026-09-23).** El
+    umbral (`elegir_umbral`) y las bandas se eligen por separado sobre la misma
+    muestra y los mismos costes, y DESEMPATAN distinto: medido en una auditoría,
+    umbral 0,737 y bandas [0,717, 0,717], así que una fila con p = 0,727 salía
+    «no» por el umbral y «positiva» por la banda (2 de 120 filas; con revisar a
+    0,5, 6 de 120). Con `umbral` dado, solo se consideran pares con
+    `bajo ≤ umbral ≤ alto` —así nada que el umbral llame negativo cae en la banda
+    positiva, ni al revés— y el propio umbral entra como candidato, de modo que
+    sin zona de revisión la política ES el umbral (`bajo = alto = umbral`). Sin
+    `umbral`, lo de antes."""
     if any(r.obligatoria for r in restricciones):
         raise BandasNoAplicables(
             "el problema declara restricciones obligatorias, y las bandas todavía no saben "
@@ -138,7 +150,10 @@ def elegir_bandas(muestra_calibracion: Muestra, *, coste_falso_positivo: float,
     if n == 0:
         raise BandasNoAplicables("no hay filas de calibración", "there are no calibration rows")
 
-    candidatos = sorted(set(probabilidades) | {0.0, 1.0})
+    candidatos = sorted(set(probabilidades) | {0.0, 1.0}
+                        | ({float(umbral)} if umbral is not None else set()))
+    # Con umbral: `bajo` solo entre los candidatos ≤ umbral y `alto` solo entre los ≥ umbral.
+    indice_del_umbral = candidatos.index(float(umbral)) if umbral is not None else None
     # Para cada candidato t: cuántas filas (y cuántas positivas) quedan por DEBAJO.
     pares = sorted(zip(probabilidades, es_positivo))
     debajo: list[int] = []
@@ -166,8 +181,12 @@ def elegir_bandas(muestra_calibracion: Muestra, *, coste_falso_positivo: float,
     mejor: tuple[float, int, int, int] | None = None  # (coste, revisados, bajo, alto)
     mejor_bajo = 0
     for alto in range(len(candidatos)):
-        if f(alto) < f(mejor_bajo) or (f(alto) == f(mejor_bajo) and debajo[alto] > debajo[mejor_bajo]):
+        puede_ser_bajo = indice_del_umbral is None or alto <= indice_del_umbral
+        if puede_ser_bajo and (f(alto) < f(mejor_bajo)
+                               or (f(alto) == f(mejor_bajo) and debajo[alto] > debajo[mejor_bajo])):
             mejor_bajo = alto
+        if indice_del_umbral is not None and alto < indice_del_umbral:
+            continue
         coste = f(mejor_bajo) + g(alto) + n * coste_de_revision
         revisados = debajo[alto] - debajo[mejor_bajo]
         clave = (coste, revisados, mejor_bajo, alto)
