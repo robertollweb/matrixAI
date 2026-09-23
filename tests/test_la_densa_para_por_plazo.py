@@ -188,3 +188,55 @@ def test_el_plazo_llega_desde_la_superficie_publica(monkeypatch):
     assert len(vencido["epochs"]) == 1
     assert libre["ok"] and libre["parado_por_plazo"] is False
     assert len(libre["epochs"]) > 1
+
+
+# --- LA RED COMPUESTA (2026-09-23) ------------------------------------------------------
+#
+# Medido con espías sobre KDDCup09: el bucle DENSO ni se llamaba. Con una categórica de
+# alta cardinalidad el generador produce una red COMPUESTA (EMBEDDING + CONCAT) y el
+# entrenamiento va por `train_composite_network_torch`, que no recibía el plazo; y el
+# motor declaraba un plazo de 450 s que nadie aplicaba. Estas pruebas van por la
+# superficie pública con un CSV que produce esa red de verdad, y lo COMPRUEBAN.
+
+def _proyecto_compuesto():
+    from matrixai.playground import _network_is_composite
+    from matrixai.playground_api import generate_project_from_dataset
+    rng = random.Random(0)
+    lineas = ["x,c,y"] + [f"{rng.random():.4f},v{rng.randrange(300)},{'si' if rng.random() > 0.5 else 'no'}"
+                          for _ in range(600)]
+    gen = generate_project_from_dataset("\n".join(lineas) + "\n", "y", locale="es",
+                                        column_type_overrides={"y": "categorical"})
+    assert _network_is_composite(gen["mxai"]), "el CSV tenía que producir una red COMPUESTA"
+    return gen
+
+
+def _entrenar_compuesta(gen, **kw):
+    from matrixai import limits
+    from matrixai.playground_api import run_playground_training
+    with limits.sin_topes():
+        return run_playground_training(gen["mxai"], gen["training_text"], gen["csv_text"],
+                                       epochs_override=5, field_ranges=gen.get("field_ranges"),
+                                       seed=1, **kw)
+
+
+def test_la_compuesta_tambien_para_por_plazo_y_lo_declara(monkeypatch):
+    from matrixai.playground import MODO_TORCH_EN_CPU
+    monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", MODO_TORCH_EN_CPU)
+    gen = _proyecto_compuesto()
+    vencido = _entrenar_compuesta(gen, plazo=time.monotonic() - 1.0)
+    assert vencido.get("backend") == "torch", vencido.get("backend")
+    assert vencido["ok"] and vencido["network_kind"] == "composite_network"
+    assert vencido["parado_por_plazo"] is True
+    assert len(vencido["epochs"]) == 1
+
+
+def test_la_compuesta_con_un_plazo_lejano_da_los_MISMOS_pesos_y_dice_que_no_paro(monkeypatch):
+    from matrixai.playground import MODO_TORCH_EN_CPU
+    monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", MODO_TORCH_EN_CPU)
+    gen = _proyecto_compuesto()
+    sin = _entrenar_compuesta(gen)
+    con = _entrenar_compuesta(gen, plazo=time.monotonic() + 3600.0)
+    assert sin["params_best"] == con["params_best"]
+    assert [e["validation_loss"] for e in sin["epochs"]] == [e["validation_loss"] for e in con["epochs"]]
+    # La clave VA siempre por el camino torch: su ausencia es la que dice «no se aplicó».
+    assert sin["parado_por_plazo"] is False and con["parado_por_plazo"] is False

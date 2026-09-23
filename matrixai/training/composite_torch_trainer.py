@@ -13,6 +13,7 @@ Determinista (stdlib) = suelo; este camino torch = techo de velocidad con GPU.
 """
 from __future__ import annotations
 
+import time
 from typing import Any, Callable
 
 from matrixai.parameters.store import ParameterSet
@@ -49,6 +50,7 @@ def train_composite_network_torch(
     output_name: str = "",
     initial_state_dict: dict[str, Any] | None = None,
     validation_examples: list[tuple[dict[str, Any], list[float]]] | None = None,
+    plazo: float | None = None,
 ) -> dict[str, Any]:
     """Train a composite_network via torch autograd with batched forward.
 
@@ -61,6 +63,14 @@ def train_composite_network_torch(
     trainer: {best_params, epochs, best_val_loss, best_epoch, train_loss, backend,
     device, effective_batch_size}.
     cancel_check: called after each batch; raise to abort (mismo contrato que el denso).
+
+    `plazo` (2026-09-23): el MISMO contrato que `train_dense_network_torch` —un
+    instante de `time.monotonic()` mirado después de cada lote; al pasarse, la época a
+    medias se evalúa (`"parcial": True`), se entrega la MEJOR y se devuelve
+    `parado_por_plazo`—. Faltaba aquí y era lo que importaba: con una categórica de
+    alta cardinalidad el generador produce una red COMPUESTA (embeddings), y ése es
+    justo el caso de KDDCup09 y Allstate, los dos conjuntos donde la densa moría por
+    reloj. Medido el 2026-09-23 con espías: el bucle denso ni se llamaba.
 
     TRANSFORMER C4: para redes con BLOCK TRANSFORMER, pasar `type_result`
     (check_composite_network_types) — el módulo se construye vía la entrada
@@ -215,12 +225,15 @@ def train_composite_network_torch(
     no_improve = 0
     patience = early_stop[0] if early_stop else None
     train_loss_val = 0.0
+    parado_por_plazo = False
+    vistas = 0
 
     try:
         for epoch in range(1, epochs + 1):
             rng = torch.Generator().manual_seed(seed + epoch)
             perm = torch.randperm(len(train_ex), generator=rng).to(train_targets.device)
             epoch_loss = 0.0
+            vistas = 0
             for start in range(0, len(train_ex), bs):
                 idx = perm[start: start + bs]
                 optim.zero_grad()
@@ -228,9 +241,15 @@ def train_composite_network_torch(
                 loss.backward()
                 optim.step()
                 epoch_loss += float(loss.detach()) * int(idx.numel())
+                vistas += int(idx.numel())
                 if cancel_check is not None:
                     cancel_check()
-            train_loss_val = epoch_loss / max(1, len(train_ex))
+                if plazo is not None and time.monotonic() >= plazo:
+                    parado_por_plazo = True
+                    break
+            # Dividido por las filas VISTAS: con una época a medias, dividir por todas
+            # daría una pérdida de entrenamiento falsamente baja. Sin plazo, son todas.
+            train_loss_val = epoch_loss / max(1, vistas)
 
             # Validación batched bajo no_grad
             module.eval()
@@ -251,10 +270,14 @@ def train_composite_network_torch(
                 no_improve += 1
 
             entry = {"epoch": epoch, "loss": train_loss_val, "val_loss": val_loss}
+            if parado_por_plazo:
+                entry["parcial"] = True
             epoch_trace.append(entry)
             if epoch_callback is not None:
                 epoch_callback(entry)
 
+            if parado_por_plazo:
+                break
             if patience is not None and no_improve >= patience:
                 break
 
@@ -310,6 +333,8 @@ def train_composite_network_torch(
             "device": device,
             "effective_batch_size": bs,
             "peak_vram_gb": round(peak_vram_gb, 2),
+            # Ver `plazo`: True = paró por reloj y esto es la mejor época vista.
+            "parado_por_plazo": parado_por_plazo,
         }
     finally:
         # M18: liberar la VRAM en este frame (retorno normal y cancelación). La traza de

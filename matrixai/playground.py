@@ -2300,6 +2300,7 @@ def _run_playground_composite_training(
     seed: int = 42,
     cancel_check: Any = None,
     target_range: tuple[float, float] | None = None,
+    plazo: float | None = None,
 ) -> dict[str, Any]:
     """M2-C2 — Synchronous training for composite (P19) NETWORK models.
 
@@ -2311,10 +2312,15 @@ def _run_playground_composite_training(
 
     CONTRATO 59 C1: `target_range` reescala MAE/RMSE a la unidad real del
     target (None en clasificación) — ver `result_from_predictions`.
+
+    `plazo` (2026-09-23): SOLO en el camino torch (`train_composite_network_torch`),
+    como en el denso; el resultado lleva `parado_por_plazo` únicamente por ese camino,
+    y su AUSENCIA dice que no se aplicó (el motor denso lo comprueba).
     """
     target_scale = (
         (target_range[1] - target_range[0]) if target_range is not None else None
     )
+    parado_por_plazo: bool | None = None
     try:
         from matrixai.types import check_composite_network_types
         from matrixai.parameters.network_params import build_composite_network_parameter_set
@@ -2472,7 +2478,9 @@ def _run_playground_composite_training(
                 epoch_callback=_torch_cb, cancel_check=cancel_check,
                 optimizer=opt_type,
                 validation_examples=_torch_val,
+                plazo=plazo,
             )
+            parado_por_plazo = bool(tr.get("parado_por_plazo"))
             best_ps = tr["best_params"]
             best_epoch = tr["best_epoch"]
             best_val_loss = tr["best_val_loss"]
@@ -2592,6 +2600,7 @@ def _run_playground_composite_training(
                 "task_kind": "regression" if is_reg else "classification",
             },
             "evaluation_report": evaluation_report,
+            **({"parado_por_plazo": parado_por_plazo} if parado_por_plazo is not None else {}),
             "network_kind": "composite_network",
         }
     except _TrainingCancelled:
@@ -2927,9 +2936,11 @@ def _run_playground_training(
     comportamiento que antes.
 
     `plazo` (2026-09-22): un instante de `time.monotonic()` para PARAR A TIEMPO y
-    devolver la mejor época vista (`train_dense_network_torch`). Lo honra SOLO la red
-    densa por torch; transformer y composite no lo reciben, y el resultado de la densa
-    dice `parado_por_plazo`. Sin él, igual que antes."""
+    devolver la mejor época vista (`train_dense_network_torch`). Lo honran la red
+    densa y la COMPUESTA por torch (la compuesta desde el 2026-09-23: es la que sale
+    con categóricas de alta cardinalidad); el transformer no lo recibe. Donde se
+    aplica, el resultado dice `parado_por_plazo`; su AUSENCIA dice que no se aplicó.
+    Sin plazo, igual que antes."""
     # BIBLIOTECA C1 (autoauditoría, sugerencia implementada): normalizar AQUÍ
     # (BOM/delimitador), no solo dentro de `_validate_training_csv` — esa
     # limpia su copia LOCAL, que nunca vuelve a este `csv_text` (los
@@ -2991,7 +3002,7 @@ def _run_playground_training(
         if _network_is_composite(mxai_text):
             return _run_playground_composite_training(
                 mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
-                seed=seed)
+                seed=seed, plazo=plazo)
         return _run_playground_dense_training(
             mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
             seed=seed, plazo=plazo)
