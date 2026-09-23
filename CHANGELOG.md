@@ -7,6 +7,56 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.10.0] — 2026-09-24
+
+The study grows up: dates as variables, risk bands, prediction sets and a dense
+network that stops on time — and a fix for the most common targets there are,
+`0/1` and `Yes/No`, which could not complete a study.
+
+### Fixed
+- **A positive class written as it appears in the CSV (`1`, `Sí`, `Yes`) is now
+  accepted.** The objective confirmation names the classes with their
+  normalised labels (`class_1`, `si`, `yes`) and only accepted those, so a
+  study on a `0/1` or `Yes/No` target stayed stuck asking for the positive
+  class. It is now translated with the same map that names the classes; a value
+  that is not in the column still asks.
+- **The risk diagnosis compares the positive class normalised.** With `0/1`,
+  `Sí/No` or `Yes/No` targets it compared the raw value with the normalised
+  label, and the numeric-leakage and insufficient-precision checks went silent.
+- **The dense network stops within its budget** (`plazo=` in
+  `train_dense_network_torch` and `train_composite_network_torch`): checked after
+  every batch; a partial epoch is evaluated, the best epoch is returned and
+  `parado_por_plazo` says so. With an unreached deadline training is identical
+  to before. On two large Phase 0 datasets it used to be killed from outside
+  without returning anything.
+
+### Added
+- **Dates as variables** (`ajustar_preparacion(..., con_fechas=True)`, opt-in):
+  a column whose train values all parse with one format becomes `tipo="fecha"`
+  and contributes year, month, weekday, days since 1970 and, with time, the
+  hour, as numeric derived variables. Measured before wiring: better in 4 of 5
+  public datasets with dates under a temporal split, worse in none.
+- **Decision bands** (`matrixai.estudio.bandas`): two thresholds on the
+  calibrated probability chosen by realised cost (false positive, false
+  negative, review), measured on test with accuracy, coverage and a Wilson
+  interval per band. `elegir_bandas(..., umbral=)` keeps the decision threshold
+  inside the bands, so a row can never be labelled negative and placed in the
+  positive band.
+- **Conformal prediction** (`matrixai.estudio.conforme`): split-conformal class
+  sets (binary) and intervals (regression), calibrated on the calibration
+  partition, with measured test coverage.
+- **What the model did not see** (`matrixai.training.lo_visto`): per row, values
+  out of the training range and unseen categories, declared instead of silently
+  mapped.
+- **Free-text columns are excluded from studies with their reason**, and the
+  current-process column no longer enters as a predictor.
+- Sensitivity, specificity, PPV and NPV are also measured on decisions.
+- Phase 0 protocol v2 and its measured pass; public Phase 0 data generated from
+  the anchorable pass that backs the engine portfolio
+  (`benchmarks/datos_publicos/`).
+
+---
+
 ## [1.9.1] — 2026-09-21
 
 A fix release: the torch training path can now run on CPU when a GPU is present.

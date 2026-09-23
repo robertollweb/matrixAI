@@ -60,6 +60,12 @@ matrixai --help
   attention, feed-forward, layer norm, positional encoding) and a byte-level tokenizer for
   text classification — trained end-to-end on GPU (torch backend) and exported like any
   other network. See `examples/transformer-classifier.mxai`
+- **Model studies with risk stated per decision** (`matrixai.estudio`): decision bands
+  (act / review / act-not) chosen by declared costs and measured on held-out data with
+  their interval, split-conformal prediction sets and intervals, and a per-row report of
+  what the model never saw (out-of-range values, unseen categories). Dates enter as
+  their own variables, and a `0/1` or `Yes/No` target works whatever way you write the
+  positive class
 - **Auditable graph**: computation graph with named nodes, explicit types and audit trail
 - **Supervised training**: classification, risk scoring and regression with `.mxtrain` specs
 - **Large models (billions of parameters)**: binary `.mxw` weights format with tamper
@@ -309,7 +315,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 7909 passed, 22 skipped
+# 8110 passed, 22 skipped
 ```
 
 ---
