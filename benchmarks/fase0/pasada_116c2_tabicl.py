@@ -605,6 +605,13 @@ def _bucket_hacia_arriba(valor: int, buckets: tuple[int, ...]) -> int | None:
     return min(candidatos) if candidatos else None
 
 
+#: LO QUE LA TABLA DE C0 NO VE, medido en la primera pasada de la cola (25-09): en dresses-sales cada
+#: intento tardó 28–30 s de pared, y la tabla (importar + ajustar + predecir el pliegue) daba ~7 s.
+#: El resto es arrancar el subproceso aislado, preparar sus datos y la primera predicción en frío.
+#: Sin esto la estimación salió en 20 min y la pasada agotó su tope de 1 h.
+SOBRECOSTE_MEDIDO_POR_INTENTO_S = 22.0
+
+
 def estimar_coste_del_pliegue(n_filas_de_contexto: int, n_columnas: int, n_test: int,
                               tabla: dict[tuple[int, int], dict]) -> dict:
     """El coste ESTIMADO de un pliegue en régimen, con la tabla de C0: el
@@ -624,7 +631,8 @@ def estimar_coste_del_pliegue(n_filas_de_contexto: int, n_columnas: int, n_test:
                 "motivo": f"C0 no midio el punto (columnas={columnas_bucket}, "
                          f"filas={filas_bucket})"}
     segundos_predecir = punto["ms_por_fila_todas"] * n_test / 1000.0
-    total = punto["segundos_import"] + punto["segundos_ajuste"] + segundos_predecir
+    total = (punto["segundos_import"] + punto["segundos_ajuste"] + segundos_predecir
+             + SOBRECOSTE_MEDIDO_POR_INTENTO_S)
     return {"estimable": True, "segundos": total, "bucket_columnas": columnas_bucket,
             "bucket_filas": filas_bucket, "segundos_predecir": round(segundos_predecir, 2),
             "segundos_ajuste": punto["segundos_ajuste"], "segundos_import": punto["segundos_import"]}

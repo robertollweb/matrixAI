@@ -165,7 +165,13 @@ else:
 fi
 
 echo "argumentos de la pasada: ${ARGS[*]}"
-docker run --rm --network none --memory=6g --memory-swap=6g --cpus=5 \
+# EL CONTENEDOR SE PARA SI SE PARA ESTE GUION (25-09). Matar al cliente de docker —lo que hace el
+# tope de la cola nocturna— NO para el contenedor: el 25-09 siguió midiendo sin su cliente, la cola
+# borró el worktree que tenía montado y la pasada murió con `os.getcwd()` (FileNotFoundError). Con
+# nombre propio y la trampa de abajo, el contenedor muere con el guion, y no se usa `exec`.
+NOMBRE_CONTENEDOR="medicion-116c2-$$"
+trap 'docker rm -f "$NOMBRE_CONTENEDOR" >/dev/null 2>&1' EXIT INT TERM
+docker run --rm --name "$NOMBRE_CONTENEDOR" --network none --memory=6g --memory-swap=6g --cpus=5 \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -e MATRIXAI_TABICL_PESOS_DIR="/pesos_root/hub/models--jingang--TabICL/snapshots/$REV" \
   "${MONTAJES[@]}" \
