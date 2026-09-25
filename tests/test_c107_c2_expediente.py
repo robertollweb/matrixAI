@@ -165,9 +165,21 @@ class TestElBomEnumeraElProveedorConSuLicencia(unittest.TestCase):
             from jsonschema import Draft7Validator
         except ImportError:  # pragma: no cover
             self.skipTest("jsonschema no está instalado")
+        from jsonschema import RefResolver
         esquema = json.loads(_ESQUEMA_CYCLONEDX.read_text(encoding="utf-8"))
+        # SIN RED (2026-09-25): el esquema oficial referencia `spdx.schema.json` (y
+        # `jsf-0.82.schema.json`) por ruta relativa a su `$id`, y `jsonschema` los iba a
+        # buscar a cyclonedx.org. La suite nocturna del 25-09 dio un rojo por un
+        # `MaxRetryError` de madrugada que no tenía nada que ver con el producto. Van
+        # guardados al lado (CycloneDX/specification, etiqueta 1.6, Apache-2.0) y se
+        # resuelven desde aquí.
+        almacen = {}
+        for nombre in ("spdx.schema.json", "jsf-0.82.schema.json"):
+            referenciado = json.loads((_ESQUEMA_CYCLONEDX.parent / nombre).read_text(encoding="utf-8"))
+            almacen[referenciado["$id"]] = referenciado
+        resolutor = RefResolver.from_schema(esquema, store=almacen)
         errores = [f"{list(e.path)}: {e.message}"
-                   for e in Draft7Validator(esquema).iter_errors(self.bom)]
+                   for e in Draft7Validator(esquema, resolver=resolutor).iter_errors(self.bom)]
         self.assertEqual(errores, [])
 
     def test_es_un_machine_learning_model_con_su_licencia_spdx(self):
