@@ -101,8 +101,25 @@ def _protocolo_v3() -> dict:
     return json.loads(RUTA_DEL_PROTOCOLO_V3.read_text(encoding="utf-8"))
 
 
+def _palancas_de_las_enmiendas() -> dict:
+    """Las palancas NUEVAS que registran las enmiendas del protocolo v3
+    (`protocolo_118_v3_enmienda_*.json`), con sus conjuntos y parámetros — la 2 (25-09)
+    registra 118-C3b.receta_completa. Una enmienda que solo acota una palanca de la v3 (la 1)
+    no añade ninguna."""
+    nuevas = {}
+    for ruta in sorted(_AQUI.glob("protocolo_118_v3_enmienda_*.json")):
+        e = json.loads(ruta.read_text(encoding="utf-8"))
+        if "conjuntos" in e and "parametros" in e:
+            nuevas[e["palanca"]] = {"id": e["palanca"], "conjuntos": e["conjuntos"],
+                                    "parametros": e["parametros"], "enmienda": e["enmienda"],
+                                    "digest_de_la_enmienda": e["digest_sha256"]}
+    return nuevas
+
+
 def _definicion_de_la_palanca(protocolo_v3: dict, palanca_id: str) -> dict:
     palancas = {p["id"]: p for p in protocolo_v3["palancas"]}
+    for pid, definicion in _palancas_de_las_enmiendas().items():
+        palancas.setdefault(pid, definicion)
     if palanca_id not in palancas:
         raise SystemExit(f"«{palanca_id}» no está entre las palancas de "
                          f"{RUTA_DEL_PROTOCOLO_V3}: {sorted(palancas)}")
