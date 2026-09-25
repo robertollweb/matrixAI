@@ -120,6 +120,19 @@ class DenseSupervisedTrainer:
                 f"OPTIMIZER TYPE {opt_type!r} is not implemented by the stdlib "
                 f"dense trainer (sgd only) — use --backend torch"
             )
+        # CONTRATO 118-C3b: WEIGHT_DECAY/SCHEDULE son solo-torch. Este
+        # trainer (`dense_train_step`/`dense_backprop.py`) solo sabe SGD
+        # plano sin regularización ni programa de tasa — declararlos y
+        # entrenar de todos modos sería ignorarlos en silencio (la receta
+        # declarada no coincidiría con la que se ejecutó).
+        _extras_no_admitidos = (
+            training.optimizer.ajustes_no_admitidos_por_stdlib() if training.optimizer else []
+        )
+        if _extras_no_admitidos:
+            raise ValueError(
+                f"OPTIMIZER {', '.join(_extras_no_admitidos)} is not implemented "
+                f"by the stdlib dense trainer — use --backend torch"
+            )
         epochs = training.run.epochs if training.run else 50
         # Early stopping: the only metric this trainer computes is validation_loss,
         # so any declared metric maps to it. best_ps already implements save_best.

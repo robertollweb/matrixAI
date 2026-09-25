@@ -1636,6 +1636,26 @@ def motor_y_maquina_de(resultado: dict[str, Any]) -> dict[str, str]:
     return {"backend": backend, "device": "cpu"}
 
 
+def _receta_optimizador_c3b(optimizer: Any) -> dict[str, Any]:
+    """CONTRATO 118-C3b: lo que `WEIGHT_DECAY`/`SCHEDULE` declararon de
+    verdad, para meter en `training_trace` de los tres caminos torch
+    (dense/composite/transformer) — sale del `OptimizerSpec` que de verdad
+    se entrenó, no de una constante que podría haber dejado de aplicarse.
+
+    `{}` si no se declaró ninguno de los dos (el caso de siempre): quien
+    haga `**_receta_optimizador_c3b(...)` en un dict literal no añade
+    ninguna clave, así que la traza sigue byte-idéntica a antes de 118-C3b.
+    """
+    if optimizer is None:
+        return {}
+    extras: dict[str, Any] = {}
+    if optimizer.weight_decay:
+        extras["weight_decay"] = optimizer.weight_decay
+    if optimizer.schedule is not None:
+        extras["schedule"] = optimizer.schedule
+    return {"optimizer": extras} if extras else {}
+
+
 def _metricas_de_clasificacion(rd: dict[str, Any], er: dict[str, Any]) -> dict[str, Any]:
     """Matriz, macro-F1 y por-clase, de la MISMA evaluación que la exactitud.
 
@@ -2038,6 +2058,11 @@ def _dense_torch_train_result(
             device=device, seed=seed, batch_size=batch_size,
             epoch_callback=_torch_cb, cancel_check=cancel_check,
             optimizer=dense_opt_type,
+            # CONTRATO 118-C3b: la receta declarada, aplicada de verdad —
+            # `training.optimizer` ya trae los defaults (0.0/None) para un
+            # texto que no los declara.
+            weight_decay=training.optimizer.weight_decay if training.optimizer else 0.0,
+            schedule=training.optimizer.schedule if training.optimizer else None,
             validation_examples=val_ex,
             # PESOS_GRANDES C3: `materialize` sin fijar → el trainer decide por
             # umbral (`torch_native_min_params`). Por debajo materializa (igual que
@@ -2150,8 +2175,15 @@ def _dense_torch_train_result(
         "best_state_dict": best_state_dict,
         "materialized": tr.get("materialized", True),
         "metrics": {"epochs": epoch_trace},
-        "training_trace": {"backend_report": {"target": device},
-                           "task_kind": "regression" if is_reg else "classification"},
+        "training_trace": {
+            "backend_report": {"target": device},
+            "task_kind": "regression" if is_reg else "classification",
+            # CONTRATO 118-C3b: si el texto declaró weight_decay/schedule,
+            # la procedencia lo dice — sale de `training.optimizer` (el
+            # spec que de verdad se entrenó), no de una constante. Ausente
+            # cuando no se declaró ninguno: traza byte-idéntica a antes.
+            **_receta_optimizador_c3b(training.optimizer),
+        },
         "evaluation_report": evaluation_report,
     }
     if _collapse is not None:
@@ -2477,6 +2509,9 @@ def _run_playground_composite_training(
                 device=device, seed=seed, batch_size=batch_size,
                 epoch_callback=_torch_cb, cancel_check=cancel_check,
                 optimizer=opt_type,
+                # CONTRATO 118-C3b: la receta declarada, aplicada de verdad.
+                weight_decay=training.optimizer.weight_decay if training.optimizer else 0.0,
+                schedule=training.optimizer.schedule if training.optimizer else None,
                 validation_examples=_torch_val,
                 plazo=plazo,
             )
@@ -2500,6 +2535,22 @@ def _run_playground_composite_training(
                         f"OPTIMIZER {opt_type} requiere el backend torch "
                         f"(no está instalado); el trainer stdlib composite "
                         f"solo implementa sgd"
+                    ),
+                }
+            # CONTRATO 118-C3b: WEIGHT_DECAY/SCHEDULE son solo-torch — este
+            # camino (`composite_train_step`) es SGD plano sin regularización
+            # ni programa de tasa. Mismo criterio que dense_trainer.py: se
+            # niega con su motivo en vez de entrenar ignorándolos.
+            _extras_no_admitidos = (
+                training.optimizer.ajustes_no_admitidos_por_stdlib() if training.optimizer else []
+            )
+            if _extras_no_admitidos:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"OPTIMIZER {', '.join(_extras_no_admitidos)} requiere el "
+                        f"backend torch (no está instalado); el trainer stdlib "
+                        f"composite no los aplica"
                     ),
                 }
             best_ps = ps
@@ -2598,6 +2649,9 @@ def _run_playground_composite_training(
                     "peak_vram_gb": peak_vram_gb,
                 },
                 "task_kind": "regression" if is_reg else "classification",
+                # CONTRATO 118-C3b: ver `_receta_optimizador_c3b` — ausente
+                # si el texto no declaró weight_decay/schedule.
+                **_receta_optimizador_c3b(training.optimizer),
             },
             "evaluation_report": evaluation_report,
             **({"parado_por_plazo": parado_por_plazo} if parado_por_plazo is not None else {}),
@@ -2798,6 +2852,9 @@ def _run_playground_transformer_training(
             device=device, seed=seed, batch_size=batch_size,
             epoch_callback=_cb, cancel_check=cancel_check,
             type_result=type_result, optimizer=opt_type, pad_id=pad_id,
+            # CONTRATO 118-C3b: la receta declarada, aplicada de verdad.
+            weight_decay=training.optimizer.weight_decay if training.optimizer else 0.0,
+            schedule=training.optimizer.schedule if training.optimizer else None,
             validation_examples=val_ex,
         )
         best_ps = tr["best_params"]
@@ -2880,6 +2937,9 @@ def _run_playground_transformer_training(
                     "peak_vram_gb": peak_vram_gb,
                 },
                 "task_kind": "regression" if is_reg else "classification",
+                # CONTRATO 118-C3b: ver `_receta_optimizador_c3b` — ausente
+                # si el texto no declaró weight_decay/schedule.
+                **_receta_optimizador_c3b(training.optimizer),
             },
             "evaluation_report": evaluation_report,
             "network_kind": "composite_network",

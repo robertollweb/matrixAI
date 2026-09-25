@@ -51,6 +51,8 @@ def train_composite_network_torch(
     initial_state_dict: dict[str, Any] | None = None,
     validation_examples: list[tuple[dict[str, Any], list[float]]] | None = None,
     plazo: float | None = None,
+    weight_decay: float = 0.0,
+    schedule: str | None = None,
 ) -> dict[str, Any]:
     """Train a composite_network via torch autograd with batched forward.
 
@@ -77,12 +79,18 @@ def train_composite_network_torch(
     común, que delega en el builder del transformer. Las muestras llevan UNA
     clave (la SEQUENCE) con la lista [L] de token ids; `pad_id` deriva la
     máscara de padding (None = todo real, filas pre-tokenizadas a L fija).
-    `optimizer`: "sgd" | "adam" — default adam si hay transformer (los
+    `optimizer`: "sgd" | "adam" | "adamw" — default adam si hay transformer (los
     transformers reales no convergen bien con SGD plano, aviso de P11), sgd si
     no (comportamiento previo intacto). `materialize` sigue la puerta
     PESOS_GRANDES del trainer denso: None = materializar solo por debajo de
     torch_native_min_params(); por encima devuelve best_state_dict (tensores
     CPU, claves del ParameterSet) y best_params=None.
+
+    CONTRATO 118-C3b: `weight_decay`/`schedule` — mismo contrato que
+    `train_dense_network_torch` (ver su docstring): `weight_decay` va al
+    optimizador que se instancie, `schedule="cosine"` crea un
+    `CosineAnnealingLR(T_max=epochs)` que avanza un paso por época. `None`/
+    `0.0` (por omisión) no cambian nada de lo de antes.
     """
     if not torch_available():
         raise CompositeTorchTrainError("PyTorch is not installed — GPU/torch training requires torch")
@@ -164,14 +172,22 @@ def train_composite_network_torch(
 
     bs = effective_batch_size(device, batch_size, len(train_ex))
     opt_name = optimizer or ("adam" if is_transformer else "sgd")
-    if opt_name == "adam":
-        optim = torch.optim.Adam(module.parameters(), lr=lr)
+    if opt_name == "adamw":
+        optim = torch.optim.AdamW(module.parameters(), lr=lr, weight_decay=weight_decay)
+    elif opt_name == "adam":
+        optim = torch.optim.Adam(module.parameters(), lr=lr, weight_decay=weight_decay)
     elif opt_name == "sgd":
-        optim = torch.optim.SGD(module.parameters(), lr=lr)
+        optim = torch.optim.SGD(module.parameters(), lr=lr, weight_decay=weight_decay)
     else:
         raise CompositeTorchTrainError(
-            f"unsupported optimizer {opt_name!r} — supported: sgd, adam"
+            f"unsupported optimizer {opt_name!r} — supported: sgd, adam, adamw"
         )
+    # 118-C3b: T_max = épocas MÁXIMAS pedidas (no las que de verdad corran si
+    # la parada temprana corta antes) — mismo criterio que el trainer denso.
+    scheduler = (
+        torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=epochs)
+        if schedule == "cosine" else None
+    )
 
     # M15 — mejor estado como tensores torch (clon barato); la conversión cara a
     # ParameterSet se hace una sola vez al final, no en cada época que mejora.
@@ -250,6 +266,12 @@ def train_composite_network_torch(
             # Dividido por las filas VISTAS: con una época a medias, dividir por todas
             # daría una pérdida de entrenamiento falsamente baja. Sin plazo, son todas.
             train_loss_val = epoch_loss / max(1, vistas)
+            # 118-C3b: un paso por ÉPOCA — al menos un `optim.step()` ya
+            # corrió (el plazo se comprueba después de él dentro del bucle
+            # de lotes), así que esto vale también para una última época
+            # parcial.
+            if scheduler is not None:
+                scheduler.step()
 
             # Validación batched bajo no_grad
             module.eval()

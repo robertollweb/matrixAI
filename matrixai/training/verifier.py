@@ -250,10 +250,15 @@ class TrainingVerifier:
         # TRANSFORMER C4: adam entra en la gramática (scheduler NO — decisión 5
         # del contrato 51; los transformers reales no convergen bien con SGD
         # plano). sgd sigue siendo el default de las redes no-transformer.
-        if training.optimizer.type not in ("sgd", "adam"):
+        # CONTRATO 118-C3b: adamw entra en la gramática — los tres entrenadores
+        # torch (torch_trainer.py/dense_torch_trainer.py/composite_torch_
+        # trainer.py) ya lo instancian. El camino SIN torch sigue rechazándolo
+        # (su propio "solo sgd"/"solo sgd, dense" en trainer.py/dense_trainer.py),
+        # así que aceptarlo aquí no lo aplica en silencio en ningún backend.
+        if training.optimizer.type not in ("sgd", "adam", "adamw"):
             errors.append(
                 f"OPTIMIZER type not supported: {training.optimizer.type} "
-                f"(supported: sgd, adam)"
+                f"(supported: sgd, adam, adamw)"
             )
         if training.optimizer.learning_rate <= 0:
             errors.append("OPTIMIZER LEARNING_RATE must be greater than 0")

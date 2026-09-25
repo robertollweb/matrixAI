@@ -67,6 +67,18 @@ class SupervisedTrainer:
                 f"OPTIMIZER TYPE {training.optimizer.type!r} is not implemented "
                 f"by the stdlib backend (sgd only) — use --backend torch"
             )
+        # CONTRATO 118-C3b: WEIGHT_DECAY/SCHEDULE son solo-torch (ver el
+        # docstring de `matrixai.training.parser`) — aunque TYPE sea sgd, el
+        # descenso por gradiente de este fichero (`_apply_gradients`) no los
+        # aplica. Declararlos y seguir entrenando sin ellos sería "declarar
+        # una receta que no se ejecutó"; se niega con su motivo, igual que
+        # el TYPE de arriba.
+        _extras_no_admitidos = training.optimizer.ajustes_no_admitidos_por_stdlib()
+        if _extras_no_admitidos:
+            raise ValueError(
+                f"OPTIMIZER {', '.join(_extras_no_admitidos)} is not implemented "
+                f"by the stdlib backend — use --backend torch"
+            )
         vector = self._training_vector(program, training)
         classifier = self._classifier(program, training)
         objective = self._objective(training, classifier)
@@ -445,6 +457,16 @@ class SupervisedTrainer:
             "prediction": classifier.output,
             "loss": training.loss.type,
             "optimizer": training.optimizer.type,
+            # CONTRATO 118-C3b: la receta declarada, no una constante — sale
+            # del `OptimizerSpec` que de verdad se entrenó. Solo si se
+            # declararon (el camino stdlib los rechaza antes de llegar
+            # aquí; el torch, `TorchSupervisedTrainer`, hereda este mismo
+            # método y SÍ puede tenerlos) — sin ellos, esta traza es
+            # byte-idéntica a antes de 118-C3b.
+            **({"optimizer_weight_decay": training.optimizer.weight_decay}
+               if training.optimizer.weight_decay else {}),
+            **({"optimizer_schedule": training.optimizer.schedule}
+               if training.optimizer.schedule is not None else {}),
             "epochs": epochs,
             "selected_parameter_set": "params.best.json",
             "backend_report": backend_report,

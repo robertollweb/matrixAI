@@ -89,6 +89,20 @@ OPTIMIZER ClassificationOptimizer
   LEARNING_RATE 0.5
   UPDATE W1, b1
 END
+```
+
+`TYPE` admite `sgd`, `adam` o `adamw` (el backend `torch`; el backend `stdlib`
+solo implementa `sgd`). Dentro de `OPTIMIZER` hay dos líneas más, las dos
+OPCIONALES y solo aplicadas por el backend `torch`:
+
+```mxtrain
+OPTIMIZER ClassificationOptimizer
+  TYPE adamw
+  LEARNING_RATE 0.001
+  WEIGHT_DECAY 0.0001
+  SCHEDULE cosine
+  UPDATE W1, b1
+END
 
 METRIC Accuracy
   TYPE accuracy
@@ -103,6 +117,15 @@ END
 ```
 
 La decisión crítica aquí es `TARGET label: Probability`. Para este pipeline, `binary_cross_entropy` entrena una salida sigmoide (`R`) contra una probabilidad 0/1. Este es el patrón PR1 validado para que el scaffold entrene sin tocar el core.
+
+`WEIGHT_DECAY` (un real ≥ 0, regularización L2) y `SCHEDULE cosine` (el
+único programa de tasa que existe: decae con `CosineAnnealingLR` sobre las
+épocas máximas de `RUN`, un paso por época) son solo del backend `torch`
+(`--backend torch`, o el que elige el Studio cuando hay GPU o se fuerza por
+`MATRIXAI_TRAIN_BACKEND`). El backend `stdlib` (el que no necesita PyTorch)
+se NIEGA a entrenar si el `.mxtrain` las declara, en vez de ignorarlas:
+sin torch, ni `adamw` ni el decaimiento ni el programa de tasa se pueden
+aplicar de verdad.
 
 ---
 

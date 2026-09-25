@@ -1,6 +1,49 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Roberto Llamosas Conde
 
+"""Parser del lenguaje `.mxtrain` (`parse_training_file`/`parse_training_text`).
+
+Documenta aquí el bloque OPTIMIZER porque es el único sitio del repositorio
+que declara su gramática completa (`docs/` solo enseña un ejemplo en el
+tutorial): el bloque `OPTIMIZER <nombre> ... END` admite, en cualquier
+orden, estas líneas:
+
+    TYPE <identificador>       -- obligatoria. Aceptado por el PARSER: cualquier
+                                   identificador (`sgd`, `adam`, `adamw`, o uno
+                                   que no exista todavía). El parser NO decide
+                                   qué optimizadores hay de verdad -- eso lo
+                                   hace `TrainingVerifier` (`verifier.py`,
+                                   lista cerrada) y, más abajo, cada entrenador
+                                   (torch instancia `sgd`/`adam`/`adamw`; el
+                                   camino stdlib solo sabe `sgd`).
+    LEARNING_RATE <real>       -- obligatoria.
+    UPDATE <patrón, patrón...> -- obligatoria (solo la usa el camino FUNCTION/
+                                   lineal; las redes NETWORK la ignoran).
+    WEIGHT_DECAY <real >= 0>   -- OPCIONAL (CONTRATO 118-C3b). El regularizador
+                                   L2 que aplican los tres entrenadores torch
+                                   (`torch_trainer.py`, `dense_torch_trainer.py`,
+                                   `composite_torch_trainer.py`) sobre CUALQUIER
+                                   TYPE declarado (sgd/adam/adamw admiten
+                                   `weight_decay` en `torch.optim`). El camino
+                                   SIN torch (`trainer.py`/`dense_trainer.py`)
+                                   no lo aplica: si el texto lo declara, esos
+                                   entrenadores se NIEGAN con su motivo en vez
+                                   de entrenar ignorándolo.
+    SCHEDULE cosine             -- OPCIONAL (CONTRATO 118-C3b). El ÚNICO valor
+                                   admitido es `cosine`
+                                   (`torch.optim.lr_scheduler.CosineAnnealingLR`,
+                                   `T_max` = las épocas MÁXIMAS declaradas en
+                                   RUN, un paso por época). Cualquier otro
+                                   valor es un error de parseo -- no hay más
+                                   programas de tasa en la gramática. Mismo
+                                   camino SIN torch que arriba: se niega, no
+                                   lo ignora.
+
+Sin `WEIGHT_DECAY` ni `SCHEDULE` declarados, el `OptimizerSpec` resultante es
+BYTE-IDÉNTICO al de antes de 118-C3b (`weight_decay=0.0`, `schedule=None`, y
+`to_dict()` no añade esas claves) -- ver `test_118_c3b_optimizador.py`.
+"""
+
 from __future__ import annotations
 
 import re
@@ -44,6 +87,15 @@ _TYPE_RE = re.compile(r"^TYPE\s+(?P<type>[A-Za-z_][\w]*)$")
 _PREDICTION_RE = re.compile(r"^PREDICTION\s+(?P<prediction>[A-Za-z_][\w.]*)$")
 _LEARNING_RATE_RE = re.compile(r"^LEARNING_RATE\s+(?P<learning_rate>[0-9.]+)$")
 _UPDATE_RE = re.compile(r"^UPDATE\s+(?P<update>.+)$")
+# CONTRATO 118-C3b. Igual que `_LEARNING_RATE_RE`, sin signo: la clase de
+# caracteres `[0-9.]+` ya impone "real >= 0" a nivel de patrón, así que un
+# valor negativo ("WEIGHT_DECAY -0.1") no casa y cae en la línea DESCONOCIDA
+# de más abajo, con el mismo mensaje que cualquier otra línea mal formada.
+_WEIGHT_DECAY_RE = re.compile(r"^WEIGHT_DECAY\s+(?P<weight_decay>[0-9.]+)$")
+# El valor puede ser cualquier token (no solo un identificador): así un
+# `SCHEDULE 0.1` o `SCHEDULE "cosine"` mal escrito cae en la MISMA rama de
+# "solo se admite cosine" en vez de en la genérica "Unknown OPTIMIZER line".
+_SCHEDULE_RE = re.compile(r"^SCHEDULE\s+(?P<schedule>\S+)$")
 _EPOCHS_RE = re.compile(r"^EPOCHS\s+(?P<epochs>\d+)$")
 _EARLY_STOP_RE = re.compile(
     r"^EARLY_STOP\s+patience=(?P<patience>\d+)\s+metric=(?P<metric>[A-Za-z_][\w.]*)$"
@@ -378,6 +430,10 @@ def _parse_optimizer(block: list[str]) -> OptimizerSpec:
     optimizer_type = ""
     learning_rate: float | None = None
     update: list[str] = []
+    # CONTRATO 118-C3b: por omisión (nada declarado) esto reproduce byte a
+    # byte el `OptimizerSpec` de antes de la enmienda.
+    weight_decay = 0.0
+    schedule: str | None = None
     for line in block[1:-1]:
         if line.startswith("TYPE "):
             match = _TYPE_RE.match(line)
@@ -397,6 +453,23 @@ def _parse_optimizer(block: list[str]) -> OptimizerSpec:
                 raise MatrixAITrainingParseError(f"Invalid UPDATE: {line}")
             update = [item.strip() for item in match.group("update").split(",") if item.strip()]
             continue
+        if line.startswith("WEIGHT_DECAY "):
+            match = _WEIGHT_DECAY_RE.match(line)
+            if not match:
+                raise MatrixAITrainingParseError(
+                    f"Invalid WEIGHT_DECAY: {line} — debe ser un real >= 0: {line}"
+                )
+            weight_decay = float(match.group("weight_decay"))
+            continue
+        if line.startswith("SCHEDULE "):
+            match = _SCHEDULE_RE.match(line)
+            if not match or match.group("schedule") != "cosine":
+                raise MatrixAITrainingParseError(
+                    f"Invalid SCHEDULE: {line!r}. El único programa de tasa "
+                    f"admitido es 'cosine'."
+                )
+            schedule = match.group("schedule")
+            continue
         raise MatrixAITrainingParseError(f"Unknown OPTIMIZER line: {line}")
     if not optimizer_type:
         raise MatrixAITrainingParseError("OPTIMIZER missing TYPE")
@@ -404,7 +477,10 @@ def _parse_optimizer(block: list[str]) -> OptimizerSpec:
         raise MatrixAITrainingParseError("OPTIMIZER missing LEARNING_RATE")
     if not update:
         raise MatrixAITrainingParseError("OPTIMIZER missing UPDATE")
-    return OptimizerSpec(parts[1], optimizer_type, learning_rate, update)
+    return OptimizerSpec(
+        parts[1], optimizer_type, learning_rate, update,
+        weight_decay=weight_decay, schedule=schedule,
+    )
 
 
 def _parse_run(block: list[str]) -> RunSpec:

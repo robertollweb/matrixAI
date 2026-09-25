@@ -92,6 +92,8 @@ def train_dense_network_torch(
     optimizer: str | None = None,
     validation_examples: list[tuple[list[float], list[float]]] | None = None,
     plazo: float | None = None,
+    weight_decay: float = 0.0,
+    schedule: str | None = None,
 ) -> dict[str, Any]:
     """Train a dense_network via torch autograd.
 
@@ -138,6 +140,15 @@ def train_dense_network_torch(
     lleva tensores, no dicts") — hasta que C3 cierre, el caller de producción
     (`playground._dense_torch_train_result`) sigue sin pasar `materialize=False`
     y por tanto entrena exactamente igual que hoy para cualquier tamaño.
+
+    CONTRATO 118-C3b: `weight_decay` (regularización L2, `torch.optim`) se
+    aplica al optimizador que se acabe instanciando (`sgd`/`adam`/`adamw`,
+    los tres lo admiten) — por omisión 0.0, byte-idéntico a antes. `schedule`
+    admite únicamente `"cosine"` (`torch.optim.lr_scheduler.CosineAnnealingLR`,
+    `T_max=epochs` — las épocas MÁXIMAS pedidas, no las que de verdad se
+    ejecuten si la parada temprana corta antes) y avanza UN PASO POR ÉPOCA,
+    incluida la última si es parcial por `plazo`. `None` (por omisión) no
+    crea ningún scheduler — comportamiento previo intacto.
     """
     if not torch_available():
         raise DenseTorchTrainError("PyTorch is not installed — GPU/torch training requires torch")
@@ -178,16 +189,26 @@ def train_dense_network_torch(
 
     # Auditoría C4 [ALTA-1]: honrar el optimizador declarado; desconocido →
     # error, nunca sustitución silenciosa. Default sgd (comportamiento previo).
+    # CONTRATO 118-C3b: adamw + weight_decay (en los tres, no solo adamw).
     opt_name = optimizer or "sgd"
-    if opt_name == "adam":
-        optim_ = torch.optim.Adam(module.parameters(), lr=lr)
+    if opt_name == "adamw":
+        optim_ = torch.optim.AdamW(module.parameters(), lr=lr, weight_decay=weight_decay)
+    elif opt_name == "adam":
+        optim_ = torch.optim.Adam(module.parameters(), lr=lr, weight_decay=weight_decay)
     elif opt_name == "sgd":
-        optim_ = torch.optim.SGD(module.parameters(), lr=lr)
+        optim_ = torch.optim.SGD(module.parameters(), lr=lr, weight_decay=weight_decay)
     else:
         raise ValueError(
-            f"unsupported optimizer {opt_name!r} — supported: sgd, adam"
+            f"unsupported optimizer {opt_name!r} — supported: sgd, adam, adamw"
         )
     optimizer = optim_
+    # CONTRATO 118-C3b: `T_max` son las épocas MÁXIMAS pedidas (`epochs`, el
+    # parámetro de esta función) — el programa no se re-escala si la parada
+    # temprana corta antes (mismo criterio que `torch_trainer.py`).
+    scheduler = (
+        torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+        if schedule == "cosine" else None
+    )
     # Batch efectivo (M15/M12): en CUDA ignora el `BATCH size=8` autogenerado y usa un
     # batch grande (MATRIXAI_GPU_BATCH|16384) para llenar la GPU; en CPU respeta el spec.
     # Lógica pura y testeable en `effective_batch_size`. Si una red enorme da OOM en una
@@ -247,6 +268,12 @@ def train_dense_network_torch(
                     parado_por_plazo = True
                     break
             train_loss_val = epoch_loss / max(1, n_batches)
+            # 118-C3b: un paso por ÉPOCA (no por lote) — al menos un
+            # `optimizer.step()` ya corrió en este bucle (el `plazo` se
+            # comprueba DESPUÉS de él), así que esto vale también para la
+            # última época si terminó a medias por plazo.
+            if scheduler is not None:
+                scheduler.step()
 
             module.eval()
             with torch.no_grad():

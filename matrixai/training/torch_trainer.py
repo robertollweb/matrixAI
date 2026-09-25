@@ -70,16 +70,30 @@ class TorchSupervisedTrainer(SupervisedTrainer):
         # SGD incondicionalmente y un .mxtrain con adam entrenaba con sgd en
         # silencio (declared adam / actual sgd). Tipo desconocido → error, nunca
         # sustitución silenciosa (el verifier ya lo rechaza; defensa en capa).
+        # CONTRATO 118-C3b: adamw + weight_decay (los tres optimizadores lo
+        # admiten en torch.optim, no solo adamw) + programa de tasa coseno.
         opt_type = training.optimizer.type
-        if opt_type == "adam":
-            optimizer = torch.optim.Adam([weights, bias], lr=training.optimizer.learning_rate)
+        opt_lr = training.optimizer.learning_rate
+        opt_weight_decay = training.optimizer.weight_decay
+        if opt_type == "adamw":
+            optimizer = torch.optim.AdamW([weights, bias], lr=opt_lr, weight_decay=opt_weight_decay)
+        elif opt_type == "adam":
+            optimizer = torch.optim.Adam([weights, bias], lr=opt_lr, weight_decay=opt_weight_decay)
         elif opt_type == "sgd":
-            optimizer = torch.optim.SGD([weights, bias], lr=training.optimizer.learning_rate)
+            optimizer = torch.optim.SGD([weights, bias], lr=opt_lr, weight_decay=opt_weight_decay)
         else:
             raise ValueError(
                 f"OPTIMIZER TYPE {opt_type!r} is not implemented by the torch "
-                f"backend (supported: sgd, adam)"
+                f"backend (supported: sgd, adam, adamw)"
             )
+        # 118-C3b: `T_max` son las ÉPOCAS MÁXIMAS declaradas (`epochs`, más
+        # abajo) — no las que de verdad se ejecuten: la parada temprana puede
+        # cortar antes, y el programa no se re-escala por eso (mismo criterio
+        # que `dense_torch_trainer.train_dense_network_torch`).
+        scheduler = None
+        if training.optimizer.schedule == "cosine":
+            _run_epochs = training.run.epochs if training.run else 1
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=_run_epochs)
 
         examples = adapter.examples()
         train_examples, validation_examples = self._split_examples(examples, training)
@@ -115,6 +129,11 @@ class TorchSupervisedTrainer(SupervisedTrainer):
                 loss = _torch_loss(input_tensor, target_tensor, weights, bias, objective, torch)
                 loss.backward()
                 optimizer.step()
+
+            # 118-C3b: UN PASO POR ÉPOCA, no por lote — `CosineAnnealingLR`
+            # decae sobre las ÉPOCAS (`T_max`), no sobre los pasos.
+            if scheduler is not None:
+                scheduler.step()
 
             train_metrics = self._metrics(
                 train_examples,

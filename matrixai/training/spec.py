@@ -128,14 +128,45 @@ class OptimizerSpec:
     type: str
     learning_rate: float
     update: list[str]
+    # CONTRATO 118-C3b: los dos opcionales del bloque OPTIMIZER (ver el
+    # docstring de `matrixai.training.parser`). Los defaults reproducen
+    # BYTE A BYTE el `OptimizerSpec` de antes de la enmienda para un texto
+    # que no los declara -- ni `to_dict()` añade sus claves (mismo criterio
+    # que `DatasetSplitSpec`/`RunSpec` con sus campos opcionales).
+    weight_decay: float = 0.0
+    schedule: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "name": self.name,
             "type": self.type,
             "learning_rate": self.learning_rate,
             "update": list(self.update),
         }
+        if self.weight_decay:
+            data["weight_decay"] = self.weight_decay
+        if self.schedule is not None:
+            data["schedule"] = self.schedule
+        return data
+
+    def ajustes_no_admitidos_por_stdlib(self) -> list[str]:
+        """Qué de lo declarado (`WEIGHT_DECAY`/`SCHEDULE`) el camino SIN
+        torch no puede aplicar. Vacío si no se declaró ninguno -- el caso de
+        siempre, y entonces el camino stdlib entrena exactamente igual que
+        antes de 118-C3b.
+
+        Vive aquí, y no repetido en cada entrenador stdlib, porque los dos
+        caminos que lo comprueban (`trainer.py`/`dense_trainer.py`) tienen
+        que declarar la MISMA condición: "una línea que explica por qué NO
+        hace lo obvio necesita una prueba con su nombre" — y una condición
+        duplicada es la que se desincroniza sin que nadie lo note.
+        """
+        extras: list[str] = []
+        if self.weight_decay:
+            extras.append(f"WEIGHT_DECAY {self.weight_decay}")
+        if self.schedule is not None:
+            extras.append(f"SCHEDULE {self.schedule}")
+        return extras
 
 
 @dataclass(frozen=True)
