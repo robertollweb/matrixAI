@@ -61,3 +61,16 @@ def test_la_enmienda_1_de_C3_esta_atada_a_la_v3_y_dice_lo_que_no_se_aplica():
     sin = {k: v for k, v in e.items() if k != "digest_sha256"}
     canonico = json.dumps(sin, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     assert e["digest_sha256"] == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+
+
+def test_la_enmienda_2_registra_la_receta_completa_atada_a_la_v3_y_a_la_1():
+    e1 = json.loads((FASE0 / "protocolo_118_v3_enmienda_1.json").read_text(encoding="utf-8"))
+    e2 = json.loads((FASE0 / "protocolo_118_v3_enmienda_2.json").read_text(encoding="utf-8"))
+    assert e2["de"]["digest_sha256"] == V3["digest_sha256"]
+    assert e2["de"]["digest_enmienda_anterior"] == e1["digest_sha256"]
+    p = e2["parametros"]
+    assert (p["optimizador"], p["weight_decay"], p["learning_rate"]) == ("adamw", 0.0001, 0.001)
+    assert p["epocas_maximas"] == 200 and p["parada_temprana"]["paciencia"] == 20
+    sin = {k: v for k, v in e2.items() if k != "digest_sha256"}
+    canonico = json.dumps(sin, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert e2["digest_sha256"] == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
