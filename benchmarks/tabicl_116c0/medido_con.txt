@@ -1,0 +1,3 @@
+HEAD núcleo: ea4ca5273b3e38c06a0597b22ebef8158f21f028
+imagen: sha256:b8bf5961d5d196acf18a528ccee89a690a02b5570d899df860d99061660bcb47
+lanzado: 2026-09-24T02:16:48+02:00  loadavg: 2.70 4.74 4.60  (relanzamiento; el de 01:45 se paró sin puntos)

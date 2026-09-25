@@ -1,0 +1,95 @@
+{
+  "creado": "2026-09-24T20:40:50+00:00",
+  "motivo": "los dos puntos cayeron en la ventana de la release v2.6.1 (24-09 08:33-09:07, carga 4,8-5,2); se re-miden con la maquina quieta con la MISMA medir_en_docker",
+  "imagen": "medicion-tabicl-116c0:2.2.0",
+  "puntos": [
+    {
+      "fuente": "adult",
+      "columnas": 8,
+      "filas": 1000,
+      "carga_al_empezar": 1.11,
+      "en_la_ventana": {
+        "fuente": "adult",
+        "columnas": 8,
+        "filas": 1000,
+        "estado": "medido",
+        "pared_s": 802.2,
+        "columnas_reales": 8,
+        "segundos_import": 4.38,
+        "segundos_ajuste": 0.68,
+        "primera_prediccion_s": 7.422,
+        "ms_por_fila": {
+          "1": 8586.541,
+          "32": 392.337,
+          "256": 41.848,
+          "todas": 28.497
+        },
+        "vmhwm_tras_ajuste_mb": 600.9,
+        "vmhwm_total_mb": 1044.7
+      },
+      "remedido": {
+        "estado": "medido",
+        "pared_s": 676.0,
+        "fuente": "adult",
+        "filas": 1000,
+        "columnas": 8,
+        "columnas_reales": 8,
+        "segundos_import": 6.1,
+        "segundos_ajuste": 0.88,
+        "primera_prediccion_s": 8.516,
+        "ms_por_fila": {
+          "1": 7773.384,
+          "32": 251.136,
+          "256": 37.078,
+          "todas": 24.803
+        },
+        "vmhwm_tras_ajuste_mb": 599.5,
+        "vmhwm_total_mb": 1044.1
+      }
+    },
+    {
+      "fuente": "adult",
+      "columnas": 8,
+      "filas": 2000,
+      "carga_al_empezar": 3.67,
+      "en_la_ventana": {
+        "fuente": "adult",
+        "columnas": 8,
+        "filas": 2000,
+        "estado": "medido",
+        "pared_s": 1714.8,
+        "columnas_reales": 8,
+        "segundos_import": 4.6,
+        "segundos_ajuste": 0.71,
+        "primera_prediccion_s": 19.45,
+        "ms_por_fila": {
+          "1": 20372.614,
+          "32": 615.748,
+          "256": 84.647,
+          "todas": 47.152
+        },
+        "vmhwm_tras_ajuste_mb": 599.0,
+        "vmhwm_total_mb": 1258.0
+      },
+      "remedido": {
+        "estado": "medido",
+        "pared_s": 1678.1,
+        "fuente": "adult",
+        "filas": 2000,
+        "columnas": 8,
+        "columnas_reales": 8,
+        "segundos_import": 4.53,
+        "segundos_ajuste": 0.66,
+        "primera_prediccion_s": 20.077,
+        "ms_por_fila": {
+          "1": 19758.596,
+          "32": 622.003,
+          "256": 84.86,
+          "todas": 44.621
+        },
+        "vmhwm_tras_ajuste_mb": 602.6,
+        "vmhwm_total_mb": 1262.0
+      }
+    }
+  ]
+}
