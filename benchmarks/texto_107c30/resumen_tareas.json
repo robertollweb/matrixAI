@@ -1,0 +1,211 @@
+{
+  "contrato": "107_TEXTO_CON_PREENTRENADOS_CONTRACT.md, C3.0",
+  "regla_idioma_fichero": "/home/deployer/matrixAI/benchmarks/texto_107c30/regla_idioma.json",
+  "regla_idioma_sha256": "b02f66a0502ed1163a2482de85f8b94774269dc815f3fd403351992c2729a7cf",
+  "semilla_particion_c_d": 107030,
+  "reparto_particion_c_d": [
+    0.7,
+    0.15,
+    0.15
+  ],
+  "tareas": {
+    "A": {
+      "tarea": "A",
+      "nombre": "FakeNewsCorpusSpanish",
+      "n_filas": 1543,
+      "n_por_particion": {
+        "train": 676,
+        "dev": 295,
+        "test": 572
+      },
+      "n_por_particion_y_target": {
+        "train": {
+          "Fake": 338,
+          "True": 338
+        },
+        "dev": {
+          "Fake": 142,
+          "True": 153
+        },
+        "test": {
+          "Fake": 286,
+          "True": 286
+        }
+      },
+      "objetivo": {
+        "columna": "target",
+        "tarea_del_estudio": "binary_classification",
+        "clases": [
+          "True",
+          "Fake"
+        ],
+        "positive_label": "Fake",
+        "nota": "positive_label='Fake' -- se enmarca como DETECTAR noticias falsas, que es la lectura natural del corpus; True/Fake son las DOS cadenas que usa el propio corpus (v1 nativamente, v2 tras normalizar su booleano de Excel)."
+      },
+      "columna_texto": "texto (Headline + Text; HEADLINE + TEXT en v2)",
+      "otras_columnas": [
+        "topic",
+        "source"
+      ],
+      "procedencia": [
+        {
+          "fichero": "/home/deployer/datos_107c30/FakeNewsCorpusSpanish/train.xlsx",
+          "sha256": "b091a8fa842ea4c2c9b9c28fe0ed28d6ed8da797ced282c5a4dcd71af2e3c67a"
+        },
+        {
+          "fichero": "/home/deployer/datos_107c30/FakeNewsCorpusSpanish/development.xlsx",
+          "sha256": "5a894152170242cb07248d264157b4d3884d86ef42e5ba22e5a6a638787dce57"
+        },
+        {
+          "fichero": "/home/deployer/datos_107c30/FakeNewsCorpusSpanish/test.xlsx",
+          "sha256": "11e38355804f86cfac3aeddcb78208cb175d369831f551f9d8fe49353c582763"
+        }
+      ],
+      "particion": "NATURAL del corpus: train.xlsx=train, development.xlsx=dev, test.xlsx=test",
+      "trampa_normalizada": "CATEGORY de v2 es booleano de Excel (tipo de celda 'b'); se normaliza a las cadenas 'True'/'Fake' de v1 en _normalizar_category(), NUNCA con str(valor_booleano) (que daría 'True'/'False', rompiendo el vocabulario)."
+    },
+    "B": {
+      "tarea": "B",
+      "nombre": "CodiEsp",
+      "n_filas": 1000,
+      "n_por_particion": {
+        "train": 500,
+        "dev": 250,
+        "test": 250
+      },
+      "n_por_particion_y_target": {
+        "train": {
+          "r52": 112,
+          "no_r52": 388
+        },
+        "dev": {
+          "r52": 51,
+          "no_r52": 199
+        },
+        "test": {
+          "r52": 56,
+          "no_r52": 194
+        }
+      },
+      "objetivo": {
+        "columna": "target",
+        "tarea_del_estudio": "binary_classification",
+        "clases": [
+          "no_r52",
+          "r52"
+        ],
+        "positive_label": "r52",
+        "nota": "código CIE-10 'r52' (\"Dolor, no clasificado en otra parte\"), fijado el 24-09: prevalencia train más cercana a 30% entre los códigos de diagnóstico, desempate alfabético, con >=10 positivos en test."
+      },
+      "columna_texto": "texto (el caso clínico completo)",
+      "otras_columnas": [],
+      "otras_columnas_nota": "el pre-registro declara esta tarea SIN otras columnas a propósito (\"es texto solo: mide la representación, no el estudio con columnas\"); la condición (0) de medir_c30.py degenera aquí en un baseline SIN predictores (ver ese script).",
+      "procedencia": [
+        {
+          "fichero": "/home/deployer/datos_107c30/codiesp/final_dataset_v4_to_publish/train/trainD.tsv",
+          "sha256": "613208a405a38042476451e74cf1d4d95d569d7a247a3fda40474d694193b49c"
+        },
+        {
+          "fichero": "/home/deployer/datos_107c30/codiesp/final_dataset_v4_to_publish/dev/devD.tsv",
+          "sha256": "15ef44a5e5806c2e5ce657df00fde7b6063fb58f708990db212bc93f7ea5551b"
+        },
+        {
+          "fichero": "/home/deployer/datos_107c30/codiesp/final_dataset_v4_to_publish/test/testD.tsv",
+          "sha256": "8e1766defb958a56d774af586432790ba5e644f8839559a7e70dad3987bf0690"
+        }
+      ],
+      "particion": "NATURAL del corpus CodiEsp (500 train / 250 dev / 250 test, de origen)"
+    },
+    "C": {
+      "tarea": "C",
+      "nombre": "PLACSP (agosto 2025)",
+      "n_expedientes_totales_del_mes": 31210,
+      "n_castellano_regla_actual": 31033,
+      "n_otros_idiomas_regla_actual": {
+        "gl": 81,
+        "ca": 89,
+        "en": 7
+      },
+      "comparacion_con_24_09": {
+        "castellano_24_09": 31162,
+        "total_24_09": 31210,
+        "castellano_ahora": 31033,
+        "total_ahora": 31210,
+        "nota": "la lista de marcadores del 24-09 se perdió (scratchpad/107c30 vivía fuera del repo, en /tmp); esta es una reconstrucción DESDE CERO con el mismo principio, no la misma lista literal -- una diferencia en el recuento es ESPERABLE y no se ha retocado la lista para intentar igualarla."
+      },
+      "n_filas_con_importe_positivo": 30462,
+      "n_por_particion": {
+        "train": 21323,
+        "dev": 4569,
+        "test": 4570
+      },
+      "objetivo": {
+        "columna": "target",
+        "tarea_del_estudio": "regression",
+        "transformacion": "log10(importe_sin_iva)",
+        "nota": "solo filas con importe_sin_iva > 0 (igual que el 30.591/31.162 del 24-09)."
+      },
+      "columna_texto": "texto (objeto del contrato)",
+      "otras_columnas": [
+        "tipo_code",
+        "procedimiento_code",
+        "cpv_division",
+        "organo"
+      ],
+      "procedencia": [
+        {
+          "fichero": "/home/deployer/datos_107c30/placsp/placsp_202508_dedup.jsonl",
+          "sha256": "eaab75b9f0b7f4c36923d06a296ee49b488168fccb0efced8a9c2c39bb474bff",
+          "fichero_origen_zip": "/home/deployer/datos_107c30/placsp/licitacionesPerfilesContratanteCompleto3_202508.zip",
+          "sha256_zip": "2815707e0dbc50d4aca06bcb10e11a83c667b0c033362960490b37d52b220ddf"
+        }
+      ],
+      "particion": "FIJADA aquí (no hay partición de origen): semilla 107030, reparto (0.7, 0.15, 0.15), guardada en la columna 'particion' del CSV."
+    },
+    "D": {
+      "tarea": "D",
+      "nombre": "BOE - Legislación consolidada (muestra 5000)",
+      "n_registros_muestra": 5000,
+      "n_castellano_regla_actual": 5000,
+      "n_otros_idiomas_regla_actual": {},
+      "comparacion_con_24_09": {
+        "castellano_24_09": 5000,
+        "total_24_09": 5000,
+        "castellano_ahora": 5000,
+        "total_ahora": 5000,
+        "nota": "misma advertencia que en C: regla reconstruida desde cero, no la lista literal del 24-09."
+      },
+      "n_filas_con_vigencia_valida": 5000,
+      "n_positivos_agotada": 976,
+      "n_por_particion": {
+        "train": 3500,
+        "dev": 750,
+        "test": 750
+      },
+      "objetivo": {
+        "columna": "target",
+        "tarea_del_estudio": "binary_classification",
+        "clases": [
+          "vigente",
+          "agotada"
+        ],
+        "positive_label": "agotada"
+      },
+      "columna_texto": "texto (titulo)",
+      "otras_columnas": [
+        "departamento",
+        "rango",
+        "ambito",
+        "anio_publicacion"
+      ],
+      "procedencia": [
+        {
+          "fichero": "/home/deployer/datos_107c30/boe/legislacion_consolidada_muestra5000.json",
+          "sha256": "67989cec418fa0f91e7aa9c3507a545d5ac7a99590403ad8e92aa040e6e44bae"
+        }
+      ],
+      "particion": "FIJADA aquí (no hay partición de origen): semilla 107030, reparto (0.7, 0.15, 0.15), guardada en la columna 'particion' del CSV.",
+      "declarado_en_el_contrato": "cuarta tarea NO forzada: 'una candidata razonable... la muestra es una llamada suelta a la API, no un mes reproducible como en C'. Se construye igualmente aquí porque el encargo pide 'cuatro tareas', con esa reserva heredada y repetida."
+    }
+  }
+}

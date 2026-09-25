@@ -1,0 +1,76 @@
+{
+  "calibracion": {
+    "tasa_lightgbm_s_por_fila": 0.009737065472500035,
+    "tasa_tfidf_lineal_s_por_fila": 0.00014046032000351261,
+    "tasa_embedding_s_por_texto": 0.023565211900040593,
+    "medida_sobre": "400 filas sintéticas (lightgbm/tfidf) y 20 textos reales de la tarea A (embedding, si `tareas/tarea_a.csv` ya existe) -- NO es una suposición: es una medición real, pequeña y barata, para no tener que 'suponer' la aritmética que pide --estimar."
+  },
+  "tareas": {
+    "A": {
+      "n_train": 676,
+      "n_dev": 295,
+      "n_test": 572,
+      "n_total": 1543,
+      "estimado_s": {
+        "condicion_0": 15.02,
+        "condicion_1_codificar_embedding": 36.36,
+        "condicion_1_lightgbm": 15.02,
+        "condicion_1_total": 51.39,
+        "condicion_2_tfidf_lineal": 0.22,
+        "comparaciones_bootstrap": 4.0,
+        "total_tarea": 70.63
+      },
+      "aritmetica": "(1543 filas) x tasa -- condicion_0 y condicion_1_lightgbm usan tasa_lightgbm=0.009737s/fila; condicion_1_codificar_embedding usa tasa_embedding=0.023565s/texto; condicion_2 usa tasa_tfidf_lineal=0.000140s/fila; mas 4.0s fijos de bootstrap (2 comparaciones)."
+    },
+    "B": {
+      "n_train": 500,
+      "n_dev": 250,
+      "n_test": 250,
+      "n_total": 1000,
+      "estimado_s": {
+        "condicion_0": 9.74,
+        "condicion_1_codificar_embedding": 23.57,
+        "condicion_1_lightgbm": 9.74,
+        "condicion_1_total": 33.3,
+        "condicion_2_tfidf_lineal": 0.14,
+        "comparaciones_bootstrap": 4.0,
+        "total_tarea": 47.18
+      },
+      "aritmetica": "(1000 filas) x tasa -- condicion_0 y condicion_1_lightgbm usan tasa_lightgbm=0.009737s/fila; condicion_1_codificar_embedding usa tasa_embedding=0.023565s/texto; condicion_2 usa tasa_tfidf_lineal=0.000140s/fila; mas 4.0s fijos de bootstrap (2 comparaciones)."
+    },
+    "C": {
+      "n_train": 21323,
+      "n_dev": 4569,
+      "n_test": 4570,
+      "n_total": 30462,
+      "estimado_s": {
+        "condicion_0": 296.61,
+        "condicion_1_codificar_embedding": 717.84,
+        "condicion_1_lightgbm": 296.61,
+        "condicion_1_total": 1014.45,
+        "condicion_2_tfidf_lineal": 4.28,
+        "comparaciones_bootstrap": 4.0,
+        "total_tarea": 1319.34
+      },
+      "aritmetica": "(30462 filas) x tasa -- condicion_0 y condicion_1_lightgbm usan tasa_lightgbm=0.009737s/fila; condicion_1_codificar_embedding usa tasa_embedding=0.023565s/texto; condicion_2 usa tasa_tfidf_lineal=0.000140s/fila; mas 4.0s fijos de bootstrap (2 comparaciones)."
+    },
+    "D": {
+      "n_train": 3500,
+      "n_dev": 750,
+      "n_test": 750,
+      "n_total": 5000,
+      "estimado_s": {
+        "condicion_0": 48.69,
+        "condicion_1_codificar_embedding": 117.83,
+        "condicion_1_lightgbm": 48.69,
+        "condicion_1_total": 166.51,
+        "condicion_2_tfidf_lineal": 0.7,
+        "comparaciones_bootstrap": 4.0,
+        "total_tarea": 219.9
+      },
+      "aritmetica": "(5000 filas) x tasa -- condicion_0 y condicion_1_lightgbm usan tasa_lightgbm=0.009737s/fila; condicion_1_codificar_embedding usa tasa_embedding=0.023565s/texto; condicion_2 usa tasa_tfidf_lineal=0.000140s/fila; mas 4.0s fijos de bootstrap (2 comparaciones)."
+    }
+  },
+  "total_general_s": 1657.05,
+  "total_general_min": 27.62
+}

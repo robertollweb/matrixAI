@@ -1,0 +1,111 @@
+{
+  "_documento": "107-C3.0 - regla de idioma para la tarea C (PLACSP) y D (BOE)",
+  "_por_que_existe_este_fichero": [
+    "La lista exacta de palabras que uso la sesion del 2026-09-24 para excluir gallego/catalan/ingles/euskera",
+    "de PLACSP se escribio en scratchpad/107c30/regla_idioma_placsp.txt de aquella sesion, fuera de este",
+    "repositorio, y se perdio (CLAUDE.md: temporales en /tmp se borran al reiniciar). Los NUMEROS que dejo",
+    "el contrato (31.162/31.210 castellano; excluidas 48: gallego 30, catalan 12, ingles 6, euskera 0) son el",
+    "resultado de AQUELLA lista, no de esta. Esta version se reescribe DESDE CERO, con el mismo PRINCIPIO",
+    "citado en el contrato, y el fichero vive DENTRO del repositorio (benchmarks/texto_107c30/) para que no",
+    "le vuelva a pasar lo mismo. No se ha retocado esta lista para intentar cuadrar con esos numeros: el",
+    "recuento con esta version se declara tal cual sale."
+  ],
+  "principio": [
+    "Una lista de palabras CORRIENTES por idioma (el, la, de, que, un, en, a, es...) no sirve: el castellano y",
+    "el catalan comparten esas palabras LITERALMENTE, y asi fue como la primera version de la regla (24-09)",
+    "dejo 5.189 filas de PLACSP en 'empate' con catalan sobre frases tan castellanas como 'Servicio de limpieza",
+    "de edificios municipales del Ayuntamiento de Mostoles'. Es el mismo fallo que ya habia descartado Airbnb:",
+    "'un barrido con una lista de palabras escogida a mano no barre'.",
+    "La regla que si sirve usa, para cada idioma NO castellano (gallego, catalan, ingles, euskera), solo",
+    "palabras EXCLUSIVAS de ese idioma: palabras que NO son tambien palabras del castellano. Cada palabra de",
+    "la lista se audita UNA A UNA contra el castellano antes de entrar (ver 'colisiones_descartadas' en cada",
+    "idioma, con el motivo de por que se descarto). Y una sola palabra exclusiva pero AMBIGUA (una sigla",
+    "corta, un fragmento que aparece por azar en un codigo o nombre propio) no decide por si sola: hace falta",
+    "un UMBRAL DE >= 2 marcadores EXCLUSIVOS Y DISTINTOS del mismo idioma en la misma fila para clasificarla",
+    "como ese idioma. Una fila que no alcanza el umbral en NINGUN idioma no castellano se cuenta como",
+    "castellano (es el idioma por omision del corpus: PLACSP y BOE son plataformas del Estado espanol",
+    "operando mayoritariamente en castellano)."
+  ],
+  "algoritmo": [
+    "1. Tokenizar el texto de la columna: minusculas, quitar diacriticos (NFKD + eliminar marcas de",
+    "   combinacion, para no depender de que una tilde sobreviva a una codificacion), y extraer palabras",
+    "   completas con una regex de letras unicode (\\b[^\\W\\d_]+\\b) -- una palabra dentro de otra mas larga",
+    "   NO cuenta como aparicion.",
+    "2. Los marcadores de este fichero tambien se normalizan quitando diacriticos, con el mismo criterio.",
+    "3. Para cada idioma no castellano, contar cuantos marcadores EXCLUSIVOS Y DISTINTOS de su lista aparecen",
+    "   como palabra completa en el texto.",
+    "4. Si algun idioma alcanza >= umbral_marcadores_distintos, la fila se clasifica con el idioma de MAYOR",
+    "   cuenta; un empate entre dos idiomas con la misma cuenta maxima se rompe por orden alfabetico del",
+    "   codigo de idioma (deterministico, declarado, no al azar).",
+    "5. Si ningun idioma alcanza el umbral, la fila es 'es' (castellano)."
+  ],
+  "umbral_marcadores_distintos": 2,
+  "idiomas": {
+    "gl": {
+      "nombre": "gallego",
+      "marcadores": [
+        "concello", "concellos", "concellaria", "conselleria", "consellerias",
+        "servizo", "servizos", "subministracion", "traballo", "traballos",
+        "unha", "unhas", "coa", "cos", "nas", "praza", "prazas", "estradas",
+        "mais", "moi", "xunta"
+      ],
+      "colisiones_descartadas": {
+        "dos": "numeral castellano ('dos camiones'), aparece constantemente en textos de contratacion",
+        "das": "forma verbal castellana de 'dar' (tu das); se descarta por prudencia aunque es poco frecuente en textos administrativos formales",
+        "polo": "palabra castellana (polo norte, jugar al polo, un polo/helado) -- ya la habia sacado la sesion del 24-09 por el mismo motivo",
+        "e": "conjuncion de una sola letra, indistinguible de siglas y nombres propios, no se usa como marcador",
+        "os": "articulo gallego 'os' (los) es identico a una terminacion verbal/plural que aparece suelta en textos mal tokenizados; se descarta por prudencia",
+        "as": "articulo gallego 'as' (las) coincide con la preposicion inglesa 'as' y con codigos de dos letras; se descarta por prudencia"
+      }
+    },
+    "ca": {
+      "nombre": "catalan",
+      "marcadores": [
+        "amb", "els", "aquest", "aquesta", "seva", "dels", "servei",
+        "subministrament", "contracte", "ajuntament", "pel", "pels",
+        "mitjancant", "qualsevol", "tambe", "tots", "uns", "llicencia"
+      ],
+      "colisiones_descartadas": {
+        "es": "coincide con el verbo castellano 'ser' en tercera persona ('es'); el catalan lo escribe con tilde ('es') pero esta se pierde al quitar diacriticos, asi que se descarta activamente y no se usa como marcador",
+        "les": "tras quitar diacriticos puede confundirse con formas mal transcritas de otras lenguas y con el imperativo de 'leer' en textos OCR; se prefiere 'els' (articulo masculino plural, sin ambiguedad) como marcador del articulo determinado",
+        "del": "identico al castellano 'del', no se usa",
+        "el": "identico al castellano 'el', no se usa",
+        "la": "identico al castellano 'la', no se usa",
+        "per": "muy proxima a abreviaturas ('per capita', codigos de dos/tres letras); se usan 'pel'/'pels' (contraccion 'per+el/els'), menos ambiguas",
+        "un": "identico al castellano 'un', no se usa",
+        "no": "identico al castellano 'no', no se usa",
+        "obres": "muy proxima al castellano 'obras' (misma raiz, solo cambia la vocal final); se deja fuera de la lista activa por prudencia y se confia en 'servei'/'subministrament'/'contracte' para cubrir el vocabulario de contratacion"
+      }
+    },
+    "en": {
+      "nombre": "ingles",
+      "marcadores": [
+        "the", "and", "for", "with", "services", "supply", "contract",
+        "public", "works", "provision", "project", "management",
+        "development", "system", "equipment", "construction", "maintenance",
+        "procurement"
+      ],
+      "colisiones_descartadas": {
+        "in": "se usa a veces como abreviatura o parte de codigos (unidades, referencias) en textos castellanos; se descarta por prudencia aunque no es palabra castellana",
+        "a": "una sola letra: articulo indeterminado ingles pero identico a la preposicion castellana 'a'",
+        "to": "riesgo de colision con abreviaturas/codigos de dos letras en referencias de expediente",
+        "of": "se mantiene, pero se advierte que en textos con codigos tipo 'Ref. N.of...' podria aparecer suelta; el umbral de 2 marcadores distintos absorbe ese riesgo"
+      }
+    },
+    "eu": {
+      "nombre": "euskera",
+      "marcadores": [
+        "zerbitzua", "zerbitzuak", "udala", "udalaren", "kontratua",
+        "kontratazioa", "eskualdeko", "herria", "herriko", "administrazioa",
+        "azpiegitura", "hornikuntza", "eraikina", "lanak", "eskaintza",
+        "diputazioa", "udalerria"
+      ],
+      "colisiones_descartadas": {
+        "da": "forma verbal castellana 'da' (el da; tercera persona de 'dar') -- descartada por la sesion del 24-09 y de nuevo aqui",
+        "eta": "conjuncion vasca 'y', en principio exclusiva del castellano como palabra completa, pero aparece con frecuencia como sigla (ETA) y dentro de acronimos administrativos; se descarta por prudencia de la lista activa",
+        "no": "identico al castellano 'no' en textos con codigo mixto, no se usa",
+        "ez": "palabra de dos letras, alto riesgo de coincidir con codigos/siglas de expediente; se descarta por prudencia"
+      }
+    }
+  }
+}

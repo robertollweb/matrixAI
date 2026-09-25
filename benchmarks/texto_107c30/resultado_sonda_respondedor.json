@@ -1,0 +1,191 @@
+{
+  "modelo": {
+    "candidato": "Qwen2.5-0.5B-Instruct",
+    "licencia": "Apache-2.0",
+    "conversion_onnx_genai_de": "xiaoyao9184/Qwen2.5-0.5B-Instruct-onnx-genai",
+    "subcarpeta": "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4",
+    "camino_de_ejecucion": "onnxruntime-genai (CPU, int4 RTN block-32)",
+    "ruta_local": "/home/deployer/.cache/matrixai/text_responders/qwen2.5-0.5b-instruct-onnx-genai-cpu-int4"
+  },
+  "hilos_declarados": 4,
+  "n_textos_pedidos": 20,
+  "n_textos_respondidos": 20,
+  "parada_por_tope_total": false,
+  "tope_total_s": 899.9842086509998,
+  "tiempo_carga_modelo_s": 1.5453061709995382,
+  "duracion_total_s": 26.071163746999446,
+  "latencia_por_respuesta_s": {
+    "media": 1.2204088731500633,
+    "mediana": 1.2033812680001574,
+    "p95": 1.4175452390009013,
+    "minima": 0.9748155659999611,
+    "maxima": 1.5994889749999857
+  },
+  "memoria_pico_kb": 777844,
+  "memoria_pico_mb": 759.61328125,
+  "respuestas": [
+    {
+      "indice": 0,
+      "n_tokens_prompt": 276,
+      "n_tokens_generados": 3,
+      "latencia_s": 1.3462708210008714,
+      "respuesta_bruta": "si.",
+      "ru_maxrss_kb_acumulado": 744056
+    },
+    {
+      "indice": 1,
+      "n_tokens_prompt": 236,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.1326278479991743,
+      "respuesta_bruta": "si",
+      "ru_maxrss_kb_acumulado": 744056
+    },
+    {
+      "indice": 2,
+      "n_tokens_prompt": 267,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.5994889749999857,
+      "respuesta_bruta": "si",
+      "ru_maxrss_kb_acumulado": 747424
+    },
+    {
+      "indice": 3,
+      "n_tokens_prompt": 233,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.0574002169996675,
+      "respuesta_bruta": "no",
+      "ru_maxrss_kb_acumulado": 747424
+    },
+    {
+      "indice": 4,
+      "n_tokens_prompt": 229,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.040745195999989,
+      "respuesta_bruta": "no",
+      "ru_maxrss_kb_acumulado": 747424
+    },
+    {
+      "indice": 5,
+      "n_tokens_prompt": 224,
+      "n_tokens_generados": 2,
+      "latencia_s": 0.9748155659999611,
+      "respuesta_bruta": "no",
+      "ru_maxrss_kb_acumulado": 747424
+    },
+    {
+      "indice": 6,
+      "n_tokens_prompt": 268,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.225372390999837,
+      "respuesta_bruta": "si",
+      "ru_maxrss_kb_acumulado": 764576
+    },
+    {
+      "indice": 7,
+      "n_tokens_prompt": 235,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.3192037059998256,
+      "respuesta_bruta": "si",
+      "ru_maxrss_kb_acumulado": 764576
+    },
+    {
+      "indice": 8,
+      "n_tokens_prompt": 240,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.1775913829987985,
+      "respuesta_bruta": "no",
+      "ru_maxrss_kb_acumulado": 764576
+    },
+    {
+      "indice": 9,
+      "n_tokens_prompt": 274,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.4175452390009013,
+      "respuesta_bruta": "si",
+      "ru_maxrss_kb_acumulado": 776052
+    },
+    {
+      "indice": 10,
+      "n_tokens_prompt": 243,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.3125195280008484,
+      "respuesta_bruta": "si",
+      "ru_maxrss_kb_acumulado": 776052
+    },
+    {
+      "indice": 11,
+      "n_tokens_prompt": 213,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.1496613130002515,
+      "respuesta_bruta": "no",
+      "ru_maxrss_kb_acumulado": 776052
+    },
+    {
+      "indice": 12,
+      "n_tokens_prompt": 232,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.4079377929992916,
+      "respuesta_bruta": "si",
+      "ru_maxrss_kb_acumulado": 776052
+    },
+    {
+      "indice": 13,
+      "n_tokens_prompt": 216,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.0474164940005721,
+      "respuesta_bruta": "si",
+      "ru_maxrss_kb_acumulado": 776052
+    },
+    {
+      "indice": 14,
+      "n_tokens_prompt": 258,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.2857002279997687,
+      "respuesta_bruta": "si",
+      "ru_maxrss_kb_acumulado": 777816
+    },
+    {
+      "indice": 15,
+      "n_tokens_prompt": 238,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.1675093620015105,
+      "respuesta_bruta": "no",
+      "ru_maxrss_kb_acumulado": 777816
+    },
+    {
+      "indice": 16,
+      "n_tokens_prompt": 230,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.2033812680001574,
+      "respuesta_bruta": "si",
+      "ru_maxrss_kb_acumulado": 777816
+    },
+    {
+      "indice": 17,
+      "n_tokens_prompt": 238,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.3364558779994695,
+      "respuesta_bruta": "si",
+      "ru_maxrss_kb_acumulado": 777816
+    },
+    {
+      "indice": 18,
+      "n_tokens_prompt": 219,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.0946179109996592,
+      "respuesta_bruta": "Si",
+      "ru_maxrss_kb_acumulado": 777816
+    },
+    {
+      "indice": 19,
+      "n_tokens_prompt": 242,
+      "n_tokens_generados": 2,
+      "latencia_s": 1.1119163460007258,
+      "respuesta_bruta": "no",
+      "ru_maxrss_kb_acumulado": 777844
+    }
+  ],
+  "pregunta_atomica_plantilla": "Lee el siguiente texto y responde SOLO con la palabra \"si\" o la palabra \"no\", sin explicación.\nPregunta: ¿El texto menciona algún lugar geográfico (una ciudad, región o país)?\nTexto: {texto}",
+  "truncado_texto_caracteres": 600,
+  "tiempo_total_del_proceso_s": 26.161928104000253
+}
