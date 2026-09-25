@@ -354,8 +354,17 @@ def main(argv=None) -> None:
             print(f"AVISO: --solo incluye conjunto(s) SELLADO(S) {sellados_pedidos} -- esto "
                   f"es una prueba del guion, NO CUENTA como la confirmacion en sellados del "
                   f"contrato 118 ('una sola vez y despues')", flush=True)
-        fuera_de_la_palanca = [n for n in pedidos if por_nombre[n] not in datasets_de_la_palanca(
-            protocolo_v3, args.palanca, no_sellados)[0] and not por_nombre[n].sellado]
+        # Por NOMBRE, no por identidad de objeto: `DatasetDeLaPasada` no
+        # declara `__eq__` (medido: dos instancias del MISMO dataset, una de
+        # `todos` y otra de `no_sellados`, dan `False`), así que un `in`
+        # sobre los objetos daba SIEMPRE "fuera de la palanca" -- para
+        # cualquier dataset, incluido uno que la palanca sí pediría por su
+        # cuenta. Cazado el 25-09 al correr la primera prueba real de
+        # 118-C2 con `--solo`.
+        nombres_de_la_palanca = {d.nombre for d in datasets_de_la_palanca(
+            protocolo_v3, args.palanca, no_sellados)[0]}
+        fuera_de_la_palanca = [n for n in pedidos
+                               if n not in nombres_de_la_palanca and not por_nombre[n].sellado]
         if fuera_de_la_palanca:
             print(f"AVISO: --solo incluye {fuera_de_la_palanca}, que la palanca «{args.palanca}» "
                   f"(conjuntos={conjuntos_texto!r}) no pediria por su cuenta -- se corren "
@@ -561,7 +570,11 @@ def _componer_y_guardar(resultados, veredictos_por_conjunto, veredicto, proceden
 
     salida = {
         "creado": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "corte": "118-C1" if palanca == PALANCA_CUANTILES else "118",
+        # El corte se deriva del id de la palanca ("118-C2.objetivo" ->
+        # "118-C2"), no de una lista de casos a mano que se olvidaría de
+        # C4/C5 el día que tengan código -- lo mismo que ya hace este arnés
+        # con `_TEXTOS_DE_CONJUNTOS_CONOCIDOS` para `conjuntos`.
+        "corte": palanca.split(".", 1)[0] if "." in palanca else "118",
         "palanca": palanca,
         "conjuntos_que_pide_la_palanca": conjuntos_texto,
         "motor": NOMBRE_DENSA,

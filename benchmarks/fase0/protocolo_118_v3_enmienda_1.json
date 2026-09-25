@@ -1,0 +1,30 @@
+{
+  "enmienda": "118-C0.v3.e1",
+  "fecha_registro": "2026-09-25",
+  "de": {
+    "protocolo": "118-C0.v3",
+    "digest_sha256": "0642cf632078dee1c580701918ebd372f1d278b5496bd89d5fc22e49e26ea993"
+  },
+  "escrita": "ANTES de medir la palanca 118-C3.receta (ningún resultado suyo visto)",
+  "palanca": "118-C3.receta",
+  "que_cambia": "118-C3.receta se mide en su parte APLICABLE con el lenguaje del núcleo de hoy",
+  "se_aplica": {
+    "lote": "min(256, filas de train)",
+    "epocas_maximas": 200,
+    "parada_temprana": {
+      "paciencia": 20,
+      "metrica": "validation_loss"
+    },
+    "optimizador": "adam (el de la receta base), learning_rate 0.001",
+    "plazo": "el mismo del motor (0,75 del presupuesto de pared)"
+  },
+  "no_se_aplica": {
+    "optimizador_adamw": "run_playground_training real devuelve «OPTIMIZER type not supported: adamw (supported: sgd, adam)»: los entrenadores torch solo instancian Adam y SGD",
+    "weight_decay": "parse_training_text rechaza «Unknown OPTIMIZER line: WEIGHT_DECAY 0.0001»",
+    "programa_coseno": "parse_training_text rechaza «Unknown OPTIMIZER line: SCHEDULE cosine»; la gramática no tiene programa de tasa"
+  },
+  "comprobado": "ejecutando el núcleo de verdad (tests/test_118_c3_receta.py en motores), no leyendo su código",
+  "lo_que_falta": "AdamW + weight_decay + coseno pasan a ser una palanca PROPIA (118-C3b) que necesita EXTENDER el lenguaje y los entrenadores del núcleo; se registrará en otra enmienda antes de medirla",
+  "veredicto": "sin cambio: el de la v3 (por_palanca)",
+  "digest_sha256": "8a0b145407c167cb906bb3bac24a62b8a0380c693b3683c95978364e4a6c2c9c"
+}

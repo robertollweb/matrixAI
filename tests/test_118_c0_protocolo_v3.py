@@ -48,3 +48,16 @@ def test_las_palancas_que_se_miden_tienen_sus_parametros_fijados():
 def test_la_receta_base_es_la_de_la_v2():
     base = next(m["receta"] for m in V2["motores"] if m["id"] == "matrixai.dense.torch_cpu")
     assert V3["receta_base"] == base
+
+
+def test_la_enmienda_1_de_C3_esta_atada_a_la_v3_y_dice_lo_que_no_se_aplica():
+    """Enmienda registrada ANTES de medir 118-C3: el lenguaje del núcleo no admite AdamW,
+    weight_decay ni programa coseno (comprobado ejecutándolo). Se mide la parte aplicable
+    y lo que falta queda como palanca propia."""
+    e = json.loads((FASE0 / "protocolo_118_v3_enmienda_1.json").read_text(encoding="utf-8"))
+    assert e["de"]["digest_sha256"] == V3["digest_sha256"]
+    assert e["palanca"] == "118-C3.receta"
+    assert set(e["no_se_aplica"]) == {"optimizador_adamw", "weight_decay", "programa_coseno"}
+    sin = {k: v for k, v in e.items() if k != "digest_sha256"}
+    canonico = json.dumps(sin, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert e["digest_sha256"] == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
