@@ -12,6 +12,8 @@ from __future__ import annotations
 import random
 import unittest
 
+import pytest
+
 from matrixai.estudio.calibracion import _sigmoid, ajustar_recalibracion_logistica
 from matrixai.estudio.esquemas import Restriccion
 from matrixai.estudio.metricas import EntradaNoMedible, Muestra, calcular
@@ -147,3 +149,49 @@ class RestriccionesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# EL CENTRO DEL EMPATE, no su borde — 2026-09-25. Visto en la demo: el estudio de
+# crédito (datos sintéticos, fáciles) elegía umbral 99,9 %, el borde ALTO de un
+# intervalo en el que cualquier umbral costaba lo mismo.
+# ---------------------------------------------------------------------------
+
+def _muestra_separada():
+    y = ["bad"] * 30 + ["good"] * 70
+    p = [0.9995 - 0.00001 * i for i in range(30)] + [0.001 + 0.00001 * i for i in range(70)]
+    return Muestra.binaria(y_true=tuple(y), classes=("bad", "good"), positive_label="bad",
+                           probabilidades=tuple(p)), p
+
+
+def test_con_probabilidades_separadas_el_umbral_es_el_centro_del_empate_no_su_borde():
+    muestra, p = _muestra_separada()
+    t = elegir_umbral(muestra, cost_false_positive=1.0, cost_false_negative=1.0).threshold
+    mas_alta_de_los_good, mas_baja_de_los_bad = max(p[30:]), min(p[:30])
+    assert t == pytest.approx((mas_alta_de_los_good + mas_baja_de_los_bad) / 2)
+    # Y un «bad» nuevo a 0,99 sale «bad»: con el borde (0,99921) habría salido «good».
+    assert 0.99 >= t
+
+
+def test_el_umbral_del_centro_cuesta_LO_MISMO_que_el_mejor_posible():
+    """El arreglo solo se mueve DENTRO del empate: el coste medido en la muestra es el
+    mínimo que se puede conseguir con cualquier umbral (fuerza bruta)."""
+    rng = random.Random(1)
+    probadas = 0
+    for _ in range(400):
+        n = rng.randint(5, 60)
+        y = tuple(rng.choice(["a", "b"]) for _ in range(n))
+        if len(set(y)) < 2:
+            continue
+        p = tuple(round(rng.random(), rng.choice([1, 2, 6])) for _ in range(n))
+        c_fp, c_fn = rng.choice([1, 2, 5]), rng.choice([1, 2, 5])
+        m = Muestra.binaria(y_true=y, classes=("a", "b"), positive_label="a", probabilidades=p)
+        t = elegir_umbral(m, cost_false_positive=c_fp, cost_false_negative=c_fn).threshold
+
+        def coste(th):
+            return sum(c_fp * (pi >= th and yi != "a") + c_fn * (pi < th and yi == "a")
+                       for pi, yi in zip(p, y))
+        mejor = min(coste(th) for th in set(p) | {0.0, 1.0})
+        assert coste(t) == mejor
+        probadas += 1
+    assert probadas > 300

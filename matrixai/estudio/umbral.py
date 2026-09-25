@@ -134,8 +134,8 @@ def elegir_umbral(muestra: Muestra, *, cost_false_positive: float, cost_false_ne
     candidatos = sorted(set(probs) | {0.0, 1.0}, reverse=True)
     tp = fp = 0
     indice = n - 1
-    mejor_umbral: float | None = None
-    mejor_coste: float | None = None
+    # El coste de CADA candidato (None si no cumple una restricción obligatoria).
+    costes: list[float | None] = []
     for t in candidatos:
         while indice >= 0 and pares[indice][0] >= t:
             if pares[indice][1]:
@@ -146,16 +146,44 @@ def elegir_umbral(muestra: Muestra, *, cost_false_positive: float, cost_false_ne
         fn = total_positivos - tp
         tn = total_negativos - fp
         if any(not _cumple(r, tp, fp, tn, fn) for r in restricciones_obligatorias):
+            costes.append(None)
             continue
-        coste = (fp * cost_false_positive + fn * cost_false_negative) / n
-        if mejor_coste is None or coste < mejor_coste:
-            mejor_coste = coste
-            mejor_umbral = t
+        costes.append((fp * cost_false_positive + fn * cost_false_negative) / n)
 
-    if mejor_umbral is None:
+    validos = [c for c in costes if c is not None]
+    if not validos:
         raise EntradaNoMedible("no_hay_umbral_que_cumpla", valor=len(candidatos))
+    mejor_umbral = _centro_del_empate(candidatos, costes, min(validos))
 
     return PoliticaDeDecision(
         threshold=mejor_umbral, scale=muestra_de_busqueda.escala_de_decision,
         positive_label=muestra.positive_label,
         cost_false_positive=cost_false_positive, cost_false_negative=cost_false_negative)
+
+
+def _centro_del_empate(candidatos: Sequence[float], costes: Sequence[float | None],
+                       mejor_coste: float) -> float:
+    """EL CENTRO DEL INTERVALO EMPATADO, no su borde — 2026-09-25.
+
+    Con probabilidades muy separadas (un modelo seguro en datos fáciles) muchos
+    umbrales dan EL MISMO coste en la calibración, y hasta hoy se elegía el más
+    alto del empate (el primero que alcanzaba el mínimo recorriendo de mayor a
+    menor). Visto en el estudio de crédito de la demo: umbral 99,9 %, con lo que
+    un «bad» nuevo a 0,99 habría salido «good». Cualquier umbral del intervalo
+    da el mismo coste medido, así que el que menos arriesga fuera de la muestra
+    es el del medio.
+
+    `candidatos` va de mayor a menor y un umbral `t` predice positivo si
+    `p >= t`, así que un umbral en `(candidatos[k+1], candidatos[k]]` decide
+    igual que `candidatos[k]`. El tramo empatado es la racha CONTIGUA de
+    candidatos con el coste mínimo que empieza en el primero que lo alcanza
+    (i..j): cualquier umbral en `(candidatos[j+1], candidatos[i]]` decide como
+    alguno de ellos y cuesta lo mismo. Se devuelve su punto medio; si la racha
+    llega al último candidato (el 0), el medio entre sus dos extremos."""
+    i = next(k for k, c in enumerate(costes) if c == mejor_coste)
+    j = i
+    while j + 1 < len(costes) and costes[j + 1] == mejor_coste:
+        j += 1
+    alto = candidatos[i]
+    bajo = candidatos[j + 1] if j + 1 < len(candidatos) else candidatos[j]
+    return (alto + bajo) / 2.0 if bajo < alto else alto

@@ -199,7 +199,13 @@ def test_con_el_umbral_dado_ninguna_fila_contradice_al_umbral(coste_de_revision)
 
 
 def test_el_par_de_la_auditoria_umbral_0737_y_bandas_0717():
-    """El caso con nombre: la semilla y los costes con los que la auditoría lo encontró."""
+    """El caso con nombre: la semilla y los costes con los que la auditoría lo encontró.
+
+    Con el desempate de `elegir_umbral` de entonces (el borde ALTO del empate) salía el
+    par umbral 0,737 / bandas [0,717, 0,717]. Desde el 2026-09-25 el umbral es el CENTRO
+    del intervalo empatado (`_centro_del_empate`), así que la primera muestra con
+    contradicción es otra y sus cifras cambian; lo que la prueba sostiene no cambia: sin
+    `umbral=` las bandas pueden contradecir al umbral, y con él no."""
     encontrado = None
     rng = random.Random(5)
     for _ in range(5000):
@@ -217,8 +223,12 @@ def test_el_par_de_la_auditoria_umbral_0737_y_bandas_0717():
             break
     assert encontrado is not None
     m, t, viejo = encontrado
-    assert (t, viejo.umbral_bajo, viejo.umbral_alto) == (0.737, 0.717, 0.717)
+    # La contradicción que la auditoría vio: una probabilidad entre las bandas viejas y el
+    # umbral sale de un lado por el umbral y del otro por la banda.
+    entre = (t + viejo.umbral_alto) / 2 if viejo.umbral_alto < t else (t + viejo.umbral_bajo) / 2
+    assert (viejo.banda_de(entre) == "positiva") != (entre >= t)
     nuevo = elegir_bandas(m, coste_falso_positivo=1, coste_falso_negativo=1, coste_de_revision=0.9,
                           umbral=t)
     assert nuevo.umbral_bajo == nuevo.umbral_alto == t
-    assert nuevo.banda_de(0.727) == "negativa"
+    assert (nuevo.banda_de(entre) == "positiva") == (entre >= t)
+    assert all((nuevo.banda_de(pi) == "positiva") == (pi >= t) for pi in m.probabilidad_del_positivo)
