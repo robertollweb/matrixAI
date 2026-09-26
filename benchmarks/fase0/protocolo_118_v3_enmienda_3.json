@@ -1,0 +1,18 @@
+{
+  "enmienda": "118-C0.v3.e3",
+  "fecha_registro": "2026-09-26",
+  "de": {
+    "protocolo": "118-C0.v3",
+    "digest_sha256": "0642cf632078dee1c580701918ebd372f1d278b5496bd89d5fc22e49e26ea993",
+    "enmienda_anterior": "118-C0.v3.e2",
+    "digest_enmienda_anterior": "06a3218d2f94e8ad457cb80f62a9edf2c39d75842963e2dd8f6ad54b6de3328f"
+  },
+  "escrita": "ANTES de medir 118-C3.receta y 118-C3b.receta_completa (ningún resultado de ninguna de las dos visto)",
+  "palanca": "118-C3.receta",
+  "que_cambia": "118-C3.receta NO se mide: queda SUSTITUIDA por 118-C3b.receta_completa, que es la receta de 118-C3 tal como se registró en la v3 (la enmienda 1 la había acotado a su parte aplicable solo porque el lenguaje del núcleo no admitía AdamW, decaimiento ni coseno)",
+  "decidido_por": "Roberto, 2026-09-26 («solo C3b», con la recomendación del supervisor)",
+  "motivo": "coste: cada pasada de una palanca sobre los no sellados son ~7,5 h de cola con un proceso (el de la v2), y C3b contiene todo lo que C3 medía",
+  "lo_que_se_pierde": "separar lo que aportan AdamW, el decaimiento y el programa coseno de lo que aportan el lote, las épocas y la paciencia: la comparación de C3b frente a C3 que pedía el veredicto de la enmienda 2 queda SIN HACER, y así se dirá al publicar",
+  "veredicto": "sin cambio para C3b: el de la v3 (por_palanca), frente a la densa v2",
+  "digest_sha256": "cbf1950bf6e5f007b22889dd812e906a40bf61ba89e315388f12c120c123ed8d"
+}

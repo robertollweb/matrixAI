@@ -74,3 +74,20 @@ def test_la_enmienda_2_registra_la_receta_completa_atada_a_la_v3_y_a_la_1():
     sin = {k: v for k, v in e2.items() if k != "digest_sha256"}
     canonico = json.dumps(sin, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     assert e2["digest_sha256"] == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+
+
+def test_la_enmienda_3_sustituye_C3_por_C3b_atada_a_la_v3_y_a_la_2_sin_registrar_palanca_nueva():
+    """Enmienda registrada el 26-09 ANTES de medir C3 y C3b (decisión de Roberto, «solo C3b»):
+    C3 no se mide porque C3b es su receta tal como se registró. No trae `conjuntos` ni
+    `parametros`: si los trajera, el arnés (`_palancas_de_las_enmiendas`) la leería como una
+    palanca NUEVA medible."""
+    e2 = json.loads((FASE0 / "protocolo_118_v3_enmienda_2.json").read_text(encoding="utf-8"))
+    e3 = json.loads((FASE0 / "protocolo_118_v3_enmienda_3.json").read_text(encoding="utf-8"))
+    assert e3["de"]["digest_sha256"] == V3["digest_sha256"]
+    assert e3["de"]["digest_enmienda_anterior"] == e2["digest_sha256"]
+    assert e3["palanca"] == "118-C3.receta"
+    assert "118-C3b.receta_completa" in e3["que_cambia"]
+    assert "conjuntos" not in e3 and "parametros" not in e3
+    sin = {k: v for k, v in e3.items() if k != "digest_sha256"}
+    canonico = json.dumps(sin, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    assert e3["digest_sha256"] == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
