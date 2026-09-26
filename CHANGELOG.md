@@ -7,6 +7,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.11.0] — 2026-09-26
+
+A decision threshold that no longer sits on the edge of a tie, and a training language
+that can say AdamW, weight decay and a cosine schedule — applied where torch trains,
+refused with its reason where it cannot be applied.
+
+### Fixed
+- **The study's decision threshold is the centre of a tie, not its upper edge.** When
+  probabilities are well separated, many thresholds reach the same minimum cost on the
+  calibration sample; the highest of them was chosen (seen as 99.9 % on an easy dataset),
+  so a new positive at 0.99 was classified negative. `elegir_umbral` now returns the
+  midpoint of the tied interval; the measured cost is unchanged, and the decision bands
+  follow it.
+
+### Added
+- **`WEIGHT_DECAY`, `SCHEDULE cosine` and `TYPE adamw` inside `OPTIMIZER`.** The torch
+  trainers (linear, dense, composite and the transformer, from the playground and from
+  the CLI) apply them: AdamW/Adam/SGD with the declared decay and, with `cosine`, one
+  learning-rate step per epoch over the declared maximum epochs; early stopping and the
+  deadline cut as before. The paths without torch — including layer-based (`layer_call`)
+  models, trained by finite differences — refuse them with their reason instead of
+  training without them. Without those lines, nothing changes: the specification and its
+  serialisation are identical to 1.10.0.
+
 ## [1.10.0] — 2026-09-24
 
 The study grows up: dates as variables, risk bands, prediction sets and a dense

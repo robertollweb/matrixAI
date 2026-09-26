@@ -67,7 +67,10 @@ matrixai --help
   their own variables, and a `0/1` or `Yes/No` target works whatever way you write the
   positive class
 - **Auditable graph**: computation graph with named nodes, explicit types and audit trail
-- **Supervised training**: classification, risk scoring and regression with `.mxtrain` specs
+- **Supervised training**: classification, risk scoring and regression with `.mxtrain` specs;
+  the optimizer can be `sgd`, `adam` or `adamw`, with `WEIGHT_DECAY` and a `SCHEDULE cosine`
+  learning rate — applied by the torch trainers, refused with its reason (never silently
+  ignored) where they cannot be applied
 - **Large models (billions of parameters)**: binary `.mxw` weights format with tamper
   detection, pre-training resource estimator (VRAM/RAM/disk/time), torch/GPU end-to-end
   (train, evaluate, infer, resume) and streamed ONNX external-data export — validated
@@ -315,7 +318,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 8110 passed, 22 skipped
+# 8232 passed, 29 skipped
 ```
 
 ---
