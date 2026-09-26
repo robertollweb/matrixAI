@@ -216,15 +216,29 @@ def codificar_textos(proveedor, filas: list[dict[str, Any]], *, idioma: str, lot
 # condición (2): TF-IDF + lineal
 # ---------------------------------------------------------------------------
 
+def construir_vectorizador_tfidf():
+    """El `TfidfVectorizer` de la condición (2), en un solo sitio.
+
+    EXTRAÍDO (107-C3.0, condición (3), 26-09) para que la selección de
+    términos del respondedor local (`medir_c30_respondedor.py`) use el MISMO
+    TF-IDF que declara el registro sellado -- "los 5 términos de mayor chi²
+    sobre el TF-IDF de la condición (2)" -- en vez de una segunda definición
+    que podría divergir con el tiempo ("dos sitios declarando lo mismo acaban
+    divergiendo"). No cambia lo que `_condicion2_tfidf_lineal` calculaba: los
+    mismos cuatro parámetros, en el mismo orden.
+    """
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    return TfidfVectorizer(max_features=50_000, ngram_range=(1, 2), min_df=2, sublinear_tf=True)
+
+
 def _condicion2_tfidf_lineal(train: list[dict[str, Any]], val: list[dict[str, Any]],
                              test: list[dict[str, Any]], cfg: dict[str, Any],
                              *, semilla: int) -> tuple[Muestra, dict]:
-    from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.linear_model import LogisticRegression, Ridge
 
     t0 = time.perf_counter()
     entrenamiento = train + val  # el lineal no necesita partición de validación propia
-    vectorizador = TfidfVectorizer(max_features=50_000, ngram_range=(1, 2), min_df=2, sublinear_tf=True)
+    vectorizador = construir_vectorizador_tfidf()
     X_train = vectorizador.fit_transform([f["texto"] for f in entrenamiento])
     X_test = vectorizador.transform([f["texto"] for f in test])
     t1 = time.perf_counter()
