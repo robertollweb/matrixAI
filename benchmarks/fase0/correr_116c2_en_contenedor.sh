@@ -171,10 +171,15 @@ echo "argumentos de la pasada: ${ARGS[*]}"
 # nombre propio y la trampa de abajo, el contenedor muere con el guion, y no se usa `exec`.
 NOMBRE_CONTENEDOR="medicion-116c2-$$"
 trap 'docker rm -f "$NOMBRE_CONTENEDOR" >/dev/null 2>&1' EXIT INT TERM
-docker run --rm --name "$NOMBRE_CONTENEDOR" --network none --memory=6g --memory-swap=6g --cpus=5 \
+# `--init` y `& wait` NO son adorno (26-09, medido con una réplica de la cadena de la cola): con
+# `docker run` en primer plano, bash APLAZA el trap hasta que vuelva, y python3 como PID 1 del
+# contenedor ignora el SIGTERM que le reenvía el cliente. El 116c2-c pasó su tope y siguió midiendo
+# hasta que la cola borró el worktree. Con `wait`, la señal corta la espera y el trap lo quita.
+docker run --rm --init --name "$NOMBRE_CONTENEDOR" --network none --memory=6g --memory-swap=6g --cpus=5 \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -e MATRIXAI_TABICL_PESOS_DIR="/pesos_root/hub/models--jingang--TabICL/snapshots/$REV" \
   "${MONTAJES[@]}" \
   -w /home/deployer/matrixAI/benchmarks/fase0 \
   "$IMAGEN" \
-  python3 pasada_116c2_tabicl.py "${ARGS[@]}"
+  python3 pasada_116c2_tabicl.py "${ARGS[@]}" &
+wait $!
