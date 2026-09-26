@@ -118,13 +118,17 @@ if [ "$COMPROBAR" -eq 1 ]; then
     "$IMAGEN" \
     python3 -c '
 import importlib
+# Los tres guiones PRIMERO (26-09): al importarse meten /home/deployer/matrixAI y
+# /home/deployer/matrixai-engines/src en sys.path, que es como los resuelve la pasada de
+# verdad. Con ellos al final, matrixai y matrixai_engines salian FALTA sin faltar: 8 de 18
+# falsos la primera vez que se construyo la imagen.
 MODULOS = [
+    "medir_c30", "sondear_respondedor", "medir_c30_respondedor",
     "numpy", "pandas", "sklearn", "lightgbm", "tokenizers", "onnxruntime", "onnxruntime_genai",
     "matrixai_engines", "matrixai_engines.motores.arbol_lightgbm",
     "matrixai_engines.embeddings.proveedor_de_texto", "matrixai_engines.embeddings.tokenizador_unigram",
     "matrixai.estudio", "matrixai.estudio.comparaciones", "matrixai.estudio.metricas",
     "matrixai.text.embeddings.descarga",
-    "medir_c30", "sondear_respondedor", "medir_c30_respondedor",
 ]
 faltan = []
 for m in MODULOS:
