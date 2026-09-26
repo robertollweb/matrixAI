@@ -95,12 +95,16 @@ prueba):
   100 eventos cae a ≈ 0,19.
 
 LO QUE SE MIDE SOBRE EL CSV ENTERO, Y SU COSTE. Estas señales son O(filas) por
-par predictor-objetivo, y O(predictores²) para `igualdad_de_valores` entre
-pares de entradas. Medido sobre un CSV sintético de 50.000 filas × 30 columnas
-(ver la prueba de coste): recorrer todos los detectores sobre TODAS las filas
-se queda por debajo del segundo; aun así, `MUESTREO_MAXIMO_FILAS` existe para
-no dejarlo sin techo, y cuando actúa lo DECLARA en `Diagnostico.muestreado` —
-nunca en silencio.
+par predictor-objetivo, y el cruce de TODOS los pares de entradas
+(`igualdad_de_valores`) es O(predictores²): asumible porque cada columna se
+prepara una vez y cada comparación se para en la primera diferencia (ver
+«Comparación exacta de valores», atado por recuento en `ElCosteDelCruceTest`).
+Medido el 2026-09-26 en un núcleo: `diagnosticar_csv` sobre 50.000 × 30,
+análisis incluido, 7,7 s; la confirmación entera del Studio sobre 51.000 × 100,
+27 s (476 s antes de ese arreglo). Lo que decía aquí antes —«por debajo del
+segundo», «ver la prueba de coste»— no lo sostenía nada: esa prueba no
+existía. `MUESTREO_MAXIMO_FILAS` existe para no dejarlo sin techo, y cuando
+actúa lo DECLARA en `Diagnostico.muestreado` — nunca en silencio.
 
 STDLIB PURO. Pearson, Spearman (por rangos, con empates promediados),
 información mutua y su normalización se escriben aquí a mano —
@@ -166,8 +170,8 @@ RATIO_MINIMO_FILAS_POR_PREDICTOR = 10
 _Z_95 = 1.959963984540054
 UMBRAL_MARGEN_RELATIVO_WILSON = 0.3
 #: Filas por encima de las cuales las señales de este módulo se calculan sobre
-#: una MUESTRA, no el CSV entero — medido y declarado, nunca en silencio
-#: (ver la prueba de coste). 50.000 es diez veces el techo de fila del perfil
+#: una MUESTRA, no el CSV entero — declarado, nunca en silencio
+#: (`test_muestreo_se_declara_nunca_en_silencio`). 50.000 es diez veces el techo de fila del perfil
 #: `hosted` (`matrixai.limits`) y ya cubre con margen los CSV reales que este
 #: producto analiza sin invocar Studio descargable sin techo.
 MUESTREO_MAXIMO_FILAS = 50_000
@@ -535,72 +539,73 @@ def pureza_categorica(valores_categoria: Sequence[Any], valores_objetivo: Sequen
 # Comparación exacta de valores — para los duplicados (bloqueo y sospecha)
 # ---------------------------------------------------------------------------
 #
-# `igualdad_de_valores` se llama sobre TODOS los pares de predictores
-# (O(k²)): medido sobre 50.000 filas × 29 predictores, la versión que repetía
-# `_is_null`/`strip`/`float()` dentro del cruce tardaba 33,6 s, y un
-# `cProfile` señaló la causa exacta — `float()` fallando con `ValueError` en
-# cada comparación no numérica, dentro de un bucle de 21,75 millones de
-# llamadas: las excepciones de Python no son gratis. `_preparar_columna`
-# hace ese trabajo UNA VEZ por columna (parseo, nulo, numérico-o-texto) y
-# `_comparar_preparadas` cruza dos columnas ya preparadas con comparaciones
-# directas — la MISMA semántica (hay una prueba que lo contrasta contra
-# `_coincidencia_exacta`), 30-40× más rápido en el mismo banco.
+# `diagnosticar_csv` cruza TODOS los pares de predictores (O(k²)) buscando dos
+# columnas iguales fila a fila, y cada predictor contra el objetivo. Dos cosas
+# lo hacen asumible, y las dos las ata `test_c103_c2_detectores.py` («el coste
+# del cruce»), no solo este comentario:
+#
+# 1. CADA COLUMNA SE PREPARA UNA VEZ (`_preparar_columna`: nulo, número o
+#    texto), no una vez por cruce. Un `float()` que falla con `ValueError` en
+#    cada valor no numérico es caro (las excepciones de Python no son gratis:
+#    33,6 s sobre 50.000 filas × 29 predictores, medido en 103-C2).
+#    ESTE COMENTARIO LO PROMETÍA DESDE 103-C2 Y EL ORQUESTADOR NO LO HACÍA:
+#    llamaba a `igualdad_de_valores` por cada par, que preparaba las dos
+#    columnas otra vez. Medido el 2026-09-26: 9.900 preparaciones para 100
+#    columnas, y la confirmación de un CSV de 51.000 × 100 tardaba 476 s (el
+#    cliente del Studio corta a los 30 s). Tampoco existía la prueba «que lo
+#    contrasta» que se citaba aquí.
+# 2. LA COMPARACIÓN SE PARA EN LA PRIMERA DIFERENCIA
+#    (`_iguales_en_lo_comparable`): los dos detectores solo preguntan
+#    «¿coinciden TODAS?», y entre dos columnas distintas la primera diferencia
+#    suele estar en las primeras filas. El resultado es el mismo que contando
+#    todas las coincidencias; cuando SÍ coinciden, se recorren enteras.
 
-def _preparar_columna(valores: Sequence[str]) -> tuple[list[bool], list[bool], list[Any]]:
-    """`(es_nulo, es_numero, normalizado)`, UNA pasada por columna."""
+#: Filas comparables (ninguno de los dos lados nulo) por debajo de las cuales
+#: una coincidencia total no se cree: con pocas filas, dos columnas coinciden
+#: por azar.
+_MINIMO_FILAS_COMPARABLES = 20
+
+
+def _preparar_columna(valores: Sequence[str]) -> list[float | str | None]:
+    """Cada valor, UNA vez: `None` si es nulo, `float` si se lee como número, y
+    si no, el texto sin espacios alrededor."""
     from matrixai.training.dataset_analysis import _is_null  # noqa: PLC0415
 
-    n = len(valores)
-    es_nulo = [False] * n
-    es_numero = [False] * n
-    normalizado: list[Any] = [None] * n
-    for i, v in enumerate(valores):
+    preparada: list[float | str | None] = []
+    for v in valores:
         if _is_null(v):
-            es_nulo[i] = True
+            preparada.append(None)
             continue
         s = str(v).strip()
         try:
-            normalizado[i] = float(s)
-            es_numero[i] = True
+            preparada.append(float(s))
         except ValueError:
-            normalizado[i] = s
-    return es_nulo, es_numero, normalizado
+            preparada.append(s)
+    return preparada
 
 
-def _comparar_preparadas(
-    prep_a: tuple[list[bool], list[bool], list[Any]],
-    prep_b: tuple[list[bool], list[bool], list[Any]],
-) -> tuple[int, int]:
-    """`(coincidencias, filas_comparadas)` entre dos columnas YA preparadas.
+def _iguales_en_lo_comparable(a: Sequence[float | str | None],
+                              b: Sequence[float | str | None]) -> int | None:
+    """Cuántas filas se compararon, si dos columnas YA preparadas coinciden en
+    TODAS las filas donde ninguna es nula; `None` en cuanto una no coincide.
 
-    Un nulo en cualquiera de los dos lados no cuenta ni a favor ni en contra
-    — un valor ausente no es un cero y no puede confirmar ni descartar una
-    igualdad. Dos tipos distintos (uno numérico, el otro texto) en la misma
-    fila nunca coinciden: si de verdad fueran el mismo valor, los dos habrían
-    parseado igual.
+    Un nulo en cualquiera de los dos lados no cuenta ni a favor ni en contra —
+    un valor ausente no es un cero y no puede confirmar ni descartar una
+    igualdad. Dos números coinciden a menos de 1e-9; dos textos, si son
+    iguales; un número y un texto en la misma fila, nunca: si de verdad fueran
+    el mismo valor, los dos se habrían leído igual.
     """
-    nulos_a, num_a, val_a = prep_a
-    nulos_b, num_b, val_b = prep_b
-    coincidencias = 0
     comparadas = 0
-    for i in range(len(val_a)):
-        if nulos_a[i] or nulos_b[i]:
+    for x, y in zip(a, b):
+        if x is None or y is None:
             continue
+        if type(x) is float:
+            if type(y) is not float or not abs(x - y) < 1e-9:
+                return None
+        elif type(y) is float or x != y:
+            return None
         comparadas += 1
-        if num_a[i] and num_b[i]:
-            if abs(val_a[i] - val_b[i]) < 1e-9:
-                coincidencias += 1
-        elif not num_a[i] and not num_b[i] and val_a[i] == val_b[i]:
-            coincidencias += 1
-    return coincidencias, comparadas
-
-
-def _coincidencia_exacta(valores_a: Sequence[str], valores_b: Sequence[str]) -> tuple[int, int]:
-    """`(coincidencias, filas_comparadas)` — prepara y compara UN par. Para
-    cruzar MUCHAS columnas entre sí, preparar cada una con `_preparar_columna`
-    una sola vez y llamar a `_comparar_preparadas` por cada cruce (lo que hace
-    `diagnosticar_csv`) evita repetir el parseo O(k) veces por columna."""
-    return _comparar_preparadas(_preparar_columna(valores_a), _preparar_columna(valores_b))
+    return comparadas
 
 
 # ---------------------------------------------------------------------------
@@ -608,7 +613,8 @@ def _coincidencia_exacta(valores_a: Sequence[str], valores_b: Sequence[str]) -> 
 # ---------------------------------------------------------------------------
 
 def objetivo_duplicado(valores_objetivo: Sequence[str], valores_predictor: Sequence[str], *,
-                       objetivo: str, predictor: str, minimo_filas: int = 20) -> Bloqueo | None:
+                       objetivo: str, predictor: str,
+                       minimo_filas: int = _MINIMO_FILAS_COMPARABLES) -> Bloqueo | None:
     """`Bloqueo` si `predictor` reproduce `objetivo` fila a fila.
 
     Es DATOS, no nombre: a diferencia de `objetivo.pistas_por_nombre` (103-C1,
@@ -617,8 +623,18 @@ def objetivo_duplicado(valores_objetivo: Sequence[str], valores_predictor: Seque
     comparables — una coincidencia parcial, por pequeña que sea la diferencia,
     es la asociación alta de `asociacion_muy_alta`, no una identidad.
     """
-    coincidencias, comparadas = _coincidencia_exacta(valores_objetivo, valores_predictor)
-    if comparadas < minimo_filas or coincidencias != comparadas:
+    return _objetivo_duplicado_preparado(
+        _preparar_columna(valores_objetivo), _preparar_columna(valores_predictor),
+        objetivo=objetivo, predictor=predictor, minimo_filas=minimo_filas)
+
+
+def _objetivo_duplicado_preparado(objetivo_preparado: Sequence[float | str | None],
+                                  predictor_preparado: Sequence[float | str | None], *,
+                                  objetivo: str, predictor: str,
+                                  minimo_filas: int = _MINIMO_FILAS_COMPARABLES) -> Bloqueo | None:
+    """`objetivo_duplicado` sobre columnas YA preparadas (ver «Comparación exacta»)."""
+    comparadas = _iguales_en_lo_comparable(objetivo_preparado, predictor_preparado)
+    if comparadas is None or comparadas < minimo_filas:
         return None
     return Bloqueo(
         clave="objetivo_duplicado_confirmado", campo=predictor,
@@ -676,7 +692,8 @@ def cruce_de_unidades(predictores: Sequence[str], columna_unidad: str | None, *,
 # ---------------------------------------------------------------------------
 
 def igualdad_de_valores(valores_a: Sequence[str], valores_b: Sequence[str], *,
-                        columna_a: str, columna_b: str, minimo_filas: int = 20) -> Sospecha | None:
+                        columna_a: str, columna_b: str,
+                        minimo_filas: int = _MINIMO_FILAS_COMPARABLES) -> Sospecha | None:
     """`Sospecha` si DOS ENTRADAS (nunca el objetivo — eso es
     `objetivo_duplicado`, y es un `Bloqueo`) coinciden fila a fila.
 
@@ -686,8 +703,16 @@ def igualdad_de_valores(valores_a: Sequence[str], valores_b: Sequence[str], *,
     cuál sin que alguien lo diga, y bloquear aquí sería inventar un motivo que
     nadie ha confirmado.
     """
-    coincidencias, comparadas = _coincidencia_exacta(valores_a, valores_b)
-    if comparadas < minimo_filas or coincidencias != comparadas:
+    return _igualdad_preparada(_preparar_columna(valores_a), _preparar_columna(valores_b),
+                               columna_a=columna_a, columna_b=columna_b, minimo_filas=minimo_filas)
+
+
+def _igualdad_preparada(a: Sequence[float | str | None], b: Sequence[float | str | None], *,
+                        columna_a: str, columna_b: str,
+                        minimo_filas: int = _MINIMO_FILAS_COMPARABLES) -> Sospecha | None:
+    """`igualdad_de_valores` sobre columnas YA preparadas (ver «Comparación exacta»)."""
+    comparadas = _iguales_en_lo_comparable(a, b)
+    if comparadas is None or comparadas < minimo_filas:
         return None
     return Sospecha(
         clave="igualdad_de_valores_sin_explicar", campo=columna_a,
@@ -929,16 +954,22 @@ def diagnosticar_csv(
                               unidad_de_observacion=problema.observation_unit)
     if cruce is not None:
         bloqueos.append(cruce)
+    # CADA COLUMNA SE PREPARA UNA VEZ para los dos cruces de abajo, no una vez
+    # por cruce (ver «Comparación exacta de valores»: hasta el 2026-09-26 no se
+    # hacía, y una confirmación de 51.000 × 100 tardaba 476 s).
+    objetivo_preparado = _preparar_columna(valores_objetivo)
+    preparadas = {p: _preparar_columna(valores_por_columna[p]) for p in predictores}
     for predictor in predictores:
-        b = objetivo_duplicado(valores_objetivo, valores_por_columna[predictor],
-                               objetivo=objetivo, predictor=predictor)
+        b = _objetivo_duplicado_preparado(objetivo_preparado, preparadas[predictor],
+                                          objetivo=objetivo, predictor=predictor)
         if b is not None:
             bloqueos.append(b)
 
     sospechas: list[Sospecha] = []
     for i, col_a in enumerate(predictores):
+        preparada_a = preparadas[col_a]
         for col_b in predictores[i + 1:]:
-            s = igualdad_de_valores(valores_por_columna[col_a], valores_por_columna[col_b],
+            s = _igualdad_preparada(preparada_a, preparadas[col_b],
                                     columna_a=col_a, columna_b=col_b)
             if s is not None:
                 sospechas.append(s)

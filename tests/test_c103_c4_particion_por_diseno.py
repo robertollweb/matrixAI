@@ -248,5 +248,34 @@ class EventosInsuficientesTest(unittest.TestCase):
         self.assertTrue(any(l.clave == "pliegues_reducidos_por_eventos" for l in r.limites))
 
 
+
+class TestLosPlieguesNoSonCuadraticos(unittest.TestCase):
+    """2026-09-26: `_pliegues_desde_cubos` construía `set(valida)` DENTRO de la condición de
+    la expresión, una vez por FILA, así que repartir era cuadrático: 80 s de los 180 de una
+    confirmación de 51.000 filas. Se ata por RECUENTO (cuántos conjuntos se construyen), no por
+    reloj, y el resultado contra la definición: entrena = todas menos las de validación, en el
+    mismo orden."""
+
+    def test_un_conjunto_por_pliegue_y_el_mismo_reparto(self):
+        from unittest import mock
+        import matrixai.training.particion_por_diseno as ppd
+
+        cubos = [[f"o{c}-{i}" for i in range(300)] for c in range(5)]
+        construidos = [0]
+
+        def set_que_cuenta(*args):
+            construidos[0] += 1
+            return set(*args)
+
+        # `set` se busca en los globales del módulo antes que en los builtins.
+        with mock.patch.object(ppd, "set", set_que_cuenta, create=True):
+            pliegues = ppd._pliegues_desde_cubos(cubos, repeticion=0)
+        self.assertLessEqual(construidos[0], len(cubos))   # antes: 1.500 (una por fila)
+        todas = [o for cubo in cubos for o in cubo]
+        for i, pliegue in enumerate(pliegues):
+            self.assertEqual(pliegue.valida, tuple(cubos[i]))
+            self.assertEqual(pliegue.entrena, tuple(o for o in todas if o not in cubos[i]))
+
+
 if __name__ == "__main__":
     unittest.main()

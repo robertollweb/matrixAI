@@ -148,7 +148,11 @@ def _pliegues_desde_cubos(cubos: list[list[str]], repeticion: int) -> list[Plieg
     todas = [obs for cubo in cubos for obs in cubo]
     resultado = []
     for i, valida in enumerate(cubos):
-        entrena = tuple(o for o in todas if o not in set(valida))
+        # El conjunto se construye UNA vez por pliegue. Estaba DENTRO de la
+        # condición, así que se reconstruía para cada fila: cuadrático, 80 s
+        # de los 180 de una confirmación de 51.000 filas (medido el 2026-09-26).
+        de_validacion = set(valida)
+        entrena = tuple(o for o in todas if o not in de_validacion)
         resultado.append(Pliegue(repeticion=repeticion, pliegue=i,
                                  entrena=entrena, valida=tuple(valida)))
     return resultado

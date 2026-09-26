@@ -552,5 +552,105 @@ class DiagnosticarCsvTest(unittest.TestCase):
         self.assertIn("objetivo_duplicado_confirmado", {b.clave for b in d.bloqueos})
 
 
+
+class ElCosteDelCruceTest(unittest.TestCase):
+    """«EL COSTE DEL CRUCE» (2026-09-26). `diagnosticar_csv` cruza todas las parejas de
+    predictores buscando dos columnas iguales. El comentario del módulo prometía desde 103-C2
+    que cada columna se preparaba UNA vez y citaba una prueba «que lo contrasta» que no
+    existía; el orquestador preparaba las dos columnas en CADA cruce, y confirmar un CSV de
+    51.000 × 100 tardaba 476 s (el cliente del Studio corta a los 30). Estas pruebas atan las
+    dos cosas que lo hacen asumible, por RECUENTO y no por reloj, y la semántica de la
+    comparación rápida contra la documentada."""
+
+    @staticmethod
+    def _csv(n_filas: int, n_columnas: int) -> tuple[list[dict[str, str]], dict, ProblemSpec]:
+        # Columnas que difieren ENTRE SÍ ya en la primera fila (x_j = i + j): ninguna pareja
+        # es igual, así que una comparación que se para en la primera diferencia lee 1 fila.
+        predictores = tuple(f"x{j}" for j in range(n_columnas))
+        filas = [{**{f"x{j}": str(i + j) for j in range(n_columnas)}, "y": str(i % 2)}
+                 for i in range(n_filas)]
+        analisis = {"columns": {p: {"type": "integer", "cardinality": n_filas} for p in predictores}}
+        return filas, analisis, _problema(target="y", predictors=predictores)
+
+    def test_cada_columna_se_prepara_UNA_vez_no_una_vez_por_cruce(self):
+        from unittest import mock
+        import matrixai.training.diagnostico as d
+        filas, analisis, problema = self._csv(60, 12)
+        with mock.patch.object(d, "_preparar_columna", wraps=d._preparar_columna) as espia:
+            diagnosticar_csv("no-usado", problema, analisis=analisis, filas=filas)
+        # 12 predictores + el objetivo. Antes: 2 por cada una de las 66 parejas y 2 por cada
+        # predictor contra el objetivo = 156.
+        self.assertEqual(espia.call_count, 13)
+
+    def test_la_comparacion_se_para_en_la_primera_diferencia(self):
+        from unittest import mock
+        import matrixai.training.diagnostico as d
+
+        leidos = [0]
+
+        class ListaQueCuenta(list):
+            def __iter__(self):
+                for valor in super().__iter__():
+                    leidos[0] += 1
+                    yield valor
+
+        original = d._preparar_columna
+        filas, analisis, problema = self._csv(500, 10)
+        with mock.patch.object(d, "_preparar_columna",
+                               side_effect=lambda v: ListaQueCuenta(original(v))):
+            diagnosticar_csv("no-usado", problema, analisis=analisis, filas=filas)
+        # 45 parejas + 10 contra el objetivo, cada una se para en su primera fila: 2 valores
+        # leídos por comparación (uno de cada lado). Recorriéndolas enteras serían 55.000.
+        self.assertLessEqual(leidos[0], 2 * (45 + 10) + 10, leidos[0])
+
+    def test_la_comparacion_rapida_dice_lo_mismo_que_la_semantica_documentada(self):
+        """La prueba que el comentario citaba y no existía: `_iguales_en_lo_comparable` contra
+        una implementación directa de lo documentado (nulo no cuenta; dos números a menos de
+        1e-9; dos textos, iguales; número contra texto, nunca), contando TODO."""
+        from matrixai.training.dataset_analysis import _is_null
+        from matrixai.training.diagnostico import _iguales_en_lo_comparable, _preparar_columna
+
+        def leer(v):
+            s = str(v).strip()
+            try:
+                return float(s)
+            except ValueError:
+                return s
+
+        def referencia(a, b):
+            coincidencias = comparadas = 0
+            for x, y in zip(a, b):
+                if _is_null(x) or _is_null(y):
+                    continue
+                comparadas += 1
+                vx, vy = leer(x), leer(y)
+                if isinstance(vx, float) and isinstance(vy, float):
+                    coincidencias += abs(vx - vy) < 1e-9
+                elif isinstance(vx, str) and isinstance(vy, str):
+                    coincidencias += vx == vy
+            return comparadas if coincidencias == comparadas else None
+
+        valores = ["", "NA", "?", "null", "1", "1.0", " 1 ", "1e0", "2", "0.3",
+                   "0.30000000000000004", "1.0000000001", "1.00000001", "abc", "ABC", " abc",
+                   "nan", "inf", "-inf", "1,5", "si", "Sí"]
+        azar = random.Random(26092026)
+        iguales_de_verdad = 0
+        for _ in range(4000):
+            n = azar.randint(0, 25)
+            a = [azar.choice(valores) for _ in range(n)]
+            # La mitad de las veces, b es a con algún cambio (o ninguno): sin eso casi nunca
+            # saldría una coincidencia total y la prueba solo miraría el «no».
+            b = list(a) if azar.random() < 0.5 else [azar.choice(valores) for _ in range(n)]
+            for _ in range(azar.choice([0, 0, 1, 2])):
+                if n:
+                    b[azar.randrange(n)] = azar.choice(valores)
+            esperado = referencia(a, b)
+            iguales_de_verdad += esperado is not None and esperado > 0
+            self.assertEqual(_iguales_en_lo_comparable(_preparar_columna(a), _preparar_columna(b)),
+                             esperado, (a, b))
+        # Que el banco tenga dientes: salen coincidencias totales de verdad, no solo «no».
+        self.assertGreater(iguales_de_verdad, 500)
+
+
 if __name__ == "__main__":
     unittest.main()
