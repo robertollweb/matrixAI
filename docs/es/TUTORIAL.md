@@ -89,6 +89,17 @@ OPTIMIZER ClassificationOptimizer
   LEARNING_RATE 0.5
   UPDATE W1, b1
 END
+
+METRIC Accuracy
+  TYPE accuracy
+  PREDICTION R
+  TARGET label
+END
+
+RUN
+  EPOCHS 30
+  SAVE_BEST true
+END
 ```
 
 `TYPE` admite `sgd`, `adam` o `adamw` (el backend `torch`; el backend `stdlib`
@@ -102,17 +113,6 @@ OPTIMIZER ClassificationOptimizer
   WEIGHT_DECAY 0.0001
   SCHEDULE cosine
   UPDATE W1, b1
-END
-
-METRIC Accuracy
-  TYPE accuracy
-  PREDICTION R
-  TARGET label
-END
-
-RUN
-  EPOCHS 30
-  SAVE_BEST true
 END
 ```
 

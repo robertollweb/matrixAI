@@ -4,14 +4,14 @@ This tutorial picks up where the [Quickstart](QUICKSTART.md) ends. The goal is t
 
 > **Español:** [docs/es/TUTORIAL.md](../es/TUTORIAL.md)
 
-**Time**: ~30 minutes
+**Time**: ~30 minutes  
 **Prerequisite**: Completed the [Quickstart](QUICKSTART.md)
 
-> **Windows:** use `python` instead of `python3`. All commands in this tutorial are on a single line so they work in PowerShell without modification.
+> **Windows:** use `python` instead of `python3`. The commands in this tutorial are on a single line so they work in PowerShell without changes.
 
 ---
 
-## Part 1: What is a `.mxai` file? (5 min)
+## Part 1: What is a `.mxai` file (5 min)
 
 Open the generated model:
 
@@ -22,97 +22,144 @@ cat my-first-classifier/my-first-classifier.mxai
 You'll see something like:
 
 ```mxai
-VECTOR Features[3] {
-  feature_1: Score[0, 1]
-  feature_2: Score[0, 1]
-  feature_3: Score[0, 1]
-}
+PROJECT my-first-classifier
 
-FUNCTION ClassifierModel(Features) -> R: Probability {
-  sigmoid_linear(Features, W1, b1)
-}
+VECTOR Features[3]
+  feature_1: Score
+  feature_2: Score
+  feature_3: Score
+END
 
-DISTRIBUTION Classification(R) {
-  Normal(mean=R, sigma=0.05)
-}
+FUNCTION ClassifierModel
+  R: Risk = sigmoid(W1 * Features + b1)
+END
+
+DISTRIBUTION Classification
+  Classification ~ Normal(R, uncertainty(Features))
+END
+
+GRAPH
+  Features -> ClassifierModel -> Classification
+END
+
+AUDIT
+  EXPLAIN Features -> ClassifierModel -> Classification
+END
 ```
 
-**What is this?**
+What it means:
 
-- `VECTOR` — declares the input: 3 numeric features between 0 and 1
-- `FUNCTION` — the model: a sigmoid applied to a linear combination. `W1` and `b1` are the trainable weights
-- `DISTRIBUTION` — interprets the output `R` as a probability distribution
-
-The `.mxai` file is the **auditable, versionable, executable contract** for your model. MatrixAI runs it directly — there's no hidden code.
+- `VECTOR Features[3]`: the model receives three numeric signals.
+- `FUNCTION ClassifierModel`: computes a probability `R` with a trainable sigmoid function.
+- `DISTRIBUTION Classification`: wraps the prediction with auditable uncertainty.
+- `GRAPH`: declares the executable path.
+- `AUDIT`: keeps a human-readable explanation of the path followed.
 
 ---
 
-## Part 2: What is a `.mxtrain` file? (5 min)
+## Part 2: What is a `.mxtrain` file (5 min)
 
-Open the training configuration:
+Open the training contract:
 
 ```bash
 cat my-first-classifier/my-first-classifier.mxtrain
 ```
 
-You'll see something like:
+You'll see:
 
 ```mxtrain
-MODEL my-first-classifier/my-first-classifier.mxai
-DATASET dataset/train.csv
-TEST_DATASET dataset/test.csv
+MODEL my-first-classifier.mxai
 
-LOSS binary_cross_entropy
-TARGET label: Probability
-OPTIMIZER SGD
-LEARNING_RATE 0.5
-BATCH_SIZE 4
-EPOCHS 30
+DATASET TrainingSet
+  SOURCE csv("dataset/train.csv")
+  INPUT Features FROM COLUMNS [feature_1, feature_2, feature_3]
+  TARGET label: Probability
+  SPLIT train=0.8 validation=0.2 seed=42
+  BATCH size=4 shuffle=true
+END
 
-EVALUATE accuracy
+LOSS ClassificationLoss
+  TYPE binary_cross_entropy
+  PREDICTION R
+  TARGET label
+END
+
+OPTIMIZER ClassificationOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.5
+  UPDATE W1, b1
+END
+
+METRIC Accuracy
+  TYPE accuracy
+  PREDICTION R
+  TARGET label
+END
+
+RUN
+  EPOCHS 30
+  SAVE_BEST true
+END
 ```
 
-**What is each field?**
+`TYPE` accepts `sgd`, `adam`, or `adamw` (the `torch` backend; the `stdlib`
+backend only implements `sgd`). Inside `OPTIMIZER` there are two more lines,
+both OPTIONAL and only applied by the `torch` backend:
 
-| Field | What it does |
-|---|---|
-| `LOSS` | How the model measures its error. `binary_cross_entropy` is standard for binary classification |
-| `TARGET label` | Column in the CSV that contains the correct answer (0 or 1) |
-| `OPTIMIZER SGD` | Training algorithm (stochastic gradient descent) |
-| `LEARNING_RATE` | How large the update steps are at each iteration |
-| `BATCH_SIZE` | How many examples are processed per step |
-| `EPOCHS` | How many times the model sees the full dataset |
-| `EVALUATE accuracy` | Metric reported at the end |
+```mxtrain
+OPTIMIZER ClassificationOptimizer
+  TYPE adamw
+  LEARNING_RATE 0.001
+  WEIGHT_DECAY 0.0001
+  SCHEDULE cosine
+  UPDATE W1, b1
+END
+```
+
+The critical decision here is `TARGET label: Probability`. For this pipeline, `binary_cross_entropy` trains a sigmoid output (`R`) against a 0/1 probability. This is the validated PR1 pattern for the scaffold to train without touching the core.
+
+`WEIGHT_DECAY` (a real number ≥ 0, L2 regularization) and `SCHEDULE cosine`
+(the only learning-rate schedule that exists: it decays with
+`CosineAnnealingLR` over the maximum epochs of `RUN`, one step per epoch)
+are only available on the `torch` backend (`--backend torch`, or the one
+the Studio picks when a GPU is present or it's forced with
+`MATRIXAI_TRAIN_BACKEND`). The `stdlib` backend (the one that doesn't need
+PyTorch) REFUSES to train if the `.mxtrain` declares them, instead of
+ignoring them: without torch, neither `adamw`, nor the decay, nor the
+learning-rate schedule can actually be applied.
 
 ---
 
-## Part 3: Understand the training data (3 min)
-
-Open the dataset:
+## Part 3: Look at the data (3 min)
 
 ```bash
-cat my-first-classifier/dataset/train.csv
+head my-first-classifier/dataset/train.csv
+cat my-first-classifier/input/sample.json
 ```
 
-You'll see rows like:
+The CSV has three input columns and a label:
 
-```
+```csv
 feature_1,feature_2,feature_3,label
 0.9,0.8,0.85,1
-0.1,0.2,0.15,0
-...
+0.1,0.15,0.12,0
 ```
 
-- **label=1** → positive class (what `R` close to 1.0 predicts)
-- **label=0** → negative class (what `R` close to 0.0 predicts)
+The prediction JSON uses the same three signals:
 
-The model learns to separate both classes from the numeric patterns in the features.
+```json
+{
+  "feature_1": 0.9,
+  "feature_2": 0.8,
+  "feature_3": 0.85
+}
+```
 
 ---
 
 ## Part 4: Retrain with more epochs (7 min)
 
-Change `EPOCHS 30` to `EPOCHS 40` in the file `my-first-classifier/my-first-classifier.mxtrain`. You can edit it with any text editor, or from the terminal:
+Change `EPOCHS 30` to `EPOCHS 40` in the file `my-first-classifier/my-first-classifier.mxtrain`. You can edit it with any text editor (Notepad, VS Code, etc.), or from the terminal:
 
 **Linux/Mac:**
 ```bash
@@ -153,10 +200,10 @@ python3 -m json.tool my-first-classifier/runs/model_v2/validation_report.json
 
 The important files are:
 
-- `params.best.json`: trained parameters you'll use for prediction
-- `metrics.json`: aggregated training metrics
-- `training_trace.json`: full process trace
-- `validation_report.json`: contract and artifact validation
+- `params.best.json`: trained parameters you'll use to predict.
+- `metrics.json`: aggregated training metrics.
+- `training_trace.json`: trace of the process.
+- `validation_report.json`: contract and artifact validation.
 
 ---
 
@@ -172,28 +219,28 @@ Look for `state.R` in the output. It's the learned probability for the positive 
 
 ## Part 7: Serve the model over HTTP (5 min)
 
-This step assumes you completed Part 4. You need these two files (check they exist in your file explorer or with `ls`):
+This step assumes you've completed Part 4. You need these two files (check they exist in your file explorer or with `ls`):
 
 - `my-first-classifier/my-first-classifier.mxai`
 - `my-first-classifier/runs/model_v2/params.best.json`
 
-**Terminal 1:**
+Terminal 1:
 
 ```bash
 python3 -m matrixai serve my-first-classifier/my-first-classifier.mxai --params my-first-classifier/runs/model_v2/params.best.json --api-key dev-secret
 ```
 
-> **Windows:** if port 8000 is blocked, add `--port 8080` and open `http://127.0.0.1:8080/docs`.
+> **Windows:** if port 8000 is blocked, add `--port 8080` to the command and open `http://127.0.0.1:8080/docs`.
 
 **Option A — Browser (Swagger UI):**
 
 1. Open `http://127.0.0.1:8000/docs` (or port 8080 if you used `--port 8080`)
-2. Click **Authorize** (top right), type `dev-secret` and click **Authorize**
+2. Click **Authorize** (top-right corner), type `dev-secret`, and click **Authorize**
 3. Expand **POST /predict** and click **Try it out**
-4. The Request body will show a JSON example with your model's fields. Edit if you want and click **Execute**
-5. The response appears below — look for `state.R` for the result
+4. The Request body field will show a sample JSON with your model's fields. Edit it if you want and click **Execute**
+5. The response appears below — look for `state.R` to see the result
 
-> Don't understand what you're seeing? See the [HTTP Interface Guide](HTTP_INTERFACE.md) — it explains every section, every response field, and how to interpret them.
+> Not sure what you're looking at? See the [HTTP Interface Guide](HTTP_INTERFACE.md) — it explains every section, every field in the response, and how to interpret it.
 
 **Option B — Terminal (curl):**
 
@@ -201,19 +248,19 @@ python3 -m matrixai serve my-first-classifier/my-first-classifier.mxai --params 
 curl -X POST http://127.0.0.1:8000/predict -H "Authorization: Bearer dev-secret" -H "Content-Type: application/json" -d "{\"feature_1\": 0.9, \"feature_2\": 0.8, \"feature_3\": 0.85}"
 ```
 
-The response contains the runtime result for the same MatrixAI graph you used via CLI.
+The response contains the runtime's result for the same MatrixAI graph you used via the CLI.
 
 ---
 
 ## What you learned
 
-- `.mxai` defines the executable and auditable model
-- `.mxtrain` defines data, loss, optimizer, metric and epochs
-- `matrixai init` generates a project that trains without prior editing
-- `binary_cross_entropy` uses `TARGET label: Probability` in this classification path
-- `run --input` receives a path to JSON, not inline JSON
-- The same model can run via CLI or be served over HTTP
+- `.mxai` defines the executable, auditable model.
+- `.mxtrain` defines data, loss, optimizer, metric, and epochs.
+- `matrixai init` must generate a project that trains without prior editing.
+- `binary_cross_entropy` uses `TARGET ...: Probability` in this PR1 path.
+- `run --input` takes a path to a JSON file, not inline JSON.
+- The same model can run via the CLI or be served over HTTP.
 
 ---
 
-Next step: explore the [technical documentation](../../documentacion/) or dive into a [real use case](../../documentacion/ROADMAP_PRODUCTO.md).
+Next step: try the quickstart with external users and record where they get stuck.
