@@ -3123,6 +3123,27 @@ def _run_playground_generic_training(
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"training_text inválido: {exc}"}
 
+    # CONTRATO 118-C3b (hueco cazado al preparar la release 1.11.0): este camino
+    # (`GenericSupervisedTrainer`, diferencias finitas) es SGD plano — sin
+    # decaimiento, sin programa de tasa, sin AdamW — y no miraba nada de eso.
+    # Declararlo y entrenar sin ello sería declarar una receta que no se
+    # ejecutó: se niega con su motivo, como los caminos stdlib. (`TYPE adam` lo
+    # ignora desde antes y hay generadores que lo escriben: esa deuda va aparte.)
+    _no_aplicados = (
+        training.optimizer.ajustes_no_admitidos_por_stdlib() if training.optimizer else []
+    )
+    if training.optimizer is not None and training.optimizer.type == "adamw":
+        _no_aplicados = ["TYPE adamw", *_no_aplicados]
+    if _no_aplicados:
+        return {
+            "ok": False,
+            "error": (
+                f"OPTIMIZER {', '.join(_no_aplicados)}: el entrenamiento de un "
+                f"modelo por capas (layer_call) es SGD por diferencias finitas "
+                f"y no los aplica"
+            ),
+        }
+
     epochs = _limits.cap(
         int(epochs_override) if epochs_override is not None else (training.run.epochs if training.run else 10),
         "max_epochs",

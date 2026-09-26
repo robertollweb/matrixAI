@@ -269,6 +269,12 @@ class TransformerSupervisedTrainer:
             epoch_callback=_cb,
             type_result=type_result,
             optimizer=opt_type,
+            # CONTRATO 118-C3b: la receta declarada, aplicada de verdad. El
+            # camino del playground ya las pasaba; este, el de la CLI y de
+            # `export/verify.py`, las perdía en silencio (cazado al preparar
+            # la release 1.11.0).
+            weight_decay=training.optimizer.weight_decay if training.optimizer else 0.0,
+            schedule=training.optimizer.schedule if training.optimizer else None,
             device=device,
             validation_examples=val_examples,
             pad_id=pad_id,
