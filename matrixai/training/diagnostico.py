@@ -568,19 +568,32 @@ _MINIMO_FILAS_COMPARABLES = 20
 
 def _preparar_columna(valores: Sequence[str]) -> list[float | str | None]:
     """Cada valor, UNA vez: `None` si es nulo, `float` si se lee como número, y
-    si no, el texto sin espacios alrededor."""
+    si no, el texto sin espacios alrededor.
+
+    Y cada valor DISTINTO se lee una sola vez (2026-09-27): una columna de 50.000
+    filas con cinco valores preguntaba 50.000 veces si era nula y si era un número.
+    Solo se memorizan las cadenas —lo que trae un CSV—: `1`, `1.0` y `True` comparten
+    hash en Python y un diccionario los confundiría."""
     from matrixai.training.dataset_analysis import _is_null  # noqa: PLC0415
 
-    preparada: list[float | str | None] = []
-    for v in valores:
+    def preparar(v: Any) -> float | str | None:
         if _is_null(v):
-            preparada.append(None)
-            continue
+            return None
         s = str(v).strip()
         try:
-            preparada.append(float(s))
+            return float(s)
         except ValueError:
-            preparada.append(s)
+            return s
+
+    ya_leidos: dict[str, float | str | None] = {}
+    preparada: list[float | str | None] = []
+    for v in valores:
+        if type(v) is not str:
+            preparada.append(preparar(v))
+        elif v in ya_leidos:
+            preparada.append(ya_leidos[v])
+        else:
+            preparada.append(ya_leidos.setdefault(v, preparar(v)))
     return preparada
 
 
@@ -985,6 +998,11 @@ def diagnosticar_csv(
     # el valor tal cual, que es lo de antes.
     es_la_positiva = _comparador_de_la_positiva(valores_objetivo, problema.positive_label,
                                                 objetivo) if es_binaria else None
+    # El indicador de la positiva es de la columna OBJETIVO: el mismo para cada predictor.
+    # Hasta el 2026-09-27 se recomponía DENTRO del bucle, una vez por predictor numérico
+    # (80 × 50.000 = 4 millones de comparaciones para 50.000 valores).
+    indicador = ([1.0 if es_la_positiva(v) else 0.0 for v in valores_objetivo]
+                 if es_binaria else None)
     for predictor in predictores:
         info = columnas_info.get(predictor) or {}
         tipo = info.get("type")
@@ -1001,7 +1019,6 @@ def diagnosticar_csv(
                 if s is not None:
                     sospechas.append(s)
             elif es_binaria:
-                indicador = [1.0 if es_la_positiva(v) else 0.0 for v in valores_objetivo]
                 s = asociacion_muy_alta(valores_por_columna[predictor], indicador,
                                         columna=predictor, metodo="pearson")
                 if s is not None:
