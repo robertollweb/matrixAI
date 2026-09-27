@@ -20,6 +20,7 @@ Las cuatro causas, medidas:
 """
 from __future__ import annotations
 
+import functools
 import json
 from pathlib import Path
 
@@ -51,18 +52,31 @@ def test_los_cuatro_que_no_se_podian_leer_YA_se_leen(nombre, filas):
     assert r.normalizaciones, f"{nombre} entró sin normalizar: ¿ya no hacía falta?"
 
 
-def test_los_CUARENTA_del_protocolo_se_leen():
-    """El número que de verdad importa para C5. Si baja, hay un dataset que la
-    validación amplia va a perder entero."""
-    fallan = []
+@functools.cache
+def _lectura_de_los_cuarenta() -> dict[str, dict]:
+    """UNA pasada por los ficheros del protocolo para las DOS pruebas de abajo (método, punto 4,
+    2026-09-27: cada una los leía todos, ~135 s cada vez en la nocturna). Se guarda solo lo que
+    miran —si falló y si hubo que normalizarlo—, no las filas: `diamonds` son 53.940, y los
+    cuarenta en memoria se quedarían ahí el resto de la suite."""
+    lectura = {}
     for e in PROTOCOLO["datasets"]:
         f = DATOS / f"{e['data_id']}.arff"
         if not f.exists():
             continue
         try:
-            cargar(f, e.get("columna_objetivo"))
+            normalizado = bool(cargar(f, e.get("columna_objetivo")).normalizaciones)
         except Exception as error:  # noqa: BLE001
-            fallan.append(f"{e['nombre']}: {type(error).__name__}")
+            lectura[e["nombre"]] = {"error": type(error).__name__, "normalizado": None}
+        else:
+            lectura[e["nombre"]] = {"error": None, "normalizado": normalizado}
+    return lectura
+
+
+def test_los_CUARENTA_del_protocolo_se_leen():
+    """El número que de verdad importa para C5. Si baja, hay un dataset que la
+    validación amplia va a perder entero."""
+    fallan = [f"{nombre}: {r['error']}" for nombre, r in _lectura_de_los_cuarenta().items()
+              if r["error"] is not None]
     assert fallan == [], f"datasets ilegibles: {fallan}"
 
 
@@ -71,13 +85,7 @@ def test_los_36_LIMPIOS_no_se_tocan():
     fichero que entra tal cual NO se normaliza, y su informe lo dice saliendo
     vacío. Normalizar siempre haría invisible la diferencia entre un fichero
     limpio y uno que hubo que arreglar."""
-    tocados = []
-    for e in PROTOCOLO["datasets"]:
-        f = DATOS / f"{e['data_id']}.arff"
-        if not f.exists():
-            continue
-        if cargar(f, e.get("columna_objetivo")).normalizaciones:
-            tocados.append(e["nombre"])
+    tocados = [nombre for nombre, r in _lectura_de_los_cuarenta().items() if r["normalizado"]]
     assert sorted(tocados) == ["diamonds", "house_prices_nominal", "pendigits", "us_crime"]
 
 
