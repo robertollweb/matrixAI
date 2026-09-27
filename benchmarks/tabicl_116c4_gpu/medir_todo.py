@@ -88,8 +88,10 @@ def medir_en_un_proceso(pesos: str, dispositivo: str,
         if r.returncode != 0 or not lineas:
             return {**base, "estado": "fallo", "codigo": r.returncode, "segundos_proceso": segundos,
                     "motivo": (r.stderr or r.stdout)[-800:]}
-        # `segundos_proceso` incluye arrancar el intérprete: es lo que ve un estudio de verdad,
-        # que lanza cada intento en un proceso nuevo.
+        # `segundos_proceso` es el proceso ENTERO, barrido de lotes incluido (el de una fila solo
+        # ya son ~50 s en CPU): NO es lo que cuesta un intento del estudio. Ese es
+        # `segundos_de_un_intento` (importar + ajustar + predecir la validación). Medido el 27-09:
+        # confundirlos hacía leer 131 s donde el intento costaba 8,4.
         return {**base, **json.loads(lineas[-1]), "estado": "medido", "segundos_proceso": segundos}
     return medir
 
@@ -110,9 +112,9 @@ def maquina() -> dict:
     except (OSError, StopIteration):
         pass
     try:
-        import tabicl  # noqa: PLC0415
-        datos["tabicl"] = getattr(tabicl, "__version__", None)
-    except ImportError:
+        from importlib.metadata import version  # noqa: PLC0415 — `tabicl` no trae `__version__`
+        datos["tabicl"] = version("tabicl")
+    except Exception:  # noqa: BLE001 — sin el paquete no hay versión que decir
         datos["tabicl"] = None
     # Lo instalado DE VERDAD en la imagen (pip freeze al construirla), no lo que dice el Dockerfile.
     versiones = AQUI / "versiones_de_la_imagen.txt"
@@ -153,7 +155,8 @@ def main() -> None:
         ultimo = hechos[-1]
         print(f"[{len(hechos)}/{len(lista)}] {ultimo['tarea']} {ultimo['columnas']} col × "
               f"{ultimo['filas']} filas: {ultimo['estado']}"
-              + (f", intento {ultimo.get('segundos_proceso')} s" if ultimo["estado"] == "medido" else ""),
+              + (f", un intento {ultimo.get('segundos_de_un_intento')} s (proceso entero, con el "
+                 f"barrido de lotes: {ultimo.get('segundos_proceso')} s)" if ultimo["estado"] == "medido" else ""),
               flush=True)
 
     recorrer(lista, medir_en_un_proceso(a.pesos, a.dispositivo), previos, guardar)
