@@ -59,6 +59,7 @@ import csv
 import io
 import re
 import statistics
+from collections import Counter
 from typing import Any
 
 from matrixai import limits as _limits
@@ -72,6 +73,7 @@ from matrixai.training.dense_generator import _ONEHOT_MAX, parece_identificador
 # importarse desde aquí.
 _BOOL_TRUE = {"true", "verdadero", "si", "sí", "yes", "y", "t", "1"}
 _BOOL_FALSE = {"false", "falso", "no", "n", "f", "0"}
+_BOOLEANOS = _BOOL_TRUE | _BOOL_FALSE
 
 # Marcadores de nulo habituales en CSVs reales (case-insensitive).
 #
@@ -328,13 +330,18 @@ def analyze_dataset_csv(csv_text: str, *,
     if message is not None:
         raise DatasetAnalysisError(message)
 
-    duplicate_rows = _count_duplicate_rows(rows, columns)
+    # Las celdas de cada fila, en el orden de `columns`, se sacan UNA vez (2026-09-27):
+    # sirven para contar duplicados y, traspuestas, son las columnas. Antes eran 101
+    # pasadas por las filas con `row.get` (una por columna y otra para duplicados). La
+    # memoria es la que ya ocupaba el conjunto de duplicados: el pico no crece.
+    celdas = [tuple(map(row.get, columns)) for row in rows]
+    duplicate_rows = _count_duplicate_rows(celdas)
 
     column_infos: dict[str, dict[str, Any]] = {}
-    for col in columns:
-        raw_values = [row.get(col) for row in rows]
-        column_infos[col] = _analyze_column(raw_values, rows_analyzed, col,
+    for col, raw_values in zip(columns, zip(*celdas)):
+        column_infos[col] = _analyze_column(list(raw_values), rows_analyzed, col,
                                             tokens_de_ausencia=tokens_de_ausencia)
+    del celdas
 
     target_candidates = _rank_target_candidates(columns, column_infos)
     temporal_columns = [c for c in columns if column_infos[c]["type"] == "date"]
@@ -588,31 +595,48 @@ def _analyze_column(
     raw_values: list[str | None], rows_analyzed: int, column_name: str = "",
     *, tokens_de_ausencia: set[str] | None = None,
 ) -> dict[str, Any]:
-    non_null = [v.strip() for v in raw_values
-                if not _is_null(v, tokens_de_ausencia)]
-    null_count = rows_analyzed - len(non_null)
+    # CADA VALOR DISTINTO SE JUZGA UNA VEZ, no cada celda (2026-09-27). Medido con
+    # 51.000 × 100: el análisis tardaba 15,8 s, casi todo en preguntas que se hacían
+    # celda a celda —«¿es ausente?», «¿parsea como número?», «¿tiene un cero delante?»,
+    # «¿es fecha?»— y cuya respuesta es la MISMA sobre los valores distintos: «alguno
+    # cumple», «todos cumplen», el mínimo, el máximo y el conjunto no cambian por
+    # repetir un valor. Lo que SÍ depende de las celdas —cuántas faltan y la proporción
+    # de únicos— sale de CONTARLAS (`Counter`, en C); y la muestra de texto libre, que
+    # va en ORDEN, se compone de las celdas solo si hace falta, más abajo.
+    veces_por_valor = Counter(raw_values)
+    nulos: set[str | None] = set()
+    celdas_nulas = 0
+    limpios: set[str] = set()
+    for valor, veces in veces_por_valor.items():
+        if _is_null(valor, tokens_de_ausencia):
+            nulos.add(valor)
+            celdas_nulas += veces
+        else:
+            limpios.add(valor.strip())
+    n_non_null = len(raw_values) - celdas_nulas
+    null_count = rows_analyzed - n_non_null
     info: dict[str, Any] = {
         "null_count": null_count,
         "null_ratio": round(null_count / rows_analyzed, 4) if rows_analyzed else 0.0,
     }
 
-    if not non_null:
+    if not n_non_null:
         info["type"] = "unknown"
         info["cardinality"] = 0
         return info
 
-    distinct = sorted(set(non_null))
+    distinct = sorted(limpios)
     cardinality = len(distinct)
-    unique_ratio = cardinality / len(non_null)
+    unique_ratio = cardinality / n_non_null
 
-    date_format = _detect_date_format(non_null)
+    date_format = _detect_date_format(distinct)
     if date_format is not None:
         info["type"] = "date"
         info["date_format"] = date_format
         info["cardinality"] = cardinality
         return info
 
-    if _is_boolean_column(non_null):
+    if _is_boolean_column(distinct):
         info["type"] = "boolean"
         info["cardinality"] = cardinality
         if cardinality < 2:  # CONTRATO 62 C2 — ver el bloque numérico
@@ -621,7 +645,7 @@ def _analyze_column(
         return info
 
     is_identifier_candidate = (
-        len(non_null) >= _IDENTIFIER_MIN_ROWS
+        n_non_null >= _IDENTIFIER_MIN_ROWS
         and unique_ratio >= _IDENTIFIER_UNIQUE_RATIO
     )
 
@@ -637,8 +661,8 @@ def _analyze_column(
     # opcional; el usuario puede corregir el tipo en el editor
     # (invariante 8).
     numeric_kind = (
-        None if any(_has_significant_leading_zero(v) for v in non_null)
-        else _numeric_kind(non_null)
+        None if any(_has_significant_leading_zero(v) for v in distinct)
+        else _numeric_kind(distinct)
     )
     # Un entero casi-todo-distinto (1,2,3,...,N — el clásico id secuencial)
     # es identificador, no un valor de dominio — pero un DECIMAL nunca lo es
@@ -650,7 +674,7 @@ def _analyze_column(
         # buscar— o lo dice el NOMBRE, que es la señal que cubre al id
         # esparcido. Si no es ninguna de las dos, es una medida de dominio y
         # sigue por la rama numérica de abajo con su rango.
-        densidad = _integer_run_density(non_null)
+        densidad = _integer_run_density(distinct)
         if densidad >= _IDENTIFIER_RUN_DENSITY or parece_identificador(column_name):
             info["type"] = "identifier"
             info["cardinality"] = cardinality
@@ -658,7 +682,7 @@ def _analyze_column(
             info["run_density"] = round(densidad, 4)
             return info
     if numeric_kind is not None:
-        values = [float(v) for v in non_null]
+        values = [float(v) for v in distinct]
         lo, hi = min(values), max(values)
         info["type"] = numeric_kind
         info["cardinality"] = cardinality
@@ -688,7 +712,7 @@ def _analyze_column(
         # Lo que sí se puede es DECIR lo que se ve: una clave añadida que
         # quien no la conoce ignora, y que quien decide (dataset_project)
         # usa para no llamar «identificador» a una columna de reseñas.
-        evidencia = _free_text_evidence(non_null)
+        evidencia = _free_text_evidence([v.strip() for v in raw_values if v not in nulos])
         if evidencia is not None:
             info["looks_like_free_text"] = True
             info["free_text_evidence"] = evidencia
@@ -768,8 +792,19 @@ def _detect_date_format(values: list[str]) -> str | None:
 
 
 def _is_boolean_column(values: list[str]) -> bool:
-    tokens = {v.strip().lower() for v in values}
-    return tokens.issubset(_BOOL_TRUE | _BOOL_FALSE) and len(tokens) <= 2
+    """Todos sus valores son de sí/no y hay como mucho dos. Se para en el PRIMERO
+    que no lo es (el caso de casi toda columna): construir el conjunto entero de
+    una columna numérica para descubrir que su primer valor ya no era booleano
+    costaba más que el resto del análisis de esa columna."""
+    tokens: set[str] = set()
+    for v in values:
+        token = v.strip().lower()
+        if token not in _BOOLEANOS:
+            return False
+        tokens.add(token)
+        if len(tokens) > 2:
+            return False
+    return True
 
 
 def _has_significant_leading_zero(value: str) -> bool:
@@ -949,16 +984,10 @@ def constant_target_error(csv_text: str, target_column: str, *,
 # Duplicados
 # ---------------------------------------------------------------------------
 
-def _count_duplicate_rows(rows: list[dict[str, Any]], columns: list[str]) -> int:
-    seen: set[tuple[Any, ...]] = set()
-    duplicates = 0
-    for row in rows:
-        key = tuple(row.get(c) for c in columns)
-        if key in seen:
-            duplicates += 1
-        else:
-            seen.add(key)
-    return duplicates
+def _count_duplicate_rows(celdas: list[tuple[Any, ...]]) -> int:
+    """Filas que repiten EXACTAMENTE otra anterior: las que sobran al quedarse con
+    una de cada. Es lo mismo que contar, fila a fila, las que ya se habían visto."""
+    return len(celdas) - len(set(celdas))
 
 
 # ---------------------------------------------------------------------------
