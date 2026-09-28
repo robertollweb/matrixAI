@@ -7,6 +7,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.11.1] — 2026-09-28
+
+Confirming a large CSV no longer takes minutes.
+
+### Fixed
+- **The data diagnosis compares every pair of predictors without re-reading them for each
+  pair.** `diagnosticar_csv` prepared both columns again for every pair (9,900 preparations
+  for 100 columns). Each column is now prepared once, each distinct value is read once, and
+  each comparison stops at the first difference. Same result: both detectors only ask
+  whether every comparable row coincides.
+- **The dataset analysis looks at each distinct value once, not at every cell.**
+  `analyze_dataset_csv` asked "is it missing?", "is it a number?", "is it a date?" cell by
+  cell; the answers are the same over the distinct values. Missing values are still counted
+  per cell. Identical output, checked against the previous version on 1,500 random CSVs.
+- **Splitting into folds is no longer quadratic.** The validation set was rebuilt once per
+  row. Same folds, same order.
+
+Confirming a 52,000 × 100 CSV in the Studio: 466 s with 1.11.0, 16 s now (same CSV,
+same machine).
+
+---
+
 ## [1.11.0] — 2026-09-26
 
 A decision threshold that no longer sits on the edge of a tie, and a training language
