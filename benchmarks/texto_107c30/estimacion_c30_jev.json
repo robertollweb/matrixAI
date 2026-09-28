@@ -1,0 +1,43 @@
+{
+  "contrato": "107_TEXTO_CON_PREENTRENADOS_CONTRACT.md, C3.0, condición (4) -- Jev",
+  "modelo": "typesafe/jev-1.13-20260917",
+  "base_url": "https://openrouter.ai/api/alpha/decisions",
+  "n_preguntas": 5,
+  "peticiones_por_fila": 1,
+  "supuestos": {
+    "tokens_por_caracter": 0.28,
+    "tokens_fijos_por_pregunta": 70,
+    "truncado_caracteres_aprox": 900,
+    "fuente": "benchmarks/texto_107c30/jev/LEEME.md, 'Supuestos de tokens' -- NO medido",
+    "peticiones_por_segundo_asumidas": 10.41,
+    "fuente_peticiones_por_segundo": "PriorBench, 8 peticiones concurrentes (10,41/s) -- punto de operación medido, NO un techo publicado"
+  },
+  "precio_usd_por_millon_tokens_entrada": 0.042,
+  "tareas": {
+    "A": {
+      "n_filas": 1543,
+      "n_peticiones": 1543,
+      "tokens_entrada_estimados": 921500,
+      "coste_usd_estimado": 0.0387,
+      "tiempo_estimado_s": 148.2,
+      "tiempo_estimado_min": 2.47
+    },
+    "C": {
+      "n_filas": 30462,
+      "n_peticiones": 30462,
+      "tokens_entrada_estimados": 11918436,
+      "coste_usd_estimado": 0.5006,
+      "tiempo_estimado_s": 2926.2,
+      "tiempo_estimado_min": 48.77
+    },
+    "B": {
+      "omitida": true,
+      "motivo": "datos clínicos: nunca con Jev"
+    }
+  },
+  "total_peticiones": 32005,
+  "total_tokens_entrada_estimados": 12839936,
+  "total_coste_usd_estimado": 0.5393,
+  "total_tiempo_estimado_s": 3074.4,
+  "total_tiempo_estimado_min": 51.24
+}
