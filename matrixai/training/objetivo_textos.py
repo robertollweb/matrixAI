@@ -157,6 +157,47 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "out as «unknown». Using free text in the study will come with its own "
               "path (contract 107)",
     },
+    # ---- 107-C3.1b: la columna declarada «texto, en <idioma>» ------------
+    "columnas_de_texto_multiples": {
+        "es": "se declaran {opciones} como texto, y hoy el estudio compite con UNA sola "
+              "columna de texto a la vez. Es una limitación de esta primera versión, no un "
+              "fallo: elige cuál de ellas declarar y deja las demás sin declarar (seguirán "
+              "fuera del estudio si son texto libre, con su propio motivo)",
+        "en": "{opciones} are declared, and today the study competes with a SINGLE text "
+              "column at a time. This is a limitation of this first version, not a fault: "
+              "choose which one to declare and leave the others undeclared (they will stay "
+              "out of the study if they are free text, with their own reason)",
+    },
+    "columna_de_texto_inexistente": {
+        "es": "la columna {campo} declarada como texto no está en los datos. Columnas: "
+              "{opciones}",
+        "en": "column {campo} declared as text is not in the data. Columns: {opciones}",
+    },
+    "columna_de_texto_es_el_objetivo": {
+        "es": "{campo} es a la vez el objetivo confirmado y la columna declarada como "
+              "texto: no se puede predecir una columna usándola también como su propia "
+              "entrada. Declara otra columna, o corrige el objetivo",
+        "en": "{campo} is at once the confirmed target and the column declared as text: a "
+              "column cannot be predicted while also being used as its own input. Declare "
+              "another column, or correct the target",
+    },
+    "idioma_de_texto_no_admitido": {
+        "es": "{campo} se declara en el idioma {valor}, y hoy solo se admiten {opciones}. "
+              "Declara el idioma real del texto entre esos dos, o déjala sin declarar",
+        "en": "{campo} is declared in language {valor}, and today only {opciones} are "
+              "admitted. Declare the text's real language among those two, or leave it "
+              "undeclared",
+    },
+    "columna_de_texto_declarada_no_parece_libre": {
+        "es": "{campo} se declara como texto, pero por su forma (pocas palabras por valor, "
+              "o muy repetida entre filas) no parece texto libre para el detector "
+              "automático. Se acepta igual -- quien declara conoce sus datos --, pero "
+              "conviene revisar que sea la columna correcta",
+        "en": "{campo} is declared as text, but by its shape (few words per value, or "
+              "highly repeated across rows) it does not look like free text to the "
+              "automatic detector. It is accepted anyway -- whoever declares it knows "
+              "their data --, but it is worth checking it is the right column",
+    },
     "objetivo_entre_las_entradas": {
         "es": "{campo} es a la vez el objetivo confirmado y una entrada: el modelo "
               "acertaría el 100 % copiando la respuesta que ya le damos, y ese 100 % "

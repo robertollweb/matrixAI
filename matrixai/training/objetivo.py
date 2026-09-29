@@ -58,7 +58,8 @@ from matrixai.estudio.errores import ErrorDeEstudio
 from matrixai.training.objetivo_textos import motivo
 
 __all__ = [
-    "Bloqueo", "Confirmacion", "ObjetivoSinConfirmar", "Pista", "Pregunta",
+    "Aviso", "Bloqueo", "Confirmacion", "IDIOMAS_DE_TEXTO_ADMITIDOS", "ObjetivoSinConfirmar",
+    "Pista", "Pregunta", "TextoDeclarado",
     "confirmar_desde_csv", "confirmar_desde_prompt", "corte_de_entrenamiento",
     "exigir_problema_confirmado", "no_entrenable_en_train", "pistas_por_nombre",
 ]
@@ -164,6 +165,36 @@ class Exclusion:
                 "evidencia": dict(self.evidencia)}
 
 
+@dataclass(frozen=True)
+class TextoDeclarado:
+    """Una columna declarada «texto, en `idioma`» (107-C3.1b). Sale de los
+    predictores de TABLA (los motores tabulares siguen sin verla, como hoy) y
+    entra SOLO al candidato de solo texto (`MotorTextoTfidf`, 107-C3.1a) que
+    compite en el estudio -- no se mezcla con las columnas de un motor
+    tabular, que es justo lo que el diseño de C3.1 dice que no se ha medido."""
+
+    campo: str
+    idioma: str
+
+    def a_json(self) -> dict[str, Any]:
+        return {"campo": self.campo, "idioma": self.idioma}
+
+
+@dataclass(frozen=True)
+class Aviso:
+    """Algo que se ADMITE pero conviene saber -- no pregunta ni bloquea
+    (107-C3.1b: declarar como texto una columna que el detector heurístico de
+    texto libre no habría marcado él solo; la persona conoce sus datos, así
+    que se acepta igual, pero se dice)."""
+
+    clave: str
+    motivo: dict[str, str]
+    campo: str | None = None
+
+    def a_json(self) -> dict[str, Any]:
+        return {"clave": self.clave, "campo": self.campo, "motivo": dict(self.motivo)}
+
+
 def _sin_texto_libre(predictores: Sequence[str], columnas: Mapping[str, Any]
                      ) -> tuple[tuple[str, ...], tuple[Exclusion, ...]]:
     """Las entradas sin las columnas de TEXTO LIBRE, y esas columnas con su motivo.
@@ -190,6 +221,76 @@ def _sin_texto_libre(predictores: Sequence[str], columnas: Mapping[str, Any]
                           distintas=int(round(100 * float(evidencia["distinct_word_ratio"])))),
             evidencia=dict(evidencia)))
     return tuple(quedan), tuple(fuera)
+
+
+#: Los únicos idiomas que 107-C3.1 sabe declarar -- decisión 2(a) del 107
+#: (21-09): «el idioma de cada columna lo declara la persona». No es una lista
+#: abierta: el motor de texto (`MotorTextoTfidf`) no hace nada distinto según
+#: el idioma HOY (el TF-IDF es agnóstico), pero el idioma viaja en la
+#: `Confirmacion` para lo que ya usa la lectura de idioma en el resto del
+#: producto (expediente, avisos) y para no prometer una cobertura que nadie
+#: ha medido -- declarar «fr» aquí sería fabricar una promesa.
+IDIOMAS_DE_TEXTO_ADMITIDOS = ("es", "en")
+
+
+def _columna_de_texto_declarada(
+    columnas_de_texto: Mapping[str, str] | None, *, objetivo: str,
+    columnas: Mapping[str, Any], orden: Sequence[str],
+) -> tuple[tuple[TextoDeclarado, ...], tuple[Aviso, ...], tuple[Bloqueo, ...]]:
+    """La columna declarada «texto, en `idioma`» (107-C3.1b), validada.
+
+    Como mucho UNA por estudio en este corte -- el diseño de C3.1 (ver el
+    contrato 107, sección «C3.1 -- DISEÑO») dice explícitamente que lo que
+    C3.0 midió sostiene un candidato de SOLO texto que compite con los
+    motores de tabla, no el texto mezclado dentro de un motor tabular ni un
+    apilado de varias columnas de texto: eso no se ha medido. Por eso declarar
+    dos o más aquí es una LIMITACIÓN de esta primera versión, dicha como tal
+    (`columnas_de_texto_multiples`), no un error genérico ni un fallo raro.
+
+    Devuelve como mucho UNA cosa de las tres tuplas rellena: si hay bloqueo,
+    `texto` y `avisos` vuelven vacíos -- un problema con la declaración de
+    texto no dice a medias que se aceptó.
+    """
+    if not columnas_de_texto:
+        return (), (), ()
+    # `dict()` antes que iterar: si quien llama pasa un mapeo perezoso o algo
+    # que solo admite una pasada, `len()` más abajo no se lo comería.
+    declaradas = {str(campo): str(idioma) for campo, idioma in dict(columnas_de_texto).items()}
+    if not declaradas:
+        return (), (), ()
+    if len(declaradas) > 1:
+        return (), (), (Bloqueo(
+            clave="columnas_de_texto_multiples", campo=None,
+            motivo=motivo("columnas_de_texto_multiples",
+                          opciones=", ".join(repr(c) for c in declaradas))),)
+    ((campo, idioma),) = declaradas.items()
+    if campo not in columnas:
+        return (), (), (Bloqueo(
+            clave="columna_de_texto_inexistente", campo=campo,
+            motivo=motivo("columna_de_texto_inexistente", campo=repr(campo),
+                          opciones=", ".join(orden) or "—")),)
+    if campo == objetivo:
+        return (), (), (Bloqueo(
+            clave="columna_de_texto_es_el_objetivo", campo=campo,
+            motivo=motivo("columna_de_texto_es_el_objetivo", campo=repr(campo))),)
+    if idioma not in IDIOMAS_DE_TEXTO_ADMITIDOS:
+        return (), (), (Bloqueo(
+            clave="idioma_de_texto_no_admitido", campo=campo,
+            motivo=motivo("idioma_de_texto_no_admitido", campo=repr(campo), valor=repr(idioma),
+                          opciones=", ".join(IDIOMAS_DE_TEXTO_ADMITIDOS))),)
+    # SE ADMITE IGUAL, Y SE DICE (no se pregunta ni se bloquea): quien declara
+    # conoce sus datos mejor que el detector heurístico de `_sin_texto_libre`
+    # (103-C1, el mismo principio de «un valor ausente no es un cero» aplicado
+    # a lo que el núcleo no puede saber). Medido en la práctica del propio 114-C0:
+    # el detector pide varias palabras por valor y baja variedad entre filas --
+    # una columna corta o muy repetitiva puede ser texto de verdad y no marcarse.
+    info = columnas.get(campo) or {}
+    avisos: tuple[Aviso, ...] = ()
+    if not info.get("looks_like_free_text"):
+        avisos = (Aviso(
+            clave="columna_de_texto_declarada_no_parece_libre", campo=campo,
+            motivo=motivo("columna_de_texto_declarada_no_parece_libre", campo=repr(campo))),)
+    return (TextoDeclarado(campo=campo, idioma=idioma),), avisos, ()
 
 
 def _sin_el_proceso_actual(predictores: Sequence[str], proceso_actual: ProcesoActual | None
@@ -219,6 +320,15 @@ class Confirmacion:
     bloqueos: tuple[Bloqueo, ...] = ()
     pistas: tuple[Pista, ...] = ()
     excluidas: tuple[Exclusion, ...] = ()
+    #: 107-C3.1b: la(s) columna(s) declaradas «texto, en `idioma`» -- como
+    #: mucho una en este corte (`_columna_de_texto_declarada`). Fuera de
+    #: `problema.predictors` a propósito: el motor de texto la lee de aquí
+    #: (vía el backend), no de la lista de predictores de tabla.
+    texto: tuple[TextoDeclarado, ...] = ()
+    #: Lo que se ADMITE pero conviene saber -- no pregunta ni bloquea (hoy,
+    #: solo la columna de texto declarada que el detector heurístico no
+    #: habría marcado él solo). Como las pistas, no cuenta para `confirmado`.
+    avisos: tuple[Aviso, ...] = ()
 
     @property
     def confirmado(self) -> bool:
@@ -226,7 +336,7 @@ class Confirmacion:
 
         Las PISTAS no cuentan: una pista es algo que mirar, no algo que
         impida. Convertirlas en bloqueo es justo lo que el 71 midió que
-        acusaba a una columna legítima.
+        acusaba a una columna legítima. Los AVISOS, por lo mismo.
         """
         return (self.problema is not None and not self.preguntas
                 and not self.bloqueos)
@@ -240,6 +350,8 @@ class Confirmacion:
             "bloqueos": [b.a_json() for b in self.bloqueos],
             "pistas": [p.a_json() for p in self.pistas],
             "excluidas": [e.a_json() for e in self.excluidas],
+            "texto": [t.a_json() for t in self.texto],
+            "avisos": [a.a_json() for a in self.avisos],
         }
 
 
@@ -475,6 +587,12 @@ def confirmar_desde_csv(
     problem_id: str | None = None,
     analisis: Mapping[str, Any] | None = None,
     filas: Sequence[Mapping[str, Any]] | None = None,
+    # 107-C3.1b: `{campo: idioma}`, como mucho UNA entrada en este corte. La
+    # columna declarada sale de los predictores de TABLA y queda en
+    # `Confirmacion.texto` para que el candidato de solo texto (backend,
+    # `MotorTextoTfidf`) la lea -- ver `_columna_de_texto_declarada`. `None`
+    # o `{}` -- lo de siempre, sin tocar nada de este corte.
+    columnas_de_texto: Mapping[str, str] | None = None,
     # Cómo marca la ausencia el origen de este CSV (ver `dataset_analysis.
     # _is_null`). `analisis` ya llega medido con este criterio cuando lo compone
     # el generador, pero los VALORES CRUDOS del objetivo se vuelven a medir aquí
@@ -595,13 +713,28 @@ def confirmar_desde_csv(
             bloqueos.append(Bloqueo(
                 clave="objetivo_entre_las_entradas", campo=objetivo,
                 motivo=motivo("objetivo_entre_las_entradas", campo=repr(objetivo))))
+
+    # -- 107-C3.1b: la columna declarada «texto, en <idioma>», si la hay ----
+    texto, avisos, bloqueos_de_texto = _columna_de_texto_declarada(
+        columnas_de_texto, objetivo=objetivo, columnas=columnas, orden=orden)
+    bloqueos.extend(bloqueos_de_texto)
+    if texto:
+        # Fuera de los predictores de TABLA -- ANTES de `_sin_texto_libre`,
+        # para que la columna declarada no salga también como `Exclusion`
+        # (sería la misma columna contada dos veces con dos motivos
+        # distintos). El motor de texto la lee de `Confirmacion.texto`, no de
+        # `problema.predictors`.
+        predictores = tuple(c for c in predictores if c != texto[0].campo)
+
     # -- el texto libre, fuera con su motivo (114-C0) -----------------------
     predictores, excluidas = _sin_texto_libre(predictores, columnas)
     # Y las de texto libre que ni siquiera venían declaradas: también se quedan
     # fuera, y también se dice. Hace falta para que el ARRANQUE del estudio las
     # vea: la pantalla reenvía la lista que le propuso el núcleo, ya sin la nota,
     # y sin esto la confirmación de ese momento no tendría nada que contar.
-    ya_dichas = {e.campo for e in excluidas}
+    # La columna declarada como texto (si la hay) tampoco entra en este
+    # barrido: ya se dijo, con SU motivo, y no con el de texto libre genérico.
+    ya_dichas = {e.campo for e in excluidas} | {t.campo for t in texto}
     _, no_declaradas = _sin_texto_libre(
         [c for c in orden if c not in (objetivo, "row_id") and c not in predictores
          and c not in ya_dichas], columnas)
@@ -711,7 +844,7 @@ def confirmar_desde_csv(
         unidad_de_observacion=unidad_de_observacion, predictores=predictores,
         momento_de_prediccion=momento_de_prediccion, horizonte=horizonte,
         uso_previsto=uso_previsto, restricciones=restricciones,
-        excluidas=excluidas,
+        excluidas=excluidas, texto=texto, avisos=avisos,
         proceso_actual=proceso_actual)
 
 
@@ -859,7 +992,9 @@ def _confirmar(*, propuesta: dict[str, Any], preguntas: list[Pregunta],
                uso_previsto: str | None,
                restricciones: Sequence[Restriccion],
                proceso_actual: ProcesoActual | None = None,
-               excluidas: tuple[Exclusion, ...] = ()) -> Confirmacion:
+               excluidas: tuple[Exclusion, ...] = (),
+               texto: tuple[TextoDeclarado, ...] = (),
+               avisos: tuple[Aviso, ...] = ()) -> Confirmacion:
     """El `ProblemSpec` solo si no falta nada. Un sitio, para las dos rutas."""
     predictores, del_proceso = _sin_el_proceso_actual(predictores, proceso_actual)
     if del_proceso:
@@ -872,7 +1007,7 @@ def _confirmar(*, propuesta: dict[str, Any], preguntas: list[Pregunta],
     if preguntas or bloqueos or tarea is None:
         return Confirmacion(problema=None, propuesta=propuesta,
                             preguntas=tuple(preguntas), bloqueos=tuple(bloqueos),
-                            pistas=pistas, excluidas=excluidas)
+                            pistas=pistas, excluidas=excluidas, texto=texto, avisos=avisos)
     problema = ProblemSpec(
         problem_id=problem_id,
         target=objetivo,
@@ -888,4 +1023,4 @@ def _confirmar(*, propuesta: dict[str, Any], preguntas: list[Pregunta],
         current_process=proceso_actual,
     )
     return Confirmacion(problema=problema, propuesta=propuesta, pistas=pistas,
-                        excluidas=excluidas)
+                        excluidas=excluidas, texto=texto, avisos=avisos)
