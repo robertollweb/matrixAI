@@ -1,0 +1,28 @@
+{
+  "aritmetica": "5 preguntas x filas x 1.2204 s/respuesta (registro sellado 26-09)",
+  "tasa_s_por_respuesta": 1.2204088731500633,
+  "origen_de_la_tasa": "medida real de resultado_sonda_respondedor.json (latencia_por_respuesta_s.media)",
+  "n_preguntas": 5,
+  "tareas": {
+    "A": {
+      "n_total": 1543,
+      "estimado_s": 9415.5,
+      "estimado_h": 2.615
+    },
+    "B": {
+      "n_total": 1000,
+      "estimado_s": 6102.0,
+      "estimado_h": 1.695
+    },
+    "C": {
+      "omitida": true,
+      "motivo": "no medida por coste (registro sellado 26-09): con 5 preguntas, PLACSP costaría del orden de 50,8 h (mitad de las 101,5 h con 10 preguntas de la PROPUESTA del 25-09) -- 'no medida por coste' está en el propio registro."
+    },
+    "D": {
+      "omitida": true,
+      "motivo": "no medida por coste (registro sellado 26-09): con 5 preguntas, BOE costaría del orden de 8,4 h (mitad de las 16,7 h con 10 preguntas de la PROPUESTA del 25-09) -- 'no medida por coste' está en el propio registro."
+    }
+  },
+  "total_s_a_y_b": 15517.5,
+  "total_h_a_y_b": 4.31
+}

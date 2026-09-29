@@ -1,0 +1,41 @@
+{
+  "csv": {
+    "n_filas": 1543,
+    "ruta_relativa_al_directorio": "tareas/tarea_a.csv",
+    "sha256": "49e1ff7496b36b3d214a2d4b63379c9440e3a4ad6d6bffd71110cc872b4b6fb9"
+  },
+  "generado": "2026-09-29T09:59:17.975370+02:00",
+  "n_filas_con_number_total": 749,
+  "por_version_y_particion": {
+    "v1": {
+      "dev": {
+        "n_con_number": 234,
+        "n_filas": 295
+      },
+      "train": {
+        "n_con_number": 515,
+        "n_filas": 676
+      }
+    },
+    "v2": {
+      "test": {
+        "n_con_number": 0,
+        "n_filas": 572
+      }
+    }
+  },
+  "regex": "\\bNUMBER\\b",
+  "script_sha256": "41858b30bc492d4b32d0fc34429c70e59b4e43a36d67f7514d80ff1fcde6182c",
+  "sensible_a_mayusculas": true,
+  "tarea": "A",
+  "train_por_target": {
+    "Fake": {
+      "n_con_number": 221,
+      "n_filas": 338
+    },
+    "True": {
+      "n_con_number": 294,
+      "n_filas": 338
+    }
+  }
+}

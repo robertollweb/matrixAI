@@ -1,0 +1,136 @@
+{
+  "contrato": "107_TEXTO_CON_PREENTRENADOS_CONTRACT.md, C3.0, REGISTRO SELLADO de la condición (3) -- 26-09",
+  "semilla": 107030,
+  "margen_equivalencia": 0.05,
+  "n_preguntas": 5,
+  "plantilla_pregunta": "¿El texto trata de «{termino}» o de algo equivalente? Responde solo sí o no.",
+  "plantilla_mensaje": "Lee el siguiente texto y responde SOLO con la palabra \"sí\" o la palabra \"no\", sin explicación.\nPregunta: {pregunta}\nTexto: {texto}",
+  "modelo": {
+    "candidato": "Qwen2.5-0.5B-Instruct",
+    "licencia": "Apache-2.0",
+    "conversion_onnx_genai_de": "xiaoyao9184/Qwen2.5-0.5B-Instruct-onnx-genai",
+    "subcarpeta": "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4",
+    "camino_de_ejecucion": "onnxruntime-genai (CPU, int4 RTN block-32)",
+    "ruta_local": "/pesos_qwen/qwen2.5-0.5b-instruct-onnx-genai-cpu-int4",
+    "hilos": 4,
+    "max_tokens_nuevos": 8,
+    "decodificacion": "voraz (do_sample=False)"
+  },
+  "truncado": {
+    "proveedor_embedding_c1": "paraphrase-multilingual-MiniLM-L12-v2-onnx-int8",
+    "max_longitud_tokens": 128,
+    "metodo": "prefijo mínimo de caracteres cuya tokenización (Unigram real de C1) alcanza el mismo número de tokens que el texto completo truncado"
+  },
+  "script_sha256": "77d23914451e3946fe219533915cc00d1f3e1d2da6e68b388b082e66a683f95a",
+  "generado": "2026-09-27T12:27:49+0000",
+  "tareas": {
+    "C": {
+      "omitida": true,
+      "motivo": "no medida por coste (registro sellado 26-09): con 5 preguntas, PLACSP costaría del orden de 50,8 h (mitad de las 101,5 h con 10 preguntas de la PROPUESTA del 25-09) -- 'no medida por coste' está en el propio registro."
+    },
+    "D": {
+      "omitida": true,
+      "motivo": "no medida por coste (registro sellado 26-09): con 5 preguntas, BOE costaría del orden de 8,4 h (mitad de las 16,7 h con 10 preguntas de la PROPUESTA del 25-09) -- 'no medida por coste' está en el propio registro."
+    },
+    "A": {
+      "tarea": "A",
+      "metrica": "auroc",
+      "n_train": 676,
+      "n_dev": 295,
+      "n_test": 572,
+      "terminos": [
+        {
+          "termino": "number de",
+          "chi2": 1.550280623930774
+        },
+        {
+          "termino": "mil number",
+          "chi2": 1.3287469544485275
+        },
+        {
+          "termino": "el number",
+          "chi2": 1.2700412807837271
+        },
+        {
+          "termino": "mil",
+          "chi2": 1.2543553894378738
+        },
+        {
+          "termino": "de number",
+          "chi2": 1.1519534128431492
+        }
+      ],
+      "condiciones": {
+        "3_respondedor": {
+          "columnas": [
+            "topic",
+            "source",
+            "pregunta_0",
+            "pregunta_1",
+            "pregunta_2",
+            "pregunta_3",
+            "pregunta_4"
+          ],
+          "metrica_puntual": 0.7280429360848941,
+          "tiempos": {
+            "ajuste_s": 0.0923342629976105,
+            "prediccion_s": 0.00919501599855721,
+            "n_train": 676,
+            "n_val": 295,
+            "n_test": 572,
+            "resources": {
+              "cpu_seconds": 0.23485522600094555,
+              "wall_seconds": 0.07482508599059656,
+              "peak_ram_mb": null,
+              "latency_ms_per_row": null
+            },
+            "preguntas_al_modelo": {
+              "segundos": 8296.88486125099,
+              "n_respuestas": 7715,
+              "n_si": 429,
+              "n_no": 7278,
+              "n_faltante": 8,
+              "proporcion_faltante": 0.0010369410239792613
+            }
+          },
+          "split_plan_digest": "e5d5eccc8104c3fd56d197a89f3219d0a1e9c7dd66cfe8c40b546efaf52a8ee2"
+        }
+      },
+      "comparaciones": {
+        "3_vs_0": {
+          "metric_id": "auroc",
+          "diseno": "iid",
+          "estimando": "fixed_model_on_population",
+          "veredicto": "equivalencia_practica",
+          "margen_equivalencia": 0.05,
+          "diferencia_puntual": 0.004040539879700766,
+          "intervalo": {
+            "metric_id": "auroc",
+            "design": "iid",
+            "estimand": "fixed_model_on_population",
+            "method": "iid_paired_bootstrap",
+            "resampling_unit": "row",
+            "seed": 107030,
+            "n_resamples": 1000,
+            "n_resamples_used": 1000,
+            "n_resamples_degenerate": 0,
+            "level": 0.95,
+            "ci_low": -0.008381369504621249,
+            "ci_high": 0.017520722284708336,
+            "block_length": null,
+            "elapsed_seconds": 0.767143331002444,
+            "undefined_reason": null
+          },
+          "undefined_reason": null
+        },
+        "3_vs_2_diferencia_descrita": {
+          "metrica_puntual_2_tfidf_lineal": 0.7950266516700083,
+          "metrica_puntual_3_respondedor": 0.7280429360848941,
+          "diferencia_3_menos_2": -0.06698371558511418,
+          "nota": "DESCRITA, sin veredicto -- esta comparación no estaba en el pre-registro (registro sellado 26-09)."
+        }
+      },
+      "duracion_total_s": 8303.94043788701
+    }
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "tarea": "C",
+  "metrica": "rmse",
+  "n_train": 21323,
+  "n_dev": 4569,
+  "n_test": 4570,
+  "seleccion_terminos_c": "chi2_quintiles",
+  "terminos": [
+    {
+      "termino": "ruta",
+      "puntuacion": 81.64285818707577
+    },
+    {
+      "termino": "bar",
+      "puntuacion": 67.11431534282036
+    },
+    {
+      "termino": "escolar ruta",
+      "puntuacion": 65.91791223407901
+    },
+    {
+      "termino": "transporte escolar",
+      "puntuacion": 65.6861385492523
+    },
+    {
+      "termino": "incluidos en",
+      "puntuacion": 65.58416569981694
+    }
+  ],
+  "condiciones": {
+    "4_jev": {
+      "columnas": [
+        "tipo_code",
+        "procedimiento_code",
+        "cpv_division",
+        "organo",
+        "pregunta_0",
+        "pregunta_1",
+        "pregunta_2",
+        "pregunta_3",
+        "pregunta_4"
+      ],
+      "metrica_puntual": 0.648468861822942,
+      "tiempos": {
+        "ajuste_s": 3.0557416809606366,
+        "prediccion_s": 0.4173599000205286,
+        "n_train": 21323,
+        "n_val": 4569,
+        "n_test": 4570,
+        "resources": {
+          "cpu_seconds": 3.2037072100000614,
+          "wall_seconds": 2.7199227290111594,
+          "peak_ram_mb": null,
+          "latency_ms_per_row": null
+        },
+        "preguntas_al_modelo": {
+          "segundos": 1122.563161316968,
+          "n_respuestas": 152310,
+          "n_si": 4763,
+          "n_no": 147547,
+          "n_faltante": 0,
+          "proporcion_faltante": 0.0,
+          "n_peticiones_maximo": 30462
+        }
+      },
+      "split_plan_digest": "169460edc158016780489bae7e08627ff724c5a222fbf1a8daeec180f8896180"
+    }
+  },
+  "comparaciones": {
+    "4_vs_0": {
+      "metric_id": "rmse",
+      "diseno": "iid",
+      "estimando": "fixed_model_on_population",
+      "veredicto": "equivalencia_practica",
+      "margen_equivalencia": 0.05,
+      "diferencia_puntual": -0.005029956432157756,
+      "intervalo": {
+        "metric_id": "rmse",
+        "design": "iid",
+        "estimand": "fixed_model_on_population",
+        "method": "iid_paired_bootstrap",
+        "resampling_unit": "row",
+        "seed": 107030,
+        "n_resamples": 1000,
+        "n_resamples_used": 1000,
+        "n_resamples_degenerate": 0,
+        "level": 0.95,
+        "ci_low": -0.008121096659029154,
+        "ci_high": -0.002187693187570681,
+        "block_length": null,
+        "elapsed_seconds": 3.7332330450299196,
+        "undefined_reason": null
+      },
+      "undefined_reason": null
+    },
+    "4_vs_2_diferencia_descrita": {
+      "metrica_puntual_2_tfidf_lineal": 0.6693562830568438,
+      "metrica_puntual_4_jev": 0.648468861822942,
+      "diferencia_4_menos_2": -0.02088742123390175,
+      "nota": "DESCRITA, sin veredicto -- igual que 3_vs_2 en (3): no estaba en el pre-registro."
+    }
+  },
+  "duracion_total_s": 1141.4517052340088,
+  "contrato": "107_TEXTO_CON_PREENTRENADOS_CONTRACT.md, C3.0, condición (4) -- Jev",
+  "semilla": 107030,
+  "margen_equivalencia": 0.05,
+  "modelo": "typesafe/jev-1.13-20260917",
+  "base_url": "https://openrouter.ai/api/alpha/decisions",
+  "script_sha256": "0abc5e112747929b5256a41b0e7447534ce470eb61b251b142d2c0ca64067777",
+  "generado": "2026-09-29T11:38:13+0200"
+}
