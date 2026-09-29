@@ -234,15 +234,18 @@ def preguntar(*, estado: str, preguntas: dict[str, dict[str, Any]], clave: str,
 # análisis de la respuesta `noul`: sí -> 1, no -> 0, lo demás -> faltante
 # ---------------------------------------------------------------------------
 
-def analizar_respuesta_noul(respuesta_pregunta: Any) -> int | None:
-    """Convierte la respuesta de UNA pregunta `noul` a 1 (sí) / 0 (no) / None
-    (faltante). `noul` es un flotante 0..1 ("0 significa no y 1 significa
-    sí", LEEME.md); se umbraliza en 0,5, el propio punto medio de la
-    documentación. Faltante CONTADO -- no descartado en silencio -- cuando
-    la respuesta no tiene la forma esperada: ausente, `type` distinto de
-    `"noul"`, valor no numérico (incluido `bool`, que en Python es subclase
-    de `int` y colaría como 0/1 sin esta comprobación explícita), o fuera de
-    `[0, 1]`."""
+def analizar_respuesta_noul_puntuacion(respuesta_pregunta: Any) -> float | None:
+    """El `noul` CRUDO (0..1), sin umbralizar -- para la condición (5)
+    ("Jev directo, sin entrenar", registro sellado del 29-09), que usa el
+    `noul` tal cual como PUNTUACIÓN (probabilidad de la clase positiva) para
+    AUROC, sin umbral ni recalibración: Jev no ve ninguna etiqueta, así que
+    no hay con qué calibrar sin salirse de "sin entrenar".
+
+    Comparte la MISMA regla de "qué no es un noul válido -> faltante" que
+    `analizar_respuesta_noul` (de hecho esa función delega en esta: no hay
+    dos sitios declarando la misma validación) -- ausente, `type` distinto
+    de `"noul"`, valor no numérico (incluido `bool`, subclase de `int` en
+    Python), o fuera de `[0, 1]` -> `None`."""
     if not isinstance(respuesta_pregunta, dict):
         return None
     if respuesta_pregunta.get("type") != "noul":
@@ -252,6 +255,21 @@ def analizar_respuesta_noul(respuesta_pregunta: Any) -> int | None:
         return None
     valor = float(valor)
     if not (0.0 <= valor <= 1.0):
+        return None
+    return valor
+
+
+def analizar_respuesta_noul(respuesta_pregunta: Any) -> int | None:
+    """Convierte la respuesta de UNA pregunta `noul` a 1 (sí) / 0 (no) / None
+    (faltante). `noul` es un flotante 0..1 ("0 significa no y 1 significa
+    sí", LEEME.md); se umbraliza en 0,5, el propio punto medio de la
+    documentación -- para las condiciones (3)/(4), que usan la respuesta
+    como una COLUMNA sí/no. La condición (5) usa el `noul` SIN umbralizar
+    (`analizar_respuesta_noul_puntuacion`, de la que esta función deriva su
+    valor): no son dos formas de decir lo mismo, son dos usos distintos de
+    la misma validación."""
+    valor = analizar_respuesta_noul_puntuacion(respuesta_pregunta)
+    if valor is None:
         return None
     return 1 if valor >= 0.5 else 0
 

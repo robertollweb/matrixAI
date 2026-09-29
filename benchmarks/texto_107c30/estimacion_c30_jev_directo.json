@@ -1,0 +1,48 @@
+{
+  "contrato": "107_TEXTO_CON_PREENTRENADOS_CONTRACT.md, C3.0, condición (5) -- Jev directo, sin entrenar",
+  "modelo": "typesafe/jev-1.13-20260917",
+  "base_url": "https://openrouter.ai/api/alpha/decisions",
+  "peticiones_por_fila": 1,
+  "preguntas_por_peticion": 1,
+  "solo_filas_de": "test",
+  "supuestos": {
+    "tokens_por_caracter": 0.28,
+    "tokens_fijos_por_pregunta": 70,
+    "truncado_caracteres_aprox": 900,
+    "fuente": "benchmarks/texto_107c30/jev/LEEME.md, 'Supuestos de tokens' -- NO medido",
+    "peticiones_por_segundo_asumidas": 10.41,
+    "fuente_peticiones_por_segundo": "PriorBench, 8 peticiones concurrentes (10,41/s) -- punto de operación medido, NO un techo publicado"
+  },
+  "precio_usd_por_millon_tokens_entrada": 0.042,
+  "tareas": {
+    "A": {
+      "n_filas_test": 572,
+      "n_peticiones": 572,
+      "tokens_entrada_estimados": 180827,
+      "coste_usd_estimado": 0.0076,
+      "tiempo_estimado_s": 54.9,
+      "tiempo_estimado_min": 0.92
+    },
+    "D": {
+      "n_filas_test": 750,
+      "n_peticiones": 750,
+      "tokens_entrada_estimados": 91544,
+      "coste_usd_estimado": 0.0038,
+      "tiempo_estimado_s": 72.0,
+      "tiempo_estimado_min": 1.2
+    },
+    "B": {
+      "omitida": true,
+      "motivo": "datos clínicos: nunca con Jev"
+    },
+    "C": {
+      "omitida": true,
+      "motivo": "regresión: Jev (tipo noul) da una probabilidad 0-1, no un número continuo"
+    }
+  },
+  "total_peticiones": 1322,
+  "total_tokens_entrada_estimados": 272371,
+  "total_coste_usd_estimado": 0.0114,
+  "total_tiempo_estimado_s": 127.0,
+  "total_tiempo_estimado_min": 2.12
+}
