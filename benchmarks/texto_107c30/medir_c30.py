@@ -55,6 +55,15 @@ from matrixai.estudio.comparaciones import comparar_candidatos  # noqa: E402
 from matrixai.estudio.metricas import Muestra, calcular  # noqa: E402
 from matrixai_engines import Presupuesto  # noqa: E402
 from matrixai_engines.motores.arbol_lightgbm import MotorArbolLightGBM  # noqa: E402
+# 107-C3.1a: EXTRAÍDO a `matrixai_engines.motores.texto_tfidf` -- el motor
+# nuevo de "solo texto" y este medidor comparten el MISMO `TfidfVectorizer`
+# (los cuatro parámetros medidos en C3.0), en vez de dos definiciones que
+# podrían divergir con el tiempo. El nombre sigue siendo
+# `construir_vectorizador_tfidf` en ESTE módulo (`mc.construir_vectorizador_
+# tfidf`, como ya lo usan `medir_c30_respondedor.py`/`medir_c30_jev.py` y
+# `tests/test_107_c30_respondedor.py`) -- solo cambia de dónde viene el
+# objeto, no el nombre que lo expone aquí.
+from matrixai_engines.motores.texto_tfidf import construir_vectorizador_tfidf  # noqa: E402
 from matrixai_engines.particiones import Particion  # noqa: E402
 
 SEMILLA = 107030
@@ -215,21 +224,6 @@ def codificar_textos(proveedor, filas: list[dict[str, Any]], *, idioma: str, lot
 # ---------------------------------------------------------------------------
 # condición (2): TF-IDF + lineal
 # ---------------------------------------------------------------------------
-
-def construir_vectorizador_tfidf():
-    """El `TfidfVectorizer` de la condición (2), en un solo sitio.
-
-    EXTRAÍDO (107-C3.0, condición (3), 26-09) para que la selección de
-    términos del respondedor local (`medir_c30_respondedor.py`) use el MISMO
-    TF-IDF que declara el registro sellado -- "los 5 términos de mayor chi²
-    sobre el TF-IDF de la condición (2)" -- en vez de una segunda definición
-    que podría divergir con el tiempo ("dos sitios declarando lo mismo acaban
-    divergiendo"). No cambia lo que `_condicion2_tfidf_lineal` calculaba: los
-    mismos cuatro parámetros, en el mismo orden.
-    """
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    return TfidfVectorizer(max_features=50_000, ngram_range=(1, 2), min_df=2, sublinear_tf=True)
-
 
 def _condicion2_tfidf_lineal(train: list[dict[str, Any]], val: list[dict[str, Any]],
                              test: list[dict[str, Any]], cfg: dict[str, Any],
