@@ -33,6 +33,7 @@ pero, por si acaso, se sanea antes de construir un mensaje de excepción.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import time
@@ -193,6 +194,13 @@ def _peticion_decisions(*, base_url: str, modelo: str, estado: str,
         raise ErrorJevFatal(mensaje) from None
     except urllib.error.URLError as e:
         raise ErrorJevReintentable(redactar(f"error de red hablando con {base_url}: {e}", clave)) from None
+    except (OSError, http.client.HTTPException) as e:
+        # 29-09: la tarea C se paró entera a los 212 s por UN `TimeoutError` al LEER la respuesta
+        # («The read operation timed out»): `urlopen` solo envuelve en `URLError` los fallos al
+        # conectar; los de leer la respuesta (tiempo agotado, conexión cortada a medias) llegan
+        # crudos. Son de red, no del servicio: se reintentan como un 429.
+        raise ErrorJevReintentable(redactar(
+            f"error de red leyendo la respuesta de {base_url}: {type(e).__name__}: {e}", clave)) from None
     except json.JSONDecodeError as e:
         raise ErrorJevFatal(redactar(f"respuesta no-JSON de {base_url}: {e}", clave)) from None
 

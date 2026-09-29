@@ -1,0 +1,109 @@
+{
+  "tarea": "A",
+  "metrica": "auroc",
+  "n_train": 676,
+  "n_dev": 295,
+  "n_test": 572,
+  "seleccion_terminos_c": null,
+  "terminos": [
+    {
+      "termino": "number de",
+      "chi2": 1.550280623930774
+    },
+    {
+      "termino": "mil number",
+      "chi2": 1.3287469544485275
+    },
+    {
+      "termino": "el number",
+      "chi2": 1.2700412807837271
+    },
+    {
+      "termino": "mil",
+      "chi2": 1.2543553894378738
+    },
+    {
+      "termino": "de number",
+      "chi2": 1.1519534128431492
+    }
+  ],
+  "condiciones": {
+    "4_jev": {
+      "columnas": [
+        "topic",
+        "source",
+        "pregunta_0",
+        "pregunta_1",
+        "pregunta_2",
+        "pregunta_3",
+        "pregunta_4"
+      ],
+      "metrica_puntual": 0.7154689715878527,
+      "tiempos": {
+        "ajuste_s": 0.057617827027570456,
+        "prediccion_s": 0.008169170992914587,
+        "n_train": 676,
+        "n_val": 295,
+        "n_test": 572,
+        "resources": {
+          "cpu_seconds": 0.09730188600000389,
+          "wall_seconds": 0.037980068009346724,
+          "peak_ram_mb": null,
+          "latency_ms_per_row": null
+        },
+        "preguntas_al_modelo": {
+          "segundos": 475.7111318510142,
+          "n_respuestas": 7715,
+          "n_si": 1616,
+          "n_no": 6099,
+          "n_faltante": 0,
+          "proporcion_faltante": 0.0,
+          "n_peticiones_maximo": 1543
+        }
+      },
+      "split_plan_digest": "e5d5eccc8104c3fd56d197a89f3219d0a1e9c7dd66cfe8c40b546efaf52a8ee2"
+    }
+  },
+  "comparaciones": {
+    "4_vs_0": {
+      "metric_id": "auroc",
+      "diseno": "iid",
+      "estimando": "fixed_model_on_population",
+      "veredicto": "equivalencia_practica",
+      "margen_equivalencia": 0.05,
+      "diferencia_puntual": -0.008533424617340635,
+      "intervalo": {
+        "metric_id": "auroc",
+        "design": "iid",
+        "estimand": "fixed_model_on_population",
+        "method": "iid_paired_bootstrap",
+        "resampling_unit": "row",
+        "seed": 107030,
+        "n_resamples": 1000,
+        "n_resamples_used": 1000,
+        "n_resamples_degenerate": 0,
+        "level": 0.95,
+        "ci_low": -0.029073090371167277,
+        "ci_high": 0.012216673186952876,
+        "block_length": null,
+        "elapsed_seconds": 0.6211552989552729,
+        "undefined_reason": null
+      },
+      "undefined_reason": null
+    },
+    "4_vs_2_diferencia_descrita": {
+      "metrica_puntual_2_tfidf_lineal": 0.7950266516700083,
+      "metrica_puntual_4_jev": 0.7154689715878527,
+      "diferencia_4_menos_2": -0.07955768008215558,
+      "nota": "DESCRITA, sin veredicto -- igual que 3_vs_2 en (3): no estaba en el pre-registro."
+    }
+  },
+  "duracion_total_s": 481.7849131380208,
+  "contrato": "107_TEXTO_CON_PREENTRENADOS_CONTRACT.md, C3.0, condición (4) -- Jev",
+  "semilla": 107030,
+  "margen_equivalencia": 0.05,
+  "modelo": "typesafe/jev-1.13-20260917",
+  "base_url": "https://openrouter.ai/api/alpha/decisions",
+  "script_sha256": "0abc5e112747929b5256a41b0e7447534ce470eb61b251b142d2c0ca64067777",
+  "generado": "2026-09-29T01:53:55+0200"
+}

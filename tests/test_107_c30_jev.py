@@ -512,6 +512,55 @@ class ReintentosTest(_ServidorJevFalsoMixin, unittest.TestCase):
 # --estimar: SIN red, aritmética del batching
 # ---------------------------------------------------------------------------
 
+class ErroresDeRedAlLeerTest(unittest.TestCase):
+    """29-09: la tarea C se paró entera por UN `TimeoutError` al leer la respuesta. `urlopen`
+    solo envuelve en `URLError` los fallos al conectar; los de LEER llegan crudos (`TimeoutError`,
+    conexión cortada). Son de red: se reintentan, y agotado el tope se rinden sin la clave."""
+
+    class _Respuesta:
+        def __init__(self, datos):
+            self._datos = datos
+
+        def read(self):
+            return json.dumps(self._datos).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _urlopen_que_falla(self, fallos):
+        llamadas = []
+
+        def urlopen(peticion, timeout=None):
+            llamadas.append(1)
+            if len(llamadas) <= fallos:
+                raise TimeoutError("The read operation timed out")
+            return self._Respuesta({"answers": {"q0": {"type": "noul", "noul": 0.9}}})
+        return urlopen, llamadas
+
+    def test_un_tiempo_agotado_al_leer_se_reintenta_y_sigue(self):
+        urlopen, llamadas = self._urlopen_que_falla(2)
+        with mock.patch.object(rj.urllib.request, "urlopen", urlopen):
+            datos = rj.preguntar(estado="x", preguntas={"q0": {"type": "noul", "instructions": "?"}},
+                                 clave=CLAVE_SENUELO, base_url="http://127.0.0.1:9", tope_reintentos=3,
+                                 dormir=_dormir_falso)
+        self.assertEqual(datos["answers"]["q0"]["noul"], 0.9)
+        self.assertEqual(len(llamadas), 3)
+
+    def test_si_nunca_contesta_se_rinde_tras_el_tope_sin_la_clave(self):
+        urlopen, llamadas = self._urlopen_que_falla(99)
+        with mock.patch.object(rj.urllib.request, "urlopen", urlopen):
+            with self.assertRaises(rj.ErrorJevReintentable) as ctx:
+                rj.preguntar(estado="x", preguntas={"q0": {"type": "noul", "instructions": "?"}},
+                             clave=CLAVE_SENUELO, base_url="http://127.0.0.1:9", tope_reintentos=2,
+                             dormir=_dormir_falso)
+        self.assertEqual(len(llamadas), 3)
+        self.assertNotIn(CLAVE_SENUELO, str(ctx.exception))
+        self.assertIn("TimeoutError", str(ctx.exception))
+
+
 class EstimarSinRedTest(unittest.TestCase):
     def test_estimar_no_llama_a_peticion_decisions(self):
         """Chokepoint único: TODA petición de red de este módulo pasa por
