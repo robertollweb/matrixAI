@@ -40,6 +40,22 @@ DESENLACE = {0: "completada", 1: "error", 124: "tope_de_tiempo", 137: "techo_de_
 
 _LINEA_COLA = re.compile(r"^(?P<fin>\S+) (?P<nombre>107c30-jev-[a-z0-9]+) rc=(?P<rc>\d+) (?P<s>\d+)s\b")
 _LINEA_RESTO = re.compile(r"^--- tarea (?P<tarea>[A-Z]): (?P<s>[0-9.]+)s, escrito en ")
+_REGISTRO_EN_LA_LINEA = re.compile(r" · registro (?P<ruta>\S+)")
+#: LA CAUSA de una pasada que acabó en error, de la última línea de excepción de su registro: una página
+#: que dijera solo «error» haría pensar que falló Jev, y las dos de C fueron la red y el saldo de la cuenta.
+_CAUSAS = ((re.compile(r"^TimeoutError\b"), "corte_de_red"),
+           (re.compile(r"ErrorJevFatal: HTTP 402\b"), "sin_saldo_en_la_cuenta"))
+
+
+def _causa_del_error(linea_de_la_cola: str) -> str | None:
+    m = _REGISTRO_EN_LA_LINEA.search(linea_de_la_cola)
+    if not m or not Path(m["ruta"]).is_file():
+        return None
+    for linea in reversed(Path(m["ruta"]).read_text(encoding="utf-8", errors="replace").splitlines()):
+        for patron, causa in _CAUSAS:
+            if patron.search(linea.strip()):
+                return causa
+    return "otra"
 
 
 def _pasadas() -> list[dict]:
@@ -52,6 +68,8 @@ def _pasadas() -> list[dict]:
         pasadas.append({"nombre": m["nombre"], "tarea": TAREA_DE_LA_PASADA[m["nombre"]], "fin": m["fin"],
                         "rc": rc, "desenlace": DESENLACE.get(rc, "otro"), "segundos_de_pared": int(m["s"]),
                         "origen": "cola-nocturna/resumen.txt", "linea_de_origen": linea.split(" · registro")[0]})
+        if rc not in (0, 124):
+            pasadas[-1]["causa"] = _causa_del_error(linea)
     for linea in REGISTRO_DEL_RESTO.read_text(encoding="utf-8").splitlines():
         m = _LINEA_RESTO.match(linea)
         if m:

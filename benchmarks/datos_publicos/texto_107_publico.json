@@ -5,15 +5,15 @@
   },
   "formato": "107-C30.v1",
   "procedencia": {
-    "generar_texto_107_script_sha256": "3bc09e9986ce10638bd06473ad7b524be02a4625811faef5ad4cbbe730e58247",
+    "generar_texto_107_script_sha256": "f4368a4528f384cdd75983192d8a7b8fc1a2d4c6ffc087d3cbddfd8ae11ace3c",
     "marcador_number_A.json": {
       "generado": "2026-09-29T09:59:17.975370+02:00",
       "script_sha256": "41858b30bc492d4b32d0fc34429c70e59b4e43a36d67f7514d80ff1fcde6182c",
       "sha256": "072ed3dfc2f498ff1201ab1c3fb32dd18807ec12649569133b10ec98ff81a95e"
     },
     "pasadas_c30_jev.json": {
-      "script_sha256": "3a871549c296296446ec007a76c81332f4e5e54a6cf0c0192fa3ef4141ef5c68",
-      "sha256": "d8c16be2de23f67acc6e6c4a402f6048787fc8bf9988a2f351e99dede110bfa7"
+      "script_sha256": "97baf79a97dc17240267a49e6cd38ceca323b91f8cb9d15976acfcf6b07aeebe",
+      "sha256": "2d5b0963b43b1f1e9da95f60646521ff69c44aad2dc328958205d38c55c04190"
     },
     "respuestas_c30_jev_A.json": {
       "sha256": "5edfd489f48a25aec7499a0739f31b5c9097c3bd91b9891d9f109e6de76aece8"
@@ -546,11 +546,13 @@
         "n_respuestas": 152310,
         "pasadas": [
           {
+            "causa": "corte_de_red",
             "desenlace": "error",
             "nombre": "107c30-jev-c",
             "segundos_de_pared": 212
           },
           {
+            "causa": "sin_saldo_en_la_cuenta",
             "desenlace": "error",
             "nombre": "107c30-jev-c2",
             "segundos_de_pared": 3053

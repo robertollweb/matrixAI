@@ -334,7 +334,8 @@ def _componer_tarea(tarea: str, c30: dict[str, Any], resumen: dict[str, Any],
         if pasadas_jev is not None and tarea in pasadas_jev["por_tarea"]:
             registro = pasadas_jev["por_tarea"][tarea]
             lista = [{"nombre": p["nombre"], "desenlace": p["desenlace"],
-                      "segundos_de_pared": p["segundos_de_pared"]} for p in registro["pasadas"]]
+                      "segundos_de_pared": p["segundos_de_pared"],
+                      **({"causa": p["causa"]} if p.get("causa") else {})} for p in registro["pasadas"]]
             total = sum(p["segundos_de_pared"] for p in lista)
             if abs(total - registro["segundos_de_pared_total"]) > 1e-6:
                 raise DatosQueNoCuadran(f"{tarea}: el total de pasadas no es la suma de sus pasadas")
