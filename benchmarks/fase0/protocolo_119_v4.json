@@ -79,7 +79,52 @@
     "por_que_no_one_hot_como_TabM": "con one-hot, KDDCup09 (una categórica de 15.415 valores y 20 de más de 12) haría la primera capa de decenas de miles de entradas: es la causa (3) del análisis del 24-09 (Allstate y KDDCup09 agotaban el tiempo) y no cabría en el presupuesto de pared. La regla del núcleo ya lo hace hoy (> 12 valores → embedding, `_ONEHOT_MAX`).",
     "que_no_es": "NO sale de TabM ni de rtdl_num_embeddings: es una decisión de ESTE protocolo, fijada antes de medir y sin mirar los 40 conjuntos. Si C3 no cumple, no se retoca sobre los mismos 32 (regla del contrato).",
     "fijado": "2026-09-29, supervisor, antes de construir"
+   },
+   "faltantes_decision_del_119": {
+    "que": "una categórica faltante es su PROPIO valor («ausente»), con su fila en el embedding, distinta del índice de «desconocido» (valor no visto en train)",
+    "fijado": "2026-09-29, supervisor, antes de medir"
    }
+  },
+  "preprocesado_numericas": {
+   "fuente": {
+    "ejemplo_oficial": "example.ipynb (repo tabm, rama main), celda 'Data preprocessing'",
+    "config_del_paper": "paper/exp/debug/0.toml y paper/exp/mlp-periodic/adult/0-tuning.toml (rama main): [data] num_policy = \"noisy-quantile\", mismo nombre que la estrategia del notebook; la implementacion real vive en un paquete `lib` que el repo tabm IMPORTA pero NO incluye (paper/bin/model.py: 'import lib', 'import lib.data'; no hay carpeta lib/ en el repositorio, confirmado listando el arbol de git), asi que su codigo literal no consta en este repositorio -- se cita el equivalente autocontenido de example.ipynb, que es la fuente 'oficialmente recomendada' segun el propio README del paquete rtdl_num_embeddings"
+   },
+   "transformador": "sklearn.preprocessing.QuantileTransformer",
+   "parametros": {
+    "n_quantiles": "max(min(len(train_idx) // 30, 1000), 10)",
+    "output_distribution": "normal",
+    "subsample": 1000000000
+   },
+   "ruido_antes_de_ajustar": {
+    "que": "se anade ruido gaussiano SOLO a la copia de train usada para AJUSTAR el transformador; los datos que luego se TRANSFORMAN (train, validation, test) son los ORIGINALES, sin ruido",
+    "distribucion": "np.random.default_rng(0).normal(0.0, 1e-5, x_num_train.shape), casteado al mismo dtype que los datos de train -- media 0.0, desviacion 1e-5, semilla 0",
+    "motivo_citado": "'The noise is added to improve the output of QuantileTransformer in some cases.' (example.ipynb, comentario en la celda 'Data preprocessing')"
+   },
+   "ajustado_sobre": "SOLO train (data_numpy['train']['x_num'] + ruido); nunca validation ni test -- mismo criterio que 118-C1.cuantiles",
+   "aplicado_a": "el transformador ya AJUSTADO se aplica (.transform, SIN ruido) a train, validation y test por igual",
+   "cita_literal_codigo": "x_num_train_numpy = data_numpy['train']['x_num']\nnoise = (\n    np.random.default_rng(0)\n    .normal(0.0, 1e-5, x_num_train_numpy.shape)\n    .astype(x_num_train_numpy.dtype)\n)\npreprocessing = sklearn.preprocessing.QuantileTransformer(\n    n_quantiles=max(min(len(train_idx) // 30, 1000), 10),\n    output_distribution='normal',\n    subsample=10**9,\n).fit(x_num_train_numpy + noise)\ndel x_num_train_numpy\n\n# Apply the preprocessing.\nfor part in data_numpy:\n    data_numpy[part]['x_num'] = preprocessing.transform(data_numpy[part]['x_num'])\n(example.ipynb, celda 'Data preprocessing')",
+   "faltantes": {
+    "no_consta": "ni example.ipynb ni los .toml del paper muestran tratamiento de valores faltantes en las numericas; los datasets usados en el notebook (California housing, y un conjunto sintetico de sklearn) no tienen faltantes, asi que el ejemplo no lo ejercita. El codigo real de imputacion, si existe, viviria en el paquete `lib` no incluido en este repositorio (ver nota en 'fuente' arriba)."
+   },
+   "faltantes_decision_del_119": {
+    "que": "una numérica faltante se rellena con la MEDIANA de train antes del QuantileTransformer (la misma política que la preparación del núcleo, `matrixai/training/preparacion.py`, ajustada solo con train); sin columna-marca aparte",
+    "por_que": "la fuente no lo trata («no consta»: sus conjuntos no traen faltantes) y los 40 de Fase 0 sí; se toma la regla que ya aplica la casa en vez de inventar una",
+    "fijado": "2026-09-29, supervisor, antes de medir"
+   }
+  },
+  "objetivo_regresion": {
+   "fuente": {
+    "ejemplo_oficial": "example.ipynb (repo tabm, rama main), celda 'Data preprocessing' (bloque 'Label preprocessing') y celda 'evaluate' (deshace la estandarizacion antes de medir)",
+    "config_del_paper": "paper/bin/model.py, funcion main (~lineas 345-350): se llama SIEMPRE lib.data.standardize_labels(...) para toda tarea de regresion, sin condicion de asimetria; el codigo de standardize_labels en si vive en el paquete `lib` externo, no incluido en este repositorio (misma limitacion que el preprocesado de numericas)"
+   },
+   "transformacion": "estandarizacion: (y - media_train) / desviacion_train",
+   "ajustado_sobre": "SOLO train",
+   "log1p": "NO CONSTA en ninguna de las dos fuentes leidas (ni example.ipynb ni la llamada de paper/bin/model.py a lib.data.standardize_labels): no hay condicion de asimetria ni transformacion logaritmica citada en ningun sitio de este repositorio. El propio nombre de la funcion ('standardize_labels') y el comentario del notebook ('it is highly recommended to standardize the training labels') no mencionan ningun log; la fuente aplica SIEMPRE una estandarizacion simple, incondicional (a diferencia de 118-C2.objetivo, que aplica log1p condicionado a la asimetria de train)",
+   "deshacer_en_prediccion": "y_pred = y_pred * desviacion_train + media_train, antes de calcular la metrica -- cita literal en 'evaluate()': 'y_pred = y_pred * regression_label_stats.std + regression_label_stats.mean'",
+   "cita_literal_codigo_ejemplo": "Y_train = data_numpy['train']['y'].copy()\nif task_type == 'regression':\n    # For regression tasks, it is highly recommended to standardize the training labels.\n    regression_label_stats = RegressionLabelStats(\n        Y_train.mean().item(), Y_train.std().item()\n    )\n    Y_train = (Y_train - regression_label_stats.mean) / regression_label_stats.std\nelse:\n    regression_label_stats = None\n(example.ipynb, celda 'Data preprocessing')",
+   "cita_literal_codigo_paper": "dataset = lib.data.build_dataset(**config['data'])\nif dataset.task.is_regression:\n    dataset.data['y'], regression_label_stats = lib.data.standardize_labels(\n        dataset.data['y']\n    )\nelse:\n    regression_label_stats = None\n(paper/bin/model.py, funcion main)",
+   "clasificacion": "sin cambio (no aplica)"
   }
  },
  "receta_entrenamiento": {
@@ -1182,5 +1227,5 @@
   ],
   "intervalos": "bootstrap de 1000 remuestreos sobre las predicciones fuera-de-fold agrupadas por repetición, más la dispersión entre las 3 semillas (105-C2, reutilizado — nunca una segunda implementación)"
  },
- "digest_sha256": "2b2faabff2b38b9091761755d9653b611d7b51bf46bb67326d3dcda9cfec9f44"
+ "digest_sha256": "50fc56a1c688c057cca643953c7659e73731915f59c1cf32f6419c14992299a4"
 }
