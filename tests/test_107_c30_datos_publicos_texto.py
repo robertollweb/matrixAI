@@ -64,6 +64,15 @@ def test_cada_metrica_puntual_publicada_es_exactamente_la_de_su_fuente():
     assert publicado["tareas"]["A"]["condiciones"]["4_jev"]["metrica_puntual"] == (
         jev_a["condiciones"]["4_jev"]["metrica_puntual"])
 
+    # (5), «Jev directo, sin entrenar»: UN fichero con las dos tareas candidatas (A y D).
+    # «que la (5) de A sea exactamente la de la fuente» -- comprobado aquí byte a byte del
+    # número, no solo que el JSON entero coincida (eso ya lo prueba la otra).
+    jev_directo = json.loads((TEXTO_107C30 / "resultado_c30_jev_directo.json").read_text(encoding="utf-8"))
+    assert publicado["tareas"]["A"]["condiciones"]["5_jev_directo"]["metrica_puntual"] == (
+        jev_directo["tareas"]["A"]["condiciones"]["5_jev_directo"]["metrica_puntual"])
+    assert publicado["tareas"]["D"]["condiciones"]["5_jev_directo"]["metrica_puntual"] == (
+        jev_directo["tareas"]["D"]["condiciones"]["5_jev_directo"]["metrica_puntual"])
+
 
 def test_la_tarea_B_no_tiene_la_condicion_4_medida():
     """Decisión de Roberto: B son datos clínicos y NUNCA pasa por Jev. Tiene que salir
@@ -83,6 +92,73 @@ def test_la_tarea_D_condicion_3_y_4_omitidas_con_sus_claves():
     assert condiciones_d["4_jev"] == {"omitida": True, "motivo": "fuera_del_registro"}
 
 
+def test_la_condicion_5_esta_omitida_en_B_y_C_con_sus_claves_de_motivo():
+    """(5), «Jev directo, sin entrenar», SOLO corre en A y D (públicas, binarias). B es
+    clínica (mismo motivo que (4)); C es regresión, y Jev/`noul` no da un número continuo --
+    clave NUEVA, distinta de la de coste que usa (3)."""
+    publicado = _publicado()
+    assert publicado["tareas"]["B"]["condiciones"]["5_jev_directo"] == {
+        "omitida": True, "motivo": "nunca_con_jev_datos_clinicos"}
+    assert publicado["tareas"]["C"]["condiciones"]["5_jev_directo"] == {
+        "omitida": True, "motivo": "regresion_sin_numero_continuo"}
+    assert "jev_directo" not in publicado["tareas"]["B"]
+    assert "jev_directo" not in publicado["tareas"]["C"]
+
+
+def test_la_condicion_5_en_A_y_D_trae_su_comparacion_y_su_pregunta_literal():
+    """En A y D, (5) tiene que traer su `metrica_puntual`, su comparación COPIADA frente a
+    (0) (veredicto, diferencia, intervalo -- no recalculada aquí) y la pregunta LITERAL del
+    registro sellado, exactamente como la escribió `medir_c30_jev_directo.py`."""
+    publicado = _publicado()
+    jev_directo = json.loads((TEXTO_107C30 / "resultado_c30_jev_directo.json").read_text(encoding="utf-8"))
+
+    for tarea in ("A", "D"):
+        comparacion = publicado["tareas"][tarea]["comparaciones_frente_a_0"]["5_jev_directo"]
+        fuente = jev_directo["tareas"][tarea]["comparaciones"]["5_vs_0"]
+        assert comparacion == fuente
+        assert publicado["tareas"][tarea]["jev_directo"]["pregunta"] == (
+            jev_directo["tareas"][tarea]["pregunta"])
+        assert publicado["tareas"][tarea]["jev_directo"]["modelo"] == jev_directo["modelo"]
+
+    # Las preguntas literales del registro sellado del 29-09 -- ni la lista ni la redacción
+    # se retocan después de medir, así que se comprueban también contra el texto exacto.
+    assert publicado["tareas"]["A"]["jev_directo"]["pregunta"] == "¿Es falsa esta noticia? Responde solo sí o no."
+    assert publicado["tareas"]["D"]["jev_directo"]["pregunta"] == (
+        "¿Esta norma ha dejado de estar vigente? Responde solo sí o no.")
+
+
+def test_la_condicion_5_declara_sus_faltantes_contados():
+    """Faltantes contados y declarados, nunca rellenados -- comprobado que la aritmética
+    del propio bloque cuadra (n_con_respuesta + n_faltante == n_total)."""
+    publicado = _publicado()
+    for tarea in ("A", "D"):
+        jd = publicado["tareas"][tarea]["jev_directo"]
+        assert jd["n_con_respuesta"] + jd["n_faltante"] == jd["n_total"]
+        assert jd["proporcion_faltante"] == pytest.approx(jd["n_faltante"] / jd["n_total"])
+
+
+def test_las_diferencias_descritas_de_la_condicion_5_en_A_coinciden_con_el_registro():
+    """(5) frente a (1), (2) y (4) -- las tres, en A, donde (4) también está medida -- se
+    comprueban contra lo que `resultado_c30_jev_directo.json` YA escribió, no se aceptan
+    sin más el recálculo de este generador."""
+    publicado = _publicado()
+    jev_directo = json.loads((TEXTO_107C30 / "resultado_c30_jev_directo.json").read_text(encoding="utf-8"))
+    comparaciones_fuente = jev_directo["tareas"]["A"]["comparaciones"]
+    diferencias = publicado["tareas"]["A"]["diferencias_descritas"]
+
+    assert diferencias["5_jev_directo_menos_1_embedding"]["diferencia"] == pytest.approx(
+        comparaciones_fuente["5_vs_1_diferencia_descrita"]["diferencia_5_menos_1"])
+    assert diferencias["5_jev_directo_menos_2_tfidf_lineal"]["diferencia"] == pytest.approx(
+        comparaciones_fuente["5_vs_2_diferencia_descrita"]["diferencia_5_menos_2"])
+    assert diferencias["5_jev_directo_menos_4_jev"]["diferencia"] == pytest.approx(
+        comparaciones_fuente["5_vs_4_diferencia_descrita"]["diferencia_5_menos_4"])
+
+    # D no tiene (4) medida: no hay «5 menos 4» que describir para D.
+    assert "5_jev_directo_menos_4_jev" not in publicado["tareas"]["D"]["diferencias_descritas"]
+    assert "5_jev_directo_menos_1_embedding" in publicado["tareas"]["D"]["diferencias_descritas"]
+    assert "5_jev_directo_menos_2_tfidf_lineal" in publicado["tareas"]["D"]["diferencias_descritas"]
+
+
 def test_la_tarea_C_sin_su_resultado_de_jev_sale_pendiente():
     """`resultado_c30_jev_C.json` todavía no existe (se está midiendo). Se prueba con un
     directorio temporal que copia las entradas SIN ese fichero -- nunca se toca el árbol
@@ -97,6 +173,7 @@ def test_la_tarea_C_sin_su_resultado_de_jev_sale_pendiente():
             "resultado_c30_respondedor_a.json", "resultado_c30_respondedor_b.json",
             "resultado_c30_jev_A.json", "respuestas_c30_jev_A.json",
             "respuestas_c30_respondedor_a.json", "respuestas_c30_respondedor_b.json",
+            "resultado_c30_jev_directo.json",
         ]
         for nombre in ficheros_a_copiar:
             origen = TEXTO_107C30 / nombre
@@ -125,16 +202,24 @@ def test_la_tarea_C_sin_su_resultado_de_jev_sale_pendiente():
             "A": tmp_path / "respuestas_c30_respondedor_a.json",
             "B": tmp_path / "respuestas_c30_respondedor_b.json",
         }
+        modulo_tmp.RUTA_JEV_DIRECTO = tmp_path / "resultado_c30_jev_directo.json"
 
         datos = json.loads(modulo_tmp.generar())
 
     assert datos["tareas"]["C"]["condiciones"]["4_jev"] == {"omitida": True, "motivo": "pendiente"}
+    # (5) de C está omitida por SU PROPIO motivo (regresión), no por la ausencia del fichero de (4).
+    assert datos["tareas"]["C"]["condiciones"]["5_jev_directo"] == {
+        "omitida": True, "motivo": "regresion_sin_numero_continuo"}
     # El resto de C sigue compuesto con normalidad -- no es un fallo general disfrazado.
     assert datos["tareas"]["C"]["condiciones"]["0_sin_texto"]["metrica_puntual"] == pytest.approx(0.6534988182550998)
     assert datos["tareas"]["C"]["metrica"] == "rmse"
     assert datos["tareas"]["C"]["mayor_es_mejor"] is False
     # Y la tarea A, que sí tiene todo, no se ve afectada por copiar el directorio.
     assert datos["tareas"]["A"]["condiciones"]["4_jev"]["metrica_puntual"] == pytest.approx(0.7154689715878527)
+    assert datos["tareas"]["A"]["condiciones"]["5_jev_directo"]["metrica_puntual"] == pytest.approx(0.885403931732603)
+    # Y D, que no se copia por su nombre en ningún RUTAS_* pero sí vive en resultado_c30.json
+    # y en resultado_c30_jev_directo.json, compone su (5) igual de bien.
+    assert datos["tareas"]["D"]["condiciones"]["5_jev_directo"]["metrica_puntual"] == pytest.approx(0.8275436986589128)
 
 
 def test_el_acuerdo_de_la_tarea_A_se_recalcula_de_forma_INDEPENDIENTE_y_coincide():
@@ -200,7 +285,8 @@ def test_una_cifra_retocada_en_un_registro_cambia_lo_publicado():
         for nombre in ("resumen_tareas.json", "marcador_number_A.json",
                        "resultado_c30_respondedor_a.json", "resultado_c30_respondedor_b.json",
                        "resultado_c30_jev_A.json", "respuestas_c30_jev_A.json",
-                       "respuestas_c30_respondedor_a.json", "respuestas_c30_respondedor_b.json"):
+                       "respuestas_c30_respondedor_a.json", "respuestas_c30_respondedor_b.json",
+                       "resultado_c30_jev_directo.json"):
             shutil.copy2(TEXTO_107C30 / nombre, tmp_path / nombre)
         (tmp_path / "resultado_c30.json").write_text(json.dumps(tocado), encoding="utf-8")
 
@@ -221,6 +307,7 @@ def test_una_cifra_retocada_en_un_registro_cambia_lo_publicado():
             "A": tmp_path / "respuestas_c30_respondedor_a.json",
             "B": tmp_path / "respuestas_c30_respondedor_b.json",
         }
+        modulo_tmp.RUTA_JEV_DIRECTO = tmp_path / "resultado_c30_jev_directo.json"
 
         # OJO: `modulo_tmp` se cargó con su propio `importlib.util.module_from_spec`, así que
         # su `DatosQueNoCuadran` es una clase DISTINTA (mismo nombre, otro objeto) de la del

@@ -12,11 +12,12 @@ con el publicado.
     python3 benchmarks/datos_publicos/generar_texto_107.py            # comprueba el publicado
     python3 benchmarks/datos_publicos/generar_texto_107.py --escribir # lo regenera
 
-**Las cuatro tareas, las cinco condiciones.** A (noticias falsas, auroc), B (casos
-clínicos, auroc), C (contratos PLACSP, `rmse` -- MENOS es mejor), D (BOE, auroc). Cinco
+**Las cuatro tareas, las SEIS condiciones.** A (noticias falsas, auroc), B (casos
+clínicos, auroc), C (contratos PLACSP, `rmse` -- MENOS es mejor), D (BOE, auroc). Seis
 condiciones por tarea: (0) sin texto, (1) embedding, (2) TF-IDF, (3) respondedor local
-(Qwen2.5-0.5B), (4) Jev. Ni todas las tareas tienen las cinco medidas, y eso se declara con
-una CLAVE de motivo, nunca con un hueco silencioso:
+(Qwen2.5-0.5B), (4) Jev fabricando columnas, (5) Jev preguntado DIRECTAMENTE, sin entrenar
+(29-09). Ni todas las tareas tienen las seis medidas, y eso se declara con una CLAVE de
+motivo, nunca con un hueco silencioso:
 
   - (3) NUNCA se midió para C ni D: `no_medida_por_coste` (el propio registro sellado de
     (3) ya lo dice, y aquí se comprueba contra ese texto, no se repite a mano).
@@ -25,8 +26,13 @@ una CLAVE de motivo, nunca con un hueco silencioso:
     `nunca_con_jev_datos_clinicos`.
   - (4) nunca estuvo en el alcance de D (solo A y C, "públicas y no clínicas", declarado en
     la cabecera de `medir_c30_jev.py`): `fuera_del_registro`.
-  - (4) de C **está pendiente de medir** cuando se escribe esto: `pendiente`. El día que
-    `resultado_c30_jev_C.json` aparezca, este guion lo recoge solo -- no hay que tocarlo.
+  - (4) de C se recoge en cuanto `resultado_c30_jev_C.json` existe (ya medido, 29-09); mientras
+    no exista, se declara `pendiente` en vez de un hueco silencioso -- el mecanismo, no un
+    estado fijo de una fecha concreta.
+  - (5) («Jev directo, sin entrenar», registro sellado del 29-09) solo corre en A y D --
+    públicas y binarias: `noul` es una probabilidad 0-1, no un número continuo, así que C
+    (regresión) nunca lo recibe: `regresion_sin_numero_continuo`. B, igual que en (4): nunca
+    datos clínicos, `nunca_con_jev_datos_clinicos`.
 
 **Lo que se COPIA y lo que se CALCULA.** El `metrica_puntual` de cada condición, y el
 veredicto/diferencia/intervalo de cada comparación frente a (0): copiados tal cual de la
@@ -69,6 +75,10 @@ RUTA_MARCADOR_NUMBER_A = TEXTO_107C30 / "marcador_number_A.json"
 #: que se publica es el total de pared y la lista, nunca `segundos_preguntando` como si fuera el de todo.
 RUTA_PASADAS_JEV = TEXTO_107C30 / "pasadas_c30_jev.json"
 
+#: condición (5), «Jev directo, sin entrenar» (registro sellado 29-09, `medir_c30_jev_directo.py`):
+#: UN fichero para las dos tareas candidatas (A y D), como escribe el propio medidor.
+RUTA_JEV_DIRECTO = TEXTO_107C30 / "resultado_c30_jev_directo.json"
+
 #: condición (3), respondedor local: solo A y B están medidas (los ficheros existen).
 RUTAS_RESPONDEDOR = {
     "A": TEXTO_107C30 / "resultado_c30_respondedor_a.json",
@@ -88,10 +98,20 @@ MOTIVO_NO_MEDIDA_POR_COSTE = "no_medida_por_coste"
 MOTIVO_NUNCA_CON_JEV_DATOS_CLINICOS = "nunca_con_jev_datos_clinicos"
 MOTIVO_FUERA_DEL_REGISTRO = "fuera_del_registro"
 MOTIVO_PENDIENTE = "pendiente"
+#: (5) en C: Jev (`noul`) da una probabilidad 0-1, nunca un número continuo -- C es regresión.
+MOTIVO_REGRESION_SIN_NUMERO_CONTINUO = "regresion_sin_numero_continuo"
 
 MOTIVO_4_POR_TAREA_NO_CANDIDATA = {
     "B": MOTIVO_NUNCA_CON_JEV_DATOS_CLINICOS,
     "D": MOTIVO_FUERA_DEL_REGISTRO,
+}
+
+#: (5), «Jev directo, sin entrenar»: SOLO A (noticias falsas) y D (BOE, vigencia) -- públicas
+#: y binarias (registro sellado 29-09, cabecera de `medir_c30_jev_directo.py`).
+TAREAS_CANDIDATAS_A_JEV_DIRECTO = ("A", "D")
+MOTIVO_5_POR_TAREA_NO_CANDIDATA = {
+    "B": MOTIVO_NUNCA_CON_JEV_DATOS_CLINICOS,
+    "C": MOTIVO_REGRESION_SIN_NUMERO_CONTINUO,
 }
 
 TAREAS = ("A", "B", "C", "D")
@@ -174,6 +194,43 @@ def _condicion_4(tarea: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
     return {"metrica_puntual": condicion["metrica_puntual"]}, datos
 
 
+def _condicion_5(tarea: str, datos_jev_directo: dict[str, Any] | None
+                  ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Devuelve (bloque de condición 5 para publicar, bloque de esa tarea dentro de
+    `resultado_c30_jev_directo.json`, o None si la tarea no es candidata a (5))."""
+    if tarea not in TAREAS_CANDIDATAS_A_JEV_DIRECTO:
+        return {"omitida": True, "motivo": MOTIVO_5_POR_TAREA_NO_CANDIDATA[tarea]}, None
+    if datos_jev_directo is None:
+        raise DatosQueNoCuadran(f"{tarea}: falta {RUTA_JEV_DIRECTO.name} con la condición 5 medida")
+    bloque_tarea = datos_jev_directo.get("tareas", {}).get(tarea)
+    if bloque_tarea is None:
+        raise DatosQueNoCuadran(f"{tarea}: {RUTA_JEV_DIRECTO.name} no trae esta tarea")
+    if bloque_tarea.get("condicion") != "5_jev_directo":
+        raise DatosQueNoCuadran(f"{tarea}: {RUTA_JEV_DIRECTO.name} declara condicion="
+                                 f"{bloque_tarea.get('condicion')!r}, se esperaba '5_jev_directo'")
+    condicion = bloque_tarea["condiciones"]["5_jev_directo"]
+    return {"metrica_puntual": condicion["metrica_puntual"]}, bloque_tarea
+
+
+def _bloque_jev_directo(bloque_tarea: dict[str, Any], modelo: str) -> dict[str, Any]:
+    """El bloque de estadísticas de (5) para UNA tarea: la pregunta LITERAL (del registro
+    sellado) y los faltantes, contados y declarados -- nunca rellenados."""
+    respuestas = bloque_tarea["respuestas"]
+    if respuestas["n_con_respuesta"] + respuestas["n_faltante"] != respuestas["n_total"]:
+        raise DatosQueNoCuadran(
+            f"{bloque_tarea.get('tarea')!r}: n_con_respuesta({respuestas['n_con_respuesta']}) + "
+            f"n_faltante({respuestas['n_faltante']}) != n_total({respuestas['n_total']}) en la condición 5")
+    return {
+        "modelo": modelo,
+        "pregunta": bloque_tarea["pregunta"],
+        "n_total": respuestas["n_total"],
+        "n_con_respuesta": respuestas["n_con_respuesta"],
+        "n_faltante": respuestas["n_faltante"],
+        "proporcion_faltante": respuestas["proporcion_faltante"],
+        "segundos_preguntando": respuestas["segundos"],
+    }
+
+
 def _punto(condiciones: dict[str, Any], clave: str) -> float | None:
     return condiciones[clave].get("metrica_puntual")
 
@@ -226,6 +283,7 @@ def _bloque_preguntas(modelo: str, tiempos_preguntas: dict[str, Any], n_peticion
 def _componer_tarea(tarea: str, c30: dict[str, Any], resumen: dict[str, Any],
                      marcador_a: dict[str, Any] | None,
                      pasadas_jev: dict[str, Any] | None,
+                     datos_jev_directo: dict[str, Any] | None,
                      ficheros_leidos: dict[Path, dict[str, Any] | None]) -> dict[str, Any]:
     bloque_c30 = c30["tareas"][tarea]
     bloque_resumen = resumen["tareas"][tarea]
@@ -252,6 +310,20 @@ def _componer_tarea(tarea: str, c30: dict[str, Any], resumen: dict[str, Any],
     if datos_jev is not None:
         ficheros_leidos[TEXTO_107C30 / f"resultado_c30_jev_{tarea}.json"] = datos_jev
 
+    condicion_5, bloque_5_tarea = _condicion_5(tarea, datos_jev_directo)
+    condiciones["5_jev_directo"] = condicion_5
+
+    # -- (5) recalcula (0) para su propio emparejamiento: comprobado contra la (0) ya
+    #    publicada de resultado_c30.json, no supuesto -- mismo patrón que el resto de esta
+    #    función, que nunca deja que dos fuentes se contradigan en silencio.
+    if bloque_5_tarea is not None:
+        m0_c30 = bloque_c30["condiciones"]["0_sin_texto"]["metrica_puntual"]
+        m0_recalc = bloque_5_tarea["condiciones"]["0_sin_texto_recalculada"]["metrica_puntual_muestra_completa"]
+        if abs(m0_recalc - m0_c30) > TOLERANCIA:
+            raise DatosQueNoCuadran(
+                f"{tarea}: (0) recalculada en {RUTA_JEV_DIRECTO.name} ({m0_recalc}) no "
+                f"coincide con la publicada en resultado_c30.json ({m0_c30})")
+
     # -- comparaciones frente a (0), copiadas de la fuente que midió cada condición --------
     comparaciones: dict[str, Any] = {}
     for clave, n in (("1_embedding", "1"), ("2_tfidf_lineal", "2")):
@@ -260,11 +332,15 @@ def _componer_tarea(tarea: str, c30: dict[str, Any], resumen: dict[str, Any],
         comparaciones["3_respondedor"] = dict(bloque_resp_tarea["comparaciones"]["3_vs_0"])
     if "metrica_puntual" in condicion_4:
         comparaciones["4_jev"] = dict(datos_jev["comparaciones"]["4_vs_0"])
+    if "metrica_puntual" in condicion_5:
+        comparaciones["5_jev_directo"] = dict(bloque_5_tarea["comparaciones"]["5_vs_0"])
 
     # -- diferencias DESCRITAS, sin veredicto -----------------------------------------------
+    m1 = _punto(condiciones, "1_embedding")
     m2 = _punto(condiciones, "2_tfidf_lineal")
     m3 = _punto(condiciones, "3_respondedor")
     m4 = _punto(condiciones, "4_jev")
+    m5 = _punto(condiciones, "5_jev_directo")
     diferencias_descritas: dict[str, Any] = {}
     if m3 is not None:
         fuente = bloque_resp_tarea["comparaciones"].get("3_vs_2_diferencia_descrita")
@@ -278,6 +354,17 @@ def _componer_tarea(tarea: str, c30: dict[str, Any], resumen: dict[str, Any],
         # Ninguna fuente compara Jev con el respondedor local directamente: nada que
         # comprobar, se calcula entero a partir de los dos `metrica_puntual` ya copiados.
         diferencias_descritas["4_jev_menos_3_respondedor"] = _diferencia_descrita(m4, m3, None, None)
+    if m5 is not None:
+        fuente_1 = bloque_5_tarea["comparaciones"].get("5_vs_1_diferencia_descrita")
+        diferencias_descritas["5_jev_directo_menos_1_embedding"] = _diferencia_descrita(
+            m5, m1, fuente_1, "diferencia_5_menos_1")
+        fuente_2 = bloque_5_tarea["comparaciones"].get("5_vs_2_diferencia_descrita")
+        diferencias_descritas["5_jev_directo_menos_2_tfidf_lineal"] = _diferencia_descrita(
+            m5, m2, fuente_2, "diferencia_5_menos_2")
+        if m4 is not None:
+            fuente_4 = bloque_5_tarea["comparaciones"].get("5_vs_4_diferencia_descrita")
+            diferencias_descritas["5_jev_directo_menos_4_jev"] = _diferencia_descrita(
+                m5, m4, fuente_4, "diferencia_5_menos_4")
 
     # -- términos de las preguntas: de la condición que exista (3 o 4), comprobados entre
     #    sí si las dos existen (la tarea A los tiene por los dos caminos) ------------------
@@ -349,6 +436,10 @@ def _componer_tarea(tarea: str, c30: dict[str, Any], resumen: dict[str, Any],
                 bloque_jev["reanudada_desde_la_cache"] = True
         resultado["jev"] = bloque_jev
 
+    # -- bloque `jev_directo`: condición (5), solo para A y D --------------------------------
+    if bloque_5_tarea is not None:
+        resultado["jev_directo"] = _bloque_jev_directo(bloque_5_tarea, datos_jev_directo["modelo"])
+
     if tarea == "A":
         if marcador_a is None:
             raise DatosQueNoCuadran("falta marcador_number_A.json para la tarea A")
@@ -364,6 +455,7 @@ def generar() -> str:
     resumen = _cargar(RUTA_RESUMEN_TAREAS)
     marcador_a = _cargar(RUTA_MARCADOR_NUMBER_A) if RUTA_MARCADOR_NUMBER_A.exists() else None
     pasadas_jev = _cargar(RUTA_PASADAS_JEV) if RUTA_PASADAS_JEV.exists() else None
+    datos_jev_directo = _cargar(RUTA_JEV_DIRECTO) if RUTA_JEV_DIRECTO.exists() else None
 
     ficheros_leidos: dict[Path, dict[str, Any] | None] = {
         RUTA_RESULTADO_C30: c30,
@@ -373,11 +465,13 @@ def generar() -> str:
         ficheros_leidos[RUTA_MARCADOR_NUMBER_A] = marcador_a
     if pasadas_jev is not None:
         ficheros_leidos[RUTA_PASADAS_JEV] = pasadas_jev
+    if datos_jev_directo is not None:
+        ficheros_leidos[RUTA_JEV_DIRECTO] = datos_jev_directo
 
     tareas = {}
     for tarea in TAREAS:
         tareas[tarea] = _componer_tarea(tarea, c30, resumen, marcador_a if tarea == "A" else None,
-                                        pasadas_jev, ficheros_leidos)
+                                        pasadas_jev, datos_jev_directo, ficheros_leidos)
 
     procedencia = {ruta.name: _procedencia_de(ruta, datos)
                    for ruta, datos in sorted(ficheros_leidos.items(), key=lambda kv: kv[0].name)}
