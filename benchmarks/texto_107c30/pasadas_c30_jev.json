@@ -1,0 +1,71 @@
+{
+  "contrato": "107_TEXTO_CON_PREENTRENADOS_CONTRACT.md, C3.0, condición (4) -- Jev",
+  "coste": {
+    "cubre": "tareas A y C y unas pocas llamadas de prueba con un texto inventado (~0,00001 $ cada una); la clave no se usó para nada más",
+    "fuente": "GET https://openrouter.ai/api/v1/key (data.usage)",
+    "uso_de_la_clave_usd": 0.596318394
+  },
+  "por_tarea": {
+    "A": {
+      "pasadas": [
+        {
+          "desenlace": "completada",
+          "fin": "2026-09-29T01:53:58+02:00",
+          "linea_de_origen": "2026-09-29T01:53:58+02:00 107c30-jev-a rc=0 485s (137 o 143 = techo de memoria; 124 = tope de tiempo)",
+          "nombre": "107c30-jev-a",
+          "origen": "cola-nocturna/resumen.txt",
+          "rc": 0,
+          "segundos_de_pared": 485,
+          "tarea": "A"
+        }
+      ],
+      "segundos_de_pared_total": 485.0
+    },
+    "C": {
+      "pasadas": [
+        {
+          "desenlace": "error",
+          "fin": "2026-09-29T01:57:30+02:00",
+          "linea_de_origen": "2026-09-29T01:57:30+02:00 107c30-jev-c rc=1 212s (137 o 143 = techo de memoria; 124 = tope de tiempo)",
+          "nombre": "107c30-jev-c",
+          "origen": "cola-nocturna/resumen.txt",
+          "rc": 1,
+          "segundos_de_pared": 212,
+          "tarea": "C"
+        },
+        {
+          "desenlace": "error",
+          "fin": "2026-09-29T07:35:02+02:00",
+          "linea_de_origen": "2026-09-29T07:35:02+02:00 107c30-jev-c2 rc=1 3053s (137 o 143 = techo de memoria; 124 = tope de tiempo)",
+          "nombre": "107c30-jev-c2",
+          "origen": "cola-nocturna/resumen.txt",
+          "rc": 1,
+          "segundos_de_pared": 3053,
+          "tarea": "C"
+        },
+        {
+          "desenlace": "tope_de_tiempo",
+          "fin": "2026-09-29T11:18:32+02:00",
+          "linea_de_origen": "2026-09-29T11:18:32+02:00 107c30-jev-c3 rc=124 10801s (137 o 143 = techo de memoria; 124 = tope de tiempo)",
+          "nombre": "107c30-jev-c3",
+          "origen": "cola-nocturna/resumen.txt",
+          "rc": 124,
+          "segundos_de_pared": 10801,
+          "tarea": "C"
+        },
+        {
+          "desenlace": "completada",
+          "fin": null,
+          "linea_de_origen": "--- tarea C: 1141.5s",
+          "nombre": "resto-a-mano",
+          "origen": "~/.agentes/107c30-jev/resto_de_c.log",
+          "rc": 0,
+          "segundos_de_pared": 1141.5,
+          "tarea": "C"
+        }
+      ],
+      "segundos_de_pared_total": 15207.5
+    }
+  },
+  "script_sha256": "3a871549c296296446ec007a76c81332f4e5e54a6cf0c0192fa3ef4141ef5c68"
+}

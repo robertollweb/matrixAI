@@ -229,3 +229,25 @@ def test_una_cifra_retocada_en_un_registro_cambia_lo_publicado():
             # con 2_tfidf_lineal tocado, la diferencia descrita que YA escribió el
             # registro de (3) (3_vs_2_diferencia_descrita) deja de cuadrar: no se publica.
             modulo_tmp.generar()
+
+
+def test_con_varias_pasadas_NO_se_publican_los_segundos_de_la_ultima_como_si_fueran_todo():
+    """29-09: la tarea C necesitó cuatro pasadas (corte de red, saldo, tope de la cola y el resto desde
+    la caché) y su resultado guarda 1.122 s, los de la ÚLTIMA. Publicarlos como «lo que tardó Jev» sería
+    declarar lo que no pasó. Con más de una pasada, el bloque lleva el total de pared (la suma de las
+    pasadas registradas) y la marca de reanudada, y NO `segundos_preguntando`. Con una sola (A), sí.
+    En vivo, llamando al generador: leer el JSON congelado no vigilaría la lógica."""
+    datos = json.loads(generar_texto_107.generar())
+    registro = json.loads(generar_texto_107.RUTA_PASADAS_JEV.read_text(encoding="utf-8"))
+
+    jev_c = datos["tareas"]["C"]["jev"]
+    assert len(registro["por_tarea"]["C"]["pasadas"]) > 1
+    assert "segundos_preguntando" not in jev_c
+    assert jev_c["reanudada_desde_la_cache"] is True
+    assert jev_c["segundos_de_pared_total"] == sum(
+        p["segundos_de_pared"] for p in registro["por_tarea"]["C"]["pasadas"])
+
+    jev_a = datos["tareas"]["A"]["jev"]
+    assert len(registro["por_tarea"]["A"]["pasadas"]) == 1
+    assert "segundos_preguntando" in jev_a and "reanudada_desde_la_cache" not in jev_a
+    assert datos["coste_jev"]["uso_de_la_clave_usd"] == registro["coste"]["uso_de_la_clave_usd"]

@@ -1,11 +1,19 @@
 {
+  "coste_jev": {
+    "cubre": "A_C_y_llamadas_de_prueba",
+    "uso_de_la_clave_usd": 0.596318394
+  },
   "formato": "107-C30.v1",
   "procedencia": {
-    "generar_texto_107_script_sha256": "f3d7fb70cdd6773d19708cea570570d048e9cd3bfe1fc1b9f877476304428273",
+    "generar_texto_107_script_sha256": "3bc09e9986ce10638bd06473ad7b524be02a4625811faef5ad4cbbe730e58247",
     "marcador_number_A.json": {
       "generado": "2026-09-29T09:59:17.975370+02:00",
       "script_sha256": "41858b30bc492d4b32d0fc34429c70e59b4e43a36d67f7514d80ff1fcde6182c",
       "sha256": "072ed3dfc2f498ff1201ab1c3fb32dd18807ec12649569133b10ec98ff81a95e"
+    },
+    "pasadas_c30_jev.json": {
+      "script_sha256": "3a871549c296296446ec007a76c81332f4e5e54a6cf0c0192fa3ef4141ef5c68",
+      "sha256": "d8c16be2de23f67acc6e6c4a402f6048787fc8bf9988a2f351e99dede110bfa7"
     },
     "respuestas_c30_jev_A.json": {
       "sha256": "5edfd489f48a25aec7499a0739f31b5c9097c3bd91b9891d9f109e6de76aece8"
@@ -22,6 +30,11 @@
       "generado": "2026-09-29T01:53:55+0200",
       "script_sha256": "0abc5e112747929b5256a41b0e7447534ce470eb61b251b142d2c0ca64067777",
       "sha256": "8a9a42171ed83bc0711a68597c5c06097b675f74e55ca2ef69aeff621aa8029d"
+    },
+    "resultado_c30_jev_C.json": {
+      "generado": "2026-09-29T11:38:13+0200",
+      "script_sha256": "0abc5e112747929b5256a41b0e7447534ce470eb61b251b142d2c0ca64067777",
+      "sha256": "5051fa8649944e379c10da1e98efa219a89241cf0841eb13e5d4450eda79eed3"
     },
     "resultado_c30_respondedor_a.json": {
       "generado": "2026-09-27T12:27:49+0000",
@@ -233,6 +246,13 @@
         "n_faltante": 0,
         "n_peticiones_al_modelo": 1543,
         "n_respuestas": 7715,
+        "pasadas": [
+          {
+            "desenlace": "completada",
+            "nombre": "107c30-jev-a",
+            "segundos_de_pared": 485
+          }
+        ],
         "proporcion_faltante": 0.0,
         "proporcion_si": 0.20946208684381076,
         "respondedor_local": {
@@ -244,6 +264,7 @@
           "proporcion_si": 0.05560596241088788,
           "segundos_preguntando": 8296.88486125099
         },
+        "segundos_de_pared_total": 485,
         "segundos_preguntando": 475.7111318510142
       },
       "mayor_es_mejor": true,
@@ -461,6 +482,32 @@
           "metric_id": "rmse",
           "undefined_reason": null,
           "veredicto": "equivalencia_practica"
+        },
+        "4_jev": {
+          "diferencia_puntual": -0.005029956432157756,
+          "diseno": "iid",
+          "estimando": "fixed_model_on_population",
+          "intervalo": {
+            "block_length": null,
+            "ci_high": -0.002187693187570681,
+            "ci_low": -0.008121096659029154,
+            "design": "iid",
+            "elapsed_seconds": 3.7332330450299196,
+            "estimand": "fixed_model_on_population",
+            "level": 0.95,
+            "method": "iid_paired_bootstrap",
+            "metric_id": "rmse",
+            "n_resamples": 1000,
+            "n_resamples_degenerate": 0,
+            "n_resamples_used": 1000,
+            "resampling_unit": "row",
+            "seed": 107030,
+            "undefined_reason": null
+          },
+          "margen_equivalencia": 0.05,
+          "metric_id": "rmse",
+          "undefined_reason": null,
+          "veredicto": "equivalencia_practica"
         }
       },
       "condiciones": {
@@ -478,19 +525,77 @@
           "omitida": true
         },
         "4_jev": {
-          "motivo": "pendiente",
-          "omitida": true
+          "metrica_puntual": 0.648468861822942
         }
       },
-      "diferencias_descritas": {},
+      "diferencias_descritas": {
+        "4_jev_menos_2_tfidf_lineal": {
+          "diferencia": -0.02088742123390175,
+          "nota": "DESCRITA, sin veredicto -- igual que 3_vs_2 en (3): no estaba en el pre-registro."
+        }
+      },
       "filas_por_particion": {
         "dev": 4569,
         "test": 4570,
         "train": 21323
       },
+      "jev": {
+        "modelo": "typesafe/jev-1.13-20260917",
+        "n_faltante": 0,
+        "n_peticiones_al_modelo": 30462,
+        "n_respuestas": 152310,
+        "pasadas": [
+          {
+            "desenlace": "error",
+            "nombre": "107c30-jev-c",
+            "segundos_de_pared": 212
+          },
+          {
+            "desenlace": "error",
+            "nombre": "107c30-jev-c2",
+            "segundos_de_pared": 3053
+          },
+          {
+            "desenlace": "tope_de_tiempo",
+            "nombre": "107c30-jev-c3",
+            "segundos_de_pared": 10801
+          },
+          {
+            "desenlace": "completada",
+            "nombre": "resto-a-mano",
+            "segundos_de_pared": 1141.5
+          }
+        ],
+        "proporcion_faltante": 0.0,
+        "proporcion_si": 0.03127174840785241,
+        "reanudada_desde_la_cache": true,
+        "segundos_de_pared_total": 15207.5
+      },
       "mayor_es_mejor": false,
       "metrica": "rmse",
-      "nombre": "PLACSP (agosto 2025)"
+      "nombre": "PLACSP (agosto 2025)",
+      "terminos": [
+        {
+          "puntuacion": 81.64285818707577,
+          "termino": "ruta"
+        },
+        {
+          "puntuacion": 67.11431534282036,
+          "termino": "bar"
+        },
+        {
+          "puntuacion": 65.91791223407901,
+          "termino": "escolar ruta"
+        },
+        {
+          "puntuacion": 65.6861385492523,
+          "termino": "transporte escolar"
+        },
+        {
+          "puntuacion": 65.58416569981694,
+          "termino": "incluidos en"
+        }
+      ]
     },
     "D": {
       "comparaciones_frente_a_0": {

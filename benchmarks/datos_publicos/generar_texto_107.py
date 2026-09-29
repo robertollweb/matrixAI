@@ -63,6 +63,11 @@ TEXTO_107C30 = AQUI.parent / "texto_107c30"
 RUTA_RESULTADO_C30 = TEXTO_107C30 / "resultado_c30.json"
 RUTA_RESUMEN_TAREAS = TEXTO_107C30 / "resumen_tareas.json"
 RUTA_MARCADOR_NUMBER_A = TEXTO_107C30 / "marcador_number_A.json"
+#: LAS PASADAS DE JEV Y SU COSTE (29-09, `registrar_pasadas_jev.py`). Existe porque el resultado de una
+#: tarea guarda los segundos de SU ejecución: la C necesitó cuatro (corte de red, saldo, tope de la cola y
+#: el resto desde la caché), y su resultado dice 1.122 s, que es solo la última. Con más de una pasada, lo
+#: que se publica es el total de pared y la lista, nunca `segundos_preguntando` como si fuera el de todo.
+RUTA_PASADAS_JEV = TEXTO_107C30 / "pasadas_c30_jev.json"
 
 #: condición (3), respondedor local: solo A y B están medidas (los ficheros existen).
 RUTAS_RESPONDEDOR = {
@@ -220,6 +225,7 @@ def _bloque_preguntas(modelo: str, tiempos_preguntas: dict[str, Any], n_peticion
 
 def _componer_tarea(tarea: str, c30: dict[str, Any], resumen: dict[str, Any],
                      marcador_a: dict[str, Any] | None,
+                     pasadas_jev: dict[str, Any] | None,
                      ficheros_leidos: dict[Path, dict[str, Any] | None]) -> dict[str, Any]:
     bloque_c30 = c30["tareas"][tarea]
     bloque_resumen = resumen["tareas"][tarea]
@@ -325,6 +331,21 @@ def _componer_tarea(tarea: str, c30: dict[str, Any], resumen: dict[str, Any],
                 "n_coincidencias": n_coincidencias,
                 "proporcion": n_coincidencias / len(comunes),
             }
+        if pasadas_jev is not None and tarea in pasadas_jev["por_tarea"]:
+            registro = pasadas_jev["por_tarea"][tarea]
+            lista = [{"nombre": p["nombre"], "desenlace": p["desenlace"],
+                      "segundos_de_pared": p["segundos_de_pared"]} for p in registro["pasadas"]]
+            total = sum(p["segundos_de_pared"] for p in lista)
+            if abs(total - registro["segundos_de_pared_total"]) > 1e-6:
+                raise DatosQueNoCuadran(f"{tarea}: el total de pasadas no es la suma de sus pasadas")
+            if not any(p["desenlace"] == "completada" for p in lista):
+                raise DatosQueNoCuadran(f"{tarea}: ninguna pasada completada y hay resultado")
+            bloque_jev["pasadas"] = lista
+            bloque_jev["segundos_de_pared_total"] = total
+            if len(lista) > 1:
+                # Los segundos del resultado son los de la ÚLTIMA pasada: fuera, y se dice por qué.
+                del bloque_jev["segundos_preguntando"]
+                bloque_jev["reanudada_desde_la_cache"] = True
         resultado["jev"] = bloque_jev
 
     if tarea == "A":
@@ -341,6 +362,7 @@ def generar() -> str:
     c30 = _cargar(RUTA_RESULTADO_C30)
     resumen = _cargar(RUTA_RESUMEN_TAREAS)
     marcador_a = _cargar(RUTA_MARCADOR_NUMBER_A) if RUTA_MARCADOR_NUMBER_A.exists() else None
+    pasadas_jev = _cargar(RUTA_PASADAS_JEV) if RUTA_PASADAS_JEV.exists() else None
 
     ficheros_leidos: dict[Path, dict[str, Any] | None] = {
         RUTA_RESULTADO_C30: c30,
@@ -348,16 +370,23 @@ def generar() -> str:
     }
     if marcador_a is not None:
         ficheros_leidos[RUTA_MARCADOR_NUMBER_A] = marcador_a
+    if pasadas_jev is not None:
+        ficheros_leidos[RUTA_PASADAS_JEV] = pasadas_jev
 
     tareas = {}
     for tarea in TAREAS:
-        tareas[tarea] = _componer_tarea(tarea, c30, resumen, marcador_a if tarea == "A" else None, ficheros_leidos)
+        tareas[tarea] = _componer_tarea(tarea, c30, resumen, marcador_a if tarea == "A" else None,
+                                        pasadas_jev, ficheros_leidos)
 
     procedencia = {ruta.name: _procedencia_de(ruta, datos)
                    for ruta, datos in sorted(ficheros_leidos.items(), key=lambda kv: kv[0].name)}
     procedencia["generar_texto_107_script_sha256"] = _sha256_de(Path(__file__))
 
-    return serializar({"formato": "107-C30.v1", "tareas": tareas, "procedencia": procedencia})
+    salida = {"formato": "107-C30.v1", "tareas": tareas, "procedencia": procedencia}
+    if pasadas_jev is not None:
+        salida["coste_jev"] = {"uso_de_la_clave_usd": pasadas_jev["coste"]["uso_de_la_clave_usd"],
+                               "cubre": "A_C_y_llamadas_de_prueba"}
+    return serializar(salida)
 
 
 def serializar(datos: dict[str, Any]) -> str:

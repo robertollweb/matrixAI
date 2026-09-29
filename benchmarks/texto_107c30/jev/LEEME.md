@@ -212,3 +212,36 @@ sobre la constante del registro).
   justificar sus tokens extra** para ESTA tarea concreta: no se ha probado
   (no hay clave); se empieza sin `criteria`, reusando la pregunta literal ya
   sellada de (3), y queda para cuando se mida de verdad.
+
+## Resuelto al medir (28 y 29-09-2026)
+
+Lo de arriba se escribió sin clave y sin ninguna llamada real. Esto es lo que dijeron las llamadas:
+
+- **El endpoint**: `https://openrouter.ai/api/alpha/decisions` (la lectura 1). Fijado el 28-09 con UNA
+  llamada de prueba con un texto inventado (sin datos de ninguna tarea): responde con el modelo
+  `typesafe/jev-1.13-20260917`, `noul` 0,98 a «¿trata de tiempo?», 298 tokens de entrada, 0,0000125 $.
+  El envoltorio fijo pesa ~260 tokens por petición, así que el supuesto de 70 por pregunta se queda
+  CORTO para una petición con una sola pregunta; con cinco por petición, como aquí, el reparto es otro.
+- **El ritmo, medido desde este servidor y de UNA en UNA** (el medidor no hace peticiones concurrentes;
+  la estimación de 51 min suponía las 8 de PriorBench): tarea A, 1.543 peticiones en 476 s (~0,31 s por
+  petición); tarea C, 30.462 peticiones en CUATRO pasadas y 15.208 s de pared (~0,5 s por fila; entre 1,7 y
+  2,3 filas por segundo según la hora). La C se reanudó desde la caché tres veces, así que los segundos de
+  su resultado (1.122) son los de la ÚLTIMA pasada: las cuatro, con su desenlace, en `pasadas_c30_jev.json`
+  (`registrar_pasadas_jev.py`, de las líneas de la cola), y es lo que usan los datos públicos.
+- **El coste**: el medidor NO guarda el `usage.cost` de cada respuesta; se acota con el uso de la cuenta,
+  que solo usa esta clave: **0,596 $ en total** (A, C y unas pocas llamadas de prueba de ~0,00001 $), frente
+  a los 0,54 $ estimados; A costó menos de 0,045 $, así que C, unos 0,55 $. *(Mejora pendiente: sumar
+  `usage.cost` por petición en el resultado.)*
+- **Las respuestas de C** (152.310, la caché de la medida: lo que se pagó) van comprimidas en
+  `respuestas_c30_jev_C.json.gz`; las de A, sin comprimir, en `respuestas_c30_jev_A.json`.
+- **Un error que no estaba en la lista de arriba**: `HTTP 402 «Insufficient credits. This account never
+  purchased credits»`, a mitad de C (29-09 07:35), aunque se había cargado saldo: no llegó a la cuenta de
+  esta clave (a las 08:15 su total comprado era solo la recarga posterior, de 5 $). El
+  adaptador lo trató bien —fatal, sin reintento, la caché guardada— y se siguió desde ella al arreglarlo.
+  Y la clave puede llevar un **límite propio** aparte del saldo de la cuenta (esta, 2 $), que se consulta
+  en `GET /api/v1/key` (`limit`, `limit_remaining`) sin enseñar la clave.
+- **Un corte de red** (`TimeoutError`) paró la primera pasada de C: no era un `HTTPException` ni un
+  `OSError` reintentable en la versión de `48b010e`. Desde `b739ba5` se reintenta como los 5xx.
+- **Los resultados**, en el contrato 107 (bajo el registro sellado de la (4)), en la comparativa 112
+  (§3.8) y, para la web, en `benchmarks/datos_publicos/texto_107_publico.json` (lo compone
+  `generar_texto_107.py` desde los registros, sin cifras a mano).
