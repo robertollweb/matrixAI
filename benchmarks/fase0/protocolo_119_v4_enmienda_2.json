@@ -1,0 +1,29 @@
+{
+ "enmienda": "119-C0.v4.e2",
+ "fecha_registro": "2026-09-30",
+ "de": {
+  "protocolo": "119-C0.v4",
+  "digest_sha256": "50fc56a1c688c057cca643953c7659e73731915f59c1cf32f6419c14992299a4",
+  "enmienda_anterior": {
+   "enmienda": "119-C0.v4.e1",
+   "digest_sha256": "bcd27c8370c2880ac1e5049e5b5dfd797084e898c847223d4d35e7e45eb0c2ec"
+  }
+ },
+ "escrita": "DESPUÉS de las auditorías 1 y 2 y sus reparaciones (motores 64807d8, núcleo fddc08a) y ANTES de medir ningún acierto",
+ "motivo": "Roberto, 29-09: «antes de hacer mediciones del 119 hay que auditarle con unas cuantas pasadas». Lo que las auditorías encontraron y NO es un defecto que se arregle, se declara aquí; lo que sí lo era, se arregló en el código.",
+ "se_fija": {
+  "parada_temprana": "sobre la pérdida del ENSAMBLADO en validación (log-loss de las probabilidades promediadas de las k cabezas; en regresión, error cuadrático de la media), como la fuente («optimal for the ensemble, not for individual MLPs»; evaluate() de example.ipynb). El protocolo decía «validation_loss», ambiguo. Se entrena con la media de las k pérdidas, sin cambio.",
+  "paciencia": "la semántica de la fuente: se para tras 17 épocas seguidas sin mejora (remaining_patience < 0 con paciencia 16)",
+  "fallos_en_el_veredicto": "un intento del motor nuevo no completado (fallido, ausente o sin métrica de cierre) PIERDE el conjunto en la condición 1 (regla de cierre: un fallo es un conjunto perdido); en la condición 2, si la densa v2 completó todos sus intentos, el conjunto cuenta como INFERIORIDAD; donde la densa v2 falló todos los suyos (Allstate_Claims_Severity, KDDCup09_appetency), «sin comparación» (ni mejora ni inferioridad); la diferencia emparejada, solo sobre repeticiones y pliegues completos en los dos. Decidido por el supervisor.",
+  "faltante_categorico": "el «__faltante__» que entrega el núcleo va al índice «ausente»; lo no visto en train, a «desconocido»"
+ },
+ "se_declara": {
+  "epocas_en_la_pasada": "en las condiciones de la pasada (4 hilos, validación en cada época) los tres grandes hacen MENOS de las 17 épocas de la regla del C1: medido en la reparación, Allstate 6 (parado por plazo); KDDCup09 y APSFailure ~12-13 según la auditoría 1. La enmienda 1 ya eligió la configuración más pequeña de la rejilla: se entrenan las épocas que caben y se queda la mejor.",
+  "tipado_de_columnas": "la Fase 0 tipa como NUMÉRICAS las columnas nominales del ARFF cuyos códigos son números (así las ve también cualquier otro motor de la tabla de referencia): Amazon_employee_access llega con 0 categóricas (sus 9 identificadores, como numéricas, con PLR), Internet-Advertisements con 1.555 numéricas, y en parte house_sales, kick, Moneyball, connect-4 y PhishingWebsites. La lectura de C0 (11 conjuntos con categóricas de más de 12 valores, contadas en las cabeceras ARFF) no es lo que ve el motor.",
+  "binaria": "d_out=1 con entropía cruzada binaria; la fuente usa 2 clases con entropía cruzada y media de softmax: misma familia, otra parametrización",
+  "redes_mas_grandes": "Internet-Advertisements 13,65 M parámetros y micro-mass 11,44 M (no KDDCup09, 3,30 M): por encima de los 2 M del perfil equilibrado — dato para C5"
+ },
+ "veredicto": "el del v4 con los fallos como se fija arriba",
+ "pasada": "SOLO el motor nuevo en los 32 no sellados, frente a la v2 congelada; la pasada real exige esta enmienda presente",
+ "digest_sha256": "c35a737d5cdcea30bca08cbff8cb4f5e338e0f67b73aea09f6f9d2b38493ed33"
+}
