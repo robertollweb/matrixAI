@@ -1,0 +1,454 @@
+{
+  "corte": "119-C1",
+  "humo": false,
+  "procedencia": {
+    "duracion_total_s": 6379.680956494005,
+    "hilos_torch": 5,
+    "modulo_red_ruta": "/home/deployer/worktrees/cola-sonda-coste-119/matrixai-engines/src/matrixai_engines/redes/tabm_plr.py",
+    "modulo_red_sha256": "a9477e50187dad0affa05f73efa3209a7fed89b3950a39b4d69cee23e2297cda",
+    "numpy": "2.4.4",
+    "protocolo_ruta": "/home/deployer/worktrees/cola-sonda-coste-119/matrixAI/benchmarks/fase0/protocolo_119_v4.json",
+    "protocolo_sha256": "8ec2e05bed0db6f8e38c99c6b5da4dc9f1097579bc55065a998b2813c3582cd3",
+    "python": "3.12.3",
+    "sonda_sha256": "ac8205d009c3f2bd4bf21b252bf4866fea2b9cc2b5a2a381fe52ce8cd5e47cea",
+    "torch": "2.11.0+cpu"
+  },
+  "regla_de_eleccion": {
+    "N_epocas_minimas": 17,
+    "configuracion_elegida": null,
+    "nota": "ninguna configuración de la rejilla cabe en el plazo en los 3 conjuntos a la vez -- fuera de lo que esta regla decide; consta aquí para que Roberto lo decida",
+    "orden_de_preferencia": [
+      {
+        "d_block": 512,
+        "k": 32
+      },
+      {
+        "d_block": 512,
+        "k": 16
+      },
+      {
+        "d_block": 512,
+        "k": 8
+      },
+      {
+        "d_block": 256,
+        "k": 32
+      },
+      {
+        "d_block": 256,
+        "k": 16
+      },
+      {
+        "d_block": 256,
+        "k": 8
+      }
+    ],
+    "plazo_s": 450.0,
+    "tabla_decision": [
+      {
+        "cabe_en_los_3_conjuntos": false,
+        "d_block": 512,
+        "detalle": {
+          "APSFailure": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 2,
+            "segundos_por_epoca_media": 157.60571583298346
+          },
+          "Allstate_Claims_Severity": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 1,
+            "segundos_por_epoca_media": 294.686184496677
+          },
+          "KDDCup09_appetency": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 3,
+            "segundos_por_epoca_media": 128.3963789770108
+          }
+        },
+        "k": 32
+      },
+      {
+        "cabe_en_los_3_conjuntos": false,
+        "d_block": 512,
+        "detalle": {
+          "APSFailure": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 6,
+            "segundos_por_epoca_media": 71.94158931767258
+          },
+          "Allstate_Claims_Severity": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 3,
+            "segundos_por_epoca_media": 133.33586122766914
+          },
+          "KDDCup09_appetency": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 7,
+            "segundos_por_epoca_media": 56.64921066634512
+          }
+        },
+        "k": 16
+      },
+      {
+        "cabe_en_los_3_conjuntos": false,
+        "d_block": 512,
+        "detalle": {
+          "APSFailure": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 12,
+            "segundos_por_epoca_media": 36.417760794982314
+          },
+          "Allstate_Claims_Severity": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 6,
+            "segundos_por_epoca_media": 73.54725334030809
+          },
+          "KDDCup09_appetency": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 14,
+            "segundos_por_epoca_media": 31.280327962672647
+          }
+        },
+        "k": 8
+      },
+      {
+        "cabe_en_los_3_conjuntos": false,
+        "d_block": 256,
+        "detalle": {
+          "APSFailure": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 4,
+            "segundos_por_epoca_media": 92.33909459266579
+          },
+          "Allstate_Claims_Severity": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 2,
+            "segundos_por_epoca_media": 164.1982873643477
+          },
+          "KDDCup09_appetency": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 5,
+            "segundos_por_epoca_media": 83.55223176601187
+          }
+        },
+        "k": 32
+      },
+      {
+        "cabe_en_los_3_conjuntos": false,
+        "d_block": 256,
+        "detalle": {
+          "APSFailure": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 11,
+            "segundos_por_epoca_media": 38.659567517015
+          },
+          "Allstate_Claims_Severity": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 5,
+            "segundos_por_epoca_media": 75.04077244798343
+          },
+          "KDDCup09_appetency": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 13,
+            "segundos_por_epoca_media": 33.30659326365761
+          }
+        },
+        "k": 16
+      },
+      {
+        "cabe_en_los_3_conjuntos": false,
+        "d_block": 256,
+        "detalle": {
+          "APSFailure": {
+            "cumple_N_epocas_minimas": true,
+            "epocas_que_caben_en_el_plazo": 22,
+            "segundos_por_epoca_media": 20.105826370010618
+          },
+          "Allstate_Claims_Severity": {
+            "cumple_N_epocas_minimas": false,
+            "epocas_que_caben_en_el_plazo": 10,
+            "segundos_por_epoca_media": 43.14419090967082
+          },
+          "KDDCup09_appetency": {
+            "cumple_N_epocas_minimas": true,
+            "epocas_que_caben_en_el_plazo": 26,
+            "segundos_por_epoca_media": 17.222189353662543
+          }
+        },
+        "k": 8
+      }
+    ]
+  },
+  "resultados": [
+    {
+      "cubo": "grande",
+      "d_block": 512,
+      "k": 32,
+      "n_blocks": 2,
+      "n_parametros": 2122992,
+      "nombre": "Allstate_Claims_Severity",
+      "rss_pico_mb_acumulado_proceso": 1432.25390625,
+      "segundos_por_epoca": [
+        303.0439645940205,
+        293.8932748439838,
+        287.1213140520267
+      ],
+      "segundos_por_epoca_media": 294.686184496677
+    },
+    {
+      "cubo": "grande",
+      "d_block": 512,
+      "k": 16,
+      "n_blocks": 2,
+      "n_parametros": 2023904,
+      "nombre": "Allstate_Claims_Severity",
+      "rss_pico_mb_acumulado_proceso": 1432.25390625,
+      "segundos_por_epoca": [
+        130.93160977901425,
+        133.68867296696408,
+        135.38730093702907
+      ],
+      "segundos_por_epoca_media": 133.33586122766914
+    },
+    {
+      "cubo": "grande",
+      "d_block": 512,
+      "k": 8,
+      "n_blocks": 2,
+      "n_parametros": 1974360,
+      "nombre": "Allstate_Claims_Severity",
+      "rss_pico_mb_acumulado_proceso": 1432.25390625,
+      "segundos_por_epoca": [
+        71.29825097601861,
+        74.6760907349526,
+        74.66741830995306
+      ],
+      "segundos_por_epoca_media": 73.54725334030809
+    },
+    {
+      "cubo": "grande",
+      "d_block": 256,
+      "k": 32,
+      "n_blocks": 2,
+      "n_parametros": 1078512,
+      "nombre": "Allstate_Claims_Severity",
+      "rss_pico_mb_acumulado_proceso": 1432.25390625,
+      "segundos_por_epoca": [
+        167.98440347600263,
+        162.54547904699575,
+        162.06497957004467
+      ],
+      "segundos_por_epoca_media": 164.1982873643477
+    },
+    {
+      "cubo": "grande",
+      "d_block": 256,
+      "k": 16,
+      "n_blocks": 2,
+      "n_parametros": 1004000,
+      "nombre": "Allstate_Claims_Severity",
+      "rss_pico_mb_acumulado_proceso": 1432.25390625,
+      "segundos_por_epoca": [
+        74.26598538696999,
+        74.46615279000252,
+        76.39017916697776
+      ],
+      "segundos_por_epoca_media": 75.04077244798343
+    },
+    {
+      "cubo": "grande",
+      "d_block": 256,
+      "k": 8,
+      "n_blocks": 2,
+      "n_parametros": 966744,
+      "nombre": "Allstate_Claims_Severity",
+      "rss_pico_mb_acumulado_proceso": 1432.25390625,
+      "segundos_por_epoca": [
+        42.61600365798222,
+        43.258912841032725,
+        43.55765622999752
+      ],
+      "segundos_por_epoca_media": 43.14419090967082
+    },
+    {
+      "cubo": "grande",
+      "d_block": 512,
+      "k": 32,
+      "n_blocks": 2,
+      "n_parametros": 5123856,
+      "nombre": "KDDCup09_appetency",
+      "rss_pico_mb_acumulado_proceso": 1796.609375,
+      "segundos_por_epoca": [
+        130.87465818302007,
+        125.19612311199307,
+        129.11835563601926
+      ],
+      "segundos_por_epoca_media": 128.3963789770108
+    },
+    {
+      "cubo": "grande",
+      "d_block": 512,
+      "k": 16,
+      "n_blocks": 2,
+      "n_parametros": 4986368,
+      "nombre": "KDDCup09_appetency",
+      "rss_pico_mb_acumulado_proceso": 1796.609375,
+      "segundos_por_epoca": [
+        57.510645563015714,
+        54.67110815399792,
+        57.76587828202173
+      ],
+      "segundos_por_epoca_media": 56.64921066634512
+    },
+    {
+      "cubo": "grande",
+      "d_block": 512,
+      "k": 8,
+      "n_blocks": 2,
+      "n_parametros": 4917624,
+      "nombre": "KDDCup09_appetency",
+      "rss_pico_mb_acumulado_proceso": 1796.609375,
+      "segundos_por_epoca": [
+        30.46301309898263,
+        32.79143242898863,
+        30.58653836004669
+      ],
+      "segundos_por_epoca_media": 31.280327962672647
+    },
+    {
+      "cubo": "grande",
+      "d_block": 256,
+      "k": 32,
+      "n_blocks": 2,
+      "n_parametros": 3464976,
+      "nombre": "KDDCup09_appetency",
+      "rss_pico_mb_acumulado_proceso": 1796.609375,
+      "segundos_por_epoca": [
+        84.38261813099962,
+        85.569199450023,
+        80.704877717013
+      ],
+      "segundos_por_epoca_media": 83.55223176601187
+    },
+    {
+      "cubo": "grande",
+      "d_block": 256,
+      "k": 16,
+      "n_blocks": 2,
+      "n_parametros": 3352064,
+      "nombre": "KDDCup09_appetency",
+      "rss_pico_mb_acumulado_proceso": 1796.609375,
+      "segundos_por_epoca": [
+        33.92994399595773,
+        33.508017988991924,
+        32.48181780602317
+      ],
+      "segundos_por_epoca_media": 33.30659326365761
+    },
+    {
+      "cubo": "grande",
+      "d_block": 256,
+      "k": 8,
+      "n_blocks": 2,
+      "n_parametros": 3295608,
+      "nombre": "KDDCup09_appetency",
+      "rss_pico_mb_acumulado_proceso": 1796.609375,
+      "segundos_por_epoca": [
+        17.27471498202067,
+        17.03453518799506,
+        17.3573178909719
+      ],
+      "segundos_por_epoca_media": 17.222189353662543
+    },
+    {
+      "cubo": "grande",
+      "d_block": 512,
+      "k": 32,
+      "n_blocks": 2,
+      "n_parametros": 2983920,
+      "nombre": "APSFailure",
+      "rss_pico_mb_acumulado_proceso": 1820.71484375,
+      "segundos_por_epoca": [
+        153.26423417095793,
+        154.0171461610007,
+        165.53576716699172
+      ],
+      "segundos_por_epoca_media": 157.60571583298346
+    },
+    {
+      "cubo": "grande",
+      "d_block": 512,
+      "k": 16,
+      "n_blocks": 2,
+      "n_parametros": 2869472,
+      "nombre": "APSFailure",
+      "rss_pico_mb_acumulado_proceso": 1820.71484375,
+      "segundos_por_epoca": [
+        71.54578106402187,
+        74.31820590299321,
+        69.96078098600265
+      ],
+      "segundos_por_epoca_media": 71.94158931767258
+    },
+    {
+      "cubo": "grande",
+      "d_block": 512,
+      "k": 8,
+      "n_blocks": 2,
+      "n_parametros": 2812248,
+      "nombre": "APSFailure",
+      "rss_pico_mb_acumulado_proceso": 1820.71484375,
+      "segundos_por_epoca": [
+        35.217661902017426,
+        37.62160729395691,
+        36.4140131889726
+      ],
+      "segundos_por_epoca_media": 36.417760794982314
+    },
+    {
+      "cubo": "grande",
+      "d_block": 256,
+      "k": 32,
+      "n_blocks": 2,
+      "n_parametros": 1693680,
+      "nombre": "APSFailure",
+      "rss_pico_mb_acumulado_proceso": 1820.71484375,
+      "segundos_por_epoca": [
+        92.98781245097052,
+        91.80645802698564,
+        92.2230133000412
+      ],
+      "segundos_por_epoca_media": 92.33909459266579
+    },
+    {
+      "cubo": "grande",
+      "d_block": 256,
+      "k": 16,
+      "n_blocks": 2,
+      "n_parametros": 1603808,
+      "nombre": "APSFailure",
+      "rss_pico_mb_acumulado_proceso": 1820.71484375,
+      "segundos_por_epoca": [
+        37.90413668600377,
+        39.17723030503839,
+        38.89733556000283
+      ],
+      "segundos_por_epoca_media": 38.659567517015
+    },
+    {
+      "cubo": "grande",
+      "d_block": 256,
+      "k": 8,
+      "n_blocks": 2,
+      "n_parametros": 1558872,
+      "nombre": "APSFailure",
+      "rss_pico_mb_acumulado_proceso": 1820.71484375,
+      "segundos_por_epoca": [
+        20.057297171035316,
+        20.50027300900547,
+        19.75990892999107
+      ],
+      "segundos_por_epoca_media": 20.105826370010618
+    }
+  ]
+}
