@@ -1121,3 +1121,98 @@ def test_la_lista_de_la_estimacion_mide_mas_de_uno_por_cubo_y_los_anchos(_datase
         "pequeno", "mediano", "grande"}
     assert {"micro-mass", "mfeat-factors", "Internet-Advertisements"} <= set(
         p119.CONJUNTOS_DE_LA_ESTIMACION)
+
+
+# ---------------------------------------------------------------------------
+# 9. LA ENMIENDA 2: la pasada REAL la exige, con su cadena; las pruebas no
+# ---------------------------------------------------------------------------
+
+_RUTA_ENMIENDA_2 = _FASE0 / "protocolo_119_v4_enmienda_2.json"
+
+
+class _Arranco(Exception):
+    """La pasada real pasó de sus guardias: aquí se corta, antes de medir."""
+
+
+def _arrancar_la_pasada_real(monkeypatch, salida: Path) -> list:
+    """`main()` SIN --solo/--humo/--estimar, cortado en cuanto pasa de las
+    guardias (la llamada siguiente, `c3.protocolo_registrado`, lanza
+    `_Arranco`): nunca se mide nada."""
+    def parar():
+        raise _Arranco()
+    monkeypatch.setattr(c3, "protocolo_registrado", parar)
+    llamadas: list = []
+    _correr_main(monkeypatch, ["--salida", str(salida)],
+                 _motor_falso(lambda *a: 0.9, llamadas=llamadas))
+    return llamadas
+
+
+def _enmienda_2_rota(tmp_path: Path, caso: str) -> Path:
+    e2 = json.loads(_RUTA_ENMIENDA_2.read_text(encoding="utf-8"))
+    de = dict(e2["de"])
+    if caso == "no_cita_el_v4":
+        de["digest_sha256"] = "f" * 64
+    elif caso == "no_cita_la_enmienda_1":
+        de["enmienda_anterior"] = {**de["enmienda_anterior"], "digest_sha256": "e" * 64}
+    e2 = _con_digest({**e2, "de": de})
+    if caso == "digest_propio":
+        e2["veredicto"] = "tocado DESPUÉS de registrarlo"
+    ruta = tmp_path / "enmienda_2.json"
+    ruta.write_text(json.dumps(e2, ensure_ascii=False), encoding="utf-8")
+    return ruta
+
+
+def test_la_cadena_de_la_enmienda_2_registrada_cuadra():
+    cadena = p119.cadena_de_la_enmienda_2()
+    assert cadena["presente"] is True and cadena["cuadra"] is True, cadena["problemas"]
+    assert cadena["sha256_del_fichero"] == hashlib.sha256(_RUTA_ENMIENDA_2.read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize("caso", ["ausente", "digest_propio", "no_cita_el_v4",
+                                  "no_cita_la_enmienda_1"])
+def test_la_pasada_real_se_niega_sin_la_enmienda_2_o_con_su_cadena_rota(tmp_path, monkeypatch,
+                                                                        caso):
+    ruta = tmp_path / "no_existe.json" if caso == "ausente" else _enmienda_2_rota(tmp_path, caso)
+    monkeypatch.setattr(p119, "RUTA_DE_LA_ENMIENDA_2", ruta)
+    salida = tmp_path / "real.json"
+    with pytest.raises(SystemExit, match="enmienda 2"):
+        _arrancar_la_pasada_real(monkeypatch, salida)
+    assert not salida.exists()
+
+
+def test_la_pasada_real_arranca_con_la_enmienda_2_registrada(tmp_path, monkeypatch):
+    """El control: con la enmienda 2 de verdad, la pasada real pasa de la
+    guardia (y se corta justo después)."""
+    with pytest.raises(_Arranco):
+        _arrancar_la_pasada_real(monkeypatch, tmp_path / "real.json")
+
+
+def test_solo_humo_y_estimar_corren_sin_la_enmienda_2_y_lo_dicen(tmp_path, monkeypatch):
+    monkeypatch.setattr(p119, "RUTA_DE_LA_ENMIENDA_2", tmp_path / "no_existe.json")
+    salida = tmp_path / "solo.json"
+    _correr_main(monkeypatch, ["--solo", "dresses-sales", "--salida", str(salida)],
+                 _motor_falso(lambda *a: 0.6, llamadas=[]))
+    payload = json.loads(salida.read_text(encoding="utf-8"))
+    assert payload["enmienda_2"]["presente"] is False and payload["enmienda_2"]["cuadra"] is False
+    assert payload["procedencia"]["datos_de_entrada"]["protocolo_119_v4_enmienda_2"]["sha256"] is None
+    estimacion = tmp_path / "estimacion.json"
+    _correr_main(monkeypatch, ["--estimar", "--estimar-conjuntos", "kc2", "--salida",
+                               str(estimacion)], _motor_falso(lambda *a: 0.9, llamadas=[]))
+    assert json.loads(estimacion.read_text(encoding="utf-8"))["enmienda_2"]["presente"] is False
+
+
+def test_la_enmienda_2_queda_en_la_procedencia_y_no_en_el_digest(tmp_path, monkeypatch):
+    salida = tmp_path / "solo.json"
+    _correr_main(monkeypatch, ["--solo", "dresses-sales", "--salida", str(salida)],
+                 _motor_falso(lambda *a: 0.6, llamadas=[]))
+    payload = json.loads(salida.read_text(encoding="utf-8"))
+    sha = hashlib.sha256(_RUTA_ENMIENDA_2.read_bytes()).hexdigest()
+    assert payload["procedencia"]["datos_de_entrada"]["protocolo_119_v4_enmienda_2"]["sha256"] == sha
+    assert payload["enmienda_2"]["presente"] is True and payload["enmienda_2"]["cuadra"] is True
+    assert not any("enmienda_2" in e for e in payload["digest_de_la_cache"]["componentes"])
+    copia = tmp_path / "enmienda_2.json"
+    copia.write_bytes(_RUTA_ENMIENDA_2.read_bytes())
+    monkeypatch.setattr(p119, "RUTA_DE_LA_ENMIENDA_2", copia)
+    antes = p119._digest_entorno()
+    copia.write_text("{}", encoding="utf-8")
+    assert p119._digest_entorno() == antes  # solo cambia cómo se CUENTA: no invalida la caché

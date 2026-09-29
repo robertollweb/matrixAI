@@ -23,8 +23,9 @@ reserva los sellados para C4: un sellado en `--solo` para la pasada con
 
 LO QUE SE REPARÓ TRAS LA AUDITORÍA 2 (29-09), por hallazgo:
 
-* **I2, los fallos en el veredicto** (decisión del supervisor, que irá
-  declarada en la enmienda 2 del protocolo; ver `COMO_SE_CUENTAN_LOS_FALLOS`):
+* **I2, los fallos en el veredicto** (decisión del supervisor, registrada en
+  la enmienda 2 del protocolo, que la pasada REAL exige con su cadena entera;
+  ver `COMO_SE_CUENTAN_LOS_FALLOS` y `exigir_la_enmienda_2`):
   (a) condición 1: un conjunto con CUALQUIER intento del motor nuevo sin
   medida —fallido, AUSENTE del artefacto o completado sin la métrica de
   cierre— cuenta como perdido; (b) condición 2: fallos del motor nuevo con la
@@ -110,9 +111,11 @@ from matrixai_engines.subproceso import (MARGEN_POR_DEFECTO_SEGUNDOS,  # noqa: E
 
 RUTA_DEL_PROTOCOLO_V4 = _AQUI / "protocolo_119_v4.json"
 RUTA_DE_LA_ENMIENDA_1 = _AQUI / "protocolo_119_v4_enmienda_1.json"
-#: La enmienda que declarará cómo cuentan los fallos (I2). Si no existe aún,
-#: el resultado lo DICE; no entra en el digest de la caché (no cambia lo que
-#: ejecuta un intento: solo cómo se cuenta, y eso se recalcula cada vez).
+#: La enmienda 2 (núcleo cb91e94): cómo cuentan los fallos (I2), la parada
+#: temprana y la paciencia. La pasada REAL no arranca sin ella y con su cadena
+#: entera (`exigir_la_enmienda_2`); `--solo`/`--humo`/`--estimar` sí, diciéndolo.
+#: Su sha256 va en la PROCEDENCIA; en el digest de la caché NO (no cambia lo
+#: que ejecuta un intento: solo cómo se cuenta, y eso se recalcula cada vez).
 RUTA_DE_LA_ENMIENDA_2 = _AQUI / "protocolo_119_v4_enmienda_2.json"
 #: El protocolo que DE VERDAD se lee para medir (`c3.protocolo_registrado()`
 #: tras `c6.preparar_protocolo_v2()`, y el catálogo de `fijar_el_catalogo_v2`).
@@ -250,21 +253,52 @@ def exigir_los_protocolos_encadenados() -> dict:
     }
 
 
-def enmienda_2_declarada() -> dict:
-    """La enmienda 2 (cómo cuentan los fallos), si ya está registrada. Si no
-    lo está, se DICE; si está y no cuadra con su propio digest, PARA."""
+def cadena_de_la_enmienda_2() -> dict:
+    """La enmienda 2 (núcleo cb91e94: fija cómo cuentan los fallos, la parada
+    temprana y la paciencia), LEÍDA DEL DISCO en cada ejecución, y si su
+    cadena cuadra: su propio `digest_sha256`, `de.digest_sha256` = el del v4
+    y `de.enmienda_anterior.digest_sha256` = el de la enmienda 1. No decide
+    nada por sí sola: `exigir_la_enmienda_2` es quien para la pasada real."""
+    base = {"ruta": RUTA_DE_LA_ENMIENDA_2.name}
     if not RUTA_DE_LA_ENMIENDA_2.exists():
-        return {"presente": False, "ruta": RUTA_DE_LA_ENMIENDA_2.name,
-                "aviso": ("la enmienda 2 del protocolo v4 NO está registrada todavía: los "
-                          "criterios de fallos aplicados (COMO_SE_CUENTAN_LOS_FALLOS) son los del "
-                          "encargo del supervisor tras la auditoría 2, sin registro escrito")}
-    payload = _leer_json(RUTA_DE_LA_ENMIENDA_2)
-    declarado = payload.get("digest_sha256")
-    if declarado is not None and autodigest(payload) != declarado:
-        raise SystemExit(f"{RUTA_DE_LA_ENMIENDA_2.name} NO cuadra con su propio digest_sha256")
-    return {"presente": True, "ruta": RUTA_DE_LA_ENMIENDA_2.name,
+        return {**base, "presente": False, "cuadra": False,
+                "problemas": [f"{RUTA_DE_LA_ENMIENDA_2.name} no está registrada"]}
+    enmienda_2 = _leer_json(RUTA_DE_LA_ENMIENDA_2)
+    v4 = _leer_json(RUTA_DEL_PROTOCOLO_V4)
+    enmienda_1 = _leer_json(RUTA_DE_LA_ENMIENDA_1)
+    de = enmienda_2.get("de") or {}
+    anterior = de.get("enmienda_anterior") or {}
+    problemas = []
+    if autodigest(enmienda_2) != enmienda_2.get("digest_sha256"):
+        problemas.append("NO cuadra con su propio digest_sha256: se ha tocado después de "
+                         "registrarla")
+    if de.get("digest_sha256") != v4.get("digest_sha256"):
+        problemas.append(f"dice ser del protocolo {str(de.get('digest_sha256'))[:16]} y el v4 es "
+                         f"{str(v4.get('digest_sha256'))[:16]}")
+    if anterior.get("digest_sha256") != enmienda_1.get("digest_sha256"):
+        problemas.append(f"dice seguir a la enmienda {str(anterior.get('digest_sha256'))[:16]} y "
+                         f"la enmienda 1 es {str(enmienda_1.get('digest_sha256'))[:16]}")
+    return {**base, "presente": True, "cuadra": not problemas, "problemas": problemas,
+            "enmienda": enmienda_2.get("enmienda"),
             "sha256_del_fichero": hashlib.sha256(RUTA_DE_LA_ENMIENDA_2.read_bytes()).hexdigest(),
-            "digest_sha256_declarado": declarado, "de": payload.get("de")}
+            "digest_sha256_declarado": enmienda_2.get("digest_sha256"), "de": de}
+
+
+def exigir_la_enmienda_2(tipo: str) -> dict:
+    """La pasada REAL no arranca sin la enmienda 2 registrada y con su cadena
+    entera: sus reglas del veredicto tienen que estar escritas ANTES de medir.
+    `--solo`, `--humo` y `--estimar` no miden el corte: corren sin ella,
+    diciéndolo en voz alta y en el resultado."""
+    cadena = cadena_de_la_enmienda_2()
+    if cadena["cuadra"]:
+        return cadena
+    motivo = "; ".join(cadena["problemas"])
+    if tipo == "pasada":
+        raise SystemExit(f"la pasada real exige la enmienda 2 del protocolo v4 con su cadena "
+                         f"entera, y {motivo}. No se mide")
+    print(f"AVISO: sin la enmienda 2 en regla ({motivo}): esta ejecución ({tipo}) no mide el "
+          f"corte y corre igual, con los criterios de fallos del guion", flush=True)
+    return cadena
 
 
 def configuracion_que_declara_la_enmienda(texto: str) -> dict:
@@ -660,8 +694,8 @@ def fusionar_resultados(previos: list[dict], de_esta_ejecucion: list[dict]) -> t
 # ---------------------------------------------------------------------------
 
 COMO_SE_CUENTAN_LOS_FALLOS = {
-    "fuente": ("decisión del supervisor tras la auditoría 2 de 119-C3 (29-09), que irá declarada "
-               "en la enmienda 2 del protocolo v4 (ver `enmienda_2`)"),
+    "fuente": ("decisión del supervisor tras la auditoría 2 de 119-C3 (29-09), registrada en la "
+               "enmienda 2 del protocolo v4 (`se_fija.fallos_en_el_veredicto`; ver `enmienda_2`)"),
     "que_es_un_fallo": ("un intento ESPERADO por la partición (repetición y pliegue que "
                         "`propuesta.pliegues` trae) que no está en el artefacto, cuyo estado no "
                         "cuenta como medida (ESTADOS_QUE_CUENTAN_COMO_MEDIDA), o que se completó "
@@ -1009,6 +1043,8 @@ def main(argv=None) -> None:
     c6.preparar_protocolo_v2()
     protocolos = exigir_los_protocolos_encadenados()
     configuracion_del_motor = exigir_la_configuracion_de_la_enmienda()
+    # ANTES de cargar nada: la pasada real no arranca sin la enmienda 2 en regla.
+    enmienda_2 = exigir_la_enmienda_2(tipo)
     protocolo = c3.protocolo_registrado()
     todos = c5.datasets_de_la_pasada(protocolo)
     no_sellados = c6.datasets_no_sellados(protocolo)
@@ -1016,7 +1052,7 @@ def main(argv=None) -> None:
     if tipo == "estimar":
         cmd_estimar(protocolo, todos, no_sellados, ruta_salida=ruta_salida,
                     conjuntos=args.estimar_conjuntos, protocolos=protocolos,
-                    configuracion_del_motor=configuracion_del_motor)
+                    configuracion_del_motor=configuracion_del_motor, enmienda_2=enmienda_2)
         return
 
     solo = ",".join(CONJUNTOS_DEL_HUMO) if tipo == "humo" else args.solo
@@ -1064,6 +1100,9 @@ def main(argv=None) -> None:
             "protocolo_exploratorio_v2": RUTA_DEL_PROTOCOLO_V2,
             "protocolo_119_v4": RUTA_DEL_PROTOCOLO_V4,
             "protocolo_119_v4_enmienda_1": RUTA_DE_LA_ENMIENDA_1,
+            # En la PROCEDENCIA sí (su sha256 ata el veredicto a sus reglas);
+            # en el digest de la caché no: solo cambia cómo se cuenta.
+            "protocolo_119_v4_enmienda_2": RUTA_DE_LA_ENMIENDA_2,
             "pasada_v2_113_resultado": RUTA_V2_RESULTADO,
         })
     for aviso in procedencia["avisos"]:
@@ -1072,9 +1111,6 @@ def main(argv=None) -> None:
         declarada = c3.procedencia_declarada(payload_previo)
         print(f"fichero previo: {len(previos)} registros, procedencia "
               f"{declarada['estado']} -- {declarada['explicacion']}", flush=True)
-    enmienda_2 = enmienda_2_declarada()
-    if not enmienda_2["presente"]:
-        print(f"AVISO: {enmienda_2['aviso']}", flush=True)
 
     resultados: list[dict] = []
     veredictos_por_conjunto: list[dict] = []
@@ -1547,7 +1583,7 @@ def _segundos_hasta(hora: str, ahora: time.struct_time) -> int:
 
 
 def cmd_estimar(protocolo, todos, no_sellados, *, ruta_salida: Path, conjuntos: str | None,
-                protocolos: dict, configuracion_del_motor: dict) -> None:
+                protocolos: dict, configuracion_del_motor: dict, enmienda_2: dict) -> None:
     _exigir_que_quepa()
     if ruta_salida.exists() and tipo_del_fichero(_leer_json(ruta_salida)) != "estimar":
         raise SystemExit(f"{ruta_salida} no es una estimación: --estimar no lo pisa")
@@ -1592,7 +1628,7 @@ def cmd_estimar(protocolo, todos, no_sellados, *, ruta_salida: Path, conjuntos: 
         "tipo_de_ejecucion": "estimar",
         "creado": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "motor": NOMBRE_MOTOR_NUEVO, "configuracion_del_motor": configuracion_del_motor,
-        "protocolos_encadenados": protocolos,
+        "protocolos_encadenados": protocolos, "enmienda_2": enmienda_2,
         "protocolo_119_v4_digest_sha256": _digest_fichero_json(RUTA_DEL_PROTOCOLO_V4),
         "protocolo_119_v4_enmienda_1_digest_sha256": _digest_fichero_json(RUTA_DE_LA_ENMIENDA_1),
         "digest_del_entorno": _digest_entorno(), "digest_del_motor": _digest_motor_nuevo(),
