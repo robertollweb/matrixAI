@@ -1,0 +1,125 @@
+{
+  "corte": "119-C3",
+  "sub_corte": "estimacion (no mide el corte, --estimar)",
+  "creado": "2026-09-29T19:14:14Z",
+  "motor": "matrixai.dense.tabm_cpu",
+  "configuracion_del_motor": {
+    "k": 8,
+    "d_block": 256
+  },
+  "protocolo_119_v4_digest_sha256": "8ec2e05bed0db6f8e38c99c6b5da4dc9f1097579bc55065a998b2813c3582cd3",
+  "protocolo_119_v4_enmienda_1_digest_sha256": "665c1c83b7b80ca8d49bcbd0f314a470902c8d76c9985e3527e3fae93d088d3b",
+  "plan_peor_caso": {
+    "n_datasets": 32,
+    "n_motores": 1,
+    "n_intentos": 390,
+    "por_cubo": {
+      "pequeno": {
+        "n_datasets": 13,
+        "folds": 5,
+        "repeticiones": 3,
+        "wall_seconds_por_intento": 120.0,
+        "n_intentos": 195,
+        "horas_cota": 6.5
+      },
+      "mediano": {
+        "n_datasets": 10,
+        "folds": 5,
+        "repeticiones": 3,
+        "wall_seconds_por_intento": 300.0,
+        "n_intentos": 150,
+        "horas_cota": 12.5
+      },
+      "grande": {
+        "n_datasets": 9,
+        "folds": 5,
+        "repeticiones": 1,
+        "wall_seconds_por_intento": 600.0,
+        "n_intentos": 45,
+        "horas_cota": 7.5
+      }
+    },
+    "horas_de_reloj_cota_peor_caso": 26.5,
+    "que_es_la_cota": "peor caso literal: cada uno de los intentos (miembros Y ensamblado, cada uno con el presupuesto ENTERO de su cubo, que el ensamblado reparte por dentro entre sus miembros) agota el presupuesto de pared de su cubo. No es una prevision de lo que va a durar de verdad."
+  },
+  "que_es_el_plan_peor_caso": "cota literal: cada uno de los 32 x 5 pliegues x repeticiones agota el presupuesto ENTERO (no el plazo del 0.75) de su cubo. No es una prevision de lo que va a durar de verdad -- por eso esta estimacion calibra con medidas reales",
+  "sonda_de_coste_119_c1": {
+    "segundos_por_epoca": {
+      "Allstate_Claims_Severity": 43.1,
+      "KDDCup09_appetency": 17.2,
+      "APSFailure": 20.1
+    },
+    "epocas_que_caben_en_450s": {
+      "Allstate_Claims_Severity": 10,
+      "KDDCup09_appetency": 26,
+      "APSFailure": 22
+    },
+    "N_epocas_minimas_de_la_paciencia": 17,
+    "fuente": "protocolo_119_v4_enmienda_1.json (medido_que_lo_motiva), a su vez de resultado_sonda_coste_119.json"
+  },
+  "medida_real_corta": {
+    "pequeno": {
+      "dataset": "balance-scale",
+      "cubo": "pequeno",
+      "n_filas": 625,
+      "n_columnas": 4,
+      "presupuesto_wall_s": 120.0,
+      "estado": "completed",
+      "wall_s_medido": 15.373,
+      "entrenamiento_efectivo": {
+        "epocas_ejecutadas": 127,
+        "mejor_epoca": 111,
+        "parado_por_plazo": false,
+        "plazo_de_entrenamiento_segundos": 90.0,
+        "mejor_perdida_de_validacion": 0.07221682369709015
+      }
+    },
+    "mediano": {
+      "dataset": "wilt",
+      "cubo": "mediano",
+      "n_filas": 4839,
+      "n_columnas": 5,
+      "presupuesto_wall_s": 300.0,
+      "estado": "completed",
+      "wall_s_medido": 35.601,
+      "entrenamiento_efectivo": {
+        "epocas_ejecutadas": 73,
+        "mejor_epoca": 57,
+        "parado_por_plazo": false,
+        "plazo_de_entrenamiento_segundos": 225.0,
+        "mejor_perdida_de_validacion": 0.02775900438427925
+      }
+    }
+  },
+  "estimacion_por_cubo": {
+    "pequeno": {
+      "n_datasets": 13,
+      "n_intentos": 195,
+      "s_por_intento": 15.373,
+      "calibrado_con": "balance-scale",
+      "supuesto": "cada intento de este cubo tarda lo mismo que balance-scale midio -- una unica muestra por cubo, no una por dataset",
+      "horas": 0.833
+    },
+    "mediano": {
+      "n_datasets": 10,
+      "n_intentos": 150,
+      "s_por_intento": 35.601,
+      "calibrado_con": "wilt",
+      "supuesto": "cada intento de este cubo tarda lo mismo que wilt midio -- una unica muestra por cubo, no una por dataset",
+      "horas": 1.483
+    },
+    "grande": {
+      "n_datasets": 9,
+      "n_intentos": 45,
+      "s_por_intento": 450.0,
+      "supuesto": "cada intento del cubo grande agota el PLAZO (0.75 x presupuesto = 450s), no medido por dataset: la sonda de C1 (enmienda 1) midio que con k=8/d_block=256, en los 3 conjuntos mas caros del cubo grande (Allstate, KDDCup09, APSFailure), Allstate NO alcanza siquiera las 17 epocas minimas de la paciencia dentro del plazo (le caben ~10), y aunque KDDCup09 y APSFailure si las alcanzan (26 y 22 epocas caben), no hay medida de que la paciencia corte antes del plazo en ningun caso real -- se toma el plazo entero como estimacion, y es previsiblemente una SOBRESTIMACION para los grandes con menos columnas que los 3 medidos por la sonda (los otros 6 del cubo grande no estan sondados)",
+      "horas": 5.625
+    }
+  },
+  "total_horas_1_proceso": 7.94,
+  "total_dias_1_proceso": 0.33,
+  "total_horas_2_procesos_en_paralelo": 3.97,
+  "total_dias_2_procesos_en_paralelo": 0.17,
+  "que_supone_2_procesos": "division simple entre 2 de la suma secuencial -- NO una medicion de dos procesos corriendo a la vez de verdad (este guion no los lanza). Es optimista: no descuenta contencion de CPU/memoria entre los dos procesos, que el presupuesto.procesos_en_paralelo=2 del protocolo v4 ya asume posible en esta maquina (4 CPU fisicas, 8 logicas) pero que aqui no se mide",
+  "aviso": "ESTIMACION, no medicion: el cubo grande en particular se apoya en el plazo teorico y en solo 3 de los 9 conjuntos grandes sondados. La pasada real (a la cola nocturna, nunca a mano) es la unica medida que cuenta para el veredicto"
+}
