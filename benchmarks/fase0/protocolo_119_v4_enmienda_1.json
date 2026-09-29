@@ -1,0 +1,35 @@
+{
+ "enmienda": "119-C0.v4.e1",
+ "fecha_registro": "2026-09-29",
+ "de": {
+  "protocolo": "119-C0.v4",
+  "digest_sha256": "50fc56a1c688c057cca643953c7659e73731915f59c1cf32f6419c14992299a4"
+ },
+ "escrita": "DESPUÉS de la sonda de coste (C1, núcleo ec170b7, SIN métrica) y ANTES de construir el motor (C2) o medir nada de acierto",
+ "decidida_por": "Roberto, 29-09 («si» a la recomendación): la regla del C1 no decidía el caso «ninguna configuración cabe en los tres»",
+ "que_cambia": "la configuración del cuerpo TabM para TODOS los conjuntos: k=8 y d_block=256 (n_blocks=2), el último peldaño de la rejilla registrada",
+ "medido_que_lo_motiva": {
+  "segundos_por_epoca_k8_d256": {
+   "Allstate_Claims_Severity": 43.1,
+   "KDDCup09_appetency": 17.2,
+   "APSFailure": 20.1
+  },
+  "epocas_que_caben_en_450_s": {
+   "Allstate_Claims_Severity": 10,
+   "KDDCup09_appetency": 26,
+   "APSFailure": 22
+  },
+  "minimo_de_la_regla": 17,
+  "fuente": "resultado_sonda_coste_119.json"
+ },
+ "allstate_declarado": "Allstate_Claims_Severity entrena las épocas que quepan en el plazo (≈10, menos que las 17 de la regla) y se queda con la mejor época vista: el plazo lo corta, como a la densa de hoy. La paciencia (16) casi no podrá actuar. Se declara en el resultado de C3 junto a su cifra.",
+ "no_cambia": "todo lo demás del v4: PLR, embeddings de categóricas, receta AdamW, lote 256, paciencia 16, preprocesado, faltantes, partición, presupuesto por cubo, regla de cierre, tabla de referencia (la v2 congelada), regla de subida y confirmación",
+ "parametros_con_k8_d256": {
+  "Allstate_Claims_Severity": 966744,
+  "KDDCup09_appetency": 3295608,
+  "APSFailure": 1558872,
+  "nota": "KDDCup09 pasa de los 2 M del perfil equilibrado del producto: dato para C5, no cambia la medición"
+ },
+ "veredicto": "sin cambio: el del v4",
+ "digest_sha256": "bcd27c8370c2880ac1e5049e5b5dfd797084e898c847223d4d35e7e45eb0c2ec"
+}
