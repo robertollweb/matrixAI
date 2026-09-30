@@ -538,6 +538,26 @@ def test_main_para_si_el_motor_declara_otra_arquitectura_y_guarda_lo_medido(tmp_
     assert guardado["parcial"] is True and len(guardado["resultados"]) == 1
 
 
+def test_main_para_si_un_intento_declara_otro_lote_que_min_256_y_su_train(tmp_path,
+                                                                          monkeypatch):
+    """Re-auditoría 2 del 119 (2026-09-30), I-1: la guardia de CADA intento
+    compara el lote declarado con `min(256, n_train)` porque `main` le pasa
+    `n_train`; quitarlo salía verde (sabotaje J). kc2 entrena con más de 256
+    filas: un motor que declara haber corrido con lote 128 tiene que PARAR."""
+    salida = tmp_path / "r.json"
+    llamadas: list = []
+    base = _motor_falso(lambda *a: 0.9, llamadas=llamadas)
+
+    def con_lote_128(*args, **kwargs):
+        resultado = base(*args, **kwargs)
+        resultado.config_efectiva["hiperparametros"] = _hiperparametros_declarados(128)
+        return resultado
+
+    with pytest.raises(SystemExit, match="declara haber corrido"):
+        _correr_main(monkeypatch, ["--solo", "kc2", "--salida", str(salida)], con_lote_128)
+    assert len(llamadas) == 1
+
+
 # ---------------------------------------------------------------------------
 # 5. EL VEREDICTO CON FALLOS (I2), sobre casos fabricados
 # ---------------------------------------------------------------------------
