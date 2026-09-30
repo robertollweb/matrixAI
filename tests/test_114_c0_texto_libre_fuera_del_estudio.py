@@ -62,6 +62,18 @@ def test_lo_excluido_se_dice_con_su_motivo_y_su_medida_en_los_dos_idiomas():
     assert _confirmar().a_json()["excluidas"][0]["campo"] == "nota"
 
 
+def test_el_motivo_no_promete_un_camino_que_ya_existe_y_dice_como_usarlo():
+    """107-C3.1d (2026-09-30), medido CONDUCIENDO el Studio: el motivo decía «usar
+    texto libre en el estudio llegará con su propio camino (contrato 107)» debajo
+    de la acción que YA lo hace («Usarla como texto», 107-C3.1b). Arreglar algo
+    puede volver falso un aviso: ahora dice lo que es verdad hoy."""
+    (excluida,) = _confirmar().excluidas
+    es, en = excluida.motivo["es"], excluida.motivo["en"]
+    assert "llegará" not in es and "will come" not in en
+    assert "declarada como texto" in es and "candidato propio de solo texto" in es
+    assert "declared as text" in en and "text-only candidate" in en
+
+
 def test_la_nota_sin_declarar_tambien_se_dice():
     """Al arrancar el estudio, la pantalla reenvía la lista que le propuso el
     núcleo, ya sin la nota: la confirmación de ese momento tiene que seguir

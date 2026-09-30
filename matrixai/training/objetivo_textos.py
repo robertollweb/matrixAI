@@ -148,14 +148,16 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "palabras por valor; {distintas} de cada 100 palabras son distintas) y "
               "queda fuera del estudio: como categoría, cada valor sería casi único, "
               "el modelo solo podría memorizar las filas de entrenamiento y en las "
-              "nuevas saldría «desconocida». Usar texto libre en el estudio llegará "
-              "con su propio camino (contrato 107)",
+              "nuevas saldría «desconocida». Los modelos de tabla no la leen; "
+              "declarada como texto (en castellano o en inglés), la lee un "
+              "candidato propio de solo texto (contrato 107)",
         "en": "{campo} is free text written by a person (median of {palabras} words per "
               "value; {distintas} out of every 100 words are distinct) and is left out "
               "of the study: as a category every value would be almost unique, the "
               "model could only memorise the training rows and new rows would come "
-              "out as «unknown». Using free text in the study will come with its own "
-              "path (contract 107)",
+              "out as «unknown». Table models do not read it; declared as text (in "
+              "Spanish or in English), it is read by a dedicated text-only candidate "
+              "(contract 107)",
     },
     # ---- 107-C3.1b: la columna declarada «texto, en <idioma>» ------------
     "columnas_de_texto_multiples": {
