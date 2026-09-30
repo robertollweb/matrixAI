@@ -1,0 +1,63 @@
+{
+ "corte": "107-C3.1c",
+ "que_mide": "paridad de probabilidades (o valores) entre scikit-learn y su conversión ONNX del candidato de solo texto, sobre la partición test de A, B y C",
+ "tolerancia": 0.0001,
+ "versiones": {
+  "python": "3.12.3",
+  "scikit-learn": "1.8.0",
+  "skl2onnx": "1.20.0",
+  "onnxruntime": "1.26.0"
+ },
+ "tareas": {
+  "A": {
+   "tarea": "clasificacion",
+   "clases": 2,
+   "n_test": 572,
+   "diferencia_maxima": 0.06784064482890151,
+   "filas_fuera_de_tolerancia": 572,
+   "filas_con_mas_de_0_01": 448,
+   "acuerdo_de_clase": 0.8776223776223776,
+   "paridad": false
+  },
+  "B": {
+   "tarea": "clasificacion",
+   "clases": 2,
+   "n_test": 250,
+   "diferencia_maxima": 0.055513943983326985,
+   "filas_fuera_de_tolerancia": 250,
+   "filas_con_mas_de_0_01": 148,
+   "acuerdo_de_clase": 0.92,
+   "paridad": false
+  },
+  "C": {
+   "tarea": "regression",
+   "n_test": 4570,
+   "diferencia_maxima": 1.673632774087177,
+   "diferencia_relativa_maxima": 0.30015405288281066,
+   "filas_fuera_de_tolerancia": 4382,
+   "paridad": false
+  }
+ },
+ "control_del_instrumento": {
+  "por_omision": {
+   "The cat sat on the mat. The cat is happy!": 0.0152,
+   "Hello world, hello again; world peace?": 0.0197,
+   "La información pública del órgano de contratación": 0.3267,
+   "Año 2025: servicio de limpieza (lote 1)": 0.318,
+   "don't stop-believing e-mail U.S.A. 3.5 kg": 0.3333,
+   "mat cat cat sat world": 0.0245,
+   "órgano información año servicio": 0.6623
+  },
+  "tokenexp_de_sklearn": {
+   "The cat sat on the mat. The cat is happy!": 0.0152,
+   "Hello world, hello again; world peace?": 0.0197,
+   "La información pública del órgano de contratación": 0.3267,
+   "Año 2025: servicio de limpieza (lote 1)": 0.318,
+   "don't stop-believing e-mail U.S.A. 3.5 kg": 0.0,
+   "mat cat cat sat world": 0.0245,
+   "órgano información año servicio": 0.6623
+  }
+ },
+ "hay_paridad": false,
+ "decision_del_diseno": "SIN exportación ONNX: el candidato gana igual y su paquete sale sin ONNX, apagado y con su motivo (contrato 107, C3.1, pieza 3)"
+}
