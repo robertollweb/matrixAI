@@ -26,6 +26,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -73,12 +76,29 @@ _METRICAS_POR_TAREA = {"binary_classification": ("auroc",),
                        "regression": ("r2",)}
 
 
+#: Lo que el motor de verdad DECLARA en su predictor (`densa_tabm.py`), con los
+#: valores del protocolo: la guardia de cada intento lo compara entero (I2).
+_ARQUITECTURA_DECLARADA = {"k": 8, "d_block": 256, "n_blocks": 2, "dropout": 0.1,
+                           "d_embedding": 24, "n_frequencies": 48,
+                           "frequency_init_scale": 0.01, "d_out": 1}
+
+
+def _hiperparametros_declarados(lote: int = 256) -> dict:
+    return {"optimizador": "adamw", "tasa_de_aprendizaje": 0.002, "weight_decay": 0.0003,
+            "recorte_de_gradiente": 1.0, "lote": lote,
+            "parada_temprana": {"paciencia": 16, "para_tras_epocas_sin_mejora": 17,
+                                "metrica": "validation_loss_del_ensamblado"},
+            "perdida_de_entrenamiento": "media_de_las_k_cabezas",
+            "fraccion_del_presupuesto_para_entrenar": 0.75,
+            "plazo_desde": "entrada_en_ajustar", "backend": "torch", "device": "cpu"}
+
+
 def _motor_falso(valor, *, llamadas: list, fallos=frozenset(), arquitectura=None,
                  revienta_en=None):
     """`valor(dataset, repeticion, pliegue) -> float`. `fallos`: claves
     (dataset, rep, pliegue) que salen `failed`. `revienta_en`: la clave en la
     que el «proceso» muere (simula el tope de la cola a media noche)."""
-    arquitectura = arquitectura or {"k": 8, "d_block": 256, "n_blocks": 2, "dropout": 0.1}
+    arquitectura = arquitectura or dict(_ARQUITECTURA_DECLARADA)
 
     def ejecutar(motor, train, validation, test, spec, presupuesto, *, candidate,
                  split_plan_digest, dataset, pliegue, repeticion, **_):
@@ -103,7 +123,7 @@ def _motor_falso(valor, *, llamadas: list, fallos=frozenset(), arquitectura=None
                 "entrenamiento_efectivo": {"epocas_ejecutadas": 20, "mejor_epoca": 4,
                                            "parado_por_plazo": False},
                 "arquitectura": dict(arquitectura),
-                "hiperparametros": {"lote": 256, "optimizador": "adamw"},
+                "hiperparametros": _hiperparametros_declarados(min(256, train.n)),
                 "pesos": {"no": "se guardan"}},
             motivo_del_estado=None, traza=None, engine_version="1.0.0+falso",
             pipeline_digest=f"pd-{dataset}-{repeticion}-{pliegue}")
@@ -477,7 +497,8 @@ def test_para_si_el_v2_y_el_v4_divergen(tmp_path, monkeypatch):
 
 def test_la_arquitectura_de_cada_intento_se_comprueba():
     bueno = {"dataset": "d", "repeticion": 0, "pliegue": 0, "estado": "completed",
-             "arquitectura": {"k": 8, "d_block": 256, "n_blocks": 2}}
+             "arquitectura": dict(_ARQUITECTURA_DECLARADA),
+             "hiperparametros": _hiperparametros_declarados()}
     p119.exigir_la_arquitectura_del_intento(bueno)
     p119.exigir_la_arquitectura_del_intento({**bueno, "estado": "failed", "arquitectura": None})
     with pytest.raises(SystemExit, match="declara haber corrido"):
@@ -942,7 +963,66 @@ def test_main_reintenta_un_failed_un_ausente_y_un_arff_distinto(tmp_path, monkey
     assert _claves(segunda) == [(0, 0), (1, 3), (2, 4)]
     final = json.loads(salida.read_text(encoding="utf-8"))
     assert final["n_reusados"] == 12 and len(final["resultados"]) == 15
+    # `resultados` trae la medida de HOY de cada intento: todos completados...
     assert all(r["estado"] == "completed" for r in final["resultados"])
+    # ...y el fallo reintentado NO desaparece (I4 de la auditoría 3): el del ARFF
+    # distinto estaba completado (no es un fallo) y el ausente no estaba.
+    assert [(t["repeticion"], t["pliegue"], t["estado"]) for t in final["intentos_reintentados"]] \
+        == [(1, 3, "failed")]
+    assert final["veredicto"]["conjuntos_con_intentos_reintentados"] == ["kc2"]
+
+
+def test_un_fallo_reintentado_deja_rastro_en_el_artefacto_y_en_el_veredicto(tmp_path, monkeypatch):
+    """I4 (auditoría 3): la noche 1 un intento FALLA; la noche 2 se reintenta y
+    completa. El conjunto sale cumplido, y el artefacto tiene que decir que
+    lo necesitó: qué, cuándo y con qué error, y el veredicto, qué conjuntos.
+    Y el rastro sobrevive a una tercera noche que ya no reintenta nada."""
+    salida = tmp_path / "r.json"
+    _correr_main(monkeypatch, ["--solo", "kc2", "--salida", str(salida)],
+                 _motor_falso(lambda *a: 0.9, llamadas=[], fallos={("kc2", 2, 1)}))
+    noche_1 = json.loads(salida.read_text(encoding="utf-8"))
+    assert noche_1["veredicto"]["cumplidos_con_el_motor_nuevo"]["cumplidos"] == 0
+    assert noche_1["intentos_reintentados"] == []
+    procedencia_1 = [r for r in noche_1["resultados"] if r["estado"] == "failed"][0]["procedencia_id"]
+    segunda: list = []
+    _correr_main(monkeypatch, ["--solo", "kc2", "--salida", str(salida)],
+                 _motor_falso(lambda *a: 0.9, llamadas=segunda))
+    assert _claves(segunda) == [(2, 1)]
+    noche_2 = json.loads(salida.read_text(encoding="utf-8"))
+    assert all(r["estado"] == "completed" for r in noche_2["resultados"])
+    [rastro] = noche_2["intentos_reintentados"]
+    assert (rastro["dataset"], rastro["repeticion"], rastro["pliegue"]) == ("kc2", 2, 1)
+    assert rastro["estado"] == "failed" and rastro["motivo"] == "fallo fabricado por la prueba"
+    assert rastro["registro_sustituido"]["traza"] == "Traceback (fabricado)"
+    assert rastro["procedencia_id"] == procedencia_1
+    assert rastro["medido"] == noche_1["procedencias"][procedencia_1]["medido"]
+    assert procedencia_1 in noche_2["procedencias"]
+    assert rastro["reintentado_por"]["estado"] == "completed"
+    assert noche_2["n_intentos_reintentados"] == 1
+    assert noche_2["veredicto"]["conjuntos_con_intentos_reintentados"] == ["kc2"]
+    assert noche_2["veredicto"]["intentos_reintentados_por_conjunto"] == {"kc2": 1}
+    _correr_main(monkeypatch, ["--solo", "kc2", "--salida", str(salida)],
+                 _motor_falso(lambda *a: 0.9, llamadas=[]))
+    noche_3 = json.loads(salida.read_text(encoding="utf-8"))
+    assert noche_3["n_reusados"] == 15
+    assert noche_3["intentos_reintentados"] == noche_2["intentos_reintentados"]
+    assert noche_3["veredicto"]["conjuntos_con_intentos_reintentados"] == ["kc2"]
+
+
+def test_el_punto_de_control_se_guarda_al_acabar_cada_repeticion(tmp_path, monkeypatch):
+    """M2 (auditoría 3): tras CADA repetición se guarda, aunque no hayan pasado
+    60 s. El proceso muere a mitad de la repetición 1 de kc2: el fichero tiene
+    que traer la repetición 0 entera (y nada del conjunto cerrado, que no lo
+    está), sin depender del punto de control por tiempo."""
+    monkeypatch.setattr(p119, "SEGUNDOS_ENTRE_PUNTOS_DE_CONTROL", 10 ** 9)
+    salida = tmp_path / "r.json"
+    with pytest.raises(KeyboardInterrupt):
+        _correr_main(monkeypatch, ["--solo", "kc2", "--salida", str(salida)],
+                     _motor_falso(lambda *a: 0.9, llamadas=[], revienta_en=("kc2", 1, 2)))
+    payload = json.loads(salida.read_text(encoding="utf-8"))
+    assert payload["parcial"] is True
+    assert sorted((r["repeticion"], r["pliegue"]) for r in payload["resultados"]) == [
+        (0, p) for p in range(5)]
 
 
 def test_la_salida_se_fusiona_con_la_que_ya_hay(tmp_path, monkeypatch):
@@ -1025,10 +1105,14 @@ def test_tipo_del_fichero_reconoce_los_de_antes_del_campo():
 def test_fusionar_resultados_conserva_lo_no_tocado():
     previos = [_registro("a", NUEVO, 0.1, pliegue=p) for p in range(3)]
     nuevos = [_registro("a", NUEVO, 0.9, pliegue=1), _registro("b", NUEVO, 0.5)]
-    fusion, conservados = p119.fusionar_resultados(previos, nuevos)
+    fusion, conservados, sustituidos = p119.fusionar_resultados(previos, nuevos)
     assert [(r["dataset"], r["pliegue"], r["auroc"]) for r in fusion] == [
         ("a", 0, 0.1), ("a", 2, 0.1), ("a", 1, 0.9), ("b", 0, 0.5)]
     assert len(conservados) == 2
+    assert sustituidos == []  # el sustituido estaba completado: no es un reintento
+    previos[1]["estado"] = "failed"
+    _, _, sustituidos = p119.fusionar_resultados(previos, nuevos)
+    assert [(r["dataset"], r["pliegue"], r["estado"]) for r in sustituidos] == [("a", 1, "failed")]
 
 
 # ---------------------------------------------------------------------------
@@ -1098,7 +1182,13 @@ def test_cmd_estimar_mide_escribe_aparte_y_declara_los_cubos_sin_medida(tmp_path
     assert len(grandes) == 9 and all(d["fuente"].startswith("cota") for d in grandes)
     assert e["estimacion"]["procesos"] == 1
     assert "2_procesos" not in json.dumps(e)
-    assert e["para_encolar"]["tope_s"] == 22500
+    dia = e["para_encolar"]["de_dia"]
+    assert dia["tope_s"] > dia["estimada_s"] == math.ceil(e["estimacion"]["total_horas"] * 3600)
+    assert f"ESTIMADA_S={dia['estimada_s']} ~/encolar.sh 119-c3 {dia['tope_s']} " in dia["encolar"]
+    assert "COLA_SIN_SUITE=1 COLA_HASTA=23" in dia["lanzar_la_cola"]
+    # M3: la memoria es el pico del ÁRBOL de procesos, no maxrss del padre + el de los hijos
+    assert e["memoria"]["pico_mb_del_arbol_de_procesos"] == max(
+        m["rss_pico_mb_del_arbol_de_procesos"] for m in e["medidas"].values()) > 0
 
 
 def test_estimar_no_pisa_un_resultado_de_pasada(tmp_path, monkeypatch):
@@ -1216,3 +1306,105 @@ def test_la_enmienda_2_queda_en_la_procedencia_y_no_en_el_digest(tmp_path, monke
     antes = p119._digest_entorno()
     copia.write_text("{}", encoding="utf-8")
     assert p119._digest_entorno() == antes  # solo cambia cómo se CUENTA: no invalida la caché
+
+
+# ---------------------------------------------------------------------------
+# 10. REPARACIÓN 3 (auditoría 3): la orden de encolado (I1), la parada
+#     temprana declarada (I3) y la memoria del árbol de procesos (M3)
+# ---------------------------------------------------------------------------
+
+_COMMITS = {"matrixAI": {"sha": "a" * 40, "sin_commitear": False},
+            "matrixai-engines": {"sha": "b" * 40, "sin_commitear": False}}
+_FIN_0157 = {"medido": True, "mas_tarde": "01:57:12", "desde": "02:12:12"}
+
+
+def test_para_encolar_de_dia_con_la_estimacion_entera_y_un_tope_holgado():
+    """I1: con 7,13 h estimadas la orden de antes ponía tope = estimada =
+    22.500 (la ventana): la cola se la saltaba y, si arrancaba, la cortaba.
+    Ahora: la estimación ENTERA, el tope ×1,25 (y al menos +1 h), la orden de
+    DÍA, y la hora a la que ya no se puede lanzar (ni pasa de las 23:00 ni
+    pisa la nocturna de las 00:30 con el tope y la hora de espera por carga)."""
+    e = p119.para_encolar(7.13 * 3600, memoria="6G", commits=_COMMITS, fin_de_la_suite=_FIN_0157)
+    dia = e["de_dia"]
+    assert e["recomendada"] == "de_dia" and dia["cabe"] is True
+    assert dia["estimada_s"] == 25668 and dia["tope_s"] == 32100
+    assert dia["encolar"] == (
+        f"COMMITS=matrixAI={'a' * 40},matrixai-engines={'b' * 40} ESTIMADA_S=25668 ~/encolar.sh "
+        f"119-c3 32100 6G matrixAI python3 benchmarks/fase0/pasada_119_c3.py --salida "
+        f"{p119.SALIDA_EN_LA_COLA}")
+    assert dia["lanzar_la_cola"].startswith("setsid nohup env COLA_SIN_SUITE=1 COLA_HASTA=23 ")
+    # 00:30 + 24 h − 32.100 s de tope − 3.600 s de espera = 14:35:00 (antes que 23:00 − 25.668 s)
+    assert dia["lanzar_antes_de"] == "14:35:00"
+    # una estimación corta: el tope es la estimación + 1 h, no ×1,25
+    assert p119.para_encolar(1000, memoria="4G", commits=_COMMITS,
+                             fin_de_la_suite=_FIN_0157)["de_dia"]["tope_s"] == 4600
+
+
+def test_para_encolar_de_noche_dice_que_no_cabe_y_da_la_continuacion_con_commits():
+    e = p119.para_encolar(7.13 * 3600, memoria="6G", commits=_COMMITS, fin_de_la_suite=_FIN_0157)
+    noche = e["de_noche"]
+    assert noche["desde"] == "02:12:12" and noche["segundos"] == 20868
+    assert noche["cabe"] is False and noche["noches"] == 2 and "NO CABE" in noche["aviso"]
+    primera, segunda = noche["ordenes_una_por_noche"]
+    assert "ESTIMADA_S=20868 ~/encolar.sh 119-c3 20868 " in primera
+    assert "ESTIMADA_S=4800 ~/encolar.sh 119-c3-noche2 20868 " in segunda
+    for orden in (primera, segunda):
+        assert orden.startswith(f"COMMITS=matrixAI={'a' * 40},matrixai-engines={'b' * 40} ")
+        assert orden.endswith(f"--salida {p119.SALIDA_EN_LA_COLA}")
+    corta = p119.para_encolar(3600, memoria="4G", commits=_COMMITS, fin_de_la_suite=_FIN_0157)
+    assert corta["de_noche"]["cabe"] is True and "aviso" not in corta["de_noche"]
+
+
+def test_para_encolar_de_dia_no_cabe_si_la_estimacion_pasa_del_dia():
+    e = p119.para_encolar(16 * 3600, memoria="6G", commits=_COMMITS, fin_de_la_suite=_FIN_0157)
+    assert e["de_dia"]["cabe"] is False and e["recomendada"] == "de_noche"
+
+
+def test_el_fin_de_la_suite_se_lee_del_resumen_de_la_cola(tmp_path):
+    """Solo cuenta la línea que la cola escribe AL ACABAR su suite: las de la
+    cola de día (y la del 25-09, de antes de la cola) repiten otra."""
+    resumen = tmp_path / "resumen.txt"
+    resumen.write_text(
+        "2026-09-25T13:18:49+02:00 suite nocturna: 2026-09-25 04:19:47 · repetida\n"
+        "2026-09-29T01:44:53+02:00 suite nocturna: 2026-09-29 01:44:52 · nucleo verde\n"
+        "2026-09-29T14:33:14+02:00 suite nocturna: 2026-09-29 01:44:52 · repetida de día\n"
+        "2026-09-30T01:57:12+02:00 suite nocturna: 2026-09-30 01:57:12 · nucleo verde\n",
+        encoding="utf-8")
+    fin = p119.fin_de_la_suite_nocturna_medido(resumen)
+    assert fin["noches"] == {"2026-09-29": "01:44:52", "2026-09-30": "01:57:12"}
+    assert (fin["mas_tarde"], fin["desde"]) == ("01:57:12", "02:12:12")
+    sin = p119.fin_de_la_suite_nocturna_medido(tmp_path / "no_existe.txt")
+    assert sin["medido"] is False and sin["desde"] == p119.VENTANA_NOCTURNA[0]
+
+
+def test_el_resultado_declara_que_la_parada_no_es_como_la_fuente_en_clasificacion(pasada_falsa):
+    """I3 (auditoría 3): la enmienda 2 dice «como la fuente» y la fuente para
+    con ACCURACY en clasificación; el motor, con la log-loss del ensamblado.
+    La enmienda va sellada: lo declara el RESULTADO, junto a Allstate."""
+    d = pasada_falsa["payload"]["parada_temprana_declarada"]
+    assert "accuracy_score(y_true, y_pred.argmax(1))" in d["cita_de_la_fuente"]
+    assert "ACCURACY" in d["en_clasificacion_no_es_como_la_fuente"]
+    assert d["metrica_que_declaran_los_intentos"] == ["validation_loss_del_ensamblado"]
+    assert d["registrado_en_el_v4"].startswith("validation_loss")
+    assert "ENSAMBLADO" in d["fija_la_enmienda_2"]
+    assert d["por_tarea"]["binary_classification"].startswith("NO como la fuente")
+    assert d["por_tarea"]["regression"].startswith("como la fuente")
+    assert d["conjuntos_de_clasificacion_en_esta_ejecucion"] == [
+        "balance-scale", "kc2", "wilt", "yeast"]
+
+
+def test_la_memoria_del_arbol_suma_la_de_los_hijos():
+    """M3: el pico que declara --estimar es la SUMA del RSS del proceso y sus
+    descendientes (lo que ve MemoryMax), no maxrss del padre + el de los
+    hijos, que hereda el del padre. Un hijo que ocupa 200 MB tiene que salir."""
+    solo = p119._rss_del_arbol_kb(os.getpid())
+    hijo = subprocess.Popen([sys.executable, "-c", "import sys, time; b = bytearray(200 * 2 ** 20); "
+                             "b[::4096] = b'x' * len(b[::4096]); print('ya', flush=True); "
+                             "time.sleep(30)"], stdout=subprocess.PIPE, text=True)
+    try:
+        assert hijo.stdout.readline().strip() == "ya"
+        con_el_hijo = p119._rss_del_arbol_kb(os.getpid())
+    finally:
+        hijo.kill()
+        hijo.wait()
+    assert con_el_hijo - solo > 150 * 1024

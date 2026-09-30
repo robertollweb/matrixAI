@@ -57,6 +57,28 @@ LO QUE SE REPARÓ TRAS LA AUDITORÍA 2 (29-09), por hallazgo:
   aparte, y dice si cabe en la ventana nocturna o de día — con 1 proceso,
   que es lo que este guion corre.
 
+LO QUE SE REPARÓ TRAS LA AUDITORÍA 3 (30-09), por hallazgo:
+
+* **I2, la receta entera**: la guardia compara con el protocolo (v4 +
+  enmiendas 1 y 2, `receta_que_fija_el_protocolo`) TODAS las constantes de
+  la receta (`CONSTANTES_DE_LA_RECETA`), y MIDE un ajuste pequeño con
+  espías (`medir_la_receta_del_motor`): la clase del optimizador (AdamW), su
+  lr y su weight_decay, los argumentos de la red, el recorte, el lote, la
+  semilla y el plazo. Cada intento se compara con la receta ENTERA que
+  declara (`DECLARADO_POR_EL_INTENTO`), no solo k/d_block/n_blocks.
+* **I4, los reintentos**: un intento sin medida que se reintenta no
+  desaparece: queda en `intentos_reintentados` (qué, cuándo, con qué error)
+  y el veredicto lista `conjuntos_con_intentos_reintentados`.
+* **I1, la orden de encolado**: `para_encolar` da la orden de DÍA con la
+  estimación entera y un tope ×1,25 (`MARGEN_DEL_TOPE_SOBRE_LA_ESTIMACION`),
+  la hora límite para lanzarla, y la de noche desde el fin de la suite
+  MEDIDO, con una orden por noche y COMMITS= si no cabe.
+* **I3, la parada temprana**: el resultado declara
+  (`parada_temprana_declarada`) que en clasificación NO es como la fuente
+  (la fuente para con accuracy; el motor, con la log-loss del ensamblado).
+* **M3, la memoria**: `--estimar` declara el pico del ÁRBOL de procesos
+  muestreado, no maxrss del padre + el de los hijos (que hereda el padre).
+
 QUÉ SE REUTILIZA, Y DE DÓNDE — nada se copia a mano:
 
 * catálogo, lectura, partición y guardia de CPU: `pasada_114c6_ensamblado`
@@ -87,6 +109,7 @@ import functools
 import hashlib
 import json
 import math
+import random
 import re
 import resource
 import sys
@@ -152,6 +175,46 @@ BLOQUES_QUE_LA_V2_Y_EL_V4_COMPARTEN = ("particion", "presupuesto", "regla_de_cie
 #: motor DECLARA haber usado.
 CONFIGURACION_DE_LA_ENMIENDA_1 = {"k": 8, "d_block": 256, "n_blocks": 2}
 CONSTANTES_DEL_MOTOR = {"k": "K_CABEZAS", "d_block": "D_BLOCK", "n_blocks": "N_BLOCKS"}
+
+#: LA RECETA ENTERA (reparación 3, hallazgo I2 de la auditoría 3): cada valor
+#: que el protocolo (v4 + enmiendas 1 y 2) fija y el motor usa, con la
+#: CONSTANTE del motor que lo lleva. La guardia compara cada una con lo que el
+#: protocolo dice, y además MIDE un ajuste pequeño con espías
+#: (`medir_la_receta_del_motor`): el optimizador no tiene constante —cambiar
+#: AdamW por Adam en el código no lo ve ninguna— y una constante puede estar
+#: bien y la llamada pasar otra cosa.
+CONSTANTES_DE_LA_RECETA = {
+    "k": "K_CABEZAS", "d_block": "D_BLOCK", "n_blocks": "N_BLOCKS", "dropout": "DROPOUT",
+    "d_embedding": "D_EMBEDDING", "n_frequencies": "N_FREQUENCIES",
+    "frequency_init_scale": "FREQUENCY_INIT_SCALE",
+    "tasa_de_aprendizaje": "TASA_DE_APRENDIZAJE", "weight_decay": "WEIGHT_DECAY",
+    "recorte_de_gradiente": "NORMA_MAXIMA_DE_RECORTE", "lote": "LOTE_MAXIMO",
+    "paciencia": "PACIENCIA",
+    "fraccion_del_presupuesto_para_entrenar": "FRACCION_DEL_PRESUPUESTO_PARA_ENTRENAR",
+    "semilla_del_ruido_de_cuantiles": "SEMILLA_DEL_RUIDO_DE_CUANTILES",
+}
+#: Lo que cada intento DECLARA (`arquitectura` e `hiperparametros` del
+#: predictor) y la clave de la receta con la que se compara.
+DECLARADO_POR_EL_INTENTO = {
+    ("arquitectura", "k"): "k", ("arquitectura", "d_block"): "d_block",
+    ("arquitectura", "n_blocks"): "n_blocks", ("arquitectura", "dropout"): "dropout",
+    ("arquitectura", "d_embedding"): "d_embedding",
+    ("arquitectura", "n_frequencies"): "n_frequencies",
+    ("arquitectura", "frequency_init_scale"): "frequency_init_scale",
+    ("hiperparametros", "optimizador"): "optimizador",
+    ("hiperparametros", "tasa_de_aprendizaje"): "tasa_de_aprendizaje",
+    ("hiperparametros", "weight_decay"): "weight_decay",
+    ("hiperparametros", "recorte_de_gradiente"): "recorte_de_gradiente",
+    ("hiperparametros", "parada_temprana", "paciencia"): "paciencia",
+    ("hiperparametros", "parada_temprana", "para_tras_epocas_sin_mejora"):
+        "para_tras_epocas_sin_mejora",
+    ("hiperparametros", "parada_temprana", "metrica"): "metrica_de_parada",
+    ("hiperparametros", "fraccion_del_presupuesto_para_entrenar"):
+        "fraccion_del_presupuesto_para_entrenar",
+}
+#: Lo que solo fija la enmienda 2: sin ella (`--solo`/`--humo`/`--estimar`
+#: corren sin ella, diciéndolo) no hay con qué compararlo y se dice.
+SOLO_EN_LA_ENMIENDA_2 = ("para_tras_epocas_sin_mejora", "metrica_de_parada")
 
 SEGUNDOS_ENTRE_PUNTOS_DE_CONTROL = 60.0
 
@@ -314,44 +377,375 @@ def configuracion_que_declara_la_enmienda(texto: str) -> dict:
     return salida
 
 
-def exigir_la_configuracion_de_la_enmienda() -> dict:
-    """PARA si el motor no está configurado como dice la enmienda 1: lee las
-    CONSTANTES del módulo donde vive `MotorDensaTabM` (las que `_ajustar`
-    pasa a la red), no un comentario ni un docstring."""
+def _numero_en(texto: str, patron: str):
+    """El número que `patron` (un grupo) encuentra en un texto del protocolo,
+    con la coma decimal que escribe el v4 («0,75»), o `None`."""
+    m = re.search(patron, texto or "")
+    if not m:
+        return None
+    crudo = m.group(1).replace(",", ".")
+    return float(crudo) if "." in crudo else int(crudo)
+
+
+def receta_que_fija_el_protocolo() -> dict:
+    """Cada valor de la receta TAL COMO LO ESCRIBEN los tres ficheros del
+    protocolo, leídos del disco en cada llamada, y de dónde sale cada uno.
+    `valor` None = el fichero no lo dice: la guardia para (salvo lo que solo
+    fija la enmienda 2 cuando no está, `SOLO_EN_LA_ENMIENDA_2`). k, d_block y
+    n_blocks son los de la enmienda 1 (el v4 traía los de la fuente, 32/512);
+    lo demás, el v4, que la enmienda 1 deja igual («no_cambia»)."""
+    v4 = _leer_json(RUTA_DEL_PROTOCOLO_V4)
+    e1 = _leer_json(RUTA_DE_LA_ENMIENDA_1)
+    e2 = _leer_json(RUTA_DE_LA_ENMIENDA_2) if RUTA_DE_LA_ENMIENDA_2.exists() else {}
+    arq = v4.get("arquitectura") or {}
+    plr = (arq.get("embeddings_numericas") or {}).get("parametros_por_omision_del_constructor") or {}
+    tabm = (arq.get("backbone_ensamblado") or {}).get("parametros_por_omision_de_TabM_make") or {}
+    ruido = (((arq.get("preprocesado_numericas") or {}).get("ruido_antes_de_ajustar") or {})
+             .get("distribucion", ""))
+    receta = v4.get("receta_entrenamiento") or {}
+    se_fija = e2.get("se_fija") or {}
+    de_la_e1 = configuracion_que_declara_la_enmienda(e1.get("que_cambia", ""))
+    v4n, e1n, e2n = (RUTA_DEL_PROTOCOLO_V4.name, RUTA_DE_LA_ENMIENDA_1.name,
+                     RUTA_DE_LA_ENMIENDA_2.name)
+    del_constructor = f"{v4n}: arquitectura.embeddings_numericas.parametros_por_omision_del_constructor"
+    return {
+        **{k: {"valor": de_la_e1[k], "de": f"{e1n}: que_cambia"} for k in ("k", "d_block", "n_blocks")},
+        "dropout": {"valor": tabm.get("dropout"),
+                    "de": f"{v4n}: arquitectura.backbone_ensamblado.parametros_por_omision_de_"
+                          f"TabM_make.dropout (la enmienda 1 solo cambia k y d_block)"},
+        "d_embedding": {"valor": plr.get("d_embedding"), "de": f"{del_constructor}.d_embedding "
+                        f"(también el de las categóricas: embeddings_categoricas.decision_del_119)"},
+        "n_frequencies": {"valor": plr.get("n_frequencies"), "de": f"{del_constructor}.n_frequencies"},
+        "frequency_init_scale": {"valor": plr.get("frequency_init_scale"),
+                                 "de": f"{del_constructor}.frequency_init_scale"},
+        "optimizador": {"valor": receta.get("optimizador"),
+                        "de": f"{v4n}: receta_entrenamiento.optimizador"},
+        "tasa_de_aprendizaje": {"valor": receta.get("learning_rate"),
+                                "de": f"{v4n}: receta_entrenamiento.learning_rate"},
+        "weight_decay": {"valor": receta.get("weight_decay"),
+                         "de": f"{v4n}: receta_entrenamiento.weight_decay"},
+        "recorte_de_gradiente": {"valor": (receta.get("recorte_de_gradiente") or {}).get("norma_maxima"),
+                                 "de": f"{v4n}: receta_entrenamiento.recorte_de_gradiente.norma_maxima"},
+        "lote": {"valor": (receta.get("batch_size") or {}).get("valor_fuente"),
+                 "de": f"{v4n}: receta_entrenamiento.batch_size (aplicado: min(256, filas de train))"},
+        "paciencia": {"valor": (receta.get("parada_temprana") or {}).get("paciencia_epocas"),
+                      "de": f"{v4n}: receta_entrenamiento.parada_temprana.paciencia_epocas"},
+        "fraccion_del_presupuesto_para_entrenar": {
+            "valor": _numero_en((receta.get("epocas_maximas") or {}).get("aplicado_aqui", ""),
+                                r"(\d+[.,]\d+) del presupuesto de pared"),
+            "de": f"{v4n}: receta_entrenamiento.epocas_maximas.aplicado_aqui («0,75 del "
+                  f"presupuesto de pared»)"},
+        "semilla_del_ruido_de_cuantiles": {
+            "valor": _numero_en(ruido, r"semilla (\d+)"),
+            "de": f"{v4n}: arquitectura.preprocesado_numericas.ruido_antes_de_ajustar.distribucion"},
+        "para_tras_epocas_sin_mejora": {
+            "valor": _numero_en(se_fija.get("paciencia", ""), r"tras (\d+) épocas seguidas sin mejora"),
+            "de": f"{e2n}: se_fija.paciencia"},
+        "metrica_de_parada": {
+            "valor": ("validation_loss_del_ensamblado"
+                      if re.search(r"pérdida del ENSAMBLADO", se_fija.get("parada_temprana", ""))
+                      else None),
+            "de": f"{e2n}: se_fija.parada_temprana («la pérdida del ENSAMBLADO en validación»), "
+                  f"con el nombre que le da el motor"},
+    }
+
+
+def _lo_que_el_protocolo_no_dice(receta: dict) -> list[str]:
+    con_la_e2 = RUTA_DE_LA_ENMIENDA_2.exists()
+    return sorted(k for k, v in receta.items()
+                  if v["valor"] is None and (con_la_e2 or k not in SOLO_EN_LA_ENMIENDA_2))
+
+
+def _mismo_valor(a, b) -> bool:
+    if isinstance(a, bool) or isinstance(b, bool):
+        return a is b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return math.isclose(a, b, rel_tol=1e-12, abs_tol=0.0)
+    return a == b
+
+
+def _distintas(de_verdad: dict, receta: dict) -> dict:
+    """{clave: [lo de verdad, lo del protocolo]} de lo que no coincide; lo
+    que el protocolo no fija (la enmienda 2 ausente) no se compara."""
+    return {clave: [valor, receta[clave]["valor"]] for clave, valor in de_verdad.items()
+            if clave in receta and receta[clave]["valor"] is not None
+            and not _mismo_valor(valor, receta[clave]["valor"])}
+
+
+#: Filas de train de la sonda de la receta: MÁS que el lote de 256, para ver
+#: que el lote de entrenamiento es min(256, filas) y no otro.
+FILAS_DE_TRAIN_DE_LA_SONDA = 300
+#: Su presupuesto de pared: el plazo (0,75) es el TOPE; con el objetivo al
+#: azar la paciencia para antes (medido: ~1 s).
+PRESUPUESTO_DE_LA_SONDA_S = 20.0
+_AUSENTE = object()
+_RECETA_MEDIDA: dict = {}
+
+
+def _datos_de_la_sonda_de_la_receta():
+    """Dos numéricas y una categórica, objetivo binario AL AZAR (la pérdida de
+    validación deja de mejorar enseguida y la paciencia corta en décimas)."""
+    from matrixai.estudio import ProblemSpec  # noqa: PLC0415
+
+    rng = random.Random(0)
+    filas = [{"row_id": str(i), "x1": rng.uniform(0.0, 1.0), "x2": rng.gauss(0.0, 1.0),
+              "c": rng.choice("abc"), "y": rng.choice(("no", "si"))}
+             for i in range(FILAS_DE_TRAIN_DE_LA_SONDA + 60)]
+    hacer = lambda xs: Particion.desde_filas(xs, row_id_field="row_id", target_field="y")  # noqa: E731
+    spec = ProblemSpec(problem_id="sonda-de-la-receta-119-c3", target="y",
+                       task="binary_classification", observation_unit="fila",
+                       classes=("no", "si"), positive_label="si", predictors=("x1", "x2", "c"))
+    return (hacer(filas[:FILAS_DE_TRAIN_DE_LA_SONDA]), hacer(filas[FILAS_DE_TRAIN_DE_LA_SONDA:]),
+            spec)
+
+
+def medir_la_receta_del_motor(*, presupuesto_s: float = PRESUPUESTO_DE_LA_SONDA_S) -> dict:
+    """UN AJUSTE DE VERDAD del motor, pequeño (300 filas, ~1 s), con ESPÍAS en
+    lo que usa: el optimizador que se construye (su CLASE, y el `lr` y el
+    `weight_decay` de su grupo de parámetros), los argumentos con que se
+    construye la red, el `max_norm` del recorte, el tamaño de los lotes de
+    entrenamiento, y la semilla y la `d_embedding` de la preparación; el
+    plazo, por el que el motor declara (0,75 × presupuesto). Lo que no se
+    puede espiar sin tocar el motor (la paciencia y la métrica de parada) va
+    por lo que el predictor DECLARA, y lo prueban las del motor (S12, S13).
+
+    Mide lo que SE USA, no lo que se declara: cambiar `AdamW` por `Adam` en
+    la llamada no cambia ninguna constante ni el `"optimizador": "adamw"` que
+    el predictor escribe a mano (auditoría 3, S10). Los espías se quitan
+    siempre; el ajuste corre con 1 hilo y su propia semilla."""
+    import sklearn.preprocessing  # noqa: F401, PLC0415 -- en frío tarda segundos: fuera del plazo
+    import torch  # noqa: PLC0415
+
+    from matrixai_engines.redes import preparacion_tabm, tabm_plr  # noqa: PLC0415
+
+    visto: dict[str, list] = {"optimizadores": [], "red": [], "lotes": [], "recortes": [],
+                              "preparacion": []}
+    red_cls = tabm_plr.RedTabMPLR
+    originales = {(objeto, nombre): vars(objeto).get(nombre, _AUSENTE) for objeto, nombre in (
+        (torch.optim.Optimizer, "__init__"), (red_cls, "__init__"), (red_cls, "forward"),
+        (torch.nn.utils, "clip_grad_norm_"), (preparacion_tabm, "ajustar_preparacion"))}
+    init_del_optimizador = torch.optim.Optimizer.__init__
+    init_de_la_red, forward_de_la_red = red_cls.__init__, red_cls.forward
+    recorte, ajustar_preparacion = torch.nn.utils.clip_grad_norm_, preparacion_tabm.ajustar_preparacion
+
+    def espia_del_optimizador(self, *a, **kw):
+        init_del_optimizador(self, *a, **kw)
+        visto["optimizadores"].append(self)
+
+    def espia_de_la_red(self, *a, **kw):
+        visto["red"].append(dict(kw))
+        init_de_la_red(self, *a, **kw)
+
+    def espia_del_forward(self, *a, **kw):
+        if self.training:
+            x = next((t for t in list(a) + list(kw.values()) if t is not None), None)
+            visto["lotes"].append(int(x.shape[0]))
+        return forward_de_la_red(self, *a, **kw)
+
+    def espia_del_recorte(parametros, max_norm, *a, **kw):
+        visto["recortes"].append(float(max_norm))
+        return recorte(parametros, max_norm, *a, **kw)
+
+    def espia_de_la_preparacion(*a, **kw):
+        visto["preparacion"].append({k: kw.get(k, _AUSENTE) for k in ("d_embedding", "semilla")})
+        return ajustar_preparacion(*a, **kw)
+
+    train, validacion, spec = _datos_de_la_sonda_de_la_receta()
+    espias = {(torch.optim.Optimizer, "__init__"): espia_del_optimizador,
+              (red_cls, "__init__"): espia_de_la_red, (red_cls, "forward"): espia_del_forward,
+              (torch.nn.utils, "clip_grad_norm_"): espia_del_recorte,
+              (preparacion_tabm, "ajustar_preparacion"): espia_de_la_preparacion}
+    try:
+        for (objeto, nombre), espia in espias.items():
+            setattr(objeto, nombre, espia)
+        resultado, ajustado = MotorDensaTabM().fit(
+            train, validacion, spec, Presupuesto(seed=0, wall_seconds=presupuesto_s, hilos=1),
+            candidate="sonda-de-la-receta-119-c3", split_plan_digest="0" * 64)
+    finally:
+        for (objeto, nombre), original in originales.items():
+            if original is _AUSENTE:
+                delattr(objeto, nombre)
+            else:
+                setattr(objeto, nombre, original)
+    if ajustado is None:
+        raise SystemExit(f"la sonda de la receta (un ajuste de {FILAS_DE_TRAIN_DE_LA_SONDA} filas) "
+                         f"no terminó: {resultado.state} {resultado.reason}. No se mide")
+    faltan = [k for k in ("optimizadores", "red", "lotes", "recortes", "preparacion") if not visto[k]]
+    if faltan or len(visto["optimizadores"]) != 1:
+        raise SystemExit(f"la sonda de la receta no vio {faltan or 'UN optimizador'} "
+                         f"(optimizadores: {len(visto['optimizadores'])}): el motor ya no entrena "
+                         f"como este guion sabe espiar. No se mide")
+    optimizador = visto["optimizadores"][0]
+    grupo = optimizador.param_groups[0]
+    red = visto["red"][0]
+    preparacion = visto["preparacion"][0]
+    predictor = ajustado.spec.predictor
+    parada = (predictor.get("hiperparametros") or {}).get("parada_temprana") or {}
+    plazo = (predictor.get("entrenamiento_efectivo") or {}).get("plazo_de_entrenamiento_segundos")
+    usado = {
+        "optimizador": type(optimizador).__name__.lower(),
+        "tasa_de_aprendizaje": grupo.get("lr"), "weight_decay": grupo.get("weight_decay"),
+        **{k: red.get(k, "no se pasó") for k in ("k", "d_block", "n_blocks", "dropout",
+                                                   "d_embedding", "n_frequencies",
+                                                   "frequency_init_scale")},
+        "recorte_de_gradiente": (visto["recortes"][0] if len(set(visto["recortes"])) == 1
+                                 else sorted(set(visto["recortes"]))),
+        "lote": max(visto["lotes"]),
+        "semilla_del_ruido_de_cuantiles": preparacion["semilla"],
+        "fraccion_del_presupuesto_para_entrenar": (plazo / presupuesto_s if plazo is not None
+                                                   else None),
+    }
+    return {
+        "usado": usado,
+        "d_embedding_de_la_preparacion": (None if preparacion["d_embedding"] is _AUSENTE
+                                          else preparacion["d_embedding"]),
+        "declarado_por_el_predictor": {"paciencia": parada.get("paciencia"),
+                                       "para_tras_epocas_sin_mejora":
+                                           parada.get("para_tras_epocas_sin_mejora"),
+                                       "metrica_de_parada": parada.get("metrica")},
+        "clase_del_optimizador": f"{type(optimizador).__module__}.{type(optimizador).__qualname__}",
+        "filas_de_train": FILAS_DE_TRAIN_DE_LA_SONDA, "presupuesto_s": presupuesto_s,
+        "lotes_de_entrenamiento_vistos": sorted(set(visto["lotes"])),
+        "epocas": (predictor.get("entrenamiento_efectivo") or {}).get("epocas_ejecutadas"),
+        "como_se_mide": (
+            "un ajuste de verdad (MotorDensaTabM().fit, 300 filas al azar, 1 hilo) con espías en "
+            "torch.optim.Optimizer.__init__, RedTabMPLR.__init__/forward, torch.nn.utils."
+            "clip_grad_norm_ y preparacion_tabm.ajustar_preparacion; el plazo, por el que declara "
+            "el predictor. La paciencia y la métrica de parada, por lo que DECLARA el predictor"),
+    }
+
+
+def _receta_medida() -> dict:
+    """`medir_la_receta_del_motor`, UNA vez por proceso y por código del motor
+    y valor de sus constantes (las pruebas llaman a `main()` muchas veces)."""
+    modulo = sys.modules[MotorDensaTabM.__module__]
+    clave = (_digest_motor_nuevo(), tuple(repr(getattr(modulo, n, None))
+                                          for n in CONSTANTES_DE_LA_RECETA.values()))
+    if clave not in _RECETA_MEDIDA:
+        _RECETA_MEDIDA[clave] = medir_la_receta_del_motor()
+    return _RECETA_MEDIDA[clave]
+
+
+def distintas_de_la_receta_medida(medida: dict, receta: dict) -> dict:
+    """Lo que el ajuste espiado USÓ (o su predictor declaró) y el protocolo no
+    fija así. El lote, contra min(lote del protocolo, filas de train)."""
+    distintas = _distintas({k: v for k, v in medida["usado"].items() if k != "lote"}, receta)
+    distintas.update(_distintas(medida["declarado_por_el_predictor"], receta))
+    if receta["d_embedding"]["valor"] is not None and not _mismo_valor(
+            medida["d_embedding_de_la_preparacion"], receta["d_embedding"]["valor"]):
+        distintas["d_embedding_de_la_preparacion"] = [medida["d_embedding_de_la_preparacion"],
+                                                      receta["d_embedding"]["valor"]]
+    lote_esperado = min(receta["lote"]["valor"], medida["filas_de_train"])
+    if not _mismo_valor(medida["usado"]["lote"], lote_esperado):
+        distintas["lote"] = [medida["usado"]["lote"], lote_esperado]
+    return distintas
+
+
+def exigir_la_configuracion_de_la_enmienda(*, medir: bool = True) -> dict:
+    """PARA si el motor no usa la receta ENTERA que fija el protocolo (v4 +
+    enmiendas 1 y 2; `receta_que_fija_el_protocolo`), en tres pasos:
+
+    1. k, d_block y n_blocks de la enmienda 1 son los que este guion tiene
+       escritos (`CONFIGURACION_DE_LA_ENMIENDA_1`);
+    2. las CONSTANTES del módulo del motor (`CONSTANTES_DE_LA_RECETA`, las que
+       `_ajustar` pasa a la red, al optimizador, al recorte…) son las del
+       protocolo, una a una;
+    3. un ajuste de verdad con espías (`medir_la_receta_del_motor`) USA eso:
+       la CLASE del optimizador, sus `lr`/`weight_decay`, los argumentos de la
+       red, el recorte, el lote, la semilla y el plazo.
+
+    Antes (auditoría 3, I2) solo miraba k, d_block y n_blocks: con el lr, el
+    weight_decay, el dropout o las frecuencias cambiadas, o Adam en vez de
+    AdamW, la pasada medía otra receta sin que nada se pusiera rojo."""
     enmienda = _leer_json(RUTA_DE_LA_ENMIENDA_1)
     declarada = configuracion_que_declara_la_enmienda(enmienda.get("que_cambia", ""))
     if declarada != CONFIGURACION_DE_LA_ENMIENDA_1:
         raise SystemExit(
             f"la enmienda 1 declara {declarada} y este guion tiene escrito "
             f"{CONFIGURACION_DE_LA_ENMIENDA_1}: no se mide hasta que digan lo mismo")
+    receta = receta_que_fija_el_protocolo()
+    no_dice = _lo_que_el_protocolo_no_dice(receta)
+    if no_dice:
+        raise SystemExit(f"el protocolo (v4 + enmiendas) no dice {no_dice}: sin eso no se puede "
+                         f"comprobar la receta del motor. No se mide")
     modulo = sys.modules[MotorDensaTabM.__module__]
     leida = {clave: getattr(modulo, nombre, None) for clave, nombre in CONSTANTES_DEL_MOTOR.items()}
-    if leida != CONFIGURACION_DE_LA_ENMIENDA_1:
+    constantes = {clave: getattr(modulo, nombre, None)
+                  for clave, nombre in CONSTANTES_DE_LA_RECETA.items()}
+    distintas = _distintas(constantes, receta)
+    if leida != CONFIGURACION_DE_LA_ENMIENDA_1 or distintas:
         raise SystemExit(
-            f"el motor ({MotorDensaTabM.__module__}: {CONSTANTES_DEL_MOTOR}) usa {leida} y la "
-            f"enmienda 1 fija {CONFIGURACION_DE_LA_ENMIENDA_1}: medir otra configuración no es "
-            f"medir el corte. No se mide")
+            f"el motor ({MotorDensaTabM.__module__}) no usa la receta del protocolo: "
+            f"{ {k: {'motor': v[0], 'protocolo': v[1], 'constante': CONSTANTES_DE_LA_RECETA[k]} for k, v in distintas.items()} } "
+            f"(k/d_block/n_blocks: {leida}; la enmienda 1 fija {CONFIGURACION_DE_LA_ENMIENDA_1}). "
+            f"Medir otra configuración no es medir el corte. No se mide")
+    medida = _receta_medida() if medir else None
+    if medida is not None:
+        distintas_medidas = distintas_de_la_receta_medida(medida, receta)
+        if distintas_medidas:
+            raise SystemExit(
+                f"un ajuste de verdad del motor (con espías) USA otra receta que la del "
+                f"protocolo: { {k: {'usado': v[0], 'protocolo': v[1]} for k, v in distintas_medidas.items()} } "
+                f"(optimizador: {medida['clase_del_optimizador']}). Las constantes pueden estar "
+                f"bien y la llamada no: medir otra receta no es medir el corte. No se mide")
     return {"declarada_por_la_enmienda_1": declarada, "leida_del_motor": leida,
-            "constantes": dict(CONSTANTES_DEL_MOTOR), "modulo": MotorDensaTabM.__module__}
+            "constantes": dict(CONSTANTES_DEL_MOTOR), "modulo": MotorDensaTabM.__module__,
+            "receta_del_protocolo": receta,
+            "constantes_de_la_receta_leidas_del_motor": constantes,
+            "receta_medida_en_un_ajuste": medida}
 
 
-def exigir_la_arquitectura_del_intento(registro: dict) -> None:
+def _lo_declarado(registro: dict, ruta: tuple):
+    valor = registro
+    for parte in ruta:
+        if not isinstance(valor, dict) or parte not in valor:
+            return _AUSENTE
+        valor = valor[parte]
+    return valor
+
+
+def exigir_la_arquitectura_del_intento(registro: dict, *, receta: dict | None = None,
+                                       n_train: int | None = None) -> None:
     """Un intento COMPLETADO tiene que declarar la arquitectura de la
-    enmienda 1. Si no la declara, no se puede saber qué corrió: también para."""
+    enmienda 1 Y la receta del protocolo (`DECLARADO_POR_EL_INTENTO`; el
+    lote, contra min(256, `n_train`) si se da). Si no la declara, no se puede
+    saber qué corrió: también para."""
     if registro.get("estado") not in protocolo_mod.ESTADOS_QUE_CUENTAN_COMO_MEDIDA:
         return
+    donde = f"{registro['dataset']} rep={registro['repeticion']} pliegue={registro['pliegue']}"
     arquitectura = registro.get("arquitectura")
     if not isinstance(arquitectura, dict):
         raise SystemExit(
-            f"{registro['dataset']} rep={registro['repeticion']} pliegue={registro['pliegue']}: "
-            f"el motor completó el intento SIN declarar su arquitectura -- no se puede "
+            f"{donde}: el motor completó el intento SIN declarar su arquitectura -- no se puede "
             f"comprobar que corrió la de la enmienda 1. Se para la pasada")
     leida = {k: arquitectura.get(k) for k in CONFIGURACION_DE_LA_ENMIENDA_1}
     if leida != CONFIGURACION_DE_LA_ENMIENDA_1:
         raise SystemExit(
-            f"{registro['dataset']} rep={registro['repeticion']} pliegue={registro['pliegue']}: "
-            f"el motor declara haber corrido {leida} y la enmienda 1 fija "
+            f"{donde}: el motor declara haber corrido {leida} y la enmienda 1 fija "
             f"{CONFIGURACION_DE_LA_ENMIENDA_1}. Se para la pasada")
+    receta = receta if receta is not None else receta_que_fija_el_protocolo()
+    sin_declarar, distintas = [], {}
+    comprobar = dict(DECLARADO_POR_EL_INTENTO)
+    if n_train is not None:
+        comprobar[("hiperparametros", "lote")] = "lote"
+    for ruta, clave in comprobar.items():
+        esperado = receta[clave]["valor"]
+        if clave == "lote" and esperado is not None:
+            esperado = min(esperado, n_train)
+        if esperado is None:
+            continue  # solo lo de la enmienda 2 cuando no está (la guardia ya lo exigió)
+        valor = _lo_declarado(registro, ruta)
+        if valor is _AUSENTE:
+            sin_declarar.append(".".join(ruta))
+        elif not _mismo_valor(valor, esperado):
+            distintas[".".join(ruta)] = {"declarado": valor, "protocolo": esperado}
+    if sin_declarar:
+        raise SystemExit(
+            f"{donde}: el motor completó el intento SIN declarar {sin_declarar} -- no se puede "
+            f"comprobar que corrió la receta del protocolo. Se para la pasada")
+    if distintas:
+        raise SystemExit(f"{donde}: el motor declara haber corrido {distintas}: no es la receta "
+                         f"del protocolo. Se para la pasada")
 
 
 def _payload_v2() -> dict:
@@ -678,15 +1072,60 @@ def _clave(r: dict) -> tuple:
     return (r["dataset"], r["motor"], r["repeticion"], r["pliegue"])
 
 
-def fusionar_resultados(previos: list[dict], de_esta_ejecucion: list[dict]) -> tuple[list[dict],
-                                                                                     list[dict]]:
+def fusionar_resultados(previos: list[dict], de_esta_ejecucion: list[dict]) -> tuple[
+        list[dict], list[dict], list[dict]]:
     """Lo que ya había y NO se ha vuelto a medir (o reusar) en esta
     ejecución, seguido de lo de esta ejecución. Devuelve también los
     conservados, para declararlos. Un punto de control a mitad de la noche
-    ya no puede dejar el fichero solo con los conjuntos recorridos."""
+    ya no puede dejar el fichero solo con los conjuntos recorridos.
+
+    Y, TERCERO, los SUSTITUIDOS SIN MEDIDA (auditoría 3, I4): un registro
+    previo que no contaba como medida (`failed`, `cancelled`…) y que esta
+    ejecución ha vuelto a medir. La regla de la casa es reintentarlo
+    (`_reusable_c3` no reusa un fallo), pero sustituirlo sin más borraba que
+    falló: un conjunto PERDIDO la noche 1 salía cumplido la noche 2 sin que
+    el artefacto lo dijera. Se devuelven para `rastro_de_los_reintentos`."""
     nuevas = {_clave(r) for r in de_esta_ejecucion}
     conservados = [r for r in previos if _clave(r) not in nuevas]
-    return conservados + list(de_esta_ejecucion), conservados
+    sustituidos_sin_medida = [
+        r for r in previos if _clave(r) in nuevas
+        and r.get("estado") not in protocolo_mod.ESTADOS_QUE_CUENTAN_COMO_MEDIDA]
+    return conservados + list(de_esta_ejecucion), conservados, sustituidos_sin_medida
+
+
+def rastro_de_los_reintentos(sustituidos_sin_medida: list[dict], de_esta_ejecucion: list[dict],
+                             *, rastro_previo: list[dict], procedencias_previas: dict) -> list[dict]:
+    """`intentos_reintentados` del artefacto: el que ya traía el fichero (se
+    CONSERVA entero, noche tras noche) más cada intento sin medida que esta
+    ejecución ha reintentado — qué (conjunto, repetición, pliegue, el
+    registro sustituido ENTERO, con su `traza`), cuándo (`medido` de su
+    procedencia), con qué error (`estado` y `motivo`) y qué salió al
+    reintentarlo."""
+    nuevos = {_clave(r): r for r in de_esta_ejecucion}
+    rastro = list(rastro_previo)
+    for r in sustituidos_sin_medida:
+        reintento = nuevos[_clave(r)]
+        procedencia_id = r.get("procedencia_id")
+        rastro.append({
+            "dataset": r["dataset"], "motor": r["motor"], "repeticion": r["repeticion"],
+            "pliegue": r["pliegue"], "estado": r.get("estado"), "motivo": r.get("motivo"),
+            "procedencia_id": procedencia_id,
+            "medido": (procedencias_previas.get(procedencia_id) or {}).get("medido"),
+            "reintentado_por": {"procedencia_id": reintento.get("procedencia_id"),
+                                "estado": reintento.get("estado"),
+                                "reusado": reintento.get("reusado")},
+            "registro_sustituido": r,
+        })
+    return rastro
+
+
+QUE_SON_LOS_REINTENTADOS = (
+    "intentos que en una ejecución ANTERIOR no contaron como medida (fallidos, cancelados…) y "
+    "una posterior volvió a medir: `resultados` y el veredicto cuentan el reintento (la regla de "
+    "la casa es reintentar lo que no está completed: un tope por carga ajena no se cementa), y "
+    "aquí queda lo que pasó antes, con su error y su hora (`intentos_reintentados`). Sin esto, un "
+    "conjunto perdido una noche salía cumplido la siguiente sin que el artefacto lo dijera "
+    "(auditoría 3 del 119, I4)")
 
 
 # ---------------------------------------------------------------------------
@@ -957,6 +1396,61 @@ def allstate_medido(resultados: list[dict]) -> dict:
             "epocas_max": max(epocas) if epocas else None,
             "minimo_de_la_regla": minimo,
             "todos_por_debajo_del_minimo": bool(epocas) and max(epocas) < minimo}
+
+
+#: Lo que la FUENTE hace de verdad al parar (auditoría 3 del 119, I3: leído
+#: el 30-09 en `example.ipynb`, rama main, `evaluate()`).
+CITA_DE_LA_PARADA_DE_LA_FUENTE = (
+    "score = (-(sklearn.metrics.mean_squared_error(y_true, y_pred) ** 0.5) if task_type == "
+    "'regression' else sklearn.metrics.accuracy_score(y_true, y_pred.argmax(1)))  "
+    "(example.ipynb, evaluate(), rama main)")
+
+
+def parada_temprana_declarada(resultados: list[dict]) -> dict:
+    """LA PARADA TEMPRANA, DECLARADA EN EL RESULTADO como las épocas de
+    Allstate (auditoría 3, I3). La enmienda 2 (sellada: no se reescribe)
+    fija parar con la pérdida del ENSAMBLADO «como la fuente», y en
+    CLASIFICACIÓN no es como la fuente: la fuente para con la ACCURACY del
+    ensamblado; este motor, con la LOG-LOSS de las probabilidades
+    promediadas, que es el `validation_loss` que registró el v4. En regresión
+    sí coincide (MSE y −RMSE ordenan igual). Con lo que DECLARAN los intentos
+    de esta ejecución, no con lo que se pidió."""
+    v4 = _leer_json(RUTA_DEL_PROTOCOLO_V4)
+    e2 = _leer_json(RUTA_DE_LA_ENMIENDA_2) if RUTA_DE_LA_ENMIENDA_2.exists() else {}
+    completados = [r for r in resultados
+                   if r.get("estado") in protocolo_mod.ESTADOS_QUE_CUENTAN_COMO_MEDIDA]
+    declaradas = sorted({str(_lo_declarado(r, ("hiperparametros", "parada_temprana", "metrica")))
+                         for r in completados
+                         if _lo_declarado(r, ("hiperparametros", "parada_temprana", "metrica"))
+                         is not _AUSENTE})
+    clasificacion = sorted({r["dataset"] for r in completados
+                            if r.get("tarea") in ("binary_classification",
+                                                  "multiclass_classification")})
+    return {
+        "registrado_en_el_v4": ((v4.get("receta_entrenamiento") or {}).get("parada_temprana")
+                                or {}).get("metrica"),
+        "fija_la_enmienda_2": (e2.get("se_fija") or {}).get("parada_temprana"),
+        "metrica_que_declaran_los_intentos": declaradas,
+        "por_tarea": {
+            "regression": "como la fuente: el error cuadrático del ensamblado (la fuente, −RMSE: "
+                          "ordenan igual)",
+            "binary_classification": "NO como la fuente: log-loss del ensamblado; la fuente para "
+                                     "con su accuracy",
+            "multiclass_classification": "NO como la fuente: log-loss del ensamblado; la fuente "
+                                         "para con su accuracy",
+        },
+        "en_clasificacion_no_es_como_la_fuente": (
+            "la fuente para en clasificación con la ACCURACY del ensamblado (accuracy_score de "
+            "la media de las k predicciones), que tiene mesetas y empates que cuenta como «sin "
+            "mejora»; este motor para con la LOG-LOSS de las probabilidades promediadas, que no "
+            "los tiene. Cambia qué época se guarda y cuándo actúa la paciencia, o sea los "
+            "números. El código cumple lo REGISTRADO (el v4 decía validation_loss); lo que no es "
+            "cierto es el «como la fuente» de la enmienda 2 en clasificación. No se cambia: la "
+            "enmienda va sellada y cambiar la parada después de auditar sería otra receta"),
+        "cita_de_la_fuente": CITA_DE_LA_PARADA_DE_LA_FUENTE,
+        "conjuntos_de_clasificacion_en_esta_ejecucion": clasificacion,
+        "de_donde_sale": "auditoría 3 del 119 (30-09), hallazgo I3",
+    }
 
 
 def intentos_por_conjunto(datasets, particiones: dict, esperadas_por_conjunto: dict,
@@ -1242,7 +1736,9 @@ def main(argv=None) -> None:
                 resultados.append(registro)
                 registros_del_dataset.append(registro)
                 try:
-                    exigir_la_arquitectura_del_intento(registro)
+                    exigir_la_arquitectura_del_intento(
+                        registro, receta=configuracion_del_motor["receta_del_protocolo"],
+                        n_train=n_tr)
                 except SystemExit:
                     guardar(parcial=True)
                     raise
@@ -1305,9 +1801,29 @@ def _componer_y_guardar(resultados, previos, veredictos_por_conjunto, veredicto,
     """Compone el JSON y lo escribe atómicamente, FUSIONADO con lo que ya
     había (I7): lo previo que esta ejecución no ha vuelto a tocar se
     conserva, con su procedencia."""
-    en_el_fichero, conservados = fusionar_resultados(previos, resultados)
+    en_el_fichero, conservados, sustituidos_sin_medida = fusionar_resultados(previos, resultados)
+    procedencias_previas = payload_previo.get("procedencias") or {}
+    reintentados = rastro_de_los_reintentos(
+        sustituidos_sin_medida, resultados,
+        rastro_previo=list(payload_previo.get("intentos_reintentados") or []),
+        procedencias_previas=procedencias_previas)
     procedencias, sin_procedencia = c3._procedencias_citadas(
-        en_el_fichero, procedencia, (payload_previo.get("procedencias") or {}))
+        en_el_fichero, procedencia, procedencias_previas)
+    for t in reintentados:  # la procedencia del intento que falló, también (su «cuándo»)
+        pid = t.get("procedencia_id")
+        if pid and pid not in procedencias and pid in procedencias_previas:
+            procedencias[pid] = procedencias_previas[pid]
+    nombres_de_esta_ejecucion = {d.nombre for d in datasets}
+    reintentados_del_nuevo = [t for t in reintentados if t["motor"] == NOMBRE_MOTOR_NUEVO
+                              and t["dataset"] in nombres_de_esta_ejecucion]
+    if veredicto is not None:
+        por_conjunto: dict[str, int] = {}
+        for t in reintentados_del_nuevo:
+            por_conjunto[t["dataset"]] = por_conjunto.get(t["dataset"], 0) + 1
+        veredicto = {**veredicto,
+                     "conjuntos_con_intentos_reintentados": sorted(por_conjunto),
+                     "intentos_reintentados_por_conjunto": dict(sorted(por_conjunto.items())),
+                     "que_son_los_intentos_reintentados": QUE_SON_LOS_REINTENTADOS}
     enmienda_1 = _leer_json(RUTA_DE_LA_ENMIENDA_1)
     reconciliacion = (
         {"no_aplica": "--humo corre 1 repetición y 1 pliegue por conjunto: el plan del "
@@ -1326,6 +1842,7 @@ def _componer_y_guardar(resultados, previos, veredictos_por_conjunto, veredicto,
         "enmienda_2": enmienda_2,
         "allstate_declarado": enmienda_1.get("allstate_declarado"),
         "allstate_medido": allstate_medido(resultados),
+        "parada_temprana_declarada": parada_temprana_declarada(resultados),
         "procedencia": procedencia, "procedencias": procedencias,
         "n_intentos_sin_procedencia": sin_procedencia,
         "parcial": parcial, "es_humo": tipo == "humo",
@@ -1361,6 +1878,10 @@ def _componer_y_guardar(resultados, previos, veredictos_por_conjunto, veredicto,
         "registros_conservados_por_dataset": {
             d: sum(1 for r in conservados if r["dataset"] == d)
             for d in sorted({r["dataset"] for r in conservados})},
+        "n_intentos_reintentados": len(reintentados),
+        "conjuntos_con_intentos_reintentados": sorted({t["dataset"] for t in reintentados}),
+        "que_son_los_intentos_reintentados": QUE_SON_LOS_REINTENTADOS,
+        "intentos_reintentados": reintentados,
         "que_cubren_el_veredicto_y_n_intentos": (
             "SOLO los conjuntos de esta ejecución (datasets_declarados). `resultados` es el "
             "fichero fusionado: incluye los registros conservados de ejecuciones anteriores, "
@@ -1402,11 +1923,270 @@ CONJUNTOS_DE_LA_ESTIMACION = (
 )
 
 #: La ventana de la cola nocturna: cron a las 00:30, la suite nocturna
-#: (~1 h 45) primero, y ningún trabajo empieza después de las 08:00.
+#: (~1 h 45) primero, y ningún trabajo empieza después de las 08:00. El
+#: «01:45» es lo SUPUESTO, y solo se usa si no hay un fin de la suite MEDIDO
+#: (`fin_de_la_suite_nocturna_medido`): el 30-09 acabó a las 01:57:12 y
+#: crece cada día (auditoría 3, I1).
 VENTANA_NOCTURNA = ("01:45", "08:00")
 #: De día (`COLA_HASTA=23`): ningún trabajo cuya estimación pase de las 23:00.
 HORA_LIMITE_DE_DIA = "23:00"
 HORA_DE_INICIO_DE_DIA = "08:00"
+
+# --- I1 (auditoría 3): la orden de encolado que sirve -----------------------
+#: `~/cola-nocturna.sh` (LEÍDO el 30-09, no supuesto): se salta un trabajo si
+#: su ESTIMADA_S pasa de lo que queda hasta las 08:00 (de noche) o hasta
+#: COLA_HASTA (de día, 23:00); después espera hasta 1 h a que la carga baje
+#: de 4 (120 × 30 s), y lo corre con `timeout <tope>`. Con el candado cogido:
+#: la nocturna de las 00:30 que lo encuentre NO corre (ni sus suites).
+RESUMEN_DE_LA_COLA = Path.home() / "cola-nocturna" / "resumen.txt"
+NOCHES_QUE_SE_MIRAN = 7
+#: Sobre el fin MÁS TARDÍO medido: la suite crece (+12 min del 29 al 30-09).
+MARGEN_SOBRE_EL_FIN_DE_LA_SUITE_S = 15 * 60
+ESPERA_MAXIMA_POR_CARGA_S = 3600
+HORA_DE_LA_COLA_NOCTURNA = "00:30"
+#: EL TOPE DE DÍA: la estimación × 1,25 (y al menos +1 h), redondeado a
+#: 100 s. Por qué ese margen, y no otro:
+#: * el tope no es la estimación: con tope = estimada, cualquier desviación
+#:   al alza corta la pasada (la orden de antes ponía 22.500 con 7,13 h
+#:   estimadas: el corte estaba garantizado);
+#: * la estimación mide UN intento de 15 en 8 conjuntos y SUPONE los otros
+#:   24 por celdas; lo medido dos veces coincide (Allstate 410,1 y 412,9 s),
+#:   la preparación del padre de KDDCup09 va +5 min por encima (M4), y un
+#:   intento en carga puede doblar su duración (micro-mass, I5): un 25 %
+#:   (1,8 h sobre 7,13) cubre que TODOS los supuestos salgan un 40 % más
+#:   caros (son 4,07 de las 7,13 h en la estimación del 30-09);
+#: * la cota de peor caso (cada intento su presupuesto entero, 29,8 h) no
+#:   sirve de tope: no cabe en ningún día;
+#: * un tope corto no pierde nada (el caché reanuda: se encola la
+#:   continuación con COMMITS=), pero cuesta otra ventana; uno largo solo
+#:   cuesta si algo se cuelga. Y lo acota la nocturna: lanzada de día, la
+#:   pasada tiene que acabar antes de las 00:30.
+MARGEN_DEL_TOPE_SOBRE_LA_ESTIMACION = 1.25
+MARGEN_MINIMO_DEL_TOPE_S = 3600
+SALIDA_EN_LA_COLA = ("/home/deployer/cola-nocturna/resultados/119-c3/"
+                     "pasada_119_c3_resultado.json")
+ORDEN_DE_LA_COLA_DE_DIA = ("setsid nohup env COLA_SIN_SUITE=1 COLA_HASTA=23 ~/cola-nocturna.sh "
+                           ">> ~/cola-nocturna/dia.log 2>&1 < /dev/null & disown")
+
+
+def _hhmmss(segundos: int) -> str:
+    segundos = int(segundos) % 86400
+    return f"{segundos // 3600:02d}:{segundos % 3600 // 60:02d}:{segundos % 60:02d}"
+
+
+def _segundos_del_dia(hora: str) -> int:
+    partes = [int(p) for p in hora.split(":")] + [0, 0]
+    return partes[0] * 3600 + partes[1] * 60 + partes[2]
+
+
+def fin_de_la_suite_nocturna_medido(ruta: Path | None = None) -> dict:
+    """La hora a la que ACABÓ la suite nocturna las últimas noches, leída de
+    `~/cola-nocturna/resumen.txt` (sus líneas «suite nocturna: AAAA-MM-DD
+    HH:MM:SS · …» escritas al acabarla; la cola de día las repite y no
+    cuentan), de las últimas `NOCHES_QUE_SE_MIRAN`. La ventana nocturna
+    empieza en la MÁS TARDÍA + un margen. Sin fichero o sin líneas, lo
+    supuesto (01:45), diciéndolo."""
+    ruta = Path(ruta if ruta is not None else RESUMEN_DE_LA_COLA)
+    medidos: dict[str, str] = {}
+    try:
+        texto = ruta.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        texto = ""
+    # Solo la línea que la cola escribe AL ACABAR su suite (su hora = la del fin
+    # de la suite, ±5 min): las de la cola de día repiten la última suite, y la
+    # del 25-09 (13:18) repetía una de antes de que la cola existiera (04:19).
+    patron = (r"(?m)^(\d{4}-\d\d-\d\d)T(\d\d:\d\d:\d\d)\S* suite nocturna: "
+              r"(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)")
+    for fecha_linea, hora_linea, fecha, hora in re.findall(patron, texto):
+        if fecha_linea == fecha and abs(_segundos_del_dia(hora_linea)
+                                        - _segundos_del_dia(hora)) <= 300:
+            medidos[fecha] = hora
+    ultimas = dict(sorted(medidos.items())[-NOCHES_QUE_SE_MIRAN:])
+    if not ultimas:
+        return {"medido": False, "desde": VENTANA_NOCTURNA[0], "fuente": str(ruta),
+                "motivo": "sin fin de la suite medido: se usa lo supuesto (01:45), que el 30-09 "
+                          "ya se quedaba corto (acabó a las 01:57:12)"}
+    mas_tarde = max(ultimas.values(), key=_segundos_del_dia)
+    return {"medido": True, "fuente": str(ruta), "noches": ultimas, "mas_tarde": mas_tarde,
+            "margen_s": MARGEN_SOBRE_EL_FIN_DE_LA_SUITE_S,
+            "desde": _hhmmss(_segundos_del_dia(mas_tarde) + MARGEN_SOBRE_EL_FIN_DE_LA_SUITE_S)}
+
+
+def _commits_de_ahora() -> dict:
+    """El HEAD de los dos repos al estimar (los que la cola fija si no se
+    le dice otro) y si tienen cambios sin commitear (que la cola NO lleva)."""
+    import subprocess  # noqa: PLC0415
+
+    salida = {}
+    for nombre, raiz in (("matrixAI", c3._RAIZ_DEL_CORE), ("matrixai-engines",
+                                                           c3._RAIZ_DE_ENGINES.parent)):
+        try:
+            sha = subprocess.run(["git", "-C", str(raiz), "rev-parse", "HEAD"], capture_output=True,
+                                 text=True, timeout=30, check=True).stdout.strip()
+            sucio = bool(subprocess.run(["git", "-C", str(raiz), "status", "--short",
+                                         "--untracked-files=no"], capture_output=True, text=True,
+                                        timeout=30).stdout.strip())
+        except (OSError, subprocess.SubprocessError):
+            sha, sucio = None, None
+        salida[nombre] = {"sha": sha, "sin_commitear": sucio}
+    return salida
+
+
+def para_encolar(estimada_s: float, *, memoria: str, commits: dict,
+                 fin_de_la_suite: dict) -> dict:
+    """Las órdenes de encolado, PURA (se prueba con números fabricados).
+
+    DE DÍA (`COLA_SIN_SUITE=1 COLA_HASTA=23`), lo recomendado: ESTIMADA_S =
+    la estimación ENTERA (sin recortar a ninguna ventana) y el tope con su
+    margen; se lanza antes de la hora a la que ya no cabría (la cola no la
+    empieza si la estimación pasa de las 23:00, y el tope —más la hora que
+    puede esperar a la carga— tiene que acabar antes de las 00:30, o se come
+    la nocturna). DE NOCHE, desde el fin de la suite MEDIDO: si no cabe, lo
+    dice y da una orden por noche con los MISMOS commits (COMMITS=), para
+    que la continuación reuse lo medido."""
+    estimada = int(math.ceil(estimada_s))
+    tope = int(math.ceil(max(estimada * MARGEN_DEL_TOPE_SOBRE_LA_ESTIMACION,
+                             estimada + MARGEN_MINIMO_DEL_TOPE_S) / 100.0) * 100)
+    shas = {n: (c or {}).get("sha") for n, c in commits.items()}
+    fijar = ("COMMITS=" + ",".join(f"{n}={shas.get(n) or '<sha>'}"
+                                   for n in ("matrixAI", "matrixai-engines")))
+
+    def orden(nombre: str, est: int, tope_s: int) -> str:
+        return (f"{fijar} ESTIMADA_S={est} ~/encolar.sh {nombre} {tope_s} {memoria} matrixAI "
+                f"python3 benchmarks/fase0/pasada_119_c3.py --salida {SALIDA_EN_LA_COLA}")
+
+    # De día: la última hora de lanzar la cola.
+    por_la_estimacion = _segundos_del_dia(HORA_LIMITE_DE_DIA) - estimada
+    por_la_nocturna = (86400 + _segundos_del_dia(HORA_DE_LA_COLA_NOCTURNA) - tope
+                       - ESPERA_MAXIMA_POR_CARGA_S)
+    ultima = min(por_la_estimacion, por_la_nocturna)
+    cabe_de_dia = ultima >= _segundos_del_dia(HORA_DE_INICIO_DE_DIA)
+    de_dia = {
+        "estimada_s": estimada, "tope_s": tope,
+        "margen_del_tope": (f"x{MARGEN_DEL_TOPE_SOBRE_LA_ESTIMACION} sobre la estimación, al "
+                            f"menos +{MARGEN_MINIMO_DEL_TOPE_S} s (MARGEN_DEL_TOPE_SOBRE_LA_"
+                            f"ESTIMACION: el porqué, en el guion)"),
+        "cabe": cabe_de_dia,
+        "encolar": orden("119-c3", estimada, tope),
+        "lanzar_la_cola": ORDEN_DE_LA_COLA_DE_DIA,
+        "lanzar_antes_de": _hhmmss(ultima) if cabe_de_dia else None,
+        "por_que_esa_hora": (
+            f"la cola no empieza un trabajo cuya ESTIMADA_S pase de las {HORA_LIMITE_DE_DIA} "
+            f"(-> {_hhmmss(por_la_estimacion)}), y con el tope entero más la hora que puede "
+            f"esperar a la carga tiene que acabar antes de las {HORA_DE_LA_COLA_NOCTURNA}, o la "
+            f"nocturna encuentra el candado y no corre sus suites (-> {_hhmmss(por_la_nocturna)})"),
+        "si_se_corta": ("rc=124 en ~/cola-nocturna/resumen.txt: lo medido queda en la salida "
+                        "(punto de control por repetición); se encola la continuación con los "
+                        "MISMOS commits y ESTIMADA_S = lo que falte: "
+                        + orden("119-c3-b", "<lo que falte>", tope)),
+    }
+    desde = fin_de_la_suite["desde"]
+    ventana = _segundos_del_dia(VENTANA_NOCTURNA[1]) - _segundos_del_dia(desde)
+    noches = max(1, math.ceil(estimada / ventana))
+    ordenes, restante = [], estimada
+    for i in range(noches):
+        ordenes.append(orden("119-c3" if i == 0 else f"119-c3-noche{i + 1}",
+                             min(ventana, restante), ventana))
+        restante -= ventana
+    de_noche = {
+        "desde": desde, "hasta": VENTANA_NOCTURNA[1], "segundos": ventana,
+        "fin_de_la_suite": fin_de_la_suite,
+        "cabe": estimada <= ventana, "noches": noches,
+        "ordenes_una_por_noche": ordenes,
+        "como": ("cada noche, la suite; después, el primer pendiente cuya ESTIMADA_S quepa hasta "
+                 "las 08:00, cortado por su tope. ESTIMADA_S de cada noche = la ventana (o lo que "
+                 "falte): solo decide si arranca. Las continuaciones llevan COMMITS= para correr "
+                 "el MISMO código y que el caché reconozca lo ya medido"),
+    }
+    if estimada > ventana:
+        de_noche["aviso"] = (f"NO CABE EN UNA NOCHE: {estimada} s estimados y la ventana, desde el "
+                             f"fin de la suite medido ({desde}) hasta las {VENTANA_NOCTURNA[1]}, "
+                             f"es de {ventana} s: {noches} noches, una orden por noche, las "
+                             f"de continuación con COMMITS=")
+    return {
+        "recomendada": "de_dia" if cabe_de_dia else "de_noche",
+        "de_dia": de_dia, "de_noche": de_noche,
+        "commits_al_estimar": commits,
+        "aviso_de_commits": ("los HEAD de ahora: si se encola otro commit, se vuelve a estimar "
+                             "(o se ponen los suyos). Lo no commiteado NO entra en la cola"),
+        "por_que_la_salida_fuera_del_arbol": (
+            "la cola borra sus worktrees al terminar: con la salida dentro, la noche siguiente "
+            "no encontraría el caché y lo mediría todo otra vez"),
+        "por_que_COMMITS": ("las continuaciones con el MISMO commit: con otro, el digest del "
+                            "entorno puede cambiar e invalidar lo ya medido"),
+    }
+
+
+# --- M3 (auditoría 3): la memoria, medida y no inflada -----------------------
+_PAGINA_KB = resource.getpagesize() // 1024
+
+
+def _rss_del_arbol_kb(raiz: int) -> int:
+    """La SUMA del RSS de `raiz` y de todos sus descendientes, leída de /proc."""
+    import os  # noqa: PLC0415
+
+    hijos: dict[int, list[int]] = {}
+    for entrada in os.scandir("/proc"):
+        if not entrada.name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entrada.name}/stat", "rb") as f:
+                stat = f.read()
+        except OSError:
+            continue
+        campos = stat[stat.rfind(b")") + 2:].split()
+        hijos.setdefault(int(campos[1]), []).append(int(entrada.name))
+    total, pendientes, vistos = 0, [raiz], set()
+    while pendientes:
+        pid = pendientes.pop()
+        if pid in vistos:
+            continue
+        vistos.add(pid)
+        try:
+            with open(f"/proc/{pid}/statm", "rb") as f:
+                total += int(f.read().split()[1]) * _PAGINA_KB
+        except (OSError, IndexError, ValueError):
+            continue
+        pendientes.extend(hijos.get(pid, []))
+    return total
+
+
+class _PicoDeMemoriaDelArbol:
+    """Muestrea cada `cada_s` la suma del RSS del proceso y sus descendientes
+    y se queda con el pico: lo que un `MemoryMax` ve de verdad (más o menos:
+    las páginas compartidas cuentan dos veces y la caché de ficheros no
+    cuenta). `ru_maxrss` de los hijos NO sirve: hereda el RSS del padre en el
+    fork previo al exec (medido: padre 2.816,8 MB = hijos 2.816,8 MB)."""
+
+    def __init__(self, cada_s: float = 0.5):
+        import os  # noqa: PLC0415
+        import threading  # noqa: PLC0415
+
+        self._pid, self._cada_s, self.pico_kb = os.getpid(), cada_s, 0
+        self._parar = threading.Event()
+        self._hilo = threading.Thread(target=self._muestrear, daemon=True)
+
+    def _muestrear(self) -> None:
+        while True:
+            try:
+                self.pico_kb = max(self.pico_kb, _rss_del_arbol_kb(self._pid))
+            except Exception:  # noqa: BLE001 -- medir no puede tumbar la estimación
+                pass
+            if self._parar.wait(self._cada_s):
+                return
+
+    def __enter__(self):
+        self._hilo.start()
+        return self
+
+    def __exit__(self, *_):
+        self._parar.set()
+        self._hilo.join(timeout=10)
+        self.pico_kb = max(self.pico_kb, _rss_del_arbol_kb(self._pid))
+
+    @property
+    def pico_mb(self) -> float:
+        return round(self.pico_kb / 1024, 1)
 
 
 def _segundos_entre(desde: str, hasta: str) -> int:
@@ -1440,7 +2220,8 @@ def _escalar_por_celdas(x: float, puntos: list[tuple[float, float]]) -> float:
 
 def estimar_desde_medidas(medidas: dict[str, dict], conjuntos: list[dict], *, margen_s: float,
                           ventana_nocturna_s: int, ventana_de_dia_s: int,
-                          ventana_de_dia_desde_ahora_s: int | None = None) -> dict:
+                          ventana_de_dia_desde_ahora_s: int | None = None,
+                          ventana_nocturna_desde: str = VENTANA_NOCTURNA[0]) -> dict:
     """La cuenta, PURA (se prueba con medidas fabricadas).
 
     `conjuntos`: [{nombre, cubo, celdas, n_intentos, presupuesto_wall_s}].
@@ -1483,7 +2264,7 @@ def estimar_desde_medidas(medidas: dict[str, dict], conjuntos: list[dict], *, ma
         "por_conjunto": detalle,
         "total_horas": round(total_s / 3600, 2),
         "total_horas_cota": round(cota_s / 3600, 2),
-        "ventana_nocturna": {"desde": VENTANA_NOCTURNA[0], "hasta": VENTANA_NOCTURNA[1],
+        "ventana_nocturna": {"desde": ventana_nocturna_desde, "hasta": VENTANA_NOCTURNA[1],
                              "segundos": ventana_nocturna_s,
                              "cabe": total_s <= ventana_nocturna_s,
                              "noches_necesarias": max(1, math.ceil(total_s / ventana_nocturna_s)),
@@ -1511,7 +2292,15 @@ def estimar_desde_medidas(medidas: dict[str, dict], conjuntos: list[dict], *, ma
 
 def _medir_un_intento_real(ds, protocolo, motor, payload_v2) -> dict:
     """UN intento real (repetición 0, pliegue 0) con el presupuesto REAL de su
-    cubo y 4 hilos, con la carga y la preparación del padre medidas aparte."""
+    cubo y 4 hilos, con la carga y la preparación del padre medidas aparte, y
+    el pico de memoria del ÁRBOL de procesos (padre + hijo) muestreado."""
+    with _PicoDeMemoriaDelArbol() as memoria:
+        medida = _medir_un_intento_real_sin_memoria(ds, protocolo, motor, payload_v2)
+    medida["rss_pico_mb_del_arbol_de_procesos"] = memoria.pico_mb
+    return medida
+
+
+def _medir_un_intento_real_sin_memoria(ds, protocolo, motor, payload_v2) -> dict:
     t_carga = time.perf_counter()
     por_id, propuesta, spec, objetivo, predictores, particion = c5.particiones_base(ds, protocolo)
     carga_s = time.perf_counter() - t_carga
@@ -1558,7 +2347,9 @@ def _medir_un_intento_real(ds, protocolo, motor, payload_v2) -> dict:
         "arquitectura": config.get("arquitectura"),
         "rss_pico_mb_del_hijo": recursos.get("peak_ram_mb"),
         "maxrss_mb_del_padre": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
-        "maxrss_mb_de_los_hijos": round(
+        # NO es el pico del hijo: hereda el RSS del padre en el fork previo al
+        # exec (M3). Se deja, con su nombre; la memoria sale del muestreo.
+        "maxrss_mb_de_los_hijos_hereda_el_del_padre": round(
             resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024, 1),
     }
 
@@ -1612,15 +2403,17 @@ def cmd_estimar(protocolo, todos, no_sellados, *, ruta_salida: Path, conjuntos: 
               f"{m['preparacion_s']:.1f}s, estado={m['estado']}, "
               f"entrenamiento_efectivo={m['entrenamiento_efectivo']}", flush=True)
     ahora = time.localtime()
+    fin_de_la_suite = fin_de_la_suite_nocturna_medido()
     estimacion = estimar_desde_medidas(
         medidas, _conjuntos_para_estimar(no_sellados, protocolo, payload_v2),
         margen_s=MARGEN_POR_DEFECTO_SEGUNDOS,
-        ventana_nocturna_s=_segundos_entre(*VENTANA_NOCTURNA),
+        ventana_nocturna_s=(_segundos_del_dia(VENTANA_NOCTURNA[1])
+                            - _segundos_del_dia(fin_de_la_suite["desde"])),
+        ventana_nocturna_desde=fin_de_la_suite["desde"],
         ventana_de_dia_s=_segundos_entre(HORA_DE_INICIO_DE_DIA, HORA_LIMITE_DE_DIA),
         ventana_de_dia_desde_ahora_s=_segundos_hasta(HORA_LIMITE_DE_DIA, ahora))
-    pico_mb = max([(m["maxrss_mb_del_padre"] or 0) + max(m["rss_pico_mb_del_hijo"] or 0,
-                                                          m["maxrss_mb_de_los_hijos"] or 0)
-                   for m in medidas.values()] or [0])
+    pico_mb = max([m["rss_pico_mb_del_arbol_de_procesos"] or 0 for m in medidas.values()] or [0])
+    memory_max = f"{max(4, math.ceil(pico_mb * 1.3 / 1024))}G"
     ventana = estimacion["ventana_nocturna"]["segundos"]
     enmienda_1 = _leer_json(RUTA_DE_LA_ENMIENDA_1)
     salida = {
@@ -1641,21 +2434,21 @@ def cmd_estimar(protocolo, todos, no_sellados, *, ruta_salida: Path, conjuntos: 
         "allstate": {"declarado_por_la_enmienda_1": enmienda_1.get("allstate_declarado"),
                      "medido_aqui": (medidas.get("Allstate_Claims_Severity") or {}).get(
                          "entrenamiento_efectivo")},
-        "memoria": {"pico_medido_mb_padre_mas_hijo": pico_mb,
-                    "memory_max_sugerido": f"{max(4, math.ceil(pico_mb * 1.3 / 1024))}G"},
-        "para_encolar": {
-            "tope_s": ventana, "estimada_s": int(min(estimacion["total_horas"] * 3600, ventana)),
-            "noches": estimacion["ventana_nocturna"]["noches_necesarias"],
-            "orden": ("ESTIMADA_S=<estimada_s> [COMMITS=matrixAI=<sha>,matrixai-engines=<sha>] "
-                      "~/encolar.sh 119-c3 <tope_s> <memory_max> matrixAI python3 "
-                      "benchmarks/fase0/pasada_119_c3.py --salida "
-                      "/home/deployer/cola-nocturna/resultados/119-c3/pasada_119_c3_resultado.json"),
-            "por_que_la_salida_fuera_del_arbol": (
-                "la cola borra sus worktrees al terminar: con la salida dentro, la noche siguiente "
-                "no encontraría el caché y lo mediría todo otra vez"),
-            "por_que_COMMITS": ("las noches de continuación con el MISMO commit: con otro, el "
-                                "digest del entorno puede cambiar e invalidar lo ya medido"),
-        },
+        "memoria": {
+            "pico_mb_del_arbol_de_procesos": pico_mb,
+            "que_mide": ("la SUMA del RSS del padre y de todos sus descendientes, muestreada cada "
+                         "0,5 s mientras se carga, se prepara y corre cada intento medido: lo que "
+                         "ve un MemoryMax, con las páginas compartidas contadas dos veces y sin la "
+                         "caché de ficheros"),
+            "por_que_ya_no_se_suma_maxrss": (
+                "ru_maxrss de los hijos hereda el RSS del padre en el fork previo al exec "
+                "(medido: padre 2.816,8 MB = hijos 2.816,8 MB); sumarlo al del padre contaba el "
+                "padre dos veces (5.633 MB declarados; el pico del cgroup medido por la "
+                "auditoría 3 fue 3.951 MB)"),
+            "memory_max_sugerido": memory_max},
+        "para_encolar": para_encolar(estimacion["total_horas"] * 3600, memoria=memory_max,
+                                     commits=_commits_de_ahora(),
+                                     fin_de_la_suite=fin_de_la_suite),
     }
     _escribir_atomicamente(ruta_salida, salida)
     print(f"\nestimación escrita en {ruta_salida}")
@@ -1664,6 +2457,18 @@ def cmd_estimar(protocolo, todos, no_sellados, *, ruta_salida: Path, conjuntos: 
           f"{'CABE' if estimacion['ventana_nocturna']['cabe'] else 'NO CABE'} "
           f"({estimacion['ventana_nocturna']['noches_necesarias']} noche/s); de día "
           f"{'cabe' if estimacion['de_dia']['cabe'] else 'no cabe'}")
+    encolar = salida["para_encolar"]
+    dia, noche = encolar["de_dia"], encolar["de_noche"]
+    print(f"  memoria: pico del árbol de procesos {pico_mb:.0f} MB -> MemoryMax {memory_max}")
+    if dia["cabe"]:
+        print(f"  DE DÍA (recomendada), lanzando la cola antes de las {dia['lanzar_antes_de']}:\n"
+              f"    {dia['encolar']}\n    {dia['lanzar_la_cola']}")
+    else:
+        print("  DE DÍA NO CABE (ni lanzándola a las 08:00)")
+    if not noche["cabe"]:
+        print(f"  DE NOCHE: {noche['aviso']}")
+    for i, orden in enumerate(noche["ordenes_una_por_noche"], start=1):
+        print(f"    noche {i}: {orden}")
 
 
 if __name__ == "__main__":
