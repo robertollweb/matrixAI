@@ -1027,13 +1027,25 @@ def tipo_de_ejecucion(*, humo: bool, solo: str | None, estimar: bool) -> str:
     return "pasada"
 
 
-def ruta_de_salida(tipo: str, salida: str | None) -> Path:
+def ruta_de_salida(tipo: str, salida: str | None, *, salida_por_omision: dict | None = None,
+                   ruta_resultado_real: Path | None = None) -> Path:
     """Dónde escribe cada tipo. `--solo`/`--humo`/`--estimar` van, por
     omisión, a ficheros APARTE, y NUNCA al resultado real aunque se pida con
-    `--salida`. Una ruta absoluta fuera del árbol vale (la cola nocturna)."""
-    ruta = (Path(salida).expanduser() if salida else SALIDA_POR_OMISION[tipo]).resolve()
-    if tipo != "pasada" and ruta == RUTA_DEL_RESULTADO.resolve():
-        raise SystemExit(f"--{tipo} no escribe en el resultado real ({RUTA_DEL_RESULTADO.name}): "
+    `--salida`. Una ruta absoluta fuera del árbol vale (la cola nocturna).
+
+    PARAMETRIZADA para 119-C4 (auditoría del encargo, 30-09): C4 reutiliza
+    esta función TAL CUAL, con SU propio mapa de rutas por omisión y SU
+    propio resultado real -- nunca el de C3, que es justo lo que esta
+    función impedía pisar. Sin los dos kwargs nuevos (los dos `None` por
+    omisión), el comportamiento es EXACTAMENTE el de antes: los valores que
+    se usan entonces son los propios de C3 (`SALIDA_POR_OMISION`,
+    `RUTA_DEL_RESULTADO`), como siempre."""
+    salida_por_omision = salida_por_omision if salida_por_omision is not None else SALIDA_POR_OMISION
+    ruta_resultado_real = (ruta_resultado_real if ruta_resultado_real is not None
+                           else RUTA_DEL_RESULTADO)
+    ruta = (Path(salida).expanduser() if salida else salida_por_omision[tipo]).resolve()
+    if tipo != "pasada" and ruta == ruta_resultado_real.resolve():
+        raise SystemExit(f"--{tipo} no escribe en el resultado real ({ruta_resultado_real.name}): "
                          f"una prueba no puede pisar una noche de medición")
     return ruta
 
@@ -1318,6 +1330,27 @@ def veredicto_final(*, resultados_v2: list[dict], resultados_del_motor_nuevo: li
     densa v2 sustituida por él) y sobre la v2 SIN TOCAR para la densa v2 —
     la referencia no puede medirse con el motor nuevo dentro—, con los
     intentos sin medida de cada uno contados como fallo (I2 a)."""
+    cumplidos_nuevo, cumplidos_v2 = cumplidos_de_los_dos_motores(
+        resultados_v2=resultados_v2, resultados_del_motor_nuevo=resultados_del_motor_nuevo,
+        esperadas_por_conjunto=esperadas_por_conjunto, regla=regla,
+        metrica_por_dataset=metrica_por_dataset,
+        nombres_de_los_conjuntos=nombres_de_los_conjuntos)
+    return veredicto_de_c3(veredictos_por_conjunto, cumplidos_con_el_motor_nuevo=cumplidos_nuevo,
+                           cumplidos_de_la_densa_v2=cumplidos_v2)
+
+
+def cumplidos_de_los_dos_motores(*, resultados_v2: list[dict],
+                                 resultados_del_motor_nuevo: list[dict],
+                                 esperadas_por_conjunto: dict,
+                                 regla: protocolo_mod.ReglaDeCierre,
+                                 metrica_por_dataset: dict[str, str],
+                                 nombres_de_los_conjuntos: list[str]) -> tuple[dict, dict]:
+    """La condición 1 de `veredicto_final`, para el motor nuevo y para la
+    densa v2: `(cumplidos_nuevo, cumplidos_v2)`. EXTRAÍDA para 119-C4
+    (auditoría del guion de C4, M6: allí era una copia de este cuerpo),
+    que la llama TAL CUAL sobre los 8 sellados. Sin cambio de
+    comportamiento para C3: `veredicto_final` hace exactamente lo de antes
+    (probado: `test_119_c3_pasada.py` sigue en verde)."""
     campo = p118.campo_de_la_comparacion(resultados_v2, resultados_del_motor_nuevo,
                                          set(nombres_de_los_conjuntos))
     densa_v2 = [r for r in resultados_v2 if r["motor"] == NOMBRE_DENSA_V2]
@@ -1337,8 +1370,7 @@ def veredicto_final(*, resultados_v2: list[dict], resultados_del_motor_nuevo: li
         resultados_v2 + fallos_v2, regla, motor=NOMBRE_DENSA_V2,
         metrica_por_dataset=metrica_por_dataset,
         nombres_de_los_conjuntos=nombres_de_los_conjuntos, con_detalle=True)
-    return veredicto_de_c3(veredictos_por_conjunto, cumplidos_con_el_motor_nuevo=cumplidos_nuevo,
-                           cumplidos_de_la_densa_v2=cumplidos_v2)
+    return cumplidos_nuevo, cumplidos_v2
 
 
 # ---------------------------------------------------------------------------
@@ -2033,7 +2065,9 @@ def _commits_de_ahora() -> dict:
 
 
 def para_encolar(estimada_s: float, *, memoria: str, commits: dict,
-                 fin_de_la_suite: dict) -> dict:
+                 fin_de_la_suite: dict, nombre_del_trabajo: str = "119-c3",
+                 guion: str = "benchmarks/fase0/pasada_119_c3.py",
+                 salida_en_la_cola: str = SALIDA_EN_LA_COLA) -> dict:
     """Las órdenes de encolado, PURA (se prueba con números fabricados).
 
     DE DÍA (`COLA_SIN_SUITE=1 COLA_HASTA=23`), lo recomendado: ESTIMADA_S =
@@ -2043,7 +2077,13 @@ def para_encolar(estimada_s: float, *, memoria: str, commits: dict,
     puede esperar a la carga— tiene que acabar antes de las 00:30, o se come
     la nocturna). DE NOCHE, desde el fin de la suite MEDIDO: si no cabe, lo
     dice y da una orden por noche con los MISMOS commits (COMMITS=), para
-    que la continuación reuse lo medido."""
+    que la continuación reuse lo medido.
+
+    PARAMETRIZADA para 119-C4 (cambio mínimo, misma razón que `ruta_de_
+    salida`): `nombre_del_trabajo`, `guion` y `salida_en_la_cola` tienen los
+    valores de C3 por omisión, así que sin pasarlos el comportamiento no
+    cambia -- C4 pasa los suyos para no encolar (por el nombre o el guion)
+    una pasada de C3 cuando en realidad es la confirmación en los sellados."""
     estimada = int(math.ceil(estimada_s))
     tope = int(math.ceil(max(estimada * MARGEN_DEL_TOPE_SOBRE_LA_ESTIMACION,
                              estimada + MARGEN_MINIMO_DEL_TOPE_S) / 100.0) * 100)
@@ -2053,7 +2093,7 @@ def para_encolar(estimada_s: float, *, memoria: str, commits: dict,
 
     def orden(nombre: str, est: int, tope_s: int) -> str:
         return (f"{fijar} ESTIMADA_S={est} ~/encolar.sh {nombre} {tope_s} {memoria} matrixAI "
-                f"python3 benchmarks/fase0/pasada_119_c3.py --salida {SALIDA_EN_LA_COLA}")
+                f"python3 {guion} --salida {salida_en_la_cola}")
 
     # De día: la última hora de lanzar la cola.
     por_la_estimacion = _segundos_del_dia(HORA_LIMITE_DE_DIA) - estimada
@@ -2067,7 +2107,7 @@ def para_encolar(estimada_s: float, *, memoria: str, commits: dict,
                             f"menos +{MARGEN_MINIMO_DEL_TOPE_S} s (MARGEN_DEL_TOPE_SOBRE_LA_"
                             f"ESTIMACION: el porqué, en el guion)"),
         "cabe": cabe_de_dia,
-        "encolar": orden("119-c3", estimada, tope),
+        "encolar": orden(nombre_del_trabajo, estimada, tope),
         "lanzar_la_cola": ORDEN_DE_LA_COLA_DE_DIA,
         "lanzar_antes_de": _hhmmss(ultima) if cabe_de_dia else None,
         "por_que_esa_hora": (
@@ -2078,14 +2118,14 @@ def para_encolar(estimada_s: float, *, memoria: str, commits: dict,
         "si_se_corta": ("rc=124 en ~/cola-nocturna/resumen.txt: lo medido queda en la salida "
                         "(punto de control por repetición); se encola la continuación con los "
                         "MISMOS commits y ESTIMADA_S = lo que falte: "
-                        + orden("119-c3-b", "<lo que falte>", tope)),
+                        + orden(f"{nombre_del_trabajo}-b", "<lo que falte>", tope)),
     }
     desde = fin_de_la_suite["desde"]
     ventana = _segundos_del_dia(VENTANA_NOCTURNA[1]) - _segundos_del_dia(desde)
     noches = max(1, math.ceil(estimada / ventana))
     ordenes, restante = [], estimada
     for i in range(noches):
-        ordenes.append(orden("119-c3" if i == 0 else f"119-c3-noche{i + 1}",
+        ordenes.append(orden(nombre_del_trabajo if i == 0 else f"{nombre_del_trabajo}-noche{i + 1}",
                              min(ventana, restante), ventana))
         restante -= ventana
     de_noche = {
