@@ -736,16 +736,21 @@ MOTIVOS: dict[str, dict[str, str]] = {
     # adornar: hacía sonar a decisión de ingeniería deliberada lo que es
     # «salió un número más alto y la diferencia no se sostiene».
     #
+    # Y «el número más alto» era FALSO en regresión (01-10): la selección elige
+    # con `es_mejor`, y con RMSE el mejor número es el MÁS BAJO. La misma frase
+    # sirve a las dos direcciones, así que dice «la mejor cifra medida» y no
+    # nombra ninguna (lo vigila `test_c104_c3_seleccion.py`, con RMSE).
+    #
     # Se vio de punta a punta el 2026-09-14 dentro de la imagen del producto:
     # lightgbm ganaba los CINCO pliegues de la búsqueda (media 0,924) y la
     # selección eligió la densa (0,885) sobre 52 observaciones de un solo
     # ajuste. La comparación emparejada hace su trabajo y dice que no hay
     # mejora demostrada; lo que fallaba era la frase que lo contaba.
     "seleccion_eleccion_operativa": {
-        "es": "{campo} tiene el número más alto, pero la comparación emparejada "
+        "es": "{campo} tiene la mejor cifra medida, pero la comparación emparejada "
               "frente al siguiente mejor candidato NO demuestra una mejora: es "
               "una elección bajo incertidumbre, no un ganador claro",
-        "en": "{campo} has the highest number, but the paired comparison "
+        "en": "{campo} has the best measured figure, but the paired comparison "
               "against the next best candidate does NOT demonstrate an "
               "improvement: this is a choice under uncertainty, not a clear "
               "winner",
@@ -780,11 +785,11 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "with a paired difference that excludes a tie",
     },
     "seleccion_eleccion_operativa_sin_nombre": {
-        "es": "El campeón tiene el número más alto, pero la comparación emparejada "
+        "es": "El campeón tiene la mejor cifra medida, pero la comparación emparejada "
               "frente al "
               "siguiente mejor candidato NO demuestra una mejora: es una elección "
               "bajo incertidumbre, no un ganador claro",
-        "en": "The champion has the highest number, but the paired comparison "
+        "en": "The champion has the best measured figure, but the paired comparison "
               "against the "
               "next best candidate does NOT demonstrate an improvement: this is a "
               "choice under uncertainty, not a clear winner",

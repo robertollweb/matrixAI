@@ -134,6 +134,29 @@ class CriterioLiteralTest(unittest.TestCase):
                              "criterio operativo, la frase de la decisión tiene que "
                              "volver a contarlo")
 
+    def test_la_eleccion_bajo_incertidumbre_NO_DICE_el_numero_mas_alto_con_RMSE(self):
+        """01-10: la frase decía «tiene el número más alto», y en regresión la
+        selección elige el RMSE MÁS BAJO (`es_mejor`). La misma frase sirve a
+        las dos direcciones: no puede nombrar ninguna. Las dos variantes (con y
+        sin nombre), en los dos idiomas, y con el ganador comprobado: si la
+        selección eligiera el RMSE alto, la frase vieja habría sido cierta."""
+        evaluaciones = {
+            "lider": _ev("p10", rmse=1.2),
+            "segundo": _ev("p11", rmse=1.5),
+        }
+        for nombrar in (True, False):
+            r = seleccionar(evaluaciones, restricciones=[], metric_id_calidad="rmse",
+                            decision_id="d4d", split_plan_digest="split-1",
+                            comparacion_lider=_comparacion("inconcluso"),
+                            nombrar_candidatos=nombrar)
+            self.assertEqual(r.chosen_candidate, "lider")
+            self.assertIn("NO demuestra una mejora", r.reason["es"])
+            for direccion in ("más alto", "más bajo", "highest", "lowest"):
+                self.assertNotIn(direccion, r.reason["es"] + " " + r.reason["en"],
+                                 f"la frase dice «{direccion}»: con RMSE el campeón tiene el número más BAJO")
+            self.assertIn("la mejor cifra medida", r.reason["es"])
+            self.assertIn("the best measured figure", r.reason["en"])
+
 
 class LaFraseNoNombraAlCandidatoTest(unittest.TestCase):
     """`nombrar_candidatos=False` — decisión de Roberto del 2026-09-21: «el
