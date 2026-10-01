@@ -120,7 +120,9 @@ class TestP11Cut7PlaygroundIntegration(unittest.TestCase):
         r = _submit_training_job(_MXAI, _TRAINING, _CSV, epochs_override=2)
         self.assertTrue(r.get("ok"), r.get("error"))
         job_id = r["job_id"]
-        deadline = time.time() + 30
+        # 60 y no 30: el job tarda ~23 s con la máquina quieta (medido el
+        # 2026-10-01); con 30 s, un poco de carga lo dejaba fuera.
+        deadline = time.time() + 60
         while time.time() < deadline:
             status = _get_job_status(job_id)
             if status["status"] in ("done", "error", "cancelled", "timeout"):
