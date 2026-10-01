@@ -1,0 +1,813 @@
+{
+  "decision_d2": {
+    "decision": "entra_en_la_cartera",
+    "fuente": "119_LA_RED_DENSA_NUEVA_CONTRACT.md, decisión D2 de Roberto",
+    "umbral_de_la_cartera": 32
+  },
+  "declarado": {
+    "allstate": {
+      "conjunto": "Allstate_Claims_Severity",
+      "epocas_ejecutadas_max": 5,
+      "epocas_ejecutadas_min": 5,
+      "minimo_de_la_regla": 17,
+      "n_pliegues": 5,
+      "original_es": "Allstate_Claims_Severity entrena las épocas que quepan en el plazo (≈10, menos que las 17 de la regla) y se queda con la mejor época vista: el plazo lo corta, como a la densa de hoy. La paciencia (16) casi no podrá actuar. Se declara en el resultado de C3 junto a su cifra.",
+      "todos_parados_por_el_plazo": true
+    },
+    "otras_redes": {
+      "creado": "2026-09-22T18:22:39Z",
+      "fuente": "pasada_v2_113_resultado.json (congelada)",
+      "se_remidieron": false,
+      "sha256": "3ab8bd3589855e074f1bf21e0f82993f12c08553d8b1950396eaa8a565eecfb1"
+    },
+    "parada_temprana": {
+      "clasificacion_no_es_como_la_fuente": "la fuente para en clasificación con la ACCURACY del ensamblado (accuracy_score de la media de las k predicciones), que tiene mesetas y empates que cuenta como «sin mejora»; este motor para con la LOG-LOSS de las probabilidades promediadas, que no los tiene. Cambia qué época se guarda y cuándo actúa la paciencia, o sea los números. El código cumple lo REGISTRADO (el v4 decía validation_loss); lo que no es cierto es el «como la fuente» de la enmienda 2 en clasificación. No se cambia: la enmienda va sellada y cambiar la parada después de auditar sería otra receta",
+      "conjuntos_de_clasificacion_en_los_no_sellados": [
+        "APSFailure",
+        "Amazon_employee_access",
+        "Internet-Advertisements",
+        "KDDCup09_appetency",
+        "PhishingWebsites",
+        "balance-scale",
+        "climate-model-simulation-crashes",
+        "connect-4",
+        "diabetes",
+        "dresses-sales",
+        "jm1",
+        "kc2",
+        "kick",
+        "mfeat-factors",
+        "micro-mass",
+        "okcupid-stem",
+        "optdigits",
+        "ozone-level-8hr",
+        "pc1",
+        "pc4",
+        "pendigits",
+        "sick",
+        "wilt",
+        "yeast"
+      ],
+      "conjuntos_de_clasificacion_en_los_sellados": [
+        "Satellite",
+        "banknote-authentication",
+        "kr-vs-kp",
+        "letter",
+        "pc3",
+        "splice"
+      ],
+      "metrica": [
+        "validation_loss_del_ensamblado"
+      ],
+      "por_tarea": {
+        "binary_classification": "NO como la fuente: log-loss del ensamblado; la fuente para con su accuracy",
+        "multiclass_classification": "NO como la fuente: log-loss del ensamblado; la fuente para con su accuracy",
+        "regression": "como la fuente: el error cuadrático del ensamblado (la fuente, −RMSE: ordenan igual)"
+      }
+    },
+    "sellados": {
+      "medidos_una_sola_vez": true,
+      "n_intentos": 110,
+      "n_intentos_reintentados": 0,
+      "que_es_x_de_40": "SOLO se compone cuando tipo_de_ejecucion=='pasada' y parcial=False: el X/40 real (protocolo_119_v4.json, veredicto.confirmacion: «la receta elegida, UNA vez, en los SELLADOS; es la cifra que se publica»). `null` en cualquier otro caso (--solo, --estimar, o una pasada real todavía a medias)"
+    }
+  },
+  "detalle_por_conjunto": [
+    {
+      "bloque": "no_sellado",
+      "conjunto": "Allstate_Claims_Severity",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "r2",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": null,
+        "mejor": "xgboost",
+        "perdido_por_fallo": true
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "Amazon_employee_access",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 18.808220360640792,
+        "mejor": "lightgbm",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "APSFailure",
+      "cumple": true,
+      "distancia_en_puntos": 0.08923892188213989,
+      "mejor": "catboost",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 0.4976518958428433,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "balance-scale",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "accuracy",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 0.0,
+        "mejor": "matrixai.dense.torch_cpu",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "sellado",
+      "conjunto": "banknote-authentication",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 0.05104975553636981,
+        "mejor": "sklearn.hgb",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "climate-model-simulation-crashes",
+      "cumple": false,
+      "distancia_en_puntos": 3.022820800598569,
+      "mejor": "catboost",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 2.760942760942753,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "connect-4",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "accuracy",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 4.137063351095316,
+        "mejor": "sklearn.hgb",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "diabetes",
+      "cumple": true,
+      "distancia_en_puntos": 0.1913580246913571,
+      "mejor": "catboost",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 1.0234567901234448,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "sellado",
+      "conjunto": "diamonds",
+      "cumple": true,
+      "distancia_en_puntos": 0.04332192207719965,
+      "mejor": "xgboost",
+      "metrica": "r2",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 0.22525525475979302,
+        "mejor": "xgboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "dresses-sales",
+      "cumple": true,
+      "distancia_en_puntos": 0.6828133552271298,
+      "mejor": "lightgbm",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 2.639573070607537,
+        "mejor": "lightgbm",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "house_16H",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "r2",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 16.48329022695964,
+        "mejor": "lightgbm",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "house_prices_nominal",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "r2",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 11.93748844863648,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "house_sales",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "r2",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 1.6278757081763962,
+        "mejor": "sklearn.hgb",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "Internet-Advertisements",
+      "cumple": true,
+      "distancia_en_puntos": 1.7712508993730003,
+      "mejor": "sklearn.lineal",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 1.487691437968952,
+        "mejor": "sklearn.lineal",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "jm1",
+      "cumple": true,
+      "distancia_en_puntos": 1.1797127640195693,
+      "mejor": "sklearn.hgb",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 2.7503169767899016,
+        "mejor": "sklearn.hgb",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "kc2",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 0.0,
+        "mejor": "matrixai.dense.torch_cpu",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "KDDCup09_appetency",
+      "cumple": true,
+      "distancia_en_puntos": 0.542058758256514,
+      "mejor": "catboost",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": null,
+        "mejor": "catboost",
+        "perdido_por_fallo": true
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "kick",
+      "cumple": true,
+      "distancia_en_puntos": 0.4138926298193568,
+      "mejor": "sklearn.hgb",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 2.3194505826168332,
+        "mejor": "sklearn.hgb",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "sellado",
+      "conjunto": "kr-vs-kp",
+      "cumple": true,
+      "distancia_en_puntos": 0.007984031936125735,
+      "mejor": "lightgbm",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 0.07990576224600199,
+        "mejor": "lightgbm",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "sellado",
+      "conjunto": "letter",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "accuracy",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 13.41995668832251,
+        "mejor": "sklearn.hgb",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "mfeat-factors",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "accuracy",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 2.9000000000000026,
+        "mejor": "sklearn.lineal",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "micro-mass",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "accuracy",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 27.079646017699112,
+        "mejor": "sklearn.hgb",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "Moneyball",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "r2",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 6.230511611905431,
+        "mejor": "sklearn.hgb",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "okcupid-stem",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "accuracy",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 1.8962292015358817,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "optdigits",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "accuracy",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 0.8362989323843495,
+        "mejor": "sklearn.hgb",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "ozone-level-8hr",
+      "cumple": true,
+      "distancia_en_puntos": 0.42894736842105097,
+      "mejor": "xgboost",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 2.4697368421052635,
+        "mejor": "xgboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "pc1",
+      "cumple": true,
+      "distancia_en_puntos": 1.3592233009708687,
+      "mejor": "catboost",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 4.548004314994603,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "sellado",
+      "conjunto": "pc3",
+      "cumple": false,
+      "distancia_en_puntos": 2.636046856465002,
+      "mejor": "catboost",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 4.618549822064056,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "pc4",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 2.4580439814814725,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "pendigits",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "accuracy",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 0.6033045323632025,
+        "mejor": "lightgbm",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "PhishingWebsites",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 0.47582298557116154,
+        "mejor": "lightgbm",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "sellado",
+      "conjunto": "pol",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "r2",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 0.0,
+        "mejor": "matrixai.dense.torch_cpu",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "SAT11-HAND-runtime-regression",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "r2",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 6.381574417576086,
+        "mejor": "xgboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "sellado",
+      "conjunto": "Satellite",
+      "cumple": true,
+      "distancia_en_puntos": 0.18485351022663465,
+      "mejor": "sklearn.lineal",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 0.0,
+        "mejor": "matrixai.dense.torch_cpu",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "sick",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 6.090027020388122,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "sellado",
+      "conjunto": "splice",
+      "cumple": true,
+      "distancia_en_puntos": 0.6165099268547691,
+      "mejor": "xgboost",
+      "metrica": "accuracy",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 2.2048066875653194,
+        "mejor": "xgboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "us_crime",
+      "cumple": true,
+      "distancia_en_puntos": 0.6471814381588836,
+      "mejor": "catboost",
+      "metrica": "r2",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": true,
+        "distancia_en_puntos": 1.4623198244844926,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "wilt",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "auroc",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 3.202748852312176,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "wine_quality",
+      "cumple": true,
+      "distancia_en_puntos": 0.0,
+      "mejor": "matrixai.dense.tabm_cpu",
+      "metrica": "r2",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 5.616222992414633,
+        "mejor": "xgboost",
+        "perdido_por_fallo": false
+      }
+    },
+    {
+      "bloque": "no_sellado",
+      "conjunto": "yeast",
+      "cumple": true,
+      "distancia_en_puntos": 1.593959731543626,
+      "mejor": "catboost",
+      "metrica": "accuracy",
+      "perdido_por_fallo": false,
+      "red_de_antes": {
+        "cumple": false,
+        "distancia_en_puntos": 2.2651006711409405,
+        "mejor": "catboost",
+        "perdido_por_fallo": false
+      }
+    }
+  ],
+  "formato": "119-WEB.v1",
+  "motor": "matrixai.dense.tabm_cpu",
+  "procedencia": {
+    "c3": {
+      "arbol_sucio": false,
+      "artefacto": "resultado_pasada_119_c3.json",
+      "commits": {
+        "matrixAI": "f54caf3a1ae0295541f42ce4733024dd35627cb2",
+        "matrixai-engines": "188ab13b9f3d0ed78060d5ff5f8d79f0ea074d43"
+      },
+      "corte": "119-C3",
+      "creado": "2026-09-30T17:55:30Z",
+      "digest_resultados_crudos": "640137070dc30a282a1cfc4d7702fd5f06b4e24ca9e2d720950b0c0b8bd995ce",
+      "digest_solo_de_resultados": "02015734df07110daab713fa798dad376dd33e307d329d715feee1590a6fe110",
+      "medido": "2026-09-30T17:11:17Z",
+      "n_intentos": 387,
+      "total_wall_s": 2652.2
+    },
+    "c4": {
+      "arbol_sucio": false,
+      "artefacto": "resultado_pasada_119_c4.json",
+      "commits": {
+        "matrixAI": "ed72044efa8c67ef4d089a78e27d7ceaefc81d8b",
+        "matrixai-engines": "188ab13b9f3d0ed78060d5ff5f8d79f0ea074d43"
+      },
+      "corte": "119-C4",
+      "creado": "2026-10-01T02:42:39Z",
+      "digest_resultados_crudos": "a44a38c0e1a1fac450d958bfdec6d5a3153c84edb65d2d88cf6f73c31471e078",
+      "digest_solo_de_resultados": "e62b32596ab9014638b7841046e92ee3df519b294a1289e96bfaa082e19829a8",
+      "medido": "2026-10-01T00:02:34Z",
+      "n_intentos": 110,
+      "total_wall_s": 9603.3
+    },
+    "protocolo_digest_sha256": "8ec2e05bed0db6f8e38c99c6b5da4dc9f1097579bc55065a998b2813c3582cd3",
+    "sellos_verificados": true
+  },
+  "recuento_con_el_motor_nuevo_en_el_campo": {
+    "que_es": "cumplidos de CADA motor sobre los 40 con el motor nuevo en el campo (en el sitio de la densa v2); mismas funciones que 119-C3/C4; solo cuenta, no mide",
+    "sin_la_red_nueva": {
+      "digest_resultados_crudos": "600ebdaad2ca206eac148e25c38b57add8ad2d64652fafca3d8226758010c0d0",
+      "fuente": "pasada_v2_113_resultado.json",
+      "por_motor": {
+        "catboost": {
+          "cumplidos": 29,
+          "de": 40
+        },
+        "lightgbm": {
+          "cumplidos": 33,
+          "de": 40
+        },
+        "matrixai.dense.torch_cpu": {
+          "cumplidos": 16,
+          "de": 40
+        },
+        "sklearn.hgb": {
+          "cumplidos": 33,
+          "de": 40
+        },
+        "sklearn.lineal": {
+          "cumplidos": 14,
+          "de": 40
+        },
+        "xgboost": {
+          "cumplidos": 29,
+          "de": 40
+        }
+      },
+      "que_es": "la v2 congelada (113, 22-09): los motores que había entonces, SIN el motor nuevo en el campo; en el sitio de la red de antes, la red de antes"
+    },
+    "tabla": {
+      "baseline": {
+        "cumplidos": 0,
+        "de": 40,
+        "mejor_en": 0
+      },
+      "catboost": {
+        "cumplidos": 25,
+        "de": 40,
+        "mejor_en": 8
+      },
+      "lightgbm": {
+        "cumplidos": 26,
+        "de": 40,
+        "mejor_en": 2
+      },
+      "matrixai.dense.tabm_cpu": {
+        "cumplidos": 38,
+        "de": 40,
+        "mejor_en": 23
+      },
+      "sklearn.hgb": {
+        "cumplidos": 25,
+        "de": 40,
+        "mejor_en": 2
+      },
+      "sklearn.lineal": {
+        "cumplidos": 13,
+        "de": 40,
+        "mejor_en": 2
+      },
+      "xgboost": {
+        "cumplidos": 24,
+        "de": 40,
+        "mejor_en": 3
+      }
+    }
+  },
+  "reparto": {
+    "no_sellados": {
+      "cumplidos": 31,
+      "datasets": 32,
+      "fraccion": 0.96875
+    },
+    "red_de_antes_no_sellados": {
+      "cumplidos": 11,
+      "datasets": 32,
+      "fraccion": 0.34375
+    },
+    "red_de_antes_sellados": {
+      "cumplidos": 5,
+      "datasets": 8,
+      "fraccion": 0.625
+    },
+    "sellados": {
+      "cumplidos": 7,
+      "datasets": 8,
+      "fraccion": 0.875
+    }
+  },
+  "titular": {
+    "fraccion": 0.95,
+    "n_conjuntos": 40,
+    "red_de_antes_fraccion": 0.4,
+    "red_de_antes_x_de_40": 16,
+    "x_de_40": 38
+  }
+}
