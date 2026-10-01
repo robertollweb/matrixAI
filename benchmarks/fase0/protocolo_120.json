@@ -1,0 +1,171 @@
+{
+  "conjuntos": {
+    "banco": [
+      {
+        "clase_positiva": "2",
+        "cubo": "pequeno",
+        "data_id": 23381,
+        "nombre": "dresses-sales",
+        "objetivo": "Class",
+        "orden": 1,
+        "tarea": "binary_classification"
+      },
+      {
+        "clase_positiva": "0",
+        "cubo": "pequeno",
+        "data_id": 40994,
+        "nombre": "climate-model-simulation-crashes",
+        "objetivo": "outcome",
+        "orden": 2,
+        "tarea": "binary_classification"
+      },
+      {
+        "clase_positiva": null,
+        "cubo": "pequeno",
+        "data_id": 42730,
+        "nombre": "us_crime",
+        "objetivo": "ViolentCrimesPerPop",
+        "orden": 3,
+        "tarea": "regression"
+      },
+      {
+        "clase_positiva": "true",
+        "cubo": "pequeno",
+        "data_id": 1068,
+        "nombre": "pc1",
+        "objetivo": "defects",
+        "orden": 4,
+        "tarea": "binary_classification"
+      },
+      {
+        "clase_positiva": "8",
+        "cubo": "pequeno",
+        "data_id": 1515,
+        "nombre": "micro-mass",
+        "objetivo": "Class",
+        "orden": 5,
+        "tarea": "multiclass_classification"
+      },
+      {
+        "clase_positiva": "1",
+        "cubo": "pequeno",
+        "data_id": 12,
+        "nombre": "mfeat-factors",
+        "objetivo": "class",
+        "orden": 6,
+        "tarea": "multiclass_classification"
+      },
+      {
+        "clase_positiva": "2",
+        "cubo": "mediano",
+        "data_id": 40983,
+        "nombre": "wilt",
+        "objetivo": "class",
+        "orden": 7,
+        "tarea": "binary_classification"
+      },
+      {
+        "clase_positiva": "3",
+        "cubo": "mediano",
+        "data_id": 32,
+        "nombre": "pendigits",
+        "objetivo": "class",
+        "orden": 8,
+        "tarea": "multiclass_classification"
+      },
+      {
+        "clase_positiva": "ad",
+        "cubo": "mediano",
+        "data_id": 40978,
+        "nombre": "Internet-Advertisements",
+        "objetivo": "class",
+        "orden": 9,
+        "tarea": "binary_classification"
+      },
+      {
+        "clase_positiva": null,
+        "cubo": "grande",
+        "data_id": 574,
+        "nombre": "house_16H",
+        "objetivo": "price",
+        "orden": 10,
+        "tarea": "regression"
+      },
+      {
+        "clase_positiva": "1",
+        "cubo": "grande",
+        "data_id": 1111,
+        "nombre": "KDDCup09_appetency",
+        "objetivo": "APPETENCY",
+        "orden": 11,
+        "tarea": "binary_classification"
+      },
+      {
+        "clase_positiva": "pos",
+        "cubo": "grande",
+        "data_id": 41138,
+        "nombre": "APSFailure",
+        "objetivo": "class",
+        "orden": 12,
+        "tarea": "binary_classification"
+      },
+      {
+        "clase_positiva": null,
+        "cubo": "grande",
+        "data_id": 42571,
+        "nombre": "Allstate_Claims_Severity",
+        "objetivo": "loss",
+        "orden": 13,
+        "tarea": "regression"
+      }
+    ],
+    "humo": [
+      "dresses-sales",
+      "climate-model-simulation-crashes",
+      "us_crime",
+      "pc1"
+    ],
+    "orden_de_medida": "por cubo (pequeño → mediano → grande) y, dentro, el de C5a: fijado ANTES, sin mirar resultados; primero los baratos para que un «no» llegue pronto (regla 9a)",
+    "origen": "los 13 NO sellados de 119-C5a (datasets_declarados de resultado_sonda_119_c5a.json)",
+    "sellados": "los 8 sellados NO se tocan"
+  },
+  "contrato": "120_MEJORAS_DEL_MOTOR",
+  "creado_por": "deployer-f1, 2026-10-01 noche",
+  "estado": "REGISTRADO el 2026-10-01 a las 23:50 (deployer-f1), ANTES de la referencia R0 y de construir C2. Decisiones D1–D9 de Roberto («con tu recomendación», 23:14). Los perfiles de C2 van por ENMIENDA escrita antes de medir C2.",
+  "fase0": "no cambia: la configuración por omisión de los árboles sigue byte a byte; el 32/40, los 2 puntos y los presupuestos por cubo no se tocan",
+  "medida": {
+    "condiciones": "reserva 180 s (búsqueda 140), 1 hilo, pesos de hoy; R0 en el paquete CPU (sin torch: hoy los árboles 1,87 s por intento de presupuesto, techo externo 31,87 s); la condición con torch (paquete GPU), si C2 la mide, se declara aparte",
+    "instrumento": "el propio estudio del Studio (estudio_job), leyendo seleccion.media_de_la_seleccion: la medida ES lo que decide el producto",
+    "que": "la del 121: media de la métrica de selección sobre pliegue.valida de los 5 pliegues (folds=5, repeats=1); nunca el test"
+  },
+  "presupuesto_de_cada_medida": "estimación y techo por escrito ANTES; > 30 min va a la cola nocturna (~/encolar.sh)",
+  "protocolo": "120.v1",
+  "referencia": "R0 = el código PUBLICADO (imagen matrixai-studio:v2.7.2, paquete CPU sin torch: núcleo 18a906c / 1.12.1, motores aec7e8f, Studio 777f344), medido con referencia_120_r0.py ANTES de D9, C1 y C2; control del instrumento: los 4 ejemplos reproducen lo medido el 01-10 contra la misma imagen (determinista, 8 de 8). La comparación de C2 se hará contra una R1 = el código con D9 y C1 (cortes de paridad), medida con el mismo guion, para no atribuir a C2 lo que ganen D9/C1 en completar.",
+  "regla_de_mejora_C2": {
+    "mejora_si": [
+      "más conjuntos suben ≥ 1 que bajan ≥ 1",
+      "ninguno baja ≥ 2",
+      "los que hoy completan siguen completando"
+    ],
+    "metrica": "la de cierre por tarea (AUROC / accuracy / R²), en puntos ×100",
+    "no_cuenta": "|diferencia| < 1 punto",
+    "por_tamano": "si un perfil mejora en un tamaño y empeora en otro, se queda el de hoy donde empeora",
+    "umbral_puntos": 1.0
+  },
+  "regla_de_parada_9": {
+    "corta_al": [
+      "primer conjunto que baja ≥ 2 puntos",
+      "primer conjunto que deja de completar",
+      "cuando los que bajan ≥ 1 superan a los que suben ≥ 1 más todos los que faltan",
+      "con una referencia de R de N, al perder el conjunto N − R + 1"
+    ],
+    "de": "Roberto, 2026-10-01: «si la medida empeora ya no es necesario medir más… tenemos 2 de margen»",
+    "lo_no_medido": "sin medir: el veredicto ya estaba decidido (no cuenta como pérdida)",
+    "solo_por_el_no": true
+  },
+  "rejilla": {
+    "perfiles_C2": "PENDIENTE: enmienda escrita ANTES de medir C2, con los números de C0/C1 (cuánto tiempo hay por intento)",
+    "perfiles_C2_por_tamano_max": 3,
+    "variantes_C3_max": 3
+  }
+}
