@@ -7,6 +7,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.12.1] — 2026-10-01
+
+The reason given for a winner without a demonstrated improvement no longer says "the
+highest number".
+
+### Fixed
+- **A choice under uncertainty no longer claims "the highest number".** When the paired
+  comparison against the next best candidate does not demonstrate an improvement, the
+  selection's reason said the winner "has the highest number". The selection chooses with
+  the metric's own direction (`es_mejor`), and with RMSE the best number is the lowest, so
+  the sentence was false in every regression study without a demonstrated improvement. It
+  now says "has the best measured figure" (in Spanish, "tiene la mejor cifra medida"), with
+  and without naming the candidate.
+
+### Measured (benchmarks, not part of the package)
+- **Contract 119, the new dense network in Studio conditions** (1 thread, the Studio's
+  per-attempt budget, 13 unsealed datasets): it does not pass the pre-registered rule, so it
+  does not enter the Studio's study. The public Fase 0 data (`fase0_publico.json`) now
+  carries the approved engine portfolio.
+
+---
+
 ## [1.12.0] — 2026-10-01
 
 A free-text column can now be declared as text when confirming, instead of only being
