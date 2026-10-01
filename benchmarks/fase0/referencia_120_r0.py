@@ -17,7 +17,8 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 HOME = Path.home()
 AQUI = Path(__file__).resolve().parent
-IMAGEN = "matrixai-studio:v2.7.2"
+IMAGEN = "matrixai-studio:v2.7.2"   # R0; otra con --imagen (R1: el código con D9 y C1)
+MEMORIA = "6g"                       # el techo de R0; otro con --memoria
 BORRADOR = AQUI / "protocolo_120.json"   # el protocolo REGISTRADO (mismo directorio)
 SONDA = AQUI / "resultado_sonda_119_c5a.json"
 NUCLEO = AQUI.parents[1]              # benchmarks/fase0 -> el repo del núcleo; sus hermanos al lado
@@ -87,16 +88,30 @@ def borrar_contenedor():
         _contenedor = None
 
 
+def estado_del_contenedor(nombre):
+    """`OOMKilled`, código de salida y estado del contenedor (02-10: para saber POR QUÉ murió)."""
+    r = subprocess.run(["docker", "inspect", nombre, "--format",
+                        "{{.State.OOMKilled}}|{{.State.ExitCode}}|{{.State.Status}}|{{.State.Error}}"],
+                       capture_output=True, text=True)
+    if r.returncode:
+        return {"inspeccion": "falló", "stderr": r.stderr.strip()[:300]}
+    oom, codigo, estado, error = (r.stdout.strip().split("|") + ["", "", "", ""])[:4]
+    return {"oom_killed": oom == "true", "codigo_de_salida": codigo, "estado": estado, "error": error}
+
+
 def arrancar_contenedor():
     global _contenedor
     s = socket.socket(); s.bind(("127.0.0.1", 0)); puerto = s.getsockname()[1]; s.close()
-    nombre = f"r0-120-{os.getpid()}"
+    nombre = f"r0-120-{os.getpid()}-{int(time.time())}"
     _contenedor = nombre                       # antes de lanzarlo: si el run muere a medias, el atexit lo borra
     atexit.register(borrar_contenedor)
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(sig, lambda *_: (borrar_contenedor(), os._exit(143)))
-    r = subprocess.run(["docker", "run", "--rm", "-d", "--init", "--name", nombre, "-p", f"127.0.0.1:{puerto}:8765",
-                        "--memory=6g", "--memory-swap=6g", "--cpus=2", "-e", "MATRIXAI_LICENSE_ENABLED=false", IMAGEN],
+    # SIN --rm (02-10): en R0 el servidor murió con APSFailure y `--rm` no dejó rastro de por qué; ahora
+    # se lee `OOMKilled` antes de borrarlo (`estado_del_contenedor`).
+    r = subprocess.run(["docker", "run", "-d", "--init", "--name", nombre, "-p", f"127.0.0.1:{puerto}:8765",
+                        f"--memory={MEMORIA}", f"--memory-swap={MEMORIA}", "--cpus=2", "-e",
+                        "MATRIXAI_LICENSE_ENABLED=false", IMAGEN],
                        capture_output=True, text=True)
     if r.returncode:
         raise SystemExit("docker run falló: " + r.stderr)
@@ -245,10 +260,17 @@ def guardar(datos):
 
 
 def main():
+    global IMAGEN, SALIDA, ESTADOS, MEMORIA
     ap = argparse.ArgumentParser()
     ap.add_argument("--solo-humo", action="store_true"); ap.add_argument("--forzar", action="store_true")
     ap.add_argument("--solo", default="")
+    ap.add_argument("--imagen", default=IMAGEN)
+    ap.add_argument("--salida", default=str(SALIDA))
+    ap.add_argument("--memoria", default=MEMORIA)
     a = ap.parse_args()
+    IMAGEN, MEMORIA = a.imagen, a.memoria
+    SALIDA = Path(a.salida).resolve()
+    ESTADOS = SALIDA.with_name(SALIDA.stem + "_estados")
     ESTADOS.mkdir(exist_ok=True)
     banco = json.loads(BORRADOR.read_text())["conjuntos"]["banco"]
     banco = sorted(banco, key=lambda x: x["orden"])
@@ -279,9 +301,11 @@ def main():
                              "sha256_generador_de_csv": sha(GENERADOR),
                              "sha256_borrador_protocolo": sha(BORRADOR), "inicio": ahora(), "csv_byte_a_byte": bytes_ok,
                              "instrumento": "estudio del Studio por HTTP; folds/repeats por omisión; cifra = seleccion.media_de_la_seleccion",
-                             "nota_multiclase": "clase_positiva solo se envía en binarias"},
+                             "nota_multiclase": "clase_positiva solo se envía en binarias",
+                             "memoria_del_contenedor": MEMORIA},
              "conjuntos": dict(previo), "control": None}
     base, nombre_c = arrancar_contenedor()
+    srv = {"base": base, "nombre": nombre_c}
     datos["procedencia"]["contenedor"] = nombre_c
     datos["procedencia"]["dentro"] = dentro(nombre_c,
         "import matrixai, matrixai_studio.estudio_job as j; print('matrixai', matrixai.__version__, j.__file__)")
@@ -297,7 +321,17 @@ def main():
         if n in previo:
             print(f"[{n}] reusado (completed, misma imagen y guion)", flush=True); return
         print(f"[{ahora()}] {n} (loadavg {open('/proc/loadavg').read().split()[0]}) ...", flush=True)
-        rec = estudiar(base, n, b, gen)
+        try:
+            rec = estudiar(srv["base"], n, b, gen)
+        except (urllib.error.URLError, ConnectionError, OSError) as e:   # el servidor ya no contesta
+            rec = {"nombre": n, "estado": "servidor_muerto", "error": repr(e)[:300], "http": None,
+                   "pared_estudio_s": None, "campeon": None}
+        if rec.get("estado") in ("sondeo_fallido", "servidor_muerto"):
+            # SE DICE POR QUÉ y el siguiente conjunto arranca con un servidor NUEVO (02-10: en R0 una muerte
+            # con APSFailure dejó Allstate sin medir y la pasada en rc=1).
+            rec["contenedor"] = estado_del_contenedor(srv["nombre"])
+            borrar_contenedor()
+            srv["base"], srv["nombre"] = arrancar_contenedor()
         datos["conjuntos"][n] = rec
         guardar(datos)
         print(f"   {rec['estado']} http={rec['http']} {rec['pared_estudio_s']} s campeón={rec['campeon']} "
