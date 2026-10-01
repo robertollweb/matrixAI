@@ -100,10 +100,20 @@ class TestP11Cut7PlaygroundIntegration(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_submit_training_job_layer_call_returns_job_id(self):
-        from matrixai.playground import _submit_training_job
+        from matrixai.playground import _submit_training_job, _get_job_status
         r = _submit_training_job(_MXAI, _TRAINING, _CSV, epochs_override=2)
         self.assertTrue(r.get("ok"), r.get("error"))
         self.assertIn("job_id", r)
+        # Se espera a que acabe: sin esto seguía entrenando ~22 s después de
+        # la prueba y el siguiente fichero que entrenaba recibía «Ya hay un
+        # entrenamiento en curso» (tests/conftest.py). Cancelarlo no basta:
+        # el hilo sigue hasta acabar la época, ~14 s de CPU robados al de al lado.
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            if _get_job_status(r["job_id"])["status"] != "running":
+                break
+            time.sleep(0.5)
+        self.assertEqual(_get_job_status(r["job_id"])["status"], "done")
 
     def test_submit_training_job_layer_call_completes(self):
         from matrixai.playground import _submit_training_job, _get_job_status

@@ -174,6 +174,7 @@ class JobStatusStripsTensorsTest(unittest.TestCase):
             "MATRIXAI_TORCH_NATIVE_MIN_PARAMS": "1",
         }):
             job = _submit_training_job(MXAI, TRAIN, _csv(), epochs_override=3)
+            self.assertTrue(job.get("ok"), job.get("error"))
             job_id = job["job_id"]
             for _ in range(240):
                 st = _get_job_status(job_id)
@@ -279,6 +280,7 @@ class LargeStateEvictionTest(unittest.TestCase):
             ids = []
             for _ in range(3):
                 job = _submit_training_job(MXAI, TRAIN, _csv(), epochs_override=2)
+                self.assertTrue(job.get("ok"), job.get("error"))
                 jid = job["job_id"]
                 for _ in range(240):
                     if _get_job_status(jid)["status"] != "running":
