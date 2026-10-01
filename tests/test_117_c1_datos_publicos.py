@@ -153,3 +153,14 @@ def test_una_pasada_a_medias_no_se_publica():
     tocado = dict(artefacto, parcial=True)
     with pytest.raises(generar.DatosQueNoCuadran):
         generar.componer(tocado, protocolo, "x.json")
+
+
+def test_el_JSON_publicado_lleva_la_cartera_que_aprueba_matrixai_engines():
+    """01-10: la web nombra desde `cartera` los motores que el Studio puede elegir; sale de
+    `CARTERA_APROBADA`, no de una mano. Un motor aprobado o retirado sin regenerar la deja
+    desfasada y esto se pone rojo."""
+    from matrixai_engines.cartera import CARTERA_APROBADA
+    esperado = [{"motor": e.motor, "aprobado_en": e.aprobado_en} for e in CARTERA_APROBADA]
+    assert esperado, "la cartera está vacía: no hay motores que el Studio pueda elegir"
+    assert _publicado()["cartera"] == esperado
+    assert generar.cartera_aprobada() == esperado

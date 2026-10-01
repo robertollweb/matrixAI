@@ -204,6 +204,15 @@ def serializar(datos: dict[str, Any]) -> str:
     return json.dumps(datos, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
+def cartera_aprobada() -> list[dict[str, str]]:
+    """Los motores que la cartera vigente APRUEBA, con la fecha del sello — lo único que el
+    Studio puede elegir. Se COPIA de `matrixai_engines.cartera.CARTERA_APROBADA` (nunca se
+    teclea): la web nombra desde aquí los motores del Studio. Import perezoso: el resto del
+    generador no necesita `matrixai_engines`."""
+    from matrixai_engines.cartera import CARTERA_APROBADA
+    return [{"motor": e.motor, "aprobado_en": e.aprobado_en} for e in CARTERA_APROBADA]
+
+
 def generar() -> str:
     principal = componer(
         json.loads(RUTA_ARTEFACTO_PRINCIPAL.read_text(encoding="utf-8")),
@@ -218,6 +227,9 @@ def generar() -> str:
     # medicion» es aparte, y su propio `procedencia.anclable_entera` dice que no lo es entera.
     return serializar({
         "formato": "117-C1.v2",
+        # 01-10: los motores que el Studio puede elegir (la cartera aprobada), aparte de los
+        # que mide el banco de pruebas: la web los distingue desde este campo.
+        "cartera": cartera_aprobada(),
         "principal": principal,
         "ultima_medicion": ultima_medicion,
     })
