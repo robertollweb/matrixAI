@@ -87,10 +87,12 @@ def test_la_procedencia_cita_los_sellos_y_no_es_de_un_arbol_sucio():
 
 # ───────────────────────── los dientes: el generador PARA ─────────────────────────
 
-def _con_ficheros(monkeypatch, tmp_path, retoque_c3=None, retoque_c4=None, retoque_recuento=None):
+def _con_ficheros(monkeypatch, tmp_path, retoque_c3=None, retoque_c4=None, retoque_recuento=None,
+                  retoque_c5a=None):
     for nombre, ruta, retoque in (("RUTA_C3", gen.RUTA_C3, retoque_c3),
                                   ("RUTA_C4", gen.RUTA_C4, retoque_c4),
-                                  ("RUTA_RECUENTO", gen.RUTA_RECUENTO, retoque_recuento)):
+                                  ("RUTA_RECUENTO", gen.RUTA_RECUENTO, retoque_recuento),
+                                  ("RUTA_C5A", gen.RUTA_C5A, retoque_c5a)):
         datos = json.loads(ruta.read_text(encoding="utf-8"))
         if retoque:
             retoque(datos)
@@ -135,4 +137,96 @@ def test_un_control_del_recuento_que_no_da_el_x_de_c4_para(monkeypatch, tmp_path
         d["tabla"][gen.MOTOR_NUEVO]["cumplidos"] = 37
     _con_ficheros(monkeypatch, tmp_path, retoque_recuento=toca)
     with pytest.raises(gen.DatosQueNoCuadran, match="control"):
+        gen.componer()
+
+
+# ───────────────────── «¿Y en el Studio?»: el bloque `en_el_studio` (119-C5a) ─────────────────────
+
+def _c5a():
+    return json.loads(gen.RUTA_C5A.read_text(encoding="utf-8"))
+
+
+def _resellar(d):
+    """Resella los dos sellos tras un retoque: lo que cuenta es lo que el generador exige DESPUÉS del sello."""
+    d["digest_solo_de_resultados"] = gen.digest_canonico(d["resultados"])
+    sin = {k: v for k, v in d.items() if k != "digest_resultados_crudos"}
+    d["digest_resultados_crudos"] = gen.digest_canonico(sin)
+
+
+def test_en_el_studio_sale_de_c5a_y_dice_que_no_sustituye():
+    e = _publicado()["en_el_studio"]
+    c5a = _c5a()
+    v = c5a["veredicto"]
+    assert e["decision"]["decision"] == "no_sustituye"
+    assert "D5 re-decidida por Roberto el 2026-10-01, opción (a)" in e["decision"]["fuente"]
+    assert e["cumple_las_cuatro"] is False and v["cumple_las_cuatro"] is False
+    assert f'{e["completa"]["cumplidos"]}/{e["completa"]["de"]}' == v["completa"]["numero"] == "18/26"
+    assert f'{e["compite"]["cumplidos_de_la_cartera"]}/{e["compite"]["de"]}' == v["compite"]["cumplidos_de_la_cartera"]
+    assert e["compite"]["perdidos_contra_la_red_anterior"] == v["compite"]["conjuntos_perdidos_contra_la_densa_de_hoy"]
+    assert e["compite"]["tope_de_perdidos"] == v["compite"]["tope_de_perdidos"]
+    assert e["compite"]["puntos"] == v["compite"]["puntos"]
+    assert e["n_conjuntos"] == v["n_conjuntos"] == 13
+    assert e["condiciones"]["hilos_por_intento"] == c5a["condiciones_del_studio"]["hilos"] == 1
+    assert e["condiciones"]["segundos_por_intento"] == c5a["condiciones_del_studio"]["segundos_por_intento"][gen.MOTOR_NUEVO]
+    assert e["fase_0"]["hilos_por_intento"] == 4
+    assert (e["fase_0"]["segundos_por_intento_min"], e["fase_0"]["segundos_por_intento_max"]) == (120.0, 600.0)
+    assert e["medido"] == c5a["procedencia"]["medido"] and e["fuente"]["anclable"] is True
+    assert e["fuente"]["digest_resultados_crudos"] == c5a["digest_resultados_crudos"]
+
+
+def test_en_el_studio_control_sin_retoque(monkeypatch, tmp_path):
+    _con_ficheros(monkeypatch, tmp_path, retoque_c5a=lambda d: None)
+    assert gen.generar() == gen.RUTA_PUBLICADO.read_text(encoding="utf-8")
+
+
+def test_una_cifra_de_c5a_cambiada_sin_resellar_para(monkeypatch, tmp_path):
+    def toca(d):
+        d["veredicto"]["compite"]["conjuntos_perdidos_contra_la_densa_de_hoy"] = 1
+    _con_ficheros(monkeypatch, tmp_path, retoque_c5a=toca)
+    with pytest.raises(gen.DatosQueNoCuadran, match="resultado_sonda_119_c5a"):
+        gen.componer()
+
+
+def test_un_veredicto_de_c5a_que_pasa_para_aunque_este_resellado(monkeypatch, tmp_path):
+    def toca(d):
+        v = d["veredicto"]
+        v["cumple_las_cuatro"] = True
+        for k in ("completa", "aprende", "compite", "cabe"):
+            v[k]["cumple"] = True
+        _resellar(d)
+    _con_ficheros(monkeypatch, tmp_path, retoque_c5a=toca)
+    with pytest.raises(gen.DatosQueNoCuadran, match="veredicto de C5a"):
+        gen.componer()
+
+
+@pytest.mark.parametrize("campo,valor,mensaje", [
+    ("parcial", True, "pasada real completa"),
+    ("es_humo", True, "pasada real completa"),
+    ("es_subconjunto_de_prueba", True, "pasada real completa"),
+    ("tipo_de_ejecucion", "humo", "pasada real completa"),
+])
+def test_una_c5a_parcial_o_de_humo_para(monkeypatch, tmp_path, campo, valor, mensaje):
+    def toca(d):
+        d[campo] = valor
+        _resellar(d)
+    _con_ficheros(monkeypatch, tmp_path, retoque_c5a=toca)
+    with pytest.raises(gen.DatosQueNoCuadran, match=mensaje):
+        gen.componer()
+
+
+def test_una_c5a_no_anclable_para(monkeypatch, tmp_path):
+    def toca(d):
+        d["procedencia"]["anclable"] = False
+        _resellar(d)
+    _con_ficheros(monkeypatch, tmp_path, retoque_c5a=toca)
+    with pytest.raises(gen.DatosQueNoCuadran, match="anclable"):
+        gen.componer()
+
+
+def test_una_c5a_con_la_regla_distinta_de_la_registrada_para(monkeypatch, tmp_path):
+    def toca(d):
+        d["regla"]["coincide"] = False
+        _resellar(d)
+    _con_ficheros(monkeypatch, tmp_path, retoque_c5a=toca)
+    with pytest.raises(gen.DatosQueNoCuadran, match="regla"):
         gen.componer()

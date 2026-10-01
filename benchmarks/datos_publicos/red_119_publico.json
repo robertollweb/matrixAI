@@ -674,6 +674,51 @@
       }
     }
   ],
+  "en_el_studio": {
+    "compite": {
+      "cumple": false,
+      "cumplidos_de_la_cartera": 4,
+      "de": 13,
+      "perdidos_contra_la_red_anterior": 5,
+      "puntos": 2.0,
+      "tope_de_perdidos": 2
+    },
+    "completa": {
+      "cumple": false,
+      "cumplidos": 18,
+      "de": 26,
+      "umbral": 0.9
+    },
+    "condiciones": {
+      "hilos_por_intento": 1,
+      "segundos_por_intento": 22.4
+    },
+    "corte": "119-C5a",
+    "creado": "2026-10-01T11:16:05Z",
+    "cumple_las_cuatro": false,
+    "decision": {
+      "decision": "no_sustituye",
+      "fuente": "contrato 119, D5 re-decidida por Roberto el 2026-10-01, opción (a)"
+    },
+    "fase_0": {
+      "hilos_por_intento": 4,
+      "segundos_por_intento_max": 600.0,
+      "segundos_por_intento_min": 120.0
+    },
+    "fuente": {
+      "anclable": true,
+      "artefacto": "resultado_sonda_119_c5a.json",
+      "commits": {
+        "matrixAI": "0d56c0ba81f809502e20bf71efa5c3b2e2da2d33",
+        "matrixai-engines": "0377f2f7df15d0c53ae6dbc529651b6007ef0f1b",
+        "matrixaistudio": "1fcc621fd94b7d9ba274fd6f6ff0206004fa31f8"
+      },
+      "digest_resultados_crudos": "a2e91c241a743ec91a70824026402de7cbea00146bed5c112a11ab877be63a37",
+      "regla_digest": "82a77a6a0d33663f9f7e415bf0f83527ad57b41bd808ec27a3e90cdcc46b1dbd"
+    },
+    "medido": "2026-10-01T09:04:28Z",
+    "n_conjuntos": 13
+  },
   "formato": "119-WEB.v1",
   "motor": "matrixai.dense.tabm_cpu",
   "procedencia": {

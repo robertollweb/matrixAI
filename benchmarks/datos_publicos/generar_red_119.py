@@ -56,12 +56,19 @@ RUTA_C3 = FASE0 / "resultado_pasada_119_c3.json"
 RUTA_C4 = FASE0 / "resultado_pasada_119_c4.json"
 RUTA_RECUENTO = FASE0 / "recuento_119_con_el_motor_nuevo_en_el_campo.json"
 RUTA_V2 = FASE0 / "pasada_v2_113_resultado.json"
+#: 119-C5a (01-10): la red nueva medida en CONDICIONES DE STUDIO (1 hilo, el presupuesto del Studio).
+RUTA_C5A = FASE0 / "resultado_sonda_119_c5a.json"
 RUTA_PUBLICADO = AQUI / "red_119_publico.json"
 #: La cuenta de ANTES (la v2 sin la red nueva en el campo): se COPIA de lo que la página ya
 #: publica de esa misma pasada, tras comprobar que es la misma (por su sello).
 RUTA_FASE0_PUBLICO = AQUI / "fase0_publico.json"
 
 MOTOR_NUEVO = "matrixai.dense.tabm_cpu"
+#: La decisión sobre el Studio (Roberto, 2026-10-01): el resultado de C5a dice NO y no se sustituye.
+DECISION_STUDIO = {
+    "decision": "no_sustituye",
+    "fuente": "contrato 119, D5 re-decidida por Roberto el 2026-10-01, opción (a)",
+}
 
 
 class DatosQueNoCuadran(RuntimeError):
@@ -116,6 +123,79 @@ def _detalle_por_conjunto(bloque: str, nuevo: list[dict], antes: list[dict],
             },
         })
     return filas
+
+
+def _en_el_studio(c3: dict[str, Any], c4: dict[str, Any]) -> dict[str, Any]:
+    """El bloque `en_el_studio`: lo que se midió en condiciones de Studio (C5a) y la decisión.
+
+    PARA si C5a no es una pasada real, completa y anclable, si su sello de regla no coincide, o si su
+    veredicto no es el que la página publica (NO cumple las cuatro, y cada cuenta es coherente con su
+    `cumple`): el texto de la web dice «no pasa», y no puede seguir diciéndolo si el registro cambia.
+    """
+    c5a = _cargar(RUTA_C5A)
+    _verificar_sellos(RUTA_C5A.name, c5a)
+    _exigir(c5a["tipo_de_ejecucion"] == "pasada" and not c5a["parcial"] and not c5a["es_humo"]
+            and not c5a["es_subconjunto_de_prueba"] and c5a["subconjunto_pedido"] is None,
+            "C5a no es una pasada real completa (parcial, de humo o subconjunto)")
+    _exigir(c5a["procedencia"]["anclable"] is True and c5a["procedencia"]["suciedad"]["n_sucios"] == 0
+            and c5a["n_intentos_sin_procedencia"] == 0
+            and not any(x["arbol_sucio"] for x in c5a["procedencia"]["repositorios"].values()),
+            "C5a no es anclable a un commit (árbol sucio o intentos sin procedencia)")
+    _exigir(c5a["regla"]["coincide"] is True and c5a["regla"]["digest"] == c5a["regla"]["registrada"],
+            "C5a: la regla que se aplicó no es la registrada antes de medir")
+    cond = c5a["condiciones_del_studio"]
+    _exigir(cond["hilos"] == 1, "C5a no se midió con 1 hilo por intento: no son condiciones de Studio")
+    seg = cond["segundos_por_intento"][MOTOR_NUEVO]
+    v = c5a["veredicto"]
+    comp, compite, cabe = v["completa"], v["compite"], v["cabe"]
+    _exigir(v["cumple_las_cuatro"] is False
+            and v["cumple_las_cuatro"] == (comp["cumple"] and v["aprende"]["cumple"]
+                                           and compite["cumple"] and cabe["cumple"]),
+            "el veredicto de C5a ya no es «no cumple las cuatro»: la web dice que no pasa")
+    _exigir(comp["cumple"] is False and compite["cumple"] is False,
+            "C5a: «completa» o «compite» cambió de signo: la web dice que ninguna pasa")
+    _exigir(compite["conjuntos_perdidos_contra_la_densa_de_hoy"] > compite["tope_de_perdidos"],
+            "C5a: ya no pierde contra la red anterior en más conjuntos que el tope")
+    n_c = v["n_conjuntos"]
+    _exigir(n_c == len(c5a["datasets_declarados"]) == len(v["aprende"]["por_conjunto"]),
+            "C5a: el número de conjuntos no cuadra con los declarados")
+    c_ok, c_de = (int(x) for x in comp["numero"].split("/"))
+    k_ok, k_de = (int(x) for x in compite["cumplidos_de_la_cartera"].split("/"))
+    _exigir(k_de == n_c, "C5a: «compite» no es sobre todos los conjuntos")
+    # La Fase 0, para contrastarla en la misma frase: el rango de presupuestos que sus registros traen.
+    presupuestos = [r["presupuesto_wall_s"] for r in c3["resultados"] + c4["resultados"]]
+    import benchmarks.fase0.pasada_exploratoria_101_c3 as _c3  # noqa: PLC0415 -- los hilos de la Fase 0 son una constante suya
+    return {
+        "medido": c5a["procedencia"]["medido"],
+        "creado": c5a["creado"],
+        "corte": c5a["corte"],
+        "fase_0": {
+            "hilos_por_intento": _c3.HILOS_POR_INTENTO,
+            "segundos_por_intento_min": min(presupuestos),
+            "segundos_por_intento_max": max(presupuestos),
+        },
+        "condiciones": {
+            "hilos_por_intento": cond["hilos"],
+            "segundos_por_intento": seg,
+        },
+        "n_conjuntos": n_c,
+        "completa": {"cumplidos": c_ok, "de": c_de, "umbral": comp["umbral"], "cumple": comp["cumple"]},
+        "compite": {
+            "cumplidos_de_la_cartera": k_ok, "de": k_de, "puntos": compite["puntos"],
+            "perdidos_contra_la_red_anterior": compite["conjuntos_perdidos_contra_la_densa_de_hoy"],
+            "tope_de_perdidos": compite["tope_de_perdidos"],
+            "cumple": compite["cumple"],
+        },
+        "cumple_las_cuatro": v["cumple_las_cuatro"],
+        "decision": dict(DECISION_STUDIO),
+        "fuente": {
+            "artefacto": RUTA_C5A.name,
+            "digest_resultados_crudos": c5a["digest_resultados_crudos"],
+            "regla_digest": c5a["regla"]["digest"],
+            "commits": {r: x["commit"] for r, x in c5a["procedencia"]["repositorios"].items()},
+            "anclable": c5a["procedencia"]["anclable"],
+        },
+    }
 
 
 def componer() -> dict[str, Any]:
@@ -203,6 +283,7 @@ def componer() -> dict[str, Any]:
             "fuente": v["decision_segun_d2"]["fuente"],
         },
         "detalle_por_conjunto": detalle,
+        "en_el_studio": _en_el_studio(c3, c4),
         "recuento_con_el_motor_nuevo_en_el_campo": {
             "que_es": recuento["que_es"],
             "tabla": {m: dict(sorted(t.items())) for m, t in sorted(tabla.items())},
