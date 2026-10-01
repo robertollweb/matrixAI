@@ -9,6 +9,14 @@ pasada —y el `__path__` del paquete de espacio de nombres `benchmarks`— carg
 árbol principal, no el que se probaba: un verde que no mide lo que dice. Sobre el árbol principal
 no se ve (las dos rutas son la misma), y por eso hace falta esta prueba: busca la forma, no el
 efecto.
+
+SUS LÍMITES, DICHOS (re-auditoría final de 120-C1): caza la forma clásica en UNA línea
+(`sys.path.insert/append(…"/home/deployer/…")`). NO ve `sys.path[0:0] =`, `site.addsitedir`, una
+variable o una tupla con la ruta recorrida en un bucle (el caso de `test_c101_c5`, arreglado a mano
+el 02-10), `os.environ["PYTHONPATH"]`, ni nada fuera de `benchmarks/`, `tests/` y `scripts/`. Ampliar
+la búsqueda a «fichero con `sys.path` y una ruta literal al principal» da falsos positivos
+(`medir_114c5.py` la usa para registrar un commit). Es una red, no una garantía: un rojo de
+`test_m3_…hijo_importa` en motores sigue siendo la señal de verdad.
 """
 from __future__ import annotations
 

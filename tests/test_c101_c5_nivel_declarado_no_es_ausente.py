@@ -311,15 +311,24 @@ class TestElFicheroQueDeVerdadSePerdia:
     @staticmethod
     def _csv_como_lo_escribe_el_motor() -> tuple[str, str]:
         import sys
-        for ruta in ("/home/deployer/matrixAI/benchmarks/fase0",
-                     "/home/deployer/matrixai-engines/src"):
-            if ruta not in sys.path:
-                sys.path.insert(0, ruta)
-        import lector_arff
-        from matrixai_engines.motores.densa import _columnas, _escribir_csv
-        from matrixai.training.preparacion import (ajustar_preparacion,
-                                                   tipar_columnas_numericas,
-                                                   transformar_fila)
+        from pathlib import Path
+        # Rutas RELATIVAS a este árbol (no fijas al principal) y `sys.path` como estaba al salir
+        # (re-auditoría final de 120-C1, 02-10): se metían en `sys.path[0]` y no se quitaban, y
+        # desde un worktree los hijos de las pruebas posteriores cargaban el `lector_arff` del
+        # árbol PRINCIPAL. Los módulos quedan importados; las rutas, no.
+        raiz = Path(__file__).resolve().parents[1]
+        antes = list(sys.path)
+        try:
+            for ruta in (str(raiz / "benchmarks" / "fase0"), str(raiz.parent / "matrixai-engines" / "src")):
+                if ruta not in sys.path:
+                    sys.path.insert(0, ruta)
+            import lector_arff
+            from matrixai_engines.motores.densa import _columnas, _escribir_csv
+            from matrixai.training.preparacion import (ajustar_preparacion,
+                                                       tipar_columnas_numericas,
+                                                       transformar_fila)
+        finally:
+            sys.path[:] = antes
 
         leido = lector_arff.cargar(ARFF_REAL, objetivo_declarado="SalePrice",
                                    n_columnas_declaradas=80)
