@@ -65,7 +65,9 @@ matrixai --help
   their interval, split-conformal prediction sets and intervals, and a per-row report of
   what the model never saw (out-of-range values, unseen categories). Dates enter as
   their own variables, and a `0/1` or `Yes/No` target works whatever way you write the
-  positive class
+  positive class. A free-text column can be declared as text (Spanish or English) when
+  confirming: it leaves the table predictors and is recorded for a text candidate (MatrixAI
+  Studio's text-only candidate reads it; the core alone only records the declaration)
 - **Auditable graph**: computation graph with named nodes, explicit types and audit trail
 - **Supervised training**: classification, risk scoring and regression with `.mxtrain` specs;
   the optimizer can be `sgd`, `adam` or `adamw`, with `WEIGHT_DECAY` and a `SCHEDULE cosine`
@@ -318,7 +320,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 8255 passed, 29 skipped
+# 8637 passed, 29 skipped
 ```
 
 ---

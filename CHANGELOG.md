@@ -7,6 +7,49 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.12.0] — 2026-10-01
+
+A free-text column can now be declared as text when confirming, instead of only being
+excluded with its reason.
+
+### Added
+- **`confirmar_desde_csv(columnas_de_texto={column: "es"|"en"})`.** A declared text column
+  leaves the table predictors and is recorded in the confirmation as
+  `texto: [{campo, idioma}]`, for a text candidate to read — in MatrixAI Studio, its
+  text-only candidate. The core alone records the declaration and trains nothing on the
+  text. Undeclared free text
+  is still excluded with its reason, as before. Without `columnas_de_texto` nothing changes.
+  Declaring is refused, with a bilingual reason, for two or more columns (a stated
+  limitation of this release), for a column that does not exist, for the target, and for a
+  language other than Spanish or English. Declaring a column that the detector does not see
+  as free text is allowed, with a warning in the confirmation's new `avisos` list. New public
+  names in `matrixai.training.objetivo`: `TextoDeclarado`, `Aviso` and
+  `IDIOMAS_DE_TEXTO_ADMITIDOS`.
+
+### Fixed
+- **The reason given when free text is excluded no longer promises a path that already
+  exists.** It said that using free text in a study "will come with its own path"; it now
+  says what is true: table models do not read the column, and once it is declared as text
+  (Spanish or English) MatrixAI Studio's text-only candidate reads it. In both languages.
+
+### Measured (benchmarks, not part of the package)
+- **Fase 0, contract 119: a new dense network (TabM + PLR on CPU) meets the portfolio rule
+  in 38 of 40 datasets** (31 of the 32 unsealed, 7 of the 8 sealed, measured once), against
+  16 of 40 for the current dense network on the same 40. It is the best engine on 23 of them.
+  It is not yet part of the Studio's study.
+- **Contract 107: free text in Spanish.** On four public tasks, TF-IDF with a linear model
+  improves on not using the text in two of them; answering atomic questions about the text
+  (a small local model, or Jev) does not pass the pre-registered margin in any of the tasks
+  where it was measured (practical equivalence in all of them). Asked
+  directly, without training, Jev does improve on not using the text in the fake-news task
+  (AUROC 0.885 against 0.724); in the other task where it was asked (Spanish legislation,
+  BOE) the result is inconclusive. Both corpora are public, and the measurement cannot
+  separate reading from remembering. The figures, with their sealed records, are published at
+  https://matrixaistudio.org/how-we-measure/text. The text-only candidate has no ONNX parity
+  (measured), so a study it wins exports no browser page.
+
+---
+
 ## [1.11.1] — 2026-09-28
 
 Confirming a large CSV no longer takes minutes.
