@@ -208,7 +208,13 @@ def cartera_aprobada() -> list[dict[str, str]]:
     """Los motores que la cartera vigente APRUEBA, con la fecha del sello — lo único que el
     Studio puede elegir. Se COPIA de `matrixai_engines.cartera.CARTERA_APROBADA` (nunca se
     teclea): la web nombra desde aquí los motores del Studio. Import perezoso: el resto del
-    generador no necesita `matrixai_engines`."""
+    generador no necesita `matrixai_engines`.
+
+    VACÍA SE PUBLICA VACÍA, y no se para (01-10): para `matrixai_engines.cartera` una cartera
+    vacía es un estado LEGÍTIMO —la decisión está pendiente, y `veredicto_de` lo dice con
+    `cartera_vacia_por_decision_pendiente`—, no un fallo del generador. Parar dejaría la web con
+    la cartera VIEJA, que es justo mentir; `[]` es lo que hay, y la entradilla tiene su frase
+    para ese caso («Hoy está vacía: no hay ningún motor aprobado»)."""
     from matrixai_engines.cartera import CARTERA_APROBADA
     return [{"motor": e.motor, "aprobado_en": e.aprobado_en} for e in CARTERA_APROBADA]
 

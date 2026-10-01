@@ -161,6 +161,16 @@ def test_el_JSON_publicado_lleva_la_cartera_que_aprueba_matrixai_engines():
     desfasada y esto se pone rojo."""
     from matrixai_engines.cartera import CARTERA_APROBADA
     esperado = [{"motor": e.motor, "aprobado_en": e.aprobado_en} for e in CARTERA_APROBADA]
-    assert esperado, "la cartera está vacía: no hay motores que el Studio pueda elegir"
     assert _publicado()["cartera"] == esperado
     assert generar.cartera_aprobada() == esperado
+
+
+def test_una_cartera_VACIA_se_publica_vacia_y_no_para_el_generador(monkeypatch):
+    """01-10: vacía es un estado legítimo de `matrixai_engines.cartera` (decisión pendiente), no
+    un fallo: el JSON lleva `[]` y la web tiene su frase. Ni se para (la web se quedaría con la
+    cartera VIEJA) ni se inventa una entrada."""
+    import matrixai_engines.cartera as cartera
+    monkeypatch.setattr(cartera, "CARTERA_APROBADA", ())
+    assert cartera.veredicto_de("lightgbm", "1.0.0").motivo == "cartera_vacia_por_decision_pendiente"
+    assert generar.cartera_aprobada() == []
+    assert json.loads(generar.generar())["cartera"] == []

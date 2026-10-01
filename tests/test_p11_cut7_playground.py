@@ -99,26 +99,16 @@ class TestP11Cut7PlaygroundIntegration(unittest.TestCase):
     # Async submit path (layer_call routing in _submit_training_job)
     # ------------------------------------------------------------------
 
-    def test_submit_training_job_layer_call_returns_job_id(self):
+    def test_submit_training_job_layer_call_returns_job_id_and_completes(self):
+        # UNA prueba y no dos (01-10): «devuelve job_id» y «termina» lanzaban el MISMO
+        # entrenamiento (~23 s), y la primera tenía que esperarlo igual —sin esperar
+        # seguía vivo después de la prueba y el siguiente fichero que entrenaba recibía
+        # «Ya hay un entrenamiento en curso» (tests/conftest.py); cancelarlo no basta,
+        # el hilo sigue hasta acabar la época—. Juntas, un entrenamiento.
         from matrixai.playground import _submit_training_job, _get_job_status
         r = _submit_training_job(_MXAI, _TRAINING, _CSV, epochs_override=2)
         self.assertTrue(r.get("ok"), r.get("error"))
         self.assertIn("job_id", r)
-        # Se espera a que acabe: sin esto seguía entrenando ~22 s después de
-        # la prueba y el siguiente fichero que entrenaba recibía «Ya hay un
-        # entrenamiento en curso» (tests/conftest.py). Cancelarlo no basta:
-        # el hilo sigue hasta acabar la época, ~14 s de CPU robados al de al lado.
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            if _get_job_status(r["job_id"])["status"] != "running":
-                break
-            time.sleep(0.5)
-        self.assertEqual(_get_job_status(r["job_id"])["status"], "done")
-
-    def test_submit_training_job_layer_call_completes(self):
-        from matrixai.playground import _submit_training_job, _get_job_status
-        r = _submit_training_job(_MXAI, _TRAINING, _CSV, epochs_override=2)
-        self.assertTrue(r.get("ok"), r.get("error"))
         job_id = r["job_id"]
         # 60 y no 30: el job tarda ~23 s con la máquina quieta (medido el
         # 2026-10-01); con 30 s, un poco de carga lo dejaba fuera.
