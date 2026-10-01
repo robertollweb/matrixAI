@@ -1,0 +1,46 @@
+{
+ "que_es": "cumplidos de CADA motor sobre los 40 con el motor nuevo en el campo (en el sitio de la densa v2); mismas funciones que 119-C3/C4; solo cuenta, no mide",
+ "fuentes": {
+  "c3": "640137070dc30a282a1cfc4d7702fd5f06b4e24ca9e2d720950b0c0b8bd995ce",
+  "c4": "a44a38c0e1a1fac450d958bfdec6d5a3153c84edb65d2d88cf6f73c31471e078",
+  "v2": "pasada_v2_113_resultado.json (congelada)"
+ },
+ "control": "el motor nuevo da 38, el X/40 de C4",
+ "tabla": {
+  "baseline": {
+   "cumplidos": 0,
+   "de": 40,
+   "mejor_en": 0
+  },
+  "catboost": {
+   "cumplidos": 25,
+   "de": 40,
+   "mejor_en": 8
+  },
+  "lightgbm": {
+   "cumplidos": 26,
+   "de": 40,
+   "mejor_en": 2
+  },
+  "matrixai.dense.tabm_cpu": {
+   "cumplidos": 38,
+   "de": 40,
+   "mejor_en": 23
+  },
+  "sklearn.hgb": {
+   "cumplidos": 25,
+   "de": 40,
+   "mejor_en": 2
+  },
+  "sklearn.lineal": {
+   "cumplidos": 13,
+   "de": 40,
+   "mejor_en": 2
+  },
+  "xgboost": {
+   "cumplidos": 24,
+   "de": 40,
+   "mejor_en": 3
+  }
+ }
+}
