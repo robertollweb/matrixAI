@@ -956,13 +956,34 @@ def test_main_c4_veredicto_por_conjunto_tiene_los_dos_sellados(pasada_falsa_c4):
 
 def test_main_c4_el_artefacto_no_se_contradice_sobre_su_digest(pasada_falsa_c4):
     """I6, en el artefacto: el guion de C4 está en los componentes y NO en la
-    lista de «fuera del digest», que dice de sí misma que tiene que estar
-    vacía (en las pruebas, solo pueden aparecer los módulos de PRUEBA)."""
+    lista de «fuera del digest», y nada aparece a la vez dentro y fuera.
+
+    NO se afirma aquí que «fuera» esté vacía: esa lista son los módulos de los
+    repos que ESTE proceso tiene cargados, y en la suite entera el proceso de
+    pytest ya trae los guiones de `benchmarks/` que cargaron otras pruebas
+    (medido en la nocturna del 01-10: rojo por `pasada_116c2_tabicl.py`,
+    `generar_protocolo.py`… que C4 no importa). Que esté vacía en la pasada
+    REAL —que corre en su propio proceso— lo afirma
+    `test_el_resultado_real_de_c4_no_deja_nada_fuera_del_digest`."""
     payload = pasada_falsa_c4["payload"]
-    assert "core:benchmarks/fase0/pasada_119_c4.py" in payload["digest_de_la_cache"]["componentes"]
+    componentes = set(payload["digest_de_la_cache"]["componentes"])
+    assert "core:benchmarks/fase0/pasada_119_c4.py" in componentes
     fuera = payload["lo_que_no_cubre_el_digest"][
         "modulos_de_los_repos_cargados_por_este_proceso_fuera_del_digest"]
-    assert all(m.startswith("core:tests/") for m in fuera), fuera
+    for guion in ("core:benchmarks/fase0/pasada_119_c4.py", "core:benchmarks/fase0/pasada_119_c3.py"):
+        assert guion not in fuera, fuera
+    assert not (set(fuera) & componentes), sorted(set(fuera) & componentes)
+
+
+def test_el_resultado_real_de_c4_no_deja_nada_fuera_del_digest():
+    """La pasada REAL (01-10, núcleo `ed72044`, motores `188ab13`) corrió en su
+    propio proceso: su artefacto no puede dejar ningún módulo de los repos
+    fuera del digest, y el guion de C4 está dentro (I6)."""
+    resultado = json.loads(p4.RUTA_DEL_RESULTADO_C4_EN_EL_ARBOL.read_text(encoding="utf-8"))
+    assert resultado["parcial"] is False
+    assert "core:benchmarks/fase0/pasada_119_c4.py" in resultado["digest_de_la_cache"]["componentes"]
+    assert resultado["lo_que_no_cubre_el_digest"][
+        "modulos_de_los_repos_cargados_por_este_proceso_fuera_del_digest"] == []
 
 
 def test_main_c4_reusa_el_cache_en_una_segunda_pasada(tmp_path, _v2):
