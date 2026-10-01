@@ -79,8 +79,14 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, "/home/deployer/matrixAI")
-sys.path.insert(0, "/home/deployer/matrixai-engines/src")
+# Las raíces del núcleo y de motores, RELATIVAS a este fichero y SOLO si faltan (02-10, re-auditoría
+# de 120-C1). Con rutas fijas a los árboles PRINCIPALES en `sys.path[0]`, importar este módulo desde
+# una prueba hacía que, desde un worktree, todo proceso hijo de la pasada importara el código
+# principal en vez del que se probaba. Lo vigila tests/test_120_ningun_guion_mete_rutas_fijas.py.
+_RAIZ_DEL_NUCLEO = Path(__file__).resolve().parents[2]
+for _ruta in (_RAIZ_DEL_NUCLEO, _RAIZ_DEL_NUCLEO.parent / "matrixai-engines" / "src"):
+    if str(_ruta) not in sys.path:
+        sys.path.insert(0, str(_ruta))
 
 from benchmarks.fase0.pasada_exploratoria_101_c3 import DATASETS, cargar_arff  # noqa: E402
 from matrixai.estudio import ProblemSpec  # noqa: E402
