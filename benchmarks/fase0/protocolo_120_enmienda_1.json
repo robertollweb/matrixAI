@@ -1,0 +1,59 @@
+{
+  "eleccion_del_perfil_por_tamano": "Por tamaño, de los dos perfiles (L2 0 y 1) se queda el que cumpla la regla 4 frente a R1; si los dos, el de mejor recuento (suben menos bajan); si ninguno, el de HOY en ese tamaño (regla 4c). Se decide con los números de C2, sin retocar los perfiles",
+  "enmienda": 1,
+  "estado": "REGISTRADA el 2026-10-02 (deployer-f1) ANTES de construir y de medir C2, con R0 y R1 ya medidos (referencia_120_r0.json, referencia_120_r1.json); su sha256 se cita en el commit",
+  "hgb": "HGB no admite validación externa: `warm_start` por tramos de árboles midiendo la pérdida en la MISMA cola que LightGBM; si el corte demuestra que no cabe limpio, enmienda escrita antes de medir, con su motivo (no se finge)",
+  "instrumento": "referencia_120_r0.py con la imagen de C2, mismos 13 conjuntos, mismo orden, --memoria 6g (la condición de R0/R1)",
+  "lo_que_no_se_toca": "pesos de búsqueda, reserva, la preparación (los `__faltante` son de D10/P1), la Fase 0",
+  "motor_por_omision": "SIN CAMBIOS (D2): la política la pide el Studio con una configuración explícita; sin ella el predictor es byte a byte el de hoy y la Fase 0 sigue midiendo eso",
+  "perfiles": {
+    "comun": {
+      "l2": [
+        0.0,
+        1.0
+      ],
+      "nota_l2": "el eje de regularización de D6: DOS perfiles por tamaño (L2 = 0 y L2 = 1)",
+      "parada_temprana": "sobre la `validation` que el 121 pasa al motor (cola 15 % de `entrena`), con la métrica de pérdida del propio motor (logloss/multi_logloss/l2)"
+    },
+    "grande": {
+      "arboles_max": 400,
+      "hojas": 63,
+      "hojas_minimas": 40,
+      "paciencia": 20,
+      "tasa": 0.1
+    },
+    "mediano": {
+      "arboles_max": 800,
+      "hojas": 31,
+      "hojas_minimas": 20,
+      "paciencia": 30,
+      "tasa": 0.05
+    },
+    "nombres": {
+      "arboles_max": "n_estimators / max_iter",
+      "hojas": "num_leaves / max_leaf_nodes",
+      "hojas_minimas": "min_child_samples / min_samples_leaf",
+      "l2": "reg_lambda / l2_regularization",
+      "tasa": "learning_rate"
+    },
+    "pequeno": {
+      "arboles_max": 500,
+      "hojas": 7,
+      "hojas_minimas": 10,
+      "paciencia": 30,
+      "tasa": 0.05
+    }
+  },
+  "protocolo": "120.v1",
+  "que_fija": "los perfiles de C2 (árboles por tamaño, con parada temprana) y la regla de tiempo",
+  "regla_de_parada": "la 9 del protocolo, por perfil: al primer conjunto que baja >= 2 puntos o deja de completar, ese perfil se corta",
+  "regla_de_tiempo": "Siempre se permiten los árboles de HOY (100) salvo que la parada temprana corte antes; MÁS ALLÁ de 100, solo mientras el ajuste quepa en el presupuesto del intento (`Presupuesto.wall_seconds`), y se declara en qué árbol paró y por qué (temprana / reloj / tope). Así ningún paquete va más lento que hoy por C2 (con torch el presupuesto de un árbol es 1,87 s) y los árboles empiezan a cumplir su presupuesto.",
+  "se_compara_contra": "R1 (el código con D9 y C1: paridad con R0 en las cifras, medido el 02-10 02:57-04:00)",
+  "tamanos": {
+    "criterio": "filas con que ENTRENA el motor (la cabeza 85 % de `entrena`, regla del 121)",
+    "de_donde": "los cortes de los cubos de la Fase 0 (por filas de cada conjunto)",
+    "grande": "> 20000",
+    "mediano": "2001-20000",
+    "pequeno": "<= 2000"
+  }
+}
