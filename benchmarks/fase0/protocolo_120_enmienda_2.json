@@ -1,0 +1,9 @@
+{
+  "alcance": "C2 se MIDE y, si pasa la regla 4, se APLICA solo donde la densa NO puede entrenar (paquete CPU, sin torch). Con torch, los árboles siguen con la configuración de HOY, declarado, hasta que se mida esa condición (otra pasada, con su R1 con torch).",
+  "consecuencia_en_el_codigo": "La activación en producción (después de medir) pone la política SOLO cuando `_motores_que_no_pueden_entrenar_aqui` saca a la densa; la variable MATRIXAI_POLITICA_DE_ARBOLES es solo para la medida.",
+  "enmienda": 2,
+  "estado": "REGISTRADA el 2026-10-02 (deployer-f1) ANTES de medir C2: alcance de la enmienda 1",
+  "lo_que_no_cambia": "los perfiles, la regla de tiempo, la elección por tamaño, la regla de parada: los de la enmienda 1",
+  "motivo": "Revisando C2 construido (rama corte-120-c2): con torch (paquete GPU) la densa compite y a cada árbol le tocan 1,87 s de presupuesto por intento, así que la regla de tiempo casi nunca deja pasar de 100 árboles, y los perfiles pequeño y mediano entrenarían 100 árboles con tasa 0,05 en vez de 0,1: aprenderían MENOS que hoy. La medida de C2 se hace en la condición sin torch (la de R0/R1: paquete CPU, D9, 9,33 s por árbol), que no ve ese caso.",
+  "protocolo": "120.v1"
+}
