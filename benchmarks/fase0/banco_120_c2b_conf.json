@@ -1,0 +1,61 @@
+{
+ "que_es": "el banco de la confirmación de 120-C2b (enmienda 6): los 7 conjuntos NO sellados de la Fase 0 que, por sus filas de entrenamiento en el Studio (≈ 0,544 × filas, medido: wilt 4.839 → 2.631), caen en «mediano» con margen de las fronteras (2.300–18.000) y no están entre los 13 del protocolo 120; ordenados de menos a más filas",
+ "conjuntos": [
+  {
+   "nombre": "wine_quality",
+   "data_id": 287,
+   "tarea": "regression",
+   "objetivo": "quality",
+   "clase_positiva": null,
+   "orden": 1
+  },
+  {
+   "nombre": "SAT11-HAND-runtime-regression",
+   "data_id": 41980,
+   "tarea": "regression",
+   "objetivo": "runtime",
+   "clase_positiva": null,
+   "orden": 2
+  },
+  {
+   "nombre": "optdigits",
+   "data_id": 28,
+   "tarea": "multiclass_classification",
+   "objetivo": "class",
+   "clase_positiva": "0",
+   "orden": 3
+  },
+  {
+   "nombre": "jm1",
+   "data_id": 1053,
+   "tarea": "binary_classification",
+   "objetivo": "defects",
+   "clase_positiva": "true",
+   "orden": 4
+  },
+  {
+   "nombre": "PhishingWebsites",
+   "data_id": 4534,
+   "tarea": "binary_classification",
+   "objetivo": "Result",
+   "clase_positiva": "-1",
+   "orden": 5
+  },
+  {
+   "nombre": "house_sales",
+   "data_id": 42731,
+   "tarea": "regression",
+   "objetivo": "price",
+   "clase_positiva": null,
+   "orden": 6
+  },
+  {
+   "nombre": "Amazon_employee_access",
+   "data_id": 4135,
+   "tarea": "binary_classification",
+   "objetivo": "target",
+   "clase_positiva": "0",
+   "orden": 7
+  }
+ ]
+}

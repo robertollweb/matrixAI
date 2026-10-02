@@ -63,6 +63,32 @@ def ahora():
 
 
 # ------------------------------------------------------------------ datos: el MISMO conversor que los ejemplos del Studio
+FASE0_DECLARADOS = (AQUI / "resultado_pasada_119_c3.json", AQUI / "resultado_pasada_119_c4.json")
+
+
+def banco_alternativo(ruta):
+    """Otro banco (enmienda 6: la confirmación de C2b en más medianos). Cada conjunto tiene que ser de la Fase 0 con
+    los MISMOS data_id, tarea, objetivo y clase positiva que declaró, NO sellado y no uno de los ejemplos del control
+    (que se miden aparte, del protocolo). Ordenado por `orden`."""
+    declarados = {}
+    for f in FASE0_DECLARADOS:
+        for d in json.loads(f.read_text())["datasets_declarados"]:
+            declarados[d["nombre"]] = d
+    banco = sorted(json.loads(Path(ruta).read_text())["conjuntos"], key=lambda x: x["orden"])
+    for b in banco:
+        d = declarados.get(b["nombre"])
+        if d is None:
+            raise SystemExit(f"PARO: {b['nombre']} no es un conjunto de la Fase 0")
+        if d.get("sellado"):
+            raise SystemExit(f"PARO: {b['nombre']} está sellado")
+        if b["nombre"] in CONTROL:
+            raise SystemExit(f"PARO: {b['nombre']} es un ejemplo del control, no va en el banco")
+        for k in ("data_id", "tarea", "objetivo", "clase_positiva"):
+            if str(d.get(k)) != str(b.get(k)):
+                raise SystemExit(f"PARO: {b['nombre']}.{k}: banco {b.get(k)!r} != Fase 0 {d.get(k)!r}")
+    return banco
+
+
 def cargar_generador():
     spec = importlib.util.spec_from_file_location("generar_ejemplos_medidos", GENERADOR)
     m = importlib.util.module_from_spec(spec)
@@ -405,6 +431,8 @@ def main():
     ap.add_argument("--politica", choices=sorted(veredicto_120.L2_DE_LA_POLITICA), default=None,
                     help="C2: mide con MATRIXAI_POLITICA_DE_ARBOLES (exige --contra)")
     ap.add_argument("--contra", default=None, help="C2: el JSON de R1 contra el que se compara y se corta (regla 9)")
+    ap.add_argument("--banco", default=None,
+                    help="otro banco de conjuntos (enmienda 6); el control sigue siendo el de los 4 ejemplos del protocolo")
     a = ap.parse_args()
     if bool(a.politica) != bool(a.contra):
         raise SystemExit("--politica y --contra van juntas")
@@ -429,12 +457,17 @@ def main():
         if d.get("sellado"):
             raise SystemExit(f"PARO: {b['nombre']} está sellado")
     banco_entero = banco
+    if a.banco:
+        if a.solo_humo:
+            raise SystemExit("--banco no se combina con --solo-humo (con --solo sí: filtra el banco; la pasada es PARCIAL)")
+        banco = banco_alternativo(a.banco)
     if a.solo_humo:
         banco = [b for b in banco if b["nombre"] in CONTROL]
     elif a.solo:
         banco = [b for b in banco if b["nombre"] in a.solo.split(",")]
     gen = cargar_generador()
-    bytes_ok = comprobar_bytes(gen, [b for b in (banco_entero if a.politica else banco) if b["nombre"] in CONTROL])
+    bytes_ok = comprobar_bytes(gen, [b for b in (banco_entero if (a.politica or a.banco) else banco)
+                                     if b["nombre"] in CONTROL])
     print("CSV byte a byte contra los del Studio:", {k: v["byte_a_byte"] for k, v in bytes_ok.items()}, flush=True)
 
     imagen = subprocess.run(["docker", "image", "inspect", IMAGEN, "--format", "{{.Id}}"], capture_output=True, text=True).stdout.strip()
@@ -454,6 +487,8 @@ def main():
                              "contra": (str(Path(a.contra).resolve()) if a.contra else None),
                              "sha256_contra": (sha(a.contra) if a.contra else None),
                              "sha256_veredicto": sha(AQUI / "veredicto_120.py"),
+                             "banco": (str(Path(a.banco).resolve()) if a.banco else None),
+                             "sha256_banco": (sha(a.banco) if a.banco else None),
                              "parcial": ([b["nombre"] for b in banco] if len(banco) != len(banco_entero) else None)},
              "conjuntos": dict(previo), "control": None, "corte": None, "comparaciones": {}}
     # Con --politica, el control va SIN ella (el motor por omisión de la imagen de C2 es el de hoy); después se
@@ -505,10 +540,12 @@ def main():
     if POLITICA:
         correr_con_politica(banco_entero, banco, datos, srv, correr, contra)
         return
-    pend_control = [b for b in banco if b["nombre"] in CONTROL]
+    fuente_del_control = banco_entero if a.banco else banco      # con --banco, el control sigue siendo el del protocolo
+    pend_control = [b for b in fuente_del_control if b["nombre"] in CONTROL]
     for b in pend_control:
         correr(b)
-    if all(n in datos["conjuntos"] for n in CONTROL if any(b["nombre"] == n for b in banco)) and len(pend_control) == 4:
+    if all(n in datos["conjuntos"] for n in CONTROL if any(b["nombre"] == n for b in fuente_del_control)) \
+            and len(pend_control) == 4:
         ok, lin = controlar(datos["conjuntos"])
         datos["control"] = {"cuadra": ok, "lineas": lin}
         guardar(datos)

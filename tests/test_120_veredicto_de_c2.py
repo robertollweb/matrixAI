@@ -454,3 +454,29 @@ def test_c2b_un_pequeno_que_deja_o_empieza_a_completar_tambien_para_por_paridad(
     empieza = V.comparar(R1["KDDCup09_appetency"], kdd)            # tamaño «pequeno» por la declaración fabricada
     assert empieza["clase"] == "empieza_a_completar"
     assert "no es IDÉNTICO" in V.paridad_fuera_de_la_politica(empieza, "c2b_l2_0")
+
+
+# ── enmienda 6: el banco de la confirmación de C2b ───────────────────────────
+
+def test_el_banco_de_la_confirmacion_son_7_medianos_no_sellados_de_la_fase_0_fuera_de_los_13():
+    banco = G.banco_alternativo(_FASE0 / "banco_120_c2b_conf.json")
+    nombres = [b["nombre"] for b in banco]
+    assert len(nombres) == 7 and len(set(nombres)) == 7
+    trece = {b["nombre"] for b in json.loads((_FASE0 / "protocolo_120.json").read_text())["conjuntos"]["banco"]}
+    assert not set(nombres) & trece
+    assert {b["tarea"] for b in banco} == {"binary_classification", "multiclass_classification", "regression"}
+
+
+@pytest.mark.parametrize("cambio, motivo", [
+    ({"nombre": "pol", "data_id": 201, "tarea": "regression", "objetivo": "foo", "clase_positiva": None}, "sellado"),
+    ({"nombre": "jm1", "data_id": 1053, "tarea": "binary_classification", "objetivo": "defects",
+      "clase_positiva": "false"}, "clase_positiva"),
+    ({"nombre": "no_existe", "data_id": 1, "tarea": "regression", "objetivo": "y", "clase_positiva": None}, "no es un"),
+    ({"nombre": "pc1", "data_id": 1068, "tarea": "binary_classification", "objetivo": "defects",
+      "clase_positiva": "true"}, "control"),
+])
+def test_el_banco_rechaza_sellados_datos_cambiados_desconocidos_y_ejemplos_del_control(tmp_path, cambio, motivo):
+    ruta = tmp_path / "banco.json"
+    ruta.write_text(json.dumps({"conjuntos": [dict(cambio, orden=1)]}))
+    with pytest.raises(SystemExit, match=motivo):
+        G.banco_alternativo(ruta)

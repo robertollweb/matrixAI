@@ -1,0 +1,14 @@
+{
+ "banco": "benchmarks/fase0/banco_120_c2b_conf.json: los 7 conjuntos NO sellados de la Fase 0 que caen en «mediano» por sus filas de entrenamiento en el Studio (≈ 0,544 × filas, medido; con margen: 2.300–18.000) y no están entre los 13: wine_quality, SAT11-HAND-runtime-regression, optdigits, jm1, PhishingWebsites, house_sales, Amazon_employee_access. Elegidos por TAMAÑO, sin mirar ninguna cifra suya",
+ "de": "Roberto, 2026-10-02 21:40: «Ok a tus recomendaciones» (L2 = 1; confirmar en más medianos antes de activar; si confirma, C6)",
+ "enmienda": 6,
+ "estado": "REGISTRADA el 2026-10-02 21:50 (deployer-f1) ANTES de las dos pasadas de la confirmación, tras un humo del instrumento (control cuadra en la referencia y en C2b; la política aplicada en wine_quality; parcial, no decide)",
+ "instrumento": "referencia_120_r0.py --imagen matrixai-studio:120-c2b --banco banco_120_c2b_conf.json (la referencia), y lo mismo con --politica c2b_l2_1 --contra <la referencia>; cola nocturna, ~1 h las dos (estimado, no medido)",
+ "l2": "L2 = 1 (c2b_l2_1), elegido por Roberto DESPUÉS de ver las dos pasadas (empate en el recuento de la enmienda 1; con L2 = 1 ninguno de los tres medianos baja)",
+ "motivo": "C2b (enmienda 5) mejoró en «mediano» con los dos L2 (núcleo b008984, cee6ca2), pero la mejora se apoya en UN conjunto de tres (house_16H: +1,36 con L2 = 0, +1,16 con L2 = 1; wilt y pendigits, igual). Antes de activar nada en el producto, se confirma en más medianos.",
+ "protocolo": "120.v1",
+ "referencia": "estos 7 no tienen cifra en R1: se mide una REFERENCIA sin la política en la MISMA imagen 120-c2b (sin la variable, el motor de hoy byte a byte, probado en las auditorías y en el humo de C2b), con el mismo guion y el control de los 4 ejemplos; C2b se compara contra ella con --contra",
+ "regla": "la regla 4 de siempre en los 7: CONFIRMA si más suben (≥ 1 punto) que bajan (≥ 1), ninguno baja ≥ 2 y nadie deja de completar; |diferencia| < 1 no cuenta. Un conjunto que el estudio declare «pequeño» o «grande» se mide con su regla (pequeño: paridad exacta; grande: lo que dé) y no cuenta como mediano. La regla 9 corta la pasada de C2b en el primer mediano que baja ≥ 2 o deja de completar",
+ "si_confirma": "corte C6: la política c2b con L2 = 1 SOLO en «mediano» y SOLO en el paquete sin torch (enmienda 2), con su auditoría, la release y el sí de Roberto",
+ "si_no_confirma": "nada se activa; la mejora de house_16H queda como dato, no como cambio del producto"
+}
