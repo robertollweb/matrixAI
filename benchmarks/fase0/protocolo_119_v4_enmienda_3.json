@@ -1,0 +1,16 @@
+{
+ "correccion_1_desconocida_entrenada": "SOLO al entrenar, cada celda categórica de cada lote de train se sustituye por INDICE_DESCONOCIDO con probabilidad p = 0,02, independiente por celda, con un generador PROPIO sembrado con la semilla del intento (nunca el generador global de torch). Nunca en validation, en la parada temprana ni al predecir.",
+ "correccion_2_categorias_raras": "en `ajustar_preparacion`, los valores de una columna categórica con MENOS DE 5 apariciones en train no reciben índice propio: van a un índice reservado nuevo, INDICE_RARO; al transformar, un valor raro de train → INDICE_RARO; un valor no visto en train → INDICE_DESCONOCIDO (como hoy). Si todos los valores de una columna son raros, todos van a INDICE_RARO.",
+ "coste_estimado": "~2,3 h de cola (estimado desde la pared de C3 en esos 12 con 2 procesos; no medido)",
+ "de": "contrato 120, P4c / C5; Roberto, 2026-10-02: «sí a las tres» (C5 sin esperar a C3)",
+ "enmienda": 3,
+ "estado": "REGISTRADA el 2026-10-02 12:12 (deployer-f1) ANTES de construir 120-C5: los parámetros de las dos correcciones de TabM y qué se re-mide",
+ "lo_que_ya_se_sabe": "los dos conjuntos donde TabM no está a ≤ 2 del mejor (pc3, 37 numéricas; climate-model-simulation-crashes, 20 numéricas) no tienen categóricas: C5 no puede moverlos (leído en sus ARFF)",
+ "motivo": "Dos defectos de corrección de la preparación de TabM (matrixai.dense.tabm_cpu 1.1.0): el índice reservado de «desconocida» nunca se entrena (en train todas las categorías son conocidas, así que su embedding es el de la inicialización) y una categoría vista una sola vez tiene su propio embedding, casi sin entrenar. Es corrección, no una mejora prometida.",
+ "no_op_exacto": "un conjunto SIN columnas categóricas tiene que dar las MISMAS predicciones, bit a bit, que la 1.1.0 con la misma semilla (por eso el generador propio: no se toca la secuencia aleatoria del modelo). Prueba con nombre",
+ "protocolo": "119.v4",
+ "que_se_remide": "los 12 conjuntos NO sellados con columnas categóricas (dresses-sales, Moneyball, house_prices_nominal, Internet-Advertisements, sick, PhishingWebsites, Amazon_employee_access, KDDCup09_appetency, okcupid-stem, connect-4, kick, Allstate_Claims_Severity) con el guion de 119-C3 (mismas particiones, semillas y presupuestos), frente a `resultado_pasada_119_c3.json` congelado. Los otros 20 no sellados no se re-miden: no-op por construcción, vigilado por la prueba",
+ "regla": "se ADOPTA la 1.2.0 en la Fase 0 si, en los 12: ninguno baja ≥ 2 puntos (media de los pliegues, métrica de cierre por tarea, ×100) y no bajan (≥ 1) más de los que suben (≥ 1); |diferencia| < 1 no cuenta. Si no, se queda la 1.1.0 y las dos correcciones son deuda declarada. El recuento «a ≤ 2 puntos del mejor» (el 38/40) se da con los 12 nuevos y los demás como estaban, dicho",
+ "sellados": "los 3 sellados con categóricas (splice, kr-vs-kp, diamonds) NO se re-miden: se miran una sola vez (119-C4) y su cifra sigue siendo la de la 1.1.0, declarado así en cualquier recuento",
+ "version_del_motor": "1.2.0: un checkpoint 1.1.0 no se carga con la 1.2.0 (`ProcedenciaObsoleta`, como hoy)"
+}
