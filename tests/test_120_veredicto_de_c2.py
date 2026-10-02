@@ -442,3 +442,15 @@ def test_c2b_la_pasada_para_si_un_pequeno_no_es_identico(monkeypatch, tmp_path):
     assert e.value.code == 3
     assert datos["corte"]["tipo"] == "instrumento" and datos["corte"]["tras"] == "climate-model-simulation-crashes"
     assert "no es IDÉNTICO" in datos["corte"]["motivo"]
+
+
+def test_c2b_un_pequeno_que_deja_o_empieza_a_completar_tambien_para_por_paridad():
+    """Tercera auditoría, MENOR 7: un pequeño entrena con el motor de hoy, así que cambiar de completar a no completar
+    (o al revés) tampoco es un resultado: es el instrumento."""
+    deja = V.comparar(R1["pc1"], _c2("pc1", estado="failed"))
+    assert deja["clase"] == "deja_de_completar"
+    assert "no es IDÉNTICO" in V.paridad_fuera_de_la_politica(deja, "c2b_l2_0")
+    kdd = _c2("pc1"); kdd["nombre"] = "KDDCup09_appetency"
+    empieza = V.comparar(R1["KDDCup09_appetency"], kdd)            # tamaño «pequeno» por la declaración fabricada
+    assert empieza["clase"] == "empieza_a_completar"
+    assert "no es IDÉNTICO" in V.paridad_fuera_de_la_politica(empieza, "c2b_l2_0")
