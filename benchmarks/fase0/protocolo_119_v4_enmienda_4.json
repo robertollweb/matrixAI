@@ -1,0 +1,12 @@
+{
+ "como_se_lanza": "con ~/encolar.sh y COMMITS=matrixai-engines=<commit auditado de C5>: un núcleo de verdad con C5 como hermana (medido por la auditoría: así corre la 1.2.0 en el padre y en el hijo, con el digest y el commit de C5). Lanzar desde el árbol principal mediría la 1.1.0, o la 1.2.0 con una procedencia que miente; la salida, un fichero nuevo fuera del árbol (la caché es el propio fichero)",
+ "dejar_de_completar": "un intento que completaba con la 1.1.0 y no completa con la 1.2.0 (o le falta la métrica de cierre) hace que la 1.2.0 NO se adopte, como una bajada ≥ 2 (la enmienda 3 solo hablaba de bajadas; veredicto_120_c5.py ya lo exigía y la auditoría lo señaló: se registra)",
+ "duracion": "~4,9 h estimadas (la congelada suma 4,62 h de pared de intentos y 0,22 h de preparación; este guion corre de uno en uno), no medidas; tope 7 h. La estimación de la enmienda 3 (~2,3 h, con 2 procesos) queda corregida",
+ "el_motor_medido": "la 1.2.0 del commit 825d664 (rama corte-120-c5): la semilla del generador de «desconocida» se DERIVA de la del intento (sha256('desconocida:<semilla>'), 7 bytes); antes era la misma que la de la permutación y los dos generadores leían la misma secuencia (auditoría, M1). No cambia ni p, ni el umbral, ni el no-op exacto",
+ "enmienda": 4,
+ "estado": "REGISTRADA el 2026-10-02 13:43 (deployer-f1) tras la auditoría de C4/C5 (Opus) y ANTES de medir C5",
+ "implementacion": "veredicto_120_c5.py (`por_plazo_en_la_congelada`, `decide`, el veredicto sobre los que deciden) y su prueba, en el mismo commit",
+ "los_que_no_deciden": "los conjuntos donde la 1.1.0 congelada paró por PLAZO en TODOS sus intentos —leído del propio dato, `entrenamiento_efectivo.parado_por_plazo`: Allstate_Claims_Severity 5/5, Internet-Advertisements 15/15, KDDCup09_appetency 5/5, connect-4 5/5— se miden y se informan, pero NO deciden: su diferencia mezcla la corrección con la carga de la máquina (la congelada corría 2 procesos; la nueva, uno). Deciden los otros 8, que en la congelada no pararon por plazo en ningún intento",
+ "motivo": "La auditoría de C4/C5 encontró tres cosas de la MEDIDA de C5 que la enmienda 3 no decía, y un detalle del motor medido.",
+ "protocolo": "119.v4"
+}

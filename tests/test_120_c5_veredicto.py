@@ -95,3 +95,14 @@ def test_una_bajada_de_2_veta_aunque_suban_mas():
     v = V.veredicto(V.comparar(VIEJO, _nuevo(mover={"sick": -0.0201, "kick": +0.015, "Moneyball": +0.015})))
     assert (v["suben"], v["bajan"], v["bajan_2"]) == (2, 1, 1)
     assert v["adopta_la_1_2_0"] is False
+
+
+def test_los_que_pararon_por_plazo_en_la_congelada_no_deciden_y_salen_del_dato():
+    plazo = V.por_plazo_en_la_congelada(VIEJO)
+    todos_por_plazo = {n for n, (p, t) in plazo.items() if t and p == t}
+    assert todos_por_plazo == {"Allstate_Claims_Severity", "Internet-Advertisements", "KDDCup09_appetency", "connect-4"}
+    # Una bajada de 3 puntos en uno de ellos no veta; en uno que decide, sí.
+    v = V.veredicto(V.comparar(VIEJO, _nuevo(mover={"Internet-Advertisements": -0.03})))
+    assert v["adopta_la_1_2_0"] is True and v["no_deciden_por_plazo"]["Internet-Advertisements"] == "baja_2"
+    assert len(v["deciden"]) == 8
+    assert V.veredicto(V.comparar(VIEJO, _nuevo(mover={"sick": -0.03})))["adopta_la_1_2_0"] is False
