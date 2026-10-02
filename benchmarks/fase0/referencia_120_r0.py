@@ -271,16 +271,35 @@ def perfiles_declarados(est):
 
 def comprobar_politica(rec, politica):
     """(motivo para PARAR o None, cuántos intentos de árboles completados se comprobaron). Con `politica`, cada
-    intento de árboles completado DECLARA esa política; sin ella, ninguno declara nada. Un conjunto sin intentos
-    de árboles completados (Allstate en R1: no terminó ninguno) no se puede comprobar y NO para: lo dice el 0, y
-    los conjuntos de antes ya comprobaron el instrumento."""
+    intento de árboles completado DECLARA esa política, y el sobre de selección (`seleccion.politica_de_arboles`,
+    leído de lo entrenado) dice el valor pedido, que la densa estaba FUERA (enmienda 2: se mide solo sin torch) y,
+    si ganó un árbol, que su reajuste entrenó los árboles FIJADOS (la mediana de la búsqueda). Sin ella, ni un
+    intento ni el sobre la llevan. Un conjunto sin intentos de árboles completados (Allstate en R1: no terminó
+    ninguno) no se puede comprobar y NO para: lo dice el 0, y los conjuntos de antes ya comprobaron el instrumento."""
     ps = [p for p in rec.get("perfiles_declarados") or [] if p["estado"] == "completed"]
+    sobre = rec.get("politica_de_arboles")
+    n = rec["nombre"]
     if politica is None:
         malos = [p["candidato"] for p in ps if p["declara"]]
-        return (f"{rec['nombre']}: declaran una política SIN pedirla: {malos[:5]}" if malos else None), len(ps)
+        if malos:
+            return f"{n}: declaran una política SIN pedirla: {malos[:5]}", len(ps)
+        return (f"{n}: el sobre declara una política SIN pedirla" if sobre is not None else None), len(ps)
     l2 = {"l2_0": 0.0, "l2_1": 1.0}[politica]
     malos = [p["candidato"] for p in ps if not p["declara"] or p["l2"] != l2]
-    return (f"{rec['nombre']}: intentos de árboles sin la política {politica}: {malos[:5]}" if malos else None), len(ps)
+    if malos:
+        return f"{n}: intentos de árboles sin la política {politica}: {malos[:5]}", len(ps)
+    if not ps or rec.get("estado") != "completed":
+        return None, len(ps)
+    if not isinstance(sobre, dict) or sobre.get("valor") != politica:
+        return f"{n}: el sobre no declara {politica}: {str(sobre)[:200]}", len(ps)
+    if sobre.get("densa_fuera") is not True:
+        return f"{n}: la densa NO estaba fuera ({sobre.get('densa_fuera')!r}): la enmienda 2 mide solo sin torch", len(ps)
+    if rec.get("campeon") in MOTORES_DE_ARBOLES:
+        del_campeon = (sobre.get("campeon") or {}).get("politica_por_tamano") or {}
+        if del_campeon.get("l2") != l2 or not isinstance(del_campeon.get("arboles_fijados"), dict):
+            return (f"{n}: el modelo del campeón ({rec['campeon']}) no es el reajuste con los árboles fijados y la "
+                    f"política {politica}: {str(del_campeon)[:200]}"), len(ps)
+    return None, len(ps)
 
 
 def registrar(nombre, c, cuerpo_ok, est, pared, http, rechazo, loadavg, ini):
@@ -293,7 +312,8 @@ def registrar(nombre, c, cuerpo_ok, est, pared, http, rechazo, loadavg, ini):
            "motores_que_no_puntuaron": sel.get("motores_que_no_puntuaron") or est.get("motores_que_no_puntuaron"),
            "intentos": filas, "intentos_ruta_en_el_estado": ruta, "pared_estudio_s": round(pared, 1),
            "loadavg_al_empezar": loadavg, "inicio": ini, "fin": ahora(),
-           "perfiles_declarados": perfiles_declarados(est)}
+           "perfiles_declarados": perfiles_declarados(est),
+           "politica_de_arboles": sel.get("politica_de_arboles")}
     return rec
 
 
@@ -374,6 +394,9 @@ def main():
     a = ap.parse_args()
     if bool(a.politica) != bool(a.contra):
         raise SystemExit("--politica y --contra van juntas")
+    if a.politica and (Path(a.salida).resolve() == SALIDA.resolve()
+                       or Path(a.salida).resolve() == Path(a.contra).resolve()):
+        raise SystemExit("--politica escribe en una --salida PROPIA: ni la de R0 (la omisión) ni la de --contra")
     IMAGEN, MEMORIA, POLITICA = a.imagen, a.memoria, a.politica
     contra = json.loads(Path(a.contra).read_text())["conjuntos"] if a.contra else None
     if contra is not None and not json.loads(Path(a.contra).read_text()).get("control", {}).get("cuadra"):

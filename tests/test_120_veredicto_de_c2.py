@@ -49,7 +49,17 @@ def _c2(nombre: str, *, valor=None, delta=None, motor=None, linea_base=None, est
         rec["estado"] = estado
     rec["perfiles_declarados"] = [{"motor": "lightgbm", "candidato": "lightgbm-p0-r0", "estado": "completed",
                                    "declara": True, "tamano": tamano, "l2": 0.0}]
+    rec["politica_de_arboles"] = _sobre()
     return rec
+
+
+def _sobre(valor="l2_0", l2=0.0, densa_fuera=True, fijados=True):
+    """`seleccion.politica_de_arboles` como lo escribe el Studio de C2 (leído de lo entrenado)."""
+    del_campeon = {"l2": l2, "tamano": "pequeno", "paro": "fijado"}
+    if fijados:
+        del_campeon["arboles_fijados"] = {"arboles": 120, "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda"}
+    return {"variable": "MATRIXAI_POLITICA_DE_ARBOLES", "valor": valor, "l2": l2, "densa_fuera": densa_fuera,
+            "campeon": {"motor": "lightgbm", "politica_por_tamano": del_campeon}}
 
 
 # ── la cifra ─────────────────────────────────────────────────────────────────
@@ -146,13 +156,15 @@ def _estado(*intentos):
         for i, (m, e, d) in enumerate(intentos)]}
 
 
-def _rec(est, nombre="pc1"):
-    return {"nombre": nombre, "estado": est["estado"], "perfiles_declarados": G.perfiles_declarados(est)}
+def _rec(est, nombre="pc1", sobre=None, campeon="lightgbm"):
+    return {"nombre": nombre, "estado": est["estado"], "campeon": campeon,
+            "perfiles_declarados": G.perfiles_declarados(est), "politica_de_arboles": sobre}
 
 
 def test_cada_intento_de_arboles_completado_tiene_que_declarar_la_politica_pedida():
     d0 = {"tamano": "pequeno", "l2": 0.0, "filas_de_train": 640}
-    bien = _rec(_estado(("lightgbm", "completed", d0), ("sklearn.hgb", "completed", d0), ("baseline", "completed", None)))
+    bien = _rec(_estado(("lightgbm", "completed", d0), ("sklearn.hgb", "completed", d0), ("baseline", "completed", None)),
+                sobre=_sobre())
     assert G.comprobar_politica(bien, "l2_0") == (None, 2)
     motivo, _ = G.comprobar_politica(bien, "l2_1")
     assert motivo and "sin la política l2_1" in motivo
@@ -275,3 +287,71 @@ def test_el_control_sin_politica_para_si_alguien_la_declara_o_si_no_hay_arboles_
         G.correr_con_politica(banco, banco, datos, {"politica": None}, correr, R1)
     assert e.value.code == 2 and datos["control"]["cuadra"] is False
     assert any("us_crime" in l and ("SIN pedirla" in l or " 0 intentos" in l) for l in datos["control"]["lineas"])
+
+
+# ── el sobre de selección (lo que se entrenó, no lo que se pidió) ────────────
+
+_D0 = {"tamano": "pequeno", "l2": 0.0}
+
+
+def _con_sobre(sobre, campeon="lightgbm"):
+    return _rec(_estado(("lightgbm", "completed", _D0), ("sklearn.hgb", "completed", _D0)), sobre=sobre,
+                campeon=campeon)
+
+
+def test_con_la_politica_el_sobre_tiene_que_decir_el_valor_pedido():
+    assert G.comprobar_politica(_con_sobre(_sobre()), "l2_0") == (None, 2)
+    for sobre in (None, _sobre(valor="l2_1")):
+        motivo, _ = G.comprobar_politica(_con_sobre(sobre), "l2_0")
+        assert motivo and "el sobre no declara l2_0" in motivo
+
+
+def test_con_la_politica_la_densa_tiene_que_estar_fuera_enmienda_2():
+    """Con torch la densa compite y cada árbol tiene 1,87 s: no es la condición que se mide."""
+    for fuera in (False, None):
+        motivo, _ = G.comprobar_politica(_con_sobre(_sobre(densa_fuera=fuera)), "l2_0")
+        assert motivo and "la densa NO estaba fuera" in motivo
+
+
+def test_si_gana_un_arbol_su_modelo_es_el_reajuste_con_los_arboles_fijados():
+    motivo, _ = G.comprobar_politica(_con_sobre(_sobre(fijados=False)), "l2_0")
+    assert motivo and "árboles fijados" in motivo
+    motivo, _ = G.comprobar_politica(_con_sobre(_sobre(l2=1.0, valor="l2_0")), "l2_0")
+    assert motivo and "árboles fijados" in motivo
+    # Si gana la línea base, no hay reajuste de árbol que mirar.
+    assert G.comprobar_politica(_con_sobre(_sobre(fijados=False), campeon="baseline"), "l2_0") == (None, 2)
+
+
+def test_sin_la_politica_el_sobre_no_puede_llevarla():
+    sin = _rec(_estado(("lightgbm", "completed", None)), sobre=_sobre())
+    motivo, _ = G.comprobar_politica(sin, None)
+    assert motivo and "el sobre declara una política SIN pedirla" in motivo
+    assert G.comprobar_politica(_rec(_estado(("lightgbm", "completed", None))), None) == (None, 1)
+
+
+def test_registrar_guarda_el_sobre_de_la_seleccion():
+    est = _estado(("lightgbm", "completed", _D0))
+    est["seleccion"] = {"candidate_engine": "lightgbm", "politica_de_arboles": _sobre()}
+    rec = G.registrar("pc1", {"data_id": 1, "tarea": "binary_classification", "objetivo": "y"}, {}, est,
+                      1.0, 200, None, ["0", "0", "0"], "x")
+    assert rec["politica_de_arboles"] == _sobre() and rec["campeon"] == "lightgbm"
+
+
+@pytest.mark.parametrize("salida", ["la_de_R0", "la_de_contra"])
+def test_con_la_politica_no_se_escribe_encima_de_R0_ni_de_la_referencia(monkeypatch, tmp_path, salida):
+    """Todo en `tmp_path`, y lo que tiene efectos fuera (el contenedor, el generador de CSV, escribir el JSON)
+    sustituido por un fallo RUIDOSO: si la guarda se rompe, la prueba se pone roja al instante en vez de arrancar
+    un contenedor y escribir encima del artefacto (02-10: un sabotaje de esta guarda, con la prueba vieja, arrancó
+    un contenedor de verdad y reescribió referencia_120_r0.json; restaurado del commit)."""
+    contra = tmp_path / "r1.json"
+    contra.write_text((_FASE0 / "referencia_120_r1.json").read_text())
+    r0 = tmp_path / "referencia_120_r0.json"
+    argv = ["referencia_120_r0.py", "--politica", "l2_0", "--contra", str(contra)]
+    if salida == "la_de_contra":
+        argv += ["--salida", str(contra)]
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(G, "SALIDA", r0)                 # la omisión de --salida, aquí
+    for peligrosa in ("arrancar_contenedor", "cargar_generador", "comprobar_bytes", "guardar", "borrar_contenedor"):
+        monkeypatch.setattr(G, peligrosa, lambda *a, _n=peligrosa, **k: pytest.fail(f"la guarda dejó pasar: {_n}"))
+    with pytest.raises(SystemExit, match="--salida PROPIA"):
+        G.main()
