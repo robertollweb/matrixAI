@@ -1,0 +1,21 @@
+{
+ "cifra_de_un_conjunto": {
+  "binaria": "AUROC × 100",
+  "de_donde": "la del CAMPEÓN en `seleccion.media_de_la_seleccion` (la media de los pliegues de la validación cruzada sobre desarrollo, «la que decide»); nunca el test",
+  "multiclase": "accuracy × 100",
+  "otra_metrica": "no hay regla registrada: el conjunto es INCOMPARABLE y la pasada para",
+  "regresion": "R² de la validación cruzada × 100 = 100 · (1 − (RMSE del campeón / RMSE de la línea base)²), con las dos medias del propio estudio. La línea base no depende de la política, así que es una función monótona del RMSE del campeón con la misma escala en R1 y en C2"
+ },
+ "completar": "terminar (`completed`) con campeón. No completaba en R1 y con C2 sí → cuenta como uno que SUBE; al revés → «deja de completar»",
+ "control_de_cada_conjunto": "la media de la línea base es la MISMA en R1 y en C2 (mismos pliegues, misma semilla; tolerancia relativa 1e-9). Si no, INCOMPARABLE y la pasada para: el instrumento no mide lo mismo",
+ "control_de_la_pasada": "antes de medir con la política, los 4 ejemplos SIN ella contra la misma imagen de C2: las cifras de R1 a 4 decimales (el motor por omisión es el de hoy, D2) y NINGÚN intento declara una política. Después, con la política, cada intento de árboles completado DECLARA la pedida (`politica_por_tamano.l2`); si no, PARO. Un conjunto sin intentos de árboles completados no se puede comprobar y no para (lo dice su 0)",
+ "enmienda": 3,
+ "estado": "REGISTRADA el 2026-10-02 09:37 (deployer-f1) ANTES de medir C2: cómo se mide C2 contra R1 y cuándo se corta. No toca los perfiles ni la regla de tiempo (enmiendas 1 y 2); lo que decida la reparación de C2 sobre el diseño irá en otra enmienda, también antes de medir",
+ "implementacion": "benchmarks/fase0/veredicto_120.py (la cifra, la comparación, el corte y el veredicto: un solo sitio) y referencia_120_r0.py (--politica/--contra), con sus pruebas en tests/test_120_veredicto_de_c2.py, en el mismo commit que esta enmienda",
+ "instrumento": "referencia_120_r0.py --imagen <C2> --politica l2_0|l2_1 --contra referencia_120_r1.json --memoria 6g; una pasada por perfil de L2, los 13 en el orden del protocolo; con --solo o --solo-humo la pasada es PARCIAL (prueba el instrumento, no decide)",
+ "motivo": "La regla 4 dice «AUROC / accuracy / R², en puntos ×100», pero el estudio da RMSE en regresión y el único R² que da es el del TEST (`evaluacion_final`), que no se usa; y «ese perfil se corta» (enmienda 1) admitía dos lecturas. Se fija cuál, con el código que la aplica en el mismo commit.",
+ "protocolo": "120.v1",
+ "regla_4_por_tamano": "en ese tamaño: más suben (≥ 1 punto) que bajan (≥ 1), ninguno baja ≥ 2 y nadie deja de completar; |diferencia| < 1 no cuenta. Un tamaño sin ningún conjunto que decida se queda con la configuración de HOY",
+ "regla_9_operativa": "la pasada de un perfil de L2 (l2_0 o l2_1) se CORTA en el primer conjunto que baja ≥ 2 puntos o deja de completar, sea del tamaño que sea (la letra de la enmienda 1: «ese perfil se corta»). Lo no medido no cuenta como pérdida ni como mejora: los tamaños que no llegaron a decidirse se quedan con la configuración de hoy (regla 4c). Es la lectura conservadora: corta antes y no cambia nada sin medirlo. La condición «los que bajan superan a los que suben más los que faltan» no se usa para cortar: con el veredicto por tamaño, que se cumpla en el total no decide ningún tamaño",
+ "tamano": "el que DECLARA el estudio en `politica_por_tamano.tamano` de sus intentos de árboles (la mayoría si los pliegues difieren), no uno calculado fuera. Ojo: por filas de ENTRENAMIENTO, no por filas del CSV, así que un conjunto puede caer en un tamaño distinto del de la Fase 0 (house_16H, 22.784 filas, podría entrenar como mediano: estimado, no medido; lo dirá la propia pasada)"
+}

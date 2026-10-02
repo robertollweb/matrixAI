@@ -7,6 +7,14 @@ no sellados de 119-C5a, con el PROPIO estudio como instrumento. La cifra es `sel
     python3 referencia_120_r0.py                  # los 13 (el control va primero y, si no cuadra, PARA)
     python3 referencia_120_r0.py --forzar         # ignora el punto de control
     python3 referencia_120_r0.py --solo NOMBRE[,NOMBRE]   # (diagnóstico) solo esos; no hace el control si no están los 4
+    python3 referencia_120_r0.py --imagen matrixai-studio:120-c2 --politica l2_0 \
+        --contra referencia_120_r1.json --salida referencia_120_c2_l2_0.json   # C2 contra R1 (enmienda 3)
+
+Con `--politica`: (1) los 4 ejemplos SIN política, con el control a 4 decimales (la imagen de C2 deja el motor por
+omisión como hoy) y sin una sola declaración de política; (2) el contenedor se rearranca con
+MATRIXAI_POLITICA_DE_ARBOLES y se miden los 13; cada intento de árboles completado tiene que DECLARAR la política
+pedida (si no, PARO: no se estaría midiendo C2); (3) tras cada conjunto, `veredicto_120.comparar` contra `--contra` y
+la regla 9 (`veredicto_120.corta`): al primer conjunto que baja ≥ 2 o deja de completar, la pasada se corta y lo dice.
 
 Punto de control: r0.json (reescrito con os.replace tras cada conjunto). Se reusan SOLO registros `completed` con la
 misma imagen y el mismo guion. Solo LEE los repos (ni escribe, ni deja __pycache__: dont_write_bytecode).
@@ -17,6 +25,11 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 HOME = Path.home()
 AQUI = Path(__file__).resolve().parent
+# La regla de mejora y la 9, de un solo sitio. Por RUTA, sin tocar `sys.path`: importar este guion (las pruebas lo
+# hacen) no puede cambiar qué importa el resto del proceso.
+_spec = importlib.util.spec_from_file_location("veredicto_120", AQUI / "veredicto_120.py")
+veredicto_120 = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(veredicto_120)
 IMAGEN = "matrixai-studio:v2.7.2"   # R0; otra con --imagen (R1: el código con D9 y C1)
 MEMORIA = "6g"                       # el techo de R0; otro con --memoria
 BORRADOR = AQUI / "protocolo_120.json"   # el protocolo REGISTRADO (mismo directorio)
@@ -35,6 +48,8 @@ CONTROL = {
     "us_crime": {"lightgbm": 0.1396, "sklearn.hgb": 0.1402},
     "pc1": {"lightgbm": 0.8841, "sklearn.hgb": 0.8777},
 }
+POLITICA = None                # --politica: l2_0 | l2_1 → MATRIXAI_POLITICA_DE_ARBOLES (solo para medir C2)
+MOTORES_DE_ARBOLES = ("lightgbm", "sklearn.hgb")
 _contenedor = None
 _RX_CAND = re.compile(r"-p(\d+)-r(\d+)$")
 
@@ -136,7 +151,7 @@ def estado_del_contenedor(nombre):
     return {"oom_killed": oom == "true", "codigo_de_salida": codigo, "estado": estado, "error": error}
 
 
-def arrancar_contenedor():
+def arrancar_contenedor(politica=None):
     global _contenedor
     s = socket.socket(); s.bind(("127.0.0.1", 0)); puerto = s.getsockname()[1]; s.close()
     nombre = f"r0-120-{os.getpid()}-{int(time.time())}"
@@ -148,7 +163,8 @@ def arrancar_contenedor():
     # se lee `OOMKilled` antes de borrarlo (`estado_del_contenedor`).
     r = subprocess.run(["docker", "run", "-d", "--init", "--name", nombre, "-p", f"127.0.0.1:{puerto}:8765",
                         f"--memory={MEMORIA}", f"--memory-swap={MEMORIA}", "--cpus=2", "-e",
-                        "MATRIXAI_LICENSE_ENABLED=false", IMAGEN],
+                        "MATRIXAI_LICENSE_ENABLED=false",
+                        *(["-e", f"MATRIXAI_POLITICA_DE_ARBOLES={politica}"] if politica else []), IMAGEN],
                        capture_output=True, text=True)
     if r.returncode:
         raise SystemExit("docker run falló: " + r.stderr)
@@ -222,6 +238,51 @@ def intentos_de(est):
     return None, []
 
 
+def _declaraciones(o):
+    """Todos los dicts bajo la clave `politica_por_tamano`, donde estén dentro de un intento."""
+    out = []
+    if isinstance(o, dict):
+        for k, v in o.items():
+            if k == "politica_por_tamano" and isinstance(v, dict):
+                out.append(v)
+            else:
+                out += _declaraciones(v)
+    elif isinstance(o, list):
+        for v in o:
+            out += _declaraciones(v)
+    return out
+
+
+def perfiles_declarados(est):
+    """Por cada intento de árboles: la política que DECLARA (o None). Lo lee la comprobación de que se mide C2."""
+    out = []
+    for _, lista in buscar_entradas(est)[:1]:
+        for x in lista:
+            if x.get("engine") not in MOTORES_DE_ARBOLES:
+                continue
+            ds = _declaraciones(x)
+            d = ds[0] if ds else None
+            out.append({"motor": x.get("engine"), "candidato": x.get("candidate"), "estado": x.get("estado"),
+                        "declara": d is not None, "tamano": d and d.get("tamano"), "l2": d and d.get("l2"),
+                        "filas_de_train": d and d.get("filas_de_train"),
+                        "arboles_efectivos": d and d.get("arboles_efectivos"), "paro": d and d.get("paro")})
+    return out
+
+
+def comprobar_politica(rec, politica):
+    """(motivo para PARAR o None, cuántos intentos de árboles completados se comprobaron). Con `politica`, cada
+    intento de árboles completado DECLARA esa política; sin ella, ninguno declara nada. Un conjunto sin intentos
+    de árboles completados (Allstate en R1: no terminó ninguno) no se puede comprobar y NO para: lo dice el 0, y
+    los conjuntos de antes ya comprobaron el instrumento."""
+    ps = [p for p in rec.get("perfiles_declarados") or [] if p["estado"] == "completed"]
+    if politica is None:
+        malos = [p["candidato"] for p in ps if p["declara"]]
+        return (f"{rec['nombre']}: declaran una política SIN pedirla: {malos[:5]}" if malos else None), len(ps)
+    l2 = {"l2_0": 0.0, "l2_1": 1.0}[politica]
+    malos = [p["candidato"] for p in ps if not p["declara"] or p["l2"] != l2]
+    return (f"{rec['nombre']}: intentos de árboles sin la política {politica}: {malos[:5]}" if malos else None), len(ps)
+
+
 def registrar(nombre, c, cuerpo_ok, est, pared, http, rechazo, loadavg, ini):
     sel = est.get("seleccion") or {}
     media = sel.get("media_de_la_seleccion")
@@ -231,7 +292,8 @@ def registrar(nombre, c, cuerpo_ok, est, pared, http, rechazo, loadavg, ini):
            "estado": est.get("estado"), "campeon": sel.get("candidate_engine"), "media_de_la_seleccion": media,
            "motores_que_no_puntuaron": sel.get("motores_que_no_puntuaron") or est.get("motores_que_no_puntuaron"),
            "intentos": filas, "intentos_ruta_en_el_estado": ruta, "pared_estudio_s": round(pared, 1),
-           "loadavg_al_empezar": loadavg, "inicio": ini, "fin": ahora()}
+           "loadavg_al_empezar": loadavg, "inicio": ini, "fin": ahora(),
+           "perfiles_declarados": perfiles_declarados(est)}
     return rec
 
 
@@ -297,7 +359,7 @@ def guardar(datos):
 
 
 def main():
-    global IMAGEN, SALIDA, ESTADOS, MEMORIA
+    global IMAGEN, SALIDA, ESTADOS, MEMORIA, POLITICA
     ap = argparse.ArgumentParser()
     ap.add_argument("--solo-humo", action="store_true"); ap.add_argument("--forzar", action="store_true")
     ap.add_argument("--solo", default="")
@@ -306,8 +368,16 @@ def main():
     ap.add_argument("--memoria", default=MEMORIA)
     ap.add_argument("--muestrear-memoria", action="store_true",
                     help="registra el pico de memoria del contenedor en cada estudio (D10)")
+    ap.add_argument("--politica", choices=["l2_0", "l2_1"], default=None,
+                    help="C2: mide con MATRIXAI_POLITICA_DE_ARBOLES (exige --contra)")
+    ap.add_argument("--contra", default=None, help="C2: el JSON de R1 contra el que se compara y se corta (regla 9)")
     a = ap.parse_args()
-    IMAGEN, MEMORIA = a.imagen, a.memoria
+    if bool(a.politica) != bool(a.contra):
+        raise SystemExit("--politica y --contra van juntas")
+    IMAGEN, MEMORIA, POLITICA = a.imagen, a.memoria, a.politica
+    contra = json.loads(Path(a.contra).read_text())["conjuntos"] if a.contra else None
+    if contra is not None and not json.loads(Path(a.contra).read_text()).get("control", {}).get("cuadra"):
+        raise SystemExit(f"PARO: {a.contra} no tiene su control en CUADRA: no es una referencia")
     SALIDA = Path(a.salida).resolve()
     ESTADOS = SALIDA.with_name(SALIDA.stem + "_estados")
     ESTADOS.mkdir(exist_ok=True)
@@ -321,12 +391,13 @@ def main():
                 raise SystemExit(f"PARO: {b['nombre']}.{k}: borrador {b[k]!r} != 119-C5a {d[k]!r}")
         if d.get("sellado"):
             raise SystemExit(f"PARO: {b['nombre']} está sellado")
+    banco_entero = banco
     if a.solo_humo:
         banco = [b for b in banco if b["nombre"] in CONTROL]
     elif a.solo:
         banco = [b for b in banco if b["nombre"] in a.solo.split(",")]
     gen = cargar_generador()
-    bytes_ok = comprobar_bytes(gen, [b for b in banco if b["nombre"] in CONTROL])
+    bytes_ok = comprobar_bytes(gen, [b for b in (banco_entero if a.politica else banco) if b["nombre"] in CONTROL])
     print("CSV byte a byte contra los del Studio:", {k: v["byte_a_byte"] for k, v in bytes_ok.items()}, flush=True)
 
     imagen = subprocess.run(["docker", "image", "inspect", IMAGEN, "--format", "{{.Id}}"], capture_output=True, text=True).stdout.strip()
@@ -334,17 +405,24 @@ def main():
     previo = {}
     if SALIDA.exists() and not a.forzar:
         p = json.loads(SALIDA.read_text())
-        if p.get("procedencia", {}).get("imagen_id") == imagen and p.get("procedencia", {}).get("sha256_guion") == guion:
+        if (p.get("procedencia", {}).get("imagen_id") == imagen and p.get("procedencia", {}).get("sha256_guion") == guion
+                and p.get("procedencia", {}).get("politica") == POLITICA and not p.get("corte")):
             previo = {k: v for k, v in p.get("conjuntos", {}).items() if v.get("estado") == "completed"}
     datos = {"procedencia": {"imagen": IMAGEN, "imagen_id": imagen, "sha256_guion": guion,
                              "sha256_generador_de_csv": sha(GENERADOR),
                              "sha256_borrador_protocolo": sha(BORRADOR), "inicio": ahora(), "csv_byte_a_byte": bytes_ok,
                              "instrumento": "estudio del Studio por HTTP; folds/repeats por omisión; cifra = seleccion.media_de_la_seleccion",
                              "nota_multiclase": "clase_positiva solo se envía en binarias",
-                             "memoria_del_contenedor": MEMORIA},
-             "conjuntos": dict(previo), "control": None}
-    base, nombre_c = arrancar_contenedor()
-    srv = {"base": base, "nombre": nombre_c}
+                             "memoria_del_contenedor": MEMORIA, "politica": POLITICA,
+                             "contra": (str(Path(a.contra).resolve()) if a.contra else None),
+                             "sha256_contra": (sha(a.contra) if a.contra else None),
+                             "sha256_veredicto": sha(AQUI / "veredicto_120.py"),
+                             "parcial": ([b["nombre"] for b in banco] if len(banco) != len(banco_entero) else None)},
+             "conjuntos": dict(previo), "control": None, "corte": None, "comparaciones": {}}
+    # Con --politica, el control va SIN ella (el motor por omisión de la imagen de C2 es el de hoy); después se
+    # rearranca CON ella para los 13.
+    base, nombre_c = arrancar_contenedor(None)
+    srv = {"base": base, "nombre": nombre_c, "politica": None}
     datos["procedencia"]["contenedor"] = nombre_c
     datos["procedencia"]["dentro"] = dentro(nombre_c,
         "import matrixai, matrixai_studio.estudio_job as j; print('matrixai', matrixai.__version__, j.__file__)")
@@ -355,9 +433,10 @@ def main():
         datos["procedencia"]["status"] = repr(e)
     guardar(datos)
 
-    def correr(b):
+    def correr(b, destino=None, reusar=True):
+        destino = datos["conjuntos"] if destino is None else destino
         n = b["nombre"]
-        if n in previo:
+        if reusar and n in previo:
             print(f"[{n}] reusado (completed, misma imagen y guion)", flush=True); return
         print(f"[{ahora()}] {n} (loadavg {open('/proc/loadavg').read().split()[0]}) ...", flush=True)
         muestreo = MuestreoDeMemoria(srv["nombre"]) if a.muestrear_memoria else None
@@ -380,12 +459,15 @@ def main():
             # con APSFailure dejó Allstate sin medir y la pasada en rc=1).
             rec["contenedor"] = estado_del_contenedor(srv["nombre"])
             borrar_contenedor()
-            srv["base"], srv["nombre"] = arrancar_contenedor()
-        datos["conjuntos"][n] = rec
+            srv["base"], srv["nombre"] = arrancar_contenedor(srv["politica"])
+        destino[n] = rec
         guardar(datos)
         print(f"   {rec['estado']} http={rec['http']} {rec['pared_estudio_s']} s campeón={rec['campeon']} "
               f"{compiten(rec)}", flush=True)
 
+    if POLITICA:
+        correr_con_politica(banco_entero, banco, datos, srv, correr, contra)
+        return
     pend_control = [b for b in banco if b["nombre"] in CONTROL]
     for b in pend_control:
         correr(b)
@@ -402,6 +484,73 @@ def main():
                 correr(b)
     datos["procedencia"]["fin"] = ahora()
     guardar(datos)
+    borrar_contenedor()
+
+
+def correr_con_politica(banco_entero, banco, datos, srv, correr, contra):
+    """C2 contra R1 (enmienda 3): control SIN la política (los 4 ejemplos, aunque se pida --solo), rearranque CON
+    ella, `banco` en orden y la regla 9. Con --solo o --solo-humo la pasada es PARCIAL (`procedencia.parcial`):
+    sirve para probar el instrumento, no para decidir."""
+    global ESTADOS
+    estados_c2 = ESTADOS
+    ESTADOS = estados_c2 / "control_sin_politica"; ESTADOS.mkdir(exist_ok=True)
+    datos["control_sin_politica"] = {}
+    for b in [b for b in banco_entero if b["nombre"] in CONTROL]:
+        correr(b, datos["control_sin_politica"], reusar=False)
+    ok, lin = controlar(datos["control_sin_politica"])
+    for rec in datos["control_sin_politica"].values():
+        motivo, n = comprobar_politica(rec, None)
+        lin.append(f"{rec['nombre']:34} sin política: {n} intentos de árboles completados, "
+                   f"{'ninguno declara política' if not motivo else motivo}")
+        ok &= motivo is None and n > 0
+    datos["control"] = {"cuadra": ok, "lineas": lin, "sin_politica": True}
+    guardar(datos)
+    print("\n".join(lin)); print("CONTROL (sin política):", "CUADRA" if ok else "NO CUADRA — PARO", flush=True)
+    if not ok:
+        datos["procedencia"]["fin"] = ahora(); guardar(datos); sys.exit(2)
+
+    ESTADOS = estados_c2
+    borrar_contenedor()
+    srv["base"], srv["nombre"] = arrancar_contenedor(POLITICA)
+    srv["politica"] = POLITICA
+    datos["procedencia"]["contenedor_con_politica"] = srv["nombre"]
+    datos["procedencia"]["dentro_con_politica"] = dentro(srv["nombre"],
+        "import os; print('MATRIXAI_POLITICA_DE_ARBOLES', os.environ.get('MATRIXAI_POLITICA_DE_ARBOLES'))")
+    print(datos["procedencia"]["dentro_con_politica"], flush=True)
+    guardar(datos)
+
+    nombres = [b["nombre"] for b in banco]
+    for i, b in enumerate(banco):
+        n = b["nombre"]
+        correr(b)
+        rec = datos["conjuntos"][n]
+        motivo, comprobados = comprobar_politica(rec, POLITICA)
+        rec["politica_comprobada_en"] = comprobados
+        if motivo:
+            datos["corte"] = {"tipo": "instrumento", "motivo": motivo, "tras": n, "sin_medir": nombres[i + 1:]}
+            datos["procedencia"]["fin"] = ahora(); guardar(datos)
+            print("PARO (instrumento):", motivo, flush=True); sys.exit(3)
+        try:
+            comp = veredicto_120.comparar(contra.get(n), rec)
+        except veredicto_120.Incomparable as e:
+            datos["corte"] = {"tipo": "instrumento", "motivo": str(e), "tras": n, "sin_medir": nombres[i + 1:]}
+            datos["procedencia"]["fin"] = ahora(); guardar(datos)
+            print("PARO (incomparable):", e, flush=True); sys.exit(3)
+        datos["comparaciones"][n] = comp
+        guardar(datos)
+        dif = "" if comp["diferencia"] is None else f" {comp['diferencia']:+.2f} puntos"
+        print(f"   contra R1: {comp['clase']}{dif} (tamaño {comp['tamano']}; política comprobada en "
+              f"{comprobados} intentos)", flush=True)
+        porque = veredicto_120.corta(comp)
+        if porque:
+            datos["corte"] = {"tipo": "regla_9", "motivo": porque, "tras": n, "sin_medir": nombres[i + 1:]}
+            guardar(datos)
+            print("CORTE (regla 9):", porque, "— sin medir:", nombres[i + 1:], flush=True)
+            break
+    datos["veredicto"] = veredicto_120.veredicto(list(datos["comparaciones"].values()))
+    datos["procedencia"]["fin"] = ahora()
+    guardar(datos)
+    print(json.dumps(datos["veredicto"], ensure_ascii=False, indent=1), flush=True)
     borrar_contenedor()
 
 
