@@ -1,0 +1,3389 @@
+{
+ "procedencia": {
+  "imagen": "matrixai-studio:120-r1",
+  "imagen_id": "sha256:2f0fc4df71a7dc19f88f4f417b593d31f66831d268999fb1b77a94569ef35ef6",
+  "sha256_guion": "1d7ca75eceac186659ef0db68fb03ef9200bae6d6c2668b0d1addaf673e37e2a",
+  "sha256_generador_de_csv": "607c99db9cece62189920ffd2548abd76b536ed9f561ec77a2fc2ed1b044f00a",
+  "sha256_borrador_protocolo": "d79db2d50413a76fe93910b0a11f60c899fc7741fa0fee7d52793e9231b8d5eb",
+  "inicio": "2026-10-02 02:57:47",
+  "csv_byte_a_byte": {
+   "dresses-sales": {
+    "byte_a_byte": true,
+    "sha256": "0e28012e205401e648c42921db73a3f2a86968b83b619279bb669c408cdfc213",
+    "bytes": 35621
+   },
+   "climate-model-simulation-crashes": {
+    "byte_a_byte": true,
+    "sha256": "93b93f28fa1d44468c578076deaf9b23b37f461c0ff7e50e57bd46e1f6b93085",
+    "bytes": 179217
+   },
+   "us_crime": {
+    "byte_a_byte": true,
+    "sha256": "af18ea10ee3364d69c4956643538ba61bdea29dcca7600d1b623b22ed3da82c8",
+    "bytes": 1069334
+   },
+   "pc1": {
+    "byte_a_byte": true,
+    "sha256": "1a1d245db45c05bf417ee7213b787672458265a9d0da3b37201ca3960265d2cf",
+    "bytes": 90029
+   }
+  },
+  "instrumento": "estudio del Studio por HTTP; folds/repeats por omisión; cifra = seleccion.media_de_la_seleccion",
+  "nota_multiclase": "clase_positiva solo se envía en binarias",
+  "memoria_del_contenedor": "6g",
+  "contenedor": "r0-120-1070400-1790902667",
+  "dentro": "matrixai 1.12.1 /usr/local/lib/python3.12/site-packages/matrixai_studio/estudio_job.py",
+  "status": {
+   "ok": true,
+   "llm_mode": {
+    "active": false,
+    "model": "",
+    "provider": ""
+   },
+   "capabilities": {
+    "guided_cases": true,
+    "prompt_generation": true,
+    "human_forms": true,
+    "simulate_only": true,
+    "expert_mode_path": null,
+    "profile": "completo",
+    "settings": true,
+    "change_locale": true,
+    "templates": true,
+    "create_from_prompt": true,
+    "create_from_csv": true,
+    "train": true,
+    "test": true,
+    "audit": true,
+    "edit_model": true,
+    "export": true,
+    "publish_hf": true,
+    "attest": true,
+    "attest_metricas": [
+     "accuracy",
+     "macro_f1",
+     "mae",
+     "rmse",
+     "r2"
+    ],
+    "run_pipeline": true,
+    "run_estudio": true,
+    "estudio_en_la_demo": null,
+    "guardar_estudio": true,
+    "max_attest_model_bytes": null,
+    "max_pipeline_nodes": null,
+    "max_pipeline_timeout_seconds": null,
+    "max_models_per_session": null,
+    "max_csv_bytes": null,
+    "max_csv_rows": null,
+    "max_train_epochs": null,
+    "max_train_seconds": null
+   },
+   "degradation_messages": [
+    "Proveedor LLM externo no configurado: Studio usa fallback deterministico supervisado."
+   ],
+   "optional_unavailable": [
+    "probabilidad_calibrada_sin_evaluacion",
+    "acciones_reales",
+    "permisos_de_produccion"
+   ],
+   "production_steps": [
+    "Revisar decision y explicacion.",
+    "Abrir Modo experto.",
+    "Revisar modelo, datos, metricas y seguridad.",
+    "Entrenar o evaluar si aplica.",
+    "Servir API o exportar bundle si aplica.",
+    "Definir permisos reales en un contrato posterior."
+   ]
+  },
+  "fin": "2026-10-02 04:00:04"
+ },
+ "conjuntos": {
+  "dresses-sales": {
+   "nombre": "dresses-sales",
+   "data_id": 23381,
+   "tarea": "binary_classification",
+   "objetivo": "Class",
+   "clase_positiva_enviada": "2",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.554921995709393
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.6289564854618999
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.09641205903608352,
+     "metrica": "auroc",
+     "valor": 0.5607008760951189,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3559638370061293,
+     "metrica": "auroc",
+     "valor": 0.6458072590738423,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.0072896829806268215,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.06889924593269825,
+     "metrica": "auroc",
+     "valor": 0.595118898623279,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.30559703207109123,
+     "metrica": "auroc",
+     "valor": 0.6451814768460575,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010409580077975988,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.06999035901390016,
+     "metrica": "auroc",
+     "valor": 0.5364450127877238,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.299168377998285,
+     "metrica": "auroc",
+     "valor": 0.629156010230179,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00849862105678767,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.06474886101204902,
+     "metrica": "auroc",
+     "valor": 0.6146245059288538,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.30296786199323833,
+     "metrica": "auroc",
+     "valor": 0.7088274044795784,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008272712933830917,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.06290893303230405,
+     "metrica": "auroc",
+     "valor": 0.46772068511198944,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.2904054350219667,
+     "metrica": "auroc",
+     "valor": 0.5158102766798419,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008121639024466276,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 32.2,
+   "loadavg_al_empezar": [
+    "1.09",
+    "3.62",
+    "4.24"
+   ],
+   "inicio": "2026-10-02 02:57:50",
+   "fin": "2026-10-02 02:58:22",
+   "job_id": "eeaac734a05143cd90c0daa74a2ac903",
+   "csv": {
+    "filas": 500,
+    "columnas": 13,
+    "bytes": 35621,
+    "excluidas_por_string": []
+   }
+  },
+  "climate-model-simulation-crashes": {
+   "nombre": "climate-model-simulation-crashes",
+   "data_id": 40994,
+   "tarea": "binary_classification",
+   "objetivo": "outcome",
+   "clase_positiva_enviada": "0",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9386528028933092
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.944394213381555
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.07804702909197658,
+     "metrica": "auroc",
+     "valor": 0.9636075949367089,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3197303769411519,
+     "metrica": "auroc",
+     "valor": 0.9731012658227848,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008321054046973586,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.08197520603425801,
+     "metrica": "auroc",
+     "valor": 0.9810126582278481,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.34505075798369944,
+     "metrica": "auroc",
+     "valor": 0.9984177215189873,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007564457948319614,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.07891008805017918,
+     "metrica": "auroc",
+     "valor": 0.9168173598553345,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3324286909773946,
+     "metrica": "auroc",
+     "valor": 0.9349005424954792,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007648544968105853,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.08249106095172465,
+     "metrica": "auroc",
+     "valor": 0.9385171790235082,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3315503620542586,
+     "metrica": "auroc",
+     "valor": 0.9403254972875226,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007907023071311414,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.0791664740536362,
+     "metrica": "auroc",
+     "valor": 0.8933092224231465,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3133685840293765,
+     "metrica": "auroc",
+     "valor": 0.8752260397830018,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007451765006408095,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 32.1,
+   "loadavg_al_empezar": [
+    "1.50",
+    "3.46",
+    "4.17"
+   ],
+   "inicio": "2026-10-02 02:58:22",
+   "fin": "2026-10-02 02:58:54",
+   "job_id": "681a47102f3f427bb9a4f8918c4bf26b",
+   "csv": {
+    "filas": 540,
+    "columnas": 21,
+    "bytes": 179217,
+    "excluidas_por_string": []
+   }
+  },
+  "us_crime": {
+   "nombre": "us_crime",
+   "data_id": 42730,
+   "tarea": "regression",
+   "objetivo": "ViolentCrimesPerPop",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.13963166320214226
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.14023195573759334
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.2313232277454691
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3762048839125782,
+     "metrica": "rmse",
+     "valor": 0.14750364040813663,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9202716039726511,
+     "metrica": "rmse",
+     "valor": 0.14986346681735024,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011619914090260863,
+     "metrica": "rmse",
+     "valor": 0.2468383367236631,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4067576408851892,
+     "metrica": "rmse",
+     "valor": 0.13436152283648664,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9066149620339274,
+     "metrica": "rmse",
+     "valor": 0.13224954545446468,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00785971200093627,
+     "metrica": "rmse",
+     "valor": 0.21455925549266888,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4041784710716456,
+     "metrica": "rmse",
+     "valor": 0.14828150445767288,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0241718690376729,
+     "metrica": "rmse",
+     "valor": 0.14780333930032435,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010886550997383893,
+     "metrica": "rmse",
+     "valor": 0.2478674154798131,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.38351598591543734,
+     "metrica": "rmse",
+     "valor": 0.1348348070354004,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.923806237988174,
+     "metrica": "rmse",
+     "valor": 0.13555992679587459,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011412410996854305,
+     "metrica": "rmse",
+     "valor": 0.22531862057448315,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.37725553498603404,
+     "metrica": "rmse",
+     "valor": 0.13317684127301477,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.959403297980316,
+     "metrica": "rmse",
+     "valor": 0.13568350031995283,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007571637979708612,
+     "metrica": "rmse",
+     "valor": 0.22203251045671732,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 48.7,
+   "loadavg_al_empezar": [
+    "1.42",
+    "3.26",
+    "4.07"
+   ],
+   "inicio": "2026-10-02 02:58:54",
+   "fin": "2026-10-02 02:59:43",
+   "job_id": "3dc1a47471594d998bb8c8e041d9dda5",
+   "csv": {
+    "filas": 1994,
+    "columnas": 127,
+    "bytes": 1069334,
+    "excluidas_por_string": [
+     "communityname"
+    ]
+   }
+  },
+  "pc1": {
+   "nombre": "pc1",
+   "data_id": 1068,
+   "tarea": "binary_classification",
+   "objetivo": "defects",
+   "clase_positiva_enviada": "true",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.8841100532666799
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.8776690912835491
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.08985040301922709,
+     "metrica": "auroc",
+     "valor": 0.8271547729379055,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3845325580332428,
+     "metrica": "auroc",
+     "valor": 0.8588971269694161,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007207061047665775,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.09529152396135032,
+     "metrica": "auroc",
+     "valor": 0.8792540792540793,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3797351809917018,
+     "metrica": "auroc",
+     "valor": 0.882983682983683,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009132234961725771,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.12357310298830271,
+     "metrica": "auroc",
+     "valor": 0.8457070707070707,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.37845359405037016,
+     "metrica": "auroc",
+     "valor": 0.8068181818181818,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007606190978549421,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.10338501702062786,
+     "metrica": "auroc",
+     "valor": 0.919949494949495,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.6018548110732809,
+     "metrica": "auroc",
+     "valor": 0.8901515151515151,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009084844961762428,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.10242121701594442,
+     "metrica": "auroc",
+     "valor": 0.9484848484848485,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4391400000313297,
+     "metrica": "auroc",
+     "valor": 0.9494949494949495,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007675852044485509,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 39.0,
+   "loadavg_al_empezar": [
+    "1.57",
+    "3.06",
+    "3.97"
+   ],
+   "inicio": "2026-10-02 02:59:43",
+   "fin": "2026-10-02 03:00:22",
+   "job_id": "db64840518654860a3128cc02e66efbc",
+   "csv": {
+    "filas": 1109,
+    "columnas": 22,
+    "bytes": 90029,
+    "excluidas_por_string": []
+   }
+  },
+  "micro-mass": {
+   "nombre": "micro-mass",
+   "data_id": 1515,
+   "tarea": "multiclass_classification",
+   "objetivo": "Class",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "accuracy",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.8737277859933338
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.10495086035597437
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "sin_presupuesto",
+     "intentos_por_estado": {
+      "failed": 5
+     },
+     "motivo_del_motor": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "motor": "sklearn.hgb",
+     "techo_por_intento_segundos": 9.333333333333332
+    },
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.138455599080771,
+     "metrica": "accuracy",
+     "valor": 0.8712871287128713,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008410531096160412,
+     "metrica": "accuracy",
+     "valor": 0.09900990099009901,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.3469627199228853,
+     "metrica": "accuracy",
+     "valor": 0.8526315789473684,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012861495953984559,
+     "metrica": "accuracy",
+     "valor": 0.10526315789473684,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.15891085495241,
+     "metrica": "accuracy",
+     "valor": 0.8791208791208791,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011061654891818762,
+     "metrica": "accuracy",
+     "valor": 0.10989010989010989,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.403954177047126,
+     "metrica": "accuracy",
+     "valor": 0.896551724137931,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007601161953061819,
+     "metrica": "accuracy",
+     "valor": 0.10344827586206896,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.168059626943432,
+     "metrica": "accuracy",
+     "valor": 0.8690476190476191,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007717077969573438,
+     "metrica": "accuracy",
+     "valor": 0.10714285714285714,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 269.7,
+   "loadavg_al_empezar": [
+    "1.22",
+    "2.79",
+    "3.84"
+   ],
+   "inicio": "2026-10-02 03:00:22",
+   "fin": "2026-10-02 03:04:52",
+   "job_id": "87dacd731bf54c88a2de09d3e8daea4b",
+   "csv": {
+    "filas": 571,
+    "columnas": 1301,
+    "bytes": 2073435,
+    "excluidas_por_string": []
+   }
+  },
+  "mfeat-factors": {
+   "nombre": "mfeat-factors",
+   "data_id": 12,
+   "tarea": "multiclass_classification",
+   "objetivo": "class",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "accuracy",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9637499999999999
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.9625
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.1
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.296972071984783,
+     "metrica": "accuracy",
+     "valor": 0.965625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 9.423381767002866,
+     "metrica": "accuracy",
+     "valor": 0.971875,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008290265104733407,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.9765381610486656,
+     "metrica": "accuracy",
+     "valor": 0.953125,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.405612668022513,
+     "metrica": "accuracy",
+     "valor": 0.9375,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007531105075031519,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.0080784630263224,
+     "metrica": "accuracy",
+     "valor": 0.959375,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.642342600040138,
+     "metrica": "accuracy",
+     "valor": 0.95625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007362708915024996,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.269159222021699,
+     "metrica": "accuracy",
+     "valor": 0.975,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 9.35680176410824,
+     "metrica": "accuracy",
+     "valor": 0.971875,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007370141102001071,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.061452955007553,
+     "metrica": "accuracy",
+     "valor": 0.965625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 9.314542284002528,
+     "metrica": "accuracy",
+     "valor": 0.975,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.0075902449898421764,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 158.9,
+   "loadavg_al_empezar": [
+    "1.15",
+    "1.77",
+    "3.13"
+   ],
+   "inicio": "2026-10-02 03:04:52",
+   "fin": "2026-10-02 03:07:32",
+   "job_id": "73494422a43c44b8b489648be653ae4d",
+   "csv": {
+    "filas": 2000,
+    "columnas": 217,
+    "bytes": 1468383,
+    "excluidas_por_string": []
+   }
+  },
+  "wilt": {
+   "nombre": "wilt",
+   "data_id": 40983,
+   "tarea": "binary_classification",
+   "objetivo": "class",
+   "clase_positiva_enviada": "2",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9852845202030494
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.9860600652439169
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.10152354196179658,
+     "metrica": "auroc",
+     "valor": 0.9957123367764569,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.415772195905447,
+     "metrica": "auroc",
+     "valor": 0.9960696420450854,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008687988971360028,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.1019224600167945,
+     "metrica": "auroc",
+     "valor": 0.9895407003183265,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4293536209734157,
+     "metrica": "auroc",
+     "valor": 0.989248359643994,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007827379973605275,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.11296461394522339,
+     "metrica": "auroc",
+     "valor": 0.9944704657819412,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4034311029827222,
+     "metrica": "auroc",
+     "valor": 0.9942102524069737,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007735587074421346,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.10257079591974616,
+     "metrica": "auroc",
+     "valor": 0.9667577413479053,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3685186200309545,
+     "metrica": "auroc",
+     "valor": 0.9718969555035128,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008005996001884341,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.10046153701841831,
+     "metrica": "auroc",
+     "valor": 0.9799413567906171,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.38191744196228683,
+     "metrica": "auroc",
+     "valor": 0.9788751166200187,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00759524293243885,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 38.5,
+   "loadavg_al_empezar": [
+    "1.08",
+    "1.49",
+    "2.80"
+   ],
+   "inicio": "2026-10-02 03:07:32",
+   "fin": "2026-10-02 03:08:10",
+   "job_id": "35159158406a43f3ae83e8d96e8617c1",
+   "csv": {
+    "filas": 4839,
+    "columnas": 6,
+    "bytes": 246693,
+    "excluidas_por_string": []
+   }
+  },
+  "pendigits": {
+   "nombre": "pendigits",
+   "data_id": 32,
+   "tarea": "multiclass_classification",
+   "objetivo": "class",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "accuracy",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9887400171135197
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.9890813799719961
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.1040603121920863
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9151786210713908,
+     "metrica": "accuracy",
+     "valor": 0.990909090909091,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.8434082340681925,
+     "metrica": "accuracy",
+     "valor": 0.9914772727272727,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009355402900837362,
+     "metrica": "accuracy",
+     "valor": 0.10397727272727272,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0159650989808142,
+     "metrica": "accuracy",
+     "valor": 0.990909090909091,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.8888556859456003,
+     "metrica": "accuracy",
+     "valor": 0.9914772727272727,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00780428689904511,
+     "metrica": "accuracy",
+     "valor": 0.10397727272727272,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0888361789984629,
+     "metrica": "accuracy",
+     "valor": 0.9863636363636363,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.8471195100573823,
+     "metrica": "accuracy",
+     "valor": 0.9863636363636363,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008341036038473248,
+     "metrica": "accuracy",
+     "valor": 0.10397727272727272,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9463831200264394,
+     "metrica": "accuracy",
+     "valor": 0.9880681818181818,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.802335276035592,
+     "metrica": "accuracy",
+     "valor": 0.9880681818181818,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007694298052228987,
+     "metrica": "accuracy",
+     "valor": 0.10397727272727272,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9635393129428849,
+     "metrica": "accuracy",
+     "valor": 0.9874500855675984,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.918169916025363,
+     "metrica": "accuracy",
+     "valor": 0.9880205362236166,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.013151900027878582,
+     "metrica": "accuracy",
+     "valor": 0.10439247005134056,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 131.1,
+   "loadavg_al_empezar": [
+    "1.07",
+    "1.45",
+    "2.74"
+   ],
+   "inicio": "2026-10-02 03:08:10",
+   "fin": "2026-10-02 03:10:22",
+   "job_id": "446612b2011a4353b1104c9a174dfadd",
+   "csv": {
+    "filas": 10992,
+    "columnas": 17,
+    "bytes": 539748,
+    "excluidas_por_string": []
+   }
+  },
+  "Internet-Advertisements": {
+   "nombre": "Internet-Advertisements",
+   "data_id": 40978,
+   "tarea": "binary_classification",
+   "objetivo": "class",
+   "clase_positiva_enviada": "ad",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9692461455056108
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.9685990549706107
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 4.507929262937978,
+     "metrica": "auroc",
+     "valor": 0.9683239655584789,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 13.964381737052463,
+     "metrica": "auroc",
+     "valor": 0.9671280794068404,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011605249950662255,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 4.278147425036877,
+     "metrica": "auroc",
+     "valor": 0.9904116977287709,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 13.934382961015217,
+     "metrica": "auroc",
+     "valor": 0.9918499430694553,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007933355984278023,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 4.58815540804062,
+     "metrica": "auroc",
+     "valor": 0.9507335297512377,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 12.98864862404298,
+     "metrica": "auroc",
+     "valor": 0.945691461895939,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008048119954764843,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 4.341873693978414,
+     "metrica": "auroc",
+     "valor": 0.9554111107736233,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 12.194386280956678,
+     "metrica": "auroc",
+     "valor": 0.9583725662910427,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008387036039493978,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 4.248293007956818,
+     "metrica": "auroc",
+     "valor": 0.9813504237159433,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 12.62383401801344,
+     "metrica": "auroc",
+     "valor": 0.9799532241897762,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007982395007275045,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 357.5,
+   "loadavg_al_empezar": [
+    "1.18",
+    "1.37",
+    "2.53"
+   ],
+   "inicio": "2026-10-02 03:10:23",
+   "fin": "2026-10-02 03:16:21",
+   "job_id": "8ae4ef8f9d134758aa1cd7795ac731e8",
+   "csv": {
+    "filas": 3279,
+    "columnas": 1559,
+    "bytes": 10273510,
+    "excluidas_por_string": []
+   }
+  },
+  "house_16H": {
+   "nombre": "house_16H",
+   "data_id": 574,
+   "tarea": "regression",
+   "objetivo": "price",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 32494.192468684654
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 32339.96237633538
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 53356.451309943535
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.40445758192799985,
+     "metrica": "rmse",
+     "valor": 34864.68037037515,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9970414369599894,
+     "metrica": "rmse",
+     "valor": 34471.04714539936,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007778570055961609,
+     "metrica": "rmse",
+     "valor": 57846.654179607634,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.40175389498472214,
+     "metrica": "rmse",
+     "valor": 33055.778332428294,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9263084930134937,
+     "metrica": "rmse",
+     "valor": 33099.803451492444,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010278890025801957,
+     "metrica": "rmse",
+     "valor": 54559.52794957142,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.39825999399181455,
+     "metrica": "rmse",
+     "valor": 30790.12976726514,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9438428819412366,
+     "metrica": "rmse",
+     "valor": 30569.65646551232,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008263382944278419,
+     "metrica": "rmse",
+     "valor": 50855.5378159914,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.40022284002043307,
+     "metrica": "rmse",
+     "valor": 30956.108233651004,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0013494649901986,
+     "metrica": "rmse",
+     "valor": 30986.219734749197,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009218556922860444,
+     "metrica": "rmse",
+     "valor": 50740.54195181217,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.44497756904456764,
+     "metrica": "rmse",
+     "valor": 32804.265639703684,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0142853589495644,
+     "metrica": "rmse",
+     "valor": 32573.085084523584,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009611597051844,
+     "metrica": "rmse",
+     "valor": 52779.99465273503,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 65.2,
+   "loadavg_al_empezar": [
+    "1.22",
+    "1.26",
+    "2.10"
+   ],
+   "inicio": "2026-10-02 03:16:21",
+   "fin": "2026-10-02 03:17:26",
+   "job_id": "0ad4f8b9e74c42138c9ed42576988784",
+   "csv": {
+    "filas": 22784,
+    "columnas": 17,
+    "bytes": 4027503,
+    "excluidas_por_string": []
+   }
+  },
+  "KDDCup09_appetency": {
+   "nombre": "KDDCup09_appetency",
+   "data_id": 1111,
+   "tarea": "binary_classification",
+   "objetivo": "APPETENCY",
+   "clase_positiva_enviada": "1",
+   "http": 200,
+   "rechazo": null,
+   "estado": "failed",
+   "campeon": null,
+   "media_de_la_seleccion": null,
+   "motores_que_no_puntuaron": null,
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 13.889608206925914,
+     "metrica": "auroc",
+     "valor": 0.741270310244604,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 22.839300708961673,
+     "metrica": "auroc",
+     "valor": 0.8070141871363556,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.0096211819909513,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 14.00105285004247,
+     "metrica": "auroc",
+     "valor": 0.7579421087947431,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 22.931658788002096,
+     "metrica": "auroc",
+     "valor": 0.7628313402047177,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009373115026392043,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 14.636306570959277,
+     "metrica": "auroc",
+     "valor": 0.7430554310848547,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 24.2027767469408,
+     "metrica": "auroc",
+     "valor": 0.7664244566405816,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009777696919627488,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 14.212742006056942,
+     "metrica": "auroc",
+     "valor": 0.7462413529157637,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 23.071615273016505,
+     "metrica": "auroc",
+     "valor": 0.7864351694998808,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008964038919657469,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 14.788577115046792,
+     "metrica": "auroc",
+     "valor": 0.7222921338646618,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 22.463591821026057,
+     "metrica": "auroc",
+     "valor": 0.7842867309495256,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011367131024599075,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 1380.9,
+   "loadavg_al_empezar": [
+    "1.36",
+    "1.31",
+    "2.06"
+   ],
+   "inicio": "2026-10-02 03:17:30",
+   "fin": "2026-10-02 03:40:31",
+   "job_id": "28e785226e6f4a558520656bf39e177c",
+   "csv": {
+    "filas": 50000,
+    "columnas": 231,
+    "bytes": 26295632,
+    "excluidas_por_string": []
+   }
+  },
+  "APSFailure": {
+   "nombre": "APSFailure",
+   "data_id": 41138,
+   "tarea": "binary_classification",
+   "objetivo": "class",
+   "clase_positiva_enviada": "pos",
+   "http": 200,
+   "rechazo": null,
+   "estado": "sondeo_fallido",
+   "campeon": null,
+   "media_de_la_seleccion": null,
+   "motores_que_no_puntuaron": null,
+   "intentos": [],
+   "intentos_ruta_en_el_estado": null,
+   "pared_estudio_s": 78.8,
+   "loadavg_al_empezar": [
+    "1.27",
+    "1.18",
+    "1.32"
+   ],
+   "inicio": "2026-10-02 03:40:38",
+   "fin": "2026-10-02 03:41:57",
+   "job_id": "fc6e2896419e4576ac9b138c466b3626",
+   "csv": {
+    "filas": 76000,
+    "columnas": 171,
+    "bytes": 77240985,
+    "excluidas_por_string": []
+   },
+   "contenedor": {
+    "oom_killed": true,
+    "codigo_de_salida": "137",
+    "estado": "exited",
+    "error": ""
+   }
+  },
+  "Allstate_Claims_Severity": {
+   "nombre": "Allstate_Claims_Severity",
+   "data_id": 42571,
+   "tarea": "regression",
+   "objetivo": "loss",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": null,
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "ninguno",
+    "motores": [
+     {
+      "compite": false,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": null
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "sin_presupuesto",
+     "intentos_por_estado": {
+      "failed": 5
+     },
+     "motivo_del_motor": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "motor": "lightgbm",
+     "techo_por_intento_segundos": 9.333333333333332
+    },
+    {
+     "clave": "sin_presupuesto",
+     "intentos_por_estado": {
+      "failed": 5
+     },
+     "motivo_del_motor": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "motor": "sklearn.hgb",
+     "techo_por_intento_segundos": 9.333333333333332
+    },
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "rmse",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "rmse",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011835457989946008,
+     "metrica": "rmse",
+     "valor": 2977.551503495542,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "rmse",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "rmse",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011463242000900209,
+     "metrica": "rmse",
+     "valor": 2866.253141402836,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "rmse",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "rmse",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011023449013009667,
+     "metrica": "rmse",
+     "valor": 2954.925041666765,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "rmse",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "rmse",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011099444003775716,
+     "metrica": "rmse",
+     "valor": 2877.3064188184903,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "rmse",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "rmse",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.013689107960090041,
+     "metrica": "rmse",
+     "valor": 2878.9082369870657,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 1075.9,
+   "loadavg_al_empezar": [
+    "1.15",
+    "1.16",
+    "1.29"
+   ],
+   "inicio": "2026-10-02 03:42:08",
+   "fin": "2026-10-02 04:00:04",
+   "job_id": "80a65b79a13241cbb5af7fc7cae3bdfa",
+   "csv": {
+    "filas": 188318,
+    "columnas": 132,
+    "bytes": 78081124,
+    "excluidas_por_string": []
+   }
+  }
+ },
+ "control": {
+  "cuadra": true,
+  "lineas": [
+   "dresses-sales                      lightgbm     esperado 0.5549 medido 0.5549 OK",
+   "dresses-sales                      sklearn.hgb  esperado 0.6290 medido 0.6290 OK",
+   "climate-model-simulation-crashes   lightgbm     esperado 0.9387 medido 0.9387 OK",
+   "climate-model-simulation-crashes   sklearn.hgb  esperado 0.9444 medido 0.9444 OK",
+   "us_crime                           lightgbm     esperado 0.1396 medido 0.1396 OK",
+   "us_crime                           sklearn.hgb  esperado 0.1402 medido 0.1402 OK",
+   "pc1                                lightgbm     esperado 0.8841 medido 0.8841 OK",
+   "pc1                                sklearn.hgb  esperado 0.8777 medido 0.8777 OK"
+  ]
+ }
+}
