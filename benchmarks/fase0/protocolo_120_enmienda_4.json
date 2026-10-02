@@ -1,0 +1,44 @@
+{
+ "conteo_de_arboles": "los árboles que TIENE el modelo (LightGBM: `current_iteration()` del booster), no las vueltas del bucle",
+ "coste_medido": {
+  "de_donde": "la reparación, formas sintéticas como las de la auditoría, 1 hilo, carga 1–2,3 (~/.agentes/c120/c2-reparacion/medidas/medidas.log)",
+  "house_15470x32_mediano": {
+   "hoy_100": 0.72,
+   "nuevo_100": 1.4,
+   "nuevo_tope_800": 8.48,
+   "un_tiron_800": 6.87,
+   "viejo_tope_800": 39.21
+  },
+  "internet_ads_2230x3116_mediano": {
+   "hoy_100": 15.52,
+   "nuevo_100": 37.18,
+   "nuevo_tope_800": 211.61,
+   "un_tiron_800": 192.54
+  },
+  "kdd_34000x420_grande": {
+   "hoy_100": 12.71,
+   "nuevo_100": 26.11,
+   "nuevo_tope_400": 93.83,
+   "un_tiron_400": 86.25
+  },
+  "lectura": "los 100 obligatorios del perfil cuestan 1,9–2,4 veces los de hoy (el perfil, no los tramos); los tramos nuevos quedan a un 9–23 % de un ajuste de un tirón"
+ },
+ "decisiones_abiertas_cerradas": {
+  "hgb_en_internet_ads": "NO se cambia antes de medir: sus 100 obligatorios son 37,2 s solo de scikit-learn en la forma sintética, frente a un techo externo de 39,33 s (estimado, no medido en el estudio real: allí, hoy, un intento entero tardó 12,7 s). Si sus intentos se pasan, el conjunto sigue completando con LightGBM y su cifra es la del campeón; lo dirá la medida",
+  "tope_al_tramo": "NO se pone: lo entrenado tras el punto de decisión se descarta y no cambia el modelo, solo cuesta tiempo (house: decidió en 344 y entrenó hasta 580, ~3 s de 8,1). Se mide así"
+ },
+ "deuda_declarada": "I6: el modelo entero viaja en `config_efectiva` de cada entrada y se sirve en cada sondeo (anterior a C2; con la política crece: pendigits LightGBM 1,77 → 6,80 MB por entrada); M7: un modelo con la política se pinta con el nivel de madurez de la Fase 0, que midió la configuración fija (sin efecto mientras la política solo exista para medir)",
+ "enmienda": 4,
+ "estado": "REGISTRADA el 2026-10-02 12:28 (deployer-f1) ANTES de medir C2b: el diseño de C2 tras su auditoría y su re-auditoría (motores a5f931f + 35deca1, Studio 25b1e85 + f1cc435). La medida de C2 de las 10:38 se hizo con a5f931f/25b1e85; lo que cambió después (la reserva del reloj, el acotado del reajuste, `agotado` en HGB) no la mueve: dresses-sales paró por la temprana, sin reloj",
+ "hgb_por_tramos": "tramos GEOMÉTRICOS: el primero de 10 árboles y cada uno dobla al anterior (10, 30, 70, 100, 260, 580, 800 para un tope de 800: 7 `fit`); el tramo que cruza 100 se para en 100 y, por encima de 100, ningún tramo pide más árboles de los que caben en `wall_seconds`. Antes, de 10 en 10: el coste crecía con el cuadrado (house al tope: 39,2 s en 80 fits frente a 8,5 s en 7)",
+ "lo_declarado": "el sobre de selección (`seleccion.politica_de_arboles`) sale de lo ENTRENADO (entradas del leaderboard, reajustes, `fitted_final` del campeón) y dice `densa_fuera`",
+ "lo_que_no_cambia": "los perfiles, la regla de tiempo (100 siempre; más allá, dentro del presupuesto), la elección por tamaño (enmienda 1), el alcance solo sin torch (enmienda 2) y cómo se mide y se corta (enmienda 3)",
+ "mejor_ronda": "EXACTA (granularidad 1) en los dos motores: HGB mide la pérdida árbol a árbol con `staged_predict(_proba)` sobre la validation; LightGBM, la suya. La parada temprana es la de LightGBM (mejora estricta; para en la primera ronda que lleva `paciencia` sin mejorar); lo entrenado de más se descarta. Con validation, el modelo se queda con la mejor ronda pare por lo que pare (temprana, reloj, tope o agotado)",
+ "motivo": "La auditoría de C2 (02-10) suspendió el corte con seis importantes; su reparación (motores a5f931f, Studio 25b1e85) fija decisiones de diseño que la enmienda 1 no decía. Se registran antes de medir, con el coste que se midió.",
+ "paro": "vocabulario cerrado en los dos motores: temprana | reloj | tope | agotado (la biblioteca dejó de encontrar cortes) | fijado (el reajuste)",
+ "protocolo": "120.v1",
+ "reajuste_final": "entrena EXACTAMENTE la mediana de `arboles_efectivos` de los intentos de la búsqueda de ese motor del mismo perfil que el reajuste (con un número par, redondeo hacia arriba; si ninguno es de su perfil, todos), con el mismo perfil y L2, sin validation ni reloj (`paro = fijado`), y declara el número y de dónde salió. El modelo entregado es determinista y es el que se midió",
+ "reparacion_2": "tras la re-auditoría (motores 35deca1, Studio f1cc435): la regla de tiempo RESERVA, medido en el propio ajuste la primera vez que el reloj decide pasados los 100, lo que cuesta después del bucle (HGB: la predicción de la reconstrucción fiel por árbol y fila, la serialización por árbol y el fijo de cada `fit` con warm_start; LightGBM: el paso a texto), declarado en `politica_por_tamano.reserva_despues_del_bucle` (sonda: HGB 100.000 filas, tope 9,33 s, 9,98 → 6,5 s; ningún caso pasa del tope; usa el 69–91 % del presupuesto); los árboles fijados del reajuste se acotan al `arboles_max` de su perfil y se declara si salen de la mediana de otro perfil; HGB declara `agotado` cuando un tramo entero son árboles de una hoja; el sobre dice `motores_sin_politica` y `reajustes_sin_politica`",
+ "sabido_y_declarado": "con la reserva medida, el predictor de un intento de la búsqueda lleva segundos medidos y su digest no se repite entre ejecuciones; el reajuste con los árboles fijados no mide nada y es determinista",
+ "se_retira": "de la enmienda 1, «así ningún paquete va más lento que hoy por C2»: es falso. Los 100 árboles obligatorios de un perfil son árboles más grandes que los de hoy; lo cierto es «más lento por intento, acotado por el techo externo de cada intento (presupuesto + 30 s)»"
+}

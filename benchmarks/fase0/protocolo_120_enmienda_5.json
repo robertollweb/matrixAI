@@ -1,0 +1,15 @@
+{
+ "control_de_paridad": "cada conjunto que el estudio declare «pequeño» tiene que dar la cifra de R1 EXACTA (|diferencia| < 1e-9 puntos) o no completar en los dos; si no, PARO del instrumento (no es un resultado). Cada intento de árboles aplica la política exactamente en los tamaños de la política; el sobre declara sus tamaños",
+ "de": "Roberto, 2026-10-02: «sí a las tres» (C2b recomendada por el supervisor)",
+ "decidida_despues_de_ver_un_dato": "SÍ, y se dice: se decide tras ver dresses-sales. Lo que la protege: no cambia la cifra de ningún conjunto pequeño (entrenan con el motor de HOY, byte a byte, y se miden como control de paridad) ni retoca un perfil, una tasa, una paciencia o un umbral de las enmiendas 1 y 4; solo deja medir los tamaños que la regla 9 dejó sin medir.",
+ "enmienda": 5,
+ "estado": "REGISTRADA el 2026-10-02 12:28 (deployer-f1) con el código de C2b verificado (motores 1972a00, Studio ab55ff6) y ANTES de medirla",
+ "implementacion": "veredicto_120.py (L2_DE_LA_POLITICA, TAMANOS_DE_LA_POLITICA, paridad_fuera_de_la_politica, corta con la política) y referencia_120_r0.py, con sus pruebas, en el mismo commit; el motor (1972a00) y el Studio (ab55ff6) en la rama corte-120-c2",
+ "instrumento": "referencia_120_r0.py --imagen <C2b> --politica c2b_l2_0|c2b_l2_1 --contra referencia_120_r1.json --memoria 6g; los 13 en el orden del protocolo; una pasada por L2",
+ "motivo": "C2 (enmiendas 1–3) se cortó en su primer conjunto en las dos pasadas: dresses-sales, pequeño (271 filas de entrenamiento), bajó 2,04 puntos con l2_0 y 2,69 con l2_1 (núcleo 5e72eef, c5d0e98), porque la parada temprana sobre una cola de ~48 filas corta los árboles a 1–35. Con la lectura global de la regla 9 (enmienda 3) los medianos y grandes —donde está la promesa de C2: más árboles donde hay datos— no llegaron a medirse.",
+ "protocolo": "120.v1",
+ "que_es_C2b": "la política de C2 (perfiles de la enmienda 1, diseño de la enmienda 4) SOLO en los tamaños «mediano» y «grande» (por filas de entrenamiento del motor); en «pequeño» (≤ 2.000) el motor de hoy, que declara `politica_por_tamano.aplicada = false` con el motivo «fuera_de_los_tamanos_de_la_politica». Valores de MATRIXAI_POLITICA_DE_ARBOLES: c2b_l2_0 y c2b_l2_1 (l2_0 y l2_1 siguen siendo C2)",
+ "regla_4": "la de siempre (enmienda 1), por tamaño, sobre mediano y grande; «pequeño» se queda con la configuración de hoy por construcción",
+ "regla_9": "la pasada de un L2 se corta en el primer conjunto MEDIANO O GRANDE que baja ≥ 2 puntos o deja de completar; un pequeño nunca corta (lo vigila la paridad)",
+ "si_mejora": "en el tamaño que cumpla la regla 4, la política se activaría en producción SOLO sin torch (enmienda 2) y en ese tamaño; eso es un corte aparte (C6), con su auditoría y el sí de Roberto"
+}

@@ -355,3 +355,90 @@ def test_con_la_politica_no_se_escribe_encima_de_R0_ni_de_la_referencia(monkeypa
         monkeypatch.setattr(G, peligrosa, lambda *a, _n=peligrosa, **k: pytest.fail(f"la guarda dejó pasar: {_n}"))
     with pytest.raises(SystemExit, match="--salida PROPIA"):
         G.main()
+
+
+# ── C2b (enmienda 5): en «pequeño», el motor de HOY; la política solo en mediano y grande ──────────────
+
+_FUERA = {"tamano": "pequeno", "l2": 0.0, "aplicada": False, "motivo": "fuera_de_los_tamanos_de_la_politica"}
+_DENTRO = {"tamano": "mediano", "l2": 0.0, "aplicada": True}
+
+
+def _sobre_c2b(**k):
+    return dict(_sobre(valor="c2b_l2_0", **k), tamanos=["mediano", "grande"])
+
+
+def test_c2b_un_pequeno_tiene_que_ser_IDENTICO_a_R1_y_nunca_corta():
+    igual = V.comparar(R1["pc1"], _c2("pc1", delta=0.0))
+    assert V.paridad_fuera_de_la_politica(igual, "c2b_l2_0") is None
+    casi = V.comparar(R1["pc1"], _c2("pc1", delta=0.0001))      # «igual» para la regla 4, pero no idéntico
+    assert casi["clase"] == "igual"
+    assert "no es IDÉNTICO" in V.paridad_fuera_de_la_politica(casi, "c2b_l2_0")
+    baja = V.comparar(R1["pc1"], _c2("pc1", delta=-0.03))
+    assert V.corta(baja, "c2b_l2_0") is None                   # no corta: lo para la paridad, como instrumento
+    assert V.paridad_fuera_de_la_politica(baja, "c2b_l2_0")
+    assert V.corta(baja, "l2_0") and V.corta(baja) and V.paridad_fuera_de_la_politica(baja, "l2_0") is None
+
+
+def test_c2b_un_mediano_si_corta_y_no_exige_paridad():
+    baja = V.comparar(R1["wilt"], _c2("wilt", delta=-0.03, tamano="mediano"))
+    assert V.paridad_fuera_de_la_politica(baja, "c2b_l2_0") is None
+    assert "wilt baja" in V.corta(baja, "c2b_l2_0")
+
+
+def test_c2b_cada_intento_aplica_la_politica_exactamente_en_sus_tamanos():
+    pequeno = _rec(_estado(("lightgbm", "completed", _FUERA), ("sklearn.hgb", "completed", _FUERA)),
+                   sobre=_sobre_c2b(), campeon="baseline")
+    assert G.comprobar_politica(pequeno, "c2b_l2_0") == (None, 2)
+    for mal in (dict(_FUERA, aplicada=True), dict(_DENTRO, aplicada=False), dict(_FUERA, l2=1.0)):
+        motivo, _ = G.comprobar_politica(_rec(_estado(("lightgbm", "completed", mal)), sobre=_sobre_c2b(),
+                                              campeon="baseline"), "c2b_l2_0")
+        assert motivo and "donde toca" in motivo, mal
+    # Con C2 (l2_0) una declaración sin `aplicada` es «aplicada», en los tres tamaños.
+    assert G.comprobar_politica(_con_sobre(_sobre()), "l2_0") == (None, 2)
+
+
+def test_c2b_el_sobre_tiene_que_decir_sus_tamanos():
+    rec = _rec(_estado(("lightgbm", "completed", _FUERA)), sobre=_sobre(valor="c2b_l2_0"), campeon="baseline")
+    motivo, _ = G.comprobar_politica(rec, "c2b_l2_0")
+    assert motivo and "tamaños" in motivo
+
+
+def test_c2b_el_campeon_fuera_de_la_politica_es_el_motor_de_hoy_sin_arboles_fijados():
+    sobre = _sobre_c2b(fijados=False)
+    sobre["campeon"]["politica_por_tamano"] = dict(_FUERA)
+    rec = _rec(_estado(("lightgbm", "completed", _FUERA)), sobre=sobre)
+    assert G.comprobar_politica(rec, "c2b_l2_0") == (None, 1)
+    for mal in (dict(_FUERA, tamano="mediano"), dict(_FUERA, arboles_fijados={"arboles": 3})):
+        sobre["campeon"]["politica_por_tamano"] = mal
+        motivo, _ = G.comprobar_politica(rec, "c2b_l2_0")
+        assert motivo and "no aplicaba" in motivo, mal
+
+
+def test_c2b_la_pasada_para_si_un_pequeno_no_es_identico(monkeypatch, tmp_path):
+    banco = sorted(json.loads((_FASE0 / "protocolo_120.json").read_text())["conjuntos"]["banco"],
+                   key=lambda x: x["orden"])
+    monkeypatch.setattr(G, "ESTADOS", tmp_path)
+    monkeypatch.setattr(G, "POLITICA", "c2b_l2_0")
+    monkeypatch.setattr(G, "guardar", lambda d: None)
+    monkeypatch.setattr(G, "borrar_contenedor", lambda: None)
+    monkeypatch.setattr(G, "dentro", lambda *a: "MATRIXAI_POLITICA_DE_ARBOLES c2b_l2_0")
+    monkeypatch.setattr(G, "arrancar_contenedor", lambda politica=None: ("b", "c"))
+    datos = {"procedencia": {}, "conjuntos": {}, "comparaciones": {}, "corte": None, "control": None}
+
+    def correr(b, destino=None, reusar=True):
+        n = b["nombre"]
+        if destino is not None:
+            destino[n] = dict(R1[n], nombre=n, perfiles_declarados=[
+                {"motor": "lightgbm", "candidato": "x", "estado": "completed", "declara": False}])
+            return
+        rec = _c2(n, delta=(0.0001 if n == "climate-model-simulation-crashes" else 0.0))
+        rec["perfiles_declarados"] = [dict(_FUERA, motor="lightgbm", candidato="x", estado="completed", declara=True)]
+        rec["politica_de_arboles"] = _sobre_c2b()
+        rec["politica_de_arboles"]["campeon"]["politica_por_tamano"] = dict(_FUERA)
+        datos["conjuntos"][n] = rec
+
+    with pytest.raises(SystemExit) as e:
+        G.correr_con_politica(banco, banco, datos, {"politica": None}, correr, R1)
+    assert e.value.code == 3
+    assert datos["corte"]["tipo"] == "instrumento" and datos["corte"]["tras"] == "climate-model-simulation-crashes"
+    assert "no es IDÉNTICO" in datos["corte"]["motivo"]

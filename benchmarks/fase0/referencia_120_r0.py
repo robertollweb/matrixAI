@@ -265,6 +265,9 @@ def perfiles_declarados(est):
             out.append({"motor": x.get("engine"), "candidato": x.get("candidate"), "estado": x.get("estado"),
                         "declara": d is not None, "tamano": d and d.get("tamano"), "l2": d and d.get("l2"),
                         "filas_de_train": d and d.get("filas_de_train"),
+                        # C2b: `aplicada` False = un tamaño fuera de la política, entrenado con el motor de hoy. Las
+                        # declaraciones de C2 no la traen: aplicada.
+                        "aplicada": (d.get("aplicada", True) if d else None),
                         "arboles_efectivos": d and d.get("arboles_efectivos"), "paro": d and d.get("paro")})
     return out
 
@@ -284,19 +287,30 @@ def comprobar_politica(rec, politica):
         if malos:
             return f"{n}: declaran una política SIN pedirla: {malos[:5]}", len(ps)
         return (f"{n}: el sobre declara una política SIN pedirla" if sobre is not None else None), len(ps)
-    l2 = {"l2_0": 0.0, "l2_1": 1.0}[politica]
-    malos = [p["candidato"] for p in ps if not p["declara"] or p["l2"] != l2]
+    l2 = veredicto_120.L2_DE_LA_POLITICA[politica]
+    tamanos = veredicto_120.TAMANOS_DE_LA_POLITICA[politica]
+    # Cada intento declara la política pedida, y la APLICA exactamente en los tamaños de esa política (C2b: en
+    # «pequeño», `aplicada` False con el motor de hoy).
+    malos = [p["candidato"] for p in ps if not p["declara"] or p["l2"] != l2
+             or (p.get("aplicada") is not False) != (p.get("tamano") in tamanos)]
     if malos:
-        return f"{n}: intentos de árboles sin la política {politica}: {malos[:5]}", len(ps)
+        return f"{n}: intentos de árboles sin la política {politica} donde toca: {malos[:5]}", len(ps)
     if not ps or rec.get("estado") != "completed":
         return None, len(ps)
     if not isinstance(sobre, dict) or sobre.get("valor") != politica:
         return f"{n}: el sobre no declara {politica}: {str(sobre)[:200]}", len(ps)
+    if list(sobre.get("tamanos") or veredicto_120.TAMANOS) != list(tamanos):
+        return f"{n}: el sobre declara los tamaños {sobre.get('tamanos')!r}, no {list(tamanos)}", len(ps)
     if sobre.get("densa_fuera") is not True:
         return f"{n}: la densa NO estaba fuera ({sobre.get('densa_fuera')!r}): la enmienda 2 mide solo sin torch", len(ps)
     if rec.get("campeon") in MOTORES_DE_ARBOLES:
         del_campeon = (sobre.get("campeon") or {}).get("politica_por_tamano") or {}
-        if del_campeon.get("l2") != l2 or not isinstance(del_campeon.get("arboles_fijados"), dict):
+        if del_campeon.get("aplicada", True) is False:
+            # C2b: el reajuste del campeón cayó fuera de la política → el motor de hoy, sin árboles fijados.
+            if del_campeon.get("tamano") in tamanos or del_campeon.get("arboles_fijados") is not None:
+                return (f"{n}: el campeón dice que la política no aplicaba, pero su tamaño ({del_campeon.get('tamano')}) "
+                        f"es de la política o trae árboles fijados: {str(del_campeon)[:200]}"), len(ps)
+        elif del_campeon.get("l2") != l2 or not isinstance(del_campeon.get("arboles_fijados"), dict):
             return (f"{n}: el modelo del campeón ({rec['campeon']}) no es el reajuste con los árboles fijados y la "
                     f"política {politica}: {str(del_campeon)[:200]}"), len(ps)
     return None, len(ps)
@@ -388,7 +402,7 @@ def main():
     ap.add_argument("--memoria", default=MEMORIA)
     ap.add_argument("--muestrear-memoria", action="store_true",
                     help="registra el pico de memoria del contenedor en cada estudio (D10)")
-    ap.add_argument("--politica", choices=["l2_0", "l2_1"], default=None,
+    ap.add_argument("--politica", choices=sorted(veredicto_120.L2_DE_LA_POLITICA), default=None,
                     help="C2: mide con MATRIXAI_POLITICA_DE_ARBOLES (exige --contra)")
     ap.add_argument("--contra", default=None, help="C2: el JSON de R1 contra el que se compara y se corta (regla 9)")
     a = ap.parse_args()
@@ -564,7 +578,12 @@ def correr_con_politica(banco_entero, banco, datos, srv, correr, contra):
         dif = "" if comp["diferencia"] is None else f" {comp['diferencia']:+.2f} puntos"
         print(f"   contra R1: {comp['clase']}{dif} (tamaño {comp['tamano']}; política comprobada en "
               f"{comprobados} intentos)", flush=True)
-        porque = veredicto_120.corta(comp)
+        paridad = veredicto_120.paridad_fuera_de_la_politica(comp, POLITICA)
+        if paridad:
+            datos["corte"] = {"tipo": "instrumento", "motivo": paridad, "tras": n, "sin_medir": nombres[i + 1:]}
+            datos["procedencia"]["fin"] = ahora(); guardar(datos)
+            print("PARO (paridad fuera de la política):", paridad, flush=True); sys.exit(3)
+        porque = veredicto_120.corta(comp, POLITICA)
         if porque:
             datos["corte"] = {"tipo": "regla_9", "motivo": porque, "tras": n, "sin_medir": nombres[i + 1:]}
             guardar(datos)

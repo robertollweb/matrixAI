@@ -37,6 +37,12 @@ BAJA_QUE_CORTA = 2.0    # una bajada ≥ 2 puntos corta la pasada y es un «no»
 TAMANOS = ("pequeno", "mediano", "grande")
 _METRICAS_DE_CIERRE = {"auroc", "accuracy", "rmse"}
 
+#: Los valores de MATRIXAI_POLITICA_DE_ARBOLES que se miden: su L2 y los tamaños donde APLICA la política. `l2_*` es
+#: C2 (los tres tamaños, enmienda 1); `c2b_*` es C2b (enmienda 5, Roberto 02-10: en «pequeño», el motor de HOY).
+L2_DE_LA_POLITICA = {"l2_0": 0.0, "l2_1": 1.0, "c2b_l2_0": 0.0, "c2b_l2_1": 1.0}
+TAMANOS_DE_LA_POLITICA = {"l2_0": TAMANOS, "l2_1": TAMANOS,
+                          "c2b_l2_0": ("mediano", "grande"), "c2b_l2_1": ("mediano", "grande")}
+
 
 class Incomparable(Exception):
     """R1 y C2 no midieron lo mismo en un conjunto (otra línea base, otra métrica): la pasada para."""
@@ -109,8 +115,26 @@ def comparar(r1: dict | None, c2: dict) -> dict:
             "c2": puntos(c2) if cc else None, "diferencia": None, "tamano": tamano_declarado(c2)}
 
 
-def corta(comparacion: dict) -> str | None:
-    """La regla 9: el motivo para cortar la pasada tras este conjunto, o None."""
+def paridad_fuera_de_la_politica(comparacion: dict, politica: str | None) -> str | None:
+    """C2b (enmienda 5): un conjunto de un tamaño donde la política NO aplica entrena con el motor de HOY, así que su
+    cifra tiene que ser la de R1 EXACTA (o los dos sin completar). Si no, el instrumento no mide lo que dice: PARO.
+    `None` si cuadra o si la política aplica en ese tamaño (o no hay política)."""
+    if politica is None or comparacion.get("tamano") in TAMANOS_DE_LA_POLITICA[politica]:
+        return None
+    if comparacion["clase"] == "ninguno_completa":
+        return None
+    d = comparacion.get("diferencia")
+    if comparacion["clase"] == "igual" and d is not None and abs(d) < 1e-9:
+        return None
+    return (f"{comparacion['nombre']} ({comparacion.get('tamano')}, fuera de la política) no es IDÉNTICO a R1: "
+            f"{comparacion['clase']} {d!r}")
+
+
+def corta(comparacion: dict, politica: str | None = None) -> str | None:
+    """La regla 9: el motivo para cortar la pasada tras este conjunto, o None. Con C2b, un conjunto de un tamaño
+    donde la política no aplica nunca corta: es el control de paridad (`paridad_fuera_de_la_politica`)."""
+    if politica is not None and comparacion.get("tamano") not in TAMANOS_DE_LA_POLITICA[politica]:
+        return None
     if comparacion["clase"] == "baja_2":
         return f"{comparacion['nombre']} baja {comparacion['diferencia']:.2f} puntos (≥ {BAJA_QUE_CORTA:g})"
     if comparacion["clase"] == "deja_de_completar":
