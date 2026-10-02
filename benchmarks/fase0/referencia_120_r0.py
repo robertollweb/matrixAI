@@ -88,6 +88,43 @@ def borrar_contenedor():
         _contenedor = None
 
 
+_UNIDADES = {"B": 1 / 2**20, "KiB": 1 / 1024, "MiB": 1.0, "GiB": 1024.0, "kB": 1e3 / 2**20, "MB": 1e6 / 2**20,
+             "GB": 1e9 / 2**20}
+
+
+def _mb(texto):
+    m = re.match(r"\s*([0-9.]+)\s*([A-Za-z]+)", texto)
+    return float(m.group(1)) * _UNIDADES.get(m.group(2), float("nan")) if m else None
+
+
+class MuestreoDeMemoria:
+    """El PICO de memoria del contenedor mientras corre un estudio (`docker stats`, cada ~2 s).
+    02-10, D10: para decir cuánta memoria pide un estudio grande con un número medido."""
+
+    def __init__(self, nombre):
+        import threading
+        self.nombre, self.pico_mb, self.muestras = nombre, None, 0
+        self._parar = threading.Event()
+        self._hilo = threading.Thread(target=self._bucle, daemon=True)
+
+    def _bucle(self):
+        while not self._parar.is_set():
+            r = subprocess.run(["docker", "stats", "--no-stream", "--format", "{{.MemUsage}}", self.nombre],
+                               capture_output=True, text=True)
+            if r.returncode == 0 and r.stdout.strip():
+                usado = _mb(r.stdout.split("/")[0])
+                if usado is not None:
+                    self.muestras += 1
+                    self.pico_mb = usado if self.pico_mb is None else max(self.pico_mb, usado)
+            self._parar.wait(2.0)
+
+    def __enter__(self):
+        self._hilo.start(); return self
+
+    def __exit__(self, *_):
+        self._parar.set(); self._hilo.join(timeout=30)
+
+
 def estado_del_contenedor(nombre):
     """`OOMKilled`, código de salida y estado del contenedor (02-10: para saber POR QUÉ murió)."""
     r = subprocess.run(["docker", "inspect", nombre, "--format",
@@ -267,6 +304,8 @@ def main():
     ap.add_argument("--imagen", default=IMAGEN)
     ap.add_argument("--salida", default=str(SALIDA))
     ap.add_argument("--memoria", default=MEMORIA)
+    ap.add_argument("--muestrear-memoria", action="store_true",
+                    help="registra el pico de memoria del contenedor en cada estudio (D10)")
     a = ap.parse_args()
     IMAGEN, MEMORIA = a.imagen, a.memoria
     SALIDA = Path(a.salida).resolve()
@@ -321,11 +360,21 @@ def main():
         if n in previo:
             print(f"[{n}] reusado (completed, misma imagen y guion)", flush=True); return
         print(f"[{ahora()}] {n} (loadavg {open('/proc/loadavg').read().split()[0]}) ...", flush=True)
+        muestreo = MuestreoDeMemoria(srv["nombre"]) if a.muestrear_memoria else None
         try:
+            if muestreo:
+                muestreo.__enter__()
             rec = estudiar(srv["base"], n, b, gen)
         except (urllib.error.URLError, ConnectionError, OSError) as e:   # el servidor ya no contesta
             rec = {"nombre": n, "estado": "servidor_muerto", "error": repr(e)[:300], "http": None,
                    "pared_estudio_s": None, "campeon": None}
+        finally:
+            if muestreo:
+                muestreo.__exit__()
+        if muestreo:
+            rec["memoria_pico_mb"] = round(muestreo.pico_mb, 1) if muestreo.pico_mb is not None else None
+            rec["memoria_muestras"] = muestreo.muestras
+            rec["memoria_techo"] = MEMORIA
         if rec.get("estado") in ("sondeo_fallido", "servidor_muerto"):
             # SE DICE POR QUÉ y el siguiente conjunto arranca con un servidor NUEVO (02-10: en R0 una muerte
             # con APSFailure dejó Allstate sin medir y la pasada en rc=1).
