@@ -14,6 +14,7 @@ from matrixai import limits as _limits
 from matrixai.generation import parse_field_specs, strip_field_specs
 from matrixai.training import architecture_policy as _architecture_policy
 from matrixai.training.categorical import expand_categoricals
+from matrixai.training.particion import LINEA_SPLIT_POR_DEFECTO
 
 # GEN C2: a declared categorical with at most this many values becomes one-hot
 # columns here (dense model); above it, it should be an embedding (composite path).
@@ -1476,7 +1477,7 @@ def _build_training_text(
         f'  SOURCE csv("{network_name.lower()}.train.csv")',
         f"  INPUT {input_name} FROM COLUMNS {field_list}",
         f"  TARGET {output_name}: {dataset_target_type}",
-        "  SPLIT train=0.8 validation=0.2 seed=42",
+        f"  {LINEA_SPLIT_POR_DEFECTO}",
         "  BATCH size=8",
         "END",
         "",

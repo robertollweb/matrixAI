@@ -166,6 +166,10 @@ class DenseSupervisedTrainer:
         # cuál es. Medirlo es un acto posterior y de otro (104-C0 lo hace
         # cumplir con su registro de accesos); hacerlo aquí sería elegir sobre
         # los datos con los que luego se afirma.
+        # (Matiz: «no aporta un rango» es lo que hace ESTE entrenador. Los rangos
+        # de normalización que le llegan ya aplicados salen de la generación, y
+        # desde el corte «rangos de train» `dataset_project` los ajusta solo con
+        # las filas de `train` de esta misma partición.)
 
         ps = build_network_parameter_set(net, resolved_layers, mhash, seed=seed)
 

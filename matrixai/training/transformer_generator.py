@@ -21,6 +21,7 @@ from typing import Any
 from matrixai import limits as _limits
 from matrixai.generation import FieldSpec, parse_field_specs, strip_field_specs
 from matrixai.text.tokenizer import ByteTokenizer
+from matrixai.training.particion import LINEA_SPLIT_POR_DEFECTO
 from matrixai.training.dense_generator import (
     DenseNetworkGenerator,
     _default_network_name,
@@ -450,7 +451,7 @@ def _build_transformer_training_text(
         f'  SOURCE csv("{network_name.lower()}.train.csv")',
         f"  INPUT {seq_name} FROM COLUMNS {columns}",
         f"  TARGET {output_name}: {dataset_target_type}",
-        "  SPLIT train=0.8 validation=0.2 seed=42",
+        f"  {LINEA_SPLIT_POR_DEFECTO}",
         "  BATCH size=8",
         "END",
         "",

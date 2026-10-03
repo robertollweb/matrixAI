@@ -37,13 +37,20 @@ import random
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-__all__ = ["PROTOCOLO_SEPARACION", "Particion", "particion_legada", "particion_declarada",
+__all__ = ["PROTOCOLO_SEPARACION", "LINEA_SPLIT_POR_DEFECTO", "Particion", "particion_legada", "particion_declarada",
            "particion_para"]
 
 #: La única versión de protocolo que cambia cómo se parte. Se declara en el
 #: `.mxtrain` (`SPLIT … protocol=2`) y es lo que distingue «reproducir un
 #: proyecto antiguo» de «hacer un estudio nuevo».
 PROTOCOLO_SEPARACION = "2"
+
+#: La línea `SPLIT` que escriben los generadores (denso, compuesto, transformer)
+#: y que `dataset_project` usa para calcular la misma partición al ajustar los
+#: rangos de normalización. **Un solo sitio**: antes era un literal en cada
+#: generador, y la partición con la que se ajustan los rangos no puede diverger
+#: de la que escribe el `.mxtrain`.
+LINEA_SPLIT_POR_DEFECTO = "SPLIT train=0.8 validation=0.2 seed=42"
 
 
 @dataclass(frozen=True)

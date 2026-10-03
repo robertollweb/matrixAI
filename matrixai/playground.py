@@ -2971,6 +2971,7 @@ def _run_playground_training(
     target_range: tuple[float, float] | None = None,
     seed: int = 42,
     plazo: float | None = None,
+    recortar_objetivo: bool = True,
 ) -> dict[str, Any]:
     """Synchronous training — used by tests and /api/train endpoint.
 
@@ -3000,7 +3001,13 @@ def _run_playground_training(
     densa y la COMPUESTA por torch (la compuesta desde el 2026-09-23: es la que sale
     con categóricas de alta cardinalidad); el transformer no lo recibe. Donde se
     aplica, el resultado dice `parado_por_plazo`; su AUSENCIA dice que no se aplicó.
-    Sin plazo, igual que antes."""
+    Sin plazo, igual que antes.
+
+    `recortar_objetivo` (A8, rangos de train): con `False` el OBJETIVO de
+    regresión se normaliza sin recortar a [0,1] (las entradas sí se recortan).
+    Por omisión `True`, que es lo de siempre y lo que la densa de motores
+    necesita: sus pruebas comparan modelos con objetivos de validación distintos
+    que solo coinciden porque los dos se recortan."""
     # BIBLIOTECA C1 (autoauditoría, sugerencia implementada): normalizar AQUÍ
     # (BOM/delimitador), no solo dentro de `_validate_training_csv` — esa
     # limpia su copia LOCAL, que nunca vuelve a este `csv_text` (los
@@ -3015,7 +3022,9 @@ def _run_playground_training(
     # índices de embedding quedan intactos porque no llevan rango.
     normalize_ranges = _compose_normalize_ranges(mxai_text, field_ranges, target_range)
     if normalize_ranges:
-        csv_text = _normalize_csv_with_ranges(csv_text, normalize_ranges)
+        csv_text = _normalize_csv_with_ranges(
+            csv_text, normalize_ranges,
+            sin_recorte=_columnas_sin_recorte(mxai_text, target_range, recortar_objetivo))
     prediction_kind = _get_prediction_kind(mxai_text, training_text)
 
     if prediction_kind == "layer_call":
@@ -3376,7 +3385,8 @@ def _suggest_field_types(columns: list[str]) -> dict[str, str]:
     return suggestions
 
 
-def _normalize_csv_with_ranges(csv_text: str, field_ranges: dict[str, tuple[float, float]]) -> str:
+def _normalize_csv_with_ranges(csv_text: str, field_ranges: dict[str, tuple[float, float]],
+                               sin_recorte: frozenset[str] | set[str] = frozenset()) -> str:
     """M5 — training boundary: map domain-scale columns (salary 35000) back to
     [0,1] with the SAME ranges used to generate/display the dataset.
 
@@ -3390,6 +3400,13 @@ def _normalize_csv_with_ranges(csv_text: str, field_ranges: dict[str, tuple[floa
     recibe `target_range` (antes de este contrato, el target NUNCA se
     incluía, así que en la práctica quedaba sin normalizar — de ahí el
     comentario viejo "and the target").
+
+    `sin_recorte` (A8 del corte «rangos de train»): columnas que se normalizan
+    con su rango pero **sin recortar a [0,1]**. Es el OBJETIVO de regresión
+    cuando su rango se ajustó solo con las filas de train: un objetivo de
+    validación por encima de ese rango se recortaría a 1,0 y el error de
+    validación —y la parada temprana— se medirían contra una verdad recortada.
+    Las entradas SÍ se recortan, igual que al predecir.
     """
     if not field_ranges:
         return csv_text
@@ -3408,7 +3425,9 @@ def _normalize_csv_with_ranges(csv_text: str, field_ranges: dict[str, tuple[floa
             except (TypeError, ValueError):
                 continue
             norm = (value - lo) / (hi - lo)
-            row[col] = str(round(min(1.0, max(0.0, norm)), 6))
+            if col not in sin_recorte:
+                norm = min(1.0, max(0.0, norm))
+            row[col] = str(round(norm, 6))
         writer.writerow(row)
     return out.getvalue()
 
@@ -3429,14 +3448,29 @@ def _compose_normalize_ranges(
     """
     normalize_ranges = dict(field_ranges or {})
     if target_range is not None:
-        try:
-            _program_for_target = parse_text(mxai_text)
-            _nets_for_target = getattr(_program_for_target, "networks", []) or []
-            if _nets_for_target:
-                normalize_ranges[_nets_for_target[0].output] = target_range
-        except Exception:  # noqa: BLE001
-            pass
+        salida = _columna_de_salida(mxai_text)
+        if salida is not None:
+            normalize_ranges[salida] = target_range
     return normalize_ranges
+
+
+def _columna_de_salida(mxai_text: str) -> str | None:
+    """El nombre REAL de la columna de salida (`net.output`), o `None` si el
+    `.mxai` no parsea (best-effort: el chequeo de validez llega después)."""
+    try:
+        redes = getattr(parse_text(mxai_text), "networks", []) or []
+        return redes[0].output if redes else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _columnas_sin_recorte(mxai_text: str, target_range: Any,
+                          recortar_objetivo: bool) -> frozenset[str]:
+    """A8: la columna objetivo, si hay que normalizarla SIN recortar."""
+    if recortar_objetivo or target_range is None:
+        return frozenset()
+    salida = _columna_de_salida(mxai_text)
+    return frozenset({salida}) if salida is not None else frozenset()
 
 
 def _normalize_input_with_ranges(
@@ -3764,6 +3798,7 @@ def _submit_training_job(
     generator_version: str | None = None,
     csv_serialization_version: str | None = None,
     dataset_mode: str | None = None,
+    recortar_objetivo: bool = True,
 ) -> dict[str, Any]:
     """Start async training job. Returns {ok, job_id} immediately.
 
@@ -3834,7 +3869,9 @@ def _submit_training_job(
     # M5: domain-scale CSV → normalized BEFORE validation, so the validator and
     # the three trainer paths only ever see slider-space [0,1] values.
     if normalize_ranges:
-        csv_text = _normalize_csv_with_ranges(csv_text, normalize_ranges)
+        csv_text = _normalize_csv_with_ranges(
+            csv_text, normalize_ranges,
+            sin_recorte=_columnas_sin_recorte(mxai_text, target_range, recortar_objetivo))
 
     validation = _validate_training_csv(mxai_text, training_text, csv_text)
     if not validation.get("ok"):
@@ -4049,6 +4086,13 @@ def _submit_training_job(
         "target_range": (
             [float(target_range[0]), float(target_range[1])]
             if target_range is not None else None),
+        # A8: el objetivo se normalizó SIN recortar a [0,1]. Cambia el CSV
+        # preparado (`dataset_sha256_prepared`) cuando algún objetivo sale del
+        # rango, así que quien rehaga los datos necesita saberlo. Se escribe
+        # solo cuando es `False`: su AUSENCIA significa «recortado», que es lo
+        # que hacían todas las capturas anteriores.
+        **({"target_clipped": False}
+           if (not recortar_objetivo and target_range is not None) else {}),
         # DE QUÉ PESOS PARTIÓ (warm start).
         #
         # Reentrenar un modelo guardado NO es el mismo run que entrenarlo desde
@@ -6799,6 +6843,7 @@ def _handler_class(guard: Any = None):
                     epochs_override,
                     field_ranges=_coerce_field_ranges(payload.get("field_ranges")) or None,
                     target_range=_coerce_target_range(payload.get("target_range")),
+                    recortar_objetivo=False,
                 )
                 # C3: el entrenamiento síncrono de un modelo grande devuelve
                 # tensores (best_state_dict) en el result; saneado antes de
@@ -6842,6 +6887,7 @@ def _handler_class(guard: Any = None):
                     csv_serialization_version=(
                         str(payload["csv_serialization_version"])
                         if payload.get("csv_serialization_version") else None),
+                    recortar_objetivo=False,
                 )
                 self._send_json(result, status=200 if result.get("ok") else 422)
             elif self.path == "/api/train-cancel":
