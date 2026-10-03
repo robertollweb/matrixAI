@@ -1,0 +1,43 @@
+{
+ "protocolo": "120.v1",
+ "enmienda": 7,
+ "corte": "C3′ — TabM como UN MOTOR MÁS en el paquete con torch, con reserva de tiempo propia",
+ "de": "Roberto, 2026-10-02 22:05: «OK, adelante con el cambio de recomendación» (C3 deja de ser «sustituir la densa por TabM» y pasa a «añadir TabM»)",
+ "estado": "REGISTRADA el 2026-10-03 08:28 (deployer-f1) ANTES de escribir el código de C3′ y antes de medir R1-GPU o C3′. Nada de C3′ está medido todavía.",
+ "motivo": "C5a (TabM 1.1.0 en condiciones de Studio) y C5 (TabM 1.2.0, adoptada; 38/40 sin cambios): con 60 s por intento TabM mejora donde le faltaba tiempo (mfeat 0,894 → 0,985; house_16H 0,627 → 0,690; completa Internet-Ads, KDD y APS) pero pierde contra la densa de hoy en climate, pc1 y micro-mass. Como SUSTITUCIÓN la regla de C5a decía no; como un candidato MÁS, la validación cruzada del 121 elige entre las dos redes y los árboles en cada conjunto.",
+ "que_es_C3prima": {
+  "motor": "TabM 1.2.0 (enmiendas 3 y 4 de 119 v4: «desconocida» con p = 0,02, raros < 5 al índice 2, sin categóricas no-op exacto), configuración fija, sin buscar hiperparámetros",
+  "donde": "SOLO donde hay torch (el paquete con GPU); sin torch, el estudio de hoy byte a byte (y C6 sigue rigiendo ahí)",
+  "junto_a": "la densa de hoy (matrixai.dense.torch_cpu) SIGUE compitiendo; lightgbm, sklearn.hgb y baseline también",
+  "reserva": "60 s de pared por intento de TabM (búsqueda y reajuste final), SUMADOS al presupuesto del estudio: ningún otro motor pierde un segundo; sus segundos por intento son los de R1-GPU exactos (lo comprueba el guion contra el sobre de cada intento)",
+  "elige": "la media de la validación cruzada del 121 sobre desarrollo, como hoy; el test no decide"
+ },
+ "condicion": "con torch, medida en CPU (este servidor no tiene GPU): la imagen del Studio construida desde el MISMO commit para R1-GPU y para C3′, más torch 2.6.0 en su rueda de CPU (la versión que fija bundle-gpu/Dockerfile.gpu). Lo que valga en una GPU NO está medido y se dirá así.",
+ "referencia": "R1-GPU = esa imagen SIN C3′ (la densa de hoy compitiendo, como en el paquete con GPU publicado, con C4 y C5 ya fusionados en motores), medida con el MISMO guion sobre los 13 del protocolo 120, ANTES de medir C3′.",
+ "medida": {
+  "decide": "la cifra del CAMPEÓN en el TEST (`evaluacion_final` de seleccion.json: la partición `test`, reservada antes de repartir pliegues y mirada UNA vez, después de que el estudio eligió), métrica de cierre por tarea (AUROC / accuracy / R²) ×100",
+  "por_que_no_la_media_de_seleccion": "C2 cambiaba la configuración de candidatos que ya competían; C3′ AÑADE uno. La media de selección del campeón es el máximo de las medias de los candidatos, y el máximo sobre más candidatos nunca es menor: con esa cifra la regla diría «mejora» por construcción (optimismo de selección). El test no lo ve ninguna decisión, así que mide si cambiar de campeón ayuda de verdad.",
+  "se_informa_sin_decidir": "la media de selección del campeón, el motor campeón, la duración del estudio y los segundos por intento de cada motor",
+  "nunca": "elegir, retocar o reintentar nada de C3′ mirando el test: esta enmienda es la única vez que se fija qué se hace con él"
+ },
+ "control_del_instrumento": {
+  "determinismo": "antes de los 13, R1-GPU mide los 4 conjuntos de humo DOS veces. Si las dos dan la misma cifra de test (|d| < 1e-9) en los 4, la paridad de abajo es EXACTA; si no, el SUELO DE RUIDO es la mayor |d| observada, se escribe en el resultado ANTES de medir C3′, y las diferencias por debajo de él no cuentan",
+  "paridad": "en C3′, cada conjunto cuyo campeón NO sea TabM tiene que dar la cifra de test de R1-GPU (exacta, o dentro del suelo de ruido) y el mismo motor campeón; si no, PARO del instrumento (no es un resultado)",
+  "tabm_presente": "cada estudio de C3′ con torch tiene que declarar intentos de TabM; uno sin ellos es PARO (no se estaría midiendo C3′)"
+ },
+ "regla_de_mejora": {
+  "mejora_si": [
+   "más conjuntos suben ≥ 1 punto que bajan ≥ 1 punto (cifra de test del campeón)",
+   "ninguno baja ≥ 2 puntos",
+   "los que completan en R1-GPU siguen completando en C3′ (un estudio que pasa de su tope cuenta como pérdida)"
+  ],
+  "no_cuenta": "|diferencia| < 1 punto, o por debajo del suelo de ruido si lo hay",
+  "umbral_puntos": 1.0
+ },
+ "regla_de_parada_9": "la de siempre (protocolo 120): la pasada de C3′ se corta en el primer conjunto que baja ≥ 2 o deja de completar, o cuando los que bajan ≥ 1 superan a los que suben ≥ 1 más todos los que faltan; lo no medido no cuenta como pérdida",
+ "coste": "la duración de cada estudio en R1-GPU y en C3′, conjunto a conjunto, se informa siempre; la regla no la mide y la decide Roberto. Estimado, no medido: +5 a +6 min por estudio (5 intentos de búsqueda y un reajuste de 60 s)",
+ "presupuesto_de_la_medida": "estimado, no medido: R1-GPU ~1,5 h (13 conjuntos + los 4 de humo repetidos) y C3′ ~2,5 h; techo 3.600 s por conjunto (pasado, «plazo» = deja de completar). Las dos a la COLA (~/encolar.sh), con `--memoria 6g`. Antes de encolar, un `--solo dresses-sales` de cada imagen para medir el tiempo real y corregir esta estimación por escrito",
+ "banco": "los 13 del protocolo 120 (no sellados, orden del protocolo); los 8 sellados no se tocan",
+ "si_mejora": "TabM entra en el paquete con GPU como un motor más, en la release por lote, con su auditoría y el sí de Roberto, y con el coste en tiempo dicho",
+ "si_no_mejora": "nada entra en el producto; las cifras quedan como dato del contrato 120 y TabM sigue fuera del Studio"
+}
