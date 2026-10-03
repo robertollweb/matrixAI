@@ -9,6 +9,13 @@ no sellados de 119-C5a, con el PROPIO estudio como instrumento. La cifra es `sel
     python3 referencia_120_r0.py --solo NOMBRE[,NOMBRE]   # (diagnóstico) solo esos; no hace el control si no están los 4
     python3 referencia_120_r0.py --imagen matrixai-studio:120-c2 --politica l2_0 \
         --contra referencia_120_r1.json --salida referencia_120_c2_l2_0.json   # C2 contra R1 (enmienda 3)
+    python3 referencia_120_r0.py --imagen <R1-GPU, con torch> --r1gpu --salida referencia_120_r1gpu.json
+    python3 referencia_120_r0.py --imagen <C3′> --c3p --contra referencia_120_r1gpu.json --salida resultado_120_c3p.json
+
+C3′ (enmienda 7, `veredicto_120_c3p.py`): la cifra es la del campeón en el TEST (`seleccion.evaluacion_final`), no la
+media de selección. `--r1gpu` mide la referencia con torch: tras el control de los 4 ejemplos, los repite y escribe
+el SUELO DE RUIDO antes de seguir; cada estudio, con la densa y sin TabM. `--c3p` compara con ella: cada estudio con
+las dos redes, la paridad donde TabM no es campeón, y la regla 9.
 
 Con `--politica`: (1) los 4 ejemplos SIN política, con el control a 4 decimales (la imagen de C2 deja el motor por
 omisión como hoy) y sin una sola declaración de política; (2) el contenedor se rearranca con
@@ -30,6 +37,9 @@ AQUI = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("veredicto_120", AQUI / "veredicto_120.py")
 veredicto_120 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(veredicto_120)
+_spec = importlib.util.spec_from_file_location("veredicto_120_c3p", AQUI / "veredicto_120_c3p.py")
+veredicto_120_c3p = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(veredicto_120_c3p)
 IMAGEN = "matrixai-studio:v2.7.2"   # R0; otra con --imagen (R1: el código con D9 y C1)
 MEMORIA = "6g"                       # el techo de R0; otro con --memoria
 BORRADOR = AQUI / "protocolo_120.json"   # el protocolo REGISTRADO (mismo directorio)
@@ -342,6 +352,16 @@ def comprobar_politica(rec, politica):
     return None, len(ps)
 
 
+def test_de(sel):
+    """La evaluación del campeón en el TEST (`seleccion.evaluacion_final`): rol, evidencia y {métrica: valor}. Solo
+    la usa C3′ (enmienda 7); C2 decide con la media de selección y nunca la mira."""
+    ef = sel.get("evaluacion_final")
+    if not isinstance(ef, dict):
+        return None
+    return {"rol": ef.get("evaluated_role"), "evidencia": ef.get("evidence"),
+            "metricas": {m.get("metric_id"): m.get("value") for m in ef.get("metrics") or [] if isinstance(m, dict)}}
+
+
 def registrar(nombre, c, cuerpo_ok, est, pared, http, rechazo, loadavg, ini):
     sel = est.get("seleccion") or {}
     media = sel.get("media_de_la_seleccion")
@@ -353,7 +373,7 @@ def registrar(nombre, c, cuerpo_ok, est, pared, http, rechazo, loadavg, ini):
            "intentos": filas, "intentos_ruta_en_el_estado": ruta, "pared_estudio_s": round(pared, 1),
            "loadavg_al_empezar": loadavg, "inicio": ini, "fin": ahora(),
            "perfiles_declarados": perfiles_declarados(est),
-           "politica_de_arboles": sel.get("politica_de_arboles")}
+           "politica_de_arboles": sel.get("politica_de_arboles"), "test": test_de(sel)}
     return rec
 
 
@@ -433,16 +453,28 @@ def main():
     ap.add_argument("--contra", default=None, help="C2: el JSON de R1 contra el que se compara y se corta (regla 9)")
     ap.add_argument("--banco", default=None,
                     help="otro banco de conjuntos (enmienda 6); el control sigue siendo el de los 4 ejemplos del protocolo")
+    ap.add_argument("--r1gpu", action="store_true",
+                    help="C3′ (enmienda 7): la referencia CON torch; repite los 4 de humo y escribe el suelo de ruido")
+    ap.add_argument("--c3p", action="store_true",
+                    help="C3′ (enmienda 7): TabM como un motor más, contra --contra (una R1-GPU); cifra = la del test")
     a = ap.parse_args()
-    if bool(a.politica) != bool(a.contra):
-        raise SystemExit("--politica y --contra van juntas")
-    if a.politica and (Path(a.salida).resolve() == SALIDA.resolve()
-                       or Path(a.salida).resolve() == Path(a.contra).resolve()):
-        raise SystemExit("--politica escribe en una --salida PROPIA: ni la de R0 (la omisión) ni la de --contra")
+    if sum(map(bool, (a.politica, a.r1gpu, a.c3p))) > 1:
+        raise SystemExit("--politica, --r1gpu y --c3p son medidas distintas: una cada vez")
+    if bool(a.politica or a.c3p) != bool(a.contra):
+        raise SystemExit("--politica y --c3p van con --contra, y --contra solo con una de ellas")
+    if (a.politica or a.r1gpu or a.c3p) and (Path(a.salida).resolve() == SALIDA.resolve()
+                       or (a.contra and Path(a.salida).resolve() == Path(a.contra).resolve())):
+        raise SystemExit("--politica, --r1gpu y --c3p escriben en una --salida PROPIA: ni la de R0 (la omisión) ni la de --contra")
+    if (a.r1gpu or a.c3p) and a.banco:
+        raise SystemExit("C3′ se mide en los 13 del protocolo (enmienda 7): sin --banco")
     IMAGEN, MEMORIA, POLITICA = a.imagen, a.memoria, a.politica
-    contra = json.loads(Path(a.contra).read_text())["conjuntos"] if a.contra else None
-    if contra is not None and not json.loads(Path(a.contra).read_text()).get("control", {}).get("cuadra"):
+    MODO = "r1gpu" if a.r1gpu else "c3p" if a.c3p else None
+    contra_doc = json.loads(Path(a.contra).read_text()) if a.contra else None
+    contra = contra_doc["conjuntos"] if a.contra else None
+    if contra is not None and not contra_doc.get("control", {}).get("cuadra"):
         raise SystemExit(f"PARO: {a.contra} no tiene su control en CUADRA: no es una referencia")
+    if a.c3p and not isinstance(contra_doc.get("suelo_de_ruido"), (int, float)):
+        raise SystemExit(f"PARO: {a.contra} no trae suelo_de_ruido: no es una referencia R1-GPU (--r1gpu)")
     SALIDA = Path(a.salida).resolve()
     ESTADOS = SALIDA.with_name(SALIDA.stem + "_estados")
     ESTADOS.mkdir(exist_ok=True)
@@ -476,14 +508,17 @@ def main():
     if SALIDA.exists() and not a.forzar:
         p = json.loads(SALIDA.read_text())
         if (p.get("procedencia", {}).get("imagen_id") == imagen and p.get("procedencia", {}).get("sha256_guion") == guion
-                and p.get("procedencia", {}).get("politica") == POLITICA and not p.get("corte")):
+                and p.get("procedencia", {}).get("politica") == POLITICA
+                and p.get("procedencia", {}).get("modo") == MODO and not p.get("corte")):
             previo = {k: v for k, v in p.get("conjuntos", {}).items() if v.get("estado") == "completed"}
     datos = {"procedencia": {"imagen": IMAGEN, "imagen_id": imagen, "sha256_guion": guion,
                              "sha256_generador_de_csv": sha(GENERADOR),
                              "sha256_borrador_protocolo": sha(BORRADOR), "inicio": ahora(), "csv_byte_a_byte": bytes_ok,
                              "instrumento": "estudio del Studio por HTTP; folds/repeats por omisión; cifra = seleccion.media_de_la_seleccion",
                              "nota_multiclase": "clase_positiva solo se envía en binarias",
-                             "memoria_del_contenedor": MEMORIA, "politica": POLITICA,
+                             "memoria_del_contenedor": MEMORIA, "politica": POLITICA, "modo": MODO,
+                             "sha256_veredicto_c3p": sha(AQUI / "veredicto_120_c3p.py"),
+                             "sha256_enmienda_7": sha(AQUI / "protocolo_120_enmienda_7.json"),
                              "contra": (str(Path(a.contra).resolve()) if a.contra else None),
                              "sha256_contra": (sha(a.contra) if a.contra else None),
                              "sha256_veredicto": sha(AQUI / "veredicto_120.py"),
@@ -540,6 +575,9 @@ def main():
     if POLITICA:
         correr_con_politica(banco_entero, banco, datos, srv, correr, contra)
         return
+    if MODO:
+        correr_c3p(MODO, banco, datos, correr, contra_doc)
+        return
     fuente_del_control = banco_entero if a.banco else banco      # con --banco, el control sigue siendo el del protocolo
     pend_control = [b for b in fuente_del_control if b["nombre"] in CONTROL]
     for b in pend_control:
@@ -556,6 +594,80 @@ def main():
         for b in banco:
             if b["nombre"] not in CONTROL:
                 correr(b)
+    datos["procedencia"]["fin"] = ahora()
+    guardar(datos)
+    borrar_contenedor()
+
+
+def _paro(datos, tipo, motivo, tras, sin_medir, codigo=3):
+    datos["corte"] = {"tipo": tipo, "motivo": motivo, "tras": tras, "sin_medir": sin_medir}
+    datos["procedencia"]["fin"] = ahora(); guardar(datos)
+    print(f"PARO ({tipo}):", motivo, flush=True); borrar_contenedor(); sys.exit(codigo)
+
+
+def correr_c3p(modo, banco, datos, correr, contra_doc):
+    """C3′ (enmienda 7). Los 13 en el orden del protocolo; los 4 primeros son los de humo, y al tenerlos el control de
+    siempre (árboles a 4 decimales: sus segundos no cambian). Con `r1gpu`, la referencia: tras el control, los 4 de
+    humo OTRA vez y el suelo de ruido, escrito ANTES de seguir; cada conjunto con la densa y sin TabM. Con `c3p`,
+    contra la R1-GPU de `contra_doc`: cada conjunto con las dos redes, la paridad sin TabM de campeón y la regla 9."""
+    global ESTADOS
+    v3 = veredicto_120_c3p
+    nombres = [b["nombre"] for b in banco]
+    suelo = contra_doc.get("suelo_de_ruido") if contra_doc else None
+    contra = contra_doc["conjuntos"] if contra_doc else None
+    comps = []
+    for i, b in enumerate(banco):
+        n = b["nombre"]
+        correr(b)
+        rec = datos["conjuntos"][n]
+        if n in CONTROL and all(m in datos["conjuntos"] for m in CONTROL) and datos.get("control") is None:
+            ok, lin = controlar(datos["conjuntos"])
+            datos["control"] = {"cuadra": ok, "lineas": lin}
+            guardar(datos)
+            print("\n".join(lin)); print("CONTROL:", "CUADRA" if ok else "NO CUADRA — PARO", flush=True)
+            if not ok:
+                _paro(datos, "instrumento", "el control de los 4 ejemplos no cuadra", n, nombres[i + 1:], codigo=2)
+            if modo == "r1gpu":
+                estados = ESTADOS
+                ESTADOS = estados / "repeticion_de_control"; ESTADOS.mkdir(exist_ok=True)
+                datos["repeticion_de_control"] = {}
+                for bc in [x for x in banco if x["nombre"] in CONTROL]:
+                    correr(bc, datos["repeticion_de_control"], reusar=False)
+                ESTADOS = estados
+                try:
+                    datos["suelo_de_ruido"] = v3.suelo_de_ruido({m: datos["conjuntos"][m] for m in CONTROL},
+                                                                datos["repeticion_de_control"])
+                except v3.Incomparable as e:
+                    _paro(datos, "instrumento", f"el control no se repite: {e}", n, nombres[i + 1:])
+                guardar(datos)
+                print(f"SUELO DE RUIDO (los 4 de humo, dos veces): {datos['suelo_de_ruido']:g} puntos", flush=True)
+        motivo = v3.presencia(rec, c3p=(modo == "c3p"))
+        if motivo:
+            _paro(datos, "instrumento", motivo, n, nombres[i + 1:])
+        if modo != "c3p":
+            continue
+        try:
+            comp = v3.comparar(contra.get(n), rec, suelo)
+        except v3.Incomparable as e:
+            _paro(datos, "instrumento", str(e), n, nombres[i + 1:])
+        comps.append(comp)
+        datos["comparaciones"][n] = comp
+        guardar(datos)
+        dif = "" if comp["diferencia"] is None else f" {comp['diferencia']:+.2f} puntos"
+        print(f"   contra R1-GPU: {comp['clase']}{dif} ({comp['campeon_r1']} → {comp['campeon_c3p']}; "
+              f"{comp['pared_r1_s']} → {comp['pared_c3p_s']} s)", flush=True)
+        paridad = v3.paridad(comp, suelo)
+        if paridad:
+            _paro(datos, "instrumento", paridad, n, nombres[i + 1:])
+        porque = v3.corta(comps, faltan=len(nombres) - i - 1)
+        if porque:
+            datos["corte"] = {"tipo": "regla_9", "motivo": porque, "tras": n, "sin_medir": nombres[i + 1:]}
+            guardar(datos)
+            print("CORTE (regla 9):", porque, "— sin medir:", nombres[i + 1:], flush=True)
+            break
+    if modo == "c3p":
+        datos["veredicto"] = v3.veredicto(comps)
+        print(json.dumps(datos["veredicto"], ensure_ascii=False, indent=1), flush=True)
     datos["procedencia"]["fin"] = ahora()
     guardar(datos)
     borrar_contenedor()

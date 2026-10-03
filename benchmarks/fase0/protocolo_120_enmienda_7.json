@@ -39,5 +39,6 @@
  "presupuesto_de_la_medida": "estimado, no medido: R1-GPU ~1,5 h (13 conjuntos + los 4 de humo repetidos) y C3′ ~2,5 h; techo 3.600 s por conjunto (pasado, «plazo» = deja de completar). Las dos a la COLA (~/encolar.sh), con `--memoria 6g`. Antes de encolar, un `--solo dresses-sales` de cada imagen para medir el tiempo real y corregir esta estimación por escrito",
  "banco": "los 13 del protocolo 120 (no sellados, orden del protocolo); los 8 sellados no se tocan",
  "si_mejora": "TabM entra en el paquete con GPU como un motor más, en la release por lote, con su auditoría y el sí de Roberto, y con el coste en tiempo dicho",
- "si_no_mejora": "nada entra en el producto; las cifras quedan como dato del contrato 120 y TabM sigue fuera del Studio"
+ "si_no_mejora": "nada entra en el producto; las cifras quedan como dato del contrato 120 y TabM sigue fuera del Studio",
+ "correccion_antes_de_medir": "2026-10-03 08:41, sin nada medido todavía: «lo comprueba el guion contra el sobre de cada intento» (en `reserva`) NO es posible — el estado del estudio no declara el techo de un intento completado (solo el de los motores que no puntuaron). Que los demás motores conservan sus segundos exactos lo comprueban las pruebas del corte C3′ y, en la medida, el control de siempre (los árboles de los 4 ejemplos a 4 decimales) y la paridad de cada conjunto sin TabM de campeón. Lo demás de la enmienda, igual."
 }
