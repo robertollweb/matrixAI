@@ -1,0 +1,20 @@
+{
+ "protocolo": "120.v1",
+ "enmienda": 8,
+ "corte": "C3″ — TabM en el paquete CPU (el principal): con torch en la imagen, TabM compite, la densa anterior NO, y la política de árboles de C6 se mantiene",
+ "de": "Roberto, 2026-10-03 12:27: «Sí, con su propia medida» (la red nueva también al paquete CPU, no solo al de GPU); «me gustaría que el studio usase la nueva red de matrixAI lo antes posible (es nuestro producto)»",
+ "estado": "REGISTRADA el 2026-10-03 (deployer-f1) ANTES de escribir el código de C3″ y antes de medir nada de C3″. Se apoya en la enmienda 7 (C3′): misma regla, mismo instrumento, otra condición.",
+ "que_es_C3segunda": {
+  "paquete": "el paquete CPU con torch 2.6.0 de CPU dentro (cómo se instala —en la imagen o en el primer arranque— es una decisión de empaquetado de la release, no de esta medida)",
+  "compiten": "lightgbm, sklearn.hgb y baseline como hoy en el paquete CPU (con la política de C6 en los medianos) y TabM 1.2.0 con su reserva de 60 s por intento SUMADA (la de C3′); la densa anterior (matrixai.dense.torch_cpu) NO compite en el paquete CPU aunque haya torch",
+  "interruptor": "MATRIXAI_ESTUDIO_SIN_DENSA=1 deja fuera a la densa anterior aunque haya torch, y para la política de C6 cuenta como «la densa no compite aquí» (la de producción se aplica igual que hoy sin torch). Lo pone el paquete CPU; sin él, nada cambia en ningún otro paquete"
+ },
+ "condicion": "torch en CPU (no hay GPU aquí, y es justo la condición del paquete CPU), la imagen de C3′ (matrixai-studio:120-c3p o la que lleve el código de C3″), cpus=2 y memoria 6g como en el resto del 120",
+ "referencia": "R-CPU = la MISMA imagen de C3″ con MATRIXAI_ESTUDIO_SIN_DENSA=1 y MATRIXAI_ESTUDIO_SIN_TABM=1: los árboles con la política de C6 y la referencia, sin redes — el paquete CPU de hoy. Se mide con el mismo guion (modo --r1gpu adaptado: repite los 4 de humo y fija el suelo de ruido) y el mismo control de los 4 ejemplos, sobre los 13 del protocolo 120, ANTES de C3″",
+ "medida": "la de la enmienda 7, sin cambios: decide la cifra del CAMPEÓN en el TEST; la media de selección, el campeón, la duración y los segundos se informan sin decidir. Paridad: en cada conjunto cuyo campeón no sea TabM, la cifra de R-CPU (exacta o dentro del suelo) y el mismo campeón, o PARO. Presencia: en R-CPU ni densa ni TabM; en C3″ TabM sí y la densa no",
+ "regla_de_mejora": "la de la enmienda 7: más suben ≥ 1 punto que bajan ≥ 1, ninguno baja ≥ 2 y nadie deja de completar; el umbral, max(1, suelo); la regla 9 corta igual",
+ "coste": "la duración de cada estudio, se informa siempre; el tamaño de la imagen con torch, medido al construirla; los decide Roberto",
+ "presupuesto_de_la_medida": "estimado, no medido: como C3′ (R-CPU algo menos: sin densa); a la cola, después de C3′, con su humo antes",
+ "si_mejora": "TabM entra en el paquete CPU en la release, con la densa anterior fuera de él y el empaquetado de torch decidido por Roberto",
+ "si_no_mejora": "el paquete CPU sigue como hoy; TabM, si C3′ mejora, solo en el paquete con GPU"
+}

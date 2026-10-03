@@ -255,3 +255,55 @@ def test_c3p_un_arbol_que_declara_una_politica_sin_pedirla_es_un_PARO(entorno):
     with pytest.raises(SystemExit):
         G.correr_c3p("c3p", _banco(), datos, correr, _contra())
     assert "SIN pedirla" in datos["corte"]["motivo"]
+
+
+# ------------------------------------------------------------------ C3″ (enmienda 8): el paquete CPU
+def test_el_paquete_cpu_apaga_la_densa_y_rcpu_ademas_tabm():
+    assert G.entorno_extra_de("rcpu") == {"MATRIXAI_ESTUDIO_SIN_DENSA": "1", "MATRIXAI_ESTUDIO_SIN_TABM": "1"}
+    assert G.entorno_extra_de("c3s") == {"MATRIXAI_ESTUDIO_SIN_DENSA": "1"}
+
+
+def test_presencia_en_el_paquete_cpu_sin_densa():
+    sin_redes = _rec("x", motores=("lightgbm", "sklearn.hgb", "baseline"))
+    assert V3.presencia(sin_redes, c3p=False, con_densa=False) is None                       # R-CPU
+    assert "densa anterior" in V3.presencia(_rec("x"), c3p=False, con_densa=False)          # con densa: PARO
+    con_tabm = _rec("x", motores=("lightgbm", "baseline", TABM))
+    assert V3.presencia(con_tabm, c3p=True, con_densa=False) is None                         # C3″
+    assert "TabM" in V3.presencia(sin_redes, c3p=True, con_densa=False)
+
+
+def test_rcpu_fija_el_suelo_y_admite_la_politica_de_produccion(entorno):
+    datos = _datos()
+    sin_redes = ("lightgbm", "sklearn.hgb", "baseline")
+    regs = {n: _rec(n, motores=sin_redes) for n in HUMO + ["wilt"]}
+    # en un mediano del paquete CPU, la política de C6 SE ESPERA: no es un PARO
+    regs["wilt"]["perfiles_declarados"] = [{"motor": "lightgbm", "candidato": "lightgbm-csv-p0-r0",
+                                            "estado": "completed", "declara": True, "tamano": "mediano",
+                                            "l2": 1.0, "aplicada": True}]
+    correr, _ = _correr_desde(datos, regs, {n: _rec(n, motores=sin_redes) for n in HUMO})
+    G.correr_c3p("rcpu", _banco("wilt"), datos, correr, None)
+    assert datos["corte"] is None and datos["suelo_de_ruido"] == 0.0
+
+
+def test_c3s_con_la_densa_anterior_es_un_PARO(entorno):
+    datos = _datos()
+    regs = {n: _rec(n, motores=("lightgbm", "baseline", TABM, DENSA)) for n in HUMO}
+    correr, _ = _correr_desde(datos, regs)
+    contra = _contra()
+    contra["conjuntos"] = {n: _rec(n, motores=("lightgbm", "baseline")) for n in HUMO}
+    with pytest.raises(SystemExit):
+        G.correr_c3p("c3s", _banco(), datos, correr, contra)
+    assert "densa anterior" in datos["corte"]["motivo"]
+
+
+@pytest.mark.parametrize("medida, modo_de_la_referencia", [("--c3s", "r1gpu"), ("--c3p", "rcpu"), ("--c3s", None)])
+def test_cada_medida_exige_su_referencia(monkeypatch, entorno, medida, modo_de_la_referencia):
+    ref = {"suelo_de_ruido": 0.0, "control": {"cuadra": True}, "conjuntos": {},
+           "procedencia": {"modo": modo_de_la_referencia}}
+    r = entorno / "ref.json"
+    r.write_text(json.dumps(ref))
+    monkeypatch.setattr(sys, "argv", ["referencia_120_r0.py", medida, "--contra", str(r),
+                                      "--salida", str(entorno / "s.json")])
+    monkeypatch.setattr(G, "guardar", lambda *a, **k: pytest.fail("la guarda dejó pasar: guardar"))
+    with pytest.raises(SystemExit, match="no es una referencia"):
+        G.main()

@@ -91,14 +91,17 @@ def motores_con_intentos(rec: dict) -> set[str]:
     return {x.get("motor") for x in rec.get("intentos") or [] if x.get("motor")}
 
 
-def presencia(rec: dict, *, c3p: bool) -> str | None:
-    """El motivo para PARAR o None. Solo se exige en un estudio que completó (uno que no, ya cuenta como pérdida)."""
+def presencia(rec: dict, *, c3p: bool, con_densa: bool = True) -> str | None:
+    """El motivo para PARAR o None. Solo se exige en un estudio que completó (uno que no, ya cuenta como pérdida).
+    `con_densa`: C3′ (paquete con GPU) la quiere compitiendo; C3″ (enmienda 8, paquete CPU) la quiere FUERA."""
     if not completa(rec):
         return None
     motores = motores_con_intentos(rec)
     n = rec.get("nombre")
-    if MOTOR_DENSA not in motores:
+    if con_densa and MOTOR_DENSA not in motores:
         return f"{n}: la densa no tiene intentos — la imagen no trae torch: no es la condición registrada"
+    if not con_densa and MOTOR_DENSA in motores:
+        return f"{n}: la densa anterior tiene intentos — en el paquete CPU (enmienda 8) no compite"
     if c3p and MOTOR_TABM not in motores:
         return f"{n}: C3′ sin intentos de TabM — no se está midiendo C3′"
     if not c3p and MOTOR_TABM in motores:
