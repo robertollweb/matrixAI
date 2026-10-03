@@ -258,6 +258,44 @@ def test_c3p_un_arbol_que_declara_una_politica_sin_pedirla_es_un_PARO(entorno):
 
 
 # ------------------------------------------------------------------ C3″ (enmienda 8): el paquete CPU
+SOBRE_CPU = {"valor": "produccion", "activada_por": "produccion_densa_fuera", "densa_fuera": True,
+             "motores_sin_politica": []}
+_ARBOL_COMPLETADO = [{"motor": "lightgbm", "candidato": "lightgbm-csv-p0-r0", "estado": "completed", "declara": True,
+                      "tamano": "pequeno", "l2": 1.0, "aplicada": False}]
+
+
+@pytest.mark.parametrize("sobre, para", [
+    (SOBRE_CPU, False),
+    (None, True),                                                       # sin sobre
+    ({**SOBRE_CPU, "valor": "c2b_l2_1", "activada_por": "variable_de_medida"}, True),   # una de medida
+    ({**SOBRE_CPU, "activada_por": "produccion_sin_torch"}, True),      # la de sin torch
+    ({**SOBRE_CPU, "densa_fuera": None}, True),
+    ({**SOBRE_CPU, "motores_sin_politica": ["sklearn.hgb"]}, True),
+])
+def test_el_paquete_cpu_exige_el_sobre_de_produccion_con_la_densa_fuera(sobre, para):
+    rec = _rec("x", motores=("lightgbm", "baseline"))
+    rec["perfiles_declarados"] = _ARBOL_COMPLETADO
+    rec["politica_de_arboles"] = sobre
+    assert (G.sobre_del_paquete_cpu_o_motivo(rec) is not None) == para
+    sin_arboles = dict(rec, perfiles_declarados=[])                    # nada que comprobar: no para
+    assert G.sobre_del_paquete_cpu_o_motivo(sin_arboles) is None
+
+
+def test_la_referencia_es_la_misma_imagen_y_con_el_entorno_de_su_modo():
+    ok = {"procedencia": {"imagen_id": "sha256:a", "entorno_extra": G.entorno_extra_de("rcpu")}}
+    assert G.contra_o_motivo(ok, "c3s", "sha256:a") is None
+    assert "otra imagen" in G.contra_o_motivo(ok, "c3s", "sha256:b")
+    assert "entorno" in G.contra_o_motivo(ok, "c3p", "sha256:a")        # una R-CPU no sirve a C3′
+    assert G.contra_o_motivo(None, None, "sha256:a") is None
+
+
+def test_ninguna_no_con_el_paquete_cpu(monkeypatch, entorno):
+    monkeypatch.setattr(sys, "argv", ["referencia_120_r0.py", "--rcpu", "--ninguna", "--salida", str(entorno / "s.json")])
+    monkeypatch.setattr(G, "guardar", lambda *a, **k: pytest.fail("la guarda dejó pasar: guardar"))
+    with pytest.raises(SystemExit, match="no con --rcpu"):
+        G.main()
+
+
 def test_el_paquete_cpu_apaga_la_densa_y_rcpu_ademas_tabm():
     assert G.entorno_extra_de("rcpu") == {"MATRIXAI_ESTUDIO_SIN_DENSA": "1", "MATRIXAI_ESTUDIO_SIN_TABM": "1"}
     assert G.entorno_extra_de("c3s") == {"MATRIXAI_ESTUDIO_SIN_DENSA": "1"}
@@ -280,6 +318,7 @@ def test_rcpu_fija_el_suelo_y_admite_la_politica_de_produccion(entorno):
     regs["wilt"]["perfiles_declarados"] = [{"motor": "lightgbm", "candidato": "lightgbm-csv-p0-r0",
                                             "estado": "completed", "declara": True, "tamano": "mediano",
                                             "l2": 1.0, "aplicada": True}]
+    regs["wilt"]["politica_de_arboles"] = dict(SOBRE_CPU)
     correr, _ = _correr_desde(datos, regs, {n: _rec(n, motores=sin_redes) for n in HUMO})
     G.correr_c3p("rcpu", _banco("wilt"), datos, correr, None)
     assert datos["corte"] is None and datos["suelo_de_ruido"] == 0.0

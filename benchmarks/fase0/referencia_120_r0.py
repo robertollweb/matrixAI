@@ -202,6 +202,40 @@ def entorno_extra_de(modo, ninguna=False):
     return extra
 
 
+def sobre_del_paquete_cpu_o_motivo(rec):
+    """R-CPU y C3″ (enmienda 8): en el paquete CPU la política de C6 tiene que estar, y DICHA: cada estudio completado
+    con intentos de árboles completados trae el sobre de producción con la densa fuera (auditoría de C3″: sin esto, un
+    sobre ausente, de medida o de «sin torch» pasaba sin parar). El motivo para PARAR, o None. Un estudio sin intentos
+    de árboles completados no se puede comprobar y no para (como `comprobar_politica`)."""
+    if rec.get("estado") != "completed":
+        return None
+    if not [p for p in rec.get("perfiles_declarados") or [] if p.get("estado") == "completed"]:
+        return None
+    sobre = rec.get("politica_de_arboles")
+    n = rec.get("nombre")
+    if not isinstance(sobre, dict):
+        return f"{n}: el paquete CPU sin el sobre de la política de C6"
+    esperado = {"valor": "produccion", "activada_por": "produccion_densa_fuera", "densa_fuera": True}
+    malos = {k: sobre.get(k) for k, v in esperado.items() if sobre.get(k) != v}
+    if sobre.get("motores_sin_politica"):
+        malos["motores_sin_politica"] = sobre.get("motores_sin_politica")
+    return f"{n}: el sobre del paquete CPU no es el de producción con la densa fuera: {malos}" if malos else None
+
+
+def contra_o_motivo(contra_doc, modo, imagen_id):
+    """C3′/C3″: la referencia es la MISMA imagen (enmiendas 7 y 8) y llevó el entorno de su modo. El motivo para
+    PARAR, o None."""
+    if modo not in ("c3p", "c3s") or not contra_doc:
+        return None
+    pro = contra_doc.get("procedencia") or {}
+    esperada = {"c3p": "r1gpu", "c3s": "rcpu"}[modo]
+    if pro.get("imagen_id") != imagen_id:
+        return f"la referencia es otra imagen ({pro.get('imagen_id')!r}, esta {imagen_id!r})"
+    if pro.get("entorno_extra") != entorno_extra_de(esperada):
+        return f"la referencia no llevó el entorno de --{esperada}: {pro.get('entorno_extra')!r}"
+    return None
+
+
 def sin_politica_o_motivo(rec):
     """En una medida que NO pide política (las referencias, R1-GPU, C3′), ningún intento de árboles ni el sobre pueden
     declarar una (re-auditoría de 120-C6: en una imagen con C6 sin torch, los medianos se habrían medido con la de
@@ -498,6 +532,8 @@ def main():
         raise SystemExit("--politica, --r1gpu y --c3p escriben en una --salida PROPIA: ni la de R0 (la omisión) ni la de --contra")
     if a.ninguna and a.politica:
         raise SystemExit("--ninguna pide los árboles de hoy y --politica una política de medida: una u otra")
+    if a.ninguna and (a.rcpu or a.c3s):
+        raise SystemExit("--ninguna quitaría la política de C6, que el paquete CPU lleva (enmienda 8): no con --rcpu/--c3s")
     if (a.r1gpu or a.c3p or a.rcpu or a.c3s) and a.banco:
         raise SystemExit("C3′ se mide en los 13 del protocolo (enmienda 7): sin --banco")
     IMAGEN, MEMORIA, POLITICA = a.imagen, a.memoria, a.politica
@@ -544,6 +580,9 @@ def main():
     print("CSV byte a byte contra los del Studio:", {k: v["byte_a_byte"] for k, v in bytes_ok.items()}, flush=True)
 
     imagen = subprocess.run(["docker", "image", "inspect", IMAGEN, "--format", "{{.Id}}"], capture_output=True, text=True).stdout.strip()
+    motivo = contra_o_motivo(contra_doc, MODO, imagen)
+    if motivo:
+        raise SystemExit(f"PARO: {motivo}")
     guion = sha(__file__)
     previo = {}
     if SALIDA.exists() and not a.forzar:
@@ -561,6 +600,7 @@ def main():
                              "entorno_extra": dict(ENTORNO_EXTRA),
                              "sha256_veredicto_c3p": sha(AQUI / "veredicto_120_c3p.py"),
                              "sha256_enmienda_7": sha(AQUI / "protocolo_120_enmienda_7.json"),
+                             "sha256_enmienda_8": sha(AQUI / "protocolo_120_enmienda_8.json"),
                              "contra": (str(Path(a.contra).resolve()) if a.contra else None),
                              "sha256_contra": (sha(a.contra) if a.contra else None),
                              "sha256_veredicto": sha(AQUI / "veredicto_120.py"),
@@ -692,7 +732,7 @@ def correr_c3p(modo, banco, datos, correr, contra_doc):
         # En el paquete CPU (rcpu, c3s) la política de producción de C6 SE ESPERA en los medianos; donde no, nada
         # de política sin pedirla.
         motivo = (v3.presencia(rec, c3p=(modo in ("c3p", "c3s")), con_densa=(modo in ("r1gpu", "c3p")))
-                  or (None if modo in ("rcpu", "c3s") else sin_politica_o_motivo(rec)))
+                  or (sobre_del_paquete_cpu_o_motivo(rec) if modo in ("rcpu", "c3s") else sin_politica_o_motivo(rec)))
         if motivo:
             _paro(datos, "instrumento", motivo, n, nombres[i + 1:])
         if modo not in ("c3p", "c3s"):
