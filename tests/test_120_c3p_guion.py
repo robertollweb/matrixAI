@@ -346,3 +346,17 @@ def test_cada_medida_exige_su_referencia(monkeypatch, entorno, medida, modo_de_l
     monkeypatch.setattr(G, "guardar", lambda *a, **k: pytest.fail("la guarda dejó pasar: guardar"))
     with pytest.raises(SystemExit, match="no es una referencia"):
         G.main()
+
+
+def test_rcpu_sin_el_sobre_de_produccion_es_un_PARO_en_el_flujo(entorno):
+    """La función se prueba arriba; aquí, que el FLUJO de R-CPU la usa (sabotaje del supervisor, 03-10: quitar la
+    llamada dejó todo verde)."""
+    datos = _datos()
+    sin_redes = ("lightgbm", "sklearn.hgb", "baseline")
+    regs = {n: _rec(n, motores=sin_redes) for n in HUMO}
+    regs["dresses-sales"]["perfiles_declarados"] = _ARBOL_COMPLETADO
+    regs["dresses-sales"]["politica_de_arboles"] = None
+    correr, _ = _correr_desde(datos, regs)
+    with pytest.raises(SystemExit):
+        G.correr_c3p("rcpu", _banco(), datos, correr, None)
+    assert "sobre de la política de C6" in datos["corte"]["motivo"]
