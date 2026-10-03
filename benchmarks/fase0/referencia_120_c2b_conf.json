@@ -1,0 +1,5955 @@
+{
+ "procedencia": {
+  "imagen": "matrixai-studio:120-c2b",
+  "imagen_id": "sha256:b06e01f98b44229a25e8c4583c6a8dfea3256aee09220812c46a3170607353b3",
+  "sha256_guion": "67b6f7fac9dad22caeb6db4117e23b192768a603cf3a49bd5661880603c30970",
+  "sha256_generador_de_csv": "607c99db9cece62189920ffd2548abd76b536ed9f561ec77a2fc2ed1b044f00a",
+  "sha256_borrador_protocolo": "d79db2d50413a76fe93910b0a11f60c899fc7741fa0fee7d52793e9231b8d5eb",
+  "inicio": "2026-10-03 01:47:36",
+  "csv_byte_a_byte": {
+   "dresses-sales": {
+    "byte_a_byte": true,
+    "sha256": "0e28012e205401e648c42921db73a3f2a86968b83b619279bb669c408cdfc213",
+    "bytes": 35621
+   },
+   "climate-model-simulation-crashes": {
+    "byte_a_byte": true,
+    "sha256": "93b93f28fa1d44468c578076deaf9b23b37f461c0ff7e50e57bd46e1f6b93085",
+    "bytes": 179217
+   },
+   "us_crime": {
+    "byte_a_byte": true,
+    "sha256": "af18ea10ee3364d69c4956643538ba61bdea29dcca7600d1b623b22ed3da82c8",
+    "bytes": 1069334
+   },
+   "pc1": {
+    "byte_a_byte": true,
+    "sha256": "1a1d245db45c05bf417ee7213b787672458265a9d0da3b37201ca3960265d2cf",
+    "bytes": 90029
+   }
+  },
+  "instrumento": "estudio del Studio por HTTP; folds/repeats por omisión; cifra = seleccion.media_de_la_seleccion",
+  "nota_multiclase": "clase_positiva solo se envía en binarias",
+  "memoria_del_contenedor": "6g",
+  "politica": "c2b_l2_1",
+  "contra": "/home/deployer/.agentes/c120/c2b-conf/conf_ref.json",
+  "sha256_contra": "3249b3baaa08e6adaa9a7dd19ea7fc8b14e32e91fdbe28a5e99b1bc5253dc952",
+  "sha256_veredicto": "2ae07f0c237a3ee08c5b8336c437dbf72b0e65604bc4c1b067d3ee04293033e5",
+  "banco": "/home/deployer/worktrees/cola-120-c2b-conf/matrixAI/benchmarks/fase0/banco_120_c2b_conf.json",
+  "sha256_banco": "e87b854a01572d08fb14691320454d34caec6aa4bddcba38430c2517f4741e18",
+  "parcial": [
+   "wine_quality",
+   "SAT11-HAND-runtime-regression",
+   "optdigits",
+   "jm1",
+   "PhishingWebsites",
+   "house_sales",
+   "Amazon_employee_access"
+  ],
+  "contenedor": "r0-120-1788492-1790984856",
+  "dentro": "matrixai 1.12.1 /usr/local/lib/python3.12/site-packages/matrixai_studio/estudio_job.py",
+  "status": {
+   "ok": true,
+   "llm_mode": {
+    "active": false,
+    "model": "",
+    "provider": ""
+   },
+   "capabilities": {
+    "guided_cases": true,
+    "prompt_generation": true,
+    "human_forms": true,
+    "simulate_only": true,
+    "expert_mode_path": null,
+    "profile": "completo",
+    "settings": true,
+    "change_locale": true,
+    "templates": true,
+    "create_from_prompt": true,
+    "create_from_csv": true,
+    "train": true,
+    "test": true,
+    "audit": true,
+    "edit_model": true,
+    "export": true,
+    "publish_hf": true,
+    "attest": true,
+    "attest_metricas": [
+     "accuracy",
+     "macro_f1",
+     "mae",
+     "rmse",
+     "r2"
+    ],
+    "run_pipeline": true,
+    "run_estudio": true,
+    "estudio_en_la_demo": null,
+    "guardar_estudio": true,
+    "max_attest_model_bytes": null,
+    "max_pipeline_nodes": null,
+    "max_pipeline_timeout_seconds": null,
+    "max_models_per_session": null,
+    "max_csv_bytes": null,
+    "max_csv_rows": null,
+    "max_train_epochs": null,
+    "max_train_seconds": null
+   },
+   "degradation_messages": [
+    "Proveedor LLM externo no configurado: Studio usa fallback deterministico supervisado."
+   ],
+   "optional_unavailable": [
+    "probabilidad_calibrada_sin_evaluacion",
+    "acciones_reales",
+    "permisos_de_produccion"
+   ],
+   "production_steps": [
+    "Revisar decision y explicacion.",
+    "Abrir Modo experto.",
+    "Revisar modelo, datos, metricas y seguridad.",
+    "Entrenar o evaluar si aplica.",
+    "Servir API o exportar bundle si aplica.",
+    "Definir permisos reales en un contrato posterior."
+   ]
+  },
+  "contenedor_con_politica": "r0-120-1788492-1790985019",
+  "dentro_con_politica": "MATRIXAI_POLITICA_DE_ARBOLES c2b_l2_1",
+  "fin": "2026-10-03 02:09:01"
+ },
+ "conjuntos": {
+  "wine_quality": {
+   "nombre": "wine_quality",
+   "data_id": 287,
+   "tarea": "regression",
+   "objetivo": "quality",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.6546592466142387
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.6551968691372022
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.8750265335816965
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3449099640129134,
+     "metrica": "rmse",
+     "valor": 0.6678112843033562,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.3848219270585105,
+     "metrica": "rmse",
+     "valor": 0.6660739650797849,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007685297052375972,
+     "metrica": "rmse",
+     "valor": 0.8729138060714928,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.46140692196786404,
+     "metrica": "rmse",
+     "valor": 0.6743354024194446,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.4755389579804614,
+     "metrica": "rmse",
+     "valor": 0.6746881147918635,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011103664990514517,
+     "metrica": "rmse",
+     "valor": 0.8917584719945225,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.39458458707667887,
+     "metrica": "rmse",
+     "valor": 0.6608701240950436,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.270012420020066,
+     "metrica": "rmse",
+     "valor": 0.6591048703849022,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007973880041390657,
+     "metrica": "rmse",
+     "valor": 0.8998442747607507,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.6057698950171471,
+     "metrica": "rmse",
+     "valor": 0.6250601193474784,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.8868666149210185,
+     "metrica": "rmse",
+     "valor": 0.6251401346526719,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009397811954841018,
+     "metrica": "rmse",
+     "valor": 0.8479301379950269,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.39281730400398374,
+     "metrica": "rmse",
+     "valor": 0.6452193029058708,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.4736783920088783,
+     "metrica": "rmse",
+     "valor": 0.6509772607767886,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008050955017097294,
+     "metrica": "rmse",
+     "valor": 0.8626859770866893,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 88.0,
+   "loadavg_al_empezar": [
+    "1.79",
+    "1.94",
+    "2.14"
+   ],
+   "inicio": "2026-10-03 01:50:22",
+   "fin": "2026-10-03 01:51:50",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3534,
+     "aplicada": true,
+     "arboles_efectivos": 179,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3534,
+     "aplicada": true,
+     "arboles_efectivos": 250,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3534,
+     "aplicada": true,
+     "arboles_efectivos": 324,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3534,
+     "aplicada": true,
+     "arboles_efectivos": 316,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3534,
+     "aplicada": true,
+     "arboles_efectivos": 267,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3534,
+     "aplicada": true,
+     "arboles_efectivos": 264,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3535,
+     "aplicada": true,
+     "arboles_efectivos": 483,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3535,
+     "aplicada": true,
+     "arboles_efectivos": 435,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3535,
+     "aplicada": true,
+     "arboles_efectivos": 258,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3535,
+     "aplicada": true,
+     "arboles_efectivos": 261,
+     "paro": "temprana"
+    }
+   ],
+   "politica_de_arboles": {
+    "campeon": {
+     "motor": "lightgbm",
+     "politica_por_tamano": {
+      "aplicada": true,
+      "arboles_efectivos": 267,
+      "arboles_entrenados": 267,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 267,
+       "arboles_efectivos_de_la_busqueda": [
+        179,
+        324,
+        267,
+        483,
+        258
+       ],
+       "arboles_pedidos": 267,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 3534,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 179,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 324,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 267,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 483,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 258,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 250,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 316,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 264,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 435,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 261,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 0,
+     "sklearn.hgb": 0
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": true,
+      "arboles_efectivos": 267,
+      "arboles_entrenados": 267,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 267,
+       "arboles_efectivos_de_la_busqueda": [
+        179,
+        324,
+        267,
+        483,
+        258
+       ],
+       "arboles_pedidos": 267,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 3534,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": true,
+      "arboles_efectivos": 264,
+      "arboles_entrenados": 264,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 264,
+       "arboles_efectivos_de_la_busqueda": [
+        250,
+        316,
+        264,
+        435,
+        261
+       ],
+       "arboles_pedidos": 264,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 3534,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano",
+     "grande"
+    ],
+    "valor": "c2b_l2_1",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "job_id": "4e750517e1f649d984ddaf6c2362eab7",
+   "csv": {
+    "filas": 6497,
+    "columnas": 12,
+    "bytes": 348427,
+    "excluidas_por_string": []
+   },
+   "politica_comprobada_en": 10
+  },
+  "SAT11-HAND-runtime-regression": {
+   "nombre": "SAT11-HAND-runtime-regression",
+   "data_id": 41980,
+   "tarea": "regression",
+   "objetivo": "runtime",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 1101.351588385504
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 1091.4623707675419
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 2246.6728318922633
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.1903900610050187,
+     "metrica": "rmse",
+     "valor": 1045.8566514259305,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 7.908954038051888,
+     "metrica": "rmse",
+     "valor": 1044.1312730689465,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008927459013648331,
+     "metrica": "rmse",
+     "valor": 2214.541485533416,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.369479552959092,
+     "metrica": "rmse",
+     "valor": 1138.2763913160418,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.22033167805057,
+     "metrica": "rmse",
+     "valor": 1113.5543008374339,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008632546057924628,
+     "metrica": "rmse",
+     "valor": 2228.3541642922883,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 4.414836433948949,
+     "metrica": "rmse",
+     "valor": 1104.98711060731,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.228585839970037,
+     "metrica": "rmse",
+     "valor": 1101.7775324350741,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007759138010442257,
+     "metrica": "rmse",
+     "valor": 2280.137722531804,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.8797783709596843,
+     "metrica": "rmse",
+     "valor": 1117.0016151953234,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 4.926814178004861,
+     "metrica": "rmse",
+     "valor": 1122.0807682258398,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007505920948460698,
+     "metrica": "rmse",
+     "valor": 2267.254487640933,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.0811495470115915,
+     "metrica": "rmse",
+     "valor": 1100.6361733829153,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.410232050926425,
+     "metrica": "rmse",
+     "valor": 1075.7679792704155,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007336564012803137,
+     "metrica": "rmse",
+     "valor": 2243.076299462876,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 143.8,
+   "loadavg_al_empezar": [
+    "1.37",
+    "1.82",
+    "2.08"
+   ],
+   "inicio": "2026-10-03 01:51:50",
+   "fin": "2026-10-03 01:54:14",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 2414,
+     "aplicada": true,
+     "arboles_efectivos": 340,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 2414,
+     "aplicada": true,
+     "arboles_efectivos": 263,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 2414,
+     "aplicada": true,
+     "arboles_efectivos": 199,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 2414,
+     "aplicada": true,
+     "arboles_efectivos": 212,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 2415,
+     "aplicada": true,
+     "arboles_efectivos": 535,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 2415,
+     "aplicada": true,
+     "arboles_efectivos": 256,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 2415,
+     "aplicada": true,
+     "arboles_efectivos": 284,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 2415,
+     "aplicada": true,
+     "arboles_efectivos": 186,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 2415,
+     "aplicada": true,
+     "arboles_efectivos": 298,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 2415,
+     "aplicada": true,
+     "arboles_efectivos": 279,
+     "paro": "temprana"
+    }
+   ],
+   "politica_de_arboles": {
+    "campeon": {
+     "motor": "sklearn.hgb",
+     "politica_por_tamano": {
+      "aplicada": true,
+      "arboles_efectivos": 256,
+      "arboles_entrenados": 256,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 256,
+       "arboles_efectivos_de_la_busqueda": [
+        263,
+        212,
+        256,
+        186,
+        279
+       ],
+       "arboles_pedidos": 256,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 2414,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 340,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 199,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 535,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 284,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 298,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 263,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 212,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 256,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 186,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 279,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 0,
+     "sklearn.hgb": 0
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": true,
+      "arboles_efectivos": 298,
+      "arboles_entrenados": 298,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 298,
+       "arboles_efectivos_de_la_busqueda": [
+        340,
+        199,
+        535,
+        284,
+        298
+       ],
+       "arboles_pedidos": 298,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 2414,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": true,
+      "arboles_efectivos": 256,
+      "arboles_entrenados": 256,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 256,
+       "arboles_efectivos_de_la_busqueda": [
+        263,
+        212,
+        256,
+        186,
+        279
+       ],
+       "arboles_pedidos": 256,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 2414,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano",
+     "grande"
+    ],
+    "valor": "c2b_l2_1",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "job_id": "a7a1a94a7a03499e832d0cdfb3b1979d",
+   "csv": {
+    "filas": 4440,
+    "columnas": 117,
+    "bytes": 2997675,
+    "excluidas_por_string": [
+     "row_id"
+    ]
+   },
+   "politica_comprobada_en": 10
+  },
+  "optdigits": {
+   "nombre": "optdigits",
+   "data_id": 28,
+   "tarea": "multiclass_classification",
+   "objetivo": "class",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "accuracy",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9728603468416512
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.9715274952461674
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.09964637602089974
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 7.339920382015407,
+     "metrica": "accuracy",
+     "valor": 0.9745575221238938,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.877052015042864,
+     "metrica": "accuracy",
+     "valor": 0.9734513274336283,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007688233978115022,
+     "metrica": "accuracy",
+     "valor": 0.09955752212389381,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 7.3571700809989125,
+     "metrica": "accuracy",
+     "valor": 0.97669256381798,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.68178618105594,
+     "metrica": "accuracy",
+     "valor": 0.9733629300776915,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00833627104293555,
+     "metrica": "accuracy",
+     "valor": 0.09877913429522753,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.396384362014942,
+     "metrica": "accuracy",
+     "valor": 0.9688888888888889,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.960499347071163,
+     "metrica": "accuracy",
+     "valor": 0.9677777777777777,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008536478038877249,
+     "metrica": "accuracy",
+     "valor": 0.09888888888888889,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 7.124401679029688,
+     "metrica": "accuracy",
+     "valor": 0.9743303571428571,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.694361653993838,
+     "metrica": "accuracy",
+     "valor": 0.9743303571428571,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008374284021556377,
+     "metrica": "accuracy",
+     "valor": 0.09933035714285714,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 6.445631404058076,
+     "metrica": "accuracy",
+     "valor": 0.9698324022346368,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.833125323057175,
+     "metrica": "accuracy",
+     "valor": 0.9687150837988827,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008834920008666813,
+     "metrica": "accuracy",
+     "valor": 0.10167597765363129,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 294.7,
+   "loadavg_al_empezar": [
+    "1.14",
+    "1.58",
+    "1.95"
+   ],
+   "inicio": "2026-10-03 01:54:15",
+   "fin": "2026-10-03 01:59:10",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3053,
+     "aplicada": true,
+     "arboles_efectivos": 793,
+     "paro": "tope"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3053,
+     "aplicada": true,
+     "arboles_efectivos": 115,
+     "paro": "reloj"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3055,
+     "aplicada": true,
+     "arboles_efectivos": 797,
+     "paro": "tope"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3055,
+     "aplicada": true,
+     "arboles_efectivos": 107,
+     "paro": "reloj"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3056,
+     "aplicada": true,
+     "arboles_efectivos": 338,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3056,
+     "aplicada": true,
+     "arboles_efectivos": 109,
+     "paro": "reloj"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3060,
+     "aplicada": true,
+     "arboles_efectivos": 800,
+     "paro": "tope"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3060,
+     "aplicada": true,
+     "arboles_efectivos": 110,
+     "paro": "reloj"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3060,
+     "aplicada": true,
+     "arboles_efectivos": 671,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 3060,
+     "aplicada": true,
+     "arboles_efectivos": 116,
+     "paro": "reloj"
+    }
+   ],
+   "politica_de_arboles": {
+    "campeon": {
+     "motor": "lightgbm",
+     "politica_por_tamano": {
+      "aplicada": true,
+      "arboles_efectivos": 793,
+      "arboles_entrenados": 793,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 793,
+       "arboles_efectivos_de_la_busqueda": [
+        793,
+        797,
+        338,
+        800,
+        671
+       ],
+       "arboles_pedidos": 793,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 3053,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 793,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": "tope",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 797,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": "tope",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 338,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 800,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": "tope",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 671,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 115,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 107,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 109,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 110,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 116,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 0,
+     "sklearn.hgb": 0
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": true,
+      "arboles_efectivos": 793,
+      "arboles_entrenados": 793,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 793,
+       "arboles_efectivos_de_la_busqueda": [
+        793,
+        797,
+        338,
+        800,
+        671
+       ],
+       "arboles_pedidos": 793,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 3053,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": true,
+      "arboles_efectivos": 110,
+      "arboles_entrenados": 110,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 110,
+       "arboles_efectivos_de_la_busqueda": [
+        115,
+        107,
+        109,
+        110,
+        116
+       ],
+       "arboles_pedidos": 110,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 3053,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano",
+     "grande"
+    ],
+    "valor": "c2b_l2_1",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "job_id": "f023c0306cc443469d915e468e6b971e",
+   "csv": {
+    "filas": 5620,
+    "columnas": 65,
+    "bytes": 828860,
+    "excluidas_por_string": []
+   },
+   "politica_comprobada_en": 10
+  },
+  "jm1": {
+   "nombre": "jm1",
+   "data_id": 1053,
+   "tarea": "binary_classification",
+   "objetivo": "defects",
+   "clase_positiva_enviada": "true",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.7361158280600291
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.7324243396549805
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4115601310040802,
+     "metrica": "auroc",
+     "valor": 0.7427943863057964,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.3316668510669842,
+     "metrica": "auroc",
+     "valor": 0.7374024520312153,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.01189075701404363,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.44034823100082576,
+     "metrica": "auroc",
+     "valor": 0.7389579395334593,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.2431741619948298,
+     "metrica": "auroc",
+     "valor": 0.7389209795452866,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012344671064056456,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3603736619697884,
+     "metrica": "auroc",
+     "valor": 0.7151050191663939,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.2063660530839115,
+     "metrica": "auroc",
+     "valor": 0.7104501726559448,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009975321008823812,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.38751649006735533,
+     "metrica": "auroc",
+     "valor": 0.7557603540541226,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.09172170702368,
+     "metrica": "auroc",
+     "valor": 0.7497928766474761,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010084034991450608,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4045352089451626,
+     "metrica": "auroc",
+     "valor": 0.727961441240373,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.95241944398731,
+     "metrica": "auroc",
+     "valor": 0.72555521739498,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008675338933244348,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 67.7,
+   "loadavg_al_empezar": [
+    "1.24",
+    "1.41",
+    "1.77"
+   ],
+   "inicio": "2026-10-03 01:59:11",
+   "fin": "2026-10-03 02:00:19",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5921,
+     "aplicada": true,
+     "arboles_efectivos": 58,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5921,
+     "aplicada": true,
+     "arboles_efectivos": 65,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5921,
+     "aplicada": true,
+     "arboles_efectivos": 61,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5921,
+     "aplicada": true,
+     "arboles_efectivos": 67,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5921,
+     "aplicada": true,
+     "arboles_efectivos": 41,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5921,
+     "aplicada": true,
+     "arboles_efectivos": 48,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5921,
+     "aplicada": true,
+     "arboles_efectivos": 66,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5921,
+     "aplicada": true,
+     "arboles_efectivos": 75,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5921,
+     "aplicada": true,
+     "arboles_efectivos": 59,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5921,
+     "aplicada": true,
+     "arboles_efectivos": 82,
+     "paro": "temprana"
+    }
+   ],
+   "politica_de_arboles": {
+    "campeon": {
+     "motor": "lightgbm",
+     "politica_por_tamano": {
+      "aplicada": true,
+      "arboles_efectivos": 59,
+      "arboles_entrenados": 59,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 59,
+       "arboles_efectivos_de_la_busqueda": [
+        58,
+        61,
+        41,
+        66,
+        59
+       ],
+       "arboles_pedidos": 59,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 5921,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 58,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 61,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 41,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 66,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 59,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 65,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 67,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 48,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 75,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 82,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 0,
+     "sklearn.hgb": 0
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": true,
+      "arboles_efectivos": 59,
+      "arboles_entrenados": 59,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 59,
+       "arboles_efectivos_de_la_busqueda": [
+        58,
+        61,
+        41,
+        66,
+        59
+       ],
+       "arboles_pedidos": 59,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 5921,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": true,
+      "arboles_efectivos": 67,
+      "arboles_entrenados": 67,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 67,
+       "arboles_efectivos_de_la_busqueda": [
+        65,
+        67,
+        48,
+        75,
+        82
+       ],
+       "arboles_pedidos": 67,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 5921,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano",
+     "grande"
+    ],
+    "valor": "c2b_l2_1",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "job_id": "ef1790e1ecf443dea420cc3daa88a7da",
+   "csv": {
+    "filas": 10885,
+    "columnas": 22,
+    "bytes": 845681,
+    "excluidas_por_string": []
+   },
+   "politica_comprobada_en": 10
+  },
+  "PhishingWebsites": {
+   "nombre": "PhishingWebsites",
+   "data_id": 4534,
+   "tarea": "binary_classification",
+   "objetivo": "Result",
+   "clase_positiva_enviada": "-1",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9958562387944072
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.995997094405376
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.6523870429955423,
+     "metrica": "auroc",
+     "valor": 0.9949484103986422,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 7.935166034032591,
+     "metrica": "auroc",
+     "valor": 0.9951528025003105,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009130716091021895,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.4968783219810575,
+     "metrica": "auroc",
+     "valor": 0.9949096135916295,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.151420847978443,
+     "metrica": "auroc",
+     "valor": 0.995494923857868,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012665222981013358,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.4151217299513519,
+     "metrica": "auroc",
+     "valor": 0.9958711022480058,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 6.193605666980147,
+     "metrica": "auroc",
+     "valor": 0.9957532632342277,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012459045043215156,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.4185681660892442,
+     "metrica": "auroc",
+     "valor": 0.9964123409248562,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.178389747045003,
+     "metrica": "auroc",
+     "valor": 0.9962891650621389,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010342410998418927,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0456856000237167,
+     "metrica": "auroc",
+     "valor": 0.9971397268089024,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.714802760048769,
+     "metrica": "auroc",
+     "valor": 0.9972953173723347,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.013073018984869123,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 198.2,
+   "loadavg_al_empezar": [
+    "1.41",
+    "1.45",
+    "1.77"
+   ],
+   "inicio": "2026-10-03 02:00:19",
+   "fin": "2026-10-03 02:03:38",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 6012,
+     "aplicada": true,
+     "arboles_efectivos": 799,
+     "paro": "tope"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 6012,
+     "aplicada": true,
+     "arboles_efectivos": 621,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 6013,
+     "aplicada": true,
+     "arboles_efectivos": 800,
+     "paro": "tope"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 6013,
+     "aplicada": true,
+     "arboles_efectivos": 707,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 6013,
+     "aplicada": true,
+     "arboles_efectivos": 543,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 6013,
+     "aplicada": true,
+     "arboles_efectivos": 536,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 6014,
+     "aplicada": true,
+     "arboles_efectivos": 800,
+     "paro": "tope"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 6014,
+     "aplicada": true,
+     "arboles_efectivos": 799,
+     "paro": "tope"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 6014,
+     "aplicada": true,
+     "arboles_efectivos": 475,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 6014,
+     "aplicada": true,
+     "arboles_efectivos": 433,
+     "paro": "temprana"
+    }
+   ],
+   "politica_de_arboles": {
+    "campeon": {
+     "motor": "sklearn.hgb",
+     "politica_por_tamano": {
+      "aplicada": true,
+      "arboles_efectivos": 621,
+      "arboles_entrenados": 621,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 621,
+       "arboles_efectivos_de_la_busqueda": [
+        621,
+        707,
+        536,
+        799,
+        433
+       ],
+       "arboles_pedidos": 621,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 6012,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 799,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": "tope",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 800,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": "tope",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 543,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 800,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": "tope",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 475,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 621,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 707,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 536,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 799,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": "tope",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 433,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 0,
+     "sklearn.hgb": 0
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": true,
+      "arboles_efectivos": 799,
+      "arboles_entrenados": 799,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 799,
+       "arboles_efectivos_de_la_busqueda": [
+        799,
+        800,
+        543,
+        800,
+        475
+       ],
+       "arboles_pedidos": 799,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 6012,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": true,
+      "arboles_efectivos": 621,
+      "arboles_entrenados": 621,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 621,
+       "arboles_efectivos_de_la_busqueda": [
+        621,
+        707,
+        536,
+        799,
+        433
+       ],
+       "arboles_pedidos": 621,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 6012,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano",
+     "grande"
+    ],
+    "valor": "c2b_l2_1",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "job_id": "aeef7022305c4609a811132f3397fab6",
+   "csv": {
+    "filas": 11055,
+    "columnas": 31,
+    "bytes": 789147,
+    "excluidas_por_string": []
+   },
+   "politica_comprobada_en": 10
+  },
+  "house_sales": {
+   "nombre": "house_sales",
+   "data_id": 42731,
+   "tarea": "regression",
+   "objetivo": "price",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 122950.54008662824
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 124176.27817599282
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 369349.8448289631
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.075516649056226,
+     "metrica": "rmse",
+     "valor": 151711.31492593023,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.862383795902133,
+     "metrica": "rmse",
+     "valor": 150236.33074758152,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009352813009172678,
+     "metrica": "rmse",
+     "valor": 401882.99214644375,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.439988489029929,
+     "metrica": "rmse",
+     "valor": 116364.14874929411,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.58889845397789,
+     "metrica": "rmse",
+     "valor": 118973.01902449291,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012688397080637515,
+     "metrica": "rmse",
+     "valor": 351685.4097127813,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.141795041039586,
+     "metrica": "rmse",
+     "valor": 120760.43245327659,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.0535306099336594,
+     "metrica": "rmse",
+     "valor": 125998.77339957892,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012512907036580145,
+     "metrica": "rmse",
+     "valor": 376046.980382354,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.5966420880286023,
+     "metrica": "rmse",
+     "valor": 109474.98572584888,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.2838222170248628,
+     "metrica": "rmse",
+     "valor": 109921.40158712462,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008606611983850598,
+     "metrica": "rmse",
+     "valor": 346306.6680115899,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.9588041090173647,
+     "metrica": "rmse",
+     "valor": 116441.81857879137,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.560507156071253,
+     "metrica": "rmse",
+     "valor": 115751.86612118612,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.01157086796592921,
+     "metrica": "rmse",
+     "valor": 370827.17389164655,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 146.8,
+   "loadavg_al_empezar": [
+    "1.43",
+    "1.43",
+    "1.69"
+   ],
+   "inicio": "2026-10-03 02:03:39",
+   "fin": "2026-10-03 02:06:06",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 11757,
+     "aplicada": true,
+     "arboles_efectivos": 238,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 11757,
+     "aplicada": true,
+     "arboles_efectivos": 377,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 11757,
+     "aplicada": true,
+     "arboles_efectivos": 797,
+     "paro": "tope"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 11757,
+     "aplicada": true,
+     "arboles_efectivos": 350,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 11757,
+     "aplicada": true,
+     "arboles_efectivos": 284,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 11757,
+     "aplicada": true,
+     "arboles_efectivos": 140,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 11757,
+     "aplicada": true,
+     "arboles_efectivos": 324,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 11757,
+     "aplicada": true,
+     "arboles_efectivos": 141,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 11757,
+     "aplicada": true,
+     "arboles_efectivos": 436,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 11757,
+     "aplicada": true,
+     "arboles_efectivos": 347,
+     "paro": "temprana"
+    }
+   ],
+   "politica_de_arboles": {
+    "campeon": {
+     "motor": "lightgbm",
+     "politica_por_tamano": {
+      "aplicada": true,
+      "arboles_efectivos": 324,
+      "arboles_entrenados": 324,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 324,
+       "arboles_efectivos_de_la_busqueda": [
+        238,
+        797,
+        284,
+        324,
+        436
+       ],
+       "arboles_pedidos": 324,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 11757,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 238,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 797,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": "tope",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 284,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 324,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 436,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 377,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 350,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 140,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 141,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 347,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 0,
+     "sklearn.hgb": 0
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": true,
+      "arboles_efectivos": 324,
+      "arboles_entrenados": 324,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 324,
+       "arboles_efectivos_de_la_busqueda": [
+        238,
+        797,
+        284,
+        324,
+        436
+       ],
+       "arboles_pedidos": 324,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 11757,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": true,
+      "arboles_efectivos": 347,
+      "arboles_entrenados": 347,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 347,
+       "arboles_efectivos_de_la_busqueda": [
+        377,
+        350,
+        140,
+        141,
+        347
+       ],
+       "arboles_pedidos": 347,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 11757,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano",
+     "grande"
+    ],
+    "valor": "c2b_l2_1",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "job_id": "e176ae49996543ed987c241b1be25fc8",
+   "csv": {
+    "filas": 21613,
+    "columnas": 23,
+    "bytes": 2380766,
+    "excluidas_por_string": []
+   },
+   "politica_comprobada_en": 10
+  },
+  "Amazon_employee_access": {
+   "nombre": "Amazon_employee_access",
+   "data_id": 4135,
+   "tarea": "binary_classification",
+   "objetivo": "target",
+   "clase_positiva_enviada": "0",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.8095832727128688
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.8112457050139021
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0359111269935966,
+     "metrica": "auroc",
+     "valor": 0.8317986895376092,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.788718559895642,
+     "metrica": "auroc",
+     "valor": 0.8336165565736203,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009821464074775577,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.1255035150097683,
+     "metrica": "auroc",
+     "valor": 0.8210552951203921,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.033850124920718,
+     "metrica": "auroc",
+     "valor": 0.8206790698913276,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.013251304044388235,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.2663612220203504,
+     "metrica": "auroc",
+     "valor": 0.7811241476667377,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.517630867077969,
+     "metrica": "auroc",
+     "valor": 0.7744772799914766,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.013448024052195251,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.2266831690212712,
+     "metrica": "auroc",
+     "valor": 0.789911173745437,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.75372470903676,
+     "metrica": "auroc",
+     "valor": 0.8046784633919962,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008912447025068104,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.4670794300036505,
+     "metrica": "auroc",
+     "valor": 0.8240270574941682,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 6.926094483002089,
+     "metrica": "auroc",
+     "valor": 0.8227771552210901,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009238869068212807,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 173.9,
+   "loadavg_al_empezar": [
+    "1.25",
+    "1.43",
+    "1.66"
+   ],
+   "inicio": "2026-10-03 02:06:06",
+   "fin": "2026-10-03 02:09:00",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 17826,
+     "aplicada": true,
+     "arboles_efectivos": 333,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 17826,
+     "aplicada": true,
+     "arboles_efectivos": 450,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 17826,
+     "aplicada": true,
+     "arboles_efectivos": 330,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 17826,
+     "aplicada": true,
+     "arboles_efectivos": 410,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 17826,
+     "aplicada": true,
+     "arboles_efectivos": 444,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 17826,
+     "aplicada": true,
+     "arboles_efectivos": 423,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 17827,
+     "aplicada": true,
+     "arboles_efectivos": 355,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 17827,
+     "aplicada": true,
+     "arboles_efectivos": 465,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 17827,
+     "aplicada": true,
+     "arboles_efectivos": 469,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 17827,
+     "aplicada": true,
+     "arboles_efectivos": 559,
+     "paro": "temprana"
+    }
+   ],
+   "politica_de_arboles": {
+    "campeon": {
+     "motor": "sklearn.hgb",
+     "politica_por_tamano": {
+      "aplicada": true,
+      "arboles_efectivos": 450,
+      "arboles_entrenados": 450,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 450,
+       "arboles_efectivos_de_la_busqueda": [
+        450,
+        410,
+        423,
+        465,
+        559
+       ],
+       "arboles_pedidos": 450,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 17826,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 333,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 330,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 444,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 355,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 469,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 450,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 410,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 423,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 465,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 559,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 0,
+     "sklearn.hgb": 0
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": true,
+      "arboles_efectivos": 355,
+      "arboles_entrenados": 355,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 355,
+       "arboles_efectivos_de_la_busqueda": [
+        333,
+        330,
+        444,
+        355,
+        469
+       ],
+       "arboles_pedidos": 355,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 17826,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": true,
+      "arboles_efectivos": 450,
+      "arboles_entrenados": 450,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 450,
+       "arboles_efectivos_de_la_busqueda": [
+        450,
+        410,
+        423,
+        465,
+        559
+       ],
+       "arboles_pedidos": 450,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 17826,
+      "l2": 1.0,
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano",
+       "grande"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano",
+     "grande"
+    ],
+    "valor": "c2b_l2_1",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "job_id": "4b35987c430f451b8ceae3029a2a349f",
+   "csv": {
+    "filas": 32769,
+    "columnas": 10,
+    "bytes": 2037893,
+    "excluidas_por_string": []
+   },
+   "politica_comprobada_en": 10
+  }
+ },
+ "control": {
+  "cuadra": true,
+  "lineas": [
+   "dresses-sales                      lightgbm     esperado 0.5549 medido 0.5549 OK",
+   "dresses-sales                      sklearn.hgb  esperado 0.6290 medido 0.6290 OK",
+   "climate-model-simulation-crashes   lightgbm     esperado 0.9387 medido 0.9387 OK",
+   "climate-model-simulation-crashes   sklearn.hgb  esperado 0.9444 medido 0.9444 OK",
+   "us_crime                           lightgbm     esperado 0.1396 medido 0.1396 OK",
+   "us_crime                           sklearn.hgb  esperado 0.1402 medido 0.1402 OK",
+   "pc1                                lightgbm     esperado 0.8841 medido 0.8841 OK",
+   "pc1                                sklearn.hgb  esperado 0.8777 medido 0.8777 OK",
+   "dresses-sales                      sin política: 10 intentos de árboles completados, ninguno declara política",
+   "climate-model-simulation-crashes   sin política: 10 intentos de árboles completados, ninguno declara política",
+   "us_crime                           sin política: 10 intentos de árboles completados, ninguno declara política",
+   "pc1                                sin política: 10 intentos de árboles completados, ninguno declara política"
+  ],
+  "sin_politica": true
+ },
+ "corte": null,
+ "comparaciones": {
+  "wine_quality": {
+   "nombre": "wine_quality",
+   "clase": "sube",
+   "r1": 41.009757241996724,
+   "c2": 44.0257648539459,
+   "diferencia": 3.0160076119491777,
+   "tamano": "mediano"
+  },
+  "SAT11-HAND-runtime-regression": {
+   "nombre": "SAT11-HAND-runtime-regression",
+   "clase": "sube",
+   "r1": 74.39474550186972,
+   "c2": 76.39859442783302,
+   "diferencia": 2.003848925963297,
+   "tamano": "mediano"
+  },
+  "optdigits": {
+   "nombre": "optdigits",
+   "clase": "igual",
+   "r1": 97.81979439768286,
+   "c2": 97.28603468416512,
+   "diferencia": -0.533759713517739,
+   "tamano": "mediano"
+  },
+  "jm1": {
+   "nombre": "jm1",
+   "clase": "igual",
+   "r1": 72.80696111066133,
+   "c2": 73.6115828060029,
+   "diferencia": 0.8046216953415666,
+   "tamano": "mediano"
+  },
+  "PhishingWebsites": {
+   "nombre": "PhishingWebsites",
+   "clase": "igual",
+   "r1": 99.37358842685215,
+   "c2": 99.5997094405376,
+   "diferencia": 0.22612101368544302,
+   "tamano": "mediano"
+  },
+  "house_sales": {
+   "nombre": "house_sales",
+   "clase": "igual",
+   "r1": 88.31840290649721,
+   "c2": 88.91884474195898,
+   "diferencia": 0.6004418354617655,
+   "tamano": "mediano"
+  },
+  "Amazon_employee_access": {
+   "nombre": "Amazon_employee_access",
+   "clase": "sube",
+   "r1": 78.31968332987131,
+   "c2": 81.12457050139021,
+   "diferencia": 2.8048871715188994,
+   "tamano": "mediano"
+  }
+ },
+ "control_sin_politica": {
+  "dresses-sales": {
+   "nombre": "dresses-sales",
+   "data_id": 23381,
+   "tarea": "binary_classification",
+   "objetivo": "Class",
+   "clase_positiva_enviada": "2",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.554921995709393
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.6289564854618999
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.07473975198809057,
+     "metrica": "auroc",
+     "valor": 0.5607008760951189,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.328788649989292,
+     "metrica": "auroc",
+     "valor": 0.6458072590738423,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00787842704448849,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.0825644499855116,
+     "metrica": "auroc",
+     "valor": 0.595118898623279,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3556112989317626,
+     "metrica": "auroc",
+     "valor": 0.6451814768460575,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008862424059771001,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.06903410493396223,
+     "metrica": "auroc",
+     "valor": 0.5364450127877238,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3269156999886036,
+     "metrica": "auroc",
+     "valor": 0.629156010230179,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007614061003550887,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.07595400407444686,
+     "metrica": "auroc",
+     "valor": 0.6146245059288538,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.32775037200190127,
+     "metrica": "auroc",
+     "valor": 0.7088274044795784,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009001786005683243,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.07944241398945451,
+     "metrica": "auroc",
+     "valor": 0.46772068511198944,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3979007969610393,
+     "metrica": "auroc",
+     "valor": 0.5158102766798419,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007508723996579647,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 38.5,
+   "loadavg_al_empezar": [
+    "1.61",
+    "1.82",
+    "2.13"
+   ],
+   "inicio": "2026-10-03 01:47:39",
+   "fin": "2026-10-03 01:48:18",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": null,
+   "job_id": "db127465063d45ac8412cf387904be30",
+   "csv": {
+    "filas": 500,
+    "columnas": 13,
+    "bytes": 35621,
+    "excluidas_por_string": []
+   }
+  },
+  "climate-model-simulation-crashes": {
+   "nombre": "climate-model-simulation-crashes",
+   "data_id": 40994,
+   "tarea": "binary_classification",
+   "objetivo": "outcome",
+   "clase_positiva_enviada": "0",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9386528028933092
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.944394213381555
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.08835558500140905,
+     "metrica": "auroc",
+     "valor": 0.9636075949367089,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.37871580896899104,
+     "metrica": "auroc",
+     "valor": 0.9731012658227848,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008590655052103102,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.08353921701200306,
+     "metrica": "auroc",
+     "valor": 0.9810126582278481,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3565382049418986,
+     "metrica": "auroc",
+     "valor": 0.9984177215189873,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00957733707036823,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.09558684006333351,
+     "metrica": "auroc",
+     "valor": 0.9168173598553345,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.3504991029622033,
+     "metrica": "auroc",
+     "valor": 0.9349005424954792,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.01137232594192028,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.08522744697984308,
+     "metrica": "auroc",
+     "valor": 0.9385171790235082,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4263376200105995,
+     "metrica": "auroc",
+     "valor": 0.9403254972875226,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008599392022006214,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.08503673004452139,
+     "metrica": "auroc",
+     "valor": 0.8933092224231465,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.33694409602321684,
+     "metrica": "auroc",
+     "valor": 0.8752260397830018,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010652043973095715,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 32.7,
+   "loadavg_al_empezar": [
+    "2.89",
+    "2.16",
+    "2.23"
+   ],
+   "inicio": "2026-10-03 01:48:18",
+   "fin": "2026-10-03 01:48:51",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": null,
+   "job_id": "22b5994d28934b4dae210aba1b2111c4",
+   "csv": {
+    "filas": 540,
+    "columnas": 21,
+    "bytes": 179217,
+    "excluidas_por_string": []
+   }
+  },
+  "us_crime": {
+   "nombre": "us_crime",
+   "data_id": 42730,
+   "tarea": "regression",
+   "objetivo": "ViolentCrimesPerPop",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.13963166320214226
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.14023195573759334
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.2313232277454691
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.45767742907628417,
+     "metrica": "rmse",
+     "valor": 0.14750364040813663,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0375286029884592,
+     "metrica": "rmse",
+     "valor": 0.14986346681735024,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00761986302677542,
+     "metrica": "rmse",
+     "valor": 0.2468383367236631,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.42097316798754036,
+     "metrica": "rmse",
+     "valor": 0.13436152283648664,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.1067079940112308,
+     "metrica": "rmse",
+     "valor": 0.13224954545446468,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008049249998293817,
+     "metrica": "rmse",
+     "valor": 0.21455925549266888,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.47779952303972095,
+     "metrica": "rmse",
+     "valor": 0.14828150445767288,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9688665249850601,
+     "metrica": "rmse",
+     "valor": 0.14780333930032435,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008298938046209514,
+     "metrica": "rmse",
+     "valor": 0.2478674154798131,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.43514769594185054,
+     "metrica": "rmse",
+     "valor": 0.1348348070354004,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0538028759183362,
+     "metrica": "rmse",
+     "valor": 0.13555992679587459,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009372862987220287,
+     "metrica": "rmse",
+     "valor": 0.22531862057448315,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4175755779724568,
+     "metrica": "rmse",
+     "valor": 0.13317684127301477,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.1011028080247343,
+     "metrica": "rmse",
+     "valor": 0.13568350031995283,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008642703061923385,
+     "metrica": "rmse",
+     "valor": 0.22203251045671732,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 48.9,
+   "loadavg_al_empezar": [
+    "2.49",
+    "2.13",
+    "2.22"
+   ],
+   "inicio": "2026-10-03 01:48:51",
+   "fin": "2026-10-03 01:49:40",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": null,
+   "job_id": "70a19535e6074aeaa57eabf2dbeabc68",
+   "csv": {
+    "filas": 1994,
+    "columnas": 127,
+    "bytes": 1069334,
+    "excluidas_por_string": [
+     "communityname"
+    ]
+   }
+  },
+  "pc1": {
+   "nombre": "pc1",
+   "data_id": 1068,
+   "tarea": "binary_classification",
+   "objetivo": "defects",
+   "clase_positiva_enviada": "true",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.8841100532666799
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.8776690912835491
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": [
+    {
+     "clave": "falta_dependencia",
+     "intentos_por_estado": {},
+     "motivo_del_motor": {
+      "en": "this network trains with torch, and this installation does not have it. In the Studio, the package without GPU does not include torch; the GPU package does, and it competes there. Its share of the time went to the other engines.",
+      "es": "esta red se entrena con torch, y esta instalación no lo trae. En el Studio, el paquete sin GPU no incluye torch; el paquete con GPU sí, y ahí compite. Su parte del tiempo se repartió entre los demás motores."
+     },
+     "motor": "matrixai.dense.torch_cpu",
+     "techo_por_intento_segundos": null
+    }
+   ],
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.11741112009622157,
+     "metrica": "auroc",
+     "valor": 0.8271547729379055,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.46993184997700155,
+     "metrica": "auroc",
+     "valor": 0.8588971269694161,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008237131987698376,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.09699038695544004,
+     "metrica": "auroc",
+     "valor": 0.8792540792540793,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4368446230655536,
+     "metrica": "auroc",
+     "valor": 0.882983682983683,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008211675100028515,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.09118417906574905,
+     "metrica": "auroc",
+     "valor": 0.8457070707070707,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.39715512306429446,
+     "metrica": "auroc",
+     "valor": 0.8068181818181818,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008428892004303634,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.09627785196062177,
+     "metrica": "auroc",
+     "valor": 0.919949494949495,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4444643739843741,
+     "metrica": "auroc",
+     "valor": 0.8901515151515151,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009530750918202102,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.10672481299843639,
+     "metrica": "auroc",
+     "valor": 0.9484848484848485,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4508577020606026,
+     "metrica": "auroc",
+     "valor": 0.9494949494949495,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.07200469693634659,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 38.9,
+   "loadavg_al_empezar": [
+    "1.71",
+    "1.97",
+    "2.16"
+   ],
+   "inicio": "2026-10-03 01:49:40",
+   "fin": "2026-10-03 01:50:19",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": null,
+   "job_id": "c8e716516e534ae885393426ed6c5a72",
+   "csv": {
+    "filas": 1109,
+    "columnas": 22,
+    "bytes": 90029,
+    "excluidas_por_string": []
+   }
+  }
+ },
+ "veredicto": {
+  "por_tamano": {
+   "pequeno": {
+    "conjuntos": [],
+    "suben": 0,
+    "bajan": 0,
+    "bajan_2": 0,
+    "dejan_de_completar": 0,
+    "iguales": 0,
+    "ninguno_completa": 0,
+    "mejora": false,
+    "se_queda": "la configuración de hoy"
+   },
+   "mediano": {
+    "conjuntos": [
+     "wine_quality",
+     "SAT11-HAND-runtime-regression",
+     "optdigits",
+     "jm1",
+     "PhishingWebsites",
+     "house_sales",
+     "Amazon_employee_access"
+    ],
+    "suben": 3,
+    "bajan": 0,
+    "bajan_2": 0,
+    "dejan_de_completar": 0,
+    "iguales": 4,
+    "ninguno_completa": 0,
+    "mejora": true,
+    "se_queda": "el perfil"
+   },
+   "grande": {
+    "conjuntos": [],
+    "suben": 0,
+    "bajan": 0,
+    "bajan_2": 0,
+    "dejan_de_completar": 0,
+    "iguales": 0,
+    "ninguno_completa": 0,
+    "mejora": false,
+    "se_queda": "la configuración de hoy"
+   }
+  },
+  "sin_tamano_declarado": []
+ }
+}
