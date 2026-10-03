@@ -431,7 +431,9 @@ def registrar(nombre, c, cuerpo_ok, est, pared, http, rechazo, loadavg, ini):
            "intentos": filas, "intentos_ruta_en_el_estado": ruta, "pared_estudio_s": round(pared, 1),
            "loadavg_al_empezar": loadavg, "inicio": ini, "fin": ahora(),
            "perfiles_declarados": perfiles_declarados(est),
-           "politica_de_arboles": sel.get("politica_de_arboles"), "test": test_de(sel)}
+           "politica_de_arboles": sel.get("politica_de_arboles"), "test": test_de(sel),
+           # C3‴ (enmienda 9): la guarda de memoria declara aquí a TabM fuera de un estudio grande.
+           "motores_fuera_por_memoria": est.get("motores_fuera_por_memoria")}
     return rec
 
 

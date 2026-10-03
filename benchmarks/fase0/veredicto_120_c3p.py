@@ -103,6 +103,10 @@ def presencia(rec: dict, *, c3p: bool, con_densa: bool = True) -> str | None:
     if not con_densa and MOTOR_DENSA in motores:
         return f"{n}: la densa anterior tiene intentos — en el paquete CPU (enmienda 8) no compite"
     if c3p and MOTOR_TABM not in motores:
+        # C3‴ (enmienda 9): la guarda de memoria puede dejar fuera a TabM de un estudio grande, y lo DECLARA; sin esa
+        # declaración, un estudio sin intentos de TabM no mide lo registrado.
+        if (rec.get("motores_fuera_por_memoria") or {}).get(MOTOR_TABM):
+            return None
         return f"{n}: C3′ sin intentos de TabM — no se está midiendo C3′"
     if not c3p and MOTOR_TABM in motores:
         return f"{n}: R1-GPU con intentos de TabM — no es la referencia registrada"

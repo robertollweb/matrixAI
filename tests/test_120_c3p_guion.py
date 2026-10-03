@@ -360,3 +360,11 @@ def test_rcpu_sin_el_sobre_de_produccion_es_un_PARO_en_el_flujo(entorno):
     with pytest.raises(SystemExit):
         G.correr_c3p("rcpu", _banco(), datos, correr, None)
     assert "sobre de la política de C6" in datos["corte"]["motivo"]
+
+
+def test_registrar_guarda_lo_que_la_guarda_de_memoria_dejo_fuera():
+    est = {"estado": "completed", "seleccion": {"candidate_engine": "sklearn.hgb"},
+           "motores_fuera_por_memoria": {TABM: {"es": "no cabe", "estimada_gb": 7.8, "disponible_gb": 6.0}}}
+    r = G.registrar("KDDCup09_appetency", {"data_id": 1, "tarea": "binary_classification", "objetivo": "y"}, {}, est,
+                    1.0, 200, None, ["0"] * 3, "x")
+    assert r["motores_fuera_por_memoria"][TABM]["estimada_gb"] == 7.8

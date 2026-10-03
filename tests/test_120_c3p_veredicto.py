@@ -152,3 +152,13 @@ def test_veredicto_regla_4():
     assert v.veredicto([sube, sube, v.comparar(rec(), rec(estado="plazo"), 0.0)])["mejora"] is False
     assert v.veredicto([igual, igual])["mejora"] is False
     assert v.veredicto([sube, igual])["tabm_campeon_en"] == [sube["nombre"]]
+
+
+def test_presencia_admite_a_TabM_fuera_por_memoria_solo_si_se_declara():
+    """C3‴ (enmienda 9): la guarda de memoria deja fuera a TabM en un estudio grande y lo declara."""
+    sin_tabm = rec(motores=("lightgbm", "baseline"))
+    assert "TabM" in v.presencia(sin_tabm, c3p=True, con_densa=False)
+    declarado = dict(sin_tabm, motores_fuera_por_memoria={TABM: {"es": "no cabe", "estimada_gb": 7.8, "disponible_gb": 6.0}})
+    assert v.presencia(declarado, c3p=True, con_densa=False) is None
+    otro = dict(sin_tabm, motores_fuera_por_memoria={"lightgbm": {"es": "x"}})
+    assert "TabM" in v.presencia(otro, c3p=True, con_densa=False)
