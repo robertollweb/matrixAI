@@ -57,6 +57,11 @@ def _classification_csv(n: int = 60) -> str:
 
 
 def _submit_and_wait(proj: dict, **kwargs) -> dict:
+    # Como entrena el Studio (`/api/train-start`): el OBJETIVO no se recorta a
+    # [0,1] (su rango sale de las filas de train, y el CSV de Kelvin es
+    # ascendente: la validación está POR ENCIMA del rango de train). Se puede
+    # pedir lo contrario con `recortar_objetivo=True`.
+    kwargs.setdefault("recortar_objetivo", False)
     submitted = _submit_training_job(
         proj["mxai"], proj["training_text"], proj["csv_text"],
         field_ranges=proj.get("field_ranges"), **kwargs,
@@ -113,6 +118,24 @@ class TestKelvinRegressionLearns(unittest.TestCase):
         self.assertEqual(status["task_kind"], "regression")
         self.assertFalse(status.get("model_collapsed"), "el modelo no debería colapsar a predecir la media")
         self.assertGreaterEqual(status["r2"], 0.99, f"R²={status['r2']} — el modelo no aprendió la relación lineal")
+
+    def test_el_objetivo_recortado_de_validacion_si_cuesta_la_cifra(self):
+        """POR QUÉ existe `recortar_objetivo=False` (A8 del corte «rangos de
+        train»). El Kelvin ascendente tiene su validación (20 %) por ENCIMA del
+        rango de train: con el objetivo recortado a [0,1] la verdad de validación
+        se aplasta contra 1,0 y la cifra baja (medido: R² 0,958); sin recortarlo
+        es la honrada (medido: 0,9999). Si alguien vuelve a recortar el objetivo
+        al entrenar desde el Studio, el test de arriba se pone rojo; este deja
+        escrito por qué."""
+        proj = generate_project_from_dataset(
+            _kelvin_csv(), "prediccionKelvin", **_kelvin_overrides(),
+        )
+        tr = tuple(proj["target_range"])
+        recortado = _submit_and_wait(proj, target_range=tr, recortar_objetivo=True)
+        sin_recortar = _submit_and_wait(proj, target_range=tr, recortar_objetivo=False)
+        self.assertLess(recortado["r2"], 0.99)
+        self.assertGreaterEqual(sin_recortar["r2"], 0.99)
+        self.assertGreater(sin_recortar["r2"], recortado["r2"])
 
     def test_target_range_echoed_in_job_result(self):
         """Procedencia auditable (decisión A del contrato): el rango usado

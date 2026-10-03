@@ -109,6 +109,86 @@ def parse_training_file(path: str | Path) -> TrainingSpec:
     return parse_training_text(Path(path).read_text(encoding="utf-8"))
 
 
+def parse_split_line(line: str) -> DatasetSplitSpec:
+    """Una línea `SPLIT ...` a su `DatasetSplitSpec`, con TODAS las validaciones.
+
+    Extraída del bucle de `parse_training_text` para que quien necesite la
+    partición que un `.mxtrain` declara (p.ej. `dataset_project`, para ajustar
+    los rangos de normalización solo con las filas de entrenamiento) no tenga un
+    segundo parser que acabe divergiendo. Lanza `MatrixAITrainingParseError`."""
+    match = _SPLIT_RE.match(line)
+    if not match:
+        raise MatrixAITrainingParseError(f"Invalid SPLIT declaration: {line}")
+    train_ratio = float(match.group("train"))
+    validation_ratio = float(match.group("validation"))
+    seed = int(match.group("seed")) if match.group("seed") else None
+    mode = match.group("mode") or "random"
+    test_ratio = float(match.group("test")) if match.group("test") else None
+    protocol = match.group("protocol") or None
+    # BIBLIOTECA_PROYECTOS_INTELIGENTES C3 (auditoría [MEDIA]): antes
+    # se aceptaba cualquier train/validation (0.9+0.9, train=0,
+    # train=1...) — los trainers solo usan `train` para el corte y
+    # ajustan el resultado en silencio; `validation` era meramente
+    # informativo, así que una declaración incoherente NUNCA se
+    # notaba. Vocabulario cerrado también en los VALORES.
+    if not (0.0 < train_ratio < 1.0):
+        raise MatrixAITrainingParseError(
+            f"Invalid SPLIT declaration: train={train_ratio} debe estar "
+            f"estrictamente entre 0 y 1: {line}"
+        )
+    if not (0.0 < validation_ratio < 1.0):
+        raise MatrixAITrainingParseError(
+            f"Invalid SPLIT declaration: validation={validation_ratio} debe "
+            f"estar estrictamente entre 0 y 1: {line}"
+        )
+    # CONTRATO 101-C0: con tres tramos, los tres suman 1,0. El mensaje
+    # nombra los que hay, no los que debería haber.
+    if test_ratio is not None and not (0.0 < test_ratio < 1.0):
+        raise MatrixAITrainingParseError(
+            f"Invalid SPLIT declaration: test={test_ratio} debe estar "
+            f"estrictamente entre 0 y 1: {line}"
+        )
+    suma = train_ratio + validation_ratio + (test_ratio or 0.0)
+    if abs(suma - 1.0) > 1e-6:
+        partes = (f"train={train_ratio} + validation={validation_ratio}"
+                  + (f" + test={test_ratio}" if test_ratio is not None else ""))
+        raise MatrixAITrainingParseError(
+            f"Invalid SPLIT declaration: {partes} debe sumar 1.0: {line}"
+        )
+    # UN TRAMO DE PRUEBA QUE NADIE HONRA ES PEOR QUE NO TENERLO. Sin
+    # `protocol=2` los entrenadores parten como siempre —0,8 fijo,
+    # secuencial— y ese `test=` se quedaría escrito sin efecto: alguien
+    # leería su `.mxtrain`, vería una prueba reservada y creería que el
+    # número sale de ahí. Se rechaza en vez de ignorarlo en silencio,
+    # igual que se hace arriba con `mode=temporal seed=`.
+    if test_ratio is not None and protocol != _PROTOCOLO_SEPARACION:
+        raise MatrixAITrainingParseError(
+            f"Invalid SPLIT declaration: test={test_ratio} necesita "
+            f"protocol={_PROTOCOLO_SEPARACION}; sin él los entrenadores parten "
+            f"como siempre y el tramo de prueba se quedaría escrito sin "
+            f"efecto: {line}"
+        )
+    if protocol is not None and protocol != _PROTOCOLO_SEPARACION:
+        raise MatrixAITrainingParseError(
+            f"Invalid SPLIT declaration: protocol={protocol} no existe; el "
+            f"único que cambia cómo se parte es {_PROTOCOLO_SEPARACION}: {line}"
+        )
+    # mode=temporal nunca baraja (invariante 12 del contrato 57: "sin
+    # barajar") — un seed ahí no tendría ningún efecto; declararlo de
+    # todos modos es casi siempre una confusión del usuario ("¿por
+    # qué mi seed no cambia nada?"), así que se rechaza en vez de
+    # aceptarlo e ignorarlo en silencio.
+    if mode == "temporal" and seed is not None:
+        raise MatrixAITrainingParseError(
+            f"Invalid SPLIT declaration: mode=temporal no admite seed "
+            f"(nunca baraja, el seed no tendría efecto): {line}"
+        )
+    return DatasetSplitSpec(
+        train=train_ratio, validation=validation_ratio, seed=seed, mode=mode,
+        test=test_ratio, protocol=protocol,
+    )
+
+
 def parse_training_text(text: str) -> TrainingSpec:
     lines = _clean_lines(text)
     if not lines:
@@ -246,77 +326,7 @@ def _parse_dataset(block: list[str]) -> DatasetSpec:
             index += 1
             continue
         if line.startswith("SPLIT "):
-            match = _SPLIT_RE.match(line)
-            if not match:
-                raise MatrixAITrainingParseError(f"Invalid SPLIT declaration: {line}")
-            train_ratio = float(match.group("train"))
-            validation_ratio = float(match.group("validation"))
-            seed = int(match.group("seed")) if match.group("seed") else None
-            mode = match.group("mode") or "random"
-            test_ratio = float(match.group("test")) if match.group("test") else None
-            protocol = match.group("protocol") or None
-            # BIBLIOTECA_PROYECTOS_INTELIGENTES C3 (auditoría [MEDIA]): antes
-            # se aceptaba cualquier train/validation (0.9+0.9, train=0,
-            # train=1...) — los trainers solo usan `train` para el corte y
-            # ajustan el resultado en silencio; `validation` era meramente
-            # informativo, así que una declaración incoherente NUNCA se
-            # notaba. Vocabulario cerrado también en los VALORES.
-            if not (0.0 < train_ratio < 1.0):
-                raise MatrixAITrainingParseError(
-                    f"Invalid SPLIT declaration: train={train_ratio} debe estar "
-                    f"estrictamente entre 0 y 1: {line}"
-                )
-            if not (0.0 < validation_ratio < 1.0):
-                raise MatrixAITrainingParseError(
-                    f"Invalid SPLIT declaration: validation={validation_ratio} debe "
-                    f"estar estrictamente entre 0 y 1: {line}"
-                )
-            # CONTRATO 101-C0: con tres tramos, los tres suman 1,0. El mensaje
-            # nombra los que hay, no los que debería haber.
-            if test_ratio is not None and not (0.0 < test_ratio < 1.0):
-                raise MatrixAITrainingParseError(
-                    f"Invalid SPLIT declaration: test={test_ratio} debe estar "
-                    f"estrictamente entre 0 y 1: {line}"
-                )
-            suma = train_ratio + validation_ratio + (test_ratio or 0.0)
-            if abs(suma - 1.0) > 1e-6:
-                partes = (f"train={train_ratio} + validation={validation_ratio}"
-                          + (f" + test={test_ratio}" if test_ratio is not None else ""))
-                raise MatrixAITrainingParseError(
-                    f"Invalid SPLIT declaration: {partes} debe sumar 1.0: {line}"
-                )
-            # UN TRAMO DE PRUEBA QUE NADIE HONRA ES PEOR QUE NO TENERLO. Sin
-            # `protocol=2` los entrenadores parten como siempre —0,8 fijo,
-            # secuencial— y ese `test=` se quedaría escrito sin efecto: alguien
-            # leería su `.mxtrain`, vería una prueba reservada y creería que el
-            # número sale de ahí. Se rechaza en vez de ignorarlo en silencio,
-            # igual que se hace arriba con `mode=temporal seed=`.
-            if test_ratio is not None and protocol != _PROTOCOLO_SEPARACION:
-                raise MatrixAITrainingParseError(
-                    f"Invalid SPLIT declaration: test={test_ratio} necesita "
-                    f"protocol={_PROTOCOLO_SEPARACION}; sin él los entrenadores parten "
-                    f"como siempre y el tramo de prueba se quedaría escrito sin "
-                    f"efecto: {line}"
-                )
-            if protocol is not None and protocol != _PROTOCOLO_SEPARACION:
-                raise MatrixAITrainingParseError(
-                    f"Invalid SPLIT declaration: protocol={protocol} no existe; el "
-                    f"único que cambia cómo se parte es {_PROTOCOLO_SEPARACION}: {line}"
-                )
-            # mode=temporal nunca baraja (invariante 12 del contrato 57: "sin
-            # barajar") — un seed ahí no tendría ningún efecto; declararlo de
-            # todos modos es casi siempre una confusión del usuario ("¿por
-            # qué mi seed no cambia nada?"), así que se rechaza en vez de
-            # aceptarlo e ignorarlo en silencio.
-            if mode == "temporal" and seed is not None:
-                raise MatrixAITrainingParseError(
-                    f"Invalid SPLIT declaration: mode=temporal no admite seed "
-                    f"(nunca baraja, el seed no tendría efecto): {line}"
-                )
-            split = DatasetSplitSpec(
-                train=train_ratio, validation=validation_ratio, seed=seed, mode=mode,
-                test=test_ratio, protocol=protocol,
-            )
+            split = parse_split_line(line)
             index += 1
             continue
         if line.startswith("BATCH "):

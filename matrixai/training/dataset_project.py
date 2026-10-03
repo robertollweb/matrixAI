@@ -153,6 +153,9 @@ from matrixai.training.dataset_analysis import (
 from matrixai import limits as _limits
 from matrixai.training.categorical import _build_group_names, embedding_source_columns
 from matrixai.training.dense_generator import _identifier, _ONEHOT_MAX
+from matrixai.training.parser import MatrixAITrainingParseError, parse_split_line
+from matrixai.training.particion import (
+    LINEA_SPLIT_POR_DEFECTO, Particion, particion_para)
 # LA POLÍTICA DE FALTANTES DEL NÚCLEO, NO UNA SEGUNDA. `preparacion.py`
 # (103-C3) ya declara qué se hace con un hueco: mediana —no media, que la
 # mueve un extremo— más un indicador `{columna}__faltante` para que el
@@ -212,6 +215,29 @@ _AVISO_COLUMNA_TEXTO = {
         "use that text, create the model from a description declaring the field as "
         f"«{ejemplo}: Text» — it trains on the column as-is, without turning it into "
         "numbers."),
+}
+
+# Los avisos de los rangos ajustados con train. Solo los accionables.
+_AVISO_RANGO_DE_TRAIN = {
+    "es": {
+        "sin_valores": lambda cols: (
+            f"La(s) columna(s) {cols} no tiene(n) ningún valor en las filas de entrenamiento: "
+            "su rango de normalización sale de todo el CSV, así que la validación sí ha "
+            "influido en él."),
+        "constante": lambda cols: (
+            f"La(s) columna(s) {cols} es(son) constante(s) en las filas de entrenamiento "
+            "aunque varía(n) en el CSV completo: su rango (±1) no sale de ningún valor "
+            "visto al entrenar."),
+    },
+    "en": {
+        "sin_valores": lambda cols: (
+            f"Column(s) {cols} has/have no value in the training rows: its normalization "
+            "range comes from the whole CSV, so the validation rows did influence it."),
+        "constante": lambda cols: (
+            f"Column(s) {cols} is/are constant in the training rows although it varies/they "
+            "vary in the whole CSV: its range (±1) does not come from any value seen "
+            "when training."),
+    },
 }
 
 _CLASSIFICATION_TARGET_TYPES = {"boolean", "categorical"}
@@ -354,6 +380,23 @@ def generate_project_from_dataset(
     # gobernara el análisis, la preparación seguiría escribiendo `__faltante__`
     # en celdas que sí traían dato, que es el defecto con otra cara.
     tokens_de_ausencia: set[str] | None = None,
+    # LOS RANGOS DE NORMALIZACIÓN SALEN SOLO DE LAS FILAS DE ENTRENAMIENTO.
+    #
+    # `split`: la línea `SPLIT ...` con la que se entrenará. `None` = la de
+    # siempre (`LINEA_SPLIT_POR_DEFECTO`). Se valida con el mismo parser que lee
+    # el `.mxtrain`, sustituye a la línea que escribe el generador y es la
+    # partición sobre la que se ajustan los rangos.
+    split: str | None = None,
+    # `True`: un EXTREMO de `column_range_overrides` igual al de la propuesta del
+    # análisis del CSV ENTERO cuenta como aceptación de la propuesta (y se queda
+    # el de train), no como una corrección. Lo pasa quien reenvía todas las
+    # propuestas sin que nadie las haya tocado (la clásica del Studio). `False`
+    # (por omisión): un override siempre gana, como manda la invariante 8.
+    rangos_reenviados_del_analisis: bool = False,
+    # Uso INTERNO del envoltorio temporal: contra qué propuestas se comparan los
+    # extremos (columna -> [lo, hi]) cuando no son las del CSV que analiza esta
+    # función (el CSV crudo, antes del pipeline). `None` = las propias.
+    _propuestas_de_referencia: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Genera un proyecto MatrixAI completo A PARTIR de datos reales.
 
@@ -439,6 +482,39 @@ def generate_project_from_dataset(
                 _, (rng_lo, rng_hi) = recomputed
                 columns[col]["observed_range"] = [rng_lo, rng_hi]
                 columns[col]["proposed_range"] = [rng_lo, rng_hi]
+    # --- LOS RANGOS, SOLO CON LAS FILAS DE ENTRENAMIENTO -------------------
+    # El rango de una columna decide con qué escala aprende la red Y con la que
+    # predice después. Calculado sobre TODAS las filas, la validación (que elige
+    # la mejor época y publica la cifra) ya había influido en la normalización:
+    # en un CSV ordenado, o en una serie con tendencia, eso tapa que la
+    # validación es extrapolación. Se calcula la MISMA partición que el
+    # entrenador va a usar (`particion_para` sobre las filas CON objetivo, que
+    # son las que llegan al entrenador, y con el SPLIT que se escribe) y el rango
+    # sale de las filas de su `train`. El TIPO sigue siendo el del análisis del
+    # CSV entero (un tipo es una propiedad de la columna, no de un tramo).
+    split_linea = (split if split is not None else LINEA_SPLIT_POR_DEFECTO).strip()
+    try:
+        split_spec = parse_split_line(split_linea)
+    except MatrixAITrainingParseError as exc:
+        raise DatasetProjectError(f"split no válido: {exc}") from exc
+    filas_con_objetivo = [r for r in rows
+                          if _tiene_objetivo(r, target_column, tokens_de_ausencia)]
+    particion = particion_para(len(filas_con_objetivo), split_spec)
+    filas_train = [filas_con_objetivo[i] for i in particion.train]
+    ajuste = _AjusteDeRangos(filas_train, tokens_de_ausencia)
+    # Lo que el análisis del CSV ENTERO propondría (tras corregir tipos): contra
+    # eso se compara un override reenviado (A4).
+    propuesta_csv = {
+        col: [float(v) for v in info["proposed_range"]]
+        for col, info in columns.items()
+        if info.get("proposed_range") and info["type"] in ("number", "integer")}
+    if _propuestas_de_referencia is not None:
+        propuesta_csv = {**propuesta_csv,
+                         **{c: [float(v) for v in r]
+                            for c, r in _propuestas_de_referencia.items()}}
+    for col, info in columns.items():
+        if info["type"] in ("number", "integer") and info.get("proposed_range"):
+            ajuste.ajustar(col, info)
     for col, rng in (column_range_overrides or {}).items():
         if col not in columns:
             raise DatasetProjectError(
@@ -465,7 +541,9 @@ def generate_project_from_dataset(
                 f"column_range_overrides[{col!r}] = {list(rng)!r} tiene el "
                 "mínimo mayor o igual que el máximo — corrige el rango."
             )
-        columns[col]["proposed_range"] = [lo, hi]
+        columns[col]["proposed_range"] = ajuste.override(
+            col, lo, hi,
+            referencia=(propuesta_csv.get(col) if rangos_reenviados_del_analisis else None))
 
     if target_column not in columns:
         raise DatasetProjectError(
@@ -595,6 +673,7 @@ def generate_project_from_dataset(
             columns[col]["type"] = numeric_kind
             columns[col]["observed_range"] = [rng_lo, rng_hi]
             columns[col]["proposed_range"] = [rng_lo, rng_hi]
+            ajuste.ajustar(col, columns[col], reconsiderada=True)
             reconsidered_columns.append(col)
         feature_columns = [
             col for col in analysis["column_order"]
@@ -654,7 +733,7 @@ def generate_project_from_dataset(
         if columns[col]["type"] != "boolean" or col in _tipos_declarados_por_usuario:
             continue
         if any(_is_null(row.get(col), tokens_de_ausencia) for row in rows
-               if not _is_null(row.get(target_column), tokens_de_ausencia)):
+               if _tiene_objetivo(row, target_column, tokens_de_ausencia)):
             columns[col]["type"] = "categorical"
             boolean_missing_as_categorical_columns.append(col)
 
@@ -780,7 +859,7 @@ def generate_project_from_dataset(
         # además afirmaría que este dataset tiene faltantes donde no los
         # tiene). Mismo criterio que usa la política numérica.
         if not any(_is_null(row.get(col), tokens_de_ausencia) for row in rows
-                   if not _is_null(row.get(target_column), tokens_de_ausencia)):
+                   if _tiene_objetivo(row, target_column, tokens_de_ausencia)):
             continue
         if CATEGORIA_FALTANTE in valores_reales:
             raise DatasetProjectError(
@@ -944,8 +1023,7 @@ def generate_project_from_dataset(
         # calculaba sobre 100 y no sobre las 10 entrenables: además de falsear la
         # auditoría, podía elegir una red más ancha de la que los datos sostienen.
         # Se usa el MISMO criterio (`_is_null`) que la preparación real.
-        "dataset_rows": sum(1 for r in rows
-                            if not _is_null(r.get(target_column), tokens_de_ausencia)),
+        "dataset_rows": len(filas_con_objetivo),
         **({"architecture_hints": architecture_hints} if architecture_hints else {}),
     })
     if not res.get("ok"):
@@ -971,6 +1049,26 @@ def generate_project_from_dataset(
         raise DatasetProjectError(
             f"El prompt sintetizado desde el esquema no generó un modelo válido: {reason}"
         )
+
+    if split is not None:
+        _texto_original = res.get("training_text") or ""
+        res["training_text"] = _con_linea_split(_texto_original, split_linea)
+        # Las otras dos copias del mismo texto que lleva la respuesta del
+        # generador: se mantienen iguales (dos sitios declarando lo mismo).
+        for _ruta in (("training_artifacts", "training_text"),
+                      ("visual_model", "training", "training_text")):
+            _dueno = res
+            for _clave in _ruta[:-1]:
+                _dueno = _dueno.get(_clave) if isinstance(_dueno, dict) else None
+            if isinstance(_dueno, dict) and _dueno.get(_ruta[-1]) == _texto_original:
+                _dueno[_ruta[-1]] = res["training_text"]
+    # A6 — LA GUARDIA, que falla cerrada: los rangos se ajustaron sobre `particion`;
+    # si el `.mxtrain` que acaba de salir declara otra (otro ratio, `protocol=2`,
+    # `mode=temporal`...), el entrenador partirá distinto y los rangos habrían
+    # visto filas que el entrenador reserva. Se prefiere NO generar a generar un
+    # proyecto cuyos rangos no son los de su train.
+    _comprobar_particion_del_entrenador(
+        res.get("training_text") or "", len(filas_con_objetivo), particion)
 
     # Auditoría C5 [ALTA]: `intent_llm["used"]` se marcaba `True` en cuanto
     # el LLM devolvía una propuesta interpretable, ANTES de saber si el
@@ -1085,6 +1183,26 @@ def generate_project_from_dataset(
         _anotar_avisos(res, [_marco(", ".join(repr(c) for c in _texto_excluido),
                                    _texto_excluido[0])])
 
+    # Los avisos de los rangos de train, SOLO los que la persona puede actuar:
+    # una columna sin valores en train (se usó el rango del CSV entero) y una
+    # constante en train aunque varía en el CSV. Avisar de cada columna cuyo
+    # rango cambió sería avisar en casi cada CSV; el detalle está en
+    # `provenance["range_fit"]`.
+    _avisos_rango = []
+    _marco_rango = _AVISO_RANGO_DE_TRAIN.get(
+        str(locale or "es").strip().lower(), _AVISO_RANGO_DE_TRAIN["es"])
+    _sin_train = [c for c, m in ajuste.respaldo_csv_entero.items()
+                  if m == "no_values_in_train"]
+    if _sin_train:
+        _avisos_rango.append(_marco_rango["sin_valores"](
+            ", ".join(repr(c) for c in _sin_train)))
+    if ajuste.constantes_en_train:
+        _avisos_rango.append(_marco_rango["constante"](
+            ", ".join(repr(c) for c in ajuste.constantes_en_train)))
+    if _avisos_rango:
+        from matrixai.playground import _anotar_avisos  # noqa: PLC0415
+        _anotar_avisos(res, _avisos_rango)
+
     # CONTRATO 62 C3 — la RECETA: todo lo que `_prepare_training_csv` necesita
     # para producir exactamente este mismo CSV preparado a partir del crudo.
     # Es la diferencia entre "describir" la preparación (lo que hacía
@@ -1179,6 +1297,7 @@ def generate_project_from_dataset(
         reconsidered_identifier_columns=reconsidered_columns,
         boolean_with_missing_as_categorical_columns=boolean_missing_as_categorical_columns,
         missing_values=_declaracion_de_faltantes(missing_policy, prepared),
+        range_fit=ajuste.declaracion(particion, split_linea, len(filas_con_objetivo)),
     )
 
     result = dict(res)
@@ -1245,6 +1364,12 @@ def generate_temporal_project_from_dataset(
     # de delegar, así que sin esto los dos análisis del mismo fichero usarían
     # criterios de ausencia distintos.
     tokens_de_ausencia: set[str] | None = None,
+    # Ver `generate_project_from_dataset`. Aquí la comparación de los extremos
+    # reenviados se hace contra el análisis del CSV CRUDO (`original_analysis`):
+    # por nombre las columnas crudas, el objetivo desplazado contra
+    # `target_column` y `X_lagk` contra `X` (la clásica les pone a los retardos
+    # el rango crudo de su columna de origen).
+    rangos_reenviados_del_analisis: bool = False,
 ) -> dict[str, Any]:
     """C4 — flujo A, caso serie temporal: "columna temporal + ventana +
     horizonte → operaciones de C3" (contrato 57). Envoltorio DELGADO
@@ -1353,6 +1478,19 @@ def generate_temporal_project_from_dataset(
     if target_column in (column_range_overrides or {}):
         range_overrides[effective_target] = column_range_overrides[target_column]
 
+    # A4 en el temporal: contra qué propuesta se compara cada columna del CSV
+    # post-pipeline. Solo se usa con `rangos_reenviados_del_analisis=True`.
+    propuestas_de_referencia: dict[str, Any] = {}
+    for col, info in original_analysis["columns"].items():
+        if info.get("proposed_range") and info.get("type") in ("number", "integer"):
+            propuestas_de_referencia[col] = list(info["proposed_range"])
+    if target_column in propuestas_de_referencia:
+        propuestas_de_referencia[effective_target] = propuestas_de_referencia[target_column]
+    for col in lag_window_columns or []:
+        if col in propuestas_de_referencia:
+            for lag in range(1, (lag_window_size or 0) + 1):
+                propuestas_de_referencia[f"{col}_lag{lag}"] = propuestas_de_referencia[col]
+
     try:
         # LA DECLARACIÓN LLEGA TAMBIÉN AL MEDIO, no solo a los extremos. Ver
         # `run_pipeline`: sin ella, declarar «None» como nivel legítimo daba
@@ -1441,6 +1579,9 @@ def generate_temporal_project_from_dataset(
         momento_de_prediccion=momento_de_prediccion,
         horizonte=horizonte,
         uso_previsto=uso_previsto,
+        rangos_reenviados_del_analisis=rangos_reenviados_del_analisis,
+        _propuestas_de_referencia=(propuestas_de_referencia
+                                   if rangos_reenviados_del_analisis else None),
     )
 
     feature_columns = list(result["provenance"]["feature_name_map"].keys())
@@ -1457,7 +1598,7 @@ def generate_temporal_project_from_dataset(
     # mode=temporal no lo admite, ver parser.py) en vez de enseñarle a GEN
     # un concepto que no le pertenece (GEN no sabe nada de series
     # temporales; C3/C4 sí).
-    result["training_text"] = _force_temporal_split(result.get("training_text") or "")
+    _forzar_split_temporal_en_proyecto(result)
 
     # Reauditoría 2026-07-17 (ronda 2) [MEDIA]: `provenance["seed"]` se
     # había extraído del `training_text` ALEATORIO original (seed=42, el
@@ -1491,6 +1632,40 @@ def generate_temporal_project_from_dataset(
         "pipeline_operations": [s.to_dict() for s in pipeline_result.steps],
     }
     return result
+
+
+def _forzar_split_temporal_en_proyecto(result: dict[str, Any]) -> None:
+    """Reescribe el SPLIT de un proyecto YA generado a `mode=temporal`
+    (`_force_temporal_split`) y deja `provenance["range_fit"]` diciendo la
+    partición que el entrenador va a usar con él.
+
+    LOS RANGOS SE AJUSTARON CON OTRA DECLARACIÓN: la de la generación
+    (`range_fit["split"]`, hoy la legada). El `train` de la legada y el del
+    temporal 0,8 coinciden (medido para n = 0..5000 y atado por prueba), pero
+    aquí se COMPRUEBA con las n reales y la línea que de verdad se escribe: si
+    algún día divergen —p. ej. un SPLIT por omisión con otro ratio, que la
+    legada ignora (0,8 fijo) y el temporal honra—, falla CERRADO en vez de
+    dejar un proyecto cuyos rangos vieron filas que el entrenador reserva. (Uno
+    con `protocol=2` también falla cerrado, antes: la reescritura conserva solo
+    `train`/`validation`, que ya no suman 1, y el SPLIT resultante no se admite.)
+
+    Un solo sitio para los dos que fuerzan el temporal sobre un proyecto ya
+    generado: el envoltorio temporal (C4) y las plantillas con `sort_temporal`
+    del Studio (`force_temporal_split_in_project`). Antes, el de las plantillas
+    reescribía el SPLIT y dejaba `range_fit` declarando el aleatorio con su
+    semilla, sin comprobar nada (auditoría M4)."""
+    result["training_text"] = _force_temporal_split(result.get("training_text") or "")
+    _rf = (result.get("provenance") or {}).get("range_fit")
+    if _rf is None:
+        return
+    _n = int(_rf["n_rows_with_target"])
+    try:
+        _usada = particion_para(_n, parse_split_line(_rf["split"]))
+    except MatrixAITrainingParseError as exc:
+        raise DatasetProjectError(f"range_fit declara un SPLIT no válido: {exc}") from exc
+    _comprobar_particion_del_entrenador(result["training_text"], _n, _usada)
+    _rf["partition"] = _particion_declarada_por(result["training_text"], _n).como_dict()
+    _rf["split"] = _RE_LINEA_SPLIT.search(result["training_text"]).group(0).strip()
 
 
 def _force_temporal_split(training_text: str) -> str:
@@ -2073,6 +2248,142 @@ def _distinct_non_null(rows: list[dict[str, str]], col: str,
     return list(seen.keys())
 
 
+
+def _tiene_objetivo(row: dict[str, str], target_column: str,
+                    tokens_de_ausencia: set[str] | None) -> bool:
+    """¿Esta fila llega al entrenador? Una fila sin objetivo la descarta
+    `_prepare_training_csv` (nunca se inventa uno). **Un solo criterio**: el
+    mismo decide qué filas cuentan para la partición con la que se ajustan los
+    rangos y cuáles escribe el CSV preparado; si divergieran, el «80 %» de los
+    rangos no sería el 80 % del entrenador."""
+    return not _is_null(row.get(target_column), tokens_de_ausencia)
+
+
+def _rango_de_train(valores: list[str | None], tipo: str,
+                    tokens_de_ausencia: set[str] | None) -> list[float | int] | None:
+    """El rango PROPUESTO de una columna numérica mirando solo `valores` (los de
+    las filas de train): mismo margen y redondeo que el análisis del CSV entero
+    (`_propose_margin` + `_round_range`, importadas, no copiadas). `None` si no
+    hay ni un valor numérico. Se juzga cada valor DISTINTO una vez (medido en el
+    análisis: con 51.000 filas la diferencia es de segundos)."""
+    floats = []
+    for v in {x.strip() for x in valores if not _is_null(x, tokens_de_ausencia)}:
+        try:
+            f = float(v)
+        except ValueError:
+            continue
+        if math.isfinite(f):
+            floats.append(f)
+    if not floats:
+        return None
+    return _round_range(_propose_margin(min(floats), max(floats)), tipo)
+
+
+class _AjusteDeRangos:
+    """Ajusta los rangos de las columnas numéricas con las filas de train y lleva
+    la CUENTA de qué pasó con cada una (va a `provenance["range_fit"]`)."""
+
+    def __init__(self, filas_train: list[dict[str, str]],
+                 tokens_de_ausencia: set[str] | None) -> None:
+        self.filas_train = filas_train
+        self.tokens = tokens_de_ausencia
+        self.train: dict[str, list[float | int]] = {}
+        self.del_usuario: set[str] = set()
+        self.aceptadas: set[str] = set()
+        self.respaldo_csv_entero: dict[str, str] = {}
+        self.constantes_en_train: list[str] = []
+
+    def ajustar(self, col: str, info: dict[str, Any], *, reconsiderada: bool = False) -> None:
+        """Sustituye `proposed_range` por el de train (o deja el del CSV entero y
+        lo declara). `observed_range` no se toca: describe el CSV."""
+        if reconsiderada:
+            self.del_usuario.discard(col)
+            self.aceptadas.discard(col)
+            self.train.pop(col, None)
+            self.respaldo_csv_entero.pop(col, None)
+        valores = [r.get(col) for r in self.filas_train]
+        rng = _rango_de_train(valores, info["type"], self.tokens)
+        if rng is None:
+            self.respaldo_csv_entero[col] = "no_values_in_train"
+            return
+        if not rng[0] < rng[1]:
+            self.respaldo_csv_entero[col] = "degenerate_range"
+            return
+        info["proposed_range"] = list(rng)
+        self.train[col] = list(rng)
+        distintos = {v.strip() for v in valores if not _is_null(v, self.tokens)}
+        if len(distintos) < 2 and not info.get("constant") and col not in self.constantes_en_train:
+            self.constantes_en_train.append(col)
+
+    def override(self, col: str, lo: float, hi: float,
+                 referencia: list[float] | None) -> list[float]:
+        """Un override del usuario SIEMPRE gana (invariante 8)… salvo que
+        `referencia` diga que lo reenviado es la propuesta del CSV entero
+        sin tocar: un EXTREMO igual a ella es una aceptación y se queda el de
+        train. Por extremo, para cubrir también la edición a medias."""
+        train = self.train.get(col)
+        if referencia is not None and train is not None:
+            acepta_lo, acepta_hi = lo == referencia[0], hi == referencia[1]
+            if acepta_lo or acepta_hi:
+                nuevo_lo = float(train[0]) if acepta_lo else lo
+                nuevo_hi = float(train[1]) if acepta_hi else hi
+                if nuevo_lo < nuevo_hi:
+                    self.aceptadas.add(col)
+                    if not (acepta_lo and acepta_hi):
+                        self.del_usuario.add(col)
+                    return [nuevo_lo, nuevo_hi]
+        self.del_usuario.add(col)
+        return [lo, hi]
+
+    def declaracion(self, particion: Particion, split_linea: str,
+                    n_con_objetivo: int) -> dict[str, Any]:
+        return {
+            "rows": "train",
+            "partition": particion.como_dict(),
+            "split": split_linea,
+            "n_rows_with_target": n_con_objetivo,
+            "n_rows_fit": len(particion.train),
+            "from_train": sorted(c for c in self.train
+                                 if c not in self.del_usuario and c not in self.aceptadas),
+            "user_declared": sorted(self.del_usuario),
+            "accepted_proposal": sorted(self.aceptadas),
+            "fallback_full_csv": dict(sorted(self.respaldo_csv_entero.items())),
+            "constant_in_train": sorted(self.constantes_en_train),
+        }
+
+
+_RE_LINEA_SPLIT = re.compile(r"^(?P<sangria>[ \t]*)SPLIT\b.*$", re.MULTILINE)
+
+
+def _con_linea_split(training_text: str, linea: str) -> str:
+    """El `training_text` con su línea `SPLIT` sustituida por `linea`."""
+    return _RE_LINEA_SPLIT.sub(lambda m: m.group("sangria") + linea, training_text, count=1)
+
+
+def _particion_declarada_por(training_text: str, n: int) -> Particion:
+    """La partición que el entrenador usará con ESTE `.mxtrain` y `n` filas."""
+    m = _RE_LINEA_SPLIT.search(training_text)
+    try:
+        spec = parse_split_line(m.group(0).strip()) if m else None
+    except MatrixAITrainingParseError as exc:
+        raise DatasetProjectError(f"El .mxtrain generado trae un SPLIT no válido: {exc}") from exc
+    return particion_para(n, spec)
+
+
+def _comprobar_particion_del_entrenador(training_text: str, n: int,
+                                        usada: Particion) -> None:
+    """A6 — falla CERRADO si el entrenador va a partir distinto de como se
+    partió para ajustar los rangos."""
+    del_entrenador = _particion_declarada_por(training_text, n)
+    if del_entrenador.train != usada.train:
+        raise DatasetProjectError(
+            "Los rangos de normalización se ajustaron con una partición "
+            f"({usada.como_dict()}) distinta de la que usará el entrenador con el "
+            f".mxtrain generado ({del_entrenador.como_dict()}): los rangos habrían "
+            "visto filas que el entrenador reserva para validar. No se genera el "
+            "proyecto; pasa `split=` con la declaración que de verdad se va a usar.")
+
+
 def _range_for(info: dict[str, Any], col: str) -> tuple[float, float]:
     rng = info.get("proposed_range") or info.get("observed_range")
     if rng is None:
@@ -2626,7 +2937,7 @@ def _ajustar_politica_de_faltantes(
     # `_prepare_training_csv`, así que su hueco no puede decidir la forma del
     # modelo: añadiría un indicador que después nadie marca.
     con_objetivo = [row for row in rows
-                    if not _is_null(row.get(target_column), tokens_de_ausencia)]
+                    if _tiene_objetivo(row, target_column, tokens_de_ausencia)]
     for col in feature_columns:
         # NUMÉRICAS, NO BOOLEANAS, y es una decisión declarada, no un olvido.
         # Una `boolean` de este camino se escribe 0/1 pero su tipo declarado no
@@ -3022,6 +3333,7 @@ def _build_provenance(
     reconsidered_identifier_columns: list[str] | None = None,
     boolean_with_missing_as_categorical_columns: list[str] | None = None,
     missing_values: dict[str, Any] | None = None,
+    range_fit: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from matrixai.export.inference_spec import _matrixai_version
 
@@ -3112,4 +3424,8 @@ def _build_provenance(
         "missing_values": missing_values or {
             "imputed_numeric": {}, "missing_category": {}, "limits": [],
         },
+        # A7 — DE QUÉ FILAS SALEN LOS RANGOS. Clave opcional y fuera de
+        # `_PROVENANCE_COMMON_FIELDS`: los modelos guardados antes de este corte
+        # siguen cargando, y su AUSENCIA significa «rangos de todas las filas».
+        **({"range_fit": range_fit} if range_fit is not None else {}),
     }

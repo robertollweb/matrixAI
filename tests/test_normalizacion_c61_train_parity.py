@@ -156,8 +156,9 @@ class TestApiTrainRouteThreadsFieldRanges(unittest.TestCase):
         captured: dict = {}
 
         def _fake_train(mxai_text, training_text, csv_text, epochs_override=None,
-                        field_ranges=None, target_range=None):
+                        field_ranges=None, target_range=None, recortar_objetivo=True):
             captured["field_ranges"] = field_ranges
+            captured["recortar_objetivo"] = recortar_objetivo
             return {"ok": True}
 
         payload = {
@@ -173,6 +174,28 @@ class TestApiTrainRouteThreadsFieldRanges(unittest.TestCase):
             {"pressure": (996.6, 1043.4), "signal": (-0.1, 1.09)},
             "el route debe coaccionar y pasar field_ranges (paridad con train-start)",
         )
+        # A8 («rangos de train»): como `/api/train-start` y el Studio, el OBJETIVO
+        # de regresión no se recorta a [0,1] al entrenar. El valor por omisión de
+        # `_run_playground_training` sigue siendo `True` (lo que la densa de
+        # motores necesita), así que el route lo pide explícitamente.
+        self.assertIs(captured.get("recortar_objetivo"), False)
+
+    def test_train_start_route_tambien_pide_el_objetivo_sin_recortar(self):
+        captured: dict = {}
+
+        def _fake_submit(mxai_text, training_text, csv_text, epochs_override=None, **kw):
+            captured.update(kw)
+            return {"ok": True, "job_id": "j"}
+
+        handler = self._handler("/api/train-start", {
+            "mxai_text": "x", "training_text": "y", "csv_text": "z",
+            "field_ranges": {"pressure": [996.6, 1043.4]},
+            "target_range": [0, 10]})
+        with patch("matrixai.playground._submit_training_job", _fake_submit), \
+                patch.object(handler, "_send_json", lambda *a, **k: None):
+            handler.do_POST()
+        self.assertIs(captured.get("recortar_objetivo"), False)
+        self.assertEqual(captured.get("target_range"), (0.0, 10.0))
 
     def test_train_route_without_field_ranges_passes_none(self):
         """Retrocompat: un caller viejo sin `field_ranges` sigue funcionando
@@ -180,7 +203,7 @@ class TestApiTrainRouteThreadsFieldRanges(unittest.TestCase):
         captured: dict = {"field_ranges": "SENTINEL"}
 
         def _fake_train(mxai_text, training_text, csv_text, epochs_override=None,
-                        field_ranges=None, target_range=None):
+                        field_ranges=None, target_range=None, recortar_objetivo=True):
             captured["field_ranges"] = field_ranges
             return {"ok": True}
 
