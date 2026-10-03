@@ -192,3 +192,33 @@ def test_c3p_mejora_cuando_TabM_gana_y_sube(entorno):
     assert datos["corte"] is None
     assert datos["veredicto"]["mejora"] is True and datos["veredicto"]["tabm_campeon_en"] == ["wilt"]
     assert datos["comparaciones"]["wilt"]["diferencia"] == pytest.approx(3.0)
+
+
+# ------------------------------------------------------------------ R1-GPU: la misma imagen, con TabM apagado
+def test_r1gpu_apaga_TabM_con_su_interruptor_y_c3p_no():
+    assert G.entorno_extra_de("r1gpu") == {"MATRIXAI_ESTUDIO_SIN_TABM": "1"}
+    assert G.entorno_extra_de("c3p") == {}
+    assert G.entorno_extra_de(None) == {}
+
+
+def test_el_contenedor_lleva_el_entorno_extra(monkeypatch):
+    llamadas = []
+
+    class _Hecho:
+        returncode, stderr, stdout = 0, "", ""
+
+    monkeypatch.setattr(G.subprocess, "run", lambda args, **k: llamadas.append(list(args)) or _Hecho())
+    monkeypatch.setattr(G, "pedir", lambda *a, **k: {})
+    monkeypatch.setattr(G.atexit, "register", lambda *a, **k: None)
+    monkeypatch.setattr(G.signal, "signal", lambda *a, **k: None)
+    monkeypatch.setattr(G, "_contenedor", None)
+    monkeypatch.setattr(G, "ENTORNO_EXTRA", {"MATRIXAI_ESTUDIO_SIN_TABM": "1"})
+    G.arrancar_contenedor(None)
+    docker = llamadas[0]
+    assert docker[:2] == ["docker", "run"]
+    i = docker.index("MATRIXAI_ESTUDIO_SIN_TABM=1")
+    assert docker[i - 1] == "-e" and docker[-1] == G.IMAGEN
+    llamadas.clear()
+    monkeypatch.setattr(G, "ENTORNO_EXTRA", {})
+    G.arrancar_contenedor(None)
+    assert not any("SIN_TABM" in x for x in llamadas[0])

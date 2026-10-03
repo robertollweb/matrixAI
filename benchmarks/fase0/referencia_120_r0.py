@@ -58,6 +58,8 @@ CONTROL = {
     "us_crime": {"lightgbm": 0.1396, "sklearn.hgb": 0.1402},
     "pc1": {"lightgbm": 0.8841, "sklearn.hgb": 0.8777},
 }
+#: C3′ (enmienda 7, segunda corrección): R1-GPU es la MISMA imagen que C3′ con TabM apagado por su interruptor.
+ENTORNO_EXTRA: dict = {}
 POLITICA = None                # --politica: l2_0 | l2_1 → MATRIXAI_POLITICA_DE_ARBOLES (solo para medir C2)
 MOTORES_DE_ARBOLES = ("lightgbm", "sklearn.hgb")
 _contenedor = None
@@ -187,6 +189,11 @@ def estado_del_contenedor(nombre):
     return {"oom_killed": oom == "true", "codigo_de_salida": codigo, "estado": estado, "error": error}
 
 
+def entorno_extra_de(modo):
+    """Las variables de más que lleva el contenedor según la medida: R1-GPU apaga TabM con su interruptor."""
+    return {"MATRIXAI_ESTUDIO_SIN_TABM": "1"} if modo == "r1gpu" else {}
+
+
 def arrancar_contenedor(politica=None):
     global _contenedor
     s = socket.socket(); s.bind(("127.0.0.1", 0)); puerto = s.getsockname()[1]; s.close()
@@ -200,7 +207,8 @@ def arrancar_contenedor(politica=None):
     r = subprocess.run(["docker", "run", "-d", "--init", "--name", nombre, "-p", f"127.0.0.1:{puerto}:8765",
                         f"--memory={MEMORIA}", f"--memory-swap={MEMORIA}", "--cpus=2", "-e",
                         "MATRIXAI_LICENSE_ENABLED=false",
-                        *(["-e", f"MATRIXAI_POLITICA_DE_ARBOLES={politica}"] if politica else []), IMAGEN],
+                        *(["-e", f"MATRIXAI_POLITICA_DE_ARBOLES={politica}"] if politica else []),
+                        *[x for k, v in sorted(ENTORNO_EXTRA.items()) for x in ("-e", f"{k}={v}")], IMAGEN],
                        capture_output=True, text=True)
     if r.returncode:
         raise SystemExit("docker run falló: " + r.stderr)
@@ -439,7 +447,7 @@ def guardar(datos):
 
 
 def main():
-    global IMAGEN, SALIDA, ESTADOS, MEMORIA, POLITICA
+    global IMAGEN, SALIDA, ESTADOS, MEMORIA, POLITICA, ENTORNO_EXTRA
     ap = argparse.ArgumentParser()
     ap.add_argument("--solo-humo", action="store_true"); ap.add_argument("--forzar", action="store_true")
     ap.add_argument("--solo", default="")
@@ -469,6 +477,9 @@ def main():
         raise SystemExit("C3′ se mide en los 13 del protocolo (enmienda 7): sin --banco")
     IMAGEN, MEMORIA, POLITICA = a.imagen, a.memoria, a.politica
     MODO = "r1gpu" if a.r1gpu else "c3p" if a.c3p else None
+    # R1-GPU: la imagen de C3′ con TabM apagado (MATRIXAI_ESTUDIO_SIN_TABM=1, idéntico a 92532b8 con torch, probado en
+    # el corte); C3′: la misma imagen, sin la variable. `presencia` comprueba en cada estudio que fue así.
+    ENTORNO_EXTRA = entorno_extra_de(MODO)
     contra_doc = json.loads(Path(a.contra).read_text()) if a.contra else None
     contra = contra_doc["conjuntos"] if a.contra else None
     if contra is not None and not contra_doc.get("control", {}).get("cuadra"):
@@ -517,6 +528,7 @@ def main():
                              "instrumento": "estudio del Studio por HTTP; folds/repeats por omisión; cifra = seleccion.media_de_la_seleccion",
                              "nota_multiclase": "clase_positiva solo se envía en binarias",
                              "memoria_del_contenedor": MEMORIA, "politica": POLITICA, "modo": MODO,
+                             "entorno_extra": dict(ENTORNO_EXTRA),
                              "sha256_veredicto_c3p": sha(AQUI / "veredicto_120_c3p.py"),
                              "sha256_enmienda_7": sha(AQUI / "protocolo_120_enmienda_7.json"),
                              "contra": (str(Path(a.contra).resolve()) if a.contra else None),
