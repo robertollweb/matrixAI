@@ -189,9 +189,22 @@ def estado_del_contenedor(nombre):
     return {"oom_killed": oom == "true", "codigo_de_salida": codigo, "estado": estado, "error": error}
 
 
-def entorno_extra_de(modo):
-    """Las variables de más que lleva el contenedor según la medida: R1-GPU apaga TabM con su interruptor."""
-    return {"MATRIXAI_ESTUDIO_SIN_TABM": "1"} if modo == "r1gpu" else {}
+def entorno_extra_de(modo, ninguna=False):
+    """Las variables de más que lleva el contenedor según la medida: R1-GPU apaga TabM con su interruptor, y
+    `--ninguna` pide los árboles de hoy (120-C6: sin torch y sin la variable, los medianos llevan la política de
+    producción)."""
+    extra = {"MATRIXAI_ESTUDIO_SIN_TABM": "1"} if modo == "r1gpu" else {}
+    if ninguna:
+        extra["MATRIXAI_POLITICA_DE_ARBOLES"] = "ninguna"
+    return extra
+
+
+def sin_politica_o_motivo(rec):
+    """En una medida que NO pide política (las referencias, R1-GPU, C3′), ningún intento de árboles ni el sobre pueden
+    declarar una (re-auditoría de 120-C6: en una imagen con C6 sin torch, los medianos se habrían medido con la de
+    producción sin que nada parara). El motivo para PARAR, o None."""
+    motivo, _ = comprobar_politica(rec, None)
+    return motivo
 
 
 def arrancar_contenedor(politica=None):
@@ -463,6 +476,9 @@ def main():
                     help="otro banco de conjuntos (enmienda 6); el control sigue siendo el de los 4 ejemplos del protocolo")
     ap.add_argument("--r1gpu", action="store_true",
                     help="C3′ (enmienda 7): la referencia CON torch; repite los 4 de humo y escribe el suelo de ruido")
+    ap.add_argument("--ninguna", action="store_true",
+                    help="pide los árboles de HOY con MATRIXAI_POLITICA_DE_ARBOLES=ninguna (una imagen con 120-C6 sin torch "
+                         "aplica la de producción en los medianos; sin esto, la medida PARA en vez de medirla en silencio)")
     ap.add_argument("--c3p", action="store_true",
                     help="C3′ (enmienda 7): TabM como un motor más, contra --contra (una R1-GPU); cifra = la del test")
     a = ap.parse_args()
@@ -473,13 +489,15 @@ def main():
     if (a.politica or a.r1gpu or a.c3p) and (Path(a.salida).resolve() == SALIDA.resolve()
                        or (a.contra and Path(a.salida).resolve() == Path(a.contra).resolve())):
         raise SystemExit("--politica, --r1gpu y --c3p escriben en una --salida PROPIA: ni la de R0 (la omisión) ni la de --contra")
+    if a.ninguna and a.politica:
+        raise SystemExit("--ninguna pide los árboles de hoy y --politica una política de medida: una u otra")
     if (a.r1gpu or a.c3p) and a.banco:
         raise SystemExit("C3′ se mide en los 13 del protocolo (enmienda 7): sin --banco")
     IMAGEN, MEMORIA, POLITICA = a.imagen, a.memoria, a.politica
     MODO = "r1gpu" if a.r1gpu else "c3p" if a.c3p else None
     # R1-GPU: la imagen de C3′ con TabM apagado (MATRIXAI_ESTUDIO_SIN_TABM=1, idéntico a 92532b8 con torch, probado en
     # el corte); C3′: la misma imagen, sin la variable. `presencia` comprueba en cada estudio que fue así.
-    ENTORNO_EXTRA = entorno_extra_de(MODO)
+    ENTORNO_EXTRA = entorno_extra_de(MODO, ninguna=a.ninguna)
     contra_doc = json.loads(Path(a.contra).read_text()) if a.contra else None
     contra = contra_doc["conjuntos"] if a.contra else None
     if contra is not None and not contra_doc.get("control", {}).get("cuadra"):
@@ -592,8 +610,14 @@ def main():
         return
     fuente_del_control = banco_entero if a.banco else banco      # con --banco, el control sigue siendo el del protocolo
     pend_control = [b for b in fuente_del_control if b["nombre"] in CONTROL]
-    for b in pend_control:
+    def correr_sin_politica(b):
         correr(b)
+        motivo = sin_politica_o_motivo(datos["conjuntos"][b["nombre"]])
+        if motivo:
+            _paro(datos, "instrumento", motivo, b["nombre"], [])
+
+    for b in pend_control:
+        correr_sin_politica(b)
     if all(n in datos["conjuntos"] for n in CONTROL if any(b["nombre"] == n for b in fuente_del_control)) \
             and len(pend_control) == 4:
         ok, lin = controlar(datos["conjuntos"])
@@ -605,7 +629,7 @@ def main():
     if not a.solo_humo:
         for b in banco:
             if b["nombre"] not in CONTROL:
-                correr(b)
+                correr_sin_politica(b)
     datos["procedencia"]["fin"] = ahora()
     guardar(datos)
     borrar_contenedor()
@@ -653,7 +677,7 @@ def correr_c3p(modo, banco, datos, correr, contra_doc):
                     _paro(datos, "instrumento", f"el control no se repite: {e}", n, nombres[i + 1:])
                 guardar(datos)
                 print(f"SUELO DE RUIDO (los 4 de humo, dos veces): {datos['suelo_de_ruido']:g} puntos", flush=True)
-        motivo = v3.presencia(rec, c3p=(modo == "c3p"))
+        motivo = v3.presencia(rec, c3p=(modo == "c3p")) or sin_politica_o_motivo(rec)
         if motivo:
             _paro(datos, "instrumento", motivo, n, nombres[i + 1:])
         if modo != "c3p":

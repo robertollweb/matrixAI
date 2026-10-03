@@ -222,3 +222,36 @@ def test_el_contenedor_lleva_el_entorno_extra(monkeypatch):
     monkeypatch.setattr(G, "ENTORNO_EXTRA", {})
     G.arrancar_contenedor(None)
     assert not any("SIN_TABM" in x for x in llamadas[0])
+
+
+# ------------------------------------------------------------------ re-auditoría de 120-C6: nada de política sin pedirla
+def test_ninguna_pide_los_arboles_de_hoy_al_contenedor():
+    assert G.entorno_extra_de(None, ninguna=True) == {"MATRIXAI_POLITICA_DE_ARBOLES": "ninguna"}
+    assert G.entorno_extra_de("r1gpu", ninguna=True) == {"MATRIXAI_ESTUDIO_SIN_TABM": "1",
+                                                          "MATRIXAI_POLITICA_DE_ARBOLES": "ninguna"}
+
+
+def test_ninguna_y_politica_a_la_vez_paran(monkeypatch, entorno):
+    r1 = entorno / "r1.json"
+    r1.write_text((_FASE0 / "referencia_120_r1.json").read_text())
+    monkeypatch.setattr(sys, "argv", ["referencia_120_r0.py", "--politica", "l2_0", "--contra", str(r1),
+                                      "--ninguna", "--salida", str(entorno / "s.json")])
+    monkeypatch.setattr(G, "guardar", lambda *a, **k: pytest.fail("la guarda dejó pasar: guardar"))
+    with pytest.raises(SystemExit, match="una u otra"):
+        G.main()
+
+
+def test_c3p_un_arbol_que_declara_una_politica_sin_pedirla_es_un_PARO(entorno):
+    """En una imagen con 120-C6 sin torch, los medianos llevarían la política de producción: medir eso como si
+    fueran los árboles de hoy sería medir otra cosa sin decirlo."""
+    datos = _datos()
+    dos = ("lightgbm", DENSA, TABM)
+    regs = {n: _rec(n, motores=dos) for n in HUMO}
+    regs["dresses-sales"]["intentos"] = [{"motor": m} for m in dos]
+    regs["dresses-sales"]["perfiles_declarados"] = [
+        {"motor": "lightgbm", "candidato": "lightgbm-csv-p0-r0", "estado": "completed", "declara": True,
+         "tamano": "mediano", "l2": 1.0, "aplicada": True}]
+    correr, _ = _correr_desde(datos, regs)
+    with pytest.raises(SystemExit):
+        G.correr_c3p("c3p", _banco(), datos, correr, _contra())
+    assert "SIN pedirla" in datos["corte"]["motivo"]
