@@ -601,6 +601,7 @@ def main():
                              "sha256_veredicto_c3p": sha(AQUI / "veredicto_120_c3p.py"),
                              "sha256_enmienda_7": sha(AQUI / "protocolo_120_enmienda_7.json"),
                              "sha256_enmienda_8": sha(AQUI / "protocolo_120_enmienda_8.json"),
+                             "sha256_enmienda_9": sha(AQUI / "protocolo_120_enmienda_9.json"),
                              "contra": (str(Path(a.contra).resolve()) if a.contra else None),
                              "sha256_contra": (sha(a.contra) if a.contra else None),
                              "sha256_veredicto": sha(AQUI / "veredicto_120.py"),
@@ -745,7 +746,7 @@ def correr_c3p(modo, banco, datos, correr, contra_doc):
         datos["comparaciones"][n] = comp
         guardar(datos)
         dif = "" if comp["diferencia"] is None else f" {comp['diferencia']:+.2f} puntos"
-        print(f"   contra R1-GPU: {comp['clase']}{dif} ({comp['campeon_r1']} → {comp['campeon_c3p']}; "
+        print(f"   contra la referencia: {comp['clase']}{dif} ({comp['campeon_r1']} → {comp['campeon_c3p']}; "
               f"{comp['pared_r1_s']} → {comp['pared_c3p_s']} s)", flush=True)
         paridad = v3.paridad(comp, suelo)
         if paridad:

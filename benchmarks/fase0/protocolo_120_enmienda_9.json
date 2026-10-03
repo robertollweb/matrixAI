@@ -1,0 +1,16 @@
+{
+ "protocolo": "120.v1",
+ "enmienda": 9,
+ "corte": "C3‴ — TabM en el paquete CPU con el checkpoint ligero de motores y una GUARDA DE MEMORIA",
+ "de": "Roberto, 2026-10-03 ~22:05: «vemos cómo sale y si no ponemos esa guarda a conjuntos grandes», tras C3″ (enmienda 8) NO MEJORA por la regla 9: KDDCup09 dejó de completar porque el contenedor (6 GB) murió por memoria con TabM",
+ "estado": "REGISTRADA el 2026-10-03 (deployer-f1) ANTES de medir C3‴ y antes de que exista su imagen. La guarda se decidió DESPUÉS de ver un dato (KDD), y se dice.",
+ "lo_que_se_vio_antes_de_registrar": "diagnóstico (no decide): con el checkpoint ligero de motores (fb007a1), KDD en la condición de C3″ COMPLETA en 6 GB, pero con un pico de 6.064 MB (80 MB de margen) y TabM sin aportar (se quedó sin tiempo en 4 de 5 partes; ganó HGB con la misma cifra de test que R-CPU, AUROC 0,7727). APSFailure muere por memoria en R-CPU (sin TabM): no es de TabM",
+ "que_es_C3tercera": "C3″ (enmienda 8) + el checkpoint de la competición sin lo aprendido (motores fb007a1) + la guarda: TabM compite en un estudio solo si (1,0 + 0,5 × millones de celdas) × 1,15 GB caben en la memoria disponible (el límite del cgroup del contenedor; sin límite, la memoria total). La fórmula es la que ya publica el README del paquete («alrededor de 1 GB más medio GB por cada millón de celdas»), no una ajustada a esta medida; el 1,15 es el margen. Si no cabe, TabM no compite y se dice, con las dos cifras",
+ "lo_que_la_protege": "la guarda solo QUITA a TabM de conjuntos grandes: donde actúa, el estudio es el de R-CPU (la paridad lo exige); no toca a los árboles, la referencia, la política de C6 ni el umbral, y no se elige mirando cifras de test. En los 13: con 6 GB deja fuera a TabM en KDD (11,55 M celdas), APSFailure (13 M) y Allstate (24,9 M); dentro en el resto (Internet-Advertisements, 5,1 M, el mayor)",
+ "referencia": "R-CPU′ = la MISMA imagen de C3‴ con MATRIXAI_ESTUDIO_SIN_DENSA=1 y MATRIXAI_ESTUDIO_SIN_TABM=1, medida otra vez con el mismo guion (--rcpu): la R-CPU de la enmienda 8 es otra imagen",
+ "medida": "la de las enmiendas 7 y 8, sin cambios (cifra del campeón en el TEST, paridad donde TabM no gana, presencia, el sobre de C6 en el paquete CPU, regla 4 y regla 9): referencia_120_r0.py --rcpu y --c3s contra ella",
+ "condicion": "la de la enmienda 8: torch en CPU, cpus=2, memoria 6g",
+ "presupuesto": "estimado, no medido: R-CPU′ ~1,3 h y C3‴ ~2 h (lo medido hoy), en la cola nocturna tras la suite",
+ "si_mejora": "TabM entra en el paquete CPU con la guarda y la densa anterior fuera, empaquetado en el primer arranque (rama empaquetado-cpu-torch)",
+ "si_no_mejora": "el paquete CPU sigue como hoy; TabM, solo en el paquete con GPU"
+}
