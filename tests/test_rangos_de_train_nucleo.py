@@ -839,3 +839,84 @@ def test_I1_ejemplos_para_elegir_devuelve_lo_que_dice_en_los_tres_casos():
     assert decl == {"rule": "target_within_range", "validation_rows": 2, "of": 3}
     sel, decl = ejemplos_para_elegir(mezcla, None)
     assert sel is mezcla and decl is None                         # sin rango: lo de siempre
+
+
+# --------------------------------------------------------------------------- I1: caminos atados
+# M2 de la re-auditoría: tres caminos aplicaban la regla de las alcanzables y NINGUNA prueba los
+# ataba (quitar `objetivo_sin_recorte` de cada uno dejó verdes 7 ficheros del núcleo y 4 del
+# backend). Cada prueba entrena por ESE camino y afirma la declaración y la cifra con todas.
+
+def _sincrono(proj, monkeypatch, backend, epocas, seed=42):
+    """`/api/train` SÍNCRONO: `_run_playground_training`, sin pasar por el trabajo asíncrono."""
+    from matrixai.playground import _run_playground_training
+    monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", backend)
+    tr = proj.get("target_range")
+    r = _run_playground_training(
+        proj["mxai"], proj["training_text"], proj["csv_text"], epocas,
+        field_ranges=proj.get("field_ranges"), target_range=tuple(tr) if tr else None,
+        seed=seed, recortar_objetivo=False)
+    assert r.get("ok"), r.get("error")
+    assert r.get("backend") == backend, r.get("backend")
+    return r
+
+
+@pytest.mark.skipif(not _HAS_TORCH, reason="torch no instalado")
+def test_I1_camino_sincrono_red_densa_elige_con_las_alcanzables_y_publica_con_todas(monkeypatch):
+    proj = _gen(_kelvin(range(100)), ["centigrados", "k"], "k")
+    r = _sincrono(proj, monkeypatch, "torch", 50)
+    assert r.get("network_kind") != "composite_network"
+    assert r["epoch_selection"] == {"rule": "target_within_range", "validation_rows": 7, "of": 20}
+    assert r["best_epoch"] == 50                       # sin la regla salía la época 1
+    pred_val = _predice_kelvin(proj, r["params_best"], VAL_K)
+    assert r["mae"] == pytest.approx(_mae(pred_val, [c + 273.15 for c in VAL_K]), abs=1e-3)
+    assert r["mae"] > 3.0                              # la cifra cuenta las 20, extrapolar no se tapa
+
+
+@pytest.mark.skipif(not _HAS_TORCH, reason="torch no instalado")
+def test_I1_camino_sincrono_red_compuesta_elige_con_las_alcanzables_y_publica_con_todas(monkeypatch):
+    base = _con_ciudad(_filas())
+    cols = ["ciudad", "x1", "x2", "y"]
+    a = _gen(_con(base, {(85, "y"): 400.0}), cols)
+    b = _gen(_con(base, {(85, "y"): 900.0}), cols)
+    assert "EMBEDDING ciudad_emb" in a["mxai"]
+    ra, rb = (_sincrono(p, monkeypatch, "torch", 3) for p in (a, b))
+    assert ra.get("network_kind") == "composite_network"
+    assert ra["epoch_selection"] == {"rule": "target_within_range", "validation_rows": 19, "of": 20}
+    # la elección no mira la fila inalcanzable (misma pérdida de validación y mismo modelo)...
+    assert [e["validation_loss"] for e in ra["epochs"]] == [e["validation_loss"] for e in rb["epochs"]]
+    assert ra["params_best"] == rb["params_best"]
+    # ...y la cifra sí la cuenta, sin recortar
+    assert ra["mae"] != rb["mae"]
+
+
+@pytest.mark.skipif(not _HAS_TORCH, reason="torch no instalado")
+def test_I1_camino_asincrono_del_transformer_elige_con_las_alcanzables_y_publica_con_todas(monkeypatch):
+    from matrixai.training.transformer_generator import TransformerNetworkGenerator
+    monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", "torch")
+    gen = TransformerNetworkGenerator().generate("resenas: Text[16]\nOUTPUT puntuacion: Scalar")
+    muestras = [
+        ("me encanta este producto", 0.9), ("terrible experiencia", 0.1),
+        ("bastante bueno en general", 0.7), ("no lo recomiendo nunca", 0.2),
+        ("calidad excelente de verdad", 0.95), ("una decepcion total", 0.05),
+        ("cumple lo que promete bien", 0.75), ("muy malo no comprar", 0.15),
+    ] * 2
+
+    def _asincrono(ultimo):
+        filas = muestras[:-1] + [(muestras[-1][0], ultimo)]          # la fila 15 es de validación
+        texto = "resenas,predicted_value\n" + "".join(f"{t},{v}\n" for t, v in filas)
+        sub = _submit_training_job(gen.mxai_text, gen.training_text, texto, 4,
+                                   target_range=(0.0, 1.0), recortar_objetivo=False)
+        assert sub.get("ok"), sub
+        st = {}
+        for _ in range(1500):
+            st = _get_job_status(sub["job_id"])
+            if st["status"] in ("done", "error"):
+                break
+            time.sleep(0.1)
+        assert st["status"] == "done", st.get("error")
+        return st
+
+    r = {v: _asincrono(v) for v in (5.0, 9.0)}
+    assert r[5.0]["epoch_selection"] == {"rule": "target_within_range", "validation_rows": 3, "of": 4}
+    assert [e["validation_loss"] for e in r[5.0]["epochs"]] == [e["validation_loss"] for e in r[9.0]["epochs"]]
+    assert r[5.0]["mae"] != r[9.0]["mae"]

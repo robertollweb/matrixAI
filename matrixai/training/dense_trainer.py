@@ -102,6 +102,20 @@ def ejemplos_para_elegir(
     cuyo objetivo cae dentro del rango —las alcanzables—, y la cifra que se
     publica (mae/rmse/r2) se sigue midiendo con TODAS, sin recortar.
 
+    QUÉ ES «ALCANZABLE»: NO «lo visto en train», sino «dentro del rango de
+    NORMALIZACIÓN del objetivo»: el de train más su margen del 10 % (con floor
+    en el extremo inferior y ceil en el superior cuando son enteros), o el
+    rango que el usuario declaró si lo fijó él. Una fila de validación puede
+    caer fuera del mínimo y el máximo vistos en train y seguir siendo alcanzable
+    si cabe en el margen.
+
+    LÍMITE CONOCIDO (menor 1 de la re-auditoría, DECLARADO, NO arreglado): con
+    muy pocas filas alcanzables y un objetivo con ruido, la elección de época es
+    ruidosa. Medido: por torch, 3 de 20 alcanzables y ruido de 0,5 K, mediana de
+    error 0,32 K frente a 0,09 K recortando; por stdlib, con 1 de 20, dos
+    semillas de diez dan 1,6–1,9 K. Un mínimo de filas alcanzables lo cerraría;
+    ese mínimo está POR MEDIR.
+
     POR QUÉ NO SE RECORTAN (que fue lo primero que se probó): recortar pone de
     verdad, para una fila de entrada recortada, el extremo del rango del
     OBJETIVO, y el valor que el modelo debería dar en el extremo de la ENTRADA

@@ -3537,8 +3537,10 @@ def _declaracion_de_eleccion(eleccion: dict[str, Any] | None) -> dict[str, Any]:
     """Lo que el resultado DECLARA de la elección de época (I1), siempre que se
     aplicó la regla (objetivo sin recortar): `best_validation_loss` y la
     `validation_loss` de cada época se midieron con `validation_rows` de las
-    `of` filas de validación (`rule` dice cuáles: las de objetivo dentro de su
-    rango, o todas recortadas si ninguna lo estaba), y `mae`/`rmse`/`r2` con
+    `of` filas de validación (`rule` dice cuáles: las de objetivo dentro del rango
+    de NORMALIZACIÓN del objetivo —el de train más su margen del 10 %, o el
+    declarado por el usuario; no «lo visto en train»—, o todas recortadas si
+    ninguna lo estaba), y `mae`/`rmse`/`r2` con
     TODAS, sin recortar — sin decirlo serían dos cifras de la misma validación
     que no cuadran. Con `validation_rows == of` no hubo ninguna inalcanzable y
     se eligió como siempre. Su AUSENCIA: no se aplicó la regla (objetivo
