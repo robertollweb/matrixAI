@@ -17,6 +17,16 @@ fuera de alcance de este contrato (ver §Fuera de alcance en el contrato).
 
 Reproducible sin GPU: torch-CPU basta (el default `auto` elige stdlib en una
 máquina sin CUDA, por eso el contrato 59 nunca ejerció este camino).
+
+CORTE «RANGOS DE TRAIN» (03-10): se entrena COMO EL STUDIO (`recortar_objetivo=
+False`) y con el DOMINIO de la entrada declarado (0..99, como
+`test_regresion_c59_c1`). Sin declararlo, con los rangos sacados solo de train,
+la validación del CSV ascendente (80..99) es extrapolación y las dos cifras dejan
+de ser comparables: torch publica la de la VALIDACIÓN (R² 0,025, la honrada) y
+stdlib la del CSV ENTERO (0,992; `metric_splits`, deuda anterior a este corte).
+Una diferencia así no dice nada del init de torch, que es lo que este fichero
+vigila. Con el dominio declarado, medido: Kelvin 1,0 por torch y 0,9999 por
+stdlib; Fahrenheit, igual.
 """
 from __future__ import annotations
 
@@ -38,11 +48,16 @@ def _linear_csv(header_x: str, header_y: str, fn, n: int = 100) -> str:
 
 
 def _train_r2(csv_text: str, target_col: str, backend: str) -> float:
-    """Genera un proyecto desde el CSV y lo entrena por `backend`, devolviendo R²."""
+    """Genera un proyecto desde el CSV —con el dominio de su única entrada
+    declarado, 0..99— y lo entrena por `backend` COMO EL STUDIO, devolviendo R²."""
     from matrixai.training.dataset_project import generate_project_from_dataset
     from matrixai import playground as pg
 
-    gen = generate_project_from_dataset(csv_text, target_col)
+    entrada = csv_text.split(",", 1)[0]
+    gen = generate_project_from_dataset(
+        csv_text, target_col,
+        column_type_overrides={entrada: "number"},
+        column_range_overrides={entrada: (0.0, 99.0)})
     assert gen["ok"], gen
     target_range = tuple(gen["target_range"]) if gen.get("target_range") else None
 
@@ -54,6 +69,8 @@ def _train_r2(csv_text: str, target_col: str, backend: str) -> float:
             gen["mxai"], gen["training_text"], gen["csv_text"], None,
             field_ranges=gen.get("field_ranges") or {}, seed=42,
             target_range=target_range,
+            # Como entrena el Studio: el objetivo NO se recorta (A8).
+            recortar_objetivo=False,
         )
         assert sub.get("ok"), sub
         job_id = sub["job_id"]

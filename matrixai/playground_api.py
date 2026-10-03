@@ -35,6 +35,7 @@ from matrixai.training.dataset_project import (
     # CONTRATO 62 C3 — re-preparación de un CSV para un modelo ya generado.
     prepare_dataset_from_provenance,
     _force_temporal_split as force_temporal_split,
+    _forzar_split_temporal_en_proyecto as force_temporal_split_in_project,
     _extract_seed as extract_seed,
     _read_rows as read_csv_rows,
     _rows_to_csv_text as rows_to_csv_text,
@@ -131,6 +132,9 @@ __all__ = [
     "DataProviderError",
     "LicenseAcceptance",
     "force_temporal_split",
+    # Corte «rangos de train» (M4): el SPLIT temporal sobre un proyecto ya
+    # generado, con `range_fit` y la guardia de su partición.
+    "force_temporal_split_in_project",
     "extract_seed",
     "read_csv_rows",
     "rows_to_csv_text",

@@ -84,6 +84,47 @@ def _examples_to_xy(
     return result
 
 
+def ejemplos_para_elegir(
+    ejemplos: list[tuple[Any, list[float]]],
+    rango: tuple[float, float] | None,
+) -> tuple[list[tuple[Any, list[float]]], dict[str, Any] | None]:
+    """La VALIDACIÓN CON LA QUE SE ELIGE LA ÉPOCA (la mejor y la parada
+    temprana) cuando el objetivo de regresión se normalizó SIN recortar a su
+    `rango` (corte «rangos de train», A8 + I1). Devuelve `(ejemplos, declaración)`.
+
+    LA ELECCIÓN Y LA CIFRA SON DOS PREGUNTAS. Con el rango del objetivo
+    ajustado solo con train, un objetivo de validación puede quedar fuera de él,
+    y sus entradas, si también se salen, llegan recortadas a [0, 1] igual que al
+    predecir: para esas filas el modelo no puede acertar, y medirlas tal cual
+    para ELEGIR castiga a la red por lo que no puede alcanzar (medido, Kelvin
+    ascendente por torch: la época elegida pasaba de la 50 a la 1 y el error
+    DENTRO del dominio de 0,008 a 1,6 K). Así que se elige SOLO con las filas
+    cuyo objetivo cae dentro del rango —las alcanzables—, y la cifra que se
+    publica (mae/rmse/r2) se sigue midiendo con TODAS, sin recortar.
+
+    POR QUÉ NO SE RECORTAN (que fue lo primero que se probó): recortar pone de
+    verdad, para una fila de entrada recortada, el extremo del rango del
+    OBJETIVO, y el valor que el modelo debería dar en el extremo de la ENTRADA
+    es otro (Kelvin: 360,05 frente a 360,15 K). Con stdlib —SGD de lote 1, que
+    llega a pérdidas de 1e-8— esa verdad desplazada eligió una época de la 3 a
+    la 16 en 7 de 10 semillas (error en dominio 0,18–0,48 K; mediana 0,32 K).
+    Excluyéndolas, por stdlib: ≤ 0,01 K en 7 de 10; por torch, lo mismo que
+    recortando (9 de 10 semillas idénticas, y la otra mejor). Solo si NINGUNA
+    fila cae dentro se recortan todas, que es lo único que queda por medir.
+
+    Sin `rango` (quien recorta el objetivo, o una clasificación), los MISMOS
+    ejemplos —ni una copia— y `None`: se entrena exactamente igual que antes."""
+    if rango is None:
+        return ejemplos, None
+    lo, hi = rango
+    dentro = [(x, y) for x, y in ejemplos if all(lo <= v <= hi for v in y)]
+    if dentro:
+        return dentro, {"rule": "target_within_range",
+                        "validation_rows": len(dentro), "of": len(ejemplos)}
+    return ([(x, [min(hi, max(lo, v)) for v in y]) for x, y in ejemplos],
+            {"rule": "target_clipped", "validation_rows": len(ejemplos), "of": len(ejemplos)})
+
+
 class DenseSupervisedTrainer:
     """Train a dense neural network defined as a NETWORK block in .mxai."""
 
@@ -95,7 +136,13 @@ class DenseSupervisedTrainer:
         training_path: Path | None = None,
         epoch_callback: Any | None = None,
         seed: int = 42,
+        rango_objetivo_eleccion: tuple[float, float] | None = None,
     ) -> TrainingRunResult:
+        """`rango_objetivo_eleccion` (corte «rangos de train», I1): si se da, la
+        pérdida de validación con la que se ELIGE la época (la mejor y la parada
+        temprana) se mide solo con las filas alcanzables (`ejemplos_para_elegir`);
+        la evaluación de validación, con todas. Por omisión `None`: igual que
+        siempre."""
         base_path = base_path or Path(".")
         output_dir = output_dir or "output"
         out = Path(output_dir)
@@ -180,6 +227,10 @@ class DenseSupervisedTrainer:
 
         from matrixai.forward.dense_forward import dense_forward
 
+        # La validación con la que se ELIGE (I1); `val_ex` sigue intacto para la
+        # evaluación de más abajo.
+        val_eleccion, eleccion = ejemplos_para_elegir(val_ex, rango_objetivo_eleccion)
+
         for epoch in range(1, epochs + 1):
             epoch_loss = 0.0
             for x, y in train_ex:
@@ -188,10 +239,10 @@ class DenseSupervisedTrainer:
             train_loss = epoch_loss / len(train_ex) if train_ex else 0.0
 
             val_loss = 0.0
-            for x, y in val_ex:
+            for x, y in val_eleccion:
                 pred = dense_forward(net, ps, x)
                 val_loss += compute_loss(loss_fn, pred, y)
-            val_loss = val_loss / len(val_ex) if val_ex else train_loss
+            val_loss = val_loss / len(val_eleccion) if val_eleccion else train_loss
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -286,6 +337,9 @@ class DenseSupervisedTrainer:
                 # pantalla y el export saben leer.
                 "accuracy": accuracy,
                 "validation_metrics": validation_metrics or None,
+                # CON QUÉ FILAS SE ELIGIÓ LA ÉPOCA, cuando se aplicó la regla de
+                # las alcanzables (I1, `ejemplos_para_elegir`).
+                **({"epoch_selection": eleccion} if eleccion is not None else {}),
             }, indent=2),
             encoding="utf-8",
         )

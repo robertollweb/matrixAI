@@ -1598,19 +1598,7 @@ def generate_temporal_project_from_dataset(
     # mode=temporal no lo admite, ver parser.py) en vez de enseñarle a GEN
     # un concepto que no le pertenece (GEN no sabe nada de series
     # temporales; C3/C4 sí).
-    result["training_text"] = _force_temporal_split(result.get("training_text") or "")
-
-    # Los rangos se ajustaron con la partición LEGADA de la llamada interna; el
-    # `.mxtrain` ahora declara `mode=temporal`. Coinciden en su `train` (medido
-    # para n = 0..5000, y atado por prueba), y aquí se COMPRUEBA con las n reales:
-    # si algún día divergen, falla cerrado en vez de dejar rangos de otras filas.
-    _rf = result["provenance"].get("range_fit")
-    if _rf is not None:
-        _n = int(_rf["n_rows_with_target"])
-        _usada = particion_para(_n, parse_split_line(LINEA_SPLIT_POR_DEFECTO))
-        _comprobar_particion_del_entrenador(result["training_text"], _n, _usada)
-        _rf["partition"] = _particion_declarada_por(result["training_text"], _n).como_dict()
-        _rf["split"] = _RE_LINEA_SPLIT.search(result["training_text"]).group(0).strip()
+    _forzar_split_temporal_en_proyecto(result)
 
     # Reauditoría 2026-07-17 (ronda 2) [MEDIA]: `provenance["seed"]` se
     # había extraído del `training_text` ALEATORIO original (seed=42, el
@@ -1644,6 +1632,40 @@ def generate_temporal_project_from_dataset(
         "pipeline_operations": [s.to_dict() for s in pipeline_result.steps],
     }
     return result
+
+
+def _forzar_split_temporal_en_proyecto(result: dict[str, Any]) -> None:
+    """Reescribe el SPLIT de un proyecto YA generado a `mode=temporal`
+    (`_force_temporal_split`) y deja `provenance["range_fit"]` diciendo la
+    partición que el entrenador va a usar con él.
+
+    LOS RANGOS SE AJUSTARON CON OTRA DECLARACIÓN: la de la generación
+    (`range_fit["split"]`, hoy la legada). El `train` de la legada y el del
+    temporal 0,8 coinciden (medido para n = 0..5000 y atado por prueba), pero
+    aquí se COMPRUEBA con las n reales y la línea que de verdad se escribe: si
+    algún día divergen —p. ej. un SPLIT por omisión con otro ratio, que la
+    legada ignora (0,8 fijo) y el temporal honra—, falla CERRADO en vez de
+    dejar un proyecto cuyos rangos vieron filas que el entrenador reserva. (Uno
+    con `protocol=2` también falla cerrado, antes: la reescritura conserva solo
+    `train`/`validation`, que ya no suman 1, y el SPLIT resultante no se admite.)
+
+    Un solo sitio para los dos que fuerzan el temporal sobre un proyecto ya
+    generado: el envoltorio temporal (C4) y las plantillas con `sort_temporal`
+    del Studio (`force_temporal_split_in_project`). Antes, el de las plantillas
+    reescribía el SPLIT y dejaba `range_fit` declarando el aleatorio con su
+    semilla, sin comprobar nada (auditoría M4)."""
+    result["training_text"] = _force_temporal_split(result.get("training_text") or "")
+    _rf = (result.get("provenance") or {}).get("range_fit")
+    if _rf is None:
+        return
+    _n = int(_rf["n_rows_with_target"])
+    try:
+        _usada = particion_para(_n, parse_split_line(_rf["split"]))
+    except MatrixAITrainingParseError as exc:
+        raise DatasetProjectError(f"range_fit declara un SPLIT no válido: {exc}") from exc
+    _comprobar_particion_del_entrenador(result["training_text"], _n, _usada)
+    _rf["partition"] = _particion_declarada_por(result["training_text"], _n).como_dict()
+    _rf["split"] = _RE_LINEA_SPLIT.search(result["training_text"]).group(0).strip()
 
 
 def _force_temporal_split(training_text: str) -> str:

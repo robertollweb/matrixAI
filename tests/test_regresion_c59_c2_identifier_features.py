@@ -15,6 +15,7 @@ Test de cierre del contrato (C2): `generate_project_from_dataset(csv_kelvin,
 verdad + features reales sigue descartando el id."""
 from __future__ import annotations
 
+import random
 import time
 import unittest
 
@@ -22,9 +23,9 @@ from matrixai.playground import _get_job_status, _submit_training_job
 from matrixai.training.dataset_project import DatasetProjectError, generate_project_from_dataset
 
 
-def _kelvin_csv(n: int = 100) -> str:
+def _kelvin_csv(n: int = 100, orden: list[int] | None = None) -> str:
     lines = ["centigrados,prediccionKelvin"]
-    for c in range(n):
+    for c in (orden if orden is not None else range(n)):
         lines.append(f"{c},{c + 273.15}")
     return "\n".join(lines) + "\n"
 
@@ -70,11 +71,23 @@ class TestKelvinCsvWorksWithoutAnyOverrides(unittest.TestCase):
 
     def test_reconsidered_feature_learns_end_to_end(self):
         """No basta con que genere — tiene que APRENDER (el objetivo del
-        contrato entero, no solo 'no reventar')."""
-        proj = generate_project_from_dataset(_kelvin_csv(), "prediccionKelvin")
+        contrato entero, no solo 'no reventar').
+
+        Corte «rangos de train» (03-10): se entrena COMO EL STUDIO (objetivo sin
+        recortar) y con las filas BARAJADAS. El orden no es lo que esta prueba
+        mira —mira que la columna reconsiderada sirva de feature—, y en el orden
+        ascendente, con los rangos sacados solo de train, la validación (80..99)
+        es extrapolación: su cifra honrada es otra pregunta (la ata
+        `test_T6_el_caso_ordenado_sin_dominio_declarado_da_la_cifra_honrada`).
+        Medido como el Studio, barajado: R² 1,0 por stdlib y por torch."""
+        orden = list(range(100))
+        random.Random(99).shuffle(orden)
+        proj = generate_project_from_dataset(_kelvin_csv(orden=orden), "prediccionKelvin")
+        self.assertIn("reconsidered_identifier_as_feature:centigrados", proj["provenance"]["operations"])
         submitted = _submit_training_job(
             proj["mxai"], proj["training_text"], proj["csv_text"],
             field_ranges=proj.get("field_ranges"), target_range=tuple(proj["target_range"]),
+            recortar_objetivo=False,
         )
         self.assertTrue(submitted.get("ok"), submitted.get("error"))
         job_id = submitted["job_id"]

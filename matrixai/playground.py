@@ -1825,6 +1825,9 @@ def _collect_training_result(
         "metrics": metrics,
         "training_trace": training_trace,
         "evaluation_report": evaluation_report,
+        # I1: con qué filas eligió la época el trainer, cuando aplicó la regla
+        # de las alcanzables (lo escribe él en su traza, que es donde ocurre).
+        **_declaracion_de_eleccion((training_trace or {}).get("epoch_selection")),
     }
 
 
@@ -1950,6 +1953,7 @@ def _dense_torch_train_result(
     initial_state_dict: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
     plazo: float | None = None,
+    objetivo_sin_recorte: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """GPU-C3 — train a dense_network with the torch trainer and build the SAME
     result shape as the stdlib path (so snapshot/infer/export/M3 metrics are
@@ -1967,7 +1971,7 @@ def _dense_torch_train_result(
     from matrixai.parameters.network_params import build_network_parameter_set
     from matrixai.parameters.store import program_hash
     from matrixai.training.dense_trainer import (
-        _labels_from_spec, _examples_to_xy,
+        _labels_from_spec, _examples_to_xy, ejemplos_para_elegir,
     )
     from matrixai.training.data import CSVDataAdapter
     from matrixai.training.dense_torch_trainer import (
@@ -2035,6 +2039,10 @@ def _dense_torch_train_result(
         # fichero, `or examples[-1:]`) — el trainer torch exige
         # validation_examples no vacío si se declara explícitamente.
         val_ex = _val_declarada or examples[-1:]
+        # I1: la validación con la que se ELIGE (las filas alcanzables); la
+        # evaluación de abajo usa `val_ex` entero, tal cual.
+        _val_eleccion, _eleccion = ejemplos_para_elegir(
+            val_ex, _rango_para_elegir(training, objetivo_sin_recorte))
 
         # M15(a): plantilla de estructura (sin pesos en Python); el módulo torch usa su
         # init nativo (Kaiming), sembrado por torch.manual_seed(seed) en el trainer.
@@ -2063,7 +2071,7 @@ def _dense_torch_train_result(
             # texto que no los declara.
             weight_decay=training.optimizer.weight_decay if training.optimizer else 0.0,
             schedule=training.optimizer.schedule if training.optimizer else None,
-            validation_examples=val_ex,
+            validation_examples=_val_eleccion,
             # PESOS_GRANDES C3: `materialize` sin fijar → el trainer decide por
             # umbral (`torch_native_min_params`). Por debajo materializa (igual que
             # siempre, `best_params`); por encima devuelve `best_state_dict`
@@ -2153,6 +2161,7 @@ def _dense_torch_train_result(
         # un resultado SIN esta clave y la captura dirá `applied: false`, que es
         # lo que pasó: los pesos llegaron y no se usaron.
         "warm_start_applied": bool(initial_state_dict),
+        **_declaracion_de_eleccion(_eleccion),
         # DECLARAR LO QUE PASÓ: True = el entrenamiento se paró por su plazo y esto
         # es la mejor época vista hasta ahí (`train_dense_network_torch`, `plazo`).
         "parado_por_plazo": bool(tr.get("parado_por_plazo")),
@@ -2210,6 +2219,7 @@ def _run_playground_dense_training(
     initial_state_dict: dict[str, Any] | None = None,
     target_range: tuple[float, float] | None = None,
     plazo: float | None = None,
+    objetivo_sin_recorte: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Synchronous training for NETWORK (dense) models using DenseSupervisedTrainer.
 
@@ -2257,7 +2267,8 @@ def _run_playground_dense_training(
             return _dense_torch_train_result(mxai_text, training, spec, csv_text,
                                              device, seed, epoch_callback, cancel_check,
                                              initial_state_dict=initial_state_dict,
-                                             target_range=target_range, plazo=plazo)
+                                             target_range=target_range, plazo=plazo,
+                                             objetivo_sin_recorte=objetivo_sin_recorte)
         except _TrainingCancelled:
             raise
         except Exception as exc:  # noqa: BLE001  — never let GPU break training: fall back
@@ -2279,6 +2290,9 @@ def _run_playground_dense_training(
 
     result_holder: dict[str, Any] = {}
     error_holder: list[str] = []
+    # I1: misma regla que el camino torch (ver `_rango_para_elegir`); el
+    # trainer la aplica y la declara en su traza.
+    _rango_eleccion = _rango_para_elegir(training, objetivo_sin_recorte)
 
     def _do_train(tmp: Path) -> None:
         try:
@@ -2290,6 +2304,7 @@ def _run_playground_dense_training(
             run_result = DenseSupervisedTrainer().train(
                 spec, output_dir=run_dir, base_path=tmp, training_path=training_path,
                 epoch_callback=_internal_cb, seed=seed,
+                rango_objetivo_eleccion=_rango_eleccion,
             )
             result_holder["run"] = (run_result, tmp, spec)
         except Exception as exc:  # noqa: BLE001
@@ -2333,6 +2348,7 @@ def _run_playground_composite_training(
     cancel_check: Any = None,
     target_range: tuple[float, float] | None = None,
     plazo: float | None = None,
+    objetivo_sin_recorte: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """M2-C2 — Synchronous training for composite (P19) NETWORK models.
 
@@ -2360,7 +2376,8 @@ def _run_playground_composite_training(
         from matrixai.forward.composite_forward import composite_forward
         from matrixai.training.composite_evaluator import evaluate_composite_network
         from matrixai.training.dense_backprop import compute_loss
-        from matrixai.training.dense_trainer import _labels_from_spec, _examples_to_xy
+        from matrixai.training.dense_trainer import (
+            _labels_from_spec, _examples_to_xy, ejemplos_para_elegir)
         from matrixai.training.data import CSVDataAdapter
         from matrixai.parameters.store import program_hash
 
@@ -2420,6 +2437,10 @@ def _run_playground_composite_training(
         _particion = particion_para(len(examples), training.dataset.split)
         train_ex, _val_declarada, _test_ex = reparte(examples, _particion)
         val_ex = _val_declarada or examples[-1:]
+        # I1: la validación con la que se ELIGE (las filas alcanzables, ver
+        # `_rango_para_elegir`); `val_ex` sigue entero para la evaluación.
+        _val_eleccion, _eleccion = ejemplos_para_elegir(
+            val_ex, _rango_para_elegir(training, objetivo_sin_recorte))
 
         mhash = program_hash(program)
         epoch_trace: list[dict[str, Any]] = []
@@ -2499,8 +2520,13 @@ def _run_playground_composite_training(
             _honra_particion = (
                 (_split_spec is not None and _split_spec.mode == "temporal")
                 or _particion.protocolo == PROTOCOLO_SEPARACION)
-            if _honra_particion:
-                _torch_examples, _torch_val = train_ex, val_ex
+            # I1: con elección por filas alcanzables (`_eleccion`), la validación
+            # va EXPLÍCITA también sin `_honra_particion`. No cambia el train:
+            # sin protocol=2 ni temporal, `train_ex`/`val_ex` son la partición
+            # LEGADA, `max(1, int(n * 0.8))` en orden —la misma fórmula que el
+            # 80/20 interno del trainer—, así que son las mismas filas.
+            if _honra_particion or _eleccion is not None:
+                _torch_examples, _torch_val = train_ex, _val_eleccion
             else:
                 _torch_examples, _torch_val = examples, None
             tr = train_composite_network_torch(
@@ -2565,10 +2591,10 @@ def _run_playground_composite_training(
                 final_train_loss = epoch_loss / len(train_ex) if train_ex else 0.0
 
                 val_loss = 0.0
-                for x, y in val_ex:
+                for x, y in _val_eleccion:
                     pred = composite_forward(net, ps, x, training=False)
                     val_loss += compute_loss(loss_fn, pred, y)
-                val_loss = val_loss / len(val_ex) if val_ex else final_train_loss
+                val_loss = val_loss / len(_val_eleccion) if _val_eleccion else final_train_loss
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
@@ -2655,6 +2681,7 @@ def _run_playground_composite_training(
             },
             "evaluation_report": evaluation_report,
             **({"parado_por_plazo": parado_por_plazo} if parado_por_plazo is not None else {}),
+            **_declaracion_de_eleccion(_eleccion),
             "network_kind": "composite_network",
         }
     except _TrainingCancelled:
@@ -2749,6 +2776,7 @@ def _run_playground_transformer_training(
     seed: int = 42,
     cancel_check: Any = None,
     target_range: tuple[float, float] | None = None,
+    objetivo_sin_recorte: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """SECUENCIAS_PRODUCTO C4 — synchronous training for a BLOCK TRANSFORMER
     (SEQUENCE input) NETWORK model, called from the SAME `network_call`
@@ -2828,6 +2856,10 @@ def _run_playground_transformer_training(
         _particion = particion_para(len(examples), training.dataset.split)
         train_ex, _val_declarada, _test_ex = reparte(examples, _particion)
         val_ex = _val_declarada or examples[-1:]
+        # I1: misma regla que dense/composite (ver `_rango_para_elegir`).
+        from matrixai.training.dense_trainer import ejemplos_para_elegir
+        _val_eleccion, _eleccion = ejemplos_para_elegir(
+            val_ex, _rango_para_elegir(training, objetivo_sin_recorte))
 
         mhash = program_hash(program)
         ps = build_composite_network_parameter_set(
@@ -2855,7 +2887,7 @@ def _run_playground_transformer_training(
             # CONTRATO 118-C3b: la receta declarada, aplicada de verdad.
             weight_decay=training.optimizer.weight_decay if training.optimizer else 0.0,
             schedule=training.optimizer.schedule if training.optimizer else None,
-            validation_examples=val_ex,
+            validation_examples=_val_eleccion,
         )
         best_ps = tr["best_params"]
         best_state = tr["best_state_dict"]
@@ -2942,6 +2974,7 @@ def _run_playground_transformer_training(
                 **_receta_optimizador_c3b(training.optimizer),
             },
             "evaluation_report": evaluation_report,
+            **_declaracion_de_eleccion(_eleccion),
             "network_kind": "composite_network",
         }
         if _collapse is not None:
@@ -3021,10 +3054,14 @@ def _run_playground_training(
     # (misma semántica que `_submit_training_job`) — booleanos/one-hot en 0/1 e
     # índices de embedding quedan intactos porque no llevan rango.
     normalize_ranges = _compose_normalize_ranges(mxai_text, field_ranges, target_range)
+    # Las columnas normalizadas SIN recortar (A8). Las mismas llegan a los
+    # trainers de red, que eligen la época solo con las filas de validación
+    # alcanzables (I1, `_rango_para_elegir`).
+    sin_recorte = (_columnas_sin_recorte(mxai_text, target_range, recortar_objetivo)
+                   if normalize_ranges else frozenset())
     if normalize_ranges:
         csv_text = _normalize_csv_with_ranges(
-            csv_text, normalize_ranges,
-            sin_recorte=_columnas_sin_recorte(mxai_text, target_range, recortar_objetivo))
+            csv_text, normalize_ranges, sin_recorte=sin_recorte)
     prediction_kind = _get_prediction_kind(mxai_text, training_text)
 
     if prediction_kind == "layer_call":
@@ -3066,15 +3103,15 @@ def _run_playground_training(
         if _network_is_transformer(mxai_text):
             return _run_playground_transformer_training(
                 mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
-                seed=seed)
+                seed=seed, objetivo_sin_recorte=sin_recorte)
         # M2-C2: route composite (P19) networks to the composite trainer
         if _network_is_composite(mxai_text):
             return _run_playground_composite_training(
                 mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
-                seed=seed, plazo=plazo)
+                seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte)
         return _run_playground_dense_training(
             mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
-            seed=seed, plazo=plazo)
+            seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte)
 
     validation = _validate_training_csv(mxai_text, training_text, csv_text)
     if not validation.get("ok"):
@@ -3473,6 +3510,42 @@ def _columnas_sin_recorte(mxai_text: str, target_range: Any,
     return frozenset({salida}) if salida is not None else frozenset()
 
 
+#: EL RANGO DEL OBJETIVO NORMALIZADO: [0, 1]. Contra él se decide qué filas de
+#: validación son ALCANZABLES para elegir la época cuando el objetivo se
+#: normalizó sin recortar (A8 + I1, `dense_trainer.ejemplos_para_elegir`).
+_RANGO_DEL_OBJETIVO_NORMALIZADO = (0.0, 1.0)
+
+
+def _rango_para_elegir(training: Any, sin_recorte: frozenset[str] | set[str]) -> tuple[float, float] | None:
+    """El rango con el que se separan las filas de validación alcanzables para
+    ELEGIR la época (mejor época y parada temprana), o `None` si se elige con
+    todas, como siempre. El porqué, en `dense_trainer.ejemplos_para_elegir`:
+    la elección mira lo que el modelo puede alcanzar y la cifra que se publica
+    se sigue midiendo con el objetivo SIN recortar.
+
+    Solo si la columna que el entrenador lee como objetivo
+    (`training.dataset.target.name`) es la que se normalizó sin recortar: si
+    no lo es, esa columna no está en [0, 1] y el rango no le dice nada."""
+    try:
+        objetivo = training.dataset.target.name
+    except AttributeError:
+        return None
+    return _RANGO_DEL_OBJETIVO_NORMALIZADO if objetivo in (sin_recorte or ()) else None
+
+
+def _declaracion_de_eleccion(eleccion: dict[str, Any] | None) -> dict[str, Any]:
+    """Lo que el resultado DECLARA de la elección de época (I1), siempre que se
+    aplicó la regla (objetivo sin recortar): `best_validation_loss` y la
+    `validation_loss` de cada época se midieron con `validation_rows` de las
+    `of` filas de validación (`rule` dice cuáles: las de objetivo dentro de su
+    rango, o todas recortadas si ninguna lo estaba), y `mae`/`rmse`/`r2` con
+    TODAS, sin recortar — sin decirlo serían dos cifras de la misma validación
+    que no cuadran. Con `validation_rows == of` no hubo ninguna inalcanzable y
+    se eligió como siempre. Su AUSENCIA: no se aplicó la regla (objetivo
+    recortado, o clasificación)."""
+    return {"epoch_selection": dict(eleccion)} if eleccion else {}
+
+
 def _normalize_input_with_ranges(
     input_data: Any, field_ranges: dict[str, tuple[float, float]] | None
 ) -> Any:
@@ -3868,10 +3941,14 @@ def _submit_training_job(
 
     # M5: domain-scale CSV → normalized BEFORE validation, so the validator and
     # the three trainer paths only ever see slider-space [0,1] values.
+    # Las columnas normalizadas SIN recortar (A8); los trainers de red eligen
+    # la época solo con las filas de validación alcanzables (I1,
+    # `_rango_para_elegir`).
+    sin_recorte = (_columnas_sin_recorte(mxai_text, target_range, recortar_objetivo)
+                   if normalize_ranges else frozenset())
     if normalize_ranges:
         csv_text = _normalize_csv_with_ranges(
-            csv_text, normalize_ranges,
-            sin_recorte=_columnas_sin_recorte(mxai_text, target_range, recortar_objetivo))
+            csv_text, normalize_ranges, sin_recorte=sin_recorte)
 
     validation = _validate_training_csv(mxai_text, training_text, csv_text)
     if not validation.get("ok"):
@@ -4090,7 +4167,10 @@ def _submit_training_job(
         # preparado (`dataset_sha256_prepared`) cuando algún objetivo sale del
         # rango, así que quien rehaga los datos necesita saberlo. Se escribe
         # solo cuando es `False`: su AUSENCIA significa «recortado», que es lo
-        # que hacían todas las capturas anteriores.
+        # que hacían todas las capturas anteriores. Con `False`, la ÉPOCA se
+        # elige solo con las filas de validación cuyo objetivo cae dentro de
+        # su rango (I1, `_rango_para_elegir`; el resultado lo declara en
+        # `epoch_selection`), y la cifra se mide con todas.
         **({"target_clipped": False}
            if (not recortar_objetivo and target_range is not None) else {}),
         # DE QUÉ PESOS PARTIÓ (warm start).
@@ -4199,12 +4279,14 @@ def _submit_training_job(
                     result = _run_playground_transformer_training(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check, target_range=target_range,
+                        objetivo_sin_recorte=sin_recorte,
                     )
                 # M2-C2: composite (P19) networks use the composite trainer
                 elif _network_is_composite(mxai_text):
                     result = _run_playground_composite_training(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check, target_range=target_range,
+                        objetivo_sin_recorte=sin_recorte,
                     )
                 else:
                     # PESOS_GRANDES C5: reanudar desde `initial_state_dict` solo
@@ -4212,7 +4294,7 @@ def _submit_training_job(
                     result = _run_playground_dense_training(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check, initial_state_dict=initial_state_dict,
-                        target_range=target_range,
+                        target_range=target_range, objetivo_sin_recorte=sin_recorte,
                     )
                 if cancel_event.is_set():
                     job["status"] = "timeout" if job.get("_timed_out") else "cancelled"

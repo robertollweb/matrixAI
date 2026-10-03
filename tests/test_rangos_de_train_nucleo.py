@@ -24,23 +24,33 @@ ata lo que el corte promete:
 * T8: la partición temporal y la legada coinciden en su `train` (por eso los
   rangos del temporal son los correctos aunque el SPLIT se reescriba después).
 * T9: la guardia que falla cerrada si el entrenador partiría distinto.
+* T3: PARIDAD. Si la validación (y lo que no es train) no trae extremos, todo es
+  idéntico a calcular los rangos con el CSV entero —que es lo que hacía el código
+  de antes—: rangos, prompt, `.mxai`, `.mxtrain`, CSV preparado y `params_best`.
+  (La captura byte a byte contra el código de `52b4bbc`, que no puede vivir en
+  una prueba, la repiten las auditorías con su guion `paridad.py`.)
+* I1: la elección de época con el objetivo sin recortar (ver su sección).
 
-Los T3 (paridad bit a bit con el código de antes), T4 (ida y vuelta por el
-Studio) y T5 por el endpoint viven en el backend del Studio.
+T4 (ida y vuelta por el Studio) y T5 por el endpoint viven en el backend del
+Studio (`test_rangos_de_train_studio.py`).
 """
 from __future__ import annotations
 
 import copy
 import csv
+import hashlib
+import importlib.util
 import io
 import json
+import os
 import random
 import time
 
 import pytest
 
 from matrixai.playground import (
-    _get_job_status, _normalize_csv_with_ranges, _submit_training_job, _training_jobs)
+    _columna_de_salida, _get_job_status, _normalize_csv_with_ranges, _submit_training_job,
+    _training_jobs)
 from matrixai.playground_api import analyze_dataset_csv
 from matrixai.training import dense_generator
 from matrixai.training.dataset_project import (
@@ -160,9 +170,14 @@ def test_T1_extremos_del_objetivo_solo_en_validacion_misma_traza_de_train_loss()
     k = min(len(la), len(lb))
     assert k >= 3
     assert la[:k] == lb[:k]                           # el train no ve la validación
-    # y el objetivo SIN recortar sí llega a la validación: pierde distinto
-    assert [e["validation_loss"] for e in ta["epochs"][:k]] != \
+    # La fila 85 (400 / 900) está fuera del rango del objetivo de train: es
+    # INALCANZABLE, así que la ELECCIÓN de época no la mira (I1) y las dos
+    # pérdidas de validación coinciden...
+    assert [e["validation_loss"] for e in ta["epochs"][:k]] == \
            [e["validation_loss"] for e in tb["epochs"][:k]]
+    assert ta["epoch_selection"] == {"rule": "target_within_range", "validation_rows": 19, "of": 20}
+    # ...y el objetivo SIN recortar sí llega a lo que se MIDE: la cifra es distinta
+    assert ta["mae"] != tb["mae"] and ta["r2"] != tb["r2"]
 
 
 def test_T1_paridad_si_la_validacion_no_se_sale_los_rangos_son_los_del_csv_entero():
@@ -186,6 +201,26 @@ def test_T1b_objetivos_nulos_intercalados_la_particion_es_la_de_las_filas_CON_ob
     esperado = _propuestas([f for f in filas[10:82]])
     assert proj["field_ranges"]["x1"][1] == esperado["x1"][1]
     assert 500 < proj["field_ranges"]["x1"][1] < 600     # incluye el 500, no el 9000
+
+
+def test_T1b_el_tamano_que_ve_el_generador_es_el_de_las_filas_CON_objetivo():
+    """`dataset_rows` (lo que dimensiona la red y redacta el aviso de «dataset
+    pequeño») cuenta las filas que van a ENTRENAR —las que tienen objetivo, el
+    mismo `filas_con_objetivo` de la partición—, no las del fichero (contrato
+    64 C2). Ninguna prueba lo ataba: contar las del fichero salía verde
+    (auditoría P2c). 30 filas con objetivo y 3.000 sin él: el aviso dice 30."""
+    r = random.Random(1)
+    cols = [f"x{i}" for i in range(6)] + ["y"]
+    filas = []
+    for i in range(3030):
+        f = {f"x{j}": round(r.uniform(0, 10), 3) for j in range(6)}
+        f["y"] = round(sum(f.values()) + r.gauss(0, .3), 3) if i < 30 else None
+        filas.append(f)
+    proj = _gen(filas, cols)
+    assert proj["provenance"]["range_fit"]["n_rows_with_target"] == 30
+    avisos = json.dumps(proj.get("pipeline_stages"), ensure_ascii=False)
+    assert "El dataset (30 filas) es pequeño" in avisos
+    assert "3.030" not in avisos and "3030" not in avisos
 
 
 # --------------------------------------------------------------------------- T2
@@ -234,6 +269,94 @@ def test_parse_split_line_es_el_parser_del_mxtrain_y_la_constante_es_la_que_se_e
     assert LINEA_SPLIT_POR_DEFECTO in proj["training_text"]
     assert parse_training_text(proj["training_text"]).dataset.split == \
         parse_split_line(LINEA_SPLIT_POR_DEFECTO)
+
+
+# --------------------------------------------------------------------------- T3
+
+def _plantar(filas, cols, i_lo, i_hi):
+    """Los extremos de cada columna numérica, en dos filas de TRAIN."""
+    for c in cols:
+        vals = [f[c] for f in filas if isinstance(f.get(c), (int, float))]
+        es_int = all(isinstance(v, int) for v in vals)
+        filas[i_lo][c] = (min(vals) - 1) if es_int else round(min(vals) - 1.5, 3)
+        filas[i_hi][c] = (max(vals) + 1) if es_int else round(max(vals) + 1.5, 3)
+    return filas
+
+
+def _escenarios_t3():
+    r = random.Random(11)
+    reg = [{"a": round(r.uniform(0, 10), 3), "b": round(r.uniform(-5, 5), 3), "n": r.randint(1, 50)}
+           for _ in range(120)]
+    for f in reg:
+        f["y"] = round(2 * f["a"] - f["b"] + 0.1 * f["n"] + r.gauss(0, .5), 3)
+    clas = []
+    for _ in range(150):
+        a, b, cat = round(r.uniform(0, 1), 4), round(r.uniform(100, 900), 2), r.choice(["rojo", "verde", "azul"])
+        clas.append({"a": a, "b": b, "cat": cat, "bo": r.choice(["true", "false"]),
+                     "y": "si" if a + b / 900 + (0.3 if cat == "rojo" else 0) > 1.0 else "no"})
+    ciudades = [f"c{i:02d}x" for i in range(30)]
+    comp = []
+    for i in range(300):
+        x = round(r.uniform(0, 20), 3)
+        c = ciudades[i % 30]
+        comp.append({"ciudad": c, "x": x, "y": round(x * 1.5 + ciudades.index(c) * 0.2 + r.gauss(0, 1), 3)})
+    nulos = []
+    for i in range(130):
+        a, k = round(r.uniform(0, 3), 3), r.randint(0, 20)
+        nulos.append({"a": a, "k": k, "y": round(a * 3 + k + r.gauss(0, .3), 2)})
+    _plantar(nulos, ["a", "k", "y"], 1, 5)
+    for i, f in enumerate(nulos):
+        if i % 11 == 3:
+            f["a"] = None                      # hueco en una entrada (imputación)
+        if i % 9 == 4:
+            f["y"] = None                      # objetivo nulo intercalado
+    entero = [{"a": round(r.uniform(0, 100), 1), "flag": r.choice(["yes", "no"])} for _ in range(110)]
+    for f in entero:
+        f["y"] = int(f["a"] // 7)
+    return {
+        "regresion": (_plantar(reg, ["a", "b", "n", "y"], 3, 7), ["a", "b", "n", "y"], "y"),
+        "clasificacion": (_plantar(clas, ["a", "b"], 2, 9), ["a", "b", "cat", "bo", "y"], "y"),
+        "compuesta": (_plantar(comp, ["x", "y"], 4, 8), ["ciudad", "x", "y"], "y"),
+        "nulos": (nulos, ["a", "k", "y"], "y"),
+        "objetivo_entero": (_plantar(entero, ["a", "y"], 2, 6), ["a", "flag", "y"], "y"),
+    }
+
+
+@pytest.mark.parametrize("nombre", ["regresion", "clasificacion", "compuesta", "nulos", "objetivo_entero"])
+def test_T3_sin_extremos_fuera_de_train_todo_es_como_con_el_csv_entero(nombre):
+    filas, cols, objetivo = _escenarios_t3()[nombre]
+    texto = _csv(filas, cols)
+    an = analyze_dataset_csv(texto)["columns"]
+    entero = {c: tuple(float(v) for v in i["proposed_range"]) for c, i in an.items()
+              if i.get("type") in ("number", "integer") and i.get("proposed_range") and not i.get("constant")}
+    nuevo = generate_project_from_dataset(texto, objetivo)
+    # lo que hacía el código de antes: los rangos del CSV ENTERO, que aquí se
+    # imponen como correcciones (sin el flag, ganan siempre)
+    viejo = generate_project_from_dataset(texto, objetivo, column_range_overrides=entero)
+    assert viejo["provenance"]["range_fit"]["user_declared"] == sorted(entero)
+    assert nuevo["field_ranges"] == viejo["field_ranges"] and nuevo["target_range"] == viejo["target_range"]
+    for clave in ("mxai", "training_text", "csv_text"):
+        assert nuevo[clave] == viejo[clave], clave
+    assert nuevo["provenance"]["synthesized_prompt"] == viejo["provenance"]["synthesized_prompt"]
+    assert sorted(nuevo["provenance"]["range_fit"]["from_train"]) == sorted(entero)
+    # y el MODELO, entrenado como el Studio
+    a, b = _entrenar(nuevo, recortar_objetivo=False, epocas=3), _entrenar(viejo, recortar_objetivo=False, epocas=3)
+    assert a["params_best"] == b["params_best"] and a["epochs"] == b["epochs"]
+
+
+def test_T3_temporal_sin_extremos_fuera_de_train_los_rangos_son_los_del_csv_entero():
+    filas = _serie(140)
+    _plantar(filas, ["v", "x"], 10, 15)
+    texto = _csv(filas, ["fecha", "v", "x"])
+    crudo = _propuestas(filas, ["v", "x"])
+    proj = generate_temporal_project_from_dataset(texto, "v", **TEMPORAL)
+    assert _rangos(proj) == {"v": crudo["v"], "x": crudo["x"], "v_lag1": crudo["v"], "v_lag2": crudo["v"]}
+    assert tuple(proj["target_range"]) == crudo["v"]
+    viejo = generate_temporal_project_from_dataset(
+        texto, "v", **TEMPORAL,
+        column_range_overrides={"v": crudo["v"], "x": crudo["x"], "v_lag1": crudo["v"], "v_lag2": crudo["v"]})
+    for clave in ("mxai", "training_text", "csv_text"):
+        assert proj[clave] == viejo[clave], clave
 
 
 # --------------------------------------------------------------------------- T5
@@ -328,6 +451,29 @@ def test_T5_temporal_overrides_crudos_y_retardos_con_la_propuesta_de_su_origen()
     assert {"v", "x", "v_lag1", "v_lag2"} <= set(rf["accepted_proposal"])
 
 
+def test_T5_temporal_el_objetivo_desplazado_se_compara_con_la_propuesta_de_su_columna_cruda():
+    """La clásica le reenvía al objetivo DESPLAZADO (`v_target_h1`) la propuesta
+    de su columna cruda (`v`), y es con ESA con la que hay que compararlo para
+    saber si es una aceptación. Con el máximo de `v` en la PRIMERA fila —que no
+    es objetivo de nadie: el desplazamiento la deja sin futuro—, la propuesta del
+    `v` crudo (que lo ve) y la del objetivo desplazado (que no) difieren; sin el
+    mapeo, lo reenviado contaría como corrección del usuario y el objetivo se
+    quedaría con el [-100, 1100] del CSV crudo (auditoría P3g, sabotaje verde)."""
+    filas = _con(_serie(), {(0, "v"): 1000.0, (30, "v"): 0.0, (90, "v"): 500.0})
+    cols = ["fecha", "v", "x"]
+    crudo = _propuestas(filas, ["v", "x"])
+    assert crudo["v"] == (-100.0, 1100.0)
+    ov = {"v": crudo["v"], "x": crudo["x"], "v_lag1": crudo["v"], "v_lag2": crudo["v"]}
+    sin = generate_temporal_project_from_dataset(_csv(filas, cols), "v", **TEMPORAL)
+    con = generate_temporal_project_from_dataset(
+        _csv(filas, cols), "v", **TEMPORAL, column_range_overrides=ov,
+        rangos_reenviados_del_analisis=True)
+    assert con["target_range"] == sin["target_range"]
+    assert con["target_range"][1] < 100                      # no el 1100 del v crudo
+    rf = con["provenance"]["range_fit"]
+    assert "v_target_h1" in rf["accepted_proposal"] and "v_target_h1" not in rf["user_declared"]
+
+
 # --------------------------------------------------------------------------- T6
 
 def test_T6_el_objetivo_no_se_recorta_y_las_entradas_si():
@@ -349,10 +495,23 @@ def test_T6_entrenar_sin_recortar_el_objetivo_cambia_la_perdida_de_validacion_y_
     ra, rb = _entrenar(a, epocas=3), _entrenar(b, epocas=3)
     assert [e["validation_loss"] for e in ra["epochs"]] == [e["validation_loss"] for e in rb["epochs"]]
     assert "target_clipped" not in _training_jobs[ra["_job_id"]]["run_provenance"]
-    # sin recortar: la verdad de validación es la verdad
+    assert ra["mae"] == rb["mae"]                                     # y la cifra también: verdad recortada
+    assert "epoch_selection" not in ra
+    # sin recortar: la verdad de validación es la verdad EN LA CIFRA (mae/r2 con
+    # el 400 y el 900 de verdad), y la elección de época no mira lo inalcanzable
     sa, sb = _entrenar(a, recortar_objetivo=False, epocas=3), _entrenar(b, recortar_objetivo=False, epocas=3)
-    assert [e["validation_loss"] for e in sa["epochs"]] != [e["validation_loss"] for e in sb["epochs"]]
+    assert sa["mae"] != sb["mae"]
+    assert [e["validation_loss"] for e in sa["epochs"]] == [e["validation_loss"] for e in sb["epochs"]]
     assert _training_jobs[sa["_job_id"]]["run_provenance"]["target_clipped"] is False
+    # y LO QUE SE ENTRENÓ lleva el objetivo sin recortar: el CSV que recibió el
+    # entrenador (su huella), comparado con el que habría recibido recortando
+    salida = _columna_de_salida(a["mxai"])
+    rangos = {**a["field_ranges"], salida: tuple(a["target_range"])}
+    sin = _normalize_csv_with_ranges(a["csv_text"], rangos, sin_recorte=frozenset({salida}))
+    con = _normalize_csv_with_ranges(a["csv_text"], rangos)
+    assert sin != con
+    assert _training_jobs[sa["_job_id"]]["trained_csv_sha256"] == hashlib.sha256(sin.encode()).hexdigest()
+    assert _training_jobs[ra["_job_id"]]["trained_csv_sha256"] == hashlib.sha256(con.encode()).hexdigest()
 
 
 def test_T6_el_caso_ordenado_sin_dominio_declarado_da_la_cifra_honrada():
@@ -368,6 +527,176 @@ def test_T6_el_caso_ordenado_sin_dominio_declarado_da_la_cifra_honrada():
     ra = _entrenar(ascendente, recortar_objetivo=False, epocas=50)["r2"]
     rr = _entrenar(revuelto, recortar_objetivo=False, epocas=50)["r2"]
     assert ra < rr                                                  # extrapolar cuesta, y ahora se ve
+
+
+# --------------------------------------------------------------------------- I1
+#
+# LA ELECCIÓN DE ÉPOCA Y LA CIFRA SON DOS PREGUNTAS (auditoría I1, 03-10). Con el
+# objetivo sin recortar (A8), la mejor época y la parada temprana se eligen SOLO
+# con las filas de validación cuyo objetivo cae dentro de su rango —las que el
+# modelo puede alcanzar—, y `mae`/`rmse`/`r2` se miden con TODAS, sin recortar.
+# Medido antes de este arreglo, Kelvin ascendente por torch: época 1 en vez de
+# la 50 y 1,6 K de error DENTRO del dominio en vez de 0,008.
+
+_HAS_TORCH = importlib.util.find_spec("torch") is not None
+
+
+def _kelvin(orden):
+    return [{"centigrados": c, "k": round(c + 273.15, 2)} for c in orden]
+
+
+def _entrenar_con(proj, backend, monkeypatch, *, recortar_objetivo, seed=42, epocas=50):
+    monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", backend)
+    tr = proj.get("target_range")
+    sub = _submit_training_job(
+        proj["mxai"], proj["training_text"], proj["csv_text"], epochs_override=epocas,
+        field_ranges=proj.get("field_ranges"), target_range=tuple(tr) if tr else None,
+        seed=seed, recortar_objetivo=recortar_objetivo)
+    assert sub.get("ok"), sub
+    st = {}
+    for _ in range(1500):
+        st = _get_job_status(sub["job_id"])
+        if st["status"] in ("done", "error"):
+            break
+        time.sleep(0.1)
+    assert st["status"] == "done", st.get("error")
+    assert st["backend"] == backend, st.get("backend")
+    st["_job_id"] = sub["job_id"]
+    return st
+
+
+def _predice_kelvin(proj, params_best, centigrados):
+    """Lo que predice el modelo entrenado, en kelvin, como al predecir: la entrada
+    normalizada con su rango y recortada a [0, 1], la salida desnormalizada."""
+    from matrixai.forward.dense_forward import dense_forward
+    from matrixai.parameters.store import ParameterSet
+    from matrixai.parser import parse_text
+    net = parse_text(proj["mxai"]).networks[0]
+    ps = ParameterSet.from_dict(params_best)
+    lo, hi = proj["field_ranges"]["centigrados"]
+    tlo, thi = proj["target_range"]
+    return [tlo + dense_forward(net, ps, [min(1.0, max(0.0, (c - lo) / (hi - lo)))])[0] * (thi - tlo)
+            for c in centigrados]
+
+
+def _mae(pred, verdad):
+    return sum(abs(p - v) for p, v in zip(pred, verdad)) / len(verdad)
+
+
+TRAIN_K, VAL_K = list(range(80)), list(range(80, 100))
+
+
+@pytest.mark.skipif(not _HAS_TORCH, reason="torch no instalado")
+@pytest.mark.parametrize("seed", [42, 1])
+def test_I1_torch_kelvin_ordenado_elige_la_epoca_de_siempre_y_publica_la_cifra_honrada(monkeypatch, seed):
+    proj = _gen(_kelvin(range(100)), ["centigrados", "k"], "k")
+    sin = _entrenar_con(proj, "torch", monkeypatch, recortar_objetivo=False, seed=seed)
+    con = _entrenar_con(proj, "torch", monkeypatch, recortar_objetivo=True, seed=seed)
+    # LA ELECCIÓN: la misma época y el mismo modelo que con el objetivo recortado
+    # (sin la regla, con la verdad sin recortar, salía la época 1)
+    assert sin["best_epoch"] == con["best_epoch"] == 50
+    assert sin["params_best"] == con["params_best"]
+    # y el modelo acierta DENTRO del dominio (las filas de train): centésimas de K
+    assert _mae(_predice_kelvin(proj, sin["params_best"], TRAIN_K), [c + 273.15 for c in TRAIN_K]) < 0.05
+    # se eligió con las 7 filas alcanzables (80..86 °C) de las 20 de validación
+    assert sin["epoch_selection"] == {"rule": "target_within_range", "validation_rows": 7, "of": 20}
+    # LA CIFRA: la de la verdad SIN recortar, calculada a mano con el mismo modelo
+    pred_val = _predice_kelvin(proj, sin["params_best"], VAL_K)
+    assert sin["mae"] == pytest.approx(_mae(pred_val, [c + 273.15 for c in VAL_K]), abs=1e-3)
+    assert sin["mae"] > 3.0 and sin["r2"] < 0.5 < 0.99 < con["r2"]      # extrapolar no se tapa
+
+
+@pytest.mark.parametrize("seed", [0, 9])
+def test_I1_stdlib_kelvin_ordenado_elige_con_las_filas_alcanzables(monkeypatch, seed):
+    """Por stdlib (SGD de lote 1) RECORTAR la verdad de las filas inalcanzables
+    tampoco vale: con la semilla 0 elegía la época 9 (0,41 K de error en dominio).
+    Y sin regla ninguna, con la 9, la época 1 (1,18 K). Excluyéndolas: ~0 K."""
+    proj = _gen(_kelvin(range(100)), ["centigrados", "k"], "k")
+    st = _entrenar_con(proj, "stdlib", monkeypatch, recortar_objetivo=False, seed=seed)
+    assert _mae(_predice_kelvin(proj, st["params_best"], TRAIN_K), [c + 273.15 for c in TRAIN_K]) < 0.05
+    assert st["epoch_selection"] == {"rule": "target_within_range", "validation_rows": 7, "of": 20}
+
+
+@pytest.mark.parametrize("backend", ["stdlib", pytest.param(
+    "torch", marks=pytest.mark.skipif(not _HAS_TORCH, reason="torch no instalado"))])
+def test_I1_datos_barajados_la_eleccion_no_cambia_nada(monkeypatch, backend):
+    """Si ninguna fila de validación se sale del rango del objetivo, elegir con
+    las alcanzables es elegir con todas: lo mismo que antes, byte a byte."""
+    proj = _gen(random.Random(5).sample(_kelvin(range(100)), 100), ["centigrados", "k"], "k")
+    sin = _entrenar_con(proj, backend, monkeypatch, recortar_objetivo=False, epocas=20)
+    con = _entrenar_con(proj, backend, monkeypatch, recortar_objetivo=True, epocas=20)
+    assert sin["epoch_selection"] == {"rule": "target_within_range", "validation_rows": 20, "of": 20}
+    assert sin["params_best"] == con["params_best"] and sin["epochs"] == con["epochs"]
+    assert (sin["r2"], sin["mae"], sin["best_epoch"]) == (con["r2"], con["mae"], con["best_epoch"])
+
+
+def test_I1_si_ninguna_fila_de_validacion_es_alcanzable_se_elige_recortando(monkeypatch):
+    filas = [{"x": i, "y": round(i / 10, 2) if i < 80 else 100 + i} for i in range(100)]
+    proj = _gen(filas, ["x", "y"], "y")
+    assert proj["target_range"][1] < 100
+    sin = _entrenar_con(proj, "stdlib", monkeypatch, recortar_objetivo=False, epocas=6)
+    con = _entrenar_con(proj, "stdlib", monkeypatch, recortar_objetivo=True, epocas=6)
+    assert sin["epoch_selection"] == {"rule": "target_clipped", "validation_rows": 20, "of": 20}
+    assert sin["params_best"] == con["params_best"] and sin["best_epoch"] == con["best_epoch"]
+    assert sin["mae"] > con["mae"]                       # la cifra, con la verdad sin recortar
+
+
+def _con_ciudad(filas):
+    """Las mismas filas con una categórica de 30 niveles: el generador hace una
+    red COMPUESTA (embedding), que es otro camino de entrenamiento."""
+    r = random.Random(4)
+    ciudades = [f"c{i:02d}x" for i in range(30)]
+    filas = copy.deepcopy(filas)
+    for i, f in enumerate(filas):
+        f["ciudad"] = ciudades[i % 30] if i < 30 else r.choice(ciudades)
+    return filas
+
+
+@pytest.mark.parametrize("backend", ["stdlib", pytest.param(
+    "torch", marks=pytest.mark.skipif(not _HAS_TORCH, reason="torch no instalado"))])
+def test_I1_la_red_compuesta_elige_igual(monkeypatch, backend):
+    base = _con_ciudad(_filas())
+    cols = ["ciudad", "x1", "x2", "y"]
+    a = _gen(_con(base, {(85, "y"): 400.0}), cols)
+    b = _gen(_con(base, {(85, "y"): 900.0}), cols)
+    assert "EMBEDDING ciudad_emb" in a["mxai"]
+    sa = _entrenar_con(a, backend, monkeypatch, recortar_objetivo=False, epocas=3)
+    sb = _entrenar_con(b, backend, monkeypatch, recortar_objetivo=False, epocas=3)
+    assert sa.get("network_kind") == "composite_network"
+    assert sa["epoch_selection"] == {"rule": "target_within_range", "validation_rows": 19, "of": 20}
+    assert [e["validation_loss"] for e in sa["epochs"]] == [e["validation_loss"] for e in sb["epochs"]]
+    assert sa["params_best"] == sb["params_best"]
+    assert sa["mae"] != sb["mae"]
+    # y sin nada inalcanzable, igual que recortando (por torch, la validación
+    # explícita sustituye al 80/20 interno del trainer: las mismas filas)
+    c = _gen(base, cols)
+    sc = _entrenar_con(c, backend, monkeypatch, recortar_objetivo=False, epocas=3)
+    rc = _entrenar_con(c, backend, monkeypatch, recortar_objetivo=True, epocas=3)
+    assert sc["epoch_selection"]["validation_rows"] == 20
+    assert sc["params_best"] == rc["params_best"] and sc["epochs"] == rc["epochs"]
+
+
+@pytest.mark.skipif(not _HAS_TORCH, reason="torch no instalado")
+def test_I1_el_transformer_elige_igual():
+    from matrixai.playground import _run_playground_training
+    from matrixai.training.transformer_generator import TransformerNetworkGenerator
+    gen = TransformerNetworkGenerator().generate("resenas: Text[16]\nOUTPUT puntuacion: Scalar")
+    muestras = [
+        ("me encanta este producto", 0.9), ("terrible experiencia", 0.1),
+        ("bastante bueno en general", 0.7), ("no lo recomiendo nunca", 0.2),
+        ("calidad excelente de verdad", 0.95), ("una decepcion total", 0.05),
+        ("cumple lo que promete bien", 0.75), ("muy malo no comprar", 0.15),
+    ] * 2
+    def _csv_con(ultimo):
+        filas = muestras[:-1] + [(muestras[-1][0], ultimo)]          # la fila 15 es de validación
+        return "resenas,predicted_value\n" + "".join(f"{t},{v}\n" for t, v in filas)
+    r = {v: _run_playground_training(gen.mxai_text, gen.training_text, _csv_con(v), epochs_override=4,
+                                     target_range=(0.0, 1.0), recortar_objetivo=False)
+         for v in (5.0, 9.0)}
+    assert r[5.0]["ok"] and r[9.0]["ok"], (r[5.0].get("error"), r[9.0].get("error"))
+    assert r[5.0]["epoch_selection"] == {"rule": "target_within_range", "validation_rows": 3, "of": 4}
+    assert [e["validation_loss"] for e in r[5.0]["epochs"]] == [e["validation_loss"] for e in r[9.0]["epochs"]]
+    assert r[5.0]["mae"] != r[9.0]["mae"]
 
 
 # --------------------------------------------------------------------------- T7
@@ -463,6 +792,26 @@ def test_T9_si_el_generador_escribe_otro_SPLIT_que_el_de_los_rangos_no_se_genera
     assert proj["provenance"]["range_fit"]["partition"]["protocol"] == "2"
 
 
+def test_T9_temporal_si_el_SPLIT_por_omision_cambia_la_reescritura_temporal_no_genera(monkeypatch):
+    """La guardia del envoltorio temporal (`_forzar_split_temporal_en_proyecto`):
+    los rangos se ajustan con el SPLIT de la generación y después el SPLIT se
+    reescribe a `mode=temporal`. Hoy sus `train` coinciden (T8), así que la
+    guardia no salta; pero si el SPLIT por omisión cambiara de ratio —la legada
+    lo IGNORA (0,8 fijo) y el temporal lo honra—, los rangos se ajustarían con
+    el 80 % y el entrenador partiría por el 70 %: habrían visto filas que él
+    reserva. Aquí se provoca ese cambio y se exige que NO se genere (auditoría
+    P6b: la recomprobación era inalcanzable y ninguna prueba la ataba)."""
+    from matrixai.training import dataset_project as dp
+    otro_ratio = "SPLIT train=0.7 validation=0.3 seed=42"
+    monkeypatch.setattr(dense_generator, "LINEA_SPLIT_POR_DEFECTO", otro_ratio)
+    monkeypatch.setattr(dp, "LINEA_SPLIT_POR_DEFECTO", otro_ratio)
+    # la generación sin temporal SÍ sale (su partición es la de sus rangos)...
+    assert _gen(_filas())["provenance"]["range_fit"]["split"] == otro_ratio
+    # ...y la temporal no, porque el entrenador partiría distinto
+    with pytest.raises(DatasetProjectError, match="partición"):
+        generate_temporal_project_from_dataset(_csv(_serie(), ["fecha", "v", "x"]), "v", **TEMPORAL)
+
+
 def test_por_omision_el_objetivo_SE_SIGUE_recortando_la_densa_de_los_motores_lo_hereda():
     """El Studio y las rutas del núcleo piden `recortar_objetivo=False` (A8); quien no lo pide —la densa de los
     motores (120-C4), que normaliza con sus rangos de train y compara `params_best` con objetivos de validación
@@ -472,3 +821,21 @@ def test_por_omision_el_objetivo_SE_SIGUE_recortando_la_densa_de_los_motores_lo_
     from matrixai import playground
     for funcion in (playground._submit_training_job, playground._run_playground_training):
         assert inspect.signature(funcion).parameters["recortar_objetivo"].default is True, funcion.__name__
+
+
+def test_I1_ejemplos_para_elegir_devuelve_lo_que_dice_en_los_tres_casos():
+    """La regla, mirada en lo que DEVUELVE y no solo en la época que acaba saliendo: la prueba de
+    extremo a extremo de arriba solo muerde si la época cambia, y con pocas épocas recortar o no
+    recortar pueden coincidir (sabotaje del supervisor, 03-10: «sin alcanzables, no recortar» salió
+    VERDE en todo el fichero)."""
+    from matrixai.training.dense_trainer import ejemplos_para_elegir
+    fuera = [([0.5], [1.4]), ([0.6], [-0.2])]
+    sel, decl = ejemplos_para_elegir(fuera, (0.0, 1.0))
+    assert [y for _, y in sel] == [[1.0], [0.0]]                  # sin alcanzables: recortadas
+    assert decl == {"rule": "target_clipped", "validation_rows": 2, "of": 2}
+    mezcla = [([0.1], [0.3]), ([0.9], [1.7]), ([0.2], [1.0])]
+    sel, decl = ejemplos_para_elegir(mezcla, (0.0, 1.0))
+    assert sel == [mezcla[0], mezcla[2]]                          # solo las alcanzables, sin tocar
+    assert decl == {"rule": "target_within_range", "validation_rows": 2, "of": 3}
+    sel, decl = ejemplos_para_elegir(mezcla, None)
+    assert sel is mezcla and decl is None                         # sin rango: lo de siempre
