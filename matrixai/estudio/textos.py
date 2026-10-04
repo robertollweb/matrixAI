@@ -21,7 +21,7 @@ castellano y no en inglés solo revienta cuando alguien pide inglés.
 
 from __future__ import annotations
 
-__all__ = ["IDIOMAS", "MOTIVOS", "huecos_de", "motivo"]
+__all__ = ["IDIOMAS", "MOTIVOS", "PorIdioma", "cifras_de_una_restriccion", "huecos_de", "motivo"]
 
 #: Los idiomas que este paquete sabe escribir. No es una lista abierta: si
 #: mañana hay un tercero, se añaden las plantillas, no se traduce al vuelo.
@@ -694,9 +694,19 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "there is no measurement of {campo} for this candidate: it can "
               "neither be said to pass nor to fail, only that the data is missing",
     },
-    "restriccion_no_cumplida": {
-        "es": "{campo} no alcanza el mínimo exigido (medido: {valor})",
-        "en": "{campo} does not reach the required minimum (measured: {valor})",
+    # Una por operador (04-10): con UNA sola frase, un `max` incumplido decía «mínimo». El umbral y
+    # lo medido llegan como `PorIdioma` (`cifras_de_una_restriccion`): coma decimal en castellano.
+    "restriccion_por_debajo_del_minimo": {
+        "es": "{campo} no alcanza el mínimo exigido, {umbral} (medido: {valor})",
+        "en": "{campo} does not reach the required minimum of {umbral} (measured: {valor})",
+    },
+    "restriccion_por_encima_del_maximo": {
+        "es": "{campo} pasa del máximo permitido, {umbral} (medido: {valor})",
+        "en": "{campo} exceeds the allowed maximum of {umbral} (measured: {valor})",
+    },
+    "restriccion_distinta_de_lo_exigido": {
+        "es": "{campo} no es lo exigido, {umbral} (medido: {valor})",
+        "en": "{campo} is not the required value, {umbral} (measured: {valor})",
     },
     "ningun_candidato_cumple": {
         "es": "ningún candidato con evidencia completa supera las restricciones "
@@ -979,5 +989,50 @@ def motivo(clave: str, **campos: object) -> dict[str, str]:
             "suelta dejaría media aplicación sin traducir")
     formateados = {}
     for idioma in IDIOMAS:
-        formateados[idioma] = MOTIVOS[clave][idioma].format(**campos)
+        en_su_idioma = {k: (v[idioma] if isinstance(v, PorIdioma) else v) for k, v in campos.items()}
+        formateados[idioma] = MOTIVOS[clave][idioma].format(**en_su_idioma)
     return formateados
+
+
+class PorIdioma(dict):
+    """Un hueco que se escribe distinto en cada idioma: `{"es": "0,85", "en": "0.85"}`. `motivo()`
+    toma la redacción del idioma que compone; cualquier otro valor se escribe igual en los dos. Es una
+    clase aparte, y no un `dict` cualquiera, para que un campo que de verdad sea un diccionario no se
+    tome por esto."""
+
+
+_SI_NO = {"es": ("sí", "no"), "en": ("yes", "no")}
+
+
+def _decimal(valor: float, decimales: int) -> str:
+    texto = f"{valor:.{decimales}f}"
+    if "." in texto:
+        texto = texto.rstrip("0").rstrip(".")
+    return "0" if texto == "-0" else texto
+
+
+def cifras_de_una_restriccion(umbral: object, medido: object) -> tuple[PorIdioma, PorIdioma]:
+    """`(umbral, medido)` para un motivo de restricción, cada uno en los dos idiomas: coma decimal en
+    castellano, «sí»/«yes» para un booleano, cuatro decimales sin ceros de cola. Si los dos números
+    son DISTINTOS pero se escribirían igual con cuatro decimales (un mínimo de 0,85 y un medido de
+    0,849996), se escriben los decimales que hacen falta para verlos distintos: «no alcanza 0,85
+    (medido: 0,85)» sería una frase que se contradice."""
+    def numero(x: object) -> bool:
+        return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+    decimales = 4
+    if numero(umbral) and numero(medido) and umbral != medido:
+        while decimales < 12 and _decimal(float(umbral), decimales) == _decimal(float(medido), decimales):
+            decimales += 1
+
+    def en_los_dos(x: object) -> PorIdioma:
+        if isinstance(x, bool):
+            return PorIdioma({idioma: _SI_NO[idioma][0 if x else 1] for idioma in IDIOMAS})
+        if isinstance(x, int):
+            return PorIdioma({idioma: str(x) for idioma in IDIOMAS})
+        if isinstance(x, float):
+            texto = _decimal(x, decimales)
+            return PorIdioma({"es": texto.replace(".", ","), "en": texto})
+        return PorIdioma({idioma: str(x) for idioma in IDIOMAS})
+
+    return en_los_dos(umbral), en_los_dos(medido)

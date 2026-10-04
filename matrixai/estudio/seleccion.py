@@ -58,7 +58,7 @@ from matrixai.estudio.comparaciones import ComparacionEmparejada
 from matrixai.estudio.errores import EsquemaInvalido
 from matrixai.estudio.esquemas import EvaluationResult, Restriccion, SelectionDecision
 from matrixai.estudio.metricas import ValorDeMetrica, direccion_de, es_mejor
-from matrixai.estudio.textos import motivo
+from matrixai.estudio.textos import cifras_de_una_restriccion, motivo
 from matrixai.estudio.vocabulario import ROLES_RESERVADOS
 
 __all__ = ["POLITICA_UTILIDAD_MAXIMA", "seleccionar"]
@@ -68,6 +68,15 @@ __all__ = ["POLITICA_UTILIDAD_MAXIMA", "seleccionar"]
 #: política (coste esperado, Pareto sobre varias métricas) es un nombre
 #: distinto y una implementación aparte — no el mismo código con otro rótulo.
 POLITICA_UTILIDAD_MAXIMA = "utilidad_maxima_bajo_restricciones"
+
+#: El motivo de una restricción incumplida, UNO POR OPERADOR (04-10): con una sola frase, un `max`
+#: incumplido decía «no alcanza el mínimo».
+_MOTIVO_DE_LA_RESTRICCION_POR_OPERADOR = {
+    "min": "restriccion_por_debajo_del_minimo",
+    "max": "restriccion_por_encima_del_maximo",
+    "equal": "restriccion_distinta_de_lo_exigido",
+    "boolean": "restriccion_distinta_de_lo_exigido",
+}
 
 
 def _valor_de(evaluacion: EvaluationResult, clave: str) -> ValorDeMetrica | None:
@@ -86,8 +95,10 @@ def _evalua_restriccion(restriccion: Restriccion, evaluacion: EvaluationResult,
         cumple = (not necesita_red) if restriccion.valor else necesita_red
         if cumple:
             return "cumple", None
-        return "no_cumple", motivo("restriccion_no_cumplida", campo=restriccion.clave,
-                                   valor=f"necesita_red={necesita_red}")
+        # Lo medido es «solo local» (no necesita red), no un `necesita_red=True` de Python.
+        umbral, medido = cifras_de_una_restriccion(bool(restriccion.valor), not necesita_red)
+        return "no_cumple", motivo("restriccion_distinta_de_lo_exigido", campo=restriccion.clave,
+                                   umbral=umbral, valor=medido)
 
     valor = _valor_de(evaluacion, restriccion.clave)
     if valor is None or valor.value is None:
@@ -102,7 +113,10 @@ def _evalua_restriccion(restriccion: Restriccion, evaluacion: EvaluationResult,
         cumple = bool(valor.value) == restriccion.valor
     if cumple:
         return "cumple", None
-    return "no_cumple", motivo("restriccion_no_cumplida", campo=restriccion.clave, valor=valor.value)
+    medido = bool(valor.value) if restriccion.operador == "boolean" else valor.value
+    umbral, medido = cifras_de_una_restriccion(restriccion.valor, medido)
+    return "no_cumple", motivo(_MOTIVO_DE_LA_RESTRICCION_POR_OPERADOR[restriccion.operador],
+                               campo=restriccion.clave, umbral=umbral, valor=medido)
 
 
 def seleccionar(evaluaciones: Mapping[str, EvaluationResult], *, restricciones: Sequence[Restriccion],
