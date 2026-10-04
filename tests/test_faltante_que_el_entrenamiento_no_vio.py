@@ -382,3 +382,104 @@ class TestUnaRecetaANTERIORSeReproduceComoEntonces:
         rep = prepare_dataset_from_provenance(_csv(_N_EMBEDDING, extra={4: ""}), self._sin_la_clave(res))
         assert _filas(rep.csv_text)[4]["cat"] == ""
         assert _avisos_de_hueco(rep) == []
+
+    @pytest.mark.parametrize("n", [_N_ONEHOT, _N_EMBEDDING], ids=["one-hot", "embedding"])
+    def test_el_CSV_ENTERO_sale_byte_a_byte_como_entonces(self, n):
+        """Lo que toca a la clásica y a los modelos ya guardados: no solo la celda, el CSV
+        entero. Lo esperado se construye con el criterio de entonces —el CSV limpio con la
+        celda del hueco a 0 (one-hot) o vacía (embedding)— y no con el código que se prueba."""
+        res = generate_project_from_dataset(_csv(n), target_column="target")
+        prov = self._sin_la_clave(res)
+        limpio = prepare_dataset_from_provenance(_csv(n), prov).csv_text
+        filas = list(csv.reader(io.StringIO(limpio)))
+        cabecera = filas[0]
+        for j, nombre in enumerate(cabecera):
+            if nombre == "cat" or nombre.startswith("cat__"):
+                filas[1 + 4][j] = "" if nombre == "cat" else "0"
+        out = io.StringIO()
+        csv.writer(out).writerows(filas)
+        rep = prepare_dataset_from_provenance(_csv(n, extra={4: ""}), prov)
+        assert rep.csv_text == out.getvalue()
+
+    @pytest.mark.parametrize("n", [_N_ONEHOT, _N_EMBEDDING], ids=["one-hot", "embedding"])
+    def test_la_MARCA_literal_no_depende_de_la_clave_y_se_rescata_con_su_aviso(self, n):
+        """La marca la escribe el núcleo (`transformar_fila`), no quien hizo la receta: su
+        rescate no depende de `missing_policy`. Antes abortaba como «no conoce» en las dos."""
+        res = generate_project_from_dataset(_csv(n), target_column="target")
+        vocab = _vocab(res)
+        rep = prepare_dataset_from_provenance(
+            _csv(n, extra={4: CATEGORIA_FALTANTE}), self._sin_la_clave(res))
+        filas = _filas(rep.csv_text)
+        if n == _N_EMBEDDING:
+            assert filas[4]["cat"] == str(vocab.index(CATEGORIA_DESCONOCIDA))
+        else:
+            assert {filas[4][c] for c in filas[0] if c.startswith("cat__")} == {"0"}
+        avisos = _avisos_de_hueco(rep)
+        assert len(avisos) == 1 and "1 filas" in avisos[0], rep.compatibility.warnings
+
+
+class TestLasMarcasEnFilasSinObjetivo:
+    """Re-auditoría del 04-10 (I-1): contar solo las filas que se escriben hizo que una marca
+    que SOLO estaba en filas sin objetivo volviera a ser «un valor que el modelo no conoce» y
+    se perdiera el conjunto entero — con `__desconocida__` eso funcionaba antes."""
+
+    @pytest.mark.parametrize("marca", [CATEGORIA_DESCONOCIDA, CATEGORIA_FALTANTE])
+    @pytest.mark.parametrize("n", [_N_ONEHOT, _N_EMBEDDING], ids=["one-hot", "embedding"])
+    def test_una_marca_solo_en_filas_descartadas_no_aborta_ni_se_cuenta(self, n, marca):
+        res = generate_project_from_dataset(_csv(n), target_column="target")
+        lineas = _csv(n, extra={4: marca, 7: marca}).splitlines()
+        for i in (5, 8):    # las filas 4 y 7 (la línea 0 es la cabecera), sin objetivo
+            lineas[i] = lineas[i].rsplit(",", 1)[0] + ","
+        rep = prepare_dataset_from_provenance("\n".join(lineas) + "\n", res["provenance"])
+        assert rep.compatibility.ok
+        assert len(_filas(rep.csv_text)) == 24
+        assert [w for w in rep.compatibility.warnings if "nunca vio" in w or "un hueco" in w] == []
+
+    def test_un_valor_NUEVO_de_verdad_sigue_abortando_aunque_solo_este_en_esas_filas(self):
+        res = generate_project_from_dataset(_csv(_N_ONEHOT), target_column="target")
+        lineas = _csv(_N_ONEHOT, extra={4: "v99"}).splitlines()
+        lineas[5] = lineas[5].rsplit(",", 1)[0] + ","
+        with pytest.raises(DatasetProjectError) as exc:
+            prepare_dataset_from_provenance("\n".join(lineas) + "\n", res["provenance"])
+        assert "v99" in str(exc.value)
+
+
+class TestLosTokensDeAusenciaReales:
+    """Re-auditoría (I-3): el hueco crudo no es solo `""`. Un `NA` o un `?` (lo que traen los
+    ARFF) tienen que ir por el mismo camino, o el aviso diría «código reservado» mientras el
+    CSV lleva `""`."""
+
+    @pytest.mark.parametrize("token", ["NA", "?"])
+    def test_con_la_heuristica_un_token_de_ausencia_va_al_codigo_reservado(self, token):
+        res = generate_project_from_dataset(_csv(_N_EMBEDDING), target_column="target")
+        # control: sin tokens declarados la receta no trae la clave y manda la heurística
+        assert "tokens_de_ausencia" not in res["provenance"]["preparation_spec"]
+        vocab = _vocab(res)
+        rep = prepare_dataset_from_provenance(_csv(_N_EMBEDDING, extra={4: token}), res["provenance"])
+        assert _filas(rep.csv_text)[4]["cat"] == str(vocab.index(CATEGORIA_DESCONOCIDA))
+        avisos = _avisos_de_hueco(rep)
+        assert len(avisos) == 1 and "1 filas" in avisos[0], rep.compatibility.warnings
+        assert _valida_contra_su_modelo(res, rep.csv_text).get("ok")
+
+    def test_con_tokens_DECLARADOS_cuenta_el_declarado(self):
+        res = generate_project_from_dataset(_csv(_N_EMBEDDING), target_column="target",
+                                            tokens_de_ausencia={"?"})
+        vocab = _vocab(res)
+        rep = prepare_dataset_from_provenance(_csv(_N_EMBEDDING, extra={4: "?"}), res["provenance"])
+        assert _filas(rep.csv_text)[4]["cat"] == str(vocab.index(CATEGORIA_DESCONOCIDA))
+        assert len(_avisos_de_hueco(rep)) == 1
+
+
+def test_en_one_hot_un_hueco_va_al_grupo_a_cero_aunque_el_vocabulario_traiga_desconocida():
+    """La elección de la rama one-hot, con su nombre (re-auditoría, M-6): si el entrenamiento
+    trajo la marca `__desconocida__` como dato (la cola de la densa), su columna existe, pero un
+    hueco NO va ahí: va a «ninguna de las conocidas», que es lo que dice su aviso. Solo en
+    embedding, donde no hay «todo a 0», se usa el código reservado."""
+    res = generate_project_from_dataset(_csv(_N_ONEHOT, extra={1: CATEGORIA_DESCONOCIDA}),
+                                        target_column="target")
+    assert embedding_source_columns(res["mxai"]) == set()
+    assert CATEGORIA_DESCONOCIDA in _vocab(res)
+    rep = prepare_dataset_from_provenance(_csv(_N_ONEHOT, extra={4: CATEGORIA_FALTANTE}), res["provenance"])
+    filas = _filas(rep.csv_text)
+    assert {filas[4][c] for c in filas[0] if c.startswith("cat__")} == {"0"}
+    assert "ninguna de las conocidas" in _avisos_de_hueco(rep)[0]

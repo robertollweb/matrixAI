@@ -1251,9 +1251,11 @@ def generate_project_from_dataset(
         # se comporta igual que la ausencia de la clave en una receta anterior
         # a este arreglo: en ninguno de los dos casos se imputa nada. (La
         # asimetría con `embedding_columns` es a propósito: allí ausente y
-        # vacía piden criterios DISTINTOS; aquí piden el mismo.) Lo que sí
-        # distingue a una receta vieja es su `category_vocabularies`, que no
-        # trae `__faltante__` y por eso reproduce el CSV de entonces.
+        # vacía piden criterios DISTINTOS; aquí piden el mismo.) Para los huecos
+        # CATEGÓRICOS, en cambio, la PRESENCIA de la clave —aunque valga `None`—
+        # es lo que distingue una receta posterior a la política de faltantes de
+        # una anterior (`huecos_no_vistos_como_la_marca`, en `_prepare_v1`, 04-10):
+        # la anterior reproduce el CSV de entonces.
         # SIN `limites`, y la clave se OMITE en vez de escribirla vacía: una
         # lista vacía afirmaría «esta preparación no encontró nada que
         # declarar», que sería falso. Los `Limite` son HALLAZGOS, no algo que
@@ -1768,7 +1770,8 @@ def _validate_preparation_spec(spec: dict[str, Any]) -> None:
     # guardar) no puede salir como un KeyError dentro de
     # `PoliticaDePreparacion.desde_json` — eso en el producto es un error
     # interno sin nada accionable. `None` es válido: significa «sin faltantes
-    # numéricos», lo mismo que la ausencia de la clave.
+    # numéricos», lo mismo que la ausencia de la clave PARA IMPUTAR; para los
+    # huecos categóricos la presencia sí cuenta (ver `_prepare_v1`).
     politica = spec.get("missing_policy")
     if politica is not None and (not isinstance(politica, dict)
                                  or not isinstance(politica.get("columnas"), list)):
@@ -1815,10 +1818,10 @@ def _prepare_v1(
         # piden lo mismo, y es correcto: una receta anterior a esta clave
         # NUNCA pudo tener faltantes numéricos (el modelo rechazaba su propio
         # CSV y no llegaba a guardarse), así que «no lo sé» y «no había» son
-        # aquí el mismo caso. Lo que SÍ distingue a una receta vieja con
-        # faltantes CATEGÓRICOS es su `category_vocabularies`, que no trae
-        # `__faltante__`: sin él, la re-preparación repite el criterio de
-        # entonces sin que haya que preguntarle nada más.
+        # aquí el mismo caso. Para los faltantes CATEGÓRICOS no basta el
+        # vocabulario: una receta NUEVA cuyo entrenamiento no tuvo huecos en una
+        # columna tampoco trae `__faltante__`. Lo que distingue una vieja es que
+        # le FALTA esta clave — ver `huecos_no_vistos_como_la_marca`, abajo (04-10).
         missing_policy=(PoliticaDePreparacion.desde_json(spec["missing_policy"])
                         if spec.get("missing_policy") else None),
         # EL RENOMBRADO CONGELADO, para que la PREDICCIÓN traduzca la fila
@@ -2138,12 +2141,20 @@ def prepare_dataset_from_provenance(
             continue
         renombres_col = renombrados.get(col) or {}
         observed = _distinct_non_null(rows, col, tokens_de_ausencia)
-        nuevos = [v for v in observed if renombres_col.get(v, v) not in vocab]
+        # LAS DOS MARCAS DEL NÚCLEO NUNCA SON UN VALOR NUEVO, estén en las filas
+        # que estén (re-auditoría del 04-10). Se quitaban solo si se contaban en
+        # las filas que se ESCRIBEN, así que una marca que solo aparecía en filas
+        # sin objetivo —descartadas— volvía a ser «un valor que el modelo no
+        # conoce» y se perdía el conjunto entero (medido: con `__desconocida__`
+        # pasaba en main y abortaba tras contar solo las escritas). Un valor de
+        # verdad nuevo del usuario sigue abortando aunque solo esté en esas filas.
+        nuevos = [v for v in observed
+                  if renombres_col.get(v, v) not in vocab
+                  and v not in (CATEGORIA_DESCONOCIDA, CATEGORIA_FALTANTE)]
         afectadas = sum(1 for row in filas_escritas
                         if (row.get(col) or "").strip() == CATEGORIA_DESCONOCIDA)
         por_embedding = _va_por_embedding(col, list(vocab))
         if afectadas:
-            nuevos = [v for v in nuevos if v != CATEGORIA_DESCONOCIDA]
             if por_embedding and CATEGORIA_DESCONOCIDA not in vocab:
                 errors.append(
                     f"La columna {col!r} trae categorías que el entrenamiento "
@@ -2160,7 +2171,6 @@ def prepare_dataset_from_provenance(
                           and _is_null(row.get(col), tokens_de_ausencia)))
                   if CATEGORIA_FALTANTE not in vocab else 0)
         if huecos:
-            nuevos = [v for v in nuevos if v != CATEGORIA_FALTANTE]
             if por_embedding and CATEGORIA_DESCONOCIDA not in vocab:
                 errors.append(
                     f"La columna {col!r} trae huecos ({huecos} filas) que su "
@@ -3258,9 +3268,11 @@ def _prepare_training_csv(
                 # (one-hot todo a cero, indistinguible de una fila rota) ni un
                 # índice inexistente (la rama de embedding escribía "" y el
                 # modelo rechazaba su propio CSV): es `__faltante__`, una
-                # categoría más. Que el vocabulario CONGELADO la traiga o no es
-                # lo que distingue una receta nueva de una anterior a esto —
-                # una vieja se sigue reproduciendo con el criterio de entonces.
+                # categoría más. Si el vocabulario CONGELADO no la trae, decide
+                # `huecos_no_vistos_como_la_marca` (la receta trae `missing_policy`):
+                # en una receta nueva el hueco va como la marca (la rama de
+                # abajo); una vieja se sigue reproduciendo con el criterio de
+                # entonces.
                 if _is_null(raw, tokens_de_ausencia) and CATEGORIA_FALTANTE in vocabulario:
                     raw = CATEGORIA_FALTANTE
                     missing_category_cells[safe_name] = missing_category_cells.get(safe_name, 0) + 1
