@@ -1,0 +1,137 @@
+{
+ "motor": "matrixai.dense.tabm_cpu",
+ "paquete_cpu": {
+  "condiciones": {
+   "entorno_extra": {
+    "MATRIXAI_ESTUDIO_SIN_DENSA": "1"
+   },
+   "inicio": "2026-10-04 02:57:30",
+   "memoria_del_contenedor": "6g"
+  },
+  "corte": "C3‴",
+  "enmienda": 9,
+  "fuente": {
+   "fichero": "benchmarks/fase0/resultado_120_c3s2.json",
+   "sha256": "3fb2ceab5a468c25ed0768e28750cbf8047f88be594b9a565622a92add4ec06c"
+  },
+  "fuera_por_memoria": [
+   {
+    "conjunto": "Allstate_Claims_Severity",
+    "disponible_gb": 6.0,
+    "estimada_gb": 15.34
+   },
+   {
+    "conjunto": "KDDCup09_appetency",
+    "disponible_gb": 6.0,
+    "estimada_gb": 7.76
+   }
+  ],
+  "suben": [
+   {
+    "campeon": "matrixai.dense.tabm_cpu",
+    "campeon_antes": "sklearn.hgb",
+    "conjunto": "dresses-sales",
+    "diferencia_en_puntos": 4.433497536945822
+   },
+   {
+    "campeon": "matrixai.dense.tabm_cpu",
+    "campeon_antes": "lightgbm",
+    "conjunto": "pc1",
+    "diferencia_en_puntos": 1.5857605177993577
+   }
+  ],
+  "veredicto": {
+   "bajan": 0,
+   "conjuntos": [
+    "dresses-sales",
+    "climate-model-simulation-crashes",
+    "us_crime",
+    "pc1",
+    "micro-mass",
+    "mfeat-factors",
+    "wilt",
+    "pendigits",
+    "Internet-Advertisements",
+    "house_16H",
+    "KDDCup09_appetency",
+    "APSFailure",
+    "Allstate_Claims_Severity"
+   ],
+   "dejan_de_completar": 0,
+   "iguales": 9,
+   "ninguno_completa": 2,
+   "suben": 2,
+   "tabm_campeon_en": [
+    "dresses-sales",
+    "us_crime",
+    "pc1",
+    "wilt",
+    "pendigits"
+   ]
+  }
+ },
+ "paquete_gpu": {
+  "condiciones": {
+   "entorno_extra": {},
+   "inicio": "2026-10-03 16:35:28",
+   "memoria_del_contenedor": "6g"
+  },
+  "corte": "C3′",
+  "enmienda": 7,
+  "fuente": {
+   "fichero": "benchmarks/fase0/resultado_120_c3p.json",
+   "sha256": "8245d4fa526fd72d5f3c21ba9905a50af98127139c01a6c83b176957dbcca8f1"
+  },
+  "fuera_por_memoria": [],
+  "suben": [
+   {
+    "campeon": "matrixai.dense.tabm_cpu",
+    "campeon_antes": "sklearn.hgb",
+    "conjunto": "dresses-sales",
+    "diferencia_en_puntos": 4.433497536945822
+   },
+   {
+    "campeon": "matrixai.dense.tabm_cpu",
+    "campeon_antes": "sklearn.hgb",
+    "conjunto": "house_16H",
+    "diferencia_en_puntos": 1.7563226905364786
+   },
+   {
+    "campeon": "matrixai.dense.tabm_cpu",
+    "campeon_antes": "lightgbm",
+    "conjunto": "pc1",
+    "diferencia_en_puntos": 1.5857605177993577
+   }
+  ],
+  "veredicto": {
+   "bajan": 0,
+   "conjuntos": [
+    "dresses-sales",
+    "climate-model-simulation-crashes",
+    "us_crime",
+    "pc1",
+    "micro-mass",
+    "mfeat-factors",
+    "wilt",
+    "pendigits",
+    "Internet-Advertisements",
+    "house_16H",
+    "KDDCup09_appetency",
+    "APSFailure",
+    "Allstate_Claims_Severity"
+   ],
+   "dejan_de_completar": 0,
+   "iguales": 7,
+   "ninguno_completa": 3,
+   "suben": 3,
+   "tabm_campeon_en": [
+    "dresses-sales",
+    "us_crime",
+    "pc1",
+    "wilt",
+    "pendigits",
+    "house_16H"
+   ]
+  }
+ }
+}
