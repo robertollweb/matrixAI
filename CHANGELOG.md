@@ -7,6 +7,49 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.13.0] — 2026-10-04
+
+Expert mode and the classic interface fit their normalization ranges on the training rows only.
+
+### Changed
+- **Normalization ranges come from the training rows of the split the trainer actually uses**
+  (inputs and the regression target), no longer from the whole CSV. Before, the minimum and
+  maximum of every numeric column — and of the target — were read from all rows, including the
+  validation and test rows the model is later scored on: a leak. The split is fixed when the
+  project is generated (`SPLIT`, legacy 80/20, `protocol=2` with test, or temporal), the ranges
+  come from its training rows, and the provenance says so (`range_fit`). A guard fails closed if
+  the trainer's split is not the one the ranges were fitted on.
+- **The regression target is no longer clipped when training through the Studio and the core
+  routes** (the inputs still are, as at prediction time). Clipping the target to a training-only
+  range would make a validation figure optimistic. The default of the library function keeps
+  clipping, for callers that rely on it.
+- **The training epoch is chosen with the validation rows whose target is reachable** (inside the
+  target's normalization range), and the published figure is measured on all validation rows,
+  unclipped. Without this, on ordered data the early stop picked epoch 1 and the model got worse
+  inside its own domain.
+
+### What you will notice
+- **On data sorted by the target (or with a trend), the validation figure can drop sharply —
+  because it is now honest.** Example measured on an ascending Kelvin dataset: validation R²
+  1.00 → 0.02 (before, the range included the validation rows, so the model was interpolating
+  what is really an extrapolation). On real datasets the figure barely moves (daily maximum
+  temperature: 0.927 → 0.929; us_crime: 0.664 → 0.676), and with shuffled rows it is identical.
+- Models saved before this version load and predict exactly as before; retraining one with the
+  same CSV gives the same model.
+
+### Measured (benchmarks, not part of the package)
+- **Contract 120: the new dense network (TabM, contract 119) now competes in MatrixAI Studio's
+  study.** Measured on 13 public datasets against the same image without it, by the champion's
+  figure on the untouched test rows, on CPU (2 CPUs, 6 GB; a GPU is not measured). As one more
+  engine, with its own time (60 s per attempt, added to the budget): the champion improves on 3
+  (dresses-sales +4.4 points, house_16H +1.8, pc1 +1.6) and drops on none. In the CPU-only
+  package, where it replaces the previous dense network and does not compete when the study's
+  estimated memory exceeds the container's: it improves on 2 (dresses-sales +4.4, pc1 +1.6),
+  drops on none, and no study stops completing. The size-dependent tree policy for medium
+  datasets was confirmed on 10 datasets: four improve by 1.2 to 3 points, none drops.
+
+---
+
 ## [1.12.1] — 2026-10-01
 
 The reason given for a winner without a demonstrated improvement no longer says "the
