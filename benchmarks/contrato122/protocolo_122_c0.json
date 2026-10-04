@@ -1,0 +1,201 @@
+{
+  "version_protocolo": "122-C0.v1",
+  "estado": "REGISTRADO",
+  "como_se_registra": "El controlador revisa los valores, pone `estado: REGISTRADO` y corre `python3 benchmarks/contrato122/c0_confirmacion.py --sellar-protocolo` (recalcula `digest_sha256`). La pasada REAL no arranca con otro estado ni con un digest que no sea el del contenido. El humo y `--solo` admiten el borrador y dicen que no cuentan.",
+  "fecha_borrador": "2026-10-04",
+  "contrato": "122_LA_RED_DE_MATRIXAI_EN_EL_MODO_EXPERTO_PROPUESTA.md, corte C0 (D1-D3 decididas por Roberto el 04-10)",
+  "pregunta": "¿La ventaja que la Fase 0 midió para TabM 1.2.0 (38/40) frente a la red del núcleo (16/40) se sostiene en las condiciones del paquete CPU del Studio (torch de CPU, 2 hilos, 6 GB), y cuánto espera la persona y cuánta memoria pide cada red?",
+  "base": {
+    "protocolo_de_la_fase_0": "protocolo_exploratorio_v2.json (el que de verdad se lee: catálogo, particiones y semillas) y protocolo_119_v4.json (presupuestos por cubo); C0 NO es otra Fase 0: reutiliza sus particiones (repetición 0) para que las cifras sean comparables con las ya medidas.",
+    "motor_tabm": "matrixai.dense.tabm_cpu (TabM 1.2.0)"
+  },
+  "redes": {
+    "nucleo_modo_experto": "LA red del modo experto: MotorDensaPropia con la receta del generador tal cual (SGD 0,01, lote 8, 50 épocas, sin parada temprana), sin plazo y con recortar_objetivo=False (lo que manda _studio_train_start). Es la referencia de la regla.",
+    "nucleo_estudio": "el motor matrixai.dense.torch_cpu de la Fase 0 (Adam + parada temprana, 113-C1), SIN plazo. Es «la densa de hoy» del 16/40; se mide como segunda referencia porque NO es lo que entrena el modo experto.",
+    "tabm": "matrixai.dense.tabm_cpu con el presupuesto de pared de su cubo en la Fase 0 (plazo = 0,75 del presupuesto); se declara si el plazo corta."
+  },
+  "datasets": [
+    {
+      "nombre": "dresses-sales",
+      "data_id": 23381,
+      "tarea": "binary_classification",
+      "cubo": "pequeno",
+      "pliegues": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "nombre": "climate-model-simulation-crashes",
+      "data_id": 40994,
+      "tarea": "binary_classification",
+      "cubo": "pequeno",
+      "pliegues": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "nombre": "pc1",
+      "data_id": 1068,
+      "tarea": "binary_classification",
+      "cubo": "pequeno",
+      "pliegues": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "nombre": "mfeat-factors",
+      "data_id": 12,
+      "tarea": "multiclass_classification",
+      "cubo": "pequeno",
+      "pliegues": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "nombre": "us_crime",
+      "data_id": 42730,
+      "tarea": "regression",
+      "cubo": "pequeno",
+      "pliegues": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "nombre": "wilt",
+      "data_id": 40983,
+      "tarea": "binary_classification",
+      "cubo": "mediano",
+      "pliegues": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "nombre": "pendigits",
+      "data_id": 32,
+      "tarea": "multiclass_classification",
+      "cubo": "mediano",
+      "pliegues": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "nombre": "house_16H",
+      "data_id": 574,
+      "tarea": "regression",
+      "cubo": "grande",
+      "pliegues": [
+        0
+      ]
+    }
+  ],
+  "por_que_estos_conjuntos": "Los 8 son NO sellados del v2 (se comprueba al arrancar y el guion para si alguno lo fuera). Cubren las tres tareas (5 binarias/multiclase entre pequeños y medianos, 2 regresiones, 1 con faltantes: dresses-sales y us_crime). house_16H es el único grande: 1 pliegue, porque con 2 hilos y la red del modo experto (lote 8) es lo más caro de la pasada. Los otros, 3 pliegues de la repetición 0 (la media de 3 tests de ~100-2000 filas ya no es un solo corte afortunado).",
+  "particion": {
+    "repeticion": 0,
+    "como": "la MISMA de la Fase 0 (proponer_particion, semilla 0, 20 % de test, 5 pliegues): entrenamiento y validación de cada pliegue y un test común. El test no entra nunca a fit(); el arnés lo comprueba (_comprobar_sin_contaminacion) y el resultado guarda el digest de las filas de cada lado para que se vea que las tres redes vieron lo mismo.",
+    "lo_que_NO_se_reproduce": "el SPLIT del generador del modo experto (0,8/0,2 barajado, sin test): decide el arnés, como en la Fase 0, para que las tres redes vean las mismas filas."
+  },
+  "condiciones": {
+    "paquete": "CPU del Studio (imagen matrixai-studio-cpu-local:v2.8: núcleo 1.13.0, torch 2.6.0+cpu)",
+    "hilos": 2,
+    "cpus": 2,
+    "memoria_gb": 6,
+    "como_se_corre": "docker run --init --cpus=2 --memory=6g --memory-swap=6g, con el árbol del núcleo del corte montado en /work (el núcleo que se mide es el del ÁRBOL, declarado en la procedencia) y los ARFF de la Fase 0 de solo lectura"
+  },
+  "presupuesto": {
+    "tabm_wall_s_por_cubo": {
+      "pequeno": 120,
+      "mediano": 300,
+      "grande": 600
+    },
+    "tabm_nota": "los de la Fase 0 (protocolo v4: 2/5/10 min). Con 2 hilos en vez de 4 el plazo puede cortar donde en la Fase 0 no cortó; se DECLARA por intento (parado_por_plazo) y el veredicto lo lista.",
+    "nucleo": "sin plazo (el modo experto no lo pone)",
+    "tope_duro_nucleo_s_por_cubo": {
+      "pequeno": 900,
+      "mediano": 2400,
+      "grande": 5400
+    },
+    "tope_duro_nota": "SOLO la red de seguridad del padre contra un cuelgue (mata el proceso); no es un plazo: no llega al entrenamiento. Un intento que lo alcanza queda `failed` con su motivo."
+  },
+  "metricas": {
+    "de_cierre": "la de la Fase 0 por tarea, sin inventar otra: AUROC (binaria), accuracy (multiclase), R2 (regresión), calculadas por el catálogo del núcleo (matrixai.estudio, evaluar) sobre el TEST",
+    "registradas_ademas": "todas las del informe (RMSE, MAE, log_loss, F1 macro…): el RMSE de la regresión consta en cada registro; los «puntos» de la regla se miden en R2 x 100 porque el RMSE no tiene una escala común entre conjuntos"
+  },
+  "regla_de_confirmacion": {
+    "propuesta": "TabM completa los 8 conjuntos (todos sus pliegues, sin fallo) y queda a <= 2 puntos de la MEJOR de las tres redes en >= 7 de 8",
+    "puntos": 2.0,
+    "fraccion_minima": 0.875,
+    "definicion_de_mejor": "la red con mejor media de sus pliegues en ESE conjunto, de las tres redes de C0; un fallo (tope duro, excepción) de TabM en cualquier pliegue cuenta como conjunto perdido para TabM",
+    "si_cumple": "TabM se ofrece en el modo experto como «recomendada para tablas»",
+    "si_no_cumple": "la opción se ofrece SIN recomendarla y la pantalla dice por qué (qué conjuntos no cumplieron y cómo); el contrato no se detiene por esto: D1 ya decidió que será opción explícita",
+    "aritmetica": "benchmarks/fase0/protocolo.py: aplicar_regla_de_cierre (la misma de 101-C5 a 119-C4): distancia en puntos = (media de la mejor - media de TabM) x 100"
+  },
+  "lo_que_se_registra_y_no_decide": {
+    "tiempo": "segundos de pared de cada ajuste (fit + predicción del test) por red, conjunto y pliegue, y épocas ejecutadas: base del aviso «tardará ≈ …» antes de entrenar",
+    "memoria": "pico de RSS del proceso que ajusta (RUSAGE_SELF ru_maxrss del hijo spawn, uno por ajuste) y el de antes del ajuste, para ver el delta",
+    "plazo": "si el plazo cortó a TabM (parado_por_plazo) y en qué conjuntos"
+  },
+  "humo": {
+    "conjuntos": [
+      "dresses-sales"
+    ],
+    "pliegues": [
+      0
+    ],
+    "tabm_wall_s": 60,
+    "tope_duro_s": 300,
+    "nota": "el humo prueba el guion de punta a punta con presupuestos recortados; no cuenta como medida"
+  },
+  "estimacion": {
+    "estado": "ESTIMADA, NO MEDIDA (el humo midió solo dresses-sales, 1 pliegue: nucleo_estudio 5,9 s, nucleo_modo_experto 7,4 s, tabm 6,7 s de pared por ajuste a 2 hilos, de los que ~2,4 s son arrancar el proceso hijo y reimportar torch)",
+    "duracion_s": 3300,
+    "duracion_con_margen_s": 5400,
+    "como_sale": {
+      "tabm": "tiempos de ajuste de la Fase 0 a 4 hilos (resultado_pasada_119_c3.json, mediana por conjunto: 5/7/12/49/24/26/66 s y 123 s house_16H) x1,7 por pasar a 2 hilos (supuesto, no medido) = ~320 s por pliegue de los 7 pequeños/medianos x3 + ~210 s house = ~1.170 s",
+      "nucleo_estudio": "tiempos de la densa v2 (pasada_v2_113_resultado.json) x1,2 = ~160 s por pliegue x3 + ~120 s house = ~600 s",
+      "nucleo_modo_experto": "~2,4 ms por paso de SGD (humo: 2.000 pasos en 4,8 s) x pasos = filas de train/8 x 50 épocas, sin parada temprana: ~280 s por pliegue x3 + ~300 s house = ~1.150 s (la más incierta: depende del coste por paso con anchuras distintas)",
+      "fuera_del_ajuste": "~66 arranques de proceso hijo (~2,5 s) + preparación por red y pliegue + carga de los 8 ARFF = ~400 s"
+    },
+    "memoria_pico_esperada_mb": {
+      "medido_en_el_humo": {
+        "nucleo": 290,
+        "tabm": 394,
+        "nota": "dresses-sales, 319 filas de train; ~250 MB son torch importado"
+      },
+      "estimado_para_house_16H_tabm": 1500,
+      "estimado_no_medido": true,
+      "techo_del_contenedor_mb": 6144
+    }
+  },
+  "techo": {
+    "tope_s": 10800,
+    "estimada_s": 5400,
+    "memoria": "6G (--memory=6g --memory-swap=6g del contenedor; lo que pone el techo REAL es el contenedor, no el scope de systemd-run, que solo guarda el cliente de docker: 2G bastan para ~/encolar.sh)",
+    "cpus": 2,
+    "por_intento": "tope duro del padre por red y cubo (presupuesto.tope_duro_nucleo_s_por_cubo; TabM: su presupuesto + 30 s)",
+    "orden": "ESTIMADA_S=5400 ~/encolar.sh c122-c0 10800 2G matrixAI bash benchmarks/contrato122/correr_c0_en_paquete_cpu.sh ~/cola-nocturna/resultados/c122-c0 --salida /salida/resultado_122_c0.json   (el guion fija el código en el worktree de la cola; lo no commiteado NO entra: commitear el protocolo REGISTRADO y el guion antes de encolar)",
+    "nota": "tope = 2 x la estimación con margen; ningún trabajo empieza después de las 08:00"
+  },
+  "digest_sha256": "c5b91a699ce051c296ff97e812841b0656cb25d12732f94179e729733d826bad",
+  "registrado": "2026-10-04 13:37, por el supervisor (deployer-f1), ANTES de medir; D1–D3, P2–P4 decididas por Roberto el 04-10",
+  "decisiones_del_registro": {
+    "referencia": "la MEJOR de las tres redes en cada conjunto (lo más exigente para TabM), no solo la del modo experto",
+    "borde": "la aritmética de la Fase 0 (protocolo.aplicar_regla_de_cierre): una distancia que en coma flotante sale 2,0000000000000018 NO cumple; declarado",
+    "tabm_cortado_por_el_plazo": "cuenta como MEDIDO (como en la Fase 0) y se declara por intento (parado_por_plazo) y en el veredicto",
+    "pliegues": "3 de la repetición 0 en los 7 pequeños y medianos y 1 en house_16H (compromiso de coste, declarado)",
+    "para_que_sirve": "decide si la opción se ofrece «recomendada para tablas» (D1); el tiempo, las épocas, el plazo y la memoria por red y conjunto fijan el techo, los hilos y las partes del modo (C1.1: provisionales 300 s, 2 hilos, 3 partes)"
+  }
+}
