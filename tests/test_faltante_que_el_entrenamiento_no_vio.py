@@ -386,12 +386,13 @@ class TestUnaRecetaANTERIORSeReproduceComoEntonces:
     @pytest.mark.parametrize("n", [_N_ONEHOT, _N_EMBEDDING], ids=["one-hot", "embedding"])
     def test_el_CSV_ENTERO_sale_byte_a_byte_como_entonces(self, n):
         """Lo que toca a la clásica y a los modelos ya guardados: no solo la celda, el CSV
-        entero. Lo esperado se construye con el criterio de entonces —el CSV limpio con la
-        celda del hueco a 0 (one-hot) o vacía (embedding)— y no con el código que se prueba."""
+        entero. Lo esperado sale del CSV que escribió la GENERACIÓN (`res["csv_text"]`, que no
+        pasa por `prepare_dataset_from_provenance` ni por la receta sin la clave) con la celda
+        del hueco escrita a mano según el criterio de entonces: a 0 en one-hot, vacía en
+        embedding. Medido además contra el núcleo de main (791501e): el mismo CSV byte a byte."""
         res = generate_project_from_dataset(_csv(n), target_column="target")
         prov = self._sin_la_clave(res)
-        limpio = prepare_dataset_from_provenance(_csv(n), prov).csv_text
-        filas = list(csv.reader(io.StringIO(limpio)))
+        filas = list(csv.reader(io.StringIO(res["csv_text"])))
         cabecera = filas[0]
         for j, nombre in enumerate(cabecera):
             if nombre == "cat" or nombre.startswith("cat__"):
@@ -483,3 +484,38 @@ def test_en_one_hot_un_hueco_va_al_grupo_a_cero_aunque_el_vocabulario_traiga_des
     filas = _filas(rep.csv_text)
     assert {filas[4][c] for c in filas[0] if c.startswith("cat__")} == {"0"}
     assert "ninguna de las conocidas" in _avisos_de_hueco(rep)[0]
+
+
+# --- Tercera auditoría (04-10): lo que f94efa1 cambia de verdad, y la casi-marca -----------
+
+@pytest.mark.parametrize("marca", [CATEGORIA_DESCONOCIDA, CATEGORIA_FALTANTE])
+def test_embedding_SIN_codigo_reservado_y_la_marca_solo_en_filas_descartadas_ya_no_aborta(marca):
+    """Lo único que f94efa1 cambia frente a main: en un modelo embedding SIN código reservado
+    (una receta anterior a `_reservar_codigo_de_desconocida`), una marca que solo está en filas
+    sin objetivo abortaba («no reservó» o «no conoce»), aunque esas filas no se escriben. Ahora
+    pasa, y el CSV es el mismo que el de quitar esas filas a mano."""
+    res = generate_project_from_dataset(_csv(_N_EMBEDDING), target_column="target")
+    prov = res["provenance"]
+    spec = prov["preparation_spec"]
+    spec["category_vocabularies"]["cat"] = [
+        v for v in spec["category_vocabularies"]["cat"] if v != CATEGORIA_DESCONOCIDA]
+    lineas = _csv(_N_EMBEDDING, extra={4: marca, 7: marca}).splitlines()
+    for i in (5, 8):    # las filas 4 y 7, sin objetivo
+        lineas[i] = lineas[i].rsplit(",", 1)[0] + ","
+    rep = prepare_dataset_from_provenance("\n".join(lineas) + "\n", prov)
+    a_mano = [l for k, l in enumerate(_csv(_N_EMBEDDING).splitlines()) if k not in (5, 8)]
+    esperado = prepare_dataset_from_provenance("\n".join(a_mano) + "\n", prov)
+    assert rep.csv_text == esperado.csv_text
+    assert [w for w in rep.compatibility.warnings if "nunca vio" in w or "un hueco" in w] == []
+
+
+@pytest.mark.parametrize("n", [_N_ONEHOT, _N_EMBEDDING], ids=["one-hot", "embedding"])
+@pytest.mark.parametrize("casi", ["__FALTANTE__", "__Desconocida__"])
+def test_una_CASI_marca_es_un_valor_nuevo_y_sigue_abortando(n, casi):
+    """Las marcas se comparan EXACTAS: `__FALTANTE__` no la escribe el núcleo, es un dato del
+    usuario que el modelo no conoce. Un filtro relajado (sin mayúsculas) la haría pasar en
+    silencio como hueco."""
+    res = generate_project_from_dataset(_csv(n), target_column="target")
+    with pytest.raises(DatasetProjectError) as exc:
+        prepare_dataset_from_provenance(_csv(n, extra={4: casi}), res["provenance"])
+    assert casi in str(exc.value) and "no conoce" in str(exc.value)
