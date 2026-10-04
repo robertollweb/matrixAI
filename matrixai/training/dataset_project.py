@@ -1828,6 +1828,7 @@ def _prepare_v1(
         # (la guarda lo rechazaba en vez de renombrarlo), así que "no lo sé"
         # es "no hacía falta".
         category_value_renames=dict(spec.get("category_value_renames") or {}),
+        huecos_no_vistos_como_la_marca="missing_policy" in spec,
     )
 
 
@@ -2088,6 +2089,41 @@ def prepare_dataset_from_provenance(
     # dataset y no decir cuántas filas se salvaron a ciegas sería media
     # verdad tranquilizadora.
     filas_desconocidas: dict[str, tuple[int, bool]] = {}
+    # Y `__faltante__` TAMPOCO ES UN VALOR NUEVO DEL USUARIO (04-10): es la otra
+    # marca de `transformar_fila`, la de un HUECO. El estudio ajusta la
+    # preparación en cada parte con sus filas de entrenamiento y se la aplica
+    # también a la parte que mide, así que un hueco que solo cae en ésta llega
+    # aquí como `__faltante__` a un vocabulario que no lo trae —el entrenamiento
+    # no tuvo ninguno en esa columna— y la parte se perdía entera. Medido en
+    # `dresses-sales` con la partición real del estudio (semilla 0, 5 partes):
+    # las 2 filas con `V8` vacía de 500 caen las dos en la parte medida del
+    # pliegue 1, ninguna en su entrenamiento ni en su cola, y la red anterior
+    # perdía esa parte con «valores que el modelo no conoce: ['__faltante__']».
+    # Para el modelo es exactamente lo mismo que `__desconocida__`: una
+    # categoría que su entrenamiento no vio. Se codifica igual y se DECLARA
+    # aparte, con su recuento, porque no es lo mismo para quien lo lee. (Se
+    # declara en ESTE informe, que es lo que enseña `/api/reprepare-dataset`;
+    # la densa del estudio solo usa el CSV preparado y no lo enseña, igual que
+    # el de `__desconocida__`.)
+    #
+    # Y EL MISMO HUECO, CRUDO (auditoría del 04-10): una celda VACÍA en una
+    # columna cuyo entrenamiento no tuvo huecos es el mismo caso sin la marca
+    # —el camino directo, sin `transformar_fila` delante: reimportar un CSV en
+    # la clásica—. `_prepare_v1` la dejaba como antes de la política de
+    # faltantes: en one-hot, el grupo a 0 SIN decirlo; en embedding, un índice
+    # `""` que el modelo rechazaba después (`validate-csv`: «field X is empty»),
+    # el conjunto entero. Solo en una receta POSTERIOR a esa política (trae la
+    # clave `missing_policy`, aunque sea `None`): una anterior se sigue
+    # reproduciendo con el criterio de entonces, que es lo que la distinguía
+    # (ver `_prepare_v1`). Un literal `__faltante__` en los datos de quien
+    # predice es el nombre reservado del núcleo y se lee igual, como hueco.
+    filas_faltantes_no_vistas: dict[str, tuple[int, bool]] = {}
+    receta_con_politica_de_faltantes = "missing_policy" in spec
+    # Se cuentan las filas que se van a ESCRIBIR: una sin objetivo se descarta
+    # (`_tiene_objetivo`, el mismo criterio que el preparador), y contarla
+    # afirmaría que se codificó algo que no se escribe.
+    filas_escritas = [row for row in rows
+                      if _tiene_objetivo(row, target_column, tokens_de_ausencia)]
     # EL MISMO RENOMBRADO QUE `_prepare_training_csv` VA A APLICAR, pero
     # aquí solo para SABER si un valor observado es nuevo de verdad — el
     # vocabulario congelado (`vocab`, abajo) ya solo conoce el valor USADO,
@@ -2103,7 +2139,7 @@ def prepare_dataset_from_provenance(
         renombres_col = renombrados.get(col) or {}
         observed = _distinct_non_null(rows, col, tokens_de_ausencia)
         nuevos = [v for v in observed if renombres_col.get(v, v) not in vocab]
-        afectadas = sum(1 for row in rows
+        afectadas = sum(1 for row in filas_escritas
                         if (row.get(col) or "").strip() == CATEGORIA_DESCONOCIDA)
         por_embedding = _va_por_embedding(col, list(vocab))
         if afectadas:
@@ -2118,6 +2154,24 @@ def prepare_dataset_from_provenance(
                 )
             else:
                 filas_desconocidas[col] = (afectadas, por_embedding)
+        huecos = (sum(1 for row in filas_escritas
+                      if (row.get(col) or "").strip() == CATEGORIA_FALTANTE
+                      or (receta_con_politica_de_faltantes
+                          and _is_null(row.get(col), tokens_de_ausencia)))
+                  if CATEGORIA_FALTANTE not in vocab else 0)
+        if huecos:
+            nuevos = [v for v in nuevos if v != CATEGORIA_FALTANTE]
+            if por_embedding and CATEGORIA_DESCONOCIDA not in vocab:
+                errors.append(
+                    f"La columna {col!r} trae huecos ({huecos} filas) que su "
+                    "entrenamiento no tuvo, y este modelo la consume como "
+                    "EMBEDDING: su vocabulario no reservó un código "
+                    f"{CATEGORIA_DESCONOCIDA!r} donde escribirlos y un índice "
+                    "inexistente no se puede escribir. Regenera el proyecto "
+                    "para que lo reserve."
+                )
+            else:
+                filas_faltantes_no_vistas[col] = (huecos, por_embedding)
         if nuevos:
             errors.append(
                 f"La columna {col!r} trae valores que el modelo no conoce: "
@@ -2133,6 +2187,16 @@ def prepare_dataset_from_provenance(
         warnings.append(
             f"La columna {col!r} trae en {filas_afectadas} filas una categoría "
             f"que el entrenamiento nunca vio: se codifica como {como}."
+        )
+    for col, (filas_afectadas, por_embedding) in sorted(filas_faltantes_no_vistas.items()):
+        como = ("el código reservado para las categorías que el entrenamiento "
+                "no vio, cuyo vector no se entrenó con ningún ejemplo"
+                if por_embedding else
+                "«ninguna de las conocidas» (todo el grupo a 0), no como la "
+                "categoría de referencia")
+        warnings.append(
+            f"La columna {col!r} trae un hueco en {filas_afectadas} filas y su "
+            f"entrenamiento no tuvo ninguno en esa columna: se codifica como {como}."
         )
 
     if errors:
@@ -3035,6 +3099,11 @@ def _prepare_training_csv(
     # mapa para encontrarse en `onehot_columns`/`embedding_columns`, que
     # quedan indexados por el valor USADO, no por el crudo.
     category_value_renames: dict[str, dict[str, str]] | None = None,
+    # Solo al RE-PREPARAR con una receta que trae `missing_policy` (`_prepare_v1`):
+    # un hueco crudo en una categórica cuyo vocabulario no trae `__faltante__` se
+    # escribe como la marca. Al generar no puede pasar (el vocabulario sale de
+    # estas mismas filas) y una receta anterior conserva el criterio de entonces.
+    huecos_no_vistos_como_la_marca: bool = False,
 ) -> _PreparedCSV:
     # Grupos one-hot/embedding + los mapas valor_crudo->columna o índice,
     # calculados UNA VEZ (no por fila — recalcular _distinct_non_null
@@ -3195,6 +3264,12 @@ def _prepare_training_csv(
                 if _is_null(raw, tokens_de_ausencia) and CATEGORIA_FALTANTE in vocabulario:
                     raw = CATEGORIA_FALTANTE
                     missing_category_cells[safe_name] = missing_category_cells.get(safe_name, 0) + 1
+                elif _is_null(raw, tokens_de_ausencia) and huecos_no_vistos_como_la_marca:
+                    # Una receta posterior a la política de faltantes cuyo
+                    # entrenamiento no tuvo huecos AQUÍ: es la marca sin escribir
+                    # (ver `prepare_dataset_from_provenance`), y va por el mismo
+                    # camino que ella — grupo a 0 o código reservado.
+                    raw = CATEGORIA_FALTANTE
                 if col in onehot_columns:
                     value_to_column = onehot_columns[col]
                     for onehot_col in value_to_column.values():
@@ -3203,6 +3278,14 @@ def _prepare_training_csv(
                         prepared[value_to_column[raw]] = "1"
                 elif col in embedding_columns:
                     idx = embedding_columns[col].get(raw)
+                    if idx is None and raw == CATEGORIA_FALTANTE:
+                        # Un hueco que el entrenamiento no tuvo (el vocabulario no
+                        # trae `__faltante__`) va al código reservado de lo no
+                        # visto, que es lo que es para el modelo: en embedding no
+                        # hay «todo a 0». Ver `prepare_dataset_from_provenance`,
+                        # que lo declara. Sin código reservado ni se llega aquí:
+                        # aquella lo rechaza antes, diciendo qué falta.
+                        idx = embedding_columns[col].get(CATEGORIA_DESCONOCIDA)
                     prepared[safe_name] = str(idx) if idx is not None else ""
                 # cardinalidad<2 -> columna excluida arriba, nada que escribir
             elif safe_name in imputadas:
