@@ -160,6 +160,18 @@ def test_lo_leido_del_codigo_sigue_al_codigo():
     assert (leido["folds"], leido["repeats"], leido["hilos"]) == (3, 2, 4)
 
 
+def test_los_hilos_por_motor_del_122_se_leen_por_su_valor_de_omision():
+    """122-C1.1 escribe los hilos como `(…_hilos_por_motor or {}).get(motor_id, N)`: solo el modo «red de
+    MatrixAI» fija otros, y el estudio de siempre —el que reproduce la sonda— usa N. Con la forma nueva
+    la sonda paraba con «no encuentro» (04-10). Un N distinto de 1, para que no se lea por casualidad."""
+    nuevo = (_CODIGO_FABRICADO.format(f=3, r=2, h=4)
+             .replace("hilos=4, seed=repeticion", "hilos=(self._hilos_por_motor or {}).get(motor_id, 3),\n"
+                                                  "                seed=repeticion")
+             .replace("hilos=4, seed=0", "hilos=(hilos_por_motor or {}).get(motor_id, 3), seed=0"))
+    assert "hilos=4" not in nuevo
+    assert sonda.lo_que_el_studio_da_por_omision(nuevo)["hilos"] == 3
+
+
 def test_si_el_codigo_del_studio_discrepa_o_no_lo_dice_la_sonda_para():
     discrepa = _CODIGO_FABRICADO.format(f=3, r=2, h=4).replace("hilos=4, seed=0", "hilos=2, seed=0")
     with pytest.raises(SystemExit, match="DISTINTOS"):

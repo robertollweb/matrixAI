@@ -195,8 +195,12 @@ def lo_que_el_studio_da_por_omision(texto_del_studio: str) -> dict:
                        'payload.get("folds", N)'))
     repeats = int(_unico(re.findall(r'int\(payload\.get\("repeats",\s*(\d+)\)\)',
                                     texto_del_studio), 'payload.get("repeats", N)'))
-    pares = re.findall(r"Presupuesto\(wall_seconds=[^\n]*,\s*hilos=(\d+),\s*seed=(\w+)\)",
-                       texto_del_studio)
+    # Los hilos, un literal (`hilos=1`) o, desde 122-C1.1, el de omisión de los hilos por motor
+    # (`hilos=(self._hilos_por_motor or {}).get(motor_id, 1)`): solo el modo «red de MatrixAI» fija
+    # otros, y el estudio de siempre —lo que reproduce esta sonda— es el de omisión.
+    trios = re.findall(r"Presupuesto\(wall_seconds=[^\n]*,\s*hilos=(?:\((?:self\.)?_?hilos_por_motor or "
+                       r"\{\}\)\.get\(motor_id,\s*(\d+)\)|(\d+)),\s*seed=(\w+)\)", texto_del_studio)
+    pares = [(por_omision or literal, s) for por_omision, literal, s in trios]
     hilos = int(_unico([h for h, _ in pares], "Presupuesto(..., hilos=N, ...)"))
     semillas = sorted({s for _, s in pares})
     if not set(semillas) <= {"0", "repeticion"}:
