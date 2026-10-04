@@ -497,8 +497,13 @@ class EstimarSinRedTest(unittest.TestCase):
 
         original = mc.leer_tarea
         try:
-            mc.leer_tarea = lambda nombre: {"A": particiones_a, "D": particiones_d}.get(
-                nombre, original(nombre))
+            # SIN `.get(nombre, original(nombre))`: el valor por omisión de `.get` se evalúa SIEMPRE,
+            # así que también para A y D se leía la tarea real de disco —que git ignora (18 MB
+            # regenerables)—; aquí sobraba y se tiraba, y en un clon o un worktree no existe y A
+            # salía con error (04-10, visto por deployer-d4 corriendo la suite en un worktree).
+            sustitutas = {"A": particiones_a, "D": particiones_d}
+            mc.leer_tarea = lambda nombre: (sustitutas[nombre] if nombre in sustitutas
+                                            else original(nombre))
             resultado = mjd.estimar()
         finally:
             mc.leer_tarea = original
