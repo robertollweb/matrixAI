@@ -9,6 +9,7 @@ import io
 import json
 from datetime import datetime, timezone
 import os
+import math
 import re
 import shutil
 import tempfile
@@ -22,6 +23,7 @@ from urllib.parse import urlparse, parse_qs
 
 from matrixai.agents import AuditorAgent, IterationLimitReached, ChatCompletionsLLMProposalProvider, PromptSupervisor, RefinementAgent, SafetyAgent, VerifierAgent
 from matrixai.compiler import BackendContractAnalyzer, PythonBackendCompiler
+from matrixai.generation.prompt_field_specs import rango_de_la_salida
 from matrixai.parameters.store import (
     ParameterSet,
     build_torch_state_marker,
@@ -567,6 +569,18 @@ def _training_input_is_transformer_sequence(program: Any, training: Any) -> bool
     )
 
 
+def _rango_de_objetivo_valido(rango: Any) -> tuple[float, float] | None:
+    """Un rango de objetivo que se puede usar —dos números finitos y crecientes— o `None`. Lo que llega por la API
+    no se cree: un `[9, 1]` o un `[0, inf]` generaría o normalizaría un objetivo que no se parece a nada."""
+    try:
+        lo, hi = (float(rango[0]), float(rango[1])) if rango is not None and len(rango) == 2 else (None, None)
+    except (TypeError, ValueError):
+        return None
+    if lo is None or not (math.isfinite(lo) and math.isfinite(hi) and lo < hi):
+        return None
+    return (lo, hi)
+
+
 def _generate_synthetic_dataset(
     mxai_text: str,
     training_text: str,
@@ -579,9 +593,18 @@ def _generate_synthetic_dataset(
     field_categories: dict[str, list[str]] | None = None,
     field_identifiers: list[str] | None = None,
     recipe_text: str | None = None,
+    target_range: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
+    """Un dataset sintético para este modelo.
+
+    `target_range` (05-10): el rango DECLARADO de la salida de una regresión (lo que fija `analyze_playground_
+    request` desde `SALIDA: x: Scalar en [a, b]`, y el Studio devuelve al generar). Con él, el objetivo se genera
+    DENTRO de ese rango —en vez de en [-1, 1]—, que es la escala con la que el entrenamiento lo normalizará.
+    Solo para un objetivo de regresión, y solo un par finito y creciente; cualquier otra cosa se ignora. Sin él,
+    el CSV es el de siempre, byte a byte."""
     if not mxai_text.strip() or not training_text.strip():
         return {"ok": False, "error": "mxai_text y training_text son obligatorios"}
+    target_range = _rango_de_objetivo_valido(target_range)
     requested_rows = int(rows)
     rows = max(2, _limits.cap(requested_rows, "max_rows"))
     # Si el perfil de límites recortó las filas pedidas, avisamos (no silenciosamente):
@@ -826,6 +849,7 @@ def _generate_synthetic_dataset(
             one_hot_groups=one_hot_groups or None,
             domain_rules=domain_rules,
             regression_recipe=regression_recipe,
+            target_range=target_range,
         )
         adapter = generator.generate()
 
@@ -866,6 +890,7 @@ def _generate_synthetic_dataset(
                 field_types=types or None,
                 one_hot_groups=one_hot_groups or None,
                 domain_rules=None,
+                target_range=target_range,
             )
             adapter = generator.generate()
 
@@ -5671,6 +5696,29 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                 # campo Text ({campo: {"length": L, "tokenizer": "byte_v1"}}) —
                 # vacío para dense/composite (getattr por defecto {}).
                 result["field_seq"] = dict(getattr(gen, "field_seq", {}) or {})
+                # 05-10 (Roberto: «Ok si, pero commitea todo antes. Haz los test pertinentes y auditorias
+                # para asegurar que va a funcionar bien») — EL RANGO DECLARADO DE LA SALIDA DE REGRESIÓN.
+                # `SALIDA: precio_eur: Scalar en [60000, 900000]` se leía y se tiraba: esta ruta no fijaba
+                # nunca `target_range` (solo la del dataset), así que el objetivo se generaba en [-1, 1] y no
+                # se normalizaba al entrenar. Ahora viaja como en la ruta del dataset —una clave APARTE de
+                # `field_ranges` (CONTRATO 59 C1)—, y solo si la salida que se generó ES una regresión: un
+                # rango no convierte en regresión una clasificación. Mal escrito o del revés: `None` y el
+                # aviso de por qué (`rango_de_la_salida`), nunca el valor crudo.
+                #
+                # CON CLAVE PROPIA, `rango_declarado_de_la_salida`, y NO `target_range`: la interfaz CLÁSICA
+                # toma `target_range` de esta respuesta y lo devuelve al ENTRENAR, pero genera sus datos sin
+                # pasarlo (y su código no se toca). Con la misma clave generaría el objetivo en [-1, 1] y lo
+                # normalizaría con [a, b]: todo recortado a 0, un modelo constante y sin un error (medido:
+                # entrenar el CSV en [a, b] SIN el rango revienta, y el de [-1, 1] CON él se recorta). Con
+                # clave propia, la clásica sigue como hoy, byte a byte, y lo usan las interfaces que generan
+                # Y entrenan con el mismo rango.
+                _rango_salida, _avisos_rango_salida = rango_de_la_salida(prompt)
+                _es_regresion = re.search(r"^[ \t]*OUTPUT[ \t]+\S+[ \t]*:[ \t]*Scalar\b",
+                                          gen.mxai_text or "", re.MULTILINE) is not None
+                result["rango_declarado_de_la_salida"] = (list(_rango_salida)
+                                                          if _es_regresion and _rango_salida is not None else None)
+                if not _es_regresion:
+                    _avisos_rango_salida = []
                 # EL HECHO, tal como lo sabe quien lo hizo: el generador usó su
                 # relleno porque no extrajo ningún campo del prompt. `getattr`
                 # con defecto porque el generador de transformers no lo tiene
@@ -5776,6 +5824,8 @@ def analyze_playground_request(payload: dict[str, Any]) -> dict[str, Any]:
                         break
                 if llm_warning:
                     notes.append(llm_warning)
+                # El rango de la salida que NO se usó, y por qué (ver `target_range` más arriba).
+                notes.extend(_avisos_rango_salida)
                 _anotar_avisos(result, notes)
             except TransformerNetworkGeneratorError as exc:
                 # SECUENCIAS_PRODUCTO C2 (decisión 3): mezclar Text con tabular, o

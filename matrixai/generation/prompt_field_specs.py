@@ -20,6 +20,7 @@ generator's job (C2–C5). This module never touches the .mxai.
 """
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -142,7 +143,7 @@ PALABRAS_QUE_DECLARAN_LA_SALIDA = (
 #: sigue siendo de las entradas.
 _SALIDA_TIPADA_RE = re.compile(
     r"(?P<borde>^|[\n,;])[ \t]*(?:" + PALABRAS_QUE_DECLARAN_LA_SALIDA + r")\b[ \t]*:?[ \t]*"
-    r"[^\n,;:\[\]]+?[ \t]*:[ \t]*\w+(?:[ \t]+(?:en|in|de))?[ \t]*(?:\[[^\]]*\])?",
+    r"(?P<nombre>[^\n,;:\[\]]+?)[ \t]*:[ \t]*(?P<tipo>\w+)(?:[ \t]+(?:en|in|de))?[ \t]*(?:\[(?P<args>[^\]]*)\])?",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -150,6 +151,35 @@ _SALIDA_TIPADA_RE = re.compile(
 def _sin_la_salida(prompt: str) -> str:
     """El prompt sin la declaración tipada de su SALIDA: lo que queda son las entradas."""
     return _SALIDA_TIPADA_RE.sub(lambda m: m.group("borde"), prompt or "")
+
+
+#: Los tipos de una SALIDA numérica (regresión): los mismos alias que una entrada escalar o entera.
+_TIPOS_DE_SALIDA_NUMERICA = frozenset({"scalar", "number", "numeric", "float", "integer", "int"})
+
+
+def rango_de_la_salida(prompt: str) -> tuple[tuple[float, float] | None, list[str]]:
+    """EL RANGO DECLARADO DE LA SALIDA NUMÉRICA del prompt —`SALIDA: precio_eur: Scalar en [60000, 900000]`—, o
+    `None`, y los avisos de por qué no vale si se escribió mal (05-10, decidido por Roberto: «Ok si, pero commitea
+    todo antes. Haz los test pertinentes y auditorias»).
+
+    Hasta hoy ese rango se leía y se tiraba: la ruta del prompt no fijaba nunca `target_range`, así que el
+    generador inventaba el objetivo en [-1, 1] y el entrenamiento no lo normalizaba. Con el rango, el objetivo se
+    genera dentro de él y se normaliza con él, como en la ruta del dataset.
+
+    La MISMA regla que el rango de una entrada (`_parse_range`): mal formado, no numérico, del revés o degenerado
+    → `None` con su aviso, nunca el valor crudo. Y además FINITO: un `[0, inf]` normalizaría todo a cero. Solo la
+    PRIMERA declaración de salida cuenta, y solo si su tipo es numérico (`ProbabilityMap`, `Label`, `Boolean`…
+    no tienen rango de regresión: `None` sin aviso)."""
+    m = _SALIDA_TIPADA_RE.search(prompt or "")
+    if m is None or m.group("tipo").lower() not in _TIPOS_DE_SALIDA_NUMERICA:
+        return None, []
+    avisos: list[str] = []
+    nombre = _sanitize_name(m.group("nombre")) or "salida"
+    rango = _parse_range((m.group("args") or "").strip(), nombre, avisos)
+    if rango is not None and not all(math.isfinite(v) for v in rango):
+        avisos.append(f"campo {nombre!r}: rango de la salida no finito [{rango[0]}, {rango[1]}]; se ignora el rango")
+        rango = None
+    return rango, avisos
 
 
 def strip_field_specs(prompt: str) -> str:

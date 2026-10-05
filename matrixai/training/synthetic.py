@@ -26,7 +26,11 @@ class SyntheticDataGenerator:
         one_hot_groups: dict[str, list[str]] | None = None,
         domain_rules: Any = None,
         regression_recipe: Any = None,
+        target_range: tuple[float, float] | None = None,
     ):
+        #: 05-10 · EL RANGO DECLARADO DE LA SALIDA (regresión): manda sobre el del tipo del TARGET (que por la
+        #: ruta del prompt no lleva ninguno, y entonces era [-1, 1]). Quien llama ya lo ha validado.
+        self.target_range = target_range
         #: Contrato 80-C2 · la receta de REGRESIÓN, ya normalizada a [0,1].
         #: Sin ella un objetivo continuo se rellenaba con `uniform(lo, hi)`:
         #: ruido puro, medido en 0,054 de correlación máxima.
@@ -95,7 +99,8 @@ class SyntheticDataGenerator:
         if not is_regression and not is_probability and not target_labels:
             raise ValueError("Target must be a Label[...] type with labels defined.")
 
-        regression_range = self._regression_range(target_type) if is_regression else (-1.0, 1.0)
+        regression_range = ((self.target_range if self.target_range is not None
+                             else self._regression_range(target_type)) if is_regression else (-1.0, 1.0))
 
         # Opción A (GLOBAL, decisión del autor 2026-06-24): la generación de dataset
         # NUNCA instancia ni ejecuta la red para etiquetar. Una red sin entrenar es un
