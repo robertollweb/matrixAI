@@ -1,0 +1,40 @@
+{
+  "base": {
+    "digest_sha256": "1b4e902e61e06edcfda8e9f4ccef1232a233d46718089c5f0a2f814feb9dc878",
+    "protocolo": "113-C0.v2",
+    "que_se_hereda": "la partición, las semillas, las repeticiones, el tope de pared por cubo y la métrica de cierre por tarea de la v2, tal cual: las dos variantes corren los MISMOS pliegues"
+  },
+  "conjuntos": [
+    "sick",
+    "house_prices_nominal"
+  ],
+  "coste": {
+    "como_se_acota": "30 intentos × 300 s de tope (sick, cubo mediano) + 30 × 120 s (house_prices_nominal, cubo pequeño)",
+    "como_se_estima": "la pasada v2 de la densa en estos dos conjuntos tardó 314 s (sick, 15 intentos) + 864 s (house_prices_nominal, 15) = 1.178 s por variante; × 2 variantes = 2.356 s; × 1,5 de margen",
+    "cota_peor_caso_s": 12600,
+    "estimado_s": 3533,
+    "recursos": "cola nocturna: techo 4G sin swap, 5 CPU; tope de la cola 14.000 s"
+  },
+  "criterio_de_los_conjuntos": "los NO sellados de la Fase 0 con al menos un predictor sí/no TAL COMO LE LLEGA a la densa (texto cuyos valores el núcleo tipa `boolean`, tras `tipar_columnas_numericas`). Medido antes de registrar, con el lector del arnés sobre los 40 ARFF: sick (20 columnas), house_prices_nominal (1: CentralAir). En los demás la palanca no cambia nada (lo sostiene `tests/test_sino_categorica.py` en motores)",
+  "decision": "Roberto, 2026-10-04 11:47: OPCIÓN B (TASKS.md, «LA MISMA PARTE PERDIDA, EN UNA COLUMNA BOOLEANA»): la red anterior trata como categórica de dos valores cada sí/no de entrada; versión nueva del motor, medida ANTES con la regla escrita antes de medir; entra solo si no empeora",
+  "digest_sha256": "96bea927fffd4bb1046ceec6b69c32e60ecc0e8a191d3ee7780e4900b4386ac5",
+  "estado": "REGISTRADA antes de medir nada de calidad de la palanca. Lo único medido antes: la sonda de UNA parte de sick con un hueco inyectado, que demuestra el defecto (la de hoy pierde la parte, la B la predice), no compara calidad",
+  "excluidos": {
+    "kr-vs-kp": "SELLADO (34 columnas sí/no): el examen final de la cartera no se usa para decidir nada; si la palanca entra, NO se mide ahí"
+  },
+  "fecha_registro": "2026-10-04",
+  "motor": "matrixai.dense.torch_cpu",
+  "registrado_por": "deployer-d4",
+  "regla": {
+    "completitud": "B empeora también si un intento que la de hoy completa no lo completa B (falla o agota el tope)",
+    "entra_si": "NINGÚN conjunto da «inferioridad» Y B completa todo lo que completa la de hoy",
+    "por_conjunto": "diferencia emparejada (B − hoy) de la métrica de cierre de la v2 (AUROC en binaria, R² en regresión) por repetición y pliegue; intervalo al 95 % por bootstrap de PLIEGUES, 1.000 remuestras, semilla 0 (`pasada_114c6_ensamblado.diferencias_emparejadas` + `protocolo._intervalo_pareado`, los de 118 y C6): «inferioridad» si el intervalo queda entero por debajo de 0, «mejora» si entero por encima",
+    "si_entra": "la palanca pasa a ser la densa de por omisión, con versión nueva (1.2.0), auditoría Opus y ff sin push",
+    "si_no_entra": "se queda la de hoy y la parte con el hueco se sigue perdiendo; se le lleva a Roberto con los números (las opciones A y D están descritas en TASKS.md)"
+  },
+  "variantes": {
+    "B": "MotorDensaPropia(palanca='04-10.sino_categorica')",
+    "hoy": "MotorDensaPropia() — palanca=None, la densa de hoy byte a byte"
+  },
+  "version_protocolo": "sino-b.v1"
+}
