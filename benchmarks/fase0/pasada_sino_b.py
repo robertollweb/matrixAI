@@ -163,6 +163,17 @@ def _estimacion(datasets, protocolo) -> dict:
             "plan": plan}
 
 
+def _exigir_la_densa_de_la_medida(version: str) -> None:
+    """Esta pasada mide la palanca de las sí/no CONTRA la densa de entonces (la 1.1.x). Desde la 1.2.0
+    (adopción, motores) la «de hoy» YA ES la B: relanzarla compararía B contra B y daría «entra» por
+    construcción, sin medir nada (auditoría de la adopción, M-2). Se niega, con su motivo."""
+    if not version.startswith("1.1."):
+        raise SystemExit(
+            f"pasada_sino_b mide la palanca contra la densa 1.1.x y aquí está la {version}: desde la 1.2.0 la "
+            "de hoy ya es la B (adoptada tras el veredicto «entra», resultado_sino_b.json). Relanzarla no "
+            "mediría nada; para volver a medir, hace falta el código de motores de la medida (bd3a436).")
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--salida", default=str(_AQUI / "resultado_sino_b.json"))
@@ -174,6 +185,8 @@ def main(argv=None) -> None:
                         help="SOLO el primer conjunto, repetición 0 y pliegue 0, las dos "
                              "variantes: para probar el guion entero en un minuto, nunca para medir")
     args = parser.parse_args(argv)
+    if not args.estimar:
+        _exigir_la_densa_de_la_medida(MotorDensaPropia().version)
 
     registrado = protocolo_sino_b()
     c6.preparar_protocolo_v2()

@@ -99,3 +99,12 @@ def test_la_regla_de_la_pasada(caso, esperado):
     medidos = [bueno] if caso == "falta" else [bueno, otro]
     v = pasada.veredicto_de_la_pasada(medidos, ["sick", "house_prices_nominal"])
     assert v["entra"] is esperado
+
+
+
+def test_la_pasada_se_niega_a_medir_con_la_densa_1_2_0_que_ya_es_la_b():
+    """Auditoría de la adopción (M-2): con la densa 1.2.0 la «de hoy» ya es la B; relanzar la pasada daría
+    «entra» sin medir nada. La guarda, llamada DIRECTAMENTE (nunca a través de `main`, que mediría)."""
+    pasada._exigir_la_densa_de_la_medida("1.1.0+matrixai1.13.0")          # la de la medida: sigue
+    with pytest.raises(SystemExit, match="ya es la B"):
+        pasada._exigir_la_densa_de_la_medida("1.2.0+matrixai1.13.0")
