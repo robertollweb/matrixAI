@@ -7,6 +7,39 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.14.0] — 2026-10-05
+
+A missing value the training never saw no longer loses a part of a study, and the reasons for a
+broken constraint say what was broken, in both languages.
+
+### Fixed
+- **A gap the training never saw no longer aborts preparation** (`__faltante__`). When a value
+  was missing only in the rows a model is measured on, `prepare_dataset_from_provenance` stopped
+  with an «unknown values» error (`['__faltante__']`) and the part was lost (seen on dresses-sales:
+  one part of five). The core's missing-value marker without a vocabulary
+  entry is now encoded as the unseen value and DECLARED with its count, apart from «never seen»;
+  in embedding mode it takes the reserved `__desconocida__` code, in one-hot the group stays at 0.
+  A marker present only in rows without a target no longer loses the dataset; a genuinely new
+  value still aborts.
+- **The reason for a broken constraint says what was broken.** There is one sentence per
+  operator (below the required minimum, above the allowed maximum, not the required value), with
+  the threshold and the measured value written per language: decimal comma in Spanish, «sí» /
+  «yes» for booleans, and as many decimals as it takes to tell a measurement from a threshold it
+  would round to. Before, a broken maximum said «does not reach the required minimum», the raw
+  float was shown with a dot in Spanish, and `solo_local` printed a Python `necesita_red=True`.
+  Saved studies keep the sentence they were saved with (the reason is stored composed).
+
+### Added
+- `matrixai.estudio.textos.PorIdioma` and `cifras_de_una_restriccion`: a field of `motivo()` that
+  is written differently in each language.
+
+### Benchmarks (not part of the package)
+- Contract 122-C0: the confirmation measurement of the MatrixAI network (TabM) in the Studio's
+  expert mode, with its rule registered before measuring («offered, recommended for tables»).
+- The «sí/no» lever of the dense network, measured with its rule registered before measuring
+  («does not get worse»), and the pass refuses to run again once the lever is the default.
+- The 119-C5a probe reads the Studio's per-engine threads.
+
 ## [1.13.0] — 2026-10-04
 
 Expert mode and the classic interface fit their normalization ranges on the training rows only.
