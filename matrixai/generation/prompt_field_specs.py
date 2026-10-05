@@ -124,6 +124,34 @@ _FIELD_ENTRY_RE = re.compile(
 )
 
 
+#: LAS PALABRAS QUE DECLARAN LA SALIDA de un prompt (no una entrada). Una sola lista: la lee también
+#: `prompt_objetivo` para saber qué dice el prompt que hay que predecir, y dos sitios declarando lo mismo
+#: acaban divergiendo.
+PALABRAS_QUE_DECLARAN_LA_SALIDA = (
+    r"OUTPUT|SALIDA|OBJETIVO|TARGET|(?:COLUMNA|VARIABLE)[ \t]+OBJETIVO|TARGET[ \t]+COLUMN"
+)
+
+#: LA DECLARACIÓN DE LA SALIDA CON SU TIPO, entera (05-10, ejemplo 2.1 del prompt: «algunos ejemplos que
+#: aparecen puestos en el prompt tampoco cargan bien las columnas»). `SALIDA: precio_eur: Scalar en [60000,
+#: 900000]` se leía como una ENTRADA más: `_FIELD_ENTRY_RE` admite `:` como borde de campo, así que empezaba
+#: a leer justo después de «SALIDA:» y se quedaba `precio_eur: Scalar`. Medido, sin LLM: el VECTOR llevaba
+#: `precio_eur` y el objetivo era otro (`predicted_value`). Lo mismo con `OUTPUT: y: Scalar` (con dos puntos;
+#: la guarda de `_FIELD_ENTRY_RE` solo veía `OUTPUT y: Scalar`) y con `objetivo: y: Integer[0, 9]`. Con
+#: `ProbabilityMap`/`Label` no pasaba porque no son tipos de campo. Se quita SOLO la declaración (palabra,
+#: nombre, tipo y su `[...]`), no el resto de la línea: en un prompt de una sola línea lo que viene detrás
+#: sigue siendo de las entradas.
+_SALIDA_TIPADA_RE = re.compile(
+    r"(?P<borde>^|[\n,;])[ \t]*(?:" + PALABRAS_QUE_DECLARAN_LA_SALIDA + r")\b[ \t]*:?[ \t]*"
+    r"[^\n,;:\[\]]+?[ \t]*:[ \t]*\w+(?:[ \t]+(?:en|in|de))?[ \t]*(?:\[[^\]]*\])?",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _sin_la_salida(prompt: str) -> str:
+    """El prompt sin la declaración tipada de su SALIDA: lo que queda son las entradas."""
+    return _SALIDA_TIPADA_RE.sub(lambda m: m.group("borde"), prompt or "")
+
+
 def strip_field_specs(prompt: str) -> str:
     """Remove explicit ``name: <Type>[...]`` declarations, leaving a ``;`` separator.
 
@@ -134,7 +162,7 @@ def strip_field_specs(prompt: str) -> str:
     Replaced with a comma (not ';'): the legacy extractor splits on ',' but STOPS its
     capture at ';', so a ',' keeps the surrounding bare fields visible.
     """
-    return _FIELD_ENTRY_RE.sub(", ", prompt or "")
+    return _FIELD_ENTRY_RE.sub(", ", _sin_la_salida(prompt))
 
 
 def parse_field_specs(prompt: str) -> FieldSpecParse:
@@ -152,7 +180,8 @@ def parse_field_specs(prompt: str) -> FieldSpecParse:
     conflicts: list[FieldSpecConflict] = []
     seen: dict[str, FieldSpec] = {}  # name -> FIRST effective declaration
 
-    for m in _FIELD_ENTRY_RE.finditer(prompt or ""):
+    # La SALIDA no es una entrada aunque lleve un tipo de campo (ver `_SALIDA_TIPADA_RE`).
+    for m in _FIELD_ENTRY_RE.finditer(_sin_la_salida(prompt)):
         name = _sanitize_name(m.group("name"))
         if not name:
             continue

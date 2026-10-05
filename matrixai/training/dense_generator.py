@@ -145,12 +145,18 @@ class DenseNetworkGenerator:
         r"features?|caracter[ií]sticas?|variables?|columnas?|atributos?)\b.*$",
         re.IGNORECASE | re.DOTALL,
     )
+    # EL NOMBRE DE LA RED Y DE LA ENTIDAD, solo si el prompt lo DICE (05-10, ejemplo 7.1 del prompt: la red
+    # salía «NETWORK O» y el proyecto «OProject»). Sin el `\b` tras la palabra clave, el campo «modelo:
+    # Categorical[...]» casaba como «model» + «o»: «modelo» no servía (detrás venían los dos puntos) y el motor
+    # volvía a «model», con la «o» que sobraba como nombre. Ahora: palabra entera, al menos un blanco antes del
+    # nombre, y un nombre que no sea a su vez una declaración de campo (sin «:» detrás). La entidad, igual
+    # («input_x: Scalar» no es una entrada llamada «_x»).
     _NAME_RE = re.compile(
-        r"\b(?:network|red|modelo|model)\s*(?:llamad[ao]|named|called)?\s*(?P<name>[A-Za-z_][\w]*)",
+        r"\b(?:network|red|modelo|model)\b\s*(?:llamad[ao]|named|called)?\s+(?P<name>[A-Za-z_][\w]*)\b(?![ \t]*:)",
         re.IGNORECASE,
     )
     _ENTITY_RE = re.compile(
-        r"\b(?:entidad|entity|entrada|input)\s*(?:llamad[ao]|named|called)?\s*(?P<name>[A-Za-z_][\w]*)",
+        r"\b(?:entidad|entity|entrada|input)\b\s*(?:llamad[ao]|named|called)?\s+(?P<name>[A-Za-z_][\w]*)\b(?![ \t]*:)",
         re.IGNORECASE,
     )
     # "12 capas", "12 capas Dense ocultas", "12 hidden layers", "12 layers". La palabra

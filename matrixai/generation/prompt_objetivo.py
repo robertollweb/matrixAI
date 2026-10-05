@@ -53,6 +53,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from matrixai.generation.prompt_field_specs import PALABRAS_QUE_DECLARAN_LA_SALIDA
+
 __all__ = ["ObjetivoDelPrompt", "objetivo_declarado"]
 
 
@@ -69,8 +71,8 @@ NOMBRES_INVENTADOS = frozenset({
 #: la columna sí viaja en el prompt.
 _DECLARACION_RE = re.compile(
     r"(?:^|\n)[ \t]*"
-    r"(?:OUTPUT|SALIDA|OBJETIVO|TARGET|"
-    r"(?:COLUMNA|VARIABLE)[ \t]+OBJETIVO|TARGET[ \t]+COLUMN)"
+    # La MISMA lista que usa el lector de campos para no tomar la salida por una entrada.
+    r"(?:" + PALABRAS_QUE_DECLARAN_LA_SALIDA + r")"
     r"[ \t]*:?[ \t]+"
     r"(?P<nombre>[^\n:,;\[\]]+)",
     re.IGNORECASE,
