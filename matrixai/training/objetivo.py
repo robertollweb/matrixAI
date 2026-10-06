@@ -568,6 +568,30 @@ def _preguntas_de_momento(analisis: Mapping[str, Any], momento: str | None,
     return preguntas
 
 
+def _vistas_en_el_csv(etiquetas: Sequence[str], mapa: Mapping[str, str] | None) -> list[str]:
+    """Cada etiqueta normalizada, escrita como la trae el CSV (la primera forma cruda que da esa
+    etiqueta; si no hay mapa, la etiqueta tal cual)."""
+    inverso: dict[str, str] = {}
+    for crudo, etiqueta in (mapa or {}).items():
+        inverso.setdefault(etiqueta, crudo)
+    return [inverso.get(e, e) for e in etiquetas]
+
+
+def _leidas_como_ausentes(filas: Sequence[Mapping[str, Any]], objetivo: str,
+                          tokens_de_ausencia: set[str] | None) -> list[str]:
+    """Los valores ESCRITOS del objetivo que se toman como dato ausente («None», «NA», «?»…), en su
+    orden de aparición; las celdas vacías no se nombran (no hay nada que leer en ellas)."""
+    from matrixai.training.dataset_analysis import _is_null  # noqa: PLC0415
+
+    vistos: list[str] = []
+    for fila in filas:
+        valor = fila.get(objetivo)
+        limpio = str(valor).strip() if valor is not None else ""
+        if limpio and _is_null(valor, tokens_de_ausencia) and limpio not in vistos:
+            vistos.append(limpio)
+    return vistos
+
+
 def confirmar_desde_csv(
     csv_text: str,
     *,
@@ -804,6 +828,36 @@ def confirmar_desde_csv(
                               opciones=len(valores_crudos))))
             etiquetas = None
         propuesta["clases"] = list(etiquetas) if etiquetas else []
+
+        # DOS CLASES CON «VARIAS CLASES»: SE PREGUNTA (decisión de Roberto, 06-10). Antes la
+        # confirmación levantaba `EsquemaInvalido` («tres clases o más; llegaron 2», solo en
+        # castellano: `ProblemSpec`); nunca hubo un estudio de varias clases con dos (medido por la
+        # auditoría sobre `fcce68f`). Se cuentan las clases que el modelo va a emitir
+        # (`etiquetas`: sin los ausentes, y las declaradas si llegan `clases`): dos clases + «NA»
+        # son dos. NUNCA un bloqueo: la respuesta es cambiar la tarea a binaria, y entonces
+        # `clase_positiva` se pide por su camino de siempre; «multiclase» no es una respuesta, así
+        # que no va en `opciones` (I-1). Se mira la tarea FINAL: hoy solo la ELEGIDA llega aquí
+        # con dos clases, porque la deducida de una columna de dos valores ya es binaria (el backend
+        # y `dataset_project` miden los ausentes con el mismo criterio); un llamante que midiera la
+        # cardinalidad con otro haría decir «has elegido» de una tarea deducida (M-6, nota).
+        # `etiquetas is not None` NO sobra: sin ella, un objetivo que no se pudo nombrar
+        # («###»/«si») o con una sola clase declarada revienta con `TypeError` (un 500, M-3).
+        if (etiquetas is not None and tarea == "multiclass_classification"
+                and len(etiquetas) == 2):
+            # Las clases COMO LAS VE quien mira su CSV («0», «1»; no «class_0, class_1»: M-2), y entre «» como
+            # los ausentes: una clase con coma («alto, urgente») se leía como dos (2.ª pasada, N-4).
+            vistas = ", ".join(f"«{v}»" for v in _vistas_en_el_csv(etiquetas, mapa))
+            leidas_como_ausentes = _leidas_como_ausentes(filas, objetivo, tokens_de_ausencia)
+            if leidas_como_ausentes:
+                motivo_de_la_pregunta = motivo("dos_clases_en_varias_con_ausentes", campo=repr(objetivo),
+                               opciones=vistas,
+                               ausentes=", ".join(f"«{v}»" for v in leidas_como_ausentes))
+            else:
+                motivo_de_la_pregunta = motivo("dos_clases_en_varias", campo=repr(objetivo),
+                                               opciones=vistas)
+            preguntas.append(Pregunta(
+                clave="dos_clases_en_varias", campo=objetivo,
+                opciones=("binary_classification",), motivo=motivo_de_la_pregunta))
 
         # LA CLASE POSITIVA SE ACEPTA COMO LA ESCRIBE EL CSV (2026-09-23). Quien usa esto
         # escribe «1» o «Sí», que es lo que ve en su columna, y las etiquetas son las
