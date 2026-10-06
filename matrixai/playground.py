@@ -3531,36 +3531,36 @@ def _compose_normalize_ranges(
     return normalize_ranges
 
 
-#: AUDITORÍA DEL RANGO, I1 (06-10) — CUÁNDO EL OBJETIVO NO ESTÁ EN LA ESCALA DE SU RANGO. Si al menos este
-#: tanto por uno de los valores (no nulos) del objetivo cae fuera del `target_range`, entrenar se rechaza.
-#: No es «algún valor fuera»: un objetivo de validación por encima del rango de train (A8) o unos pocos
-#: atípicos son datos de verdad en la escala buena, y se entrenan como siempre. Es «casi nada dentro», que
-#: es la firma de otra escala: [-1, 1] contra [60000, 900000], o k€ contra euros.
+#: AUDITORÍA DEL RANGO, I1 (06-10) — CUÁNDO EL OBJETIVO NO ESTÁ EN LA ESCALA DE SU RANGO. Con al menos este tanto por
+#: uno de los valores (no nulos) del objetivo fuera del `target_range` —y un recorrido que no se parece al del rango,
+#: abajo— se rechaza. No es «algún valor fuera»: un objetivo de validación por encima del rango de train (A8) o unos
+#: pocos atípicos son datos de verdad en la escala buena, y se entrenan como siempre.
 _FRACCION_FUERA_DEL_RANGO_QUE_SE_RECHAZA = 0.9
 
-#: 2.ª pasada de la auditoría del rango (N1/N2): «≥ 90 % fuera» con una tolerancia del 0,1 % del ANCHO dejaba entrar
-#: [-1, 1] en cualquier rango ancho ([0, 900000], [-1000, 1000]…: modelo constante, como en I1) y rechazaba datos del
-#: MISMO dominio en otro tramo (1,1–2,7 M€ con [60000, 900000]: R² 0,994 sin la guarda). Lo que decide si se puede
-#: aprender es el RECORRIDO del objetivo NORMALIZADO con el rango, (máx − mín) / (hi − lo):
-#: - menos del 1 %: al normalizar queda casi igual en todas las filas y el modelo contestaría siempre lo mismo;
-#: - más de 100 veces: otra escala;
-#: - y con ≥ 90 % fuera solo si el recorrido NO es comparable (fuera de [0,1; 10]): otro tramo del mismo dominio, con
-#:   un recorrido parecido, se aprende igual.
-#: La tolerancia de «fuera» es de REDONDEO, no del ancho. Medido sobre 24 casos (`sonda_criterio` de la 2.ª pasada):
-#: acierta en todos salvo [0, 100] y [-20, 45] con datos en [-1, 1], los dos suaves (MAE 0,64 y 0,54 frente a 0,48 sin
-#: rango).
-_RECORRIDO_NORMALIZADO_MINIMO = 0.01
-_RECORRIDO_NORMALIZADO_MAXIMO = 100.0
-_RECORRIDO_COMPARABLE = (0.1, 10.0)
+#: Lo que decide si se puede aprender es el RECORRIDO del objetivo NORMALIZADO con el rango, (máx − mín) / (hi − lo).
+#: Medido por la 3.ª pasada de la auditoría (06-10) con datos APRENDIBLES (la receta del 2.1: R² 0,993 a su escala):
+#: - DENTRO del rango, en una banda de 1,1 / 1,5 / 2 / 3 / 5 / 7 % del ancho: R² −17,9 / −9,1 / −4,7 / −1,6 / 0,05 /
+#:   0,51; conversión al 1,9 %: 0,14; temperatura interior al 2,5 %: 0,09; SpO2 al 4,7 %: 0,88. Por debajo del 4 %,
+#:   NADA de lo medido sirve: se rechaza («el rango es mucho más ancho que los datos»). Entre el 4 y el 5 % depende de
+#:   los datos, y se entrena (deuda declarada). La 2.ª pasada lo tenía en el 1 % y dejaba pasar todo lo de arriba.
+#: - TODO FUERA, con un recorrido de 0,09 / 0,11 / 0,5–9,5 / 10,5 / 20 / 50 / 99 veces el ancho: R² −0,61 / 0,19 /
+#:   ≥ 0,96 / 0,997 / 0,984 / −0,08 / −0,02. «Comparable» es de 0,1 a 20: otro tramo del mismo dominio (1,1–2,7 M€
+#:   con [60000, 900000], R² 0,994) se aprende; fuera de esa ventana, con casi todo fuera, es otra escala.
+#: - «Más de 100 veces» YA NO rechaza solo (3.ª pasada, B-R3.1): con casi todo DENTRO es un extremo de validación o un
+#:   atípico (un 61,53 escrito 6153), y el modelo es el mismo que sin él (A8, `test_rangos_de_train_nucleo.py`).
+_RECORRIDO_NORMALIZADO_MINIMO = 0.04
+_RECORRIDO_COMPARABLE = (0.1, 20.0)
 
 
 def _tolerancia_de_redondeo(lo: float, hi: float) -> float:
+    """De REDONDEO (2.ª pasada, N1): el 0,1 % del ANCHO metía [-1, 1] «dentro» de [0, 900000]."""
     return 1e-4 + 1e-6 * max(abs(lo), abs(hi))
 
 
-def _numero_legible(v: float) -> str:
-    """Un número para una frase: sin `.0` si es entero y SIN notación científica (2.ª pasada, N6: «1.13747e+06» no lo
-    lee nadie); con seis cifras significativas como mucho."""
+def _numero_legible(v: float, decimal: str = ".") -> str:
+    """Un número para una frase: sin `.0` si es entero, SIN notación científica (2.ª pasada, N6: «1.13747e+06» no lo
+    lee nadie), con seis cifras significativas como mucho, y con la coma decimal en castellano (3.ª pasada, R3-5:
+    «van de 117.279 a 774.456» se leía como miles, DENTRO de [60000, 900000])."""
     if not math.isfinite(v) or abs(v) >= 1e15:
         return f"{v:.6g}"
     if float(v).is_integer():
@@ -3568,17 +3568,20 @@ def _numero_legible(v: float) -> str:
     decimales = max(0, 5 - int(math.floor(math.log10(abs(v))))) if v != 0 else 0
     texto = f"{round(v, decimales):.{decimales}f}"
     # Los ceros de la derecha se quitan SOLO de los decimales: sin «.», «1000000» se quedaba en «1».
-    return texto.rstrip("0").rstrip(".") if "." in texto else texto
+    texto = texto.rstrip("0").rstrip(".") if "." in texto else texto
+    return texto.replace(".", decimal)
 
 
 def _porcentaje_del_rango(recorrido: float) -> tuple[str, str]:
-    """Qué parte del rango ocupa el objetivo, para la frase (es, en). Por debajo del 0,01 % no se escribe «0» ni
-    «0.000222»: se dice «menos del 0.01 %»."""
+    """Qué parte del rango ocupa el objetivo, para la frase (es, en). Dos cifras significativas TRUNCADAS, para no
+    escribir «4 %» de un 3,96 % rechazado por estar por debajo del 4 % (3.ª pasada); y por debajo del 0,01 %, «menos
+    del 0,01 %» en vez de «0» o «0.000222»."""
     p = recorrido * 100
     if p < 0.01:
-        return "menos del 0.01 %", "less than 0.01 %"
-    t = _numero_legible(float(f"{p:.2g}"))
-    return f"solo el {t} %", f"only {t} %"
+        return "menos del 0,01 %", "less than 0.01 %"
+    cifras = 1 - int(math.floor(math.log10(p)))
+    t = math.floor(p * 10 ** cifras) / 10 ** cifras
+    return f"solo el {_numero_legible(t, ',')} %", f"only {_numero_legible(t)} %"
 
 
 def _objetivo_fuera_de_la_escala_del_rango(
@@ -3589,11 +3592,10 @@ def _objetivo_fuera_de_la_escala_del_rango(
 
     AUDITORÍA DEL RANGO, I1/M6 (06-10, decidido por el supervisor). Un modelo de regresión guardado con su
     rango (`SALIDA: precio_eur: Scalar en [60000, 900000]`) y reabierto en la clásica GENERA sin el rango
-    —objetivo en [-1, 1]— y ENTRENA con él (lo carga del modelo guardado). Medido por HTTP (sonda del auditor):
-    `done`, MAE «17.432 €», R² −1,16·10⁹, `model_collapsed: false`, y 3.882,26 € para una vivienda de 30 m²
-    a 39 km y para una de 390 m² en el centro: un modelo CONSTANTE con un error en euros de buen aspecto. Lo
-    mismo con un CSV propio en k€ y el rango en euros (M6). Normalizar [-1, 1] con [60000, 900000] da −0,0714
-    para todas las filas: no queda nada que aprender, y el MAE desnormalizado parece una cifra de verdad.
+    —objetivo en [-1, 1]— y ENTRENA con él (lo carga del modelo guardado). Medido por HTTP: `done`, MAE
+    «17.432 €», R² −1,16·10⁹, `model_collapsed: false`, y −23.338 € y −16.237 € para una vivienda de 30 m² a 39 km
+    y para una de 390 m² en el centro (la 3.ª pasada corrigió el «la misma predicción» de las dos primeras: su sonda
+    mandaba `inputs` y el endpoint lee `input_values`). Lo mismo con un CSV propio en k€ y el rango en euros (M6).
 
     La guarda va AQUÍ, en el núcleo, y la usan las dos entradas que normalizan el objetivo con `target_range`
     (`_submit_training_job`, la del Studio, y `_run_playground_training`, la de `/api/train` y motores): una
@@ -3601,23 +3603,42 @@ def _objetivo_fuera_de_la_escala_del_rango(
     rango (`_columna_de_salida`, la de `_compose_normalize_ranges`), sobre el CSV ANTES de normalizarlo.
 
     El criterio, en `_FRACCION_FUERA_DEL_RANGO_QUE_SE_RECHAZA` y el recorrido normalizado (`_RECORRIDO_*`). Lo que no es
-    un número (vacío, `nan`, texto) no cuenta ni dentro ni fuera: ausente no es cero. Sin rango, sin columna
-    de salida, sin esa columna en el CSV o sin un solo valor numérico, no hay nada que decidir aquí (la
-    validación de después dirá lo que falte)."""
+    un número (vacío, `nan`, texto) no cuenta ni dentro ni fuera: ausente no es cero. Un rango que no es un par finito
+    y creciente se RECHAZA con su motivo (3.ª pasada, R3-3: `[5, 5]` reventaba la normalización con
+    `ZeroDivisionError` y el servidor cerraba la conexión; `[900000, 60000]` «entrenaba» con un MAE negativo). Sin
+    rango, sin columna de salida, sin esa columna en el CSV o sin un solo valor numérico, no hay nada que decidir aquí
+    (la validación de después dirá lo que falte)."""
     if target_range is None:
         return None
     salida = _columna_de_salida(mxai_text)
     if salida is None:
         return None
     lo, hi = float(target_range[0]), float(target_range[1])
-    if not (math.isfinite(lo) and math.isfinite(hi) and lo < hi):
-        return None  # un rango que no es un par finito y creciente no lo decide esta guarda (2.ª pasada, N7)
-    tolerancia = _tolerancia_de_redondeo(lo, hi)
     try:
         filas = csv.reader(io.StringIO(csv_text))
         cabecera = next(filas, None)
         if not cabecera or salida not in cabecera:
             return None
+        if not (math.isfinite(lo) and math.isfinite(hi) and lo < hi):
+            a, b = _numero_legible(lo, ","), _numero_legible(hi, ",")
+            return {
+                "ok": False,
+                "error_kind": "objetivo_fuera_del_rango",
+                "motivo_del_rechazo": "rango_invalido",
+                "columna_objetivo": salida,
+                "rango_declarado": [lo, hi],
+                "error": (
+                    f"El rango de la salida del modelo no se puede usar: dice que «{salida}» va de {a} a "
+                    f"{b}, y el mínimo tiene que ser un número menor que el máximo. Corrige el rango de la salida "
+                    f"del modelo antes de entrenar."
+                ),
+                "error_en": (
+                    f"The model's output range cannot be used: it says «{salida}» goes from "
+                    f"{_numero_legible(lo)} to {_numero_legible(hi)}, and the minimum has to be a number below the "
+                    f"maximum. Fix the model's output range before training."
+                ),
+            }
+        tolerancia = _tolerancia_de_redondeo(lo, hi)
         j = cabecera.index(salida)
         con_dato = fuera = 0
         minimo = maximo = None
@@ -3643,67 +3664,66 @@ def _objetivo_fuera_de_la_escala_del_rango(
     casi_todo_fuera = fuera >= _FRACCION_FUERA_DEL_RANGO_QUE_SE_RECHAZA * con_dato
     comparable = _RECORRIDO_COMPARABLE[0] <= recorrido <= _RECORRIDO_COMPARABLE[1]
     mucho_mas_estrecho = recorrido < _RECORRIDO_NORMALIZADO_MINIMO
-    otra_escala = recorrido > _RECORRIDO_NORMALIZADO_MAXIMO or (casi_todo_fuera and not comparable)
+    otra_escala = casi_todo_fuera and not comparable
     if not (mucho_mas_estrecho or otra_escala):
         return None
-    a, b = _numero_legible(lo), _numero_legible(hi)
-    vmin, vmax = _numero_legible(minimo), _numero_legible(maximo)
-    if mucho_mas_estrecho and casi_todo_fuera is False:
-        # En la escala, pero en un trozo ínfimo del rango: dos motivos, dos frases (la 2.ª pasada: «otra escala»
-        # era falso aquí).
-        pct, pct_en = _porcentaje_del_rango(recorrido)
-        if minimo == maximo:
-            va, va_en = f"en estos datos vale siempre {vmin}", f"in this data it is always {vmin}"
-        else:
-            va, va_en = f"en estos datos va de {vmin} a {vmax}", f"in this data it goes from {vmin} to {vmax}"
-        return {
-            "ok": False,
-            "error_kind": "objetivo_fuera_del_rango",
-            "motivo_del_rechazo": "rango_mucho_mas_ancho_que_los_datos",
-            "columna_objetivo": salida,
-            "rango_declarado": [lo, hi],
-            "valores_fuera": fuera,
-            "valores_con_dato": con_dato,
-            "minimo_del_objetivo": minimo,
-            "maximo_del_objetivo": maximo,
-            "error": (
-                f"El objetivo de estos datos ocupa {pct} del rango de la salida del modelo: el modelo dice "
-                f"que «{salida}» va de {a} a {b}, y {va}. Normalizado con ese rango, "
-                f"queda casi igual en todas las filas y el modelo contestaría siempre lo mismo, con un error que "
-                f"parece bueno. Genera los datos con el rango del modelo, o usa un rango de salida a la escala de "
-                f"tus datos."
-            ),
-            "error_en": (
-                f"The target in this data covers {pct_en} of the model's output range: the model says "
-                f"«{salida}» goes from {a} to {b}, and {va_en}. Normalised with "
-                f"that range, it is almost the same in every row and the model would always answer the same, with "
-                f"an error that looks good. Generate the data with the model's range, or use an output range on the "
-                f"scale of your data."
-            ),
-        }
-    return {
+    comun = {
         "ok": False,
         "error_kind": "objetivo_fuera_del_rango",
-        "motivo_del_rechazo": "otra_escala",
         "columna_objetivo": salida,
         "rango_declarado": [lo, hi],
         "valores_fuera": fuera,
         "valores_con_dato": con_dato,
         "minimo_del_objetivo": minimo,
         "maximo_del_objetivo": maximo,
+    }
+    a, b = _numero_legible(lo, ","), _numero_legible(hi, ",")
+    a_en, b_en = _numero_legible(lo), _numero_legible(hi)
+    vmin, vmax = _numero_legible(minimo, ","), _numero_legible(maximo, ",")
+    vmin_en, vmax_en = _numero_legible(minimo), _numero_legible(maximo)
+    constante = minimo == maximo
+    if mucho_mas_estrecho and not casi_todo_fuera:
+        # En la escala, pero en un trozo pequeño del rango: dos motivos, dos frases (la 2.ª pasada: «otra escala» era
+        # falso aquí). Y no «contestaría siempre lo mismo»: la 3.ª pasada midió que el modelo SÍ cambia de respuesta,
+        # solo que sin parecerse a los datos (R² negativo).
+        pct, pct_en = _porcentaje_del_rango(recorrido)
+        va = f"vale siempre {vmin}" if constante else f"va de {vmin} a {vmax}"
+        va_en = f"it is always {vmin_en}" if constante else f"it goes from {vmin_en} to {vmax_en}"
+        return {
+            **comun,
+            "motivo_del_rechazo": "rango_mucho_mas_ancho_que_los_datos",
+            "error": (
+                f"El objetivo de estos datos ocupa {pct} del rango de la salida del modelo: el modelo dice "
+                f"que «{salida}» va de {a} a {b}, y en estos datos {va}. Normalizado con ese rango, apenas cambia "
+                f"de una fila a otra y el modelo no aprende a distinguirlas, aunque su error parezca una cifra de "
+                f"verdad. Genera los datos con el rango del modelo, o usa un rango de salida a la escala de tus datos."
+            ),
+            "error_en": (
+                f"The target in this data covers {pct_en} of the model's output range: the model says "
+                f"«{salida}» goes from {a_en} to {b_en}, and in this data {va_en}. Normalised with that range, it "
+                f"barely changes from one row to the next and the model does not learn to tell them apart, even if "
+                f"its error looks like a real figure. Generate the data with the model's range, or use an output "
+                f"range on the scale of your data."
+            ),
+        }
+    van = f"valen siempre {vmin}" if constante else f"van de {vmin} a {vmax}"
+    van_en = f"they are always {vmin_en}" if constante else f"they go from {vmin_en} to {vmax_en}"
+    return {
+        **comun,
+        "motivo_del_rechazo": "otra_escala",
         "error": (
             f"El objetivo de estos datos no está en la escala del rango de la salida del modelo. El modelo "
             f"dice que «{salida}» va de {a} a {b}, y en estos datos {fuera} de {con_dato} valores quedan "
-            f"fuera (van de {vmin} a {vmax}). Entrenar así daría un modelo que no se parece a "
-            f"tus datos, con un error que parece una cifra de verdad. Genera los datos con el rango del modelo, o "
-            f"usa datos cuyo objetivo esté en esa escala."
+            f"fuera ({van}). Entrenar así daría un modelo que no se parece a tus datos, con un error que parece "
+            f"una cifra de verdad. Genera los datos con el rango del modelo, usa datos cuyo objetivo esté en esa "
+            f"escala, o declara un rango de salida a la escala de tus datos."
         ),
         "error_en": (
             f"The target in this data is not on the scale of the model's output range. The model says "
-            f"«{salida}» goes from {a} to {b}, and in this data {fuera} of {con_dato} values fall outside it "
-            f"(they go from {vmin} to {vmax}). Training like this would give a model "
-            f"unlike your data, with an error that looks like a real figure. Generate the data with the model's "
-            f"range, or use data whose target is on that scale."
+            f"«{salida}» goes from {a_en} to {b_en}, and in this data {fuera} of {con_dato} values fall outside it "
+            f"({van_en}). Training like this would give a model unlike your data, with an error that looks like a "
+            f"real figure. Generate the data with the model's range, use data whose target is on that scale, or "
+            f"declare an output range on the scale of your data."
         ),
     }
 
