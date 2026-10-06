@@ -88,18 +88,36 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "You say which — deciding it silently changes the model's output, the "
               "metrics and what every number means",
     },
+    # Lo que PASA, no un desenlace inventado (auditoría, 1.ª pasada, I-1): «multiclase» con dos clases no
+    # sale callado, nunca salió: `ProblemSpec` lo rechaza. Por eso no se ofrece como respuesta.
     "dos_clases_en_varias": {
         "es": "tu objetivo {campo} tiene solo DOS clases ({opciones}) y has elegido "
-              "«Clasificación multiclase»: ¿es una clasificación binaria? Con dos clases, "
-              "«multiclase» no da clase positiva, ni umbral, ni AUROC, y el estudio saldría "
-              "sin ellos sin avisar. Si es binaria, cambia el tipo de problema a "
-              "«Clasificación binaria» y se te pedirá la clase positiva",
+              "«Clasificación multiclase», que es para tres clases o más: con dos, ese estudio "
+              "no se puede hacer. Cambia el tipo de problema a «Clasificación binaria» y se te "
+              "pedirá la clase positiva (con ella, el estudio da umbral y AUROC). Si tu problema "
+              "tiene más clases, en estos datos solo hay estas dos: hacen falta filas de las demás",
         "en": "your target {campo} has only TWO classes ({opciones}) and you chose "
-              "«Multiclass classification»: is it a binary classification? With two "
-              "classes, «multiclass» gives no positive class, no threshold and no AUROC, "
-              "and the study would come out without them and say nothing. If it is binary, "
-              "change the problem type to «Binary classification» and you will be asked "
-              "for the positive class",
+              "«Multiclass classification», which is for three classes or more: with two, that "
+              "study cannot be made. Change the problem type to «Binary classification» and you "
+              "will be asked for the positive class (with it, the study gives a threshold and "
+              "AUROC). If your problem has more classes, this data only has these two: rows of "
+              "the others are needed",
+    },
+    # La misma, cuando una tercera clase se ha leído como dato ausente («None», «NA»…): se nombra,
+    # porque quien mira su CSV ve tres valores (1.ª pasada, M-1).
+    "dos_clases_en_varias_con_ausentes": {
+        "es": "tu objetivo {campo} tiene solo DOS clases ({opciones}; sin contar lo que se lee "
+              "como dato ausente: {ausentes}) y has elegido «Clasificación multiclase», que es "
+              "para tres clases o más: con dos, ese estudio no se puede hacer. Cambia el tipo de "
+              "problema a «Clasificación binaria» y se te pedirá la clase positiva (con ella, el "
+              "estudio da umbral y AUROC). Si tu problema tiene más clases, en estos datos solo hay "
+              "estas dos: hacen falta filas de las demás",
+        "en": "your target {campo} has only TWO classes ({opciones}; not counting what is read as "
+              "missing data: {ausentes}) and you chose «Multiclass classification», which is for "
+              "three classes or more: with two, that study cannot be made. Change the problem type "
+              "to «Binary classification» and you will be asked for the positive class (with it, "
+              "the study gives a threshold and AUROC). If your problem has more classes, this data "
+              "only has these two: rows of the others are needed",
     },
     "clase_positiva": {
         "es": "una clasificación binaria sobre {campo} necesita saber cuál de "
