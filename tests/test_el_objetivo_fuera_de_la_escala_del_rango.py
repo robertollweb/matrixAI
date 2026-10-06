@@ -10,9 +10,11 @@ error en euros de buen aspecto. Lo mismo con un CSV propio en k€ y el rango en
 
 Ahora el núcleo lo RECHAZA antes de normalizar, con su motivo (`error`/`error_en`, `error_kind:
 objetivo_fuera_del_rango`), por las dos entradas que normalizan el objetivo con `target_range`
-(`run_playground_training` y `submit_training_job`). El criterio: al menos el 90 % de los valores no nulos del
-objetivo fuera de `[lo, hi]`, con una tolerancia del 0,1 % del ancho. Y lo que no es eso entrena IGUAL que
-antes: lo generado con el rango, unos pocos atípicos, y todo lo que no trae rango.
+(`run_playground_training` y `submit_training_job`). El criterio, desde la 2.ª pasada (N1/N2): el RECORRIDO del
+objetivo normalizado con el rango —menos del 1 %, o más de 100 veces— y, si no es comparable (fuera de [0,1; 10]),
+el 90 % de los valores no nulos fuera de `[lo, hi]` con una tolerancia de REDONDEO. Sus casos, en
+`test_el_recorrido_del_objetivo_con_su_rango.py`. Y lo que no es eso entrena IGUAL que antes: lo generado con el
+rango, unos pocos atípicos, y todo lo que no trae rango.
 
 CONVENCIÓN DEL FICHERO: funciones `test_*` de pytest.
 """
@@ -186,20 +188,27 @@ def _csv_de_objetivo(valores: list) -> str:
 
 @pytest.mark.parametrize("fuera,se_rechaza", [(100, True), (90, True), (89, False), (10, False), (0, False)])
 def test_se_rechaza_desde_el_90_por_ciento_fuera(red, fuera, se_rechaza):
-    valores = [0.5] * fuera + [500000.0] * (100 - fuera)
+    """El umbral del 90 %, con un recorrido NO comparable (del 2 al 9 % del ancho): ni tan estrecho que lo rechace
+    solo, ni parecido al del rango (eso es otro tramo del mismo dominio, y se entrena: N2)."""
+    valores = [0.5] * fuera + [60000.0 + 200 * i for i in range(100 - fuera)]
     r = _objetivo_fuera_de_la_escala_del_rango(red["mxai"], _csv_de_objetivo(valores), RANGO)
     assert (r is not None) is se_rechaza, r
     if se_rechaza:
         assert (r["valores_fuera"], r["valores_con_dato"]) == (fuera, 100)
+        assert r["motivo_del_rechazo"] == "otra_escala"
 
 
 def test_un_valor_en_el_borde_por_redondeo_cuenta_como_dentro(red):
-    """La tolerancia: el 0,1 % del ancho (840 € aquí). Medio por mil fuera es redondeo; dos por mil, no."""
-    ancho = RANGO[1] - RANGO[0]
-    casi = [RANGO[0] - 0.0005 * ancho] * 50 + [RANGO[1] + 0.0005 * ancho] * 50
-    assert _objetivo_fuera_de_la_escala_del_rango(red["mxai"], _csv_de_objetivo(casi), RANGO) is None
-    fuera = [RANGO[0] - 0.002 * ancho] * 50 + [RANGO[1] + 0.002 * ancho] * 50
-    assert _objetivo_fuera_de_la_escala_del_rango(red["mxai"], _csv_de_objetivo(fuera), RANGO) is not None
+    """La tolerancia es de REDONDEO (1e-4 + 1e-6·|borde|: 0,9 € aquí), no del ancho (2.ª pasada, N1: el 0,1 % del
+    ancho metía [-1, 1] «dentro» de [0, 900000]). Medio euro por debajo del mínimo cuenta dentro; dos, fuera."""
+    assert playground._tolerancia_de_redondeo(*RANGO) == pytest.approx(0.9001)
+    otra_escala = [0.5] * 90
+    redondeo = _objetivo_fuera_de_la_escala_del_rango(
+        red["mxai"], _csv_de_objetivo(otra_escala + [RANGO[0] - 0.5] * 10), RANGO)
+    assert (redondeo["valores_fuera"], redondeo["valores_con_dato"]) == (90, 100)
+    fuera = _objetivo_fuera_de_la_escala_del_rango(
+        red["mxai"], _csv_de_objetivo(otra_escala + [RANGO[0] - 2.0] * 10), RANGO)
+    assert (fuera["valores_fuera"], fuera["valores_con_dato"]) == (100, 100)
 
 
 def test_lo_que_no_es_un_numero_no_cuenta_ni_dentro_ni_fuera(red):
