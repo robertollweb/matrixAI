@@ -1,0 +1,39 @@
+{
+ "conjuntos": [
+  "climate-model-simulation-crashes",
+  "dresses-sales",
+  "house_16H",
+  "mfeat-factors",
+  "pc1",
+  "pendigits",
+  "us_crime",
+  "wilt"
+ ],
+ "corte": "122-C0",
+ "cumplidos": 7,
+ "de": 8,
+ "fuente": {
+  "fichero": "benchmarks/contrato122/resultado_122_c0.json",
+  "sha256": "8309cd9f3ef1e7cd3da666809aea08bedb7028d48f2b5d79241a12d3fa56eaa6"
+ },
+ "fuera_de_la_regla": [
+  {
+   "conjunto": "climate-model-simulation-crashes",
+   "distancia_en_puntos": 2.1324354657688005,
+   "mejor": "nucleo_estudio"
+  }
+ ],
+ "pliegues_cortados_por_el_plazo": [
+  {
+   "conjunto": "mfeat-factors",
+   "pliegue": 1
+  }
+ ],
+ "pliegues_de_tabm": 22,
+ "regla": {
+  "fraccion_minima": 0.875,
+  "puntos": 2.0
+ },
+ "tabm_completa_todos": true,
+ "veredicto": "SE_OFRECE_RECOMENDADA_PARA_TABLAS"
+}
