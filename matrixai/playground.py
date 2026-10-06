@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timezone
 import os
 import math
+import numbers
 import re
 import shutil
 import tempfile
@@ -571,12 +572,19 @@ def _training_input_is_transformer_sequence(program: Any, training: Any) -> bool
 
 def _rango_de_objetivo_valido(rango: Any) -> tuple[float, float] | None:
     """Un rango de objetivo que se puede usar —dos números finitos y crecientes— o `None`. Lo que llega por la API
-    no se cree: un `[9, 1]` o un `[0, inf]` generaría o normalizaría un objetivo que no se parece a nada."""
-    try:
-        lo, hi = (float(rango[0]), float(rango[1])) if rango is not None and len(rango) == 2 else (None, None)
-    except (TypeError, ValueError):
+    no se cree: un `[9, 1]` o un `[0, inf]` generaría o normalizaría un objetivo que no se parece a nada.
+
+    Auditoría del rango, M3 (06-10): solo un PAR (lista o tupla de dos) de números REALES. Antes bastaba con que
+    `len()` diera 2 y `float()` tragara cada mitad, y eso dejaba pasar tres cosas que nadie escribió como rango:
+    un dict `{"a": 1, "b": 2}` (`rango[0]` → `KeyError` sin capturar: `/api/generate-dataset` cerraba la conexión
+    sin responder), la cadena `"12"` (→ `(1.0, 2.0)`) y `[False, True]` (→ `(0.0, 1.0)`; `bool` es un `int` para
+    Python, no para quien declara un rango). Lo que no cuadra se ignora, como lo demás."""
+    if not isinstance(rango, (list, tuple)) or len(rango) != 2:
         return None
-    if lo is None or not (math.isfinite(lo) and math.isfinite(hi) and lo < hi):
+    if not all(isinstance(v, numbers.Real) and not isinstance(v, bool) for v in rango):
+        return None
+    lo, hi = float(rango[0]), float(rango[1])
+    if not (math.isfinite(lo) and math.isfinite(hi) and lo < hi):
         return None
     return (lo, hi)
 
@@ -3075,6 +3083,13 @@ def _run_playground_training(
         # CONTRATO 62 C1: `_size_error` ya es el payload estructurado completo
         # (incluye su propia clave `error` de respaldo).
         return {"ok": False, **_size_error}
+    # Auditoría del rango, I1 (06-10): un objetivo que no está en la escala de
+    # su `target_range` no se entrena —saldría un modelo constante con un MAE de
+    # buen aspecto—; se rechaza con su motivo ANTES de normalizar. El porqué, en
+    # `_objetivo_fuera_de_la_escala_del_rango`.
+    _fuera_de_escala = _objetivo_fuera_de_la_escala_del_rango(mxai_text, csv_text, target_range)
+    if _fuera_de_escala is not None:
+        return _fuera_de_escala
     # CONTRATO 61 C4: frontera única de normalización ANTES de validar/despachar
     # (misma semántica que `_submit_training_job`) — booleanos/one-hot en 0/1 e
     # índices de embedding quedan intactos porque no llevan rango.
@@ -3516,6 +3531,183 @@ def _compose_normalize_ranges(
     return normalize_ranges
 
 
+#: AUDITORÍA DEL RANGO, I1 (06-10) — CUÁNDO EL OBJETIVO NO ESTÁ EN LA ESCALA DE SU RANGO. Si al menos este
+#: tanto por uno de los valores (no nulos) del objetivo cae fuera del `target_range`, entrenar se rechaza.
+#: No es «algún valor fuera»: un objetivo de validación por encima del rango de train (A8) o unos pocos
+#: atípicos son datos de verdad en la escala buena, y se entrenan como siempre. Es «casi nada dentro», que
+#: es la firma de otra escala: [-1, 1] contra [60000, 900000], o k€ contra euros.
+_FRACCION_FUERA_DEL_RANGO_QUE_SE_RECHAZA = 0.9
+
+#: 2.ª pasada de la auditoría del rango (N1/N2): «≥ 90 % fuera» con una tolerancia del 0,1 % del ANCHO dejaba entrar
+#: [-1, 1] en cualquier rango ancho ([0, 900000], [-1000, 1000]…: modelo constante, como en I1) y rechazaba datos del
+#: MISMO dominio en otro tramo (1,1–2,7 M€ con [60000, 900000]: R² 0,994 sin la guarda). Lo que decide si se puede
+#: aprender es el RECORRIDO del objetivo NORMALIZADO con el rango, (máx − mín) / (hi − lo):
+#: - menos del 1 %: al normalizar queda casi igual en todas las filas y el modelo contestaría siempre lo mismo;
+#: - más de 100 veces: otra escala;
+#: - y con ≥ 90 % fuera solo si el recorrido NO es comparable (fuera de [0,1; 10]): otro tramo del mismo dominio, con
+#:   un recorrido parecido, se aprende igual.
+#: La tolerancia de «fuera» es de REDONDEO, no del ancho. Medido sobre 24 casos (`sonda_criterio` de la 2.ª pasada):
+#: acierta en todos salvo [0, 100] y [-20, 45] con datos en [-1, 1], los dos suaves (MAE 0,64 y 0,54 frente a 0,48 sin
+#: rango).
+_RECORRIDO_NORMALIZADO_MINIMO = 0.01
+_RECORRIDO_NORMALIZADO_MAXIMO = 100.0
+_RECORRIDO_COMPARABLE = (0.1, 10.0)
+
+
+def _tolerancia_de_redondeo(lo: float, hi: float) -> float:
+    return 1e-4 + 1e-6 * max(abs(lo), abs(hi))
+
+
+def _numero_legible(v: float) -> str:
+    """Un número para una frase: sin `.0` si es entero y SIN notación científica (2.ª pasada, N6: «1.13747e+06» no lo
+    lee nadie); con seis cifras significativas como mucho."""
+    if not math.isfinite(v) or abs(v) >= 1e15:
+        return f"{v:.6g}"
+    if float(v).is_integer():
+        return str(int(v))
+    decimales = max(0, 5 - int(math.floor(math.log10(abs(v))))) if v != 0 else 0
+    texto = f"{round(v, decimales):.{decimales}f}"
+    # Los ceros de la derecha se quitan SOLO de los decimales: sin «.», «1000000» se quedaba en «1».
+    return texto.rstrip("0").rstrip(".") if "." in texto else texto
+
+
+def _porcentaje_del_rango(recorrido: float) -> tuple[str, str]:
+    """Qué parte del rango ocupa el objetivo, para la frase (es, en). Por debajo del 0,01 % no se escribe «0» ni
+    «0.000222»: se dice «menos del 0.01 %»."""
+    p = recorrido * 100
+    if p < 0.01:
+        return "menos del 0.01 %", "less than 0.01 %"
+    t = _numero_legible(float(f"{p:.2g}"))
+    return f"solo el {t} %", f"only {t} %"
+
+
+def _objetivo_fuera_de_la_escala_del_rango(
+    mxai_text: str, csv_text: str, target_range: tuple[float, float] | None,
+) -> dict[str, Any] | None:
+    """El RECHAZO, con su motivo para personas, si el objetivo de estos datos no está en la escala del
+    `target_range` con el que se va a normalizar; `None` si lo está o si no hay nada que mirar.
+
+    AUDITORÍA DEL RANGO, I1/M6 (06-10, decidido por el supervisor). Un modelo de regresión guardado con su
+    rango (`SALIDA: precio_eur: Scalar en [60000, 900000]`) y reabierto en la clásica GENERA sin el rango
+    —objetivo en [-1, 1]— y ENTRENA con él (lo carga del modelo guardado). Medido por HTTP (sonda del auditor):
+    `done`, MAE «17.432 €», R² −1,16·10⁹, `model_collapsed: false`, y 3.882,26 € para una vivienda de 30 m²
+    a 39 km y para una de 390 m² en el centro: un modelo CONSTANTE con un error en euros de buen aspecto. Lo
+    mismo con un CSV propio en k€ y el rango en euros (M6). Normalizar [-1, 1] con [60000, 900000] da −0,0714
+    para todas las filas: no queda nada que aprender, y el MAE desnormalizado parece una cifra de verdad.
+
+    La guarda va AQUÍ, en el núcleo, y la usan las dos entradas que normalizan el objetivo con `target_range`
+    (`_submit_training_job`, la del Studio, y `_run_playground_training`, la de `/api/train` y motores): una
+    vez para todas las interfaces, y sin tocar la clásica. Se mira la MISMA columna que se normalizará con el
+    rango (`_columna_de_salida`, la de `_compose_normalize_ranges`), sobre el CSV ANTES de normalizarlo.
+
+    El criterio, en `_FRACCION_FUERA_DEL_RANGO_QUE_SE_RECHAZA` y el recorrido normalizado (`_RECORRIDO_*`). Lo que no es
+    un número (vacío, `nan`, texto) no cuenta ni dentro ni fuera: ausente no es cero. Sin rango, sin columna
+    de salida, sin esa columna en el CSV o sin un solo valor numérico, no hay nada que decidir aquí (la
+    validación de después dirá lo que falte)."""
+    if target_range is None:
+        return None
+    salida = _columna_de_salida(mxai_text)
+    if salida is None:
+        return None
+    lo, hi = float(target_range[0]), float(target_range[1])
+    if not (math.isfinite(lo) and math.isfinite(hi) and lo < hi):
+        return None  # un rango que no es un par finito y creciente no lo decide esta guarda (2.ª pasada, N7)
+    tolerancia = _tolerancia_de_redondeo(lo, hi)
+    try:
+        filas = csv.reader(io.StringIO(csv_text))
+        cabecera = next(filas, None)
+        if not cabecera or salida not in cabecera:
+            return None
+        j = cabecera.index(salida)
+        con_dato = fuera = 0
+        minimo = maximo = None
+        for fila in filas:
+            if j >= len(fila):
+                continue
+            try:
+                v = float(fila[j])
+            except (TypeError, ValueError):
+                continue
+            if math.isnan(v):
+                continue
+            con_dato += 1
+            minimo = v if minimo is None else min(minimo, v)
+            maximo = v if maximo is None else max(maximo, v)
+            if v < lo - tolerancia or v > hi + tolerancia:
+                fuera += 1
+    except csv.Error:
+        return None
+    if con_dato == 0:
+        return None
+    recorrido = (maximo - minimo) / (hi - lo)
+    casi_todo_fuera = fuera >= _FRACCION_FUERA_DEL_RANGO_QUE_SE_RECHAZA * con_dato
+    comparable = _RECORRIDO_COMPARABLE[0] <= recorrido <= _RECORRIDO_COMPARABLE[1]
+    mucho_mas_estrecho = recorrido < _RECORRIDO_NORMALIZADO_MINIMO
+    otra_escala = recorrido > _RECORRIDO_NORMALIZADO_MAXIMO or (casi_todo_fuera and not comparable)
+    if not (mucho_mas_estrecho or otra_escala):
+        return None
+    a, b = _numero_legible(lo), _numero_legible(hi)
+    vmin, vmax = _numero_legible(minimo), _numero_legible(maximo)
+    if mucho_mas_estrecho and casi_todo_fuera is False:
+        # En la escala, pero en un trozo ínfimo del rango: dos motivos, dos frases (la 2.ª pasada: «otra escala»
+        # era falso aquí).
+        pct, pct_en = _porcentaje_del_rango(recorrido)
+        if minimo == maximo:
+            va, va_en = f"en estos datos vale siempre {vmin}", f"in this data it is always {vmin}"
+        else:
+            va, va_en = f"en estos datos va de {vmin} a {vmax}", f"in this data it goes from {vmin} to {vmax}"
+        return {
+            "ok": False,
+            "error_kind": "objetivo_fuera_del_rango",
+            "motivo_del_rechazo": "rango_mucho_mas_ancho_que_los_datos",
+            "columna_objetivo": salida,
+            "rango_declarado": [lo, hi],
+            "valores_fuera": fuera,
+            "valores_con_dato": con_dato,
+            "minimo_del_objetivo": minimo,
+            "maximo_del_objetivo": maximo,
+            "error": (
+                f"El objetivo de estos datos ocupa {pct} del rango de la salida del modelo: el modelo dice "
+                f"que «{salida}» va de {a} a {b}, y {va}. Normalizado con ese rango, "
+                f"queda casi igual en todas las filas y el modelo contestaría siempre lo mismo, con un error que "
+                f"parece bueno. Genera los datos con el rango del modelo, o usa un rango de salida a la escala de "
+                f"tus datos."
+            ),
+            "error_en": (
+                f"The target in this data covers {pct_en} of the model's output range: the model says "
+                f"«{salida}» goes from {a} to {b}, and {va_en}. Normalised with "
+                f"that range, it is almost the same in every row and the model would always answer the same, with "
+                f"an error that looks good. Generate the data with the model's range, or use an output range on the "
+                f"scale of your data."
+            ),
+        }
+    return {
+        "ok": False,
+        "error_kind": "objetivo_fuera_del_rango",
+        "motivo_del_rechazo": "otra_escala",
+        "columna_objetivo": salida,
+        "rango_declarado": [lo, hi],
+        "valores_fuera": fuera,
+        "valores_con_dato": con_dato,
+        "minimo_del_objetivo": minimo,
+        "maximo_del_objetivo": maximo,
+        "error": (
+            f"El objetivo de estos datos no está en la escala del rango de la salida del modelo. El modelo "
+            f"dice que «{salida}» va de {a} a {b}, y en estos datos {fuera} de {con_dato} valores quedan "
+            f"fuera (van de {vmin} a {vmax}). Entrenar así daría un modelo que no se parece a "
+            f"tus datos, con un error que parece una cifra de verdad. Genera los datos con el rango del modelo, o "
+            f"usa datos cuyo objetivo esté en esa escala."
+        ),
+        "error_en": (
+            f"The target in this data is not on the scale of the model's output range. The model says "
+            f"«{salida}» goes from {a} to {b}, and in this data {fuera} of {con_dato} values fall outside it "
+            f"(they go from {vmin} to {vmax}). Training like this would give a model "
+            f"unlike your data, with an error that looks like a real figure. Generate the data with the model's "
+            f"range, or use data whose target is on that scale."
+        ),
+    }
+
+
 def _columna_de_salida(mxai_text: str) -> str | None:
     """El nombre REAL de la columna de salida (`net.output`), o `None` si el
     `.mxai` no parsea (best-effort: el chequeo de validez llega después)."""
@@ -3955,6 +4147,13 @@ def _submit_training_job(
         # CONTRATO 62 C1: `_size_error` ya es el payload estructurado completo
         # (incluye su propia clave `error` de respaldo).
         return {"ok": False, **_size_error}
+
+    # Auditoría del rango, I1 (06-10): la MISMA guarda que `_run_playground_training`,
+    # antes de normalizar y sin crear el trabajo. Es la puerta del Studio: un modelo
+    # con rango reabierto en la clásica genera sin él y entrena con él.
+    _fuera_de_escala = _objetivo_fuera_de_la_escala_del_rango(mxai_text, csv_text, target_range)
+    if _fuera_de_escala is not None:
+        return _fuera_de_escala
 
     # CONTRATO 59 C1: el target se normaliza con el MISMO mecanismo que las
     # features (`_normalize_csv_with_ranges` no distingue target de feature,
