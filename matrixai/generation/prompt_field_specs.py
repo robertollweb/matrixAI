@@ -128,8 +128,13 @@ _FIELD_ENTRY_RE = re.compile(
 #: LAS PALABRAS QUE DECLARAN LA SALIDA de un prompt (no una entrada). Una sola lista: la lee también
 #: `prompt_objetivo` para saber qué dice el prompt que hay que predecir, y dos sitios declarando lo mismo
 #: acaban divergiendo.
+#:
+#: LAS DE DOS PALABRAS, PRIMERO (auditoría del rango, M5, 06-10). Una alternancia de `re` se queda con la
+#: PRIMERA que encaja, no con la más larga: con `TARGET` delante de `TARGET COLUMN`, en
+#: `TARGET COLUMN: precio: Scalar in [100, 200]` ganaba `TARGET` y el resto se leía como nombre «COLUMN» y
+#: tipo «precio» —la salida sin rango, y `prompt_objetivo` daba «COLUMN» por objetivo—.
 PALABRAS_QUE_DECLARAN_LA_SALIDA = (
-    r"OUTPUT|SALIDA|OBJETIVO|TARGET|(?:COLUMNA|VARIABLE)[ \t]+OBJETIVO|TARGET[ \t]+COLUMN"
+    r"(?:COLUMNA|VARIABLE)[ \t]+OBJETIVO|TARGET[ \t]+COLUMN|OUTPUT|SALIDA|OBJETIVO|TARGET"
 )
 
 #: LA DECLARACIÓN DE LA SALIDA CON SU TIPO, entera (05-10, ejemplo 2.1 del prompt: «algunos ejemplos que
