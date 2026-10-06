@@ -50,7 +50,7 @@ def test_la_pregunta_sale_en_los_dos_idiomas_con_el_objetivo_y_las_clases():
     assert "DOS clases" in p.motivo["es"] and "Clasificación binaria" in p.motivo["es"]
     assert "TWO classes" in p.motivo["en"] and "Binary classification" in p.motivo["en"]
     for idioma in ("es", "en"):
-        assert "'y'" in p.motivo[idioma] and "(no, si)" in p.motivo[idioma]
+        assert "'y'" in p.motivo[idioma] and "(«no», «si»)" in p.motivo[idioma]
         assert "{" not in p.motivo[idioma]
         assert "AUROC" in p.motivo[idioma]       # lo que da la binaria, dicho
     # Lo que PASA: multiclase es para tres o más. Y nada del desenlace inventado (I-1).
@@ -126,10 +126,10 @@ def _pregunta(conf):
 
 
 @pytest.mark.parametrize("valores,vistas", [
-    (["0", "1"], "(0, 1)"),                   # la forma más corriente (M-3, S14)
-    (["Sí", "No"], "(No, Sí)"),
-    (["-1", "1"], "(1, -1)"),
-    (["Minor", "Major"], "(Major, Minor)"),
+    (["0", "1"], "(«0», «1»)"),                   # la forma más corriente (M-3, S14)
+    (["Sí", "No"], "(«No», «Sí»)"),
+    (["-1", "1"], "(«1», «-1»)"),
+    (["Minor", "Major"], "(«Major», «Minor»)"),
 ])
 def test_las_clases_se_nombran_como_las_trae_el_csv(valores, vistas):
     """M-2: «class_0, class_1» o «major, minor» no es lo que ve quien mira su CSV. En el orden de las
@@ -191,3 +191,55 @@ def test_con_una_clase_positiva_mandada_por_api_tambien_se_pregunta():
     """M-3 (S15): multiclase + `clase_positiva` no se salta la pregunta (acabaría en el error del esquema)."""
     conf = _conf(_csv(["si", "no"]), "multiclass_classification", clase_positiva="si")
     assert CLAVE in _claves(conf) and not conf.confirmado
+
+
+# ── auditoría, 2.ª pasada (N-2, N-4 y las guardias G1-G3 del auditor) ─────────────────────────────
+
+def test_una_clase_con_coma_no_se_lee_como_dos():
+    """N-4: con la forma cruda unida por comas, «alto, urgente» y «bajo» se leían «(alto, urgente, bajo)»."""
+    import csv as _csv_mod
+    import io
+
+    out = io.StringIO()
+    w = _csv_mod.writer(out)
+    w.writerow(["x", "y"])
+    for i in range(60):
+        w.writerow([i, ["alto, urgente", "bajo"][i % 2]])
+    p = _pregunta(confirmar_desde_csv(out.getvalue(), objetivo="y", tarea="multiclass_classification",
+                                      unidad_de_observacion="una fila"))
+    assert "(«alto, urgente», «bajo»)" in p.motivo["es"], p.motivo["es"]
+
+
+def test_un_valor_leido_como_ausente_que_es_una_clase_tiene_su_salida():
+    """N-2: con un nivel legítimo «None», lo que falta no son filas: es cambiarle el nombre (en fases no se
+    declaran ausentes). Y solo en la plantilla con ausentes: sin ellos no hay nada que renombrar."""
+    p = _pregunta(_conf(_csv(["Minor", "Major", "None"]), "multiclass_classification"))
+    assert "cámbiale el nombre en el CSV" in p.motivo["es"] and "rename it in the CSV" in p.motivo["en"]
+    p = _pregunta(_conf(_csv(["si", "no"]), "multiclass_classification"))
+    assert "nombre en el CSV" not in p.motivo["es"] and "rename" not in p.motivo["en"]
+
+
+@pytest.mark.parametrize("valores", [["si", "no", "NA"], ["Minor", "Major", "None"], ["0", "1", "?"]])
+def test_la_plantilla_con_ausentes_dice_lo_que_pasa_y_a_donde_ir(valores):
+    """G1 del auditor: I-1 en la plantilla que ve quien tiene un «NA» (la más corriente); antes solo se miraba
+    la otra, y devolver «saldría», cambiar el rótulo o perder el AUROC aquí seguía verde."""
+    m = _pregunta(_conf(_csv(valores), "multiclass_classification")).motivo
+    assert "tres clases o más" in m["es"] and "three classes or more" in m["en"]
+    assert "no se puede hacer" in m["es"] and "cannot be made" in m["en"]
+    assert "saldría" not in m["es"] and "come out" not in m["en"]
+    assert "«Clasificación binaria»" in m["es"] and "«Binary classification»" in m["en"]
+    assert "AUROC" in m["es"] and "AUROC" in m["en"] and "umbral" in m["es"] and "threshold" in m["en"]
+
+
+def test_cada_valor_leido_como_ausente_se_nombra_una_vez():
+    """G2: sin deduplicar, «NA» y «?» saldrían una vez por fila."""
+    m = _pregunta(_conf(_csv(["si", "no", "NA", "?"]), "multiclass_classification")).motivo
+    for idioma in ("es", "en"):
+        assert m[idioma].count("«NA»") == 1 and m[idioma].count("«?»") == 1, m[idioma]
+
+
+def test_con_tokens_declarados_se_nombra_lo_declarado():
+    """G3 (solo por API): lo ausente se mide con los `tokens_de_ausencia` declarados."""
+    m = _pregunta(_conf(_csv(["si", "no", "sin_dato"]), "multiclass_classification",
+                        tokens_de_ausencia={"sin_dato"})).motivo
+    assert "«sin_dato»" in m["es"] and "«sin_dato»" in m["en"]

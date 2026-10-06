@@ -844,8 +844,9 @@ def confirmar_desde_csv(
         # («###»/«si») o con una sola clase declarada revienta con `TypeError` (un 500, M-3).
         if (etiquetas is not None and tarea == "multiclass_classification"
                 and len(etiquetas) == 2):
-            # Las clases COMO LAS VE quien mira su CSV («0, 1», no «class_0, class_1»: M-2).
-            vistas = ", ".join(_vistas_en_el_csv(etiquetas, mapa))
+            # Las clases COMO LAS VE quien mira su CSV («0», «1»; no «class_0, class_1»: M-2), y entre «» como
+            # los ausentes: una clase con coma («alto, urgente») se leía como dos (2.ª pasada, N-4).
+            vistas = ", ".join(f"«{v}»" for v in _vistas_en_el_csv(etiquetas, mapa))
             leidas_como_ausentes = _leidas_como_ausentes(filas, objetivo, tokens_de_ausencia)
             if leidas_como_ausentes:
                 motivo_de_la_pregunta = motivo("dos_clases_en_varias_con_ausentes", campo=repr(objetivo),
