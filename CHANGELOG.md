@@ -7,6 +7,50 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.15.0] — 2026-10-06
+
+The examples of the prompt are read as they are written, the declared range of a regression's output is used to
+generate and to train, training with a target that is not on that range's scale is refused with its reason, and
+«several classes» with only two classes asks instead of failing.
+
+### Fixed
+- **The output of a prompt example is no longer read as an input.** A `SALIDA:`/`OUTPUT:` line ended in the
+  network's input vector as one more column, and a field called «modelo» named the network. The examples now produce
+  the network they describe.
+- **«Several classes» with a two-class target asks** (`confirmar_desde_csv`). Choosing
+  `multiclass_classification` for a target with two classes raised `EsquemaInvalido` («three classes or more, got
+  2»), shown only in Spanish. The confirmation now returns the question `dos_clases_en_varias` in both languages: a
+  multiclass study needs three classes or more, so change the problem type to binary (the positive class is then
+  asked as usual). The classes are named as the CSV writes them, each one quoted («0», «1»); a third value read as
+  missing data («None», «NA», «?») is named, with the way out if it is a real class (rename it in the CSV to a name
+  not read as missing). The only answer offered is `binary_classification`.
+
+### Added
+- **The declared range of a regression's output is used.** A prompt such as
+  `SALIDA: precio_eur: Scalar en [60000, 900000]` publishes `rango_declarado_de_la_salida`; the synthetic target is
+  generated inside it and training normalizes with it, so the model answers in those units. The classic interface
+  keeps its behaviour byte for byte (it reads another key).
+- **Training with a target that is not on the scale of its declared range is refused, with its reason**
+  (`_objetivo_fuera_de_la_escala_del_rango`, in `_submit_training_job` and `_run_playground_training`:
+  `error_kind: objetivo_fuera_del_rango`, `motivo_del_rechazo`, `error`/`error_en`). Before, a model saved with
+  `[60000, 900000]` and reopened in the classic interface generated its data without the range (target in [-1, 1])
+  and trained with it: a useless model (R² −1.16·10⁹) whose «17,432 €» MAE looked like a real figure. The criterion
+  looks at the target normalized with the range, measured with learnable data:
+  - it covers less than 4 % of the range («the range is much wider than the data»: from 1.1 % to 3 % the models
+    measured R² from −17.9 to −1.6);
+  - or at least 90 % of the values fall outside and they are not comparable to the range: a span under 0.1 times
+    its width, or further than 32 widths from its centre (8 for data narrower than two widths). Another stretch of
+    the same domain (1.1–2.7 M€ with `[60000, 900000]`, R² 0.994) still trains, and so does an extreme value in the
+    validation rows (the training-rows ranges of 1.13.0 are unchanged);
+  - a range that is not a finite, increasing pair is refused (`rango_invalido`): `[5, 5]` crashed normalization and
+    `[900000, 60000]` reported a negative MAE.
+  Known limits: between 4 % and 5 % of the range the outcome depends on the data and it trains; a tiny target can
+  get a rounded range from data that leaves it at 2 % and is refused.
+
+### Benchmarks (not part of the package)
+- `benchmarks/datos_publicos/tabm_122_c0.json`, generated from the 122-C0 result by `generar_tabm_122_c0.py` (which
+  stops if the source does not add up): the public figures of the MatrixAI network in expert mode, for the website.
+
 ## [1.14.0] — 2026-10-05
 
 A missing value the training never saw no longer loses a part of a study, and the reasons for a

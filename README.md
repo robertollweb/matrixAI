@@ -47,7 +47,9 @@ matrixai --help
 - **Typed prompt fields**: declare feature types and ranges in the prompt itself
   (`edad: Scalar en [18, 95]`, `Integer[1, 10]`, `Boolean`, `Categorical[...]` → one-hot,
   `ProbabilityMap[NO, SI]` output) — honoured end-to-end by the generator, the LLM
-  proposal, the synthetic data and the export metadata
+  proposal, the synthetic data and the export metadata. A regression output with a range
+  (`SALIDA: precio_eur: Scalar en [60000, 900000]`) is generated and trained in those units,
+  and training with a target that is not on that range's scale is refused with its reason
 - **Model generation from real data**: point at your own CSV instead of writing a prompt —
   schema inference (types, ranges, one-hot categoricals, temporal columns), target-column
   detection (classification or regression) and a trained model in one pass, with target
@@ -320,7 +322,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 9008 passed, 29 skipped
+# 9205 passed, 37 skipped
 ```
 
 ---
