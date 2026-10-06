@@ -243,3 +243,22 @@ def test_con_tokens_declarados_se_nombra_lo_declarado():
     m = _pregunta(_conf(_csv(["si", "no", "sin_dato"]), "multiclass_classification",
                         tokens_de_ausencia={"sin_dato"})).motivo
     assert "«sin_dato»" in m["es"] and "«sin_dato»" in m["en"]
+
+
+# ── auditoría, 3.ª pasada (N-6 y su nota 1) ───────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("valores", [["si", "no", "NA"], ["Minor", "Major", "None"], ["0", "1", "?"]])
+def test_renombrar_es_condicional_no_una_orden(valores):
+    """G4 del 3.er auditor: quien tiene un «NA» que es un ausente de verdad no debe leer «renómbralo»; la frase
+    solo vale porque va condicionada a que sea una clase de verdad."""
+    m = _pregunta(_conf(_csv(valores), "multiclass_classification")).motivo
+    assert "Si alguno de los valores que se leen como dato ausente es una clase de verdad, cámbiale" in m["es"]
+    assert "If any of the values read as missing data is a real class, rename it" in m["en"]
+
+
+def test_renombrar_lleva_a_volver_a_confirmar_con_un_nombre_que_no_se_lea_como_ausente():
+    """G5, y la nota 1 del 3.er auditor: la salida entera es renombrar Y volver a confirmar, y a un nombre que no se
+    lea también como ausente («none», «N/A»…: la misma pregunta otra vez)."""
+    m = _pregunta(_conf(_csv(["Minor", "Major", "None"]), "multiclass_classification")).motivo
+    assert "cámbiale el nombre en el CSV por uno que no se lea como dato ausente y vuelve a confirmar" in m["es"]
+    assert "rename it in the CSV to a name not read as missing data and confirm again" in m["en"]

@@ -112,14 +112,16 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "para tres clases o más: con dos, ese estudio no se puede hacer. Cambia el tipo de "
               "problema a «Clasificación binaria» y se te pedirá la clase positiva (con ella, el "
               "estudio da umbral y AUROC). Si alguno de los valores que se leen como dato ausente es "
-              "una clase de verdad, cámbiale el nombre en el CSV y vuelve a confirmar. Si tu problema "
+              "una clase de verdad, cámbiale el nombre en el CSV por uno que no se lea como dato ausente y "
+              "vuelve a confirmar. Si tu problema "
               "tiene más clases, en estos datos solo hay estas dos: hacen falta filas de las demás",
         "en": "your target {campo} has only TWO classes ({opciones}; not counting what is read as "
               "missing data: {ausentes}) and you chose «Multiclass classification», which is for "
               "three classes or more: with two, that study cannot be made. Change the problem type "
               "to «Binary classification» and you will be asked for the positive class (with it, "
               "the study gives a threshold and AUROC). If any of the values read as missing data is a "
-              "real class, rename it in the CSV and confirm again. If your problem has more classes, "
+              "real class, rename it in the CSV to a name not read as missing data and confirm again. "
+              "If your problem has more classes, "
               "this data only has these two: rows of the others are needed",
     },
     "clase_positiva": {
