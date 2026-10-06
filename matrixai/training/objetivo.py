@@ -805,6 +805,22 @@ def confirmar_desde_csv(
             etiquetas = None
         propuesta["clases"] = list(etiquetas) if etiquetas else []
 
+        # DOS CLASES CON «VARIAS CLASES»: SE PREGUNTA, no se acepta callado (decisión
+        # de Roberto, 06-10; medido el 05-10: el estudio salía sin clase positiva,
+        # sin umbral y sin AUROC, y nada lo decía). Se cuentan las clases SIN los
+        # ausentes (`valores_crudos`), como el resto del camino: dos clases + «NA»
+        # son dos. NUNCA un bloqueo: es una pregunta, y se contesta cambiando la
+        # tarea a binaria, tras lo cual `clase_positiva` se pide por su camino de
+        # siempre. Solo con la tarea ELEGIDA a `multiclass`: la que se deduce de
+        # una columna de dos valores ya es binaria (o `tipo_de_tarea` pregunta).
+        if (etiquetas is not None and tarea == "multiclass_classification"
+                and len(valores_crudos) == 2):
+            preguntas.append(Pregunta(
+                clave="dos_clases_en_varias", campo=objetivo,
+                opciones=("binary_classification", "multiclass_classification"),
+                motivo=motivo("dos_clases_en_varias", campo=repr(objetivo),
+                              opciones=", ".join(etiquetas))))
+
         # LA CLASE POSITIVA SE ACEPTA COMO LA ESCRIBE EL CSV (2026-09-23). Quien usa esto
         # escribe «1» o «Sí», que es lo que ve en su columna, y las etiquetas son las
         # NORMALIZADAS («class_1», «si»): sin esta traducción, un objetivo 0/1 o Sí/No

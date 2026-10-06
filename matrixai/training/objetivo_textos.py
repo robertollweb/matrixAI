@@ -88,6 +88,19 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "You say which — deciding it silently changes the model's output, the "
               "metrics and what every number means",
     },
+    "dos_clases_en_varias": {
+        "es": "tu objetivo {campo} tiene solo DOS clases ({opciones}) y has elegido "
+              "«Clasificación multiclase»: ¿es una clasificación binaria? Con dos clases, "
+              "«multiclase» no da clase positiva, ni umbral, ni AUROC, y el estudio saldría "
+              "sin ellos sin avisar. Si es binaria, cambia el tipo de problema a "
+              "«Clasificación binaria» y se te pedirá la clase positiva",
+        "en": "your target {campo} has only TWO classes ({opciones}) and you chose "
+              "«Multiclass classification»: is it a binary classification? With two "
+              "classes, «multiclass» gives no positive class, no threshold and no AUROC, "
+              "and the study would come out without them and say nothing. If it is binary, "
+              "change the problem type to «Binary classification» and you will be asked "
+              "for the positive class",
+    },
     "clase_positiva": {
         "es": "una clasificación binaria sobre {campo} necesita saber cuál de "
               "{opciones} es la clase POSITIVA: sin ella, sensibilidad, VPP y el "
