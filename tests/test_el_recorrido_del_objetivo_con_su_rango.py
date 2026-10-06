@@ -11,10 +11,11 @@ por HTTP en los dos sentidos:
 - N2: datos del MISMO dominio en otro tramo (1,1–2,7 M€ con `[60000, 900000]`) entrenaban con R² 0,994 sin la guarda,
   y se rechazaban diciendo que el modelo «contestaría siempre lo mismo».
 
-El criterio de ahora es el RECORRIDO del objetivo normalizado con el rango, `(máx − mín) / (hi − lo)`: menos del 1 %
-se rechaza (al normalizar queda casi igual en todas las filas), más de 100 veces también, y entre medias solo con
-≥ 90 % fuera Y un recorrido que no se parece al del rango (fuera de [0,1; 10]). Los casos de abajo son los 24 de la
-sonda del re-auditor (`sonda_criterio`), con los dos suaves que deja pasar declarados como deuda.
+El criterio es el RECORRIDO del objetivo normalizado con el rango, `(máx − mín) / (hi − lo)`. La 3.ª pasada lo midió
+con datos APRENDIBLES y lo movió: por debajo del 4 % (no del 1 %) se rechaza, porque nada de lo medido ahí sirve (R²
+−17,9 al 1,1 %, −1,6 al 3 %); con ≥ 90 % fuera, se rechaza si el recorrido no es comparable al del rango (fuera de
+[0,1; 20]: 10,5 y 20 veces se aprenden con R² 0,997 y 0,984); y «más de 100 veces» con casi todo DENTRO ya no se
+rechaza: es un extremo de validación (B-R3.1, que rompía A8). Los casos son los de las sondas de la 2.ª y la 3.ª pasada.
 
 CONVENCIÓN DEL FICHERO: funciones `test_*` de pytest.
 """
@@ -81,6 +82,13 @@ _SE_RECHAZA = [
     ("k€ con el rango en €", _entre(60, 900), RANGO),
     ("€ con el rango en k€", _entre(60000, 900000), (60, 900)),
     ("recorrido del 0,5 % dentro del rango", _entre(100000, 104500), (0, 900000)),
+    # 3.ª pasada (R3-1): lo que la 2.ª declaraba «deuda suave» no lo era con datos aprendibles (R² −4,8 con [0, 100]).
+    ("la clásica con [0, 100] (antes deuda)", CLASICA, (0, 100)),
+    ("la clásica con [-20, 45] (antes deuda)", CLASICA, (-20, 45)),
+    ("la clásica con [-50, 50]", CLASICA, (-50, 50)),
+    ("recorrido del 2 % dentro del rango (R3-1: R² −4,7)", _entre(100000, 118000), (0, 900000)),
+    ("recorrido del 3 % dentro del rango (R3-1: R² −1,6)", _entre(100000, 127000), (0, 900000)),
+    ("todo fuera, 50 veces el ancho (R² −0,08)", _entre(1_000_000, 1_000_000 + 50 * 840000), RANGO),
 ]
 
 _SE_ENTRENA = [
@@ -89,10 +97,10 @@ _SE_ENTRENA = [
     ("10 % de atípicos ×6", _entre(60000, 900000, 180) + [5_400_000.0] * 20, RANGO),
     ("×1,5 (una parte por encima del máximo)", _entre(90000, 1_350_000), RANGO),
     ("mismo dominio, otro mercado (N2)", _entre(1_100_000, 2_700_000), RANGO),
-    # DEUDA declarada (2.ª pasada): dos rangos estrechos que contienen [-1, 1] dejan pasar a la clásica. Recorridos
-    # del 2 y del 3 %, y suaves: MAE 0,64 y 0,54 frente a 0,48 sin rango (medido por el re-auditor).
-    ("deuda: la clásica con [0, 100]", CLASICA, (0, 100)),
-    ("deuda: la clásica con [-20, 45]", CLASICA, (-20, 45)),
+    ("un extremo de validación a 120 veces el ancho (B-R3.1: un 61,53 escrito 6153)",
+     _entre(60000, 900000, 199) + [60000 + 120 * 840000.0], RANGO),
+    ("todo fuera, 15 veces el ancho (R3-2: R² 0,98–0,997)", _entre(1_000_000, 1_000_000 + 15 * 840000), RANGO),
+    ("SpO2 en [0, 100], 4,7 % (R² 0,88)", _entre(94.3, 99.0), (0, 100)),
 ]
 
 
@@ -109,8 +117,8 @@ def test_se_entrena(caso, valores, rango):
     assert guarda(MXAI, _csv(valores), rango) is None, caso
 
 
-@pytest.mark.parametrize("rango,parte,parte_en", [((0, 900000), "menos del 0.01 %", "less than 0.01 %"),
-                                                  ((-1000, 1000), "solo el 0.1 %", "only 0.1 %")])
+@pytest.mark.parametrize("rango,parte,parte_en", [((0, 900000), "menos del 0,01 %", "less than 0.01 %"),
+                                                  ((-1000, 1000), "solo el 0,1 %", "only 0.1 %")])
 def test_dentro_del_rango_pero_en_un_trozo_infimo_el_motivo_es_ese_y_no_otra_escala(rango, parte, parte_en):
     """N1: los datos de la clásica caen DENTRO de estos rangos (casi todos): decir «otra escala» sería falso. El motivo
     es que ocupan una parte ínfima del rango, y la frase dice cuánta."""
@@ -120,13 +128,17 @@ def test_dentro_del_rango_pero_en_un_trozo_infimo_el_motivo_es_ese_y_no_otra_esc
 
 
 def test_los_umbrales_del_recorrido_en_sus_bordes():
-    """1 %: un recorrido del 1,1 % dentro del rango entrena y uno del 0,9 % no. 100 veces: con la mitad de los valores
-    DENTRO (así no decide el 90 %), un recorrido de 90 veces el ancho entrena y uno de 110 no."""
-    assert guarda(MXAI, _csv(_entre(100000, 100000 + 0.011 * 840000)), RANGO) is None
-    assert guarda(MXAI, _csv(_entre(100000, 100000 + 0.009 * 840000)), RANGO) is not None
-    dentro = _entre(60000, 900000, 100)
-    assert guarda(MXAI, _csv(dentro + [60000 + 90 * 840000.0] * 100), RANGO) is None
-    assert guarda(MXAI, _csv(dentro + [60000 + 110 * 840000.0] * 100), RANGO)["motivo_del_rechazo"] == "otra_escala"
+    """4 %: un recorrido del 4,1 % dentro del rango entrena y uno del 3,9 % no. La ventana «comparable», con TODO
+    fuera: 0,11 y 19 veces el ancho entrenan; 0,09 y 21 veces, no. Y un recorrido de 1000 veces con casi todo DENTRO
+    (un extremo de validación) entrena: «más de 100» ya no rechaza solo (B-R3.1)."""
+    assert guarda(MXAI, _csv(_entre(100000, 100000 + 0.041 * 840000)), RANGO) is None
+    assert guarda(MXAI, _csv(_entre(100000, 100000 + 0.039 * 840000)), RANGO)["motivo_del_rechazo"] == \
+        "rango_mucho_mas_ancho_que_los_datos"
+    for veces, entrena in ((0.11, True), (19, True), (0.09, False), (21, False)):
+        r = guarda(MXAI, _csv(_entre(1_000_000, 1_000_000 + veces * 840000)), RANGO)
+        assert (r is None) is entrena, (veces, r and r["motivo_del_rechazo"])
+    dentro = _entre(60000, 900000, 99)
+    assert guarda(MXAI, _csv(dentro + [60000 + 1000 * 840000.0]), RANGO) is None
 
 
 # ── por el camino de verdad: entrenar ──────────────────────────────────────────────────────────────
@@ -215,6 +227,8 @@ _FUNCIONALES = re.compile(r"\b(el|la|los|las|del|de|que|con|estos|datos|escala|r
     (CLASICA, RANGO, "otra_escala"),
     (CLASICA, (0, 900000), "rango_mucho_mas_ancho_que_los_datos"),
     ([500000.0] * 50, RANGO, "rango_mucho_mas_ancho_que_los_datos"),
+    ([0.5] * 50, RANGO, "otra_escala"),
+    (CLASICA, (5, 5), "rango_invalido"),
 ])
 def test_el_motivo_en_ingles_no_lleva_castellano(valores, rango, motivo):
     r = guarda(MXAI, _csv(valores), rango)
@@ -224,11 +238,17 @@ def test_el_motivo_en_ingles_no_lleva_castellano(valores, rango, motivo):
 
 
 def test_los_dos_motivos_no_dicen_lo_mismo():
-    """N2: «contestaría siempre lo mismo» es el motivo del trozo ínfimo; el de la otra escala no lo dice."""
+    """N2: cada motivo, su frase. Y ninguno dice «contestaría siempre lo mismo»: la 3.ª pasada midió que el modelo de
+    I1 SÍ cambia de respuesta (−23.338 € y −16.237 €), solo que sin parecerse a los datos."""
     infimo = guarda(MXAI, _csv(CLASICA), (0, 900000))
     otra = guarda(MXAI, _csv(_entre(60, 900)), RANGO)
-    assert "siempre lo mismo" in infimo["error"] and "always answer the same" in infimo["error_en"]
-    assert "siempre lo mismo" not in otra["error"] and "always answer the same" not in otra["error_en"]
+    assert "apenas cambia de una fila a otra" in infimo["error"] and "barely changes" in infimo["error_en"]
+    assert "apenas cambia" not in otra["error"] and "no está en la escala" in otra["error"]
+    for r in (infimo, otra):
+        assert "siempre lo mismo" not in r["error"] and "always answer the same" not in r["error_en"]
+    # La otra escala ofrece también lo que sí sirve: un rango a la escala de los datos (3.ª pasada, R3-2).
+    assert "declara un rango de salida a la escala de tus datos" in otra["error"]
+    assert "declare an output range on the scale of your data" in otra["error_en"]
 
 
 def test_un_objetivo_constante_se_dice_constante():
@@ -237,22 +257,54 @@ def test_un_objetivo_constante_se_dice_constante():
     assert "va de 500000 a 500000" not in r["error"]
 
 
-def test_los_numeros_de_la_frase_sin_notacion_cientifica_N6():
+def test_los_numeros_de_la_frase_sin_notacion_cientifica_N6_y_con_coma_en_castellano_R3_5():
     r = guarda(MXAI, _csv(_entre(60000.5, 1137473.26)), (60, 900))
     for texto in (r["error"], r["error_en"]):
-        assert "e+" not in texto and "1137473" in texto and "60000.5" in texto, texto
+        assert "e+" not in texto and "1137473" in texto, texto
+    assert "60000,5" in r["error"] and "60000.5" in r["error_en"]
+    # El caso de M6 (k€ con el rango en €): «117.279» se leía como ciento diecisiete MIL, dentro del rango.
+    r = guarda(MXAI, _csv(_entre(117.279, 774.456)), RANGO)
+    assert "117,279" in r["error"] and "117.279" not in r["error"] and "117.279" in r["error_en"]
+
+
+def test_un_objetivo_constante_fuera_tambien_se_dice_constante():
+    r = guarda(MXAI, _csv([0.5] * 50), RANGO)
+    assert r["motivo_del_rechazo"] == "otra_escala"
+    assert "valen siempre 0,5" in r["error"] and "they are always 0.5" in r["error_en"], r["error"]
+
+
+def test_el_porcentaje_no_redondea_hasta_el_umbral():
+    """3,96 % se rechaza por estar por debajo del 4 %: la frase no puede decir «4 %»."""
+    r = guarda(MXAI, _csv(_entre(100000, 100000 + 0.0396 * 840000)), RANGO)
+    assert "solo el 3,9 %" in r["error"] and "only 3.9 %" in r["error_en"], r["error"]
 
 
 @pytest.mark.parametrize("v,texto", [(1000000.5, "1000000"), (2500000.25, "2500000"), (1137473.26, "1137473"),
                                      (100.5, "100.5"), (58320.0, "58320"), (60000.0, "60000"), (0.0, "0"),
                                      (-1000.0, "-1000"), (0.5, "0.5"), (273.15, "273.15")])
 def test_numero_legible(v, texto):
-    """Sin «.0», sin «e+06», y sin comerse los ceros de un entero («1000000.5» daba «1» en la 1.ª versión)."""
+    """Sin «.0», sin «e+06», y sin comerse los ceros de un entero («1000000.5» daba «1» en la 1.ª versión). En
+    castellano, con coma decimal (R3-5)."""
     assert _numero_legible(v) == texto
+    assert _numero_legible(v, ",") == texto.replace(".", ",")
 
 
-# ── N7: un rango que no es un par finito y creciente no lo decide la guarda ────────────────────────
+# ── N7 / R3-3: un rango que no es un par finito y creciente se RECHAZA con su motivo ───────────────
 
 @pytest.mark.parametrize("rango", [(900000, 60000), (5, 5), (math.nan, 1), (0, math.inf), (-math.inf, 0)])
-def test_un_rango_imposible_no_lo_decide_la_guarda(rango):
-    assert guarda(MXAI, _csv(CLASICA), rango) is None
+def test_un_rango_imposible_se_rechaza_con_su_motivo(rango):
+    """3.ª pasada, R3-3: la 2.ª lo apartaba de la guarda, y entonces `[5, 5]` reventaba la normalización
+    (`ZeroDivisionError`, el servidor cerraba la conexión) y `[900000, 60000]` «entrenaba» con un MAE negativo."""
+    r = guarda(MXAI, _csv(CLASICA), rango)
+    assert r["motivo_del_rechazo"] == "rango_invalido" and r["error_kind"] == "objetivo_fuera_del_rango"
+    assert "el mínimo tiene que ser un número menor que el máximo" in r["error"]
+    assert "the minimum has to be a number below the maximum" in r["error_en"]
+
+
+@pytest.mark.parametrize("rango", [(5.0, 5.0), (900000.0, 60000.0)])
+def test_un_rango_imposible_no_llega_a_normalizar_ni_a_entrenar(rango):
+    r = _red("SALIDA: precio_eur: Scalar en [60000, 900000]")
+    csv_text = _generar(r, recipe_text=RECETA, target_range=(60000.0, 900000.0))
+    t = _run_playground_training(r["mxai"], r["training_text"], csv_text, epochs_override=2, field_ranges=_rangos(r),
+                                 target_range=rango, seed=42, recortar_objetivo=False)
+    assert t["ok"] is False and t["motivo_del_rechazo"] == "rango_invalido", {k: t.get(k) for k in ("ok", "mae")}
