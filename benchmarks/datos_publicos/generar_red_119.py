@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -59,6 +60,17 @@ RUTA_V2 = FASE0 / "pasada_v2_113_resultado.json"
 #: 119-C5a (01-10): la red nueva medida en CONDICIONES DE STUDIO (1 hilo, el presupuesto del Studio).
 RUTA_C5A = FASE0 / "resultado_sonda_119_c5a.json"
 RUTA_PUBLICADO = AQUI / "red_119_publico.json"
+#: Los recibos DESCARGABLES del 38/40 (la web los ofrece en «Cómo medimos»): el protocolo v4, sus cuatro
+#: enmiendas y los dos artefactos. (clave, fichero). Sus huellas se CALCULAN del disco, no se escriben.
+RECIBOS = (
+    ("protocolo", "protocolo_119_v4.json"),
+    ("enmienda_1", "protocolo_119_v4_enmienda_1.json"),
+    ("enmienda_2", "protocolo_119_v4_enmienda_2.json"),
+    ("enmienda_3", "protocolo_119_v4_enmienda_3.json"),
+    ("enmienda_4", "protocolo_119_v4_enmienda_4.json"),
+    ("artefacto_c3", "resultado_pasada_119_c3.json"),
+    ("artefacto_c4", "resultado_pasada_119_c4.json"),
+)
 #: La cuenta de ANTES (la v2 sin la red nueva en el campo): se COPIA de lo que la página ya
 #: publica de esa misma pasada, tras comprobar que es la misma (por su sello).
 RUTA_FASE0_PUBLICO = AQUI / "fase0_publico.json"
@@ -198,6 +210,57 @@ def _en_el_studio(c3: dict[str, Any], c4: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _recibos_descargables(c3: dict[str, Any], c4: dict[str, Any]) -> dict[str, Any]:
+    """El bloque `recibos_descargables`: cada fichero que la web ofrece, con su tamaño y su SHA-256
+    CALCULADOS del fichero en disco (nunca tecleados).
+
+    PARA (`DatosQueNoCuadran`) si el SHA-256 del protocolo no es el que dice la procedencia (el que C3 y C4
+    registraron al medir), si el de la enmienda 1 o el de la enmienda 2 no son los que C4 registró, o si
+    la cadena v4 -> e1 -> e2 no se cita por sus digests internos. Las enmiendas 3 y 4 (contrato 120, C5)
+    se registraron DESPUÉS de la medición del 38/40: se ofrecen, marcadas con `posterior_a_la_medicion`
+    (sale de comparar su fecha con la de C4), porque son del mismo protocolo pero NO sostienen la cifra.
+    """
+    ficheros: dict[str, dict[str, Any]] = {}
+    for clave, nombre in RECIBOS:
+        ruta = FASE0 / nombre
+        _exigir(ruta.is_file(), f"recibo descargable ausente: {nombre}")
+        crudo = ruta.read_bytes()
+        ficheros[clave] = {"clave": clave, "fichero": nombre, "bytes": len(crudo),
+                           "sha256": hashlib.sha256(crudo).hexdigest()}
+    cargados = {c: _cargar(FASE0 / n) for c, n in RECIBOS if c.startswith(("protocolo", "enmienda"))}
+
+    esperado = c4["protocolo_119_v4_digest_sha256"]
+    _exigir(c3["protocolo_119_v4_digest_sha256"] == esperado,
+            "C3 y C4 no registran el mismo SHA-256 del protocolo")
+    _exigir(ficheros["protocolo"]["sha256"] == esperado,
+            f"el SHA-256 de {RECIBOS[0][1]} en disco no es el que dice la procedencia ({esperado[:8]}…)")
+    _exigir(ficheros["enmienda_1"]["sha256"] == c4["protocolo_119_v4_enmienda_1_digest_sha256"]
+            == c3["protocolo_119_v4_enmienda_1_digest_sha256"],
+            "el SHA-256 de la enmienda 1 en disco no es el que C3 y C4 registraron")
+    _exigir(ficheros["enmienda_2"]["sha256"] == c4["enmienda_2"]["sha256_del_fichero"],
+            "el SHA-256 de la enmienda 2 en disco no es el que C4 registró")
+    # La cadena, por los digests que cada fichero lleva DENTRO.
+    p, e1, e2 = cargados["protocolo"], cargados["enmienda_1"], cargados["enmienda_2"]
+    _exigir(e1["de"]["digest_sha256"] == p["digest_sha256"], "la enmienda 1 no cita el digest del protocolo")
+    _exigir(e2["de"]["digest_sha256"] == p["digest_sha256"]
+            and e2["de"]["enmienda_anterior"]["digest_sha256"] == e1["digest_sha256"],
+            "la enmienda 2 no encadena con el protocolo y la enmienda 1")
+
+    medido = c4["procedencia"]["medido"][:10]
+    for clave, e in cargados.items():
+        if clave == "protocolo":
+            ficheros[clave]["registrado"] = p["fecha_registro"]
+            continue
+        fecha = e.get("fecha_registro") or re.search(r"\d{4}-\d{2}-\d{2}", e["estado"]).group(0)
+        ficheros[clave]["registrado"] = fecha
+        ficheros[clave]["posterior_a_la_medicion"] = fecha > medido
+    _exigir(not any(ficheros[c]["posterior_a_la_medicion"] for c in ("enmienda_1", "enmienda_2")),
+            "las enmiendas 1 y 2 tienen que ser anteriores a la medición")
+    _exigir(all(ficheros[c]["posterior_a_la_medicion"] for c in ("enmienda_3", "enmienda_4")),
+            "las enmiendas 3 y 4 se esperaban posteriores a la medición")
+    return {"ficheros": [ficheros[c] for c, _ in RECIBOS]}
+
+
 def componer() -> dict[str, Any]:
     c3, c4, recuento = _cargar(RUTA_C3), _cargar(RUTA_C4), _cargar(RUTA_RECUENTO)
     _verificar_sellos("resultado_pasada_119_c3.json", c3)
@@ -327,6 +390,7 @@ def componer() -> dict[str, Any]:
                 "que_es_x_de_40": c4["que_es_veredicto_x_de_40"],
             },
         },
+        "recibos_descargables": _recibos_descargables(c3, c4),
         "procedencia": {
             "c3": {
                 "artefacto": RUTA_C3.name, "corte": c3["corte"], "creado": c3["creado"],

@@ -230,3 +230,55 @@ def test_una_c5a_con_la_regla_distinta_de_la_registrada_para(monkeypatch, tmp_pa
     _con_ficheros(monkeypatch, tmp_path, retoque_c5a=toca)
     with pytest.raises(gen.DatosQueNoCuadran, match="regla"):
         gen.componer()
+
+
+# ───────────────── los RECIBOS DESCARGABLES del 38/40 (bloque `recibos_descargables`) ─────────────────
+
+def _copiar_recibos(tmp_path):
+    import shutil
+    for _, nombre in gen.RECIBOS:
+        shutil.copy(gen.FASE0 / nombre, tmp_path / nombre)
+    return tmp_path
+
+
+def test_los_recibos_publicados_son_los_siete_y_su_huella_es_la_del_disco():
+    import hashlib
+    fs = _publicado()["recibos_descargables"]["ficheros"]
+    assert [f["fichero"] for f in fs] == [
+        "protocolo_119_v4.json", "protocolo_119_v4_enmienda_1.json", "protocolo_119_v4_enmienda_2.json",
+        "protocolo_119_v4_enmienda_3.json", "protocolo_119_v4_enmienda_4.json",
+        "resultado_pasada_119_c3.json", "resultado_pasada_119_c4.json"]
+    for f in fs:
+        crudo = (gen.FASE0 / f["fichero"]).read_bytes()
+        assert f["bytes"] == len(crudo) and f["sha256"] == hashlib.sha256(crudo).hexdigest()
+
+
+def test_el_sha_del_protocolo_es_el_de_la_procedencia_y_las_enmiendas_3_y_4_son_posteriores():
+    p = _publicado()
+    por = {f["clave"]: f for f in p["recibos_descargables"]["ficheros"]}
+    assert por["protocolo"]["sha256"] == p["procedencia"]["protocolo_digest_sha256"]
+    assert por["protocolo"]["sha256"].startswith("8ec2e05b")
+    assert [por[c]["posterior_a_la_medicion"] for c in ("enmienda_1", "enmienda_2", "enmienda_3", "enmienda_4")] \
+        == [False, False, True, True]
+
+
+def test_un_protocolo_distinto_del_que_dice_la_procedencia_para(monkeypatch, tmp_path):
+    d = _copiar_recibos(tmp_path)
+    (d / "protocolo_119_v4.json").write_bytes((d / "protocolo_119_v4.json").read_bytes() + b" ")
+    monkeypatch.setattr(gen, "FASE0", d)
+    with pytest.raises(gen.DatosQueNoCuadran, match="protocolo_119_v4.json"):
+        gen.componer()
+
+
+def test_una_enmienda_tocada_para(monkeypatch, tmp_path):
+    d = _copiar_recibos(tmp_path)
+    f = d / "protocolo_119_v4_enmienda_2.json"
+    f.write_bytes(f.read_bytes() + b"\n")
+    monkeypatch.setattr(gen, "FASE0", d)
+    with pytest.raises(gen.DatosQueNoCuadran, match="enmienda 2"):
+        gen.componer()
+
+
+def test_control_los_recibos_copiados_sin_tocar_componen(monkeypatch, tmp_path):
+    monkeypatch.setattr(gen, "FASE0", _copiar_recibos(tmp_path))
+    assert gen.componer()["recibos_descargables"] == _publicado()["recibos_descargables"]

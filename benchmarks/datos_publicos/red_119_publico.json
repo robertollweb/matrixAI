@@ -755,6 +755,61 @@
     "protocolo_digest_sha256": "8ec2e05bed0db6f8e38c99c6b5da4dc9f1097579bc55065a998b2813c3582cd3",
     "sellos_verificados": true
   },
+  "recibos_descargables": {
+    "ficheros": [
+      {
+        "bytes": 50469,
+        "clave": "protocolo",
+        "fichero": "protocolo_119_v4.json",
+        "registrado": "2026-09-29",
+        "sha256": "8ec2e05bed0db6f8e38c99c6b5da4dc9f1097579bc55065a998b2813c3582cd3"
+      },
+      {
+        "bytes": 1915,
+        "clave": "enmienda_1",
+        "fichero": "protocolo_119_v4_enmienda_1.json",
+        "posterior_a_la_medicion": false,
+        "registrado": "2026-09-29",
+        "sha256": "665c1c83b7b80ca8d49bcbd0f314a470902c8d76c9985e3527e3fae93d088d3b"
+      },
+      {
+        "bytes": 3520,
+        "clave": "enmienda_2",
+        "fichero": "protocolo_119_v4_enmienda_2.json",
+        "posterior_a_la_medicion": false,
+        "registrado": "2026-09-30",
+        "sha256": "fcb154c67e2d7f0e06ec62d9ba843de4766b76d50fa1f622cb94032eace4d118"
+      },
+      {
+        "bytes": 3183,
+        "clave": "enmienda_3",
+        "fichero": "protocolo_119_v4_enmienda_3.json",
+        "posterior_a_la_medicion": true,
+        "registrado": "2026-10-02",
+        "sha256": "7b300b179ffd210163f52764778b8a51ef1c39e607328490dffa871e2f31ee57"
+      },
+      {
+        "bytes": 2245,
+        "clave": "enmienda_4",
+        "fichero": "protocolo_119_v4_enmienda_4.json",
+        "posterior_a_la_medicion": true,
+        "registrado": "2026-10-02",
+        "sha256": "efce65c3b74bfd762e7c911c1f3a996632789b1e50c4107cc49537889711a27b"
+      },
+      {
+        "bytes": 1328664,
+        "clave": "artefacto_c3",
+        "fichero": "resultado_pasada_119_c3.json",
+        "sha256": "40029421c095292fd77490cca4ac8c664df797cd3b1424c931a3826806537912"
+      },
+      {
+        "bytes": 414661,
+        "clave": "artefacto_c4",
+        "fichero": "resultado_pasada_119_c4.json",
+        "sha256": "c8fdf337184f236d6874e8f72711e92828352fac0643dbd219cabb9b6e60cca4"
+      }
+    ]
+  },
   "recuento_con_el_motor_nuevo_en_el_campo": {
     "que_es": "cumplidos de CADA motor sobre los 40 con el motor nuevo en el campo (en el sitio de la densa v2); mismas funciones que 119-C3/C4; solo cuenta, no mide",
     "sin_la_red_nueva": {
