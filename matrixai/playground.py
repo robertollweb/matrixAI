@@ -3543,13 +3543,20 @@ _FRACCION_FUERA_DEL_RANGO_QUE_SE_RECHAZA = 0.9
 #:   0,51; conversión al 1,9 %: 0,14; temperatura interior al 2,5 %: 0,09; SpO2 al 4,7 %: 0,88. Por debajo del 4 %,
 #:   NADA de lo medido sirve: se rechaza («el rango es mucho más ancho que los datos»). Entre el 4 y el 5 % depende de
 #:   los datos, y se entrena (deuda declarada). La 2.ª pasada lo tenía en el 1 % y dejaba pasar todo lo de arriba.
-#: - TODO FUERA, con un recorrido de 0,09 / 0,11 / 0,5–9,5 / 10,5 / 20 / 50 / 99 veces el ancho: R² −0,61 / 0,19 /
-#:   ≥ 0,96 / 0,997 / 0,984 / −0,08 / −0,02. «Comparable» es de 0,1 a 20: otro tramo del mismo dominio (1,1–2,7 M€
-#:   con [60000, 900000], R² 0,994) se aprende; fuera de esa ventana, con casi todo fuera, es otra escala.
+#: - TODO FUERA, con un recorrido de 0,09 veces el ancho: R² −0,61; por debajo de 0,1, otra escala.
+#: - TODO FUERA, importa además DÓNDE (verificación del arreglo de la 3.ª pasada, V1: una tasa en [0, 1] con un CSV en
+#:   porcentaje 20–39 entrenaba con R² −0,00005; [0,5; 1,5] con 250–262, −4,4). El ALEJAMIENTO es la distancia de los
+#:   datos normalizados al centro del rango, en anchos. Medido por el supervisor (`medir_posicion.py`, 32 casos, la
+#:   receta del 2.1 por encima y por debajo del rango): con datos de 5 o 15 anchos, R² ≥ 0,92 hasta un alejamiento de
+#:   30,5 y ≈ 0 desde 35,5; con datos de 1 ancho o menos, ≥ 0,87 hasta ~7 y entre −42 y 0,32 de 10 a 17 (a 21,
+#:   0,87–0,99: ruidoso). «Comparable» es: recorrido ≥ 0,1 Y alejamiento ≤ 32 (datos de 2 anchos o más) u ≤ 8 (más
+#:   estrechos). Otro tramo del mismo dominio (1,1–2,7 M€ con [60000, 900000]: alejamiento 2,6, R² 0,994) se aprende.
 #: - «Más de 100 veces» YA NO rechaza solo (3.ª pasada, B-R3.1): con casi todo DENTRO es un extremo de validación o un
 #:   atípico (un 61,53 escrito 6153), y el modelo es el mismo que sin él (A8, `test_rangos_de_train_nucleo.py`).
 _RECORRIDO_NORMALIZADO_MINIMO = 0.04
-_RECORRIDO_COMPARABLE = (0.1, 20.0)
+_RECORRIDO_COMPARABLE_MINIMO = 0.1
+_RECORRIDO_ANCHO = 2.0
+_ALEJAMIENTO_MAXIMO = (8.0, 32.0)  # (datos más estrechos que _RECORRIDO_ANCHO, datos de ese ancho o más)
 
 
 def _tolerancia_de_redondeo(lo: float, hi: float) -> float:
@@ -3580,7 +3587,8 @@ def _porcentaje_del_rango(recorrido: float) -> tuple[str, str]:
     if p < 0.01:
         return "menos del 0,01 %", "less than 0.01 %"
     cifras = 1 - int(math.floor(math.log10(p)))
-    t = math.floor(p * 10 ** cifras) / 10 ** cifras
+    # +1e-9: 0,29 × 100 es 28,999999999999996 en coma flotante y salía «0,28 %» (verificación de la 3.ª pasada, V4).
+    t = math.floor(p * 10 ** cifras + 1e-9) / 10 ** cifras
     return f"solo el {_numero_legible(t, ',')} %", f"only {_numero_legible(t)} %"
 
 
@@ -3627,15 +3635,22 @@ def _objetivo_fuera_de_la_escala_del_rango(
                 "motivo_del_rechazo": "rango_invalido",
                 "columna_objetivo": salida,
                 "rango_declarado": [lo, hi],
+                # Un extremo no finito no se escribe «va de 0 a inf» (verificación de la 3.ª pasada, V5).
                 "error": (
                     f"El rango de la salida del modelo no se puede usar: dice que «{salida}» va de {a} a "
                     f"{b}, y el mínimo tiene que ser un número menor que el máximo. Corrige el rango de la salida "
                     f"del modelo antes de entrenar."
+                    if math.isfinite(lo) and math.isfinite(hi) else
+                    f"El rango de la salida del modelo no se puede usar: alguno de sus extremos no es un número "
+                    f"finito. Corrige el rango de la salida del modelo («{salida}») antes de entrenar."
                 ),
                 "error_en": (
                     f"The model's output range cannot be used: it says «{salida}» goes from "
                     f"{_numero_legible(lo)} to {_numero_legible(hi)}, and the minimum has to be a number below the "
                     f"maximum. Fix the model's output range before training."
+                    if math.isfinite(lo) and math.isfinite(hi) else
+                    f"The model's output range cannot be used: one of its ends is not a finite number. Fix the "
+                    f"model's output range («{salida}») before training."
                 ),
             }
         tolerancia = _tolerancia_de_redondeo(lo, hi)
@@ -3661,8 +3676,10 @@ def _objetivo_fuera_de_la_escala_del_rango(
     if con_dato == 0:
         return None
     recorrido = (maximo - minimo) / (hi - lo)
+    alejamiento = max(abs((minimo - lo) / (hi - lo) - 0.5), abs((maximo - lo) / (hi - lo) - 0.5))
     casi_todo_fuera = fuera >= _FRACCION_FUERA_DEL_RANGO_QUE_SE_RECHAZA * con_dato
-    comparable = _RECORRIDO_COMPARABLE[0] <= recorrido <= _RECORRIDO_COMPARABLE[1]
+    tope = _ALEJAMIENTO_MAXIMO[1] if recorrido >= _RECORRIDO_ANCHO else _ALEJAMIENTO_MAXIMO[0]
+    comparable = recorrido >= _RECORRIDO_COMPARABLE_MINIMO and alejamiento <= tope
     mucho_mas_estrecho = recorrido < _RECORRIDO_NORMALIZADO_MINIMO
     otra_escala = casi_todo_fuera and not comparable
     if not (mucho_mas_estrecho or otra_escala):
@@ -3714,15 +3731,15 @@ def _objetivo_fuera_de_la_escala_del_rango(
         "error": (
             f"El objetivo de estos datos no está en la escala del rango de la salida del modelo. El modelo "
             f"dice que «{salida}» va de {a} a {b}, y en estos datos {fuera} de {con_dato} valores quedan "
-            f"fuera ({van}). Entrenar así daría un modelo que no se parece a tus datos, con un error que parece "
-            f"una cifra de verdad. Genera los datos con el rango del modelo, usa datos cuyo objetivo esté en esa "
+            f"fuera ({van}). Entrenar así no es fiable: el modelo puede no parecerse a tus datos aunque su error "
+            f"parezca una cifra de verdad. Genera los datos con el rango del modelo, usa datos cuyo objetivo esté en esa "
             f"escala, o declara un rango de salida a la escala de tus datos."
         ),
         "error_en": (
             f"The target in this data is not on the scale of the model's output range. The model says "
             f"«{salida}» goes from {a_en} to {b_en}, and in this data {fuera} of {con_dato} values fall outside it "
-            f"({van_en}). Training like this would give a model unlike your data, with an error that looks like a "
-            f"real figure. Generate the data with the model's range, use data whose target is on that scale, or "
+            f"({van_en}). Training like this is not reliable: the model may be unlike your data even if its error "
+            f"looks like a real figure. Generate the data with the model's range, use data whose target is on that scale, or "
             f"declare an output range on the scale of your data."
         ),
     }

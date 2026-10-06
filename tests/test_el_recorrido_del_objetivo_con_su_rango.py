@@ -89,6 +89,11 @@ _SE_RECHAZA = [
     ("recorrido del 2 % dentro del rango (R3-1: R² −4,7)", _entre(100000, 118000), (0, 900000)),
     ("recorrido del 3 % dentro del rango (R3-1: R² −1,6)", _entre(100000, 127000), (0, 900000)),
     ("todo fuera, 50 veces el ancho (R² −0,08)", _entre(1_000_000, 1_000_000 + 50 * 840000), RANGO),
+    # Verificación del arreglo de la 3.ª pasada, V1: todo fuera y LEJOS, aunque el ancho se parezca al del rango.
+    ("una tasa en [0, 1] con el CSV en porcentaje 20–39 (V1: R² −0,00005)", _entre(20, 39), (0, 1)),
+    ("[0,5; 1,5] con datos en 250–262 (V1: R² −4,4)", _entre(250, 262), (0.5, 1.5)),
+    ("datos de 1 ancho a 11 anchos del rango (R² 0,26)", _entre(900000 + 10 * 840000, 900000 + 11 * 840000), RANGO),
+    ("datos de 15 anchos a 36 del rango (R² −0,02)", _entre(900000 + 20 * 840000, 900000 + 35 * 840000), RANGO),
 ]
 
 _SE_ENTRENA = [
@@ -101,6 +106,9 @@ _SE_ENTRENA = [
      _entre(60000, 900000, 199) + [60000 + 120 * 840000.0], RANGO),
     ("todo fuera, 15 veces el ancho (R3-2: R² 0,98–0,997)", _entre(1_000_000, 1_000_000 + 15 * 840000), RANGO),
     ("SpO2 en [0, 100], 4,7 % (R² 0,88)", _entre(94.3, 99.0), (0, 100)),
+    ("datos de 1 ancho a 6 anchos del rango (R² 0,993)", _entre(900000 + 5 * 840000, 900000 + 6 * 840000), RANGO),
+    ("datos de 15 anchos a 31 del rango (R² 0,987)", _entre(900000 + 15 * 840000, 900000 + 30 * 840000), RANGO),
+    ("datos de 1 ancho por debajo, a 3 anchos (R² 0,99)", _entre(60000 - 3 * 840000, 60000 - 2 * 840000), RANGO),
 ]
 
 
@@ -128,15 +136,21 @@ def test_dentro_del_rango_pero_en_un_trozo_infimo_el_motivo_es_ese_y_no_otra_esc
 
 
 def test_los_umbrales_del_recorrido_en_sus_bordes():
-    """4 %: un recorrido del 4,1 % dentro del rango entrena y uno del 3,9 % no. La ventana «comparable», con TODO
-    fuera: 0,11 y 19 veces el ancho entrenan; 0,09 y 21 veces, no. Y un recorrido de 1000 veces con casi todo DENTRO
-    (un extremo de validación) entrena: «más de 100» ya no rechaza solo (B-R3.1)."""
+    """4 %: un recorrido del 4,1 % dentro del rango entrena y uno del 3,9 % no. «Comparable», con TODO fuera y pegado al
+    rango: 0,11 y 19 veces el ancho entrenan; 0,09 y 40 veces (alejamiento 40,6 > 32), no. El alejamiento, con datos
+    estrechos: a 7,9 anchos del centro entrena, a 8,1 no; con datos anchos, a 31,9 entrena y a 32,1 no. Y un recorrido
+    de 1000 veces con casi todo DENTRO (un extremo de validación) entrena: «más de 100» ya no rechaza solo (B-R3.1)."""
     assert guarda(MXAI, _csv(_entre(100000, 100000 + 0.041 * 840000)), RANGO) is None
     assert guarda(MXAI, _csv(_entre(100000, 100000 + 0.039 * 840000)), RANGO)["motivo_del_rechazo"] == \
         "rango_mucho_mas_ancho_que_los_datos"
-    for veces, entrena in ((0.11, True), (19, True), (0.09, False), (21, False)):
+    for veces, entrena in ((0.11, True), (19, True), (0.09, False), (40, False)):
         r = guarda(MXAI, _csv(_entre(1_000_000, 1_000_000 + veces * 840000)), RANGO)
         assert (r is None) is entrena, (veces, r and r["motivo_del_rechazo"])
+    w, centro = 840000.0, 480000.0
+    for ancho, alejamiento, entrena in ((1, 7.9, True), (1, 8.1, False), (5, 31.9, True), (5, 32.1, False)):
+        maximo = centro + alejamiento * w
+        r = guarda(MXAI, _csv(_entre(maximo - ancho * w, maximo)), RANGO)
+        assert (r is None) is entrena, (ancho, alejamiento, r and r["motivo_del_rechazo"])
     dentro = _entre(60000, 900000, 99)
     assert guarda(MXAI, _csv(dentro + [60000 + 1000 * 840000.0]), RANGO) is None
 
@@ -273,6 +287,12 @@ def test_un_objetivo_constante_fuera_tambien_se_dice_constante():
     assert "valen siempre 0,5" in r["error"] and "they are always 0.5" in r["error_en"], r["error"]
 
 
+def test_el_porcentaje_no_pierde_una_unidad_por_la_coma_flotante():
+    """V4: 0,29 × 100 es 28,999999999999996 y se escribía «0,28 %»."""
+    r = guarda(MXAI, _csv(_entre(100000, 100000 + 0.0029 * 840000)), RANGO)
+    assert "solo el 0,29 %" in r["error"] and "only 0.29 %" in r["error_en"], r["error"]
+
+
 def test_el_porcentaje_no_redondea_hasta_el_umbral():
     """3,96 % se rechaza por estar por debajo del 4 %: la frase no puede decir «4 %»."""
     r = guarda(MXAI, _csv(_entre(100000, 100000 + 0.0396 * 840000)), RANGO)
@@ -297,8 +317,13 @@ def test_un_rango_imposible_se_rechaza_con_su_motivo(rango):
     (`ZeroDivisionError`, el servidor cerraba la conexión) y `[900000, 60000]` «entrenaba» con un MAE negativo."""
     r = guarda(MXAI, _csv(CLASICA), rango)
     assert r["motivo_del_rechazo"] == "rango_invalido" and r["error_kind"] == "objetivo_fuera_del_rango"
-    assert "el mínimo tiene que ser un número menor que el máximo" in r["error"]
-    assert "the minimum has to be a number below the maximum" in r["error_en"]
+    if all(math.isfinite(x) for x in rango):
+        assert "el mínimo tiene que ser un número menor que el máximo" in r["error"]
+        assert "the minimum has to be a number below the maximum" in r["error_en"]
+    else:  # V5: ni «inf» ni «nan» en la frase
+        assert "no es un número finito" in r["error"] and "not a finite number" in r["error_en"]
+        for texto in (r["error"], r["error_en"]):
+            assert "inf" not in texto and "nan" not in texto, texto
 
 
 @pytest.mark.parametrize("rango", [(5.0, 5.0), (900000.0, 60000.0)])
