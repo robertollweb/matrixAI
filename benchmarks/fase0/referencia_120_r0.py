@@ -195,6 +195,9 @@ def entorno_extra_de(modo, ninguna=False):
     (120-C6: sin torch y sin la variable, los medianos llevan la política de producción)."""
     extra = {"r1gpu": {"MATRIXAI_ESTUDIO_SIN_TABM": "1"},
              "rcpu": {"MATRIXAI_ESTUDIO_SIN_DENSA": "1", "MATRIXAI_ESTUDIO_SIN_TABM": "1"},
+             # 128 (08-10): el PRODUCTO CPU tal como se publica (TabM sí, la densa anterior fuera), como REFERENCIA con
+             # su suelo de ruido; `--c3s` es lo mismo pero COMPARA contra una referencia (y corta), no la crea.
+             "pcpu": {"MATRIXAI_ESTUDIO_SIN_DENSA": "1"},
              "c3s": {"MATRIXAI_ESTUDIO_SIN_DENSA": "1"}}.get(modo, {})
     extra = dict(extra)
     if ninguna:
@@ -518,6 +521,8 @@ def main():
     ap.add_argument("--ninguna", action="store_true",
                     help="pide los árboles de HOY con MATRIXAI_POLITICA_DE_ARBOLES=ninguna (una imagen con 120-C6 sin torch "
                          "aplica la de producción en los medianos; sin esto, la medida PARA en vez de medirla en silencio)")
+    ap.add_argument("--pcpu", action="store_true",
+                    help="128: REFERENCIA del producto CPU publicado (TabM sí, densa fuera), con suelo de ruido")
     ap.add_argument("--rcpu", action="store_true",
                     help="C3″ (enmienda 8): la referencia del paquete CPU (sin densa ni TabM); repite el humo y fija el suelo")
     ap.add_argument("--c3s", action="store_true",
@@ -525,21 +530,22 @@ def main():
     ap.add_argument("--c3p", action="store_true",
                     help="C3′ (enmienda 7): TabM como un motor más, contra --contra (una R1-GPU); cifra = la del test")
     a = ap.parse_args()
-    if sum(map(bool, (a.politica, a.r1gpu, a.c3p, a.rcpu, a.c3s))) > 1:
+    if sum(map(bool, (a.politica, a.r1gpu, a.c3p, a.rcpu, a.c3s, a.pcpu))) > 1:
         raise SystemExit("--politica, --r1gpu, --c3p, --rcpu y --c3s son medidas distintas: una cada vez")
     if bool(a.politica or a.c3p or a.c3s) != bool(a.contra):
         raise SystemExit("--politica, --c3p y --c3s van con --contra, y --contra solo con una de ellas")
-    if (a.politica or a.r1gpu or a.c3p or a.rcpu or a.c3s) and (Path(a.salida).resolve() == SALIDA.resolve()
+    if (a.politica or a.r1gpu or a.c3p or a.rcpu or a.c3s or a.pcpu) and (Path(a.salida).resolve() == SALIDA.resolve()
                        or (a.contra and Path(a.salida).resolve() == Path(a.contra).resolve())):
         raise SystemExit("--politica, --r1gpu y --c3p escriben en una --salida PROPIA: ni la de R0 (la omisión) ni la de --contra")
     if a.ninguna and a.politica:
         raise SystemExit("--ninguna pide los árboles de hoy y --politica una política de medida: una u otra")
-    if a.ninguna and (a.rcpu or a.c3s):
+    if a.ninguna and (a.rcpu or a.c3s or a.pcpu):
         raise SystemExit("--ninguna quitaría la política de C6, que el paquete CPU lleva (enmienda 8): no con --rcpu/--c3s")
-    if (a.r1gpu or a.c3p or a.rcpu or a.c3s) and a.banco:
+    if (a.r1gpu or a.c3p or a.rcpu or a.c3s or a.pcpu) and a.banco:
         raise SystemExit("C3′ se mide en los 13 del protocolo (enmienda 7): sin --banco")
     IMAGEN, MEMORIA, POLITICA = a.imagen, a.memoria, a.politica
-    MODO = ("r1gpu" if a.r1gpu else "c3p" if a.c3p else "rcpu" if a.rcpu else "c3s" if a.c3s else None)
+    MODO = ("r1gpu" if a.r1gpu else "c3p" if a.c3p else "rcpu" if a.rcpu else "c3s" if a.c3s
+            else "pcpu" if a.pcpu else None)
     # R1-GPU: la imagen de C3′ con TabM apagado (MATRIXAI_ESTUDIO_SIN_TABM=1, idéntico a 92532b8 con torch, probado en
     # el corte); C3′: la misma imagen, sin la variable. `presencia` comprueba en cada estudio que fue así.
     ENTORNO_EXTRA = entorno_extra_de(MODO, ninguna=a.ninguna)
@@ -718,7 +724,7 @@ def correr_c3p(modo, banco, datos, correr, contra_doc):
             print("\n".join(lin)); print("CONTROL:", "CUADRA" if ok else "NO CUADRA — PARO", flush=True)
             if not ok:
                 _paro(datos, "instrumento", "el control de los 4 ejemplos no cuadra", n, nombres[i + 1:], codigo=2)
-            if modo in ("r1gpu", "rcpu"):
+            if modo in ("r1gpu", "rcpu", "pcpu"):
                 estados = ESTADOS
                 ESTADOS = estados / "repeticion_de_control"; ESTADOS.mkdir(exist_ok=True)
                 datos["repeticion_de_control"] = {}
@@ -734,8 +740,8 @@ def correr_c3p(modo, banco, datos, correr, contra_doc):
                 print(f"SUELO DE RUIDO (los 4 de humo, dos veces): {datos['suelo_de_ruido']:g} puntos", flush=True)
         # En el paquete CPU (rcpu, c3s) la política de producción de C6 SE ESPERA en los medianos; donde no, nada
         # de política sin pedirla.
-        motivo = (v3.presencia(rec, c3p=(modo in ("c3p", "c3s")), con_densa=(modo in ("r1gpu", "c3p")))
-                  or (sobre_del_paquete_cpu_o_motivo(rec) if modo in ("rcpu", "c3s") else sin_politica_o_motivo(rec)))
+        motivo = (v3.presencia(rec, c3p=(modo in ("c3p", "c3s", "pcpu")), con_densa=(modo in ("r1gpu", "c3p")))
+                  or (sobre_del_paquete_cpu_o_motivo(rec) if modo in ("rcpu", "c3s", "pcpu") else sin_politica_o_motivo(rec)))
         if motivo:
             _paro(datos, "instrumento", motivo, n, nombres[i + 1:])
         if modo not in ("c3p", "c3s"):
