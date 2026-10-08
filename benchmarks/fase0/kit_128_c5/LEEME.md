@@ -40,6 +40,11 @@ cada uno. Cada conjunto tiene un tope de 1 h; si algún conjunto grande no termi
 **Se puede cortar** (Ctrl+C, apagar el PC) **y volver a lanzar la MISMA orden**: sigue donde estaba (reusa lo ya
 medido con la misma imagen y los mismos ajustes; la capa GPU ya construida no se vuelve a bajar).
 Si el brazo B baja o deja de terminar un conjunto, **se corta solo** (no hace falta esperar las horas que quedan) y lo dice.
+Ese corte **es el resultado**: si vuelves a lanzar la misma orden, no repite el brazo B (compone el JSON con él). Nunca
+se pisa una pasada: la que no se continúa (otra imagen u otros ajustes, o un corte del instrumento) se guarda al lado
+como `salida/brazo_B.anterior-<fecha-hora>.json`.
+También **para solo** si lo que mide no es lo que se quiere medir: el brazo A entrenó TabM en la GPU, o en el B TabM gana
+y su modelo entregado se entrenó en la CPU sin decirlo. Sale con «código 6» y el motivo: mándame `salida/` entero.
 
 Opciones: `-Memoria 6g` (por omisión; es la del servidor, para que sea comparable) y `-Cpus 2`;
 `-Brazos A` o `-Brazos B` para medir solo uno (el B necesita el A ya hecho); `-Solo nombre1,nombre2` para un

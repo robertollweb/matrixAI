@@ -15,7 +15,13 @@ al relanzar se reusan SOLO los `completed` con la misma procedencia. El brazo B 
 el primer conjunto que baja más que el suelo de ruido o deja de completar (`veredicto_128_c5.corta`).
 
 Códigos de salida: 0 bien · 2 los datos no cuadran con el manifiesto · 3 el brazo A no está terminado · 4 el Studio ya
-no contesta (el lanzador lo rearranca y vuelve a llamar) · 5 (`--prueba`) la GPU NO se usó · 6 incomparable.
+no contesta (el lanzador lo rearranca y vuelve a llamar) · 5 (`--prueba`) la GPU NO se usó · 6 incomparable, o lo que se
+mide no es lo registrado (el brazo A entrenó TabM en la GPU, o el B entregó TabM de CPU sin decirlo: I1 del 128).
+
+RELANZAR NO BORRA NADA (128, I2 de su auditoría). Un brazo ya TERMINADO con un corte por la regla 9 es su resultado: la
+misma orden no lo repite (sale con 0 y el lanzador compone). Si hay que medirlo otra vez (`--forzar`), o el punto de
+control no vale (otra imagen, otro ajuste, un corte del instrumento), el `brazo_<X>.json` de antes se GUARDA al lado
+con su hora (`brazo_<X>.anterior-AAAAMMDD-HHMMSS.json`) antes de empezar: nunca se sobrescribe una pasada.
 """
 from __future__ import annotations
 
@@ -213,6 +219,20 @@ def guardar(ruta: Path, datos: dict) -> None:
     os.replace(tmp, ruta)
 
 
+def apartar(ruta: Path) -> Path:
+    """128 (I2): el `brazo_<X>.json` que NO se va a continuar se guarda al lado con su hora, antes de empezar otro.
+    Devuelve dónde quedó. Nunca pisa uno ya apartado (mismo segundo: `-2`, `-3`…)."""
+    # El nombre se compone entero (no con `with_suffix`: «brazo_A.anterior-…» ya tiene un punto y `with_suffix` lo
+    # tomaba por la extensión y devolvía «brazo_A.json» otra vez: un bucle sin fin, cazado por su prueba).
+    hora = time.strftime("%Y%m%d-%H%M%S")
+    destino, n = ruta.with_name(f"{ruta.stem}.anterior-{hora}.json"), 1
+    while destino.exists():
+        n += 1
+        destino = ruta.with_name(f"{ruta.stem}.anterior-{hora}-{n}.json")
+    os.replace(ruta, destino)
+    return destino
+
+
 class Corte(Exception):
     """El brazo se para: el motivo y el código de salida."""
 
@@ -255,10 +275,21 @@ def medir_brazo(a: argparse.Namespace, estudiar_fn=estudiar) -> int:
         brazo_a = json.loads(ruta_a.read_text())
 
     previo: dict = {}
-    if ruta_brazo.is_file() and not a.forzar:
-        p = json.loads(ruta_brazo.read_text())
-        if p.get("huella") == huella and (not p.get("corte") or p["corte"].get("tipo") == "servidor"):
-            previo = p
+    anterior = json.loads(ruta_brazo.read_text()) if ruta_brazo.is_file() else None
+    if anterior is not None and not a.forzar and anterior.get("huella") == huella:
+        corte = anterior.get("corte") or {}
+        if anterior.get("terminado") and corte.get("tipo") == "regla_9":
+            # 128 (I2): la pasada que bajó ES el resultado. Relanzar la misma orden no la tira para medir otra vez
+            # (eso permitiría repetir hasta que entrase): se deja como está y el lanzador compone con ella.
+            print(f"El brazo {a.brazo} ya TERMINÓ con un corte por la regla 9 ({corte.get('motivo')}): es su resultado "
+                  f"y no se repite. Para medirlo otra vez: --forzar (la pasada de ahora se guarda con su hora).",
+                  flush=True)
+            return 0
+        if not corte or corte.get("tipo") == "servidor":
+            previo = anterior
+    if anterior is not None and not previo:
+        print(f"La pasada anterior del brazo {a.brazo} no se continúa: se guarda en {apartar(ruta_brazo).name}",
+              flush=True)
     doc = {"brazo": a.brazo, "huella": huella, "procedencia": {
                "studio": a.studio, "imagen": a.imagen, "imagen_id": a.imagen_id, "memoria": a.memoria, "cpus": a.cpus,
                "entorno": entorno, "inicio": ahora(), "prueba": bool(a.prueba), "solo": solo,
@@ -291,6 +322,22 @@ def medir_brazo(a: argparse.Namespace, estudiar_fn=estudiar) -> int:
               f"VRAM extra={rec.get('recursos', {}).get('vram_extra_mb')} MB", flush=True)
         return rec
 
+    def vigilar_lo_registrado(n: str) -> None:
+        """128 (I1): lo que se mide tiene que ser lo registrado, conjunto a conjunto, y se PARA en cuanto no lo es (no
+        tras horas): el brazo A no puede entrenar TabM en la GPU, y en el B, si TabM es el campeón, su modelo
+        ENTREGADO tiene que constar en la GPU o declarar su caída (el B1: búsqueda en GPU, entregado de CPU callado)."""
+        rec = doc["conjuntos"].get(n)
+        if a.brazo == "A" and rec and V.completa(rec) and V.entreno_tabm_en_gpu(rec):
+            motivo = f"{n}: el brazo A (CPU) entrenó TabM en la GPU: no es la referencia registrada"
+        elif a.brazo == "B" and V.entregado_de_tabm_en_cpu_sin_decirlo(rec):
+            e = (rec or {}).get("entrenamiento_del_entregado") or {}
+            motivo = (f"{n}: TabM es el campeón y su modelo ENTREGADO se entrenó en '{e.get('dispositivo')}' sin "
+                      "declarar la caída a la CPU: lo que se mide no es la GPU (B1 del 128)")
+        else:
+            return
+        doc["corte"] = {"tipo": "instrumento", "motivo": motivo, "tras": n}
+        raise Corte(motivo, 6)
+
     suelo_a = (brazo_a or {}).get("suelo_de_ruido")
     comps: list[dict] = []
     codigo = 0
@@ -300,6 +347,7 @@ def medir_brazo(a: argparse.Namespace, estudiar_fn=estudiar) -> int:
         resto = [c for c in conjuntos if c not in primeros]
         for c in primeros:
             correr(c, doc["conjuntos"])
+            vigilar_lo_registrado(c["nombre"])
         if con_control:
             for c in control:
                 correr(c, doc["repeticion_de_control"], reusar=True)
@@ -323,6 +371,7 @@ def medir_brazo(a: argparse.Namespace, estudiar_fn=estudiar) -> int:
         for i, c in enumerate(cola):
             if c not in primeros:
                 correr(c, doc["conjuntos"])
+                vigilar_lo_registrado(c["nombre"])
             if brazo_a is None or suelo is None:
                 continue
             try:

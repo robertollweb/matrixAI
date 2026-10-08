@@ -1,6 +1,8 @@
 # 128-C5 -- UNA orden: mide TabM en la CPU (brazo A) y en la GPU (brazo B) en ESTE PC, con el paquete GPU, y deja
 # salida\resultado_128_c5.json para mandarlo. Windows con Docker Desktop (WSL2 + GPU NVIDIA). Ver LEEME.md.
 # (ASCII a proposito: PowerShell 5.1 lee los .ps1 sin BOM como ANSI.)
+# Vale para Windows PowerShell 5.1 (el que abre lanzar.bat) y para PowerShell 7 (pwsh). Lo prueba
+# tests/test_128_c5_kit.py con pwsh 7 y un docker falso, tambien con el paso de argumentos "Legacy" de 5.1.
 #
 #   .\lanzar.ps1 [-Prueba] [-Memoria 6g] [-Cpus 2] [-Brazos AB] [-Solo a,b] [-Suelo X] [-Salida DIR]
 #                [-Reconstruir] [-Imagen IMG -ImagenMedidor IMG]
@@ -23,6 +25,8 @@ param(
   [switch]$Reconstruir
 )
 $ErrorActionPreference = "Continue"
+# La salida del medidor (python, UTF-8) se lee bien en la consola de Windows.
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 $Aqui = Split-Path -Parent $MyInvocation.MyCommand.Path
 if ($Salida -eq "") { $Salida = Join-Path $Aqui "salida" }
 $Brazos = ($Brazos -replace ",", "").ToUpper()
@@ -86,11 +90,17 @@ if ($Brazos.Contains("B")) {
   if ($LASTEXITCODE -ne 0) { Parar "PARO: Docker no ve la GPU con esta imagen (revisa que Docker Desktop use WSL2 y tenga la GPU NVIDIA habilitada)." 3 }
   docker run --rm --gpus all --entrypoint nvidia-smi $Imagen -q 2>&1 | Out-File -Encoding ascii (Join-Path $Salida "maquina\nvidia-smi.txt")
 }
-(docker version; "---"; docker info) 2>&1 | Out-File -Encoding ascii (Join-Path $Salida "maquina\docker.txt")
-(Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors | Format-List | Out-String),
-(Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory | Format-List | Out-String),
-(Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version | Format-List | Out-String) |
-  Out-File -Encoding ascii (Join-Path $Salida "maquina\sistema.txt")
+# Un bloque { } y no ( ): dentro de ( ) PowerShell no admite varias ordenes con ";" y el guion entero no compilaba
+# (auditoria del 128, B2: ParseFile daba 2 errores en esta linea y lanzar.ps1 moria antes de hacer nada).
+& { docker version; "---"; docker info } 2>&1 | Out-File -Encoding ascii (Join-Path $Salida "maquina\docker.txt")
+if (Get-Command Get-CimInstance -ErrorAction SilentlyContinue) {
+  (Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors | Format-List | Out-String),
+  (Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory | Format-List | Out-String),
+  (Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version | Format-List | Out-String) |
+    Out-File -Encoding ascii (Join-Path $Salida "maquina\sistema.txt")
+} else {
+  "sin Get-CimInstance (no es Windows)" | Out-File -Encoding ascii (Join-Path $Salida "maquina\sistema.txt")
+}
 "$Imagen $ImagenId" | Out-File -Encoding ascii (Join-Path $Salida "maquina\imagen.txt")
 docker network create $Red *> $null
 
@@ -99,18 +109,25 @@ docker run --rm --entrypoint python3 -v "${Kit}:/work/kit:ro" $ImagenMedidor /wo
 if ($LASTEXITCODE -ne 0) { Parar "PARO: los datos del kit no son los del manifiesto." 2 }
 
 function Medidor($brazo) {
-  if ($brazo -eq "A") { $ent = '{"MATRIXAI_TABM_DISPOSITIVO":"cpu"}' } else { $ent = '{"MATRIXAI_TABM_DISPOSITIVO":"auto","docker_gpus":"all"}' }
-  # El JSON de --entorno lleva comillas: se pasa por una variable de entorno y no por la linea de ordenes (PowerShell 5.1
-  # se come las comillas dobles al llamar a programas externos).
-  $argumentos = @("run", "--rm", "--name", "c5-128-medidor", "--network", $Red, "-e", "C5_ENTORNO=$ent", "-e", "HOME=/tmp", "--entrypoint", "python3",
+  if ($brazo -eq "A") { $ent = '{"MATRIXAI_TABM_DISPOSITIVO":"cpu"}' } else { $ent = '{"MATRIXAI_TABM_DISPOSITIVO":"auto","gpus":"all"}' }
+  # El JSON lleva comillas dobles y PowerShell 5.1 se las come al pasar argumentos a un programa externo: llegaba
+  # C5_ENTORNO={MATRIXAI_TABM_DISPOSITIVO:cpu} y el medidor no lo podia leer (B2). Por eso NO va en la linea de
+  # ordenes: va en el entorno de ESTE proceso y "-e C5_ENTORNO" (sin "=") le dice a docker que lo copie de ahi.
+  $env:C5_ENTORNO = $ent
+  $argumentos = @("run", "--rm", "--name", "c5-128-medidor", "--network", $Red, "-e", "C5_ENTORNO", "-e", "HOME=/tmp", "--entrypoint", "python3",
     "-v", "${Kit}:/work/kit:ro", "-v", "${Salida}:/salida", $ImagenMedidor,
     "/work/kit/medir_c5.py", "--brazo", $brazo, "--studio", "http://c5-128-studio-${brazo}:8765", "--salida", "/salida", "--datos", "/work/kit/datos",
     "--imagen", $Imagen, "--imagen-id", $ImagenId, "--memoria", $Memoria, "--cpus", $Cpus, "--entorno-de-env", "C5_ENTORNO")
   if ($Solo -ne "") { $argumentos += @("--solo", $Solo) }
   if ($Suelo -ne "") { $argumentos += @("--suelo", $Suelo) }
   if ($Prueba) { $argumentos += "--prueba" }
-  & docker @argumentos
-  return $LASTEXITCODE
+  # "| Out-Host": lo que escribe el medidor va a la PANTALLA (el progreso de horas). Sin eso, dentro de una funcion
+  # es su valor de retorno: "$rc = Medidor $b" se lo tragaba entero, $rc era una lista, "-ne 0" salia cierto y el
+  # kit paraba tras el brazo A sin haber arrancado el B (B2). La funcion devuelve SOLO el codigo de salida.
+  & docker @argumentos | Out-Host
+  $codigo = [int]$LASTEXITCODE
+  Remove-Item Env:C5_ENTORNO -ErrorAction SilentlyContinue
+  return $codigo
 }
 
 function Brazo($b) {
@@ -123,7 +140,7 @@ function Brazo($b) {
     & docker @run *> $null
     if ($LASTEXITCODE -ne 0) { Write-Host "PARO: no arranca el Studio del brazo $b"; return 4 }
     docker exec -d "c5-128-studio-$b" python3 /work/kit/muestreador.py "/salida/muestras_$b.jsonl" *> $null
-    $rc = Medidor $b
+    $rc = [int](Medidor $b | Select-Object -Last 1)
     docker exec "c5-128-studio-$b" python3 -c "import torch;print('torch',torch.__version__,'cuda',torch.version.cuda,'disponible',torch.cuda.is_available())" 2>&1 |
       Out-File -Encoding ascii (Join-Path $Salida "maquina\torch_$b.txt")
     docker logs "c5-128-studio-$b" 2>&1 | Out-File -Encoding ascii (Join-Path $Salida "studio_$b.log")
@@ -137,7 +154,7 @@ function Brazo($b) {
 if ($Prueba) { Log "PRUEBA: un conjunto pequeno por brazo (unos minutos, estimado). Debe decir 'la GPU SE USO'." }
 foreach ($b in @("A", "B")) {
   if ($Brazos.Contains($b)) {
-    $rc = Brazo $b
+    $rc = [int](Brazo $b | Select-Object -Last 1)
     if ($rc -ne 0) { Parar "El brazo $b termino con codigo $rc." $rc }
   }
 }
@@ -146,6 +163,6 @@ if ($Brazos -ne "AB") { Log "Hecho el brazo $Brazos (falta el otro para componer
 $comp = @("run", "--rm", "-e", "HOME=/tmp", "--entrypoint", "python3", "-v", "${Kit}:/work/kit:ro", "-v", "${Salida}:/salida", $ImagenMedidor,
   "/work/kit/medir_c5.py", "--componer", "--salida", "/salida", "--datos", "/work/kit/datos")
 if ($Suelo -ne "") { $comp += @("--suelo", $Suelo) }
-& docker @comp
+& docker @comp | Out-Host
 Log "Hecho. Manda: $Salida\resultado_128_c5.json"
 Limpiar

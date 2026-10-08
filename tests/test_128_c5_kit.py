@@ -80,8 +80,10 @@ class StudioSimulado:
     """Un servidor HTTP con los tres endpoints que usa el medidor. La cifra de test de cada estudio sale de `cifras[
     (brazo, nombre)]` (por omisión 80,0; una lista = una por vuelta, para la repetición del control)."""
 
-    def __init__(self, brazo, cifras=None, gpu=False, caer_en=None):
+    def __init__(self, brazo, cifras=None, gpu=False, caer_en=None, campeon="lightgbm", entregado=None):
         self.brazo, self.cifras, self.gpu, self.caer_en = brazo, cifras or {}, gpu, caer_en
+        # 128 (I1): el campeón y lo que declara su modelo ENTREGADO, si una prueba quiere otros
+        self.campeon, self.entregado = campeon, entregado
         self.iniciados: list[str] = []
         self.trabajos: dict[str, str] = {}
         self.vueltas: dict[str, int] = {}
@@ -143,11 +145,12 @@ class StudioSimulado:
         metrica = {"binary_classification": "auroc", "multiclass_classification": "accuracy", "regression": "r2"}[c["tarea"]]
         dispositivo = "cuda" if self.gpu else "cpu"
         return {"estado": "completed",
-                "seleccion": {"candidate_engine": "lightgbm", "media_de_la_seleccion": {"motores": []},
+                "seleccion": {"candidate_engine": self.campeon, "media_de_la_seleccion": {"motores": []},
                               "evaluacion_final": {"evaluated_role": "test", "evidence": "independent_test",
                                                    "metrics": [{"metric_id": metrica, "value": valor / 100.0}]},
-                              "entrenamiento_del_entregado": {"dispositivo": dispositivo if self.gpu else None,
-                                                              "parado_por_plazo": False}},
+                              "entrenamiento_del_entregado": (
+                                  self.entregado if self.entregado is not None else
+                                  {"dispositivo": dispositivo if self.gpu else None, "parado_por_plazo": False})},
                 "leaderboard": [{"engine": "matrixai.dense.tabm_cpu", "candidate": "x-p0-r0", "wall_seconds": 5.0,
                                  "estado": "completed", "hiperparametros": {"device": dispositivo}}]}
 
@@ -448,3 +451,253 @@ def test_el_leeme_ya_no_pide_imagen_y_cuenta_la_capa():
     t = (KIT / "LEEME.md").read_text()
     assert "<imagen>" not in t.replace("`-Imagen <imagen>` (`--imagen`)", "")
     assert "matrixai-studio-128.tar" in t and "3 GB" in t and "no pisa tu instalación normal" in t
+
+
+# ------------------------------------------------------------------------------------------------ 128 (reparación, B2): lanzar.ps1 EJECUTADO
+# La auditoría del 128 midió `lanzar.ps1` con PowerShell 7.4 en Docker y un `docker` falso: no compilaba (`(a; b)`), y
+# arreglado eso, `$rc = Medidor $b` se tragaba la salida del medidor y el kit paraba tras el brazo A; y en PowerShell 5.1
+# el JSON de `C5_ENTORNO` perdía las comillas. Aquí se EJECUTA de principio a fin, los dos brazos, con pwsh (en el
+# host si lo hay; si no, en el contenedor `mcr.microsoft.com/powershell` con techo, si la imagen ya está en este
+# Docker: la prueba no descarga nada) y con el paso de argumentos «Legacy» (el de Windows PowerShell 5.1). Un Windows
+# de verdad NO se prueba aquí.
+_IMAGEN_PWSH = "mcr.microsoft.com/powershell:lts-ubuntu-22.04"
+
+_DOCKER_FALSO_PS = textwrap.dedent('''\
+    #!/usr/bin/env bash
+    # docker FALSO para lanzar.ps1: anota cada orden (un argumento por línea) y el C5_ENTORNO que ve, y simula lo justo.
+    { echo "=== $1"; for a in "$@"; do printf 'ARG %s\\n' "$a"; done; printf 'ENV_C5 %s\\n' "${C5_ENTORNO-<sin>}"; } >> "$LOG_DOCKER"
+    # lo que vería el contenedor en C5_ENTORNO, como lo resuelve docker: «-e C5_ENTORNO=valor» o «-e C5_ENTORNO» (del entorno)
+    prev=""; for a in "$@"; do
+      if [ "$prev" = "-e" ]; then
+        case "$a" in C5_ENTORNO) printf 'EFECTIVO_C5 %s\\n' "${C5_ENTORNO-<sin>}" >> "$LOG_DOCKER";;
+                     C5_ENTORNO=*) printf 'EFECTIVO_C5 %s\\n' "${a#C5_ENTORNO=}" >> "$LOG_DOCKER";; esac
+      fi; prev="$a"; done
+    case "$1" in
+      image) for a in "$@"; do [ "$a" = "{{.Id}}" ] && echo "sha256:falso"; done; exit 0;;
+      version|info) echo "docker falso $1"; exit 0;;
+      run)
+        medidor=0; brazo=""; prev=""
+        for a in "$@"; do
+          case "$a" in
+            --verificar-datos) echo "DATOS OK"; exit 0;;
+            --componer) echo "COMPUESTO (falso)"; echo "componer" >> "$FASES"; exit 0;;
+            /work/kit/medir_c5.py) medidor=1;;
+          esac
+          [ "$prev" = "--brazo" ] && brazo="$a"
+          prev="$a"
+        done
+        if [ "$medidor" = 1 ]; then
+          echo "medidor $brazo" >> "$FASES"
+          echo "[12:00:00] brazo $brazo · dresses-sales ..."
+          echo "   completed 115 s campeón=lightgbm VRAM extra=None MB"
+          rc="RC_$brazo"; exit "${!rc:-0}"
+        fi
+        for a in "$@"; do [ "$a" = "-d" ] && { echo "idfalso"; exit 0; }; done
+        echo "torch 2.6.0 cuda 12.4 GPU: falsa"; exit 0;;
+    esac
+    exit 0
+    ''')
+
+
+def _como_correr_pwsh():
+    """`("host", None)`, `("docker", None)` o `(None, motivo)`."""
+    if shutil.which("pwsh"):
+        return "host", None
+    if not shutil.which("docker"):
+        return None, "ni pwsh ni docker en esta máquina"
+    if subprocess.run(["docker", "image", "inspect", _IMAGEN_PWSH], capture_output=True).returncode != 0:
+        return None, f"sin pwsh y sin la imagen {_IMAGEN_PWSH} en este Docker (no se descarga en una prueba)"
+    return "docker", None
+
+
+def _pwsh(tmp_path, orden: str, entorno: dict[str, str] | None = None, timeout=240):
+    """Corre `orden` en pwsh con el kit en /kit (solo lectura), el docker falso primero en el PATH y /out escribible."""
+    import os
+    import uuid
+    modo, motivo = _como_correr_pwsh()
+    if modo is None:
+        pytest.skip(motivo)
+    falso = tmp_path / "fakebin"
+    falso.mkdir(exist_ok=True)
+    (falso / "docker").write_text(_DOCKER_FALSO_PS)
+    (falso / "docker").chmod(0o755)
+    out = tmp_path / "out"
+    out.mkdir(exist_ok=True)
+    out.chmod(0o777)
+    entorno = {"LOG_DOCKER": "/out/docker.log", "FASES": "/out/fases.log", **(entorno or {})}
+    if modo == "host":
+        rutas = {"/kit": str(KIT), "/out": str(out), "/fakebin": str(falso)}
+        for viejo, nuevo in rutas.items():
+            orden = orden.replace(viejo, nuevo)
+            entorno = {k: v.replace(viejo, nuevo) for k, v in entorno.items()}
+        r = subprocess.run(["pwsh", "-NoProfile", "-NonInteractive", "-Command", orden],
+                           env={**os.environ, **entorno}, capture_output=True, text=True, timeout=timeout)
+    else:
+        nombre = f"rep128-pwsh-{uuid.uuid4().hex[:10]}"
+        args = ["docker", "run", "--rm", "--name", nombre, "--network", "none", "--memory=1g", "--memory-swap=1g",
+                "--cpus=1", "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
+                "-v", f"{KIT}:/kit:ro", "-v", f"{falso}:/fakebin:ro", "-v", f"{out}:/out"]
+        for k, v in entorno.items():
+            args += ["-e", f"{k}={v}"]
+        try:
+            r = subprocess.run([*args, _IMAGEN_PWSH, "pwsh", "-NoProfile", "-NonInteractive", "-Command", orden],
+                               capture_output=True, text=True, timeout=timeout)
+        finally:
+            subprocess.run(["docker", "rm", "-f", nombre], capture_output=True)
+    log = (out / "docker.log").read_text() if (out / "docker.log").exists() else ""
+    fases = (out / "fases.log").read_text().split() if (out / "fases.log").exists() else []
+    return r, log, fases
+
+
+def _ordenes(log: str) -> list[dict]:
+    """El registro del docker falso, por orden: sus argumentos y el C5_ENTORNO que vio."""
+    ordenes = []
+    for bloque in log.split("=== ")[1:]:
+        lineas = bloque.splitlines()
+        ordenes.append({"args": [l[4:] for l in lineas if l.startswith("ARG ")],
+                        "c5": next((l[7:] for l in lineas if l.startswith("ENV_C5 ")), None),
+                        "efectivo": next((l[12:] for l in lineas if l.startswith("EFECTIVO_C5 ")), None)})
+    return ordenes
+
+
+_LANZAR = ("$PSNativeCommandArgumentPassing = '{modo}'; $env:PATH = '/fakebin:' + $env:PATH; "
+           "& /kit/lanzar.ps1 -Brazos AB -Salida /out/salida; exit $LASTEXITCODE")
+
+
+def test_lanzar_ps1_COMPILA_en_PowerShell(tmp_path):
+    """El guion entero se analiza antes de ejecutarse: un error de sintaxis (la `(a; b)` de la línea 89) lo mataba
+    antes de hacer nada."""
+    r, _, _ = _pwsh(tmp_path, "$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile("
+                              "'/kit/lanzar.ps1', [ref]$null, [ref]$e); "
+                              "$e | ForEach-Object { 'ERROR ' + $_.Extent.StartLineNumber + ': ' + $_.Message }; "
+                              "'ERRORES=' + $e.Count")
+    assert r.returncode == 0, r.stderr[-1500:]
+    assert "ERRORES=0" in r.stdout, r.stdout[-2000:]
+
+
+@pytest.mark.parametrize("modo", ["Standard", "Legacy"])
+def test_lanzar_ps1_de_principio_a_fin_corre_los_DOS_brazos_ENSENA_el_medidor_y_compone(tmp_path, modo):
+    """`Legacy` es como Windows PowerShell 5.1 pasa los argumentos a un programa externo (sin escapar comillas)."""
+    r, log, fases = _pwsh(tmp_path, _LANZAR.format(modo=modo))
+    assert r.returncode == 0, r.stdout[-2500:] + r.stderr[-1500:]
+    assert fases == ["medidor", "A", "medidor", "B", "componer"], fases          # el B arranca tras el A, y se compone
+    # lo que escribe el medidor llega a la PANTALLA (antes se lo tragaba `$rc = Medidor $b`)
+    assert "brazo A · dresses-sales" in r.stdout and "brazo B · dresses-sales" in r.stdout, r.stdout[-2000:]
+    medidores = [o for o in _ordenes(log) if "/work/kit/medir_c5.py" in o["args"] and "--brazo" in o["args"]]
+    assert [o["args"][o["args"].index("--brazo") + 1] for o in medidores] == ["A", "B"]
+    for o in medidores:
+        brazo = o["args"][o["args"].index("--brazo") + 1]
+        # lo que vería el medidor en su contenedor se lee como JSON (con «Legacy» —5.1— y el JSON en la línea de
+        # órdenes, llegaba `{MATRIXAI_TABM_DISPOSITIVO:cpu}`: sin comillas, y el medidor no lo podía leer)
+        assert json.loads(o["efectivo"]) == ({"MATRIXAI_TABM_DISPOSITIVO": "cpu"} if brazo == "A" else
+                                             {"MATRIXAI_TABM_DISPOSITIVO": "auto", "gpus": "all"}), o["efectivo"]
+        # y por eso el JSON NO va en la línea de órdenes: `-e C5_ENTORNO` y el valor, del entorno del lanzador
+        assert "C5_ENTORNO" in o["args"] and not any(a.startswith("C5_ENTORNO=") for a in o["args"]), o["args"]
+        assert o["args"][o["args"].index("--entorno-de-env") + 1] == "C5_ENTORNO"
+    # el Studio del B con la GPU y `auto`; el del A sin GPU y `cpu`
+    studios = [o["args"] for o in _ordenes(log) if o["args"][:2] == ["run", "-d"]]
+    assert any("--gpus" in a and "MATRIXAI_TABM_DISPOSITIVO=auto" in a for a in studios)
+    assert any("--gpus" not in a and "MATRIXAI_TABM_DISPOSITIVO=cpu" in a for a in studios)
+
+
+def test_lanzar_ps1_si_el_brazo_A_falla_PARA_con_su_codigo_y_no_arranca_el_B(tmp_path):
+    r, _, fases = _pwsh(tmp_path, _LANZAR.format(modo="Standard"), {"RC_A": "3"})
+    assert r.returncode == 3, r.stdout[-1500:]
+    assert fases == ["medidor", "A"], fases
+
+
+def test_lanzar_ps1_si_el_Studio_del_brazo_deja_de_contestar_lo_rearranca_hasta_tres_veces(tmp_path):
+    r, _, fases = _pwsh(tmp_path, _LANZAR.format(modo="Standard"), {"RC_A": "4"})
+    assert r.returncode == 4, r.stdout[-1500:]
+    assert fases == ["medidor", "A"] * 3, fases
+
+
+def test_lanzar_bat_ya_no_pide_imagen_y_devuelve_el_codigo_del_ps1():
+    t = (KIT / "lanzar.bat").read_text()
+    assert "-Imagen <imagen>" not in t
+    assert "powershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0lanzar.ps1\" %*" in t
+    assert t.index("set RC=%ERRORLEVEL%") < t.index("pause") < t.index("exit /b %RC%")
+
+
+# ------------------------------------------------------------------------------------------------ 128 (reparación, I1): el ENTREGADO
+def test_I1_si_TabM_gana_en_B_y_su_ENTREGADO_se_entreno_en_CPU_sin_decirlo_el_brazo_B_PARA_en_ese_conjunto(tmp_path, estudios):
+    """El B1 visto desde el kit: los intentos de la búsqueda en la GPU (`dispositivos_vistos` con `cuda`) y el modelo
+    ENTREGADO en la CPU sin caída declarada. Antes la «presencia» lo daba por bueno (cualquier `cuda` del estado) y
+    Roberto habría medido ~4 h de otra cosa; ahora para en el PRIMER conjunto donde pasa, con su motivo."""
+    a = estudios("A")
+    assert M.main(_args(tmp_path, "A", a)) == 0
+    b = estudios("B", gpu=True, campeon=V.MOTOR_TABM,
+                 entregado={"dispositivo": "cpu", "cayo_a_cpu": False, "parado_por_plazo": False})
+    assert M.main(_args(tmp_path, "B", b)) == 6
+    brazo = json.loads((tmp_path / "brazo_B.json").read_text())
+    assert brazo["corte"]["tipo"] == "instrumento" and "ENTREGADO" in brazo["corte"]["motivo"], brazo["corte"]
+    assert brazo["terminado"] is False and len(b.iniciados) == 1                   # paró en el primero, no tras horas
+    assert V.presencia(json.loads((tmp_path / "brazo_A.json").read_text())["conjuntos"], brazo["conjuntos"])
+
+
+@pytest.mark.parametrize("entregado", [{"dispositivo": "cuda", "cayo_a_cpu": False, "parado_por_plazo": False},
+                                       {"dispositivo": "cpu", "cayo_a_cpu": True, "parado_por_plazo": False}])
+def test_I1_con_el_entregado_en_la_GPU_o_su_caida_DECLARADA_el_brazo_B_sigue(tmp_path, estudios, entregado):
+    a = estudios("A")
+    assert M.main(_args(tmp_path, "A", a)) == 0
+    b = estudios("B", gpu=True, campeon=V.MOTOR_TABM, entregado=entregado)
+    assert M.main(_args(tmp_path, "B", b)) == 0
+    assert json.loads((tmp_path / "brazo_B.json").read_text())["terminado"] is True
+
+
+def test_I1_si_el_brazo_A_entrena_TabM_en_la_GPU_tambien_PARA(tmp_path, estudios):
+    a = estudios("A", gpu=True)
+    assert M.main(_args(tmp_path, "A", a)) == 6
+    assert "brazo A (CPU) entrenó TabM en la GPU" in json.loads((tmp_path / "brazo_A.json").read_text())["corte"]["motivo"]
+
+
+# ------------------------------------------------------------------------------------------------ 128 (reparación, I2): relanzar no borra
+def test_I2_relanzar_tras_un_corte_por_la_regla_9_NO_tira_la_pasada_que_bajo(tmp_path, estudios):
+    """Antes, la misma orden tras el corte sobrescribía `brazo_B.json` con los conjuntos vacíos y medía otra vez: se
+    perdía la pasada que bajó y se podía repetir hasta que entrase."""
+    _a, b = _brazos(tmp_path, estudios, {("B", "wilt"): 70.0})
+    assert M.main(_args(tmp_path, "B", b)) == 0
+    antes, n = (tmp_path / "brazo_B.json").read_bytes(), len(b.iniciados)
+    assert json.loads(antes)["corte"]["tipo"] == "regla_9"
+    b.cifras = {}                                     # «esta vez entraría»: relanzar no puede repetir hasta que entre
+    assert M.main(_args(tmp_path, "B", b)) == 0
+    assert len(b.iniciados) == n and (tmp_path / "brazo_B.json").read_bytes() == antes
+    assert M.main(["--componer", "--salida", str(tmp_path), "--datos", str(KIT / "datos")]) == 0
+    assert json.loads((tmp_path / "resultado_128_c5.json").read_text())["veredicto"]["entra"] is False
+
+
+def test_I2_con_forzar_se_mide_otra_vez_y_la_pasada_anterior_se_GUARDA_con_su_hora(tmp_path, estudios):
+    _a, b = _brazos(tmp_path, estudios, {("B", "wilt"): 70.0})
+    M.main(_args(tmp_path, "B", b))
+    antes = (tmp_path / "brazo_B.json").read_bytes()
+    b.cifras = {}
+    assert M.main(_args(tmp_path, "B", b, "--forzar")) == 0
+    apartadas = sorted(tmp_path.glob("brazo_B.anterior-*.json"))
+    assert len(apartadas) == 1 and apartadas[0].read_bytes() == antes             # la que bajó, entera
+    assert json.loads((tmp_path / "brazo_B.json").read_text())["corte"] is None
+
+
+def test_I2_un_punto_de_control_que_no_vale_tampoco_se_pisa(tmp_path, estudios):
+    a = estudios("A")
+    M.main(_args(tmp_path, "A", a, "--solo", "wilt"))
+    antes = (tmp_path / "brazo_A.json").read_bytes()
+    M.main(_args(tmp_path, "A", a, "--solo", "wilt", "--memoria", "24g"))           # otra procedencia: no se continúa
+    M.main(_args(tmp_path, "A", a, "--solo", "wilt", "--memoria", "12g"))           # y otra, en el mismo segundo
+    apartadas = sorted(tmp_path.glob("brazo_A.anterior-*.json"))
+    assert len(apartadas) == 2 and antes in [x.read_bytes() for x in apartadas]
+
+
+# ------------------------------------------------------------------------------------------------ 128 (reparación): el suelo del corte
+def test_el_brazo_B_corta_con_el_MAYOR_de_los_dos_suelos_y_no_solo_con_el_suyo(tmp_path, estudios):
+    """«El suelo es el MAYOR de los dos brazos» (el veredicto; y el medidor, al cortar el B): el A repite su control
+    con 1,5 puntos de diferencia y el B idéntico (suelo 0); una bajada de 1,0 en `wilt` es ruido del A y NO corta.
+    Sabotaje VERDE de la auditoría (`medidor_suelo_solo_de_b`): cortar con el suelo del B solo."""
+    a = estudios("A", {("A", "pc1"): [80.0, 81.5]})
+    assert M.main(_args(tmp_path, "A", a)) == 0
+    assert json.loads((tmp_path / "brazo_A.json").read_text())["suelo_de_ruido"] == pytest.approx(1.5)
+    b = estudios("B", {("B", "wilt"): 79.0, ("B", "micro-mass"): 90.0}, gpu=True)
+    assert M.main(_args(tmp_path, "B", b)) == 0
+    brazo = json.loads((tmp_path / "brazo_B.json").read_text())
+    assert brazo["suelo_de_ruido"] == 0.0 and brazo["suelo_usado"] == pytest.approx(1.5)
+    assert brazo["corte"] is None and brazo["terminado"] is True
+    assert brazo["comparaciones"]["wilt"]["clase"] == "igual" and "Allstate_Claims_Severity" in brazo["conjuntos"]

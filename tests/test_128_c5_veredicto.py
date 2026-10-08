@@ -211,3 +211,29 @@ def test_el_CLI_lee_un_resultado_y_dice_si_entra(tmp_path, capsys):
     ruta.write_text(json.dumps(_doc(_brazo({}), _brazo({"wilt": 70.0}, gpu=True))))
     V._main(["x", str(ruta)])
     assert "LA GPU NO ENTRA" in capsys.readouterr().out
+
+
+# --- 128 (reparación, I1): el modelo ENTREGADO --------------------------------------------------------------------
+def test_I1_NO_ENTRA_si_TabM_gana_en_B_con_su_entregado_en_CPU_sin_decirlo_aunque_la_busqueda_usara_la_GPU():
+    a = _brazo({})
+    b = _brazo({"micro-mass": 83.0}, gpu=True)
+    b["conjuntos"]["wilt"]["campeon"] = TABM
+    b["conjuntos"]["wilt"]["dispositivos_vistos"] = {"cuda": 3}                    # la búsqueda, en la GPU
+    b["conjuntos"]["wilt"]["entrenamiento_del_entregado"] = {"dispositivo": "cpu", "cayo_a_cpu": False}
+    v = V.evaluar(_doc(a, b))["veredicto"]
+    assert v["entra"] is False and any("ENTREGADO" in m or "entregó TabM" in m for m in v["motivos_para_no_entrar"]), v
+
+
+@pytest.mark.parametrize("entregado", [{"dispositivo": "cuda"}, {"dispositivo": "cpu", "cayo_a_cpu": True}])
+def test_I1_con_el_entregado_de_TabM_en_la_GPU_o_su_caida_declarada_la_presencia_no_lo_impide(entregado):
+    a = _brazo({})
+    b = _brazo({"micro-mass": 83.0}, gpu=True)
+    b["conjuntos"]["wilt"]["campeon"] = TABM
+    b["conjuntos"]["wilt"]["entrenamiento_del_entregado"] = entregado
+    assert V.evaluar(_doc(a, b))["veredicto"]["entra"] is True
+
+
+def test_I1_un_campeon_que_no_es_TabM_no_tiene_entregado_de_TabM_que_mirar():
+    assert V.entregado_de_tabm_en_cpu_sin_decirlo(_rec("wilt")) is False
+    assert V.entregado_de_tabm_en_cpu_sin_decirlo(_rec("wilt", campeon=TABM)) is True
+    assert V.entregado_de_tabm_en_cpu_sin_decirlo(_rec("wilt", campeon=TABM, estado="failed")) is False

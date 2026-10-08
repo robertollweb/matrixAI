@@ -20,7 +20,10 @@ de terminar y ALGUNO mejora.** Si no, el dispositivo se queda en `cpu` y el cód
 - **Baja** = B − A < −suelo; **sube** = B − A > suelo; **igual**, dentro del suelo. «Deja de completar» y «empieza a
   completar» cuentan aparte (la primera siempre impide entrar; la segunda cuenta como mejora).
 - **Presencia**: el brazo B tiene que haber entrenado TabM en la GPU en algún conjunto (el dispositivo lo declara el
-  motor) y el A en ninguno; si no, no se midió lo registrado y NO entra, diga lo que diga la tabla.
+  motor) y el A en ninguno; si no, no se midió lo registrado y NO entra, diga lo que diga la tabla. Y (128, I1 de su
+  auditoría) donde TabM es el CAMPEÓN del brazo B, su modelo ENTREGADO —el del reajuste final, el que recibe quien usa
+  el Studio— tiene que haberse entrenado en la GPU o declarar su caída a la CPU: una búsqueda en GPU con un entregado
+  de CPU callado (el B1) no es «la GPU».
 - **El corte** (como la regla 9 del 120): la pasada del brazo B se corta en el primer conjunto que baja más que el
   suelo o deja de completar. Lo no medido no cuenta como pérdida, pero sin los 13 el veredicto no entra.
 """
@@ -101,11 +104,25 @@ def entreno_tabm_en_gpu(rec: dict | None, *, con_vram: bool = False) -> bool:
     return bool(con_vram and isinstance(extra, (int, float)) and extra >= VRAM_QUE_DELATA_LA_GPU_MB)
 
 
+def entregado_de_tabm_en_cpu_sin_decirlo(rec: dict | None) -> bool:
+    """128 (I1): ¿el campeón es TabM y su modelo ENTREGADO NO consta en la GPU NI declara su caída a la CPU? Es lo que
+    pasaba con el B1 (la búsqueda en la GPU, el reajuste final en la CPU sin decirlo). Con el campeón en otro motor no
+    hay entregado de TabM que mirar: `False`."""
+    if not rec or not completa(rec) or rec.get("campeon") != MOTOR_TABM:
+        return False
+    entregado = rec.get("entrenamiento_del_entregado") or {}
+    return not (entregado.get("dispositivo") == "cuda" or entregado.get("cayo_a_cpu") is True)
+
+
 def presencia(conjuntos_a: dict[str, dict], conjuntos_b: dict[str, dict]) -> str | None:
     """El motivo para PARAR (o para no entrar) o None."""
     en_a = sorted(n for n, r in conjuntos_a.items() if completa(r) and entreno_tabm_en_gpu(r))
     if en_a:
         return f"el brazo A (CPU) entrenó TabM en la GPU en {en_a}: no es la referencia registrada"
+    callados = sorted(n for n, r in conjuntos_b.items() if entregado_de_tabm_en_cpu_sin_decirlo(r))
+    if callados:
+        return (f"el brazo B entregó TabM entrenado en la CPU sin declarar la caída en {callados}: lo que se compara "
+                "no es la GPU (el modelo entregado no la usó)")
     if not any(completa(r) and entreno_tabm_en_gpu(r, con_vram=True) for r in conjuntos_b.values()):
         return "el brazo B no entrenó TabM en la GPU en ningún conjunto: no se midió la GPU"
     return None
