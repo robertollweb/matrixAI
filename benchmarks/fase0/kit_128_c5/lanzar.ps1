@@ -2,8 +2,12 @@
 # salida\resultado_128_c5.json para mandarlo. Windows con Docker Desktop (WSL2 + GPU NVIDIA). Ver LEEME.md.
 # (ASCII a proposito: PowerShell 5.1 lee los .ps1 sin BOM como ANSI.)
 #
-#   .\lanzar.ps1 -Imagen <imagen del paquete GPU con el corte C5> [-Prueba] [-Memoria 6g] [-Cpus 2]
-#                [-Brazos AB] [-Solo a,b] [-Suelo X] [-Salida DIR] [-ImagenMedidor IMG]
+#   .\lanzar.ps1 [-Prueba] [-Memoria 6g] [-Cpus 2] [-Brazos AB] [-Solo a,b] [-Suelo X] [-Salida DIR]
+#                [-Reconstruir] [-Imagen IMG -ImagenMedidor IMG]
+#
+# SIN -Imagen (lo normal): carga la imagen BASE de este corte (imagen\matrixai-studio-128.tar) y CONSTRUYE en este PC
+# la capa GPU (imagen\Dockerfile.gpu: PyTorch con CUDA 12.4, ~3 GB de descarga), igual que el instalador del paquete GPU.
+# Con -Imagen se usa una ya hecha y no se construye nada.
 #
 # Se puede cortar (Ctrl+C) y volver a lanzar con la MISMA orden: sigue donde estaba.
 param(
@@ -15,7 +19,8 @@ param(
   [string]$Solo = "",
   [string]$Suelo = "",
   [string]$Salida = "",
-  [string]$ImagenMedidor = ""
+  [string]$ImagenMedidor = "",
+  [switch]$Reconstruir
 )
 $ErrorActionPreference = "Continue"
 $Aqui = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -24,11 +29,9 @@ $Brazos = ($Brazos -replace ",", "").ToUpper()
 function Log($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
 function Parar($m, $codigo) { Write-Host $m -ForegroundColor Red; Limpiar; exit $codigo }
 
-if ($Imagen -eq "") { Write-Host "Falta -Imagen <imagen del paquete GPU>. Mira 'docker images' (suele llamarse matrixai-studio-gpu...)"; exit 2 }
-if ($ImagenMedidor -eq "") { $ImagenMedidor = $Imagen }
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Host "No encuentro docker."; exit 2 }
-docker image inspect $Imagen *> $null
-if ($LASTEXITCODE -ne 0) { Write-Host "No existe la imagen $Imagen en este Docker (docker images)."; exit 2 }
+$Base = "matrixai-studio:128"            # la etiqueta que lleva el tar de imagen\ (build-image.sh --image matrixai-studio:128)
+$Capa = "matrixai-studio-gpu-128:local"  # la imagen GPU que se construye AQUI; no pisa ninguna de tu instalacion normal
 
 New-Item -ItemType Directory -Force -Path (Join-Path $Salida "maquina") | Out-Null
 $Salida = (Resolve-Path $Salida).Path
@@ -40,6 +43,38 @@ function Limpiar {
   docker network rm $Red *> $null
 }
 Limpiar
+
+# --- -1. la imagen: base (tar) + capa GPU construida en ESTE PC (salvo -Imagen)
+if ($Imagen -eq "") {
+  if ($Reconstruir) { docker rmi -f $Capa $Base *> $null }
+  docker image inspect $Capa *> $null
+  if ($LASTEXITCODE -ne 0) {
+    docker image inspect $Base *> $null
+    if ($LASTEXITCODE -ne 0) {
+      $tar = Join-Path $Aqui "imagen\matrixai-studio-128.tar"
+      if (-not (Test-Path $tar)) { Parar "PARO: falta $tar (la imagen base de este corte). Pidela o pasa -Imagen." 2 }
+      Log "Cargando la imagen base (docker load, ~190 MB)..."
+      docker load -i $tar
+      if ($LASTEXITCODE -ne 0) { Parar "PARO: docker load fallo." 2 }
+      docker image inspect $Base *> $null
+      if ($LASTEXITCODE -ne 0) { Parar "PARO: el tar no trae la etiqueta $Base." 2 }
+    }
+    $dockerfile = Join-Path $Aqui "imagen\Dockerfile.gpu"
+    if (-not (Test-Path $dockerfile)) { Parar "PARO: falta $dockerfile." 2 }
+    $capaDir = Join-Path $Salida "maquina\capa"
+    New-Item -ItemType Directory -Force -Path $capaDir | Out-Null
+    $texto = [System.IO.File]::ReadAllText($dockerfile, [System.Text.Encoding]::UTF8) -replace "(?m)^FROM .*$", "FROM $Base"
+    [System.IO.File]::WriteAllText((Join-Path $capaDir "Dockerfile"), $texto, (New-Object System.Text.UTF8Encoding($false)))
+    Log "Construyendo la capa GPU (descarga PyTorch con CUDA, ~3 GB: tarda; se hace UNA vez)..."
+    docker build -t $Capa $capaDir 2>&1 | Tee-Object -FilePath (Join-Path $Salida "maquina\build_capa.log")
+    docker image inspect $Capa *> $null
+    if ($LASTEXITCODE -ne 0) { Parar "PARO: no se pudo construir la capa GPU (mira $Salida\maquina\build_capa.log; suele ser la red o el disco)." 2 }
+  }
+  $Imagen = $Capa
+}
+if ($ImagenMedidor -eq "") { $ImagenMedidor = $Imagen }
+docker image inspect $Imagen *> $null
+if ($LASTEXITCODE -ne 0) { Parar "No existe la imagen $Imagen en este Docker (docker images)." 2 }
 $ImagenId = (docker image inspect $Imagen --format "{{.Id}}")
 
 # --- 0. la GPU de verdad, dentro de Docker (si no, no se empieza). Solo si se va a medir el brazo B.

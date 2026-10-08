@@ -2,18 +2,23 @@
 # 128-C5 -- UNA orden: mide TabM en la CPU (brazo A) y en la GPU (brazo B) en ESTE PC, con el paquete GPU, y deja
 # salida/resultado_128_c5.json para mandarlo. Linux (o WSL2). Ver LEEME.md.
 #
-#   ./lanzar.sh --imagen <imagen del paquete GPU con el corte C5> [--prueba] [--memoria 6g] [--cpus 2]
-#               [--brazos A|B|A,B] [--solo a,b] [--suelo X] [--salida DIR] [--imagen-medidor IMG]
+#   ./lanzar.sh [--prueba] [--memoria 6g] [--cpus 2] [--brazos A|B|A,B] [--solo a,b] [--suelo X] [--salida DIR]
+#               [--reconstruir] [--imagen IMG --imagen-medidor IMG]
+#
+# SIN --imagen (lo normal): carga la imagen BASE de este corte (imagen/matrixai-studio-128.tar) y CONSTRUYE en este PC
+# la capa GPU (imagen/Dockerfile.gpu: PyTorch con CUDA 12.4, ~3 GB de descarga), igual que el instalador del paquete GPU.
+# Con --imagen se usa una ya hecha y no se construye nada.
 #
 # Se puede cortar (Ctrl+C) y volver a lanzar con la MISMA orden: sigue donde estaba.
 set -uo pipefail
 AQUI="$(cd "$(dirname "$0")" && pwd)"
-BRAZOS=AB ; IMAGEN="" ; PRUEBA=0 ; MEMORIA=6g ; CPUS=2 ; SOLO="" ; SUELO="" ; SALIDA="$AQUI/salida" ; MEDIDOR=""
+BRAZOS=AB ; IMAGEN="" ; RECONSTRUIR=0 ; PRUEBA=0 ; MEMORIA=6g ; CPUS=2 ; SOLO="" ; SUELO="" ; SALIDA="$AQUI/salida" ; MEDIDOR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --imagen) IMAGEN="$2"; shift 2;;
     --imagen-medidor) MEDIDOR="$2"; shift 2;;
     --prueba) PRUEBA=1; shift;;
+    --reconstruir) RECONSTRUIR=1; shift;;
     --brazos) BRAZOS="$(echo "$2" | tr -d , | tr a-z A-Z)"; shift 2;;
     --memoria) MEMORIA="$2"; shift 2;;
     --cpus) CPUS="$2"; shift 2;;
@@ -24,10 +29,9 @@ while [ $# -gt 0 ]; do
     *) echo "Argumento desconocido: $1"; exit 2;;
   esac
 done
-[ -n "$IMAGEN" ] || { echo "Falta --imagen <imagen del paquete GPU>. Mira 'docker images' (suele llamarse matrixai-studio-gpu...)"; exit 2; }
-[ -n "$MEDIDOR" ] || MEDIDOR="$IMAGEN"
 command -v docker >/dev/null || { echo "No encuentro docker."; exit 2; }
-docker image inspect "$IMAGEN" >/dev/null 2>&1 || { echo "No existe la imagen $IMAGEN en este Docker (docker images)."; exit 2; }
+BASE=matrixai-studio:128            # la etiqueta que lleva el tar de imagen/ (build-image.sh --image matrixai-studio:128)
+CAPA=matrixai-studio-gpu-128:local  # la imagen GPU que se construye AQUI; no pisa ninguna de tu instalacion normal
 mkdir -p "$SALIDA/maquina" ; chmod -R a+rwX "$SALIDA" 2>/dev/null || true
 SALIDA="$(cd "$SALIDA" && pwd)"
 RED=c5-128-red
@@ -36,6 +40,27 @@ limpiar() { docker rm -f c5-128-studio-A c5-128-studio-B c5-128-medidor >/dev/nu
 trap 'limpiar' EXIT
 trap 'echo; echo "Cortado. Vuelve a lanzar la MISMA orden para seguir donde estaba."; exit 130' INT TERM
 limpiar
+
+# --- -1. la imagen: base (tar) + capa GPU construida en ESTE PC (salvo --imagen)
+if [ -z "$IMAGEN" ]; then
+  [ "$RECONSTRUIR" = 1 ] && docker rmi -f "$CAPA" "$BASE" >/dev/null 2>&1
+  if ! docker image inspect "$CAPA" >/dev/null 2>&1; then
+    if ! docker image inspect "$BASE" >/dev/null 2>&1; then
+      [ -f "$AQUI/imagen/matrixai-studio-128.tar" ] || { echo "PARO: falta $AQUI/imagen/matrixai-studio-128.tar (la imagen base de este corte). Pidela o pasa --imagen."; exit 2; }
+      log "Cargando la imagen base (docker load, ~190 MB)..."
+      docker load -i "$AQUI/imagen/matrixai-studio-128.tar" || { echo "PARO: docker load fallo."; exit 2; }
+      docker image inspect "$BASE" >/dev/null 2>&1 || { echo "PARO: el tar no trae la etiqueta $BASE."; exit 2; }
+    fi
+    [ -f "$AQUI/imagen/Dockerfile.gpu" ] || { echo "PARO: falta $AQUI/imagen/Dockerfile.gpu."; exit 2; }
+    mkdir -p "$SALIDA/maquina/capa" && sed "s#^FROM .*#FROM $BASE#" "$AQUI/imagen/Dockerfile.gpu" > "$SALIDA/maquina/capa/Dockerfile"
+    log "Construyendo la capa GPU (descarga PyTorch con CUDA, ~3 GB: tarda; se hace UNA vez)..."
+    docker build -t "$CAPA" "$SALIDA/maquina/capa" 2>&1 | tee "$SALIDA/maquina/build_capa.log"
+    [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "PARO: no se pudo construir la capa GPU (mira $SALIDA/maquina/build_capa.log; suele ser la red o el disco)."; exit 2; }
+  fi
+  IMAGEN="$CAPA"
+fi
+[ -n "$MEDIDOR" ] || MEDIDOR="$IMAGEN"
+docker image inspect "$IMAGEN" >/dev/null 2>&1 || { echo "No existe la imagen $IMAGEN en este Docker (docker images)."; exit 2; }
 IMAGEN_ID="$(docker image inspect "$IMAGEN" --format '{{.Id}}')"
 
 # --- 0. la GPU de verdad, dentro de Docker (si no, no se empieza). Solo si se va a medir el brazo B.

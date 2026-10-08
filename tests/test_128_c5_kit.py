@@ -9,6 +9,7 @@ import json
 import shutil
 import subprocess
 import sys
+import textwrap
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -343,3 +344,107 @@ def test_el_kit_monta_en_work_kit_porque_el_instrumento_del_120_exige_dos_nivele
     """`referencia_120_r0.py` hace `AQUI.parents[1]` al importarse: montado en `/kit` revienta con IndexError (medido)."""
     assert "parents[1]" in (_FASE0 / "referencia_120_r0.py").read_text()
     assert "/kit/" not in (KIT / "lanzar.sh").read_text().replace("/work/kit/", "")
+
+
+# ------------------------------------------------------------------------------------------------ 128 integración: la capa GPU se construye en el PC
+_DOCKERFILE_GPU = _FASE0.parents[2] / "matrixaistudio" / "bundle-gpu" / "Dockerfile.gpu"
+
+
+def _docker_falso(tmp_path):
+    """Un `docker` que solo anota las órdenes: `image inspect` dice que no existe lo que aún no se cargó/construyó."""
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    estado = tmp_path / "estado"
+    estado.mkdir()
+    (bin_ / "docker").write_text(textwrap.dedent('''\
+        #!/usr/bin/env bash
+        echo "$@" >> "$LOG_DOCKER"
+        nombre() { echo "$1" | tr '/:' '__'; }
+        if [ "$1" = image ] && [ "$2" = inspect ]; then
+          [ -f "$ESTADO_DOCKER/$(nombre "$3")" ] || exit 1
+          [ "$4" = "--format" ] && echo sha256:abc
+          exit 0
+        fi
+        case "$1" in
+          load) touch "$ESTADO_DOCKER/matrixai-studio_128"; echo "Loaded image: matrixai-studio:128";;
+          build) cp "$4/Dockerfile" "$ESTADO_DOCKER/Dockerfile.visto"; touch "$ESTADO_DOCKER/$(nombre "$3")";;
+        esac
+        exit 0
+        '''))
+    (bin_ / "docker").chmod(0o755)
+    return bin_, estado, tmp_path / "docker.log"
+
+
+def _kit_empaquetado(tmp_path, con_tar=True):
+    emp = _cargar(_FASE0 / "empaquetar_kit_128_c5.py", "empaquetar_para_la_capa")
+    tar = tmp_path / "base.tar"
+    tar.write_bytes(b"tar-de-mentira")
+    kit = tmp_path / "kit"
+    emp.armar(kit, tar_base=tar if con_tar else None)
+    return kit
+
+
+def _lanzar(kit, tmp_path, *args, antes=None):
+    import os
+    bin_, estado, log = _docker_falso(tmp_path) if not (tmp_path / "bin").exists() else (
+        tmp_path / "bin", tmp_path / "estado", tmp_path / "docker.log")
+    if antes:
+        antes(estado)
+    entorno = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "LOG_DOCKER": str(log), "ESTADO_DOCKER": str(estado)}
+    r = subprocess.run(["bash", str(kit / "lanzar.sh"), "--prueba", "--brazos", "B", "--salida", str(tmp_path / "salida"), *args],
+                       capture_output=True, text=True, env=entorno, timeout=120)
+    return r, (log.read_text().splitlines() if log.exists() else []), estado
+
+
+def test_el_kit_CONSTRUYE_la_capa_GPU_en_el_PC_cargando_el_tar_y_con_el_Dockerfile_de_la_integracion(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    assert (kit / "imagen" / "Dockerfile.gpu").read_bytes() == _DOCKERFILE_GPU.read_bytes()      # copiado tal cual
+    assert (kit / "imagen" / "matrixai-studio-128.tar").read_bytes() == b"tar-de-mentira"
+    r, ordenes, estado = _lanzar(kit, tmp_path)
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-800:]
+    carga = [i for i, o in enumerate(ordenes) if o.startswith("load -i ") and o.endswith("matrixai-studio-128.tar")]
+    construye = [i for i, o in enumerate(ordenes) if o.startswith("build -t matrixai-studio-gpu-128:local ")]
+    assert len(carga) == 1 and len(construye) == 1 and carga[0] < construye[0]
+    visto = (estado / "Dockerfile.visto").read_text()
+    assert "FROM matrixai-studio:128" in visto and "FROM matrixai-studio:v2" not in visto
+    assert "torch==2.6.0+cu124" in visto                                    # la capa del paquete GPU, no otra
+    # y los dos brazos corren CONTRA ESA IMAGEN, no contra una que haya que pasar
+    corridas = [o for o in ordenes if o.startswith("run ")]
+    assert corridas and all("matrixai-studio-gpu-128:local" in o for o in corridas if "c5-128-red" not in o or "--entrypoint python3" in o)
+    assert any("--gpus all" in o and "matrixai-studio-gpu-128:local" in o for o in corridas)
+
+
+def test_la_segunda_vez_no_vuelve_a_cargar_ni_a_construir(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    _lanzar(kit, tmp_path)
+    r, ordenes, _ = _lanzar(kit, tmp_path)               # el estado del docker falso persiste en tmp_path
+    # `_lanzar` reescribe el docker falso pero conserva `estado`; el registro se acumula
+    assert r.returncode == 0
+    assert sum(o.startswith("load -i ") for o in ordenes) == 1 and sum(o.startswith("build -t ") for o in ordenes) == 1
+
+
+def test_sin_el_tar_el_kit_PARA_y_lo_dice_en_vez_de_medir_con_otra_imagen(tmp_path):
+    kit = _kit_empaquetado(tmp_path, con_tar=False)
+    r, ordenes, _ = _lanzar(kit, tmp_path)
+    assert r.returncode == 2 and "matrixai-studio-128.tar" in r.stdout
+    assert not any(o.startswith("build ") for o in ordenes)
+
+
+def test_con_imagen_explicita_no_carga_ni_construye(tmp_path):
+    kit = _kit_empaquetado(tmp_path, con_tar=False)
+    r, ordenes, _ = _lanzar(kit, tmp_path, "--imagen", "otra_gpu", antes=lambda estado: (estado / "otra_gpu").touch())
+    assert r.returncode == 0 and not any(o.startswith(("load ", "build ")) for o in ordenes)
+
+
+@pytest.mark.parametrize("fichero", ["lanzar.sh", "lanzar.ps1"])
+def test_los_dos_lanzadores_cargan_el_tar_y_construyen_la_capa_sin_pedir_imagen(fichero):
+    t = (KIT / fichero).read_text()
+    assert "matrixai-studio-128.tar" in t and "Dockerfile.gpu" in t and "matrixai-studio:128" in t
+    assert "matrixai-studio-gpu-128:local" in t and "docker build" in t and "docker load" in t
+    assert "build_capa.log" in t
+
+
+def test_el_leeme_ya_no_pide_imagen_y_cuenta_la_capa():
+    t = (KIT / "LEEME.md").read_text()
+    assert "<imagen>" not in t.replace("`-Imagen <imagen>` (`--imagen`)", "")
+    assert "matrixai-studio-128.tar" in t and "3 GB" in t and "no pisa tu instalación normal" in t

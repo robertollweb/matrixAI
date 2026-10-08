@@ -207,18 +207,32 @@ def test_la_retencion_compila_mide_antes_y_despues_y_no_toca_el_producto():
 
 
 def test_la_retencion_lee_la_memoria_de_este_proceso_y_el_asignador():
-    """Se ejecutan sus funciones (sin el estudio): el RSS de `/proc` y `mallinfo2`, con `malloc_trim` de verdad."""
-    import ctypes
-    ns = {"__name__": "retencion_bajo_prueba"}
-    exec(compile(S.RETENCION, "retencion", "exec"), ns)
-    est = ns["estado_del_proceso"]()
-    assert est["status_mb"]["VmRSS"] > 5 and est["smaps_rollup_mb"]["Rss"] > 5
-    libc = ctypes.CDLL("libc.so.6")
-    antes = ns["mallinfo"](libc)
-    assert antes is None or antes["arena_mb"] >= 0
-    bloque = [bytearray(1024) for _ in range(200_000)]       # ~200 MB en trozos pequeños (el asignador, no mmap)
-    grande = ns["estado_del_proceso"]()["status_mb"]["VmRSS"]
-    assert grande > est["status_mb"]["VmRSS"] + 100
-    del bloque
-    libc.malloc_trim(0)
-    assert ns["estado_del_proceso"]()["status_mb"]["VmRSS"] < grande - 50     # lo que se suelta, se devuelve
+    """Se ejecutan sus funciones (sin el estudio): el RSS de `/proc` y `mallinfo2`, con `malloc_trim` de verdad.
+
+    En un proceso Python LIMPIO (08-10): en un trabajador de `pytest-xdist` que ya ha corrido otras pruebas, el montón
+    está fragmentado y `malloc_trim` no devuelve los 200 MB recién soltados (cayó dos veces con `-n 4` y pasaba solo):
+    eso medía el estado del trabajador, no las funciones de la sonda."""
+    import json, subprocess, sys
+    codigo = ("import sys\n"
+              "ns = {'__name__': 'retencion_bajo_prueba'}\n"
+              "exec(compile(sys.stdin.read(), 'retencion', 'exec'), ns)\n"
+              "estado_del_proceso, mallinfo = ns['estado_del_proceso'], ns['mallinfo']\n"
+              "import ctypes, json\n"
+              "est = estado_del_proceso()\n"
+              "libc = ctypes.CDLL('libc.so.6')\n"
+              "antes = mallinfo(libc)\n"
+              "bloque = [bytearray(1024) for _ in range(200_000)]\n"
+              "grande = estado_del_proceso()['status_mb']['VmRSS']\n"
+              "del bloque\n"
+              "libc.malloc_trim(0)\n"
+              "despues = estado_del_proceso()['status_mb']['VmRSS']\n"
+              "print(json.dumps({'rss': est['status_mb']['VmRSS'], 'smaps': est['smaps_rollup_mb']['Rss'], "
+              "'arena': None if antes is None else antes['arena_mb'], 'grande': grande, 'despues': despues}))\n")
+    r = subprocess.run([sys.executable, "-c", codigo], input=S.RETENCION, capture_output=True, text=True,
+                       timeout=120)
+    assert r.returncode == 0, r.stderr[-1500:]
+    m = json.loads(r.stdout.strip().splitlines()[-1])
+    assert m["rss"] > 5 and m["smaps"] > 5
+    assert m["arena"] is None or m["arena"] >= 0
+    assert m["grande"] > m["rss"] + 100
+    assert m["despues"] < m["grande"] - 50     # lo que se suelta, se devuelve
