@@ -52,6 +52,13 @@ subconjunto; `-Reconstruir` borra la imagen base y la capa y las vuelve a hacer 
 `--memoria`, `--cpus`, `--brazos`, `--solo`, `--reconstruir`.) `-Imagen <imagen>` (`--imagen`) salta todo lo anterior y usa
 una imagen GPU ya hecha.
 
+**Lo que esta comparación incluye y no está medido.** Desde la reparación del B1, el proceso de la densa ve CUDA en el
+paquete GPU, y eso cuesta RAM de host y tiempo; en este kit lo paga **solo el brazo B** (el A va con `cpu`). Si el B
+gasta más memoria, tarda más o se queda sin RAM en un conjunto grande, puede ser eso y no TabM. No lo he podido medir
+sin una GPU: el resultado recoge la RAM pico de cada brazo (`veredicto.ram_pico_mb_por_brazo`, y por conjunto en
+`recursos.ram_pico_mb`) para verlo. Y si el modelo entregado de un conjunto **cayó a la CPU** en el B (lo declara), el
+veredicto lo lista (`veredicto.caidas_a_cpu_en_b`) y su mejora **no cuenta** como mejora de la GPU.
+
 **3. Opcional (≈ 1 h, estimado): los 3 grandes con mucha memoria.** Con 6 GB, la guarda de RAM suele dejar a TabM
 fuera de KDDCup09, APSFailure y Allstate. Para separar «no cabe» de «la GPU no gana», repítelos con memoria alta y el
 suelo del resultado principal (`suelo_de_ruido` de `veredicto`):

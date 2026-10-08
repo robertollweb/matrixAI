@@ -331,7 +331,9 @@ def medir_brazo(a: argparse.Namespace, estudiar_fn=estudiar) -> int:
             motivo = f"{n}: el brazo A (CPU) entrenó TabM en la GPU: no es la referencia registrada"
         elif a.brazo == "B" and V.entregado_de_tabm_en_cpu_sin_decirlo(rec):
             e = (rec or {}).get("entrenamiento_del_entregado") or {}
-            motivo = (f"{n}: TabM es el campeón y su modelo ENTREGADO se entrenó en '{e.get('dispositivo')}' sin "
+            donde = (f"se entrenó en '{e['dispositivo']}'" if e.get("dispositivo")
+                     else "no declara en qué dispositivo se entrenó (sin dispositivo declarado)")
+            motivo = (f"{n}: TabM es el campeón y su modelo ENTREGADO {donde} sin "
                       "declarar la caída a la CPU: lo que se mide no es la GPU (B1 del 128)")
         else:
             return

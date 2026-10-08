@@ -237,3 +237,63 @@ def test_I1_un_campeon_que_no_es_TabM_no_tiene_entregado_de_TabM_que_mirar():
     assert V.entregado_de_tabm_en_cpu_sin_decirlo(_rec("wilt")) is False
     assert V.entregado_de_tabm_en_cpu_sin_decirlo(_rec("wilt", campeon=TABM)) is True
     assert V.entregado_de_tabm_en_cpu_sin_decirlo(_rec("wilt", campeon=TABM, estado="failed")) is False
+
+
+# --- 128 (2.ª auditoría, N3/N4): las caídas a CPU declaradas en B ------------------------------------------------------
+def _b_con_mejora_caida(**extra):
+    a = _brazo({})
+    b = _brazo({"micro-mass": 83.0}, gpu=True, **extra)            # micro-mass mejora y su entregado SÍ está en la GPU
+    return a, b
+
+
+def _solo_mejora_en(b, nombre, cifra, entregado):
+    """B sin ninguna mejora salvo `nombre` (con ese entregado). Quita la mejora de micro-mass."""
+    b["conjuntos"]["micro-mass"] = _rec("micro-mass", 80.0, gpu=True)
+    b["conjuntos"][nombre] = _rec(nombre, cifra, campeon=TABM)
+    b["conjuntos"][nombre]["entrenamiento_del_entregado"] = entregado
+    b["conjuntos"][nombre]["dispositivos_vistos"] = {"cuda": 3}
+
+
+def test_N3_una_mejora_cuyo_ENTREGADO_cayo_a_CPU_no_cuenta_como_mejora_de_la_GPU_y_se_dice():
+    a, b = _b_con_mejora_caida()
+    _solo_mejora_en(b, "wilt", 90.0, {"dispositivo": "cpu", "cayo_a_cpu": True, "por_que_cayo": "fallo_de_la_gpu"})
+    r = V.evaluar(_doc(a, b))
+    v = r["veredicto"]
+    assert v["entra"] is False and v["suben"] == 0, v
+    assert any("ninguno mejora" in m and "cayó a CPU: no cuenta como GPU" in m and "wilt" in m
+               for m in v["motivos_para_no_entrar"]), v["motivos_para_no_entrar"]
+    assert v["mejoras_que_cayeron_a_cpu"] == ["wilt"]
+    assert [c["nombre"] for c in v["caidas_a_cpu_en_b"]] == ["wilt"]
+    assert v["caidas_a_cpu_en_b"][0]["por_que"] == "fallo_de_la_gpu"
+    assert next(c for c in r["comparaciones"] if c["nombre"] == "wilt")["cayo_a_cpu_en_b"] is True
+
+
+def test_N3_con_otra_mejora_que_SI_uso_la_GPU_entra_pero_la_caida_sigue_LISTADA():
+    a, b = _b_con_mejora_caida()
+    b["conjuntos"]["wilt"] = _rec("wilt", 90.0, campeon=TABM)
+    b["conjuntos"]["wilt"]["entrenamiento_del_entregado"] = {"dispositivo": "cpu", "cayo_a_cpu": True}
+    v = V.evaluar(_doc(a, b))["veredicto"]
+    assert v["entra"] is True and v["suben"] == 1, v                      # solo micro-mass es de la GPU
+    assert [c["nombre"] for c in v["caidas_a_cpu_en_b"]] == ["wilt"]
+
+
+def test_N3_el_CLI_escribe_cayo_a_CPU_no_cuenta_como_GPU(tmp_path, capsys):
+    a, b = _b_con_mejora_caida()
+    b["conjuntos"]["wilt"] = _rec("wilt", 90.0, campeon=TABM)
+    b["conjuntos"]["wilt"]["entrenamiento_del_entregado"] = {"dispositivo": "cpu", "cayo_a_cpu": True,
+                                                              "por_que_cayo": "fallo_de_la_gpu"}
+    ruta = tmp_path / "r.json"
+    ruta.write_text(json.dumps(_doc(a, b)))
+    assert V._main(["x", str(ruta)]) == 0
+    sal = capsys.readouterr().out
+    assert "CAYÓ A CPU en el brazo B: wilt" in sal and "no cuenta como GPU" in sal, sal
+
+
+def test_N4_la_RAM_pico_de_cada_brazo_va_al_veredicto_y_el_coste_no_medido_se_dice():
+    a, b = _b_con_mejora_caida()
+    a["conjuntos"]["wilt"]["recursos"]["ram_pico_mb"] = 1500.0
+    b["conjuntos"]["wilt"]["recursos"]["ram_pico_mb"] = 2300.0
+    b["conjuntos"]["pc1"]["recursos"]["ram_pico_mb"] = 1900.0
+    v = V.evaluar(_doc(a, b))["veredicto"]
+    assert v["ram_pico_mb_por_brazo"] == {"A": 1500.0, "B": 2300.0}, v["ram_pico_mb_por_brazo"]
+    assert "densa vea CUDA" in v["coste_no_medido_en_b"] and "NO medido" in v["coste_no_medido_en_b"]

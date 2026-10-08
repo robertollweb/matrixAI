@@ -24,6 +24,13 @@ de terminar y ALGUNO mejora.** Si no, el dispositivo se queda en `cpu` y el cód
   auditoría) donde TabM es el CAMPEÓN del brazo B, su modelo ENTREGADO —el del reajuste final, el que recibe quien usa
   el Studio— tiene que haberse entrenado en la GPU o declarar su caída a la CPU: una búsqueda en GPU con un entregado
   de CPU callado (el B1) no es «la GPU».
+- **Una caída a la CPU DECLARADA en el brazo B no es la GPU** (128, N3 de su 2.ª auditoría): si el modelo ENTREGADO de un
+  conjunto declara `cayo_a_cpu`, ese conjunto se entrenó en la CPU: su mejora NO cuenta como mejora de la GPU (se dice
+  «cayó a CPU: no cuenta como GPU»), y todas esas caídas se LISTAN en `veredicto.caidas_a_cpu_en_b`.
+- **Lo que la comparación INCLUYE y no está medido** (128, N4): desde la reparación del B1 la densa ve CUDA en el
+  paquete GPU, y eso cuesta RAM de host y tiempo. En el kit lo paga el brazo B y no el A: una diferencia de memoria,
+  un OOM o más pared del B puede venir de ahí y no de TabM. No se pudo medir sin una GPU (`COSTE_DE_VER_CUDA`); el JSON
+  recoge la RAM pico de cada brazo (`veredicto.ram_pico_mb_por_brazo`) para verlo.
 - **El corte** (como la regla 9 del 120): la pasada del brazo B se corta en el primer conjunto que baja más que el
   suelo o deja de completar. Lo no medido no cuenta como pérdida, pero sin los 13 el veredicto no entra.
 """
@@ -114,6 +121,24 @@ def entregado_de_tabm_en_cpu_sin_decirlo(rec: dict | None) -> bool:
     return not (entregado.get("dispositivo") == "cuda" or entregado.get("cayo_a_cpu") is True)
 
 
+def cayo_a_cpu_el_entregado(rec: dict | None) -> bool:
+    """128 (N3): ¿el modelo ENTREGADO de este conjunto declara que se entrenó en la CPU por una caída?"""
+    return bool(rec and (rec.get("entrenamiento_del_entregado") or {}).get("cayo_a_cpu") is True)
+
+
+def caidas_a_cpu(conjuntos: dict[str, dict]) -> list[dict]:
+    """128 (N3): las caídas a CPU DECLARADAS por el modelo entregado de cada conjunto, con su motivo."""
+    return [{"nombre": n, "campeon": r.get("campeon"),
+             "por_que": (r.get("entrenamiento_del_entregado") or {}).get("por_que_cayo")
+             or (r.get("entrenamiento_del_entregado") or {}).get("caida_a_cpu")}
+            for n, r in sorted(conjuntos.items()) if cayo_a_cpu_el_entregado(r)]
+
+
+#: 128 (N4): lo que la comparación INCLUYE y no se ha medido. NO es una regla: se dice junto al veredicto.
+COSTE_DE_VER_CUDA = ("el brazo B lleva de más el coste de que la densa vea CUDA en el paquete GPU (RAM de host y "
+                     "tiempo; NO medido): una diferencia de memoria o un OOM del B puede venir de ahí y no de TabM")
+
+
 def presencia(conjuntos_a: dict[str, dict], conjuntos_b: dict[str, dict]) -> str | None:
     """El motivo para PARAR (o para no entrar) o None."""
     en_a = sorted(n for n, r in conjuntos_a.items() if completa(r) and entreno_tabm_en_gpu(r))
@@ -135,7 +160,8 @@ def comparar(a: dict | None, b: dict, suelo: float) -> dict:
     ca, cb = completa(a), completa(b)
     base = {"nombre": nombre, "campeon_a": (a or {}).get("campeon"), "campeon_b": b.get("campeon"),
             "pared_a_s": (a or {}).get("pared_estudio_s"), "pared_b_s": b.get("pared_estudio_s"),
-            "tabm_en_gpu_en_b": entreno_tabm_en_gpu(b, con_vram=True)}
+            "tabm_en_gpu_en_b": entreno_tabm_en_gpu(b, con_vram=True),
+            "cayo_a_cpu_en_b": cayo_a_cpu_el_entregado(b)}
     if ca and cb:
         if a.get("tarea") != b.get("tarea"):
             raise Incomparable(f"{nombre}: tarea {a.get('tarea')!r} en A y {b.get('tarea')!r} en B")
@@ -161,7 +187,10 @@ def corta(comparaciones: list[dict]) -> str | None:
 def veredicto(comparaciones: list[dict], suelo: float, *, esperados: int, presencia_motivo: str | None = None) -> dict:
     """La regla E2. `esperados` = cuántos conjuntos debía haber (13): con menos (corte o pasada parcial), NO entra."""
     cl = Counter(c["clase"] for c in comparaciones)
-    suben = cl["sube"] + cl["empieza_a_completar"]
+    mejoras = [c for c in comparaciones if c["clase"] in ("sube", "empieza_a_completar")]
+    # N3: la mejora de un conjunto cuyo entregado cayó a la CPU no es de la GPU
+    suben = sum(1 for c in mejoras if not c.get("cayo_a_cpu_en_b"))
+    mejoras_caidas = [c["nombre"] for c in mejoras if c.get("cayo_a_cpu_en_b")]
     motivos = []
     if presencia_motivo:
         motivos.append(presencia_motivo)
@@ -171,13 +200,15 @@ def veredicto(comparaciones: list[dict], suelo: float, *, esperados: int, presen
     if cl["deja_de_completar"]:
         motivos.append(f"dejan de completar: {[c['nombre'] for c in comparaciones if c['clase'] == 'deja_de_completar']}")
     if not suben:
-        motivos.append("ninguno mejora")
+        motivos.append("ninguno mejora" + (f" (solo {mejoras_caidas}, que cayó a CPU: no cuenta como GPU)"
+                                           if mejoras_caidas else ""))
     if len(comparaciones) < esperados:
         motivos.append(f"solo {len(comparaciones)} de {esperados} conjuntos medidos")
     return {"regla": "E2: ninguno baja más que el suelo de ruido, ninguno deja de terminar, alguno mejora",
             "suelo_de_ruido": suelo, "suelo_alto": suelo > SUELO_QUE_AVISA,
             "conjuntos": [c["nombre"] for c in comparaciones], "esperados": esperados,
-            "suben": suben, "bajan": cl["baja"], "dejan_de_completar": cl["deja_de_completar"],
+            "suben": suben, "mejoras_que_cayeron_a_cpu": mejoras_caidas,
+            "coste_no_medido_en_b": COSTE_DE_VER_CUDA, "bajan": cl["baja"], "dejan_de_completar": cl["deja_de_completar"],
             "iguales": cl["igual"], "ninguno_completa": cl["ninguno_completa"],
             "tabm_campeon_en_b": [c["nombre"] for c in comparaciones if c["campeon_b"] == MOTOR_TABM],
             "entra": not motivos, "motivos_para_no_entrar": motivos}
@@ -206,6 +237,10 @@ def evaluar(doc: dict, suelo_dado: float | None = None) -> dict:
     v = veredicto(comps, suelo, esperados=esperados,
                   presencia_motivo=presencia(a["conjuntos"], b["conjuntos"]))
     v["suelos_por_brazo"] = suelos
+    v["caidas_a_cpu_en_b"] = caidas_a_cpu(b["conjuntos"])           # con campeón y motivo (N3)
+    v["ram_pico_mb_por_brazo"] = {                                  # N4: lo que el medidor midió de cada brazo
+        k: max([x for x in ((r.get("recursos") or {}).get("ram_pico_mb") for r in brazo["conjuntos"].values())
+                if isinstance(x, (int, float))], default=None) for k, brazo in (("A", a), ("B", b))}
     v["campeones_que_cambian_al_repetir"] = {
         k: campeones_que_cambian({n: brazo["conjuntos"][n] for n in brazo["repeticion_de_control"]},
                                  brazo["repeticion_de_control"])
@@ -224,8 +259,12 @@ def _main(argv: list[str]) -> int:
         print("INCOMPARABLE:", e); return 3
     for c in r["comparaciones"]:
         dif = "" if c["diferencia"] is None else f"{c['diferencia']:+.2f}"
-        print(f"{c['nombre']:34} {c['clase']:20} {dif:>7}  {c['campeon_a']} -> {c['campeon_b']}")
+        marca = "  [cayó a CPU: no cuenta como GPU]" if c.get("cayo_a_cpu_en_b") else ""
+        print(f"{c['nombre']:34} {c['clase']:20} {dif:>7}  {c['campeon_a']} -> {c['campeon_b']}{marca}")
     print(json.dumps(r["veredicto"], ensure_ascii=False, indent=1))
+    for k in r["veredicto"]["caidas_a_cpu_en_b"]:
+        print(f"CAYÓ A CPU en el brazo B: {k['nombre']} (campeón {k['campeon']}, {k['por_que']}): no cuenta como GPU")
+    print("NO MEDIDO, incluido en la comparación:", COSTE_DE_VER_CUDA)
     if (doc["brazos"]["B"] or {}).get("corte"):
         print("CORTADA:", doc["brazos"]["B"]["corte"])
     print("LA GPU ENTRA" if r["veredicto"]["entra"] else "LA GPU NO ENTRA (el dispositivo se queda en cpu)")

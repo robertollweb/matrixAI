@@ -17,8 +17,8 @@ param(
   [switch]$Prueba,
   [string]$Memoria = "6g",
   [string]$Cpus = "2",
-  [string]$Brazos = "AB",
-  [string]$Solo = "",
+  [string[]]$Brazos = "AB",
+  [string[]]$Solo = @(),
   [string]$Suelo = "",
   [string]$Salida = "",
   [string]$ImagenMedidor = "",
@@ -29,7 +29,10 @@ $ErrorActionPreference = "Continue"
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 $Aqui = Split-Path -Parent $MyInvocation.MyCommand.Path
 if ($Salida -eq "") { $Salida = Join-Path $Aqui "salida" }
-$Brazos = ($Brazos -replace ",", "").ToUpper()
+# N1 (2.a auditoria del 128): en la consola de PowerShell, "-Solo a,b" y "-Brazos A,B" llegan como una LISTA (no como
+# "a,b"); por eso son [string[]] y se UNEN aqui. Por lanzar.bat (-File) llegan como un solo texto "a,b": tambien vale.
+[string]$Brazos = (($Brazos -join ",") -replace ",", "").ToUpper()
+[string]$Solo = (($Solo | Where-Object { $_ -ne "" }) -join ",")
 function Log($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
 function Parar($m, $codigo) { Write-Host $m -ForegroundColor Red; Limpiar; exit $codigo }
 

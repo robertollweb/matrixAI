@@ -701,3 +701,46 @@ def test_el_brazo_B_corta_con_el_MAYOR_de_los_dos_suelos_y_no_solo_con_el_suyo(t
     assert brazo["suelo_de_ruido"] == 0.0 and brazo["suelo_usado"] == pytest.approx(1.5)
     assert brazo["corte"] is None and brazo["terminado"] is True
     assert brazo["comparaciones"]["wilt"]["clase"] == "igual" and "Allstate_Claims_Severity" in brazo["conjuntos"]
+
+
+# --- 128 (2.ª auditoría, N1): «-Solo a,b» y «-Brazos A,B» TECLEADOS en la consola de PowerShell -------------------------
+# Ahí PowerShell los lee como una LISTA: con `[string]$Solo` se juntaba con un espacio («a b») y el medidor paraba con
+# «conjuntos que no existen»; con `-Brazos A,B` se medían los dos brazos pero NO se componía el resultado.
+_CONSOLA = ("$PSNativeCommandArgumentPassing = '{modo}'; $env:PATH = '/fakebin:' + $env:PATH; "
+            "& /kit/lanzar.ps1 {parametros} -Salida /out/salida; exit $LASTEXITCODE")
+
+
+@pytest.mark.parametrize("modo", ["Standard", "Legacy"])
+def test_N1_Solo_con_coma_tecleado_en_la_consola_llega_al_medidor_con_comas_y_Brazos_A_coma_B_compone(tmp_path, modo):
+    r, log, fases = _pwsh(tmp_path, _CONSOLA.format(modo=modo, parametros="-Solo dresses-sales,pc1 -Brazos A,B"))
+    assert r.returncode == 0, r.stdout[-2500:] + r.stderr[-1500:]
+    medidores = [o["args"] for o in _ordenes(log) if "--brazo" in o["args"]]
+    assert [m[m.index("--brazo") + 1] for m in medidores] == ["A", "B"], medidores
+    for m in medidores:
+        assert m[m.index("--solo") + 1] == "dresses-sales,pc1", m               # NO «dresses-sales pc1»
+    assert fases[-1] == "componer", fases                                        # «A,B» es «AB»: compone
+
+
+def test_N1_Solo_entre_comillas_o_por_lanzar_bat_File_y_sin_Solo_siguen_igual(tmp_path):
+    r, log, _ = _pwsh(tmp_path, _CONSOLA.format(modo="Standard", parametros="-Solo 'dresses-sales,pc1' -Brazos AB"))
+    assert r.returncode == 0, r.stdout[-1500:]
+    m = [o["args"] for o in _ordenes(log) if "--brazo" in o["args"]][0]
+    assert m[m.index("--solo") + 1] == "dresses-sales,pc1"
+    (tmp_path / "sin").mkdir()
+    r, log, _ = _pwsh(tmp_path / "sin", _CONSOLA.format(modo="Standard", parametros=""))
+    assert r.returncode == 0, r.stdout[-1500:]
+    assert all("--solo" not in o["args"] for o in _ordenes(log) if "--brazo" in o["args"])
+
+
+def test_N5_un_ENTREGADO_sin_dispositivo_declarado_el_B1_real_no_dice_se_entreno_en_None(tmp_path, estudios):
+    a = estudios("A")
+    assert M.main(_args(tmp_path, "A", a)) == 0
+    b = estudios("B", gpu=True, campeon=V.MOTOR_TABM, entregado={"dispositivo": None})
+    assert M.main(_args(tmp_path, "B", b)) == 6
+    motivo = json.loads((tmp_path / "brazo_B.json").read_text())["corte"]["motivo"]
+    assert "'None'" not in motivo and "sin dispositivo declarado" in motivo, motivo
+    # y con un dispositivo declarado, sigue diciéndolo tal cual
+    b2 = estudios("B", gpu=True, campeon=V.MOTOR_TABM, entregado={"dispositivo": "cpu", "cayo_a_cpu": False})
+    (tmp_path / "brazo_B.json").unlink()
+    assert M.main(_args(tmp_path, "B", b2)) == 6
+    assert "se entrenó en 'cpu'" in json.loads((tmp_path / "brazo_B.json").read_text())["corte"]["motivo"]
