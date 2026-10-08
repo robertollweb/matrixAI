@@ -193,3 +193,32 @@ def test_el_control_virtual_distingue_la_residente_de_la_virtual():
     assert s.comprobar_virtual(serie(9.5))[0] is True
     assert s.comprobar_virtual(serie(1034.0))[0] is False
     assert s.comprobar_virtual([{"t": 0.0, "procesos": []}])[0] is False
+
+
+# ----------------------------------------------------------------------------- 128-C1 paso 0: la RETENCIÓN
+def test_la_retencion_compila_mide_antes_y_despues_y_no_toca_el_producto():
+    compile(S.RETENCION, "retencion", "exec")
+    t = S.RETENCION
+    for paso in ("gc.collect()", "malloc_trim(0)", "smaps_rollup", "VmRSS", "mallinfo2"):
+        assert paso in t
+    assert "2_estudio_terminado_tal_cual" in t and "4_tras_gc_collect" in t and "5_tras_malloc_trim_0" in t
+    assert "estudio_job.py" not in t and "shutil" not in t and "ej.ejecutar_estudio =" not in t   # no sustituye nada
+    assert S.rol_de("python3 /tmp/retencion_128_c1.py /tmp/a /tmp/b") == "guion_de_retencion"
+
+
+def test_la_retencion_lee_la_memoria_de_este_proceso_y_el_asignador():
+    """Se ejecutan sus funciones (sin el estudio): el RSS de `/proc` y `mallinfo2`, con `malloc_trim` de verdad."""
+    import ctypes
+    ns = {"__name__": "retencion_bajo_prueba"}
+    exec(compile(S.RETENCION, "retencion", "exec"), ns)
+    est = ns["estado_del_proceso"]()
+    assert est["status_mb"]["VmRSS"] > 5 and est["smaps_rollup_mb"]["Rss"] > 5
+    libc = ctypes.CDLL("libc.so.6")
+    antes = ns["mallinfo"](libc)
+    assert antes is None or antes["arena_mb"] >= 0
+    bloque = [bytearray(1024) for _ in range(200_000)]       # ~200 MB en trozos pequeños (el asignador, no mmap)
+    grande = ns["estado_del_proceso"]()["status_mb"]["VmRSS"]
+    assert grande > est["status_mb"]["VmRSS"] + 100
+    del bloque
+    libc.malloc_trim(0)
+    assert ns["estado_del_proceso"]()["status_mb"]["VmRSS"] < grande - 50     # lo que se suelta, se devuelve
