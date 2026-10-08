@@ -12,6 +12,7 @@ de `/estudio/iniciar` (la preparación y el diagnóstico ocurren DENTRO de ese P
     python3 sonda_128_c0.py --humo                         # dresses-sales, minutos: fases y procesos
     python3 sonda_128_c0.py --solo APSFailure,KDDCup09_appetency --memoria 9g     # la pasada de memoria
     python3 sonda_128_c0.py --solo Allstate_Claims_Severity                       # UN intento por motor, SIN tope
+    python3 sonda_128_c0.py --retencion --humo             # 128-C1 paso 0: ¿devuelve el asignador lo que se suelta? (gc + malloc_trim)
     python3 sonda_128_c0.py                                # los tres, en ese orden (APS, KDDCup09, Allstate)
 
 El intento de Allstate se mide sin cambiar el producto: dentro del contenedor, un guion (`INTENTO_SIN_TOPE`) llama a
@@ -239,6 +240,95 @@ if __name__ == "__main__":
 '''
 
 
+# ============================================================================ la RETENCIÓN (corre DENTRO del contenedor) — 128-C1 paso 0
+RETENCION = r'''
+# 128-C1 paso 0 (diagnóstico, no cambia el producto): ¿devuelve el asignador lo que se suelta? Corre un estudio ENTERO en
+# este proceso (el mismo `iniciar_estudio` que el HTTP, con sus hijos de verdad) y, al terminar, lee la memoria del
+# proceso antes y después de `gc.collect()` y de `malloc_trim(0)`. Lo que `malloc_trim` devuelve es memoria que el
+# asignador (glibc) retenía libre; lo que `gc` suelta es memoria de objetos Python inalcanzables en ciclos.
+import ctypes, gc, json, sys, time
+
+
+def estado_del_proceso():
+    campos = {}
+    for linea in open("/proc/self/status"):
+        k, _, v = linea.partition(":")
+        if k in ("VmRSS", "VmHWM", "RssAnon", "RssFile"):
+            campos[k] = round(int(v.split()[0]) / 1024, 1)
+    roll = {}
+    try:
+        for linea in open("/proc/self/smaps_rollup"):
+            k, _, v = linea.partition(":")
+            if k in ("Rss", "Pss", "Anonymous", "Private_Dirty", "Shared_Dirty", "Private_Clean"):
+                roll[k] = round(int(v.split()[0]) / 1024, 1)
+    except OSError:
+        pass
+    return {"status_mb": campos, "smaps_rollup_mb": roll}
+
+
+class MallInfo2(ctypes.Structure):
+    _fields_ = [(n, ctypes.c_size_t) for n in ("arena", "ordblks", "smblks", "hblks", "hblkhd", "usmblks", "fsmblks",
+                                               "uordblks", "fordblks", "keepcost")]
+
+
+def mallinfo(libc):
+    try:
+        libc.mallinfo2.restype = MallInfo2
+        m = libc.mallinfo2()
+    except AttributeError:
+        return None
+    mb = lambda x: round(x / 2**20, 1)
+    return {"arena_mb": mb(m.arena), "en_uso_uordblks_mb": mb(m.uordblks), "libre_fordblks_mb": mb(m.fordblks),
+            "mmap_hblkhd_mb": mb(m.hblkhd), "trozos_libres": m.ordblks}
+
+
+def main():
+    cuerpo = json.load(open(sys.argv[1]))
+    salida = sys.argv[2]
+    import matrixai_studio.estudio_job as ej
+    libc = ctypes.CDLL("libc.so.6")
+    R = {"pasos": [], "eventos": []}
+
+    def paso(nombre, **extra):
+        e = {"paso": nombre, "t": time.time(), **estado_del_proceso(), "mallinfo2": mallinfo(libc)}
+        e.update(extra)
+        R["pasos"].append(e)
+        json.dump(R, open(salida, "w"), indent=1)
+
+    paso("0_antes_de_iniciar")
+    r = ej.iniciar_estudio(cuerpo)
+    job = ej._jobs.get((r.get("estudio") or {}).get("job_id"))
+    paso("1_tras_iniciar_la_preparacion_y_el_diagnostico")
+    if job is None:
+        R["respuesta"] = r
+        json.dump(R, open(salida, "w"), indent=1)
+        sys.exit(2)
+    job["hilo"].join()
+    R["estado_final"] = job.get("estado") if isinstance(job, dict) else str(type(job))
+    paso("2_estudio_terminado_tal_cual")
+    paso("3_otra_lectura_sin_hacer_nada")           # control: la lectura en sí no cambia nada
+    n = gc.collect()
+    paso("4_tras_gc_collect", objetos_recogidos=n)
+    t0 = time.perf_counter()
+    devuelto = libc.malloc_trim(0)
+    paso("5_tras_malloc_trim_0", malloc_trim_devolvio=int(devuelto), malloc_trim_s=round(time.perf_counter() - t0, 3))
+    gc.collect()
+    libc.malloc_trim(0)
+    paso("6_tras_una_segunda_pasada")
+    P = {p["paso"]: p for p in R["pasos"]}
+    rss = lambda k: (P[k]["status_mb"] or {}).get("VmRSS")
+    R["resumen"] = {"rss_terminado_mb": rss("2_estudio_terminado_tal_cual"), "rss_tras_gc_mb": rss("4_tras_gc_collect"),
+                    "rss_tras_trim_mb": rss("5_tras_malloc_trim_0"), "pico_hwm_mb": (P["2_estudio_terminado_tal_cual"]["status_mb"] or {}).get("VmHWM"),
+                    "devuelto_por_gc_mb": round(rss("2_estudio_terminado_tal_cual") - rss("4_tras_gc_collect"), 1),
+                    "devuelto_por_malloc_trim_mb": round(rss("4_tras_gc_collect") - rss("5_tras_malloc_trim_0"), 1)}
+    json.dump(R, open(salida, "w"), indent=1)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
 # ============================================================================ lo que no necesita Docker: roles, fases, resumen
 def rol_de(cmd):
     """El papel de un proceso del contenedor según su línea de órdenes (`/proc/<pid>/cmdline` con espacios)."""
@@ -254,6 +344,8 @@ def rol_de(cmd):
         return "control"
     if "intento_sin_tope_128_c0" in c:
         return "guion_del_intento"
+    if "retencion_128_c1" in c:
+        return "guion_de_retencion"
     if primero in ("docker-init", "tini") or "docker-init" in c:
         return "init"
     if primero == "runc":
@@ -714,6 +806,53 @@ def medir_intento_sin_tope(nombre, c, gen, memoria, dir_series):
         borrar_contenedor()
 
 
+def medir_retencion(nombre, c, gen, memoria, dir_series):
+    """128-C1 paso 0: un estudio ENTERO dentro del contenedor (el guion `RETENCION`) y, al terminar, ¿cuánto devuelven `gc` y
+    `malloc_trim(0)`? Mismo muestreador de procesos que el resto. No cambia el producto."""
+    comprobar_que_se_puede()
+    csv_bytes, cols, excl, nfilas = r0.csv_de(gen, c["data_id"])
+    cuerpo = {"csv_text": csv_bytes.decode("utf-8"), "objetivo": c["objetivo"], "tarea": c["tarea"],
+              "entradas": [x for x in cols if x != c["objetivo"]], "unidad_de_observacion": "una fila"}
+    if c["tarea"] == "binary_classification" and c.get("clase_positiva") is not None:
+        cuerpo["clase_positiva"] = c["clase_positiva"]
+    ruta = AGENTE / f"_{os.getpid()}_cuerpo_ret.json"
+    ruta.write_text(json.dumps(cuerpo))
+    base, nombre_c = arrancar_contenedor(memoria)
+    rec = {"nombre": nombre, "data_id": c["data_id"], "tarea": c["tarea"], "inicio": ahora(),
+           "csv": {"filas": nfilas, "columnas": len(cols), "bytes": len(csv_bytes)},
+           "loadavg_al_empezar": open("/proc/loadavg").read().split()[:3],
+           "sha256_guion_dentro": hashlib.sha256(RETENCION.encode()).hexdigest()}
+    try:
+        r = subprocess.run(["docker", "cp", str(ruta), f"{nombre_c}:/tmp/cuerpo_128_c1.json"], capture_output=True, text=True)
+        ruta.unlink(missing_ok=True)
+        if r.returncode:
+            raise SystemExit("docker cp falló: " + r.stderr)
+        poner_en_el_contenedor(nombre_c, RETENCION, "/tmp/retencion_128_c1.py")
+        with Muestreador(nombre_c) as mu:
+            eventos = [(time.time(), "arranque_del_guion")]
+            t0 = time.time()
+            p = subprocess.run(["docker", "exec", nombre_c, "python3", "/tmp/retencion_128_c1.py",
+                                "/tmp/cuerpo_128_c1.json", "/tmp/retencion_128_c1.json"], capture_output=True, text=True)
+            rec["guion_rc"], rec["guion_pared_s"] = p.returncode, round(time.time() - t0, 1)
+            rec["guion_stderr_cola"] = p.stderr[-1500:]
+            time.sleep(2)
+            muestras = mu.leer()
+        out = subprocess.run(["docker", "exec", nombre_c, "cat", "/tmp/retencion_128_c1.json"], capture_output=True, text=True)
+        try:
+            med = json.loads(out.stdout)
+        except ValueError:
+            med = {"error": "el guion no escribió su salida", "stdout": out.stdout[-500:]}
+        rec["retencion"] = med
+        eventos.append((time.time(), "fin"))
+        rec["contenedor"] = r0.estado_del_contenedor(nombre_c)
+        rec["estado"] = "completed" if p.returncode == 0 and med.get("resumen") else "failed"
+        rec["fin"] = ahora()
+        return cerrar_registro(rec, muestras, eventos, dir_series, nombre + "-retencion", c, memoria)
+    finally:
+        ruta.unlink(missing_ok=True)
+        borrar_contenedor()
+
+
 # ============================================================================ salida
 def guardar(salida, datos):
     tmp = salida.with_suffix(".json.tmp")
@@ -747,6 +886,9 @@ def main():
     ap.add_argument("--imagen", default=IMAGEN)
     ap.add_argument("--humo", action="store_true", help="dresses-sales (y su intento sin tope): minutos")
     ap.add_argument("--control", action="store_true", help="una reserva CONOCIDA (300 y 600 MB) y la sonda tiene que verla")
+    ap.add_argument("--retencion", action="store_true",
+                    help="128-C1 paso 0: un estudio entero en el contenedor y, al acabar, cuánto devuelven gc y malloc_trim(0) "
+                         "(solo con --humo en el desarrollo; la de APSFailure va a la cola)")
     ap.add_argument("--tope-estudio", type=int, default=TOPE_ESTUDIO_S)
     a = ap.parse_args()
     IMAGEN, SALIDA = a.imagen, Path(a.salida).resolve()
@@ -765,6 +907,7 @@ def main():
                    "sha256_referencia_120_r0": sha(r0.__file__), "sha256_generador_de_csv": sha(r0.GENERADOR),
                    "sha256_muestreador": hashlib.sha256(MUESTREADOR.encode()).hexdigest(),
                    "sha256_intento_sin_tope": hashlib.sha256(INTENTO_SIN_TOPE.encode()).hexdigest(),
+                   "sha256_retencion": hashlib.sha256(RETENCION.encode()).hexdigest(),
                    "memoria_del_contenedor": a.memoria, "cpus": 2, "inicio": ahora(),
                    "loadavg_al_empezar": open("/proc/loadavg").read().split()[:3],
                    "instrumento": "estudio por HTTP; RSS por proceso de /proc dentro del contenedor cada ~1 s; sin tracemalloc",
@@ -783,6 +926,17 @@ def main():
         if n not in banco:
             raise SystemExit(f"PARO: {n} no está en el banco del 120")
     dir_series = SALIDA.with_name(SALIDA.stem + "_series")
+    if a.retencion:
+        for n in nombres:
+            print(f"[{ahora()}] {n}: retención (memoria {a.memoria}) ...", flush=True)
+            rec = medir_retencion(n, banco[n], gen, a.memoria, dir_series)
+            datos["conjuntos"][n + ":retencion"] = rec
+            guardar(SALIDA, datos)
+            res = (rec.get("retencion") or {}).get("resumen") or {}
+            print(f"   {rec.get('estado')}: {res}", flush=True)
+        procedencia["fin"] = ahora()
+        guardar(SALIDA, datos)
+        return
     for n in nombres:
         c = banco[n]
         print(f"[{ahora()}] {n} (loadavg {open('/proc/loadavg').read().split()[0]}, memoria {a.memoria}) ...", flush=True)
