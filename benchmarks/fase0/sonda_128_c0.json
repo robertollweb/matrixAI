@@ -1,0 +1,3064 @@
+{
+ "procedencia": {
+  "imagen": "matrixai-studio:v2.12",
+  "imagen_id": "sha256:e963ebb1e849e0804f1e94264edff0cfd332d75d64372f548ffe71fb6890da29",
+  "sha256_guion": "e04332f69f8bc7a999341410ce2e819bf6d81aa67246744880756b63c86892a5",
+  "sha256_referencia_120_r0": "81d23670bf22b64df5cd0dde53ad6befd9a2e9a27596cbea4ab27249d4266a5f",
+  "sha256_generador_de_csv": "607c99db9cece62189920ffd2548abd76b536ed9f561ec77a2fc2ed1b044f00a",
+  "sha256_muestreador": "c48f566a449158392efbd99ceafc07a49d2a43e8ec455c99d4ac63b95faadbb1",
+  "sha256_intento_sin_tope": "8c670b8ebd5b611c2339ad9622ce0c6f4614fd5468c490aca6d929fb3dc6cc35",
+  "memoria_del_contenedor": "9g",
+  "cpus": 2,
+  "inicio": "2026-10-08 09:40:57",
+  "loadavg_al_empezar": [
+   "0.34",
+   "0.50",
+   "0.38"
+  ],
+  "instrumento": "estudio por HTTP; RSS por proceso de /proc dentro del contenedor cada ~1 s; sin tracemalloc",
+  "limites": [
+   "la preparación y el diagnóstico ocurren dentro del POST de iniciar: una sola fase «preparacion»",
+   "un proceso que viva menos de ~1 s puede no aparecer",
+   "el motor de cada intento es INFERIDO del orden del leaderboard final",
+   "la suma de RSS cuenta dos veces lo compartido; el pico del cgroup es lo que mira el OOM"
+  ],
+  "fin": "2026-10-08 10:32:04"
+ },
+ "control": null,
+ "conjuntos": {
+  "APSFailure": {
+   "nombre": "APSFailure",
+   "data_id": 41138,
+   "tarea": "binary_classification",
+   "objetivo": "class",
+   "csv": {
+    "filas": 76000,
+    "columnas": 171,
+    "bytes": 77240985,
+    "excluidas_por_string": []
+   },
+   "inicio": "2026-10-08 09:41:09",
+   "loadavg_al_empezar": [
+    "0.51",
+    "0.54",
+    "0.39"
+   ],
+   "iniciar_post_s": 42.8,
+   "job_id": "cb2d3d70eecc4ef883786bf27ceddbab",
+   "http": 200,
+   "estado": "completed",
+   "pared_estudio_s": 1042.7,
+   "error": null,
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9878245774326176
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.9860652885640324
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "n_intentos_total": 15,
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 14.659007116220891,
+     "metrica": "auroc",
+     "valor": 0.9875247449368052,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 22.06728388601914,
+     "metrica": "auroc",
+     "valor": 0.9903142606974266,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012295115971937776,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 13.998635984957218,
+     "metrica": "auroc",
+     "valor": 0.9938773412517131,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 21.435243409126997,
+     "metrica": "auroc",
+     "valor": 0.9795728643216081,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012338889995589852,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 15.080006410833448,
+     "metrica": "auroc",
+     "valor": 0.9933405664687072,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 21.533399439882487,
+     "metrica": "auroc",
+     "valor": 0.9920911375057103,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012051857076585293,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 15.175899402005598,
+     "metrica": "auroc",
+     "valor": 0.9810215851987208,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 21.89424353186041,
+     "metrica": "auroc",
+     "valor": 0.9832547205725598,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.015728670172393322,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 14.39879865385592,
+     "metrica": "auroc",
+     "valor": 0.9833586493071418,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 20.78898165607825,
+     "metrica": "auroc",
+     "valor": 0.9850934597228567,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011612193891778588,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "fin": "2026-10-08 09:58:32",
+   "motores_fuera_por_memoria": {},
+   "contenedor": {
+    "oom_killed": false,
+    "codigo_de_salida": "0",
+    "estado": "running",
+    "error": ""
+   },
+   "dentro": "matrixai 1.15.0 /usr/local/lib/python3.12/site-packages/matrixai_studio/estudio_job.py",
+   "motor_de_cada_intento_inferido": {
+    "1": "lightgbm",
+    "2": "sklearn.hgb",
+    "3": "baseline",
+    "4": "lightgbm",
+    "5": "sklearn.hgb",
+    "6": "baseline",
+    "7": "lightgbm",
+    "8": "sklearn.hgb",
+    "9": "baseline",
+    "10": "lightgbm",
+    "11": "sklearn.hgb",
+    "12": "baseline",
+    "13": "lightgbm",
+    "14": "sklearn.hgb",
+    "15": "baseline"
+   },
+   "resumen_de_memoria": {
+    "muestras": 1054,
+    "pico_total": {
+     "rss_total_mb": 7222.0,
+     "t": 1791446235.8014235,
+     "fase": "reajuste_final",
+     "grupo": "reajuste_final",
+     "procesos": {
+      "1": [
+       "init",
+       0.7
+      ],
+      "7": [
+       "sh",
+       1.8
+      ],
+      "8": [
+       "servidor",
+       3367.9
+      ],
+      "131": [
+       "resource_tracker",
+       12.3
+      ],
+      "1357": [
+       "hijo_spawn",
+       3826.1
+      ],
+      "1497": [
+       "sh",
+       1.8
+      ],
+      "1503": [
+       "otro",
+       11.4
+      ]
+     }
+    },
+    "pico_cgroup": {
+     "cgroup_mb": 7241.9,
+     "t": 1791446245.8009653,
+     "fase": "reajuste_final",
+     "grupo": "reajuste_final"
+    },
+    "pico_servidor_mb": 4991.0,
+    "por_rol": {
+     "init": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.7
+     },
+     "sh": {
+      "procesos_distintos": 14,
+      "pico_rss_mb": 1.9
+     },
+     "servidor": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 4991.0
+     },
+     "exec_de_docker": {
+      "procesos_distintos": 4,
+      "pico_rss_mb": 11.9
+     },
+     "resource_tracker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 12.4
+     },
+     "otro": {
+      "procesos_distintos": 13,
+      "pico_rss_mb": 11.4
+     },
+     "hijo_spawn": {
+      "procesos_distintos": 16,
+      "pico_rss_mb": 3829.6
+     }
+    },
+    "por_fase": {
+     "antes": {
+      "muestras": 9,
+      "pico_total_mb": 59.8,
+      "pico_servidor_mb": 57.2,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 50.2,
+      "duracion_s": 8.0
+     },
+     "preparacion": {
+      "muestras": 43,
+      "pico_total_mb": 2772.0,
+      "pico_servidor_mb": 2761.8,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 2760.5,
+      "duracion_s": 42.0
+     },
+     "intento:lightgbm": {
+      "muestras": 303,
+      "pico_total_mb": 6505.2,
+      "pico_servidor_mb": 4988.5,
+      "pico_hijo_mb": 2058.7,
+      "pico_cgroup_mb": 6570.2,
+      "duracion_s": 724.0
+     },
+     "intento:sklearn.hgb": {
+      "muestras": 327,
+      "pico_total_mb": 6484.5,
+      "pico_servidor_mb": 4991.0,
+      "pico_hijo_mb": 1935.9,
+      "pico_cgroup_mb": 6545.4,
+      "duracion_s": 724.0
+     },
+     "intento:baseline": {
+      "muestras": 199,
+      "pico_total_mb": 6464.0,
+      "pico_servidor_mb": 4989.4,
+      "pico_hijo_mb": 1766.1,
+      "pico_cgroup_mb": 6536.6,
+      "duracion_s": 697.0
+     },
+     "reajuste_final": {
+      "muestras": 171,
+      "pico_total_mb": 7222.0,
+      "pico_servidor_mb": 3372.9,
+      "pico_hijo_mb": 3829.6,
+      "pico_cgroup_mb": 7241.9,
+      "duracion_s": 170.0
+     },
+     "fin": {
+      "muestras": 2,
+      "pico_total_mb": 2305.6,
+      "pico_servidor_mb": 2290.8,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 2390.6,
+      "duracion_s": 1.0
+     }
+    },
+    "hijo_mayor": {
+     "pid": 1357,
+     "ppid": 8,
+     "rol": "hijo_spawn",
+     "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=9) --multiprocessing-fork",
+     "primera_t": 1791446143.8008971,
+     "ultima_t": 1791446310.8012743,
+     "pico_rss_mb": 3829.6,
+     "pico_hwm_mb": 3830.6,
+     "fase_del_pico": "reajuste_final",
+     "servidor_en_el_pico_mb": 3367.9,
+     "grupo_al_nacer": "reajuste_final",
+     "vive_s": 167.0,
+     "sobre_pico_del_servidor": 0.767,
+     "sobre_servidor_en_ese_instante": 1.137
+    },
+    "por_proceso": [
+     {
+      "pid": 1,
+      "ppid": 0,
+      "rol": "init",
+      "cmd": "/sbin/docker-init -- sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791445260.800772,
+      "ultima_t": 1791446313.8010166,
+      "pico_rss_mb": 0.7,
+      "pico_hwm_mb": 0.7,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 2290.8,
+      "grupo_al_nacer": "antes",
+      "vive_s": 1053.0
+     },
+     {
+      "pid": 7,
+      "ppid": 1,
+      "rol": "sh",
+      "cmd": "sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791445260.800772,
+      "ultima_t": 1791446313.8010166,
+      "pico_rss_mb": 1.9,
+      "pico_hwm_mb": 1.9,
+      "fase_del_pico": "intento 2/15",
+      "servidor_en_el_pico_mb": 4416.9,
+      "grupo_al_nacer": "antes",
+      "vive_s": 1053.0
+     },
+     {
+      "pid": 8,
+      "ppid": 7,
+      "rol": "servidor",
+      "cmd": "python -m matrixai_studio --host 0.0.0.0 --port 8765",
+      "primera_t": 1791445260.800772,
+      "ultima_t": 1791446313.8010166,
+      "pico_rss_mb": 4991.0,
+      "pico_hwm_mb": 4993.4,
+      "fase_del_pico": "intento 14/15",
+      "servidor_en_el_pico_mb": 4991.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 1053.0
+     },
+     {
+      "pid": 66,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791445282.8009005,
+      "ultima_t": 1791445282.8009005,
+      "pico_rss_mb": 11.9,
+      "pico_hwm_mb": 11.9,
+      "fase_del_pico": "preparacion",
+      "servidor_en_el_pico_mb": 2757.5,
+      "grupo_al_nacer": "preparacion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 131,
+      "ppid": 8,
+      "rol": "resource_tracker",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.resource_tracker import main;main(6)",
+      "primera_t": 1791445343.8016114,
+      "ultima_t": 1791446313.8010166,
+      "pico_rss_mb": 12.4,
+      "pico_hwm_mb": 12.4,
+      "fase_del_pico": "intento 2/15",
+      "servidor_en_el_pico_mb": 4417.0,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 970.0
+     },
+     {
+      "pid": 132,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791445343.8016114,
+      "ultima_t": 1791445347.801507,
+      "pico_rss_mb": 1.8,
+      "pico_hwm_mb": 1.8,
+      "fase_del_pico": "intento 1/15",
+      "servidor_en_el_pico_mb": 3870.9,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 4.0
+     },
+     {
+      "pid": 138,
+      "ppid": 132,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791445343.8016114,
+      "ultima_t": 1791445348.8009377,
+      "pico_rss_mb": 11.3,
+      "pico_hwm_mb": 11.3,
+      "fase_del_pico": "intento 1/15",
+      "servidor_en_el_pico_mb": 3945.2,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 5.0
+     },
+     {
+      "pid": 141,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=11) --multiprocessing-fork",
+      "primera_t": 1791445349.801489,
+      "ultima_t": 1791445373.800852,
+      "pico_rss_mb": 2058.1,
+      "pico_hwm_mb": 2058.1,
+      "fase_del_pico": "intento 1/15",
+      "servidor_en_el_pico_mb": 3310.0,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 24.0,
+      "sobre_pico_del_servidor": 0.412,
+      "sobre_servidor_en_ese_instante": 0.622
+     },
+     {
+      "pid": 221,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791445398.801476,
+      "ultima_t": 1791445398.801476,
+      "pico_rss_mb": 1.8,
+      "pico_hwm_mb": 1.8,
+      "fase_del_pico": "intento 2/15",
+      "servidor_en_el_pico_mb": 3956.4,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 227,
+      "ppid": 221,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791445398.801476,
+      "ultima_t": 1791445398.801476,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 2/15",
+      "servidor_en_el_pico_mb": 3956.4,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 232,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791445409.8016143,
+      "ultima_t": 1791445410.8012986,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 2/15",
+      "servidor_en_el_pico_mb": 4665.9,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 1.0
+     },
+     {
+      "pid": 238,
+      "ppid": 232,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791445409.8016143,
+      "ultima_t": 1791445410.8012986,
+      "pico_rss_mb": 11.3,
+      "pico_hwm_mb": 11.3,
+      "fase_del_pico": "intento 2/15",
+      "servidor_en_el_pico_mb": 4665.9,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 1.0
+     },
+     {
+      "pid": 239,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=9) --multiprocessing-fork",
+      "primera_t": 1791445411.801023,
+      "ultima_t": 1791445441.8013425,
+      "pico_rss_mb": 1906.8,
+      "pico_hwm_mb": 1976.4,
+      "fase_del_pico": "intento 2/15",
+      "servidor_en_el_pico_mb": 4008.4,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 30.0,
+      "sobre_pico_del_servidor": 0.382,
+      "sobre_servidor_en_ese_instante": 0.476
+     },
+     {
+      "pid": 327,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791445471.800953,
+      "ultima_t": 1791445475.8011186,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 3/15",
+      "servidor_en_el_pico_mb": 4370.8,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 4.0
+     },
+     {
+      "pid": 334,
+      "ppid": 327,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791445471.800953,
+      "ultima_t": 1791445476.8012493,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 3/15",
+      "servidor_en_el_pico_mb": 4455.4,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 5.0
+     },
+     {
+      "pid": 337,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791445477.8011491,
+      "ultima_t": 1791445482.8009818,
+      "pico_rss_mb": 1670.0,
+      "pico_hwm_mb": 1794.0,
+      "fase_del_pico": "intento 3/15",
+      "servidor_en_el_pico_mb": 3831.8,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 5.0,
+      "sobre_pico_del_servidor": 0.335,
+      "sobre_servidor_en_ese_instante": 0.436
+     },
+     {
+      "pid": 377,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791445506.8012393,
+      "ultima_t": 1791445506.8012393,
+      "pico_rss_mb": 9.2,
+      "pico_hwm_mb": 9.2,
+      "fase_del_pico": "intento 4/15",
+      "servidor_en_el_pico_mb": 4121.9,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 388,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791445517.8011298,
+      "ultima_t": 1791445519.8011045,
+      "pico_rss_mb": 1.8,
+      "pico_hwm_mb": 1.8,
+      "fase_del_pico": "intento 4/15",
+      "servidor_en_el_pico_mb": 4806.0,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 2.0
+     },
+     {
+      "pid": 394,
+      "ppid": 388,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791445517.8011298,
+      "ultima_t": 1791445519.8011045,
+      "pico_rss_mb": 11.3,
+      "pico_hwm_mb": 11.3,
+      "fase_del_pico": "intento 4/15",
+      "servidor_en_el_pico_mb": 4806.0,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 2.0
+     },
+     {
+      "pid": 396,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791445520.8013418,
+      "ultima_t": 1791445542.8008685,
+      "pico_rss_mb": 2058.6,
+      "pico_hwm_mb": 2058.6,
+      "fase_del_pico": "intento 4/15",
+      "servidor_en_el_pico_mb": 4141.7,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 22.0,
+      "sobre_pico_del_servidor": 0.412,
+      "sobre_servidor_en_ese_instante": 0.497
+     },
+     {
+      "pid": 487,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=4) --multiprocessing-fork",
+      "primera_t": 1791445578.8009684,
+      "ultima_t": 1791445608.801352,
+      "pico_rss_mb": 1906.6,
+      "pico_hwm_mb": 1976.0,
+      "fase_del_pico": "intento 5/15",
+      "servidor_en_el_pico_mb": 3966.2,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 30.0,
+      "sobre_pico_del_servidor": 0.382,
+      "sobre_servidor_en_ese_instante": 0.481
+     },
+     {
+      "pid": 581,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791445640.8011544,
+      "ultima_t": 1791445642.8011637,
+      "pico_rss_mb": 9.6,
+      "pico_hwm_mb": 9.6,
+      "fase_del_pico": "intento 6/15",
+      "servidor_en_el_pico_mb": 4755.1,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 2.0
+     },
+     {
+      "pid": 587,
+      "ppid": 581,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791445641.8013227,
+      "ultima_t": 1791445642.8011637,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 6/15",
+      "servidor_en_el_pico_mb": 4883.6,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 1.0
+     },
+     {
+      "pid": 588,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=11) --multiprocessing-fork",
+      "primera_t": 1791445643.801365,
+      "ultima_t": 1791445648.8010027,
+      "pico_rss_mb": 1766.1,
+      "pico_hwm_mb": 1793.9,
+      "fase_del_pico": "intento 6/15",
+      "servidor_en_el_pico_mb": 4683.1,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 5.0,
+      "sobre_pico_del_servidor": 0.354,
+      "sobre_servidor_en_ese_instante": 0.377
+     },
+     {
+      "pid": 603,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791445653.801409,
+      "ultima_t": 1791445653.801409,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 7/15",
+      "servidor_en_el_pico_mb": 4272.8,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 609,
+      "ppid": 603,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791445653.801409,
+      "ultima_t": 1791445653.801409,
+      "pico_rss_mb": 3.8,
+      "pico_hwm_mb": 3.8,
+      "fase_del_pico": "intento 7/15",
+      "servidor_en_el_pico_mb": 4272.8,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 648,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=11) --multiprocessing-fork",
+      "primera_t": 1791445684.8009543,
+      "ultima_t": 1791445707.8008885,
+      "pico_rss_mb": 2058.5,
+      "pico_hwm_mb": 2058.5,
+      "fase_del_pico": "intento 7/15",
+      "servidor_en_el_pico_mb": 4096.3,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 23.0,
+      "sobre_pico_del_servidor": 0.412,
+      "sobre_servidor_en_ese_instante": 0.503
+     },
+     {
+      "pid": 668,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791445694.8013434,
+      "ultima_t": 1791445694.8013434,
+      "pico_rss_mb": 1.9,
+      "pico_hwm_mb": 1.9,
+      "fase_del_pico": "intento 7/15",
+      "servidor_en_el_pico_mb": 4096.3,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 738,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791445742.8016207,
+      "ultima_t": 1791445772.8014176,
+      "pico_rss_mb": 1908.4,
+      "pico_hwm_mb": 1976.7,
+      "fase_del_pico": "intento 8/15",
+      "servidor_en_el_pico_mb": 4326.4,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 30.0,
+      "sobre_pico_del_servidor": 0.382,
+      "sobre_servidor_en_ese_instante": 0.441
+     },
+     {
+      "pid": 832,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791445805.8014855,
+      "ultima_t": 1791445806.801424,
+      "pico_rss_mb": 1.8,
+      "pico_hwm_mb": 1.8,
+      "fase_del_pico": "intento 9/15",
+      "servidor_en_el_pico_mb": 4868.3,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 1.0
+     },
+     {
+      "pid": 838,
+      "ppid": 832,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791445805.8014855,
+      "ultima_t": 1791445806.801424,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 9/15",
+      "servidor_en_el_pico_mb": 4868.3,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 1.0
+     },
+     {
+      "pid": 839,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791445807.8013823,
+      "ultima_t": 1791445812.8012996,
+      "pico_rss_mb": 1669.9,
+      "pico_hwm_mb": 1794.0,
+      "fase_del_pico": "intento 9/15",
+      "servidor_en_el_pico_mb": 4230.2,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 5.0,
+      "sobre_pico_del_servidor": 0.335,
+      "sobre_servidor_en_ese_instante": 0.395
+     },
+     {
+      "pid": 892,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791445847.801307,
+      "ultima_t": 1791445847.801307,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 10/15",
+      "servidor_en_el_pico_mb": 4988.5,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 898,
+      "ppid": 892,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791445847.801307,
+      "ultima_t": 1791445847.801307,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 10/15",
+      "servidor_en_el_pico_mb": 4988.5,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 899,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791445848.801087,
+      "ultima_t": 1791445871.8010733,
+      "pico_rss_mb": 2058.7,
+      "pico_hwm_mb": 2058.7,
+      "fase_del_pico": "intento 10/15",
+      "servidor_en_el_pico_mb": 4326.4,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 23.0,
+      "sobre_pico_del_servidor": 0.412,
+      "sobre_servidor_en_ese_instante": 0.476
+     },
+     {
+      "pid": 991,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791445907.8012674,
+      "ultima_t": 1791445937.8010643,
+      "pico_rss_mb": 1935.9,
+      "pico_hwm_mb": 1976.2,
+      "fase_del_pico": "intento 11/15",
+      "servidor_en_el_pico_mb": 4326.4,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 30.0,
+      "sobre_pico_del_servidor": 0.388,
+      "sobre_servidor_en_ese_instante": 0.447
+     },
+     {
+      "pid": 1060,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791445948.8010688,
+      "ultima_t": 1791445948.8010688,
+      "pico_rss_mb": 9.4,
+      "pico_hwm_mb": 9.4,
+      "fase_del_pico": "intento 12/15",
+      "servidor_en_el_pico_mb": 4326.4,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1084,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791445969.8011534,
+      "ultima_t": 1791445971.8014784,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 12/15",
+      "servidor_en_el_pico_mb": 4958.9,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 2.0
+     },
+     {
+      "pid": 1090,
+      "ppid": 1084,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791445969.8011534,
+      "ultima_t": 1791445971.8014784,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 12/15",
+      "servidor_en_el_pico_mb": 4958.9,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 2.0
+     },
+     {
+      "pid": 1093,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=11) --multiprocessing-fork",
+      "primera_t": 1791445972.801017,
+      "ultima_t": 1791445977.8009493,
+      "pico_rss_mb": 1669.8,
+      "pico_hwm_mb": 1793.8,
+      "fase_del_pico": "intento 12/15",
+      "servidor_en_el_pico_mb": 4327.1,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 5.0,
+      "sobre_pico_del_servidor": 0.335,
+      "sobre_servidor_en_ese_instante": 0.386
+     },
+     {
+      "pid": 1133,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791446002.8009353,
+      "ultima_t": 1791446002.8009353,
+      "pico_rss_mb": 1.8,
+      "pico_hwm_mb": 1.8,
+      "fase_del_pico": "intento 13/15",
+      "servidor_en_el_pico_mb": 4327.1,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1139,
+      "ppid": 1133,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791446002.8009353,
+      "ultima_t": 1791446002.8009353,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 13/15",
+      "servidor_en_el_pico_mb": 4327.1,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1151,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791446013.801119,
+      "ultima_t": 1791446035.801103,
+      "pico_rss_mb": 2058.4,
+      "pico_hwm_mb": 2058.4,
+      "fase_del_pico": "intento 13/15",
+      "servidor_en_el_pico_mb": 4328.1,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 22.0,
+      "sobre_pico_del_servidor": 0.412,
+      "sobre_servidor_en_ese_instante": 0.476
+     },
+     {
+      "pid": 1241,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791446070.8014424,
+      "ultima_t": 1791446098.8011024,
+      "pico_rss_mb": 1928.7,
+      "pico_hwm_mb": 1975.9,
+      "fase_del_pico": "intento 14/15",
+      "servidor_en_el_pico_mb": 4326.5,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 28.0,
+      "sobre_pico_del_servidor": 0.386,
+      "sobre_servidor_en_ese_instante": 0.446
+     },
+     {
+      "pid": 1334,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791446134.8015301,
+      "ultima_t": 1791446134.8015301,
+      "pico_rss_mb": 1.8,
+      "pico_hwm_mb": 1.8,
+      "fase_del_pico": "intento 15/15",
+      "servidor_en_el_pico_mb": 4989.4,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1340,
+      "ppid": 1334,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791446134.8015301,
+      "ultima_t": 1791446134.8015301,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 15/15",
+      "servidor_en_el_pico_mb": 4989.4,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1342,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791446135.8013177,
+      "ultima_t": 1791446139.8011985,
+      "pico_rss_mb": 1669.9,
+      "pico_hwm_mb": 1793.9,
+      "fase_del_pico": "intento 15/15",
+      "servidor_en_el_pico_mb": 4326.2,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 4.0,
+      "sobre_pico_del_servidor": 0.335,
+      "sobre_servidor_en_ese_instante": 0.386
+     },
+     {
+      "pid": 1357,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=9) --multiprocessing-fork",
+      "primera_t": 1791446143.8008971,
+      "ultima_t": 1791446310.8012743,
+      "pico_rss_mb": 3829.6,
+      "pico_hwm_mb": 3830.6,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 3367.9,
+      "grupo_al_nacer": "reajuste_final",
+      "vive_s": 167.0,
+      "sobre_pico_del_servidor": 0.767,
+      "sobre_servidor_en_ese_instante": 1.137
+     },
+     {
+      "pid": 1497,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791446235.8014235,
+      "ultima_t": 1791446235.8014235,
+      "pico_rss_mb": 1.8,
+      "pico_hwm_mb": 1.8,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 3367.9,
+      "grupo_al_nacer": "reajuste_final",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1503,
+      "ppid": 1497,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791446235.8014235,
+      "ultima_t": 1791446235.8014235,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 3367.9,
+      "grupo_al_nacer": "reajuste_final",
+      "vive_s": 0.0
+     }
+    ]
+   },
+   "memoria_del_contenedor": "9g",
+   "eventos_de_fase": [
+    [
+     1791445269.6,
+     "preparacion"
+    ],
+    [
+     1791445312.4,
+     "cola"
+    ],
+    [
+     1791445312.4,
+     "intento 1/15"
+    ],
+    [
+     1791445375.5,
+     "intento 2/15"
+    ],
+    [
+     1791445443.2,
+     "intento 3/15"
+    ],
+    [
+     1791445483.5,
+     "intento 4/15"
+    ],
+    [
+     1791445544.0,
+     "intento 5/15"
+    ],
+    [
+     1791445610.8,
+     "intento 6/15"
+    ],
+    [
+     1791445649.8,
+     "intento 7/15"
+    ],
+    [
+     1791445708.8,
+     "intento 8/15"
+    ],
+    [
+     1791445774.5,
+     "intento 9/15"
+    ],
+    [
+     1791445813.4,
+     "intento 10/15"
+    ],
+    [
+     1791445874.2,
+     "intento 11/15"
+    ],
+    [
+     1791445939.6,
+     "intento 12/15"
+    ],
+    [
+     1791445978.6,
+     "intento 13/15"
+    ],
+    [
+     1791446037.2,
+     "intento 14/15"
+    ],
+    [
+     1791446100.2,
+     "intento 15/15"
+    ],
+    [
+     1791446141.5,
+     "reajuste_final"
+    ],
+    [
+     1791446312.3,
+     "fin"
+    ]
+   ],
+   "serie_temporal": {
+    "fichero": "APSFailure.series.json.gz",
+    "sha256": "8ef4b686457ae6913eb28c442ec351c5a6bea270cec0b791ef4702a49f676eb0",
+    "muestras": 1054
+   }
+  },
+  "KDDCup09_appetency": {
+   "nombre": "KDDCup09_appetency",
+   "data_id": 1111,
+   "tarea": "binary_classification",
+   "objetivo": "APPETENCY",
+   "csv": {
+    "filas": 50000,
+    "columnas": 231,
+    "bytes": 26295632,
+    "excluidas_por_string": []
+   },
+   "inicio": "2026-10-08 09:58:45",
+   "loadavg_al_empezar": [
+    "0.95",
+    "1.16",
+    "0.99"
+   ],
+   "iniciar_post_s": 14.4,
+   "job_id": "7231c2deb6404a23bc744eb963f75e40",
+   "http": 200,
+   "estado": "completed",
+   "pared_estudio_s": 1575.3,
+   "error": null,
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.7421602673809254
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.7813983768862123
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "n_intentos_total": 15,
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 15.492387356003746,
+     "metrica": "auroc",
+     "valor": 0.741270310244604,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 25.006720589008182,
+     "metrica": "auroc",
+     "valor": 0.8070141871363556,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009818862192332745,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 15.294994299067184,
+     "metrica": "auroc",
+     "valor": 0.7579421087947431,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 24.700677359011024,
+     "metrica": "auroc",
+     "valor": 0.7628313402047177,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009692272869870067,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 16.76301463600248,
+     "metrica": "auroc",
+     "valor": 0.7430554310848547,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 24.147998227039352,
+     "metrica": "auroc",
+     "valor": 0.7664244566405816,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009837225079536438,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 14.997966889059171,
+     "metrica": "auroc",
+     "valor": 0.7462413529157637,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 25.156830007908866,
+     "metrica": "auroc",
+     "valor": 0.7864351694998808,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.014052591053768992,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 14.840635838918388,
+     "metrica": "auroc",
+     "valor": 0.7222921338646618,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 23.85073448996991,
+     "metrica": "auroc",
+     "valor": 0.7842867309495256,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.0098138100001961,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "fin": "2026-10-08 10:25:00",
+   "motores_fuera_por_memoria": {},
+   "contenedor": {
+    "oom_killed": false,
+    "codigo_de_salida": "0",
+    "estado": "running",
+    "error": ""
+   },
+   "dentro": "matrixai 1.15.0 /usr/local/lib/python3.12/site-packages/matrixai_studio/estudio_job.py",
+   "motor_de_cada_intento_inferido": {
+    "1": "lightgbm",
+    "2": "sklearn.hgb",
+    "3": "baseline",
+    "4": "lightgbm",
+    "5": "sklearn.hgb",
+    "6": "baseline",
+    "7": "lightgbm",
+    "8": "sklearn.hgb",
+    "9": "baseline",
+    "10": "lightgbm",
+    "11": "sklearn.hgb",
+    "12": "baseline",
+    "13": "lightgbm",
+    "14": "sklearn.hgb",
+    "15": "baseline"
+   },
+   "resumen_de_memoria": {
+    "muestras": 1582,
+    "pico_total": {
+     "rss_total_mb": 5714.0,
+     "t": 1791447791.2142928,
+     "fase": "reajuste_final",
+     "grupo": "reajuste_final",
+     "procesos": {
+      "1": [
+       "init",
+       0.7
+      ],
+      "7": [
+       "sh",
+       1.7
+      ],
+      "8": [
+       "servidor",
+       2583.1
+      ],
+      "144": [
+       "resource_tracker",
+       12.2
+      ],
+      "1951": [
+       "hijo_spawn",
+       3116.3
+      ]
+     }
+    },
+    "pico_cgroup": {
+     "cgroup_mb": 5681.9,
+     "t": 1791447791.2142928,
+     "fase": "reajuste_final",
+     "grupo": "reajuste_final"
+    },
+    "pico_servidor_mb": 3836.3,
+    "por_rol": {
+     "init": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.7
+     },
+     "sh": {
+      "procesos_distintos": 8,
+      "pico_rss_mb": 1.7
+     },
+     "servidor": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 3836.3
+     },
+     "resource_tracker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 12.2
+     },
+     "hijo_spawn": {
+      "procesos_distintos": 16,
+      "pico_rss_mb": 3116.3
+     },
+     "exec_de_docker": {
+      "procesos_distintos": 6,
+      "pico_rss_mb": 11.7
+     },
+     "otro": {
+      "procesos_distintos": 7,
+      "pico_rss_mb": 11.5
+     }
+    },
+    "por_fase": {
+     "antes": {
+      "muestras": 5,
+      "pico_total_mb": 59.4,
+      "pico_servidor_mb": 57.0,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 58.0,
+      "duracion_s": 4.0
+     },
+     "preparacion": {
+      "muestras": 14,
+      "pico_total_mb": 1203.3,
+      "pico_servidor_mb": 1200.9,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 1204.2,
+      "duracion_s": 13.0
+     },
+     "intento:lightgbm": {
+      "muestras": 444,
+      "pico_total_mb": 5002.0,
+      "pico_servidor_mb": 3833.0,
+      "pico_hijo_mb": 1670.1,
+      "pico_cgroup_mb": 4971.7,
+      "duracion_s": 1128.0
+     },
+     "intento:sklearn.hgb": {
+      "muestras": 499,
+      "pico_total_mb": 4950.3,
+      "pico_servidor_mb": 3836.3,
+      "pico_hijo_mb": 1616.2,
+      "pico_cgroup_mb": 4921.1,
+      "duracion_s": 1133.0
+     },
+     "intento:baseline": {
+      "muestras": 345,
+      "pico_total_mb": 4693.7,
+      "pico_servidor_mb": 3808.7,
+      "pico_hijo_mb": 1287.2,
+      "pico_cgroup_mb": 4689.9,
+      "duracion_s": 1091.0
+     },
+     "reajuste_final": {
+      "muestras": 273,
+      "pico_total_mb": 5714.0,
+      "pico_servidor_mb": 2603.0,
+      "pico_hijo_mb": 3116.3,
+      "pico_cgroup_mb": 5681.9,
+      "duracion_s": 272.0
+     },
+     "fin": {
+      "muestras": 2,
+      "pico_total_mb": 1984.8,
+      "pico_servidor_mb": 1970.2,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 2013.6,
+      "duracion_s": 1.0
+     }
+    },
+    "hijo_mayor": {
+     "pid": 1951,
+     "ppid": 8,
+     "rol": "hijo_spawn",
+     "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=9) --multiprocessing-fork",
+     "primera_t": 1791447629.2142832,
+     "ultima_t": 1791447899.2143304,
+     "pico_rss_mb": 3116.3,
+     "pico_hwm_mb": 3189.6,
+     "fase_del_pico": "reajuste_final",
+     "servidor_en_el_pico_mb": 2583.1,
+     "grupo_al_nacer": "reajuste_final",
+     "vive_s": 270.0,
+     "sobre_pico_del_servidor": 0.812,
+     "sobre_servidor_en_ese_instante": 1.206
+    },
+    "por_proceso": [
+     {
+      "pid": 1,
+      "ppid": 0,
+      "rol": "init",
+      "cmd": "/sbin/docker-init -- sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791446321.2138517,
+      "ultima_t": 1791447902.214216,
+      "pico_rss_mb": 0.7,
+      "pico_hwm_mb": 0.7,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 1970.2,
+      "grupo_al_nacer": "antes",
+      "vive_s": 1581.0
+     },
+     {
+      "pid": 7,
+      "ppid": 1,
+      "rol": "sh",
+      "cmd": "sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791446321.2138517,
+      "ultima_t": 1791447902.214216,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 1970.2,
+      "grupo_al_nacer": "antes",
+      "vive_s": 1581.0
+     },
+     {
+      "pid": 8,
+      "ppid": 7,
+      "rol": "servidor",
+      "cmd": "python -m matrixai_studio --host 0.0.0.0 --port 8765",
+      "primera_t": 1791446321.2138517,
+      "ultima_t": 1791447902.214216,
+      "pico_rss_mb": 3836.3,
+      "pico_hwm_mb": 3879.9,
+      "fase_del_pico": "intento 14/15",
+      "servidor_en_el_pico_mb": 3836.3,
+      "grupo_al_nacer": "antes",
+      "vive_s": 1581.0
+     },
+     {
+      "pid": 144,
+      "ppid": 8,
+      "rol": "resource_tracker",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.resource_tracker import main;main(6)",
+      "primera_t": 1791446398.2140052,
+      "ultima_t": 1791447902.214216,
+      "pico_rss_mb": 12.2,
+      "pico_hwm_mb": 12.2,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 1970.2,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 1504.0
+     },
+     {
+      "pid": 146,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791446403.2144222,
+      "ultima_t": 1791446426.2139933,
+      "pico_rss_mb": 1670.1,
+      "pico_hwm_mb": 1670.1,
+      "fase_del_pico": "intento 1/15",
+      "servidor_en_el_pico_mb": 2389.7,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 23.0,
+      "sobre_pico_del_servidor": 0.435,
+      "sobre_servidor_en_ese_instante": 0.699
+     },
+     {
+      "pid": 222,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791446444.214072,
+      "ultima_t": 1791446444.214072,
+      "pico_rss_mb": 10.9,
+      "pico_hwm_mb": 10.9,
+      "fase_del_pico": "intento 2/15",
+      "servidor_en_el_pico_mb": 2459.4,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 297,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791446502.2144516,
+      "ultima_t": 1791446533.2143414,
+      "pico_rss_mb": 1585.5,
+      "pico_hwm_mb": 1653.2,
+      "fase_del_pico": "intento 2/15",
+      "servidor_en_el_pico_mb": 2999.3,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 31.0,
+      "sobre_pico_del_servidor": 0.413,
+      "sobre_servidor_en_ese_instante": 0.529
+     },
+     {
+      "pid": 442,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791446602.2142215,
+      "ultima_t": 1791446605.2142131,
+      "pico_rss_mb": 1287.1,
+      "pico_hwm_mb": 1347.2,
+      "fase_del_pico": "intento 3/15",
+      "servidor_en_el_pico_mb": 2907.1,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 0.336,
+      "sobre_servidor_en_ese_instante": 0.443
+     },
+     {
+      "pid": 505,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791446646.2142768,
+      "ultima_t": 1791446646.2142768,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 4/15",
+      "servidor_en_el_pico_mb": 2804.2,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 511,
+      "ppid": 505,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791446646.2142768,
+      "ultima_t": 1791446646.2142768,
+      "pico_rss_mb": 11.5,
+      "pico_hwm_mb": 11.5,
+      "fase_del_pico": "intento 4/15",
+      "servidor_en_el_pico_mb": 2804.2,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 550,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=11) --multiprocessing-fork",
+      "primera_t": 1791446677.2145123,
+      "ultima_t": 1791446699.2142768,
+      "pico_rss_mb": 1587.3,
+      "pico_hwm_mb": 1667.4,
+      "fase_del_pico": "intento 4/15",
+      "servidor_en_el_pico_mb": 3088.7,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 22.0,
+      "sobre_pico_del_servidor": 0.414,
+      "sobre_servidor_en_ese_instante": 0.514
+     },
+     {
+      "pid": 631,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791446727.2145126,
+      "ultima_t": 1791446727.2145126,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 5/15",
+      "servidor_en_el_pico_mb": 3088.7,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 638,
+      "ppid": 631,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791446727.2145126,
+      "ultima_t": 1791446727.2145126,
+      "pico_rss_mb": 11.3,
+      "pico_hwm_mb": 11.3,
+      "fase_del_pico": "intento 5/15",
+      "servidor_en_el_pico_mb": 3088.7,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 689,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791446768.2140477,
+      "ultima_t": 1791446799.2141118,
+      "pico_rss_mb": 1586.0,
+      "pico_hwm_mb": 1653.6,
+      "fase_del_pico": "intento 5/15",
+      "servidor_en_el_pico_mb": 3094.5,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 31.0,
+      "sobre_pico_del_servidor": 0.413,
+      "sobre_servidor_en_ese_instante": 0.513
+     },
+     {
+      "pid": 803,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791446848.2144084,
+      "ultima_t": 1791446848.2144084,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 6/15",
+      "servidor_en_el_pico_mb": 3205.6,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 837,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791446869.2460446,
+      "ultima_t": 1791446872.2143495,
+      "pico_rss_mb": 1287.2,
+      "pico_hwm_mb": 1347.6,
+      "fase_del_pico": "intento 6/15",
+      "servidor_en_el_pico_mb": 3187.8,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 0.336,
+      "sobre_servidor_en_ese_instante": 0.404
+     },
+     {
+      "pid": 927,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791446937.214055,
+      "ultima_t": 1791446960.2139487,
+      "pico_rss_mb": 1669.8,
+      "pico_hwm_mb": 1669.8,
+      "fase_del_pico": "intento 7/15",
+      "servidor_en_el_pico_mb": 3188.5,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 23.0,
+      "sobre_pico_del_servidor": 0.435,
+      "sobre_servidor_en_ese_instante": 0.524
+     },
+     {
+      "pid": 1075,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791447031.2461176,
+      "ultima_t": 1791447062.2142408,
+      "pico_rss_mb": 1616.2,
+      "pico_hwm_mb": 1690.1,
+      "fase_del_pico": "intento 8/15",
+      "servidor_en_el_pico_mb": 3279.8,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 31.0,
+      "sobre_pico_del_servidor": 0.421,
+      "sobre_servidor_en_ese_instante": 0.493
+     },
+     {
+      "pid": 1137,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791447071.2146368,
+      "ultima_t": 1791447071.2146368,
+      "pico_rss_mb": 1.6,
+      "pico_hwm_mb": 1.6,
+      "fase_del_pico": "intento 9/15",
+      "servidor_en_el_pico_mb": 3278.8,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1143,
+      "ppid": 1137,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791447071.2146368,
+      "ultima_t": 1791447071.2146368,
+      "pico_rss_mb": 4.2,
+      "pico_hwm_mb": 4.2,
+      "fase_del_pico": "intento 9/15",
+      "servidor_en_el_pico_mb": 3278.8,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1210,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791447127.2145584,
+      "ultima_t": 1791447130.214349,
+      "pico_rss_mb": 1286.9,
+      "pico_hwm_mb": 1347.1,
+      "fase_del_pico": "intento 9/15",
+      "servidor_en_el_pico_mb": 3280.6,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 0.335,
+      "sobre_servidor_en_ese_instante": 0.392
+     },
+     {
+      "pid": 1287,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791447182.214782,
+      "ultima_t": 1791447182.214782,
+      "pico_rss_mb": 11.7,
+      "pico_hwm_mb": 11.7,
+      "fase_del_pico": "intento 10/15",
+      "servidor_en_el_pico_mb": 3279.6,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1299,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791447193.2145107,
+      "ultima_t": 1791447194.214292,
+      "pico_rss_mb": 1.6,
+      "pico_hwm_mb": 1.6,
+      "fase_del_pico": "intento 10/15",
+      "servidor_en_el_pico_mb": 3833.0,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 1.0
+     },
+     {
+      "pid": 1305,
+      "ppid": 1299,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791447193.2145107,
+      "ultima_t": 1791447194.214292,
+      "pico_rss_mb": 11.3,
+      "pico_hwm_mb": 11.3,
+      "fase_del_pico": "intento 10/15",
+      "servidor_en_el_pico_mb": 3833.0,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 1.0
+     },
+     {
+      "pid": 1308,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=12) --multiprocessing-fork",
+      "primera_t": 1791447195.2141535,
+      "ultima_t": 1791447216.2143362,
+      "pico_rss_mb": 1614.0,
+      "pico_hwm_mb": 1667.8,
+      "fase_del_pico": "intento 10/15",
+      "servidor_en_el_pico_mb": 3316.7,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 21.0,
+      "sobre_pico_del_servidor": 0.421,
+      "sobre_servidor_en_ese_instante": 0.487
+     },
+     {
+      "pid": 1438,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791447282.2143672,
+      "ultima_t": 1791447313.2142563,
+      "pico_rss_mb": 1615.9,
+      "pico_hwm_mb": 1689.8,
+      "fase_del_pico": "intento 11/15",
+      "servidor_en_el_pico_mb": 3317.8,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 31.0,
+      "sobre_pico_del_servidor": 0.421,
+      "sobre_servidor_en_ese_instante": 0.487
+     },
+     {
+      "pid": 1467,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791447295.2146547,
+      "ultima_t": 1791447295.2146547,
+      "pico_rss_mb": 11.1,
+      "pico_hwm_mb": 11.1,
+      "fase_del_pico": "intento 11/15",
+      "servidor_en_el_pico_mb": 3317.8,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1573,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791447376.2147193,
+      "ultima_t": 1791447378.214263,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 12/15",
+      "servidor_en_el_pico_mb": 3758.0,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 2.0
+     },
+     {
+      "pid": 1579,
+      "ppid": 1573,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791447376.2147193,
+      "ultima_t": 1791447378.214263,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 12/15",
+      "servidor_en_el_pico_mb": 3758.0,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 2.0
+     },
+     {
+      "pid": 1581,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=11) --multiprocessing-fork",
+      "primera_t": 1791447379.2139664,
+      "ultima_t": 1791447382.2140849,
+      "pico_rss_mb": 1287.0,
+      "pico_hwm_mb": 1347.2,
+      "fase_del_pico": "intento 12/15",
+      "servidor_en_el_pico_mb": 3276.8,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 0.335,
+      "sobre_servidor_en_ese_instante": 0.393
+     },
+     {
+      "pid": 1647,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791447429.2140236,
+      "ultima_t": 1791447429.2140236,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 13/15",
+      "servidor_en_el_pico_mb": 3317.7,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1669,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791447444.2142973,
+      "ultima_t": 1791447466.2142537,
+      "pico_rss_mb": 1669.7,
+      "pico_hwm_mb": 1669.7,
+      "fase_del_pico": "intento 13/15",
+      "servidor_en_el_pico_mb": 3317.7,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 22.0,
+      "sobre_pico_del_servidor": 0.435,
+      "sobre_servidor_en_ese_instante": 0.503
+     },
+     {
+      "pid": 1797,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791447530.2141628,
+      "ultima_t": 1791447530.2141628,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 14/15",
+      "servidor_en_el_pico_mb": 3836.3,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1803,
+      "ppid": 1797,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791447530.2141628,
+      "ultima_t": 1791447530.2141628,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 14/15",
+      "servidor_en_el_pico_mb": 3836.3,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 1806,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=11) --multiprocessing-fork",
+      "primera_t": 1791447531.2141123,
+      "ultima_t": 1791447561.2142086,
+      "pico_rss_mb": 1615.9,
+      "pico_hwm_mb": 1689.7,
+      "fase_del_pico": "intento 14/15",
+      "servidor_en_el_pico_mb": 3319.8,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 30.0,
+      "sobre_pico_del_servidor": 0.421,
+      "sobre_servidor_en_ese_instante": 0.487
+     },
+     {
+      "pid": 1930,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791447621.2146747,
+      "ultima_t": 1791447622.214579,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 15/15",
+      "servidor_en_el_pico_mb": 3774.2,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 1.0
+     },
+     {
+      "pid": 1936,
+      "ppid": 1930,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791447621.2146747,
+      "ultima_t": 1791447622.214579,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "intento 15/15",
+      "servidor_en_el_pico_mb": 3774.2,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 1.0
+     },
+     {
+      "pid": 1938,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=10) --multiprocessing-fork",
+      "primera_t": 1791447623.2141328,
+      "ultima_t": 1791447626.2141051,
+      "pico_rss_mb": 1287.0,
+      "pico_hwm_mb": 1347.2,
+      "fase_del_pico": "intento 15/15",
+      "servidor_en_el_pico_mb": 3319.8,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 0.335,
+      "sobre_servidor_en_ese_instante": 0.388
+     },
+     {
+      "pid": 1951,
+      "ppid": 8,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=7, pipe_handle=9) --multiprocessing-fork",
+      "primera_t": 1791447629.2142832,
+      "ultima_t": 1791447899.2143304,
+      "pico_rss_mb": 3116.3,
+      "pico_hwm_mb": 3189.6,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 2583.1,
+      "grupo_al_nacer": "reajuste_final",
+      "vive_s": 270.0,
+      "sobre_pico_del_servidor": 0.812,
+      "sobre_servidor_en_ese_instante": 1.206
+     },
+     {
+      "pid": 2159,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791447774.214114,
+      "ultima_t": 1791447774.214114,
+      "pico_rss_mb": 11.2,
+      "pico_hwm_mb": 11.2,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 2583.1,
+      "grupo_al_nacer": "reajuste_final",
+      "vive_s": 0.0
+     }
+    ]
+   },
+   "memoria_del_contenedor": "9g",
+   "eventos_de_fase": [
+    [
+     1791446325.5,
+     "preparacion"
+    ],
+    [
+     1791446339.9,
+     "cola"
+    ],
+    [
+     1791446339.9,
+     "intento 1/15"
+    ],
+    [
+     1791446428.6,
+     "intento 2/15"
+    ],
+    [
+     1791446535.5,
+     "intento 3/15"
+    ],
+    [
+     1791446607.7,
+     "intento 4/15"
+    ],
+    [
+     1791446700.9,
+     "intento 5/15"
+    ],
+    [
+     1791446801.6,
+     "intento 6/15"
+    ],
+    [
+     1791446873.1,
+     "intento 7/15"
+    ],
+    [
+     1791446962.6,
+     "intento 8/15"
+    ],
+    [
+     1791447063.1,
+     "intento 9/15"
+    ],
+    [
+     1791447132.7,
+     "intento 10/15"
+    ],
+    [
+     1791447218.5,
+     "intento 11/15"
+    ],
+    [
+     1791447315.5,
+     "intento 12/15"
+    ],
+    [
+     1791447382.9,
+     "intento 13/15"
+    ],
+    [
+     1791447468.2,
+     "intento 14/15"
+    ],
+    [
+     1791447562.5,
+     "intento 15/15"
+    ],
+    [
+     1791447627.4,
+     "reajuste_final"
+    ],
+    [
+     1791447900.7,
+     "fin"
+    ]
+   ],
+   "serie_temporal": {
+    "fichero": "KDDCup09_appetency.series.json.gz",
+    "sha256": "5e99b0524ce965179c74e079a93978d0567a1bfc646ba08d79ece831e2c055f3",
+    "muestras": 1582
+   }
+  },
+  "Allstate_Claims_Severity:intento_sin_tope": {
+   "nombre": "Allstate_Claims_Severity",
+   "data_id": 42571,
+   "tarea": "regression",
+   "inicio": "2026-10-08 10:25:17",
+   "csv": {
+    "filas": 188318,
+    "columnas": 132,
+    "bytes": 78081124
+   },
+   "loadavg_al_empezar": [
+    "1.08",
+    "1.12",
+    "1.09"
+   ],
+   "sha256_guion_dentro": "8c670b8ebd5b611c2339ad9622ce0c6f4614fd5468c490aca6d929fb3dc6cc35",
+   "guion_rc": 0,
+   "guion_pared_s": 402.4,
+   "guion_stderr_cola": "",
+   "medida": {
+    "eventos": [
+     [
+      1791447918.6557958,
+      "iniciar"
+     ],
+     [
+      1791447942.3478408,
+      "construir 0"
+     ],
+     [
+      1791447942.353018,
+      "iniciado"
+     ],
+     [
+      1791447985.5012927,
+      "pickle 0"
+     ],
+     [
+      1791447988.545838,
+      "directo 0"
+     ],
+     [
+      1791448035.7282908,
+      "aislado 0"
+     ],
+     [
+      1791448086.336739,
+      "fin 0"
+     ],
+     [
+      1791448086.6099298,
+      "construir 1"
+     ],
+     [
+      1791448128.0247767,
+      "pickle 1"
+     ],
+     [
+      1791448130.73832,
+      "directo 1"
+     ],
+     [
+      1791448194.927907,
+      "aislado 1"
+     ],
+     [
+      1791448267.1542983,
+      "fin 1"
+     ],
+     [
+      1791448267.4505925,
+      "construir 2"
+     ],
+     [
+      1791448309.6199944,
+      "pickle 2"
+     ],
+     [
+      1791448312.2831528,
+      "directo 2"
+     ],
+     [
+      1791448312.6584346,
+      "aislado 2"
+     ],
+     [
+      1791448318.8994455,
+      "fin 2"
+     ],
+     [
+      1791448319.216196,
+      "medido"
+     ],
+     [
+      1791448319.4439735,
+      "hilo terminado"
+     ]
+    ],
+    "motores": [
+     {
+      "motor": "lightgbm",
+      "tope_del_producto_s": 9.333333333333332,
+      "hilos": 1,
+      "filas_train": 102444,
+      "filas_validation": 18079,
+      "filas_test": 30131,
+      "columnas_tras_preparar": 146,
+      "preparacion_en_el_padre_s": 43.15,
+      "pickle_s": 3.01,
+      "pickle_mb": 258.4,
+      "directo_total_s": 47.18,
+      "directo": {
+       "estado": "completed",
+       "ajuste_wall_s": 43.43769237701781,
+       "ajuste_cpu_s": 43.428015994000006
+      },
+      "aislado_total_s": 50.61,
+      "aislado": {
+       "estado": "completed",
+       "ajuste_wall_s": 41.6478016609326,
+       "ajuste_cpu_s": 41.637281161
+      },
+      "tope_con_margen_s": 39.3,
+      "cabe_en_el_tope": false,
+      "aislado_menos_ajuste_s": 8.96
+     },
+     {
+      "motor": "sklearn.hgb",
+      "tope_del_producto_s": 9.333333333333332,
+      "hilos": 1,
+      "filas_train": 102444,
+      "filas_validation": 18079,
+      "filas_test": 30131,
+      "columnas_tras_preparar": 146,
+      "preparacion_en_el_padre_s": 41.41,
+      "pickle_s": 2.68,
+      "pickle_mb": 258.4,
+      "directo_total_s": 64.19,
+      "directo": {
+       "estado": "completed",
+       "ajuste_wall_s": 61.880528026027605,
+       "ajuste_cpu_s": 61.87264894500001
+      },
+      "aislado_total_s": 72.23,
+      "aislado": {
+       "estado": "completed",
+       "ajuste_wall_s": 62.27792655304074,
+       "ajuste_cpu_s": 62.267117127
+      },
+      "tope_con_margen_s": 39.3,
+      "cabe_en_el_tope": false,
+      "aislado_menos_ajuste_s": 9.95
+     },
+     {
+      "motor": "baseline",
+      "tope_del_producto_s": 9.333333333333332,
+      "hilos": 1,
+      "filas_train": 102444,
+      "filas_validation": 18079,
+      "filas_test": 30131,
+      "columnas_tras_preparar": 146,
+      "preparacion_en_el_padre_s": 42.17,
+      "pickle_s": 2.64,
+      "pickle_mb": 258.4,
+      "directo_total_s": 0.38,
+      "directo": {
+       "estado": "completed",
+       "ajuste_wall_s": 0.04931337805464864,
+       "ajuste_cpu_s": 0.049312437000025966
+      },
+      "aislado_total_s": 6.24,
+      "aislado": {
+       "estado": "completed",
+       "ajuste_wall_s": 0.015484907198697329,
+       "ajuste_cpu_s": 0.015485937000000227
+      },
+      "tope_con_margen_s": 39.3,
+      "cabe_en_el_tope": true,
+      "aislado_menos_ajuste_s": 6.22
+     }
+    ],
+    "margen_del_producto_s": 30.0,
+    "iniciar_estudio_s": 23.7,
+    "respuesta": {
+     "estado": "queued",
+     "job_id": "857c090aea374af087d666b5e8a5033a"
+    }
+   },
+   "contenedor": {
+    "oom_killed": false,
+    "codigo_de_salida": "0",
+    "estado": "running",
+    "error": ""
+   },
+   "estado": "completed",
+   "fin": "2026-10-08 10:32:03",
+   "motor_de_cada_intento_inferido": {},
+   "resumen_de_memoria": {
+    "muestras": 405,
+    "pico_total": {
+     "rss_total_mb": 4174.1,
+     "t": 1791448260.5253332,
+     "fase": "aislado 1",
+     "grupo": "aislado:sklearn.hgb",
+     "procesos": {
+      "1": [
+       "init",
+       0.7
+      ],
+      "7": [
+       "sh",
+       1.9
+      ],
+      "8": [
+       "servidor",
+       56.5
+      ],
+      "36": [
+       "guion_del_intento",
+       2833.0
+      ],
+      "161": [
+       "resource_tracker",
+       12.2
+      ],
+      "314": [
+       "hijo_spawn",
+       1269.8
+      ]
+     }
+    },
+    "pico_cgroup": {
+     "cgroup_mb": 4080.7,
+     "t": 1791448260.5253332,
+     "fase": "aislado 1",
+     "grupo": "aislado:sklearn.hgb"
+    },
+    "pico_servidor_mb": 56.5,
+    "por_rol": {
+     "init": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.7
+     },
+     "sh": {
+      "procesos_distintos": 2,
+      "pico_rss_mb": 1.9
+     },
+     "servidor": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 56.5
+     },
+     "guion_del_intento": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 3219.5
+     },
+     "otro": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 11.4
+     },
+     "resource_tracker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 12.2
+     },
+     "hijo_spawn": {
+      "procesos_distintos": 3,
+      "pico_rss_mb": 1269.8
+     },
+     "exec_de_docker": {
+      "procesos_distintos": 2,
+      "pico_rss_mb": 11.4
+     }
+    },
+    "por_fase": {
+     "antes": {
+      "muestras": 1,
+      "pico_total_mb": 59.0,
+      "pico_servidor_mb": 56.4,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 49.4,
+      "duracion_s": 0.0
+     },
+     "arranque_del_guion": {
+      "muestras": 1,
+      "pico_total_mb": 179.3,
+      "pico_servidor_mb": 56.4,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 154.3,
+      "duracion_s": 0.0
+     },
+     "iniciar": {
+      "muestras": 23,
+      "pico_total_mb": 2320.4,
+      "pico_servidor_mb": 56.4,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 2298.3,
+      "duracion_s": 22.0
+     },
+     "iniciado": {
+      "muestras": 43,
+      "pico_total_mb": 2809.6,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 2788.6,
+      "duracion_s": 42.0
+     },
+     "pickle:lightgbm": {
+      "muestras": 4,
+      "pico_total_mb": 3064.1,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 3043.7,
+      "duracion_s": 3.0
+     },
+     "directo:lightgbm": {
+      "muestras": 47,
+      "pico_total_mb": 2972.9,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 2929.6,
+      "duracion_s": 46.1
+     },
+     "aislado:lightgbm": {
+      "muestras": 50,
+      "pico_total_mb": 4104.6,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 1238.2,
+      "pico_cgroup_mb": 4014.4,
+      "duracion_s": 49.1
+     },
+     "fin 0": {
+      "muestras": 1,
+      "pico_total_mb": 2866.4,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 2816.9,
+      "duracion_s": 0.0
+     },
+     "construir:sklearn.hgb": {
+      "muestras": 41,
+      "pico_total_mb": 2913.9,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 2864.4,
+      "duracion_s": 40.0
+     },
+     "pickle:sklearn.hgb": {
+      "muestras": 3,
+      "pico_total_mb": 3276.6,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 3227.9,
+      "duracion_s": 2.0
+     },
+     "directo:sklearn.hgb": {
+      "muestras": 64,
+      "pico_total_mb": 3198.2,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 3145.4,
+      "duracion_s": 63.0
+     },
+     "aislado:sklearn.hgb": {
+      "muestras": 72,
+      "pico_total_mb": 4174.1,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 1269.8,
+      "pico_cgroup_mb": 4080.7,
+      "duracion_s": 71.0
+     },
+     "construir:baseline": {
+      "muestras": 43,
+      "pico_total_mb": 2916.0,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 2862.6,
+      "duracion_s": 42.0
+     },
+     "pickle:baseline": {
+      "muestras": 2,
+      "pico_total_mb": 3181.7,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 3128.9,
+      "duracion_s": 1.0
+     },
+     "directo:baseline": {
+      "muestras": 1,
+      "pico_total_mb": 2910.8,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 2857.4,
+      "duracion_s": 0.0
+     },
+     "aislado:baseline": {
+      "muestras": 6,
+      "pico_total_mb": 3801.1,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 847.4,
+      "pico_cgroup_mb": 3733.2,
+      "duracion_s": 5.0
+     },
+     "hilo terminado": {
+      "muestras": 3,
+      "pico_total_mb": 2784.6,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 2731.0,
+      "duracion_s": 2.0
+     }
+    },
+    "hijo_mayor": {
+     "pid": 314,
+     "ppid": 36,
+     "rol": "hijo_spawn",
+     "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+     "primera_t": 1791448198.5249882,
+     "ultima_t": 1791448266.5254686,
+     "pico_rss_mb": 1269.8,
+     "pico_hwm_mb": 1365.2,
+     "fase_del_pico": "aislado 1",
+     "servidor_en_el_pico_mb": 56.5,
+     "grupo_al_nacer": "aislado:sklearn.hgb",
+     "vive_s": 68.0,
+     "sobre_pico_del_servidor": 22.474,
+     "sobre_servidor_en_ese_instante": 22.474
+    },
+    "por_proceso": [
+     {
+      "pid": 1,
+      "ppid": 0,
+      "rol": "init",
+      "cmd": "/sbin/docker-init -- sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791447917.5245707,
+      "ultima_t": 1791448321.524767,
+      "pico_rss_mb": 0.7,
+      "pico_hwm_mb": 0.7,
+      "fase_del_pico": "hilo terminado",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "antes",
+      "vive_s": 404.0
+     },
+     {
+      "pid": 7,
+      "ppid": 1,
+      "rol": "sh",
+      "cmd": "sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791447917.5245707,
+      "ultima_t": 1791448321.524767,
+      "pico_rss_mb": 1.9,
+      "pico_hwm_mb": 1.9,
+      "fase_del_pico": "hilo terminado",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "antes",
+      "vive_s": 404.0
+     },
+     {
+      "pid": 8,
+      "ppid": 7,
+      "rol": "servidor",
+      "cmd": "python -m matrixai_studio --host 0.0.0.0 --port 8765",
+      "primera_t": 1791447917.5245707,
+      "ultima_t": 1791448321.524767,
+      "pico_rss_mb": 56.5,
+      "pico_hwm_mb": 57.3,
+      "fase_del_pico": "hilo terminado",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "antes",
+      "vive_s": 404.0
+     },
+     {
+      "pid": 36,
+      "ppid": 0,
+      "rol": "guion_del_intento",
+      "cmd": "python3 /tmp/intento_sin_tope_128_c0.py /tmp/cuerpo_128_c0.json /tmp/intento_128_c0.json",
+      "primera_t": 1791447918.5904064,
+      "ultima_t": 1791448319.525075,
+      "pico_rss_mb": 3219.5,
+      "pico_hwm_mb": 3257.5,
+      "fase_del_pico": "aislado 1",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 400.9
+     },
+     {
+      "pid": 98,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791447980.525338,
+      "ultima_t": 1791447980.525338,
+      "pico_rss_mb": 1.9,
+      "pico_hwm_mb": 1.9,
+      "fase_del_pico": "iniciado",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "iniciado",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 104,
+      "ppid": 98,
+      "rol": "otro",
+      "cmd": "curl -sf http://localhost:8765/api/studio/status",
+      "primera_t": 1791447980.525338,
+      "ultima_t": 1791447980.525338,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "iniciado",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "iniciado",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 161,
+      "ppid": 36,
+      "rol": "resource_tracker",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.resource_tracker import main;main(5)",
+      "primera_t": 1791448036.5250225,
+      "ultima_t": 1791448319.525075,
+      "pico_rss_mb": 12.2,
+      "pico_hwm_mb": 12.2,
+      "fase_del_pico": "hilo terminado",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "aislado:lightgbm",
+      "vive_s": 283.0
+     },
+     {
+      "pid": 162,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791448039.525389,
+      "ultima_t": 1791448085.593593,
+      "pico_rss_mb": 1238.2,
+      "pico_hwm_mb": 1238.2,
+      "fase_del_pico": "aislado 0",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "aislado:lightgbm",
+      "vive_s": 46.1,
+      "sobre_pico_del_servidor": 21.915,
+      "sobre_servidor_en_ese_instante": 21.915
+     },
+     {
+      "pid": 250,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791448121.524988,
+      "ultima_t": 1791448121.524988,
+      "pico_rss_mb": 11.4,
+      "pico_hwm_mb": 11.4,
+      "fase_del_pico": "construir 1",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "construir:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 314,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791448198.5249882,
+      "ultima_t": 1791448266.5254686,
+      "pico_rss_mb": 1269.8,
+      "pico_hwm_mb": 1365.2,
+      "fase_del_pico": "aislado 1",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "aislado:sklearn.hgb",
+      "vive_s": 68.0,
+      "sobre_pico_del_servidor": 22.474,
+      "sobre_servidor_en_ese_instante": 22.474
+     },
+     {
+      "pid": 369,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791448252.5254135,
+      "ultima_t": 1791448252.5254135,
+      "pico_rss_mb": 9.7,
+      "pico_hwm_mb": 9.7,
+      "fase_del_pico": "aislado 1",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "aislado:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 428,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791448315.525024,
+      "ultima_t": 1791448318.5248976,
+      "pico_rss_mb": 847.4,
+      "pico_hwm_mb": 871.5,
+      "fase_del_pico": "aislado 2",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "aislado:baseline",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 14.998,
+      "sobre_servidor_en_ese_instante": 14.998
+     }
+    ]
+   },
+   "memoria_del_contenedor": "9g",
+   "eventos_de_fase": [
+    [
+     1791447917.6,
+     "arranque_del_guion"
+    ],
+    [
+     1791447918.7,
+     "iniciar"
+    ],
+    [
+     1791447942.3,
+     "construir 0"
+    ],
+    [
+     1791447942.4,
+     "iniciado"
+    ],
+    [
+     1791447985.5,
+     "pickle 0"
+    ],
+    [
+     1791447988.5,
+     "directo 0"
+    ],
+    [
+     1791448035.7,
+     "aislado 0"
+    ],
+    [
+     1791448086.3,
+     "fin 0"
+    ],
+    [
+     1791448086.6,
+     "construir 1"
+    ],
+    [
+     1791448128.0,
+     "pickle 1"
+    ],
+    [
+     1791448130.7,
+     "directo 1"
+    ],
+    [
+     1791448194.9,
+     "aislado 1"
+    ],
+    [
+     1791448267.2,
+     "fin 1"
+    ],
+    [
+     1791448267.5,
+     "construir 2"
+    ],
+    [
+     1791448309.6,
+     "pickle 2"
+    ],
+    [
+     1791448312.3,
+     "directo 2"
+    ],
+    [
+     1791448312.7,
+     "aislado 2"
+    ],
+    [
+     1791448318.9,
+     "fin 2"
+    ],
+    [
+     1791448319.2,
+     "medido"
+    ],
+    [
+     1791448319.4,
+     "hilo terminado"
+    ]
+   ],
+   "serie_temporal": {
+    "fichero": "Allstate_Claims_Severity.series.json.gz",
+    "sha256": "cada98e29ec35641f0986c16737942c622613a720a9833e7fb68dceb7e7fa3a7",
+    "muestras": 405
+   }
+  }
+ }
+}
