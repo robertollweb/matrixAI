@@ -9,8 +9,9 @@ Lo que lanza el medidor a mano (normalmente lo hace `lanzar.ps1` / `lanzar.sh`):
     python3 medir_c5.py --brazo B --studio http://c5-128-studio-B:8765 ...      # exige el brazo A terminado
     python3 medir_c5.py --componer --salida /salida                              # junta A + B -> resultado_128_c5.json
 
-Un brazo = los 13 conjuntos de referencia, uno tras otro, y después la REPETICIÓN de los 4 de control (el suelo de
-ruido de ese brazo). Se corta y se relanza donde estaba: tras cada conjunto se escribe `brazo_<X>.json` (os.replace) y
+Un brazo = los 13 conjuntos de referencia, uno tras otro, con la REPETICIÓN de los 4 de control (el suelo de ruido
+de ese brazo) justo DESPUÉS de medir esos 4 —los de control van los primeros— y ANTES de los otros 9 (así el corte por
+la regla 9 ya tiene su suelo desde el principio). Se corta y se relanza donde estaba: tras cada conjunto se escribe `brazo_<X>.json` (os.replace) y
 al relanzar se reusan SOLO los `completed` con la misma procedencia. El brazo B se corta, como la regla 9 del 120, en
 el primer conjunto que baja más que el suelo de ruido o deja de completar (`veredicto_128_c5.corta`).
 

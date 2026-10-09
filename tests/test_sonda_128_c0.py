@@ -236,3 +236,68 @@ def test_la_retencion_lee_la_memoria_de_este_proceso_y_el_asignador():
     assert m["arena"] is None or m["arena"] >= 0
     assert m["grande"] > m["rss"] + 100
     assert m["despues"] < m["grande"] - 50     # lo que se suelta, se devuelve
+
+
+# ------------------------------------------------------------------------------------ M1 de la auditoría del paso 4 del 128-C1
+# El guion del «intento sin tope» (el modo de `--solo Allstate_Claims_Severity` y de `--humo`) corre aquí, de verdad, con un
+# CSV pequeño, contra los motores y el backend de la integración (los hermanos de este repo).
+import json
+import random
+import subprocess
+import textwrap
+
+_RAIZ = Path(__file__).resolve().parents[2]
+_BACKEND = _RAIZ / "matrixaistudio" / "studio-backend"
+_MOTORES = _RAIZ / "matrixai-engines" / "src"
+
+
+def _correr_guion_sin_tope(tmp_path, *, antes_de_correr=""):
+    if not (_BACKEND.is_dir() and _MOTORES.is_dir()):
+        import pytest
+        pytest.skip("hacen falta los hermanos matrixaistudio y matrixai-engines")
+    r = random.Random(3)
+    filas = ["id,x1,x2,y"]
+    for i in range(160):
+        x1, x2 = r.uniform(0, 10), r.uniform(0, 1)
+        filas.append(f"{i},{x1:.3f},{x2:.3f},{'si' if x1 + 3 * x2 + r.gauss(0, 1) > 6 else 'no'}")
+    cuerpo = {"csv_text": "\n".join(filas), "objetivo": "y", "tarea": "binary_classification", "clase_positiva": "si",
+              "entradas": ["x1", "x2"], "unidad_de_observacion": "una fila", "observation_id_field": "id", "folds": 2}
+    (tmp_path / "cuerpo.json").write_text(json.dumps(cuerpo))
+    (tmp_path / "guion.py").write_text(S.INTENTO_SIN_TOPE)
+    envoltorio = "\n".join([
+        "import runpy, sys",
+        textwrap.dedent(antes_de_correr),
+        f"sys.argv = ['guion.py', {str(tmp_path / 'cuerpo.json')!r}, {str(tmp_path / 'salida.json')!r}]",
+        f"runpy.run_path({str(tmp_path / 'guion.py')!r}, run_name='__main__')"])
+    (tmp_path / "envoltorio.py").write_text(envoltorio)
+    env = dict(os.environ, MATRIXAI_ESTUDIOS_DIR=str(tmp_path / "estudios"), MATRIXAI_ESTUDIO_SIN_TABM="1",
+               MATRIXAI_ESTUDIO_SIN_DENSA="1", PYTHONPATH=os.pathsep.join(
+                   [str(_MOTORES), str(_RAIZ / "matrixAI"), str(_BACKEND)]))
+    p = subprocess.run([sys.executable, str(tmp_path / "envoltorio.py")], capture_output=True, text=True,
+                       env=env, timeout=600)
+    salida = tmp_path / "salida.json"
+    return p, (json.loads(salida.read_text()) if salida.exists() else None)
+
+
+def test_el_intento_sin_tope_mide_con_las_particiones_en_fichero(tmp_path):
+    """Con el paso 4 la descripción de cada intento lleva `train=None` y `en_fichero`: el guion las CARGA y mide."""
+    p, med = _correr_guion_sin_tope(tmp_path)
+    assert p.returncode == 0, p.stderr[-1500:]
+    assert med and len(med["motores"]) >= 2, (med, p.stderr[-800:])
+    for m in med["motores"]:
+        assert m["filas_train"] > 50 and m["filas_test"] > 20 and m["columnas_tras_preparar"] >= 2
+        assert m["directo"]["estado"] == "completed" and m["aislado"]["estado"] == "completed"
+
+
+def test_el_intento_sin_tope_que_no_mide_nada_sale_con_un_codigo_distinto_de_cero(tmp_path):
+    """Antes: `motores: []` y código 0 en silencio. Aquí el recorrido de los intentos revienta (como reventó con
+    `d.train == None`) y el guion tiene que decirlo y salir con error."""
+    p, med = _correr_guion_sin_tope(tmp_path, antes_de_correr=textwrap.dedent("""
+        import matrixai_studio.estudio_job as ej
+        def roto(self):
+            raise AttributeError("'NoneType' object has no attribute 'row_ids'")
+            yield
+        ej._IntentosDelEstudio.__iter__ = roto
+    """))
+    assert p.returncode != 0, "la sonda salió con 0 sin medir nada"
+    assert med and med["motores"] == [] and "no midió" in med["error"]

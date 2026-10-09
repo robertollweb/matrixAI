@@ -181,15 +181,23 @@ def main():
             t0 = time.perf_counter()
             d = next(it)                                                # preparación + particiones, en el padre
             prep = time.perf_counter() - t0
+            # 128-C1 paso 4 (M1 de su auditoría): con las particiones en un fichero la descripción lleva
+            # `train/validation/test = None` y `en_fichero`; aquí se CARGAN (es lo que carga el hijo del producto).
+            # Antes el guion leía `d.train` directamente, el hilo del estudio moría con AttributeError y la sonda
+            # salía con `motores: []` y código 0, sin decir nada.
+            if getattr(d, "en_fichero", None) is not None:
+                train, validation, test = d.en_fichero.cargar()
+            else:
+                train, validation, test = d.train, d.validation, d.test
             m = {"motor": d.motor_id, "tope_del_producto_s": d.presupuesto.wall_seconds, "hilos": d.presupuesto.hilos,
-                 "filas_train": len(d.train.row_ids), "filas_validation": len(d.validation.row_ids) if d.validation else 0,
-                 "filas_test": len(d.test.row_ids), "columnas_tras_preparar": len(d.train.features[0]),
+                 "filas_train": len(train.row_ids), "filas_validation": len(validation.row_ids) if validation else 0,
+                 "filas_test": len(test.row_ids), "columnas_tras_preparar": len(train.features[0]),
                  "preparacion_en_el_padre_s": round(prep, 2)}
             motor = motores[d.motor_id]
             sin_tope = dataclasses.replace(d.presupuesto, wall_seconds=100000.0)
             ev(f"pickle {i}")
             t0 = time.perf_counter()
-            blob = pickle.dumps((motor, d.train, d.validation, d.test, d.spec), protocol=pickle.HIGHEST_PROTOCOL)
+            blob = pickle.dumps((motor, train, validation, test, d.spec), protocol=pickle.HIGHEST_PROTOCOL)
             m["pickle_s"] = round(time.perf_counter() - t0, 2)
             m["pickle_mb"] = round(len(blob) / 2**20, 1)
             del blob
@@ -197,12 +205,12 @@ def main():
                          pliegue=d.pliegue, repeticion=d.repeticion)
             ev(f"directo {i}")
             t0 = time.perf_counter()
-            a = ejecutar_intento(motor, d.train, d.validation, d.test, d.spec, sin_tope, **comun)
+            a = ejecutar_intento(motor, train, validation, test, d.spec, sin_tope, **comun)
             m["directo_total_s"] = round(time.perf_counter() - t0, 2)
             m["directo"] = recursos(a)
             ev(f"aislado {i}")
             t0 = time.perf_counter()
-            b = ejecutar_intento_aislado(motor, d.train, d.validation, d.test, d.spec, sin_tope, **comun)
+            b = ejecutar_intento_aislado(motor, train, validation, test, d.spec, sin_tope, **comun)
             m["aislado_total_s"] = round(time.perf_counter() - t0, 2)
             m["aislado"] = recursos(b)
             ev(f"fin {i}")
@@ -213,7 +221,9 @@ def main():
                 m["aislado_menos_ajuste_s"] = round(m["aislado_total_s"] - m["aislado"]["ajuste_wall_s"], 2)
             R["motores"].append(m)
             json.dump(R, open(salida, "w"), indent=1)
-            del d
+            del d, train, validation, test
+        if hasattr(intentos, "soltar"):
+            intentos.soltar()                                           # y el fichero de particiones, si lo hay
         ev("medido")
         json.dump(R, open(salida, "w"), indent=1)
         return ej.Leaderboard(estudio_id=estudio.estudio_id)
@@ -232,6 +242,13 @@ def main():
         sys.exit(2)
     job["hilo"].join()
     ev("hilo terminado")
+    if not R["motores"]:
+        # Una sonda que no midió NADA no sale con 0: el hilo del estudio puede haber muerto por dentro (el job lo dice).
+        R["error"] = ("el intento sin tope no midió ningún motor; estado del job: "
+                      f"{job.get('estado')!r}, error: {job.get('error')!r}")
+        json.dump(R, open(salida, "w"), indent=1)
+        print(R["error"], file=sys.stderr)
+        sys.exit(3)
     json.dump(R, open(salida, "w"), indent=1)
 
 
