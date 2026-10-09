@@ -1,0 +1,744 @@
+{
+ "ok": true,
+ "job_id": "8846aea6ce9d473484f3ad9499db54b4",
+ "estado": "completed",
+ "guardado": false,
+ "n_intentos_total": 15,
+ "n_intentos_completados": 15,
+ "leaderboard": [
+  {
+   "candidate": "lightgbm-csv-p0-r0",
+   "engine": "lightgbm",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "sklearn.hgb-csv-p0-r0",
+   "engine": "sklearn.hgb",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "baseline-csv-p0-r0",
+   "engine": "baseline",
+   "engine_version": "1.0.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "component_id": "3946a70d25730241d9d507f29b5cf8f93c00d865152754691fa8dd15d550a786",
+    "digest_de_lo_aprendido": "a0804dce93ece28c6917dec71169b3b6880cc9de6b540640ee7999b165fdcd78",
+    "engine_version": "1.0.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.3",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.30.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "media": 3042.740656065753,
+    "referencia": "media",
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "regression"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "1.0.0",
+    "value": 2977.551503495542,
+    "undefined_reason": null,
+    "n_observations": 30131,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 0.012909663000000293,
+   "wall_seconds": 0.012909885961562395,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "lightgbm-csv-p1-r0",
+   "engine": "lightgbm",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "sklearn.hgb-csv-p1-r0",
+   "engine": "sklearn.hgb",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "baseline-csv-p1-r0",
+   "engine": "baseline",
+   "engine_version": "1.0.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "component_id": "8cf62bcacb07dd94f6c650400708bc5de6526673cdef89b41c55c0f4c372516f",
+    "digest_de_lo_aprendido": "0dac6f0418d26a7029a74d20508d05ef861124e80ec78ec91eb810aa454cbe70",
+    "engine_version": "1.0.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.3",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.30.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "media": 3036.743772012026,
+    "referencia": "media",
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "regression"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "1.0.0",
+    "value": 2866.253141402836,
+    "undefined_reason": null,
+    "n_observations": 30131,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 0.01279088099999992,
+   "wall_seconds": 0.012790713924914598,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "lightgbm-csv-p2-r0",
+   "engine": "lightgbm",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "sklearn.hgb-csv-p2-r0",
+   "engine": "sklearn.hgb",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "baseline-csv-p2-r0",
+   "engine": "baseline",
+   "engine_version": "1.0.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "component_id": "8d07336ea7374af8faa460f75881d57a2f6cd6172f1b2baa98c24f3ee8a25c4f",
+    "digest_de_lo_aprendido": "c9be3065533a7ae48c58c95eaa3cea23f755a0781350d4173ac13544d15f592c",
+    "engine_version": "1.0.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.3",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.30.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "media": 3030.894318456913,
+    "referencia": "media",
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "regression"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "1.0.0",
+    "value": 2954.925041666765,
+    "undefined_reason": null,
+    "n_observations": 30131,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 0.012104254999999675,
+   "wall_seconds": 0.012103795073926449,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "lightgbm-csv-p3-r0",
+   "engine": "lightgbm",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "sklearn.hgb-csv-p3-r0",
+   "engine": "sklearn.hgb",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "baseline-csv-p3-r0",
+   "engine": "baseline",
+   "engine_version": "1.0.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "component_id": "5fc15e791cbc406e50af132ffa3a0db27eb4a19a99b1f21ae612d219e19b2807",
+    "digest_de_lo_aprendido": "e7e0d1a5ada2a295f34f5da573d1b0277ade1773eb117bcf1676bbc5d7477e1c",
+    "engine_version": "1.0.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.3",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.30.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "media": 3032.0043821990553,
+    "referencia": "media",
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "regression"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "1.0.0",
+    "value": 2877.3064188184903,
+    "undefined_reason": null,
+    "n_observations": 30131,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 0.011541540999999711,
+   "wall_seconds": 0.011543167056515813,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "lightgbm-csv-p4-r0",
+   "engine": "lightgbm",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "sklearn.hgb-csv-p4-r0",
+   "engine": "sklearn.hgb",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "baseline-csv-p4-r0",
+   "engine": "baseline",
+   "engine_version": "1.0.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "component_id": "1e9148c0a75bedd7a27cd12bc8f70a83f26447015928ef1b96669e9c9328ab1f",
+    "digest_de_lo_aprendido": "026525e55f6b361b0729f2f415337daaeb250cf8c8f464275cd7b61c617509c3",
+    "engine_version": "1.0.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.3",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.30.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "media": 3028.4451868807655,
+    "referencia": "media",
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "regression"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "rmse",
+    "formula_version": "1.0.0",
+    "value": 2878.9082369870657,
+    "undefined_reason": null,
+    "n_observations": 30130,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 0.012588131000000224,
+   "wall_seconds": 0.012587211094796658,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  }
+ ],
+ "seleccion": {
+  "bandas": null,
+  "bandas_motivo": null,
+  "calibracion_multiclase_motivo": null,
+  "candidate_engine": null,
+  "checkpoint_path": null,
+  "comparacion_con_el_proceso_actual": null,
+  "conforme": null,
+  "decision": {
+   "chosen_candidate": null,
+   "constraints_checked": [],
+   "decision_id": "seleccion-csv:loss",
+   "evidence": [],
+   "outcome": "insufficient_evidence",
+   "policy": "utilidad_maxima_bajo_restricciones",
+   "reason": {
+    "en": "No engine other than the reference was measured in any part of the search: the reference does not win by being left alone.",
+    "es": "Ningún motor, aparte de la referencia, se midió en ninguna parte de la búsqueda: la referencia no gana por quedarse sola."
+   },
+   "rejected": [],
+   "schema": "matrixai.estudio.selection_decision",
+   "schema_version": "1.0",
+   "split_plan_digest": "6f8403d6986b1af399f84f46ece73bc0a0c37b662d9ff2f45035241dcf3f02d7"
+  },
+  "entrenamiento_del_entregado": null,
+  "evaluacion_final": null,
+  "latencia": null,
+  "media_de_la_seleccion": {
+   "metrica": "rmse",
+   "modo": "ninguno",
+   "motores": [
+    {
+     "compite": false,
+     "de": 5,
+     "motor": "baseline",
+     "n_partes": 5,
+     "valor": null
+    }
+   ],
+   "n_esperados": 5
+  },
+  "motivo": null,
+  "motores_que_no_puntuaron": [
+   {
+    "clave": "sin_presupuesto",
+    "intentos_por_estado": {
+     "failed": 5
+    },
+    "motivo_del_motor": {
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+    },
+    "motor": "lightgbm",
+    "techo_por_intento_segundos": 9.333333333333332
+   },
+   {
+    "clave": "sin_presupuesto",
+    "intentos_por_estado": {
+     "failed": 5
+    },
+    "motivo_del_motor": {
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+    },
+    "motor": "sklearn.hgb",
+    "techo_por_intento_segundos": 9.333333333333332
+   }
+  ],
+  "perfil_clinico": null,
+  "perfil_clinico_motivo": null,
+  "politica_de_arboles": null,
+  "politica_preparacion": null,
+  "recibo": null,
+  "recomputo_de_seleccion": null,
+  "reparto_de_la_busqueda_segundos": {
+   "baseline": 9.333333333333332,
+   "lightgbm": 9.333333333333332,
+   "sklearn.hgb": 9.333333333333332
+  },
+  "texto_declarado": null
+ },
+ "error": null,
+ "error_motivo": null,
+ "presupuesto_total_segundos": 180.0,
+ "segundos_reales": 1099.285501241684,
+ "identificador_de_fila": "__fila__",
+ "identificador_de_fila_sintetico": true,
+ "filas_sin_objetivo": 0,
+ "nombre_de_los_datos": null,
+ "etiquetas_originales": {},
+ "entradas_excluidas": [],
+ "motores_fuera_por_memoria": {
+  "matrixai.dense.tabm_cpu": {
+   "es": "TabM no compitió en este estudio: la memoria estimada del estudio (15,3 GB, con 188.318 filas × 131 columnas de entrada) supera la disponible (6,0 GB), y con TabM compitiendo el estudio podía quedarse sin memoria.",
+   "en": "TabM did not compete in this study: its estimated memory (15.3 GB, with 188,318 rows × 131 input columns) exceeds the memory available (6.0 GB), and with TabM competing the study could run out of memory.",
+   "estimada_gb": 15.34,
+   "disponible_gb": 6.0
+  }
+ },
+ "modo": null,
+ "origen": null,
+ "parametros_del_modo": null,
+ "tarea": "regression",
+ "paquete": {
+  "disponible": true,
+  "motivo": null
+ },
+ "nombres_de_metricas": {
+  "auroc": {
+   "es": "AUROC",
+   "en": "AUROC"
+  },
+  "average_precision": {
+   "es": "Precisión media (AP)",
+   "en": "Average precision (AP)"
+  },
+  "pr_auc_trapezoidal": {
+   "es": "Área bajo la curva PR (trapecios)",
+   "en": "PR AUC (trapezoidal)"
+  },
+  "log_loss": {
+   "es": "Pérdida logarítmica",
+   "en": "Log loss"
+  },
+  "brier_score": {
+   "es": "Puntuación de Brier",
+   "en": "Brier score"
+  },
+  "calibration_in_the_large": {
+   "es": "Calibración global",
+   "en": "Calibration-in-the-large"
+  },
+  "sensitivity": {
+   "es": "Sensibilidad",
+   "en": "Sensitivity"
+  },
+  "specificity": {
+   "es": "Especificidad",
+   "en": "Specificity"
+  },
+  "ppv": {
+   "es": "Valor predictivo positivo (VPP)",
+   "en": "Positive predictive value (PPV)"
+  },
+  "npv": {
+   "es": "Valor predictivo negativo (VPN)",
+   "en": "Negative predictive value (NPV)"
+  },
+  "accuracy": {
+   "es": "Exactitud",
+   "en": "Accuracy"
+  },
+  "macro_f1": {
+   "es": "F1 macro",
+   "en": "Macro F1"
+  },
+  "mae": {
+   "es": "MAE",
+   "en": "MAE"
+  },
+  "rmse": {
+   "es": "RMSE",
+   "en": "RMSE"
+  },
+  "r2": {
+   "es": "R²",
+   "en": "R²"
+  }
+ }
+}
