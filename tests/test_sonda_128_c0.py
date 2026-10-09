@@ -222,3 +222,118 @@ def test_la_retencion_lee_la_memoria_de_este_proceso_y_el_asignador():
     del bloque
     libc.malloc_trim(0)
     assert ns["estado_del_proceso"]()["status_mb"]["VmRSS"] < grande - 50     # lo que se suelta, se devuelve
+
+
+# ----------------------------------------------------------------------------- 128-C3b: TabM FORZADO en los grandes
+_ESTUDIO_JOB_DE_MENTIRA = '''
+import threading
+_MOTOR_TABM = "matrixai.dense.tabm_cpu"
+_jobs = {}
+
+
+def _memoria_de_tabm_que_no_cabe(filas, columnas_de_entrada):
+    return (7.5, 6.0)                                  # la de verdad: con 6 GB, NO cabe
+
+
+def _decidir_motores(guarda):
+    return ["sklearn.hgb"] + ([] if guarda(60000, 170) else [_MOTOR_TABM])
+
+
+def iniciar_estudio(cuerpo):
+    # como `estudio_job`: la guarda se busca por su nombre GLOBAL al decidir (la sustitución del módulo llega)
+    motores = _decidir_motores(GUARDA_FIJADA or (lambda f, c: _memoria_de_tabm_que_no_cabe(f, c)))
+    job = {"estado": "running", "leaderboard": []}
+
+    def correr():
+        for m in motores:
+            job["leaderboard"].append({"engine": m, "wall_seconds": 1.0})
+        job["estado"] = "completed"
+    job["hilo"] = threading.Thread(target=correr)
+    job["hilo"].start()
+    _jobs["j1"] = job
+    return {"ok": True, "estudio": {"job_id": "j1"}}
+
+
+def estudio_status(job_id):
+    j = _jobs[job_id]
+    return {"estado": j["estado"], "n_intentos_completados": len(j["leaderboard"]), "n_intentos_total": 2,
+            "leaderboard": list(j["leaderboard"]), "seleccion": {"candidate_engine": "sklearn.hgb"}}
+'''
+
+
+def _correr_el_guion_tabm(tmp_path, monkeypatch, *, guarda_fijada_al_importar):
+    """El guion `TABM_FORZADO` de verdad contra un `estudio_job` de mentira. Con `guarda_fijada_al_importar`, el estudio usa
+    una copia de la guarda tomada ANTES de sustituirla: la sustitución no llega (el caso que el guion tiene que cazar)."""
+    import json as _json
+    import types
+    paquete, ej = types.ModuleType("matrixai_studio"), types.ModuleType("matrixai_studio.estudio_job")
+    exec(compile(_ESTUDIO_JOB_DE_MENTIRA, "ej_de_mentira", "exec"), ej.__dict__)
+    ej.GUARDA_FIJADA = ej._memoria_de_tabm_que_no_cabe if guarda_fijada_al_importar else None
+    paquete.estudio_job = ej
+    monkeypatch.setitem(sys.modules, "matrixai_studio", paquete)
+    monkeypatch.setitem(sys.modules, "matrixai_studio.estudio_job", ej)
+    cuerpo, salida = tmp_path / "cuerpo.json", tmp_path / "salida.json"
+    cuerpo.write_text("{}")
+    monkeypatch.setattr(sys, "argv", ["guion", str(cuerpo), str(salida)])
+    ns = {"__name__": "tabm_forzado_bajo_prueba"}
+    exec(compile(S.TABM_FORZADO, "tabm_forzado", "exec"), ns)
+    codigo = 0
+    try:
+        ns["main"]()
+    except SystemExit as e:
+        codigo = e.code
+    return codigo, _json.loads(salida.read_text())
+
+
+def test_el_guion_de_tabm_forzado_compila_sustituye_en_memoria_y_no_toca_el_producto():
+    compile(S.TABM_FORZADO, "tabm_forzado", "exec")
+    t = S.TABM_FORZADO
+    assert "ej._memoria_de_tabm_que_no_cabe = callada" in t                  # EN MEMORIA, por su punto de sustitución
+    assert "estudio_job.py" not in t and "shutil" not in t                   # ni escribe ni copia nada del producto
+    assert S.rol_con_el_guion_de_servidor("python3 /tmp/tabm_forzado_128_c3b.py /tmp/a /tmp/b") == "servidor"
+    assert S.rol_con_el_guion_de_servidor(SRV) == "servidor_ocioso"         # el servidor HTTP del contenedor, aparte
+    assert S.rol_con_el_guion_de_servidor(HIJO) == "hijo_spawn"
+
+
+def test_el_guion_de_tabm_forzado_hace_competir_a_tabm_y_apunta_lo_que_habria_dicho_la_guarda(tmp_path, monkeypatch):
+    codigo, med = _correr_el_guion_tabm(tmp_path, monkeypatch, guarda_fijada_al_importar=False)
+    assert codigo == 0
+    assert med["intentos_de_tabm"] == 1
+    assert med["guarda_de_verdad"] == [{"filas": 60000, "columnas_de_entrada": 170,
+                                        "habria_dicho_estimada_y_disponible_gb": [7.5, 6.0]}]
+    assert med["estado_final"]["estado"] == "completed" and med["estados"][-1][1] == "completed"
+    assert S.veredicto_tabm_forzado(codigo, med) == "completed"
+
+
+def test_el_guion_de_tabm_forzado_TIENE_DIENTES_si_la_sustitucion_no_llega_sale_con_3(tmp_path, monkeypatch):
+    """Una guarda copiada antes de sustituirla (otro módulo que la importara por su nombre, por ejemplo) deja a TabM fuera:
+    el estudio termina, pero la medida no mide lo que dice. Eso NO puede salir «completed»."""
+    codigo, med = _correr_el_guion_tabm(tmp_path, monkeypatch, guarda_fijada_al_importar=True)
+    assert codigo == 3 and med["intentos_de_tabm"] == 0
+    assert S.veredicto_tabm_forzado(codigo, med) == "sin_tabm"
+    assert S.veredicto_tabm_forzado(0, med) == "sin_tabm"                    # aunque el código no lo dijera
+
+
+def test_veredicto_de_tabm_forzado():
+    terminado = {"estado_final": {"estado": "completed"}, "intentos_de_tabm": 4}
+    assert S.veredicto_tabm_forzado(0, terminado) == "completed"
+    assert S.veredicto_tabm_forzado(0, {"estado_final": {"estado": "failed"}, "intentos_de_tabm": 4}) == "failed"
+    assert S.veredicto_tabm_forzado(-9, {"estados": [[1.0, "running", 2, 9]]}) == "failed"     # el OOM se llevó el guion
+    assert S.veredicto_tabm_forzado(-9, None) == "failed"
+
+
+def test_eventos_de_los_estados_del_guion():
+    med = {"t_inicio": 10.0, "t_fin": 60.0,
+           "estados": [[11.0, "queued", 0, None], [12.0, "running", 0, 3], [20.0, "running", 1, 3], [30.0, "running", 2, 3],
+                       [40.0, "running", 3, 3], [60.0, "completed", 3, 3]]}
+    assert S.eventos_de_los_estados(med) == [(10.0, "preparacion"), (11.0, "cola"), (12.0, "intento 1/3"),
+                                             (20.0, "intento 2/3"), (30.0, "intento 3/3"), (40.0, "reajuste_final"),
+                                             (60.0, "fin")]
+    sin_fin = {"t_inicio": 10.0, "estados": [[12.0, "running", 0, 3]]}      # el OOM se llevó el guion: la fase sigue abierta
+    assert S.eventos_de_los_estados(sin_fin) == [(10.0, "preparacion"), (12.0, "intento 1/3")]
+
+
+def test_tabm_forzado_lleva_el_entorno_del_producto_cpu_y_nunca_apaga_tabm():
+    assert S.ENTORNO_TABM_FORZADO == S.r0.entorno_extra_de("pcpu")
+    assert S.ENTORNO_TABM_FORZADO.get("MATRIXAI_ESTUDIO_SIN_DENSA") == "1"
+    assert "MATRIXAI_ESTUDIO_SIN_TABM" not in S.ENTORNO_TABM_FORZADO

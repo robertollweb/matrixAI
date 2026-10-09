@@ -14,6 +14,7 @@ de `/estudio/iniciar` (la preparación y el diagnóstico ocurren DENTRO de ese P
     python3 sonda_128_c0.py --solo Allstate_Claims_Severity                       # UN intento por motor, SIN tope
     python3 sonda_128_c0.py --retencion --humo             # 128-C1 paso 0: ¿devuelve el asignador lo que se suelta? (gc + malloc_trim)
     python3 sonda_128_c0.py                                # los tres, en ese orden (APS, KDDCup09, Allstate)
+    python3 sonda_128_c0.py --tabm-forzado --memoria 6g    # 128-C3b: los tres con la guarda de TabM callada EN MEMORIA
 
 El intento de Allstate se mide sin cambiar el producto: dentro del contenedor, un guion (`INTENTO_SIN_TOPE`) llama a
 `estudio_job.iniciar_estudio` con el mismo cuerpo que el HTTP, sustituye EN MEMORIA (no en disco) `ejecutar_estudio`
@@ -328,6 +329,69 @@ if __name__ == "__main__":
     main()
 '''
 
+TABM_FORZADO = r'''
+# 128-C3b (medida, no cambia el producto): ¿cabe TabM en un conjunto GRANDE con la memoria de la medida? Corre un estudio
+# ENTERO en este proceso (el mismo `iniciar_estudio` que el HTTP, con sus hijos de verdad) con la GUARDA DE MEMORIA de TabM
+# (`_memoria_de_tabm_que_no_cabe`, su punto de sustitución declarado) cambiada EN MEMORIA por una que nunca habla: el disco
+# del producto no se toca, y los hijos `spawn` (que re-importan del disco) no deciden quién compite. Apunta lo que la guarda
+# DE VERDAD habría dicho y, cada ~2 s, la fase (para repartir la memoria por motor). Si al terminar no hay NINGÚN intento de
+# TabM, la medida no midió lo que dice (la sustitución no llegó): sale con 3.
+import json, os, sys, time
+
+
+def main():
+    cuerpo = json.load(open(sys.argv[1]))
+    salida = sys.argv[2]
+    import matrixai_studio.estudio_job as ej
+    R = {"guarda_de_verdad": [], "estados": [], "motor_tabm": ej._MOTOR_TABM}
+    de_verdad = ej._memoria_de_tabm_que_no_cabe
+
+    def callada(filas, columnas_de_entrada):
+        R["guarda_de_verdad"].append({"filas": filas, "columnas_de_entrada": columnas_de_entrada,
+                                      "habria_dicho_estimada_y_disponible_gb": de_verdad(filas, columnas_de_entrada)})
+        return None
+
+    ej._memoria_de_tabm_que_no_cabe = callada
+    R["t_inicio"] = time.time()
+    r = ej.iniciar_estudio(cuerpo)
+    R["t_tras_iniciar"] = time.time()
+    job_id = (r.get("estudio") or {}).get("job_id")
+    job = ej._jobs.get(job_id)
+    if job is None:
+        R["respuesta"] = r
+        escribir(R, salida)
+        sys.exit(2)
+    visto = None
+    while True:                                   # como el sondeo del HTTP: el estado cada ~2 s
+        vivo = job["hilo"].is_alive()
+        est = ej.estudio_status(job_id)
+        ahora = (est.get("estado"), est.get("n_intentos_completados"), est.get("n_intentos_total"))
+        if ahora != visto:
+            R["estados"].append([time.time(), *ahora])
+            visto = ahora
+            escribir(R, salida)                   # si el OOM se lleva ESTE proceso, las fases ya vistas quedan
+        if not vivo:
+            break
+        job["hilo"].join(timeout=2.0)
+    R["t_fin"] = time.time()
+    R["estado_final"] = est
+    R["intentos_de_tabm"] = sum(1 for e in est.get("leaderboard") or [] if e.get("engine") == ej._MOTOR_TABM)
+    escribir(R, salida)
+    if not R["intentos_de_tabm"]:
+        sys.exit(3)
+
+
+def escribir(R, salida):
+    tmp = salida + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(R, f, indent=1, default=str)
+    os.replace(tmp, salida)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
 
 # ============================================================================ lo que no necesita Docker: roles, fases, resumen
 def rol_de(cmd):
@@ -516,6 +580,45 @@ def etiqueta_de_estado(est, total_previo=None):
     if e == "running":
         return f"intento {k + 1}/{total}" if total and k < total else "reajuste_final"
     return "fin"
+
+
+def eventos_de_los_estados(med):
+    """128-C3b. Del sondeo que hace DENTRO el guion de TabM forzado (`[t, estado, completados, total]`) a los eventos de fase
+    de la sonda («preparacion», «intento k/N», «reajuste_final», «fin»), con la misma `etiqueta_de_estado` que el sondeo
+    por HTTP. Sin `t_fin` (el OOM se llevó el guion) no hay «fin»: la última fase vista sigue abierta."""
+    eventos = [(med["t_inicio"], "preparacion")] if med.get("t_inicio") else []
+    total = None
+    for t, estado, k, n in med.get("estados") or []:
+        total = n or total
+        et = etiqueta_de_estado({"estado": estado, "n_intentos_completados": k, "n_intentos_total": n}, total)
+        if et != "fin" and (not eventos or eventos[-1][1] != et):
+            eventos.append((t, et))
+    if med.get("t_fin"):
+        eventos.append((med["t_fin"], "fin"))
+    return eventos
+
+
+def rol_con_el_guion_de_servidor(cmd):
+    """128-C3b. En la medida de TabM forzado el estudio corre DENTRO del guion: ese proceso hace de servidor (tiene el job y
+    lanza los hijos). El servidor HTTP del contenedor se queda OCIOSO al lado: se cuenta aparte, y su RSS entra en el
+    cgroup (la cifra del cgroup es, por eso, una cota por arriba de la de un servidor solo)."""
+    if "tabm_forzado_128_c3b" in (cmd or ""):
+        return "servidor"
+    r = rol_de(cmd)
+    return "servidor_ocioso" if r == "servidor" else r
+
+
+def veredicto_tabm_forzado(rc, med):
+    """128-C3b. `completed`: el estudio terminó Y TabM compitió. `sin_tabm`: la sustitución no llegó (el guion sale con 3, o
+    hay estado final sin ningún intento de TabM): la medida no mide lo que dice, y NO es un «completed». `failed`: lo demás,
+    también morir por memoria (lo dicen el contenedor y el `memory.events` del cgroup)."""
+    med = med or {}
+    est = med.get("estado_final")
+    if rc == 3 or (est is not None and not med.get("intentos_de_tabm")):
+        return "sin_tabm"
+    if rc == 0 and (est or {}).get("estado") == "completed":
+        return "completed"
+    return "failed"
 
 
 # ============================================================================ Docker
@@ -741,7 +844,7 @@ def medir_estudio(nombre, c, gen, memoria, tope_s, dir_series):
         borrar_contenedor()
 
 
-def cerrar_registro(rec, muestras, eventos, dir_series, nombre, c, memoria):
+def cerrar_registro(rec, muestras, eventos, dir_series, nombre, c, memoria, rol=rol_de):
     lb = None
     # los motores de cada intento, inferidos del orden de las entradas de la búsqueda
     if rec.get("intentos"):
@@ -750,7 +853,7 @@ def cerrar_registro(rec, muestras, eventos, dir_series, nombre, c, memoria):
     rec["motor_de_cada_intento_inferido"] = {str(k + 1): v for k, v in mpi.items()}
     if (rec.get("medida") or {}).get("motores"):       # el guion del intento sin tope dice su motor, no se infiere
         mpi = {i: m["motor"] for i, m in enumerate(rec["medida"]["motores"])}
-    rec["resumen_de_memoria"] = resumir(muestras, eventos, mpi)
+    rec["resumen_de_memoria"] = resumir(muestras, eventos, mpi, rol=rol)
     rec["memoria_del_contenedor"] = memoria
     rec["eventos_de_fase"] = [[round(t, 1), e] for t, e in eventos]
     dir_series.mkdir(exist_ok=True)
@@ -853,6 +956,90 @@ def medir_retencion(nombre, c, gen, memoria, dir_series):
         borrar_contenedor()
 
 
+#: 128-C3b: el paquete CPU tal como se publica (la densa anterior fuera), las MISMAS variables que `--pcpu` del 120: así el
+#: estudio con TabM forzado se compara con el de la referencia del producto, que en los grandes corre sin TabM por la guarda.
+ENTORNO_TABM_FORZADO = r0.entorno_extra_de("pcpu")
+
+
+def _memory_events(nombre_c):
+    """`memory.events` del cgroup del contenedor (v2): cuántas veces llegó al techo (`max`) y cuántos procesos mató el OOM
+    (`oom_kill`). Un hijo muerto por memoria NO marca `OOMKilled` en el contenedor (eso es solo su proceso 1)."""
+    r = subprocess.run(["docker", "exec", nombre_c, "cat", "/sys/fs/cgroup/memory.events"], capture_output=True, text=True)
+    if r.returncode:
+        return {"lectura": "falló", "stderr": r.stderr.strip()[:300]}
+    out = {}
+    for linea in r.stdout.splitlines():
+        k, _, v = linea.partition(" ")
+        if v.strip().isdigit():
+            out[k] = int(v)
+    return out
+
+
+def medir_tabm_forzado(nombre, c, gen, memoria, dir_series, tope_s):
+    """128-C3b: un estudio ENTERO dentro del contenedor (el guion `TABM_FORZADO`) con la guarda de memoria de TabM callada EN
+    MEMORIA, con el entorno del producto CPU (`ENTORNO_TABM_FORZADO`). Mismo muestreador que el resto; al acabar, lo que dice
+    el cgroup de sus OOM. No cambia el producto: ni su disco ni su imagen."""
+    comprobar_que_se_puede()
+    csv_bytes, cols, excl, nfilas = r0.csv_de(gen, c["data_id"])
+    cuerpo = {"csv_text": csv_bytes.decode("utf-8"), "objetivo": c["objetivo"], "tarea": c["tarea"],
+              "entradas": [x for x in cols if x != c["objetivo"]], "unidad_de_observacion": "una fila"}
+    if c["tarea"] == "binary_classification" and c.get("clase_positiva") is not None:
+        cuerpo["clase_positiva"] = c["clase_positiva"]
+    ruta = AGENTE / f"_{os.getpid()}_cuerpo_tabm.json"
+    ruta.write_text(json.dumps(cuerpo))
+    base, nombre_c = arrancar_contenedor(memoria)
+    rec = {"nombre": nombre, "data_id": c["data_id"], "tarea": c["tarea"], "objetivo": c["objetivo"], "inicio": ahora(),
+           "csv": {"filas": nfilas, "columnas": len(cols), "bytes": len(csv_bytes), "excluidas_por_string": excl},
+           "loadavg_al_empezar": open("/proc/loadavg").read().split()[:3],
+           "sha256_guion_dentro": hashlib.sha256(TABM_FORZADO.encode()).hexdigest(),
+           "entorno_del_guion": dict(ENTORNO_TABM_FORZADO), "tope_s": tope_s}
+    try:
+        r = subprocess.run(["docker", "cp", str(ruta), f"{nombre_c}:/tmp/cuerpo_128_c3b.json"], capture_output=True, text=True)
+        ruta.unlink(missing_ok=True)
+        if r.returncode:
+            raise SystemExit("docker cp falló: " + r.stderr)
+        poner_en_el_contenedor(nombre_c, TABM_FORZADO, "/tmp/tabm_forzado_128_c3b.py")
+        orden = ["docker", "exec", *[x for k, v in sorted(ENTORNO_TABM_FORZADO.items()) for x in ("-e", f"{k}={v}")],
+                 nombre_c, "python3", "/tmp/tabm_forzado_128_c3b.py", "/tmp/cuerpo_128_c3b.json", "/tmp/tabm_forzado_128_c3b.json"]
+        with Muestreador(nombre_c) as mu:
+            t0 = time.time()
+            try:
+                p = subprocess.run(orden, capture_output=True, text=True, timeout=tope_s)
+                rc, err = p.returncode, p.stderr or ""
+            except subprocess.TimeoutExpired as e:
+                rc, err = "plazo", e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            rec["guion_rc"], rec["guion_pared_s"] = rc, round(time.time() - t0, 1)
+            rec["guion_stderr_cola"] = err[-1500:]
+            time.sleep(2)
+            muestras = mu.leer()
+        out = subprocess.run(["docker", "exec", nombre_c, "cat", "/tmp/tabm_forzado_128_c3b.json"], capture_output=True, text=True)
+        try:
+            med = json.loads(out.stdout)
+        except ValueError:
+            med = {"error": "el guion no escribió su salida", "stdout": out.stdout[-500:]}
+        rec["memory_events"] = _memory_events(nombre_c)
+        rec["contenedor"] = r0.estado_del_contenedor(nombre_c)
+        est = med.get("estado_final") or {}
+        _, filas = r0.intentos_de(est)
+        sel = est.get("seleccion") or {}
+        rec.update(estado="plazo" if rc == "plazo" else veredicto_tabm_forzado(rc, med), estado_del_estudio=est.get("estado"),
+                   error=est.get("error") or med.get("error"), campeon=sel.get("candidate_engine"),
+                   media_de_la_seleccion=sel.get("media_de_la_seleccion"), n_intentos_total=est.get("n_intentos_total"),
+                   intentos=filas, intentos_de_tabm=med.get("intentos_de_tabm"),
+                   guarda_de_verdad=med.get("guarda_de_verdad"), motores_fuera_por_memoria=est.get("motores_fuera_por_memoria"),
+                   presupuesto_segun_el_tamano=est.get("presupuesto_segun_el_tamano"),
+                   pared_estudio_s=(round(med["t_fin"] - med["t_inicio"], 1) if med.get("t_fin") and med.get("t_inicio")
+                                    else None), fin=ahora())
+        if "respuesta" in med:
+            rec["respuesta"] = med["respuesta"]
+        eventos = eventos_de_los_estados(med) or [(t0, "arranque_del_guion")]
+        return cerrar_registro(rec, muestras, eventos, dir_series, nombre + "-tabm-forzado", c, memoria,
+                               rol=rol_con_el_guion_de_servidor)
+    finally:
+        ruta.unlink(missing_ok=True)
+        borrar_contenedor()
+
+
 # ============================================================================ salida
 def guardar(salida, datos):
     tmp = salida.with_suffix(".json.tmp")
@@ -889,6 +1076,9 @@ def main():
     ap.add_argument("--retencion", action="store_true",
                     help="128-C1 paso 0: un estudio entero en el contenedor y, al acabar, cuánto devuelven gc y malloc_trim(0) "
                          "(solo con --humo en el desarrollo; la de APSFailure va a la cola)")
+    ap.add_argument("--tabm-forzado", action="store_true",
+                    help="128-C3b: un estudio entero en el contenedor con la guarda de memoria de TabM callada EN MEMORIA "
+                         "(el entorno de --pcpu): ¿cabe TabM en los grandes? (la de los tres va a la cola)")
     ap.add_argument("--tope-estudio", type=int, default=TOPE_ESTUDIO_S)
     a = ap.parse_args()
     IMAGEN, SALIDA = a.imagen, Path(a.salida).resolve()
@@ -908,6 +1098,7 @@ def main():
                    "sha256_muestreador": hashlib.sha256(MUESTREADOR.encode()).hexdigest(),
                    "sha256_intento_sin_tope": hashlib.sha256(INTENTO_SIN_TOPE.encode()).hexdigest(),
                    "sha256_retencion": hashlib.sha256(RETENCION.encode()).hexdigest(),
+                   "sha256_tabm_forzado": hashlib.sha256(TABM_FORZADO.encode()).hexdigest(),
                    "memoria_del_contenedor": a.memoria, "cpus": 2, "inicio": ahora(),
                    "loadavg_al_empezar": open("/proc/loadavg").read().split()[:3],
                    "instrumento": "estudio por HTTP; RSS por proceso de /proc dentro del contenedor cada ~1 s; sin tracemalloc",
@@ -926,6 +1117,21 @@ def main():
         if n not in banco:
             raise SystemExit(f"PARO: {n} no está en el banco del 120")
     dir_series = SALIDA.with_name(SALIDA.stem + "_series")
+    if a.tabm_forzado:
+        for n in nombres:
+            print(f"[{ahora()}] {n}: TabM forzado (memoria {a.memoria}, tope {a.tope_estudio} s) ...", flush=True)
+            rec = medir_tabm_forzado(n, banco[n], gen, a.memoria, dir_series, a.tope_estudio)
+            datos["conjuntos"][n + ":tabm_forzado"] = rec
+            guardar(SALIDA, datos)
+            print(linea_de_resumen(rec), f"| TabM: {rec.get('intentos_de_tabm')} intentos | campeón {rec.get('campeon')} | "
+                  f"oom_kill {(rec.get('memory_events') or {}).get('oom_kill')}", flush=True)
+            if rec.get("estado") == "sin_tabm":         # el instrumento no mide lo que dice: seguir sería gastar la noche
+                procedencia["fin"] = ahora()
+                guardar(SALIDA, datos)
+                raise SystemExit(f"PARO: {n} sin intentos de TabM; la sustitución de la guarda no llegó")
+        procedencia["fin"] = ahora()
+        guardar(SALIDA, datos)
+        return
     if a.retencion:
         for n in nombres:
             print(f"[{ahora()}] {n}: retención (memoria {a.memoria}) ...", flush=True)
