@@ -87,3 +87,26 @@ def test_un_completado_sin_test_es_un_instrumento_roto():
     roto = rec("a"); roto["test"] = {}
     with pytest.raises(C.Incomparable):
         C.comparar(doc([rec("a")]), doc([roto]), exacto=True)
+
+
+# ----------------------------------------------------------------------------- 128-C3b: la sonda con TabM forzado
+def test_c3b_los_registros_de_la_sonda_se_comparan_por_nombre_con_suelo_dado_y_solo_los_comunes():
+    """La sonda guarda `<conjunto>:tabm_forzado`, no mide suelo (no repite los de control) y mide tres conjuntos: con
+    `--suelo` y `--solo-comunes` se compara contra el producto; sin suelo, sigue siendo incomparable."""
+    producto = doc([rec("a"), rec("APSFailure", test=0.98), rec("Allstate_Claims_Severity")], suelo=0.0)
+    sonda = {"conjuntos": {"APSFailure:tabm_forzado": rec("APSFailure", campeon="matrixai.dense.tabm_cpu", test=0.985),
+                           "APSFailure:retencion": {"estado": "completed"}}}
+    with pytest.raises(C.Incomparable):
+        C.comparar(producto, sonda, exacto=False)
+    r = C.comparar(producto, sonda, exacto=False, suelo=0.0, solo_comunes=True)
+    assert [f["nombre"] for f in r["filas"]] == ["APSFailure"]
+    assert r["filas"][0]["clase"] == "sube" and r["resultado"] == "REVISAR"          # TabM gana: hay que explicarlo
+    sin_comunes = C.comparar(producto, sonda, exacto=False, suelo=0.0)
+    assert {f["nombre"]: f["clase"] for f in sin_comunes["filas"]}["a"] == "falta"    # sin --solo-comunes, lo que falta
+
+
+def test_un_suelo_dado_manda_sobre_el_medido_y_bit_a_bit_lo_ignora():
+    ref, nuevo = doc([rec("a", test=0.900)], suelo=0.0), doc([rec("a", test=0.896)], suelo=0.0)    # -0,4 puntos
+    assert C.comparar(ref, nuevo, exacto=False)["filas"][0]["clase"] == "baja"
+    assert C.comparar(ref, nuevo, exacto=False, suelo=0.5)["filas"][0]["clase"] == "dentro_del_suelo"
+    assert C.comparar(ref, nuevo, exacto=True, suelo=0.5)["filas"][0]["clase"] == "distinto"

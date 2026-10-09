@@ -363,3 +363,75 @@ def test_tabm_forzado_arranca_el_contenedor_SIN_el_servidor_http(monkeypatch):
 def inspect_fuente(f):
     import inspect
     return inspect.getsource(f)
+
+
+def test_medir_tabm_forzado_compone_el_registro_entero_y_comparable_con_el_del_producto(tmp_path, monkeypatch):
+    """El lado ANFITRIÓN de la medida (Docker simulado): un fallo aquí, tras media hora de estudio, perdería el resultado.
+    El registro lleva la cifra del test (`r0.test_de`), el pico del cgroup como `memoria_pico_mb`, los OOM del cgroup y el
+    estado entero guardado; y `comparar_c4_128` lo compara con un registro del producto sin quejarse."""
+    import gzip as _gzip
+    import json as _json
+    s = _cargar()
+    med = {"t_inicio": 100.0, "t_fin": 160.0, "intentos_de_tabm": 1, "motor_tabm": "matrixai.dense.tabm_cpu",
+           "guarda_de_verdad": [{"filas": 60000, "columnas_de_entrada": 170,
+                                 "habria_dicho_estimada_y_disponible_gb": [7.0, 6.0]}],
+           "estados": [[101.0, "running", 0, 1], [150.0, "running", 1, 1], [160.0, "completed", 1, 1]],
+           "estado_final": {"estado": "completed", "n_intentos_total": 1, "motores_fuera_por_memoria": {},
+                            "leaderboard": [{"candidate": "matrixai.dense.tabm_cpu-csv-p0-r0", "engine": "matrixai.dense.tabm_cpu",
+                                             "fase": "seleccion", "estado": "completed", "wall_seconds": 40.0,
+                                             "metrica_de_seleccion": {"metric_id": "auroc", "value": 0.95}}],
+                            "seleccion": {"candidate_engine": "matrixai.dense.tabm_cpu",
+                                          "media_de_la_seleccion": {"metrica": "auroc", "motores": [
+                                              {"motor": "matrixai.dense.tabm_cpu", "valor": 0.95, "compite": True}]},
+                                          "evaluacion_final": {"evaluated_role": "test", "evidence": "independent_test",
+                                                               "metrics": [{"metric_id": "auroc", "value": 0.93}]}}}}
+
+    class Hecho:
+        def __init__(self, stdout="", returncode=0):
+            self.stdout, self.returncode, self.stderr = stdout, returncode, ""
+
+    def run(orden, **kw):
+        texto = " ".join(map(str, orden))
+        if "cat /tmp/tabm_forzado_128_c3b.json" in texto:
+            return Hecho(_json.dumps(med))
+        if "memory.events" in texto:
+            return Hecho("low 0\nhigh 0\nmax 2\noom 0\noom_kill 0\n")
+        if orden[:2] == ["docker", "inspect"]:
+            return Hecho("false|0|running|")
+        return Hecho()
+
+    class MuestreadorDeMentira:
+        def __init__(self, nombre): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def leer(self):
+            return [{"t": 120.0, "cgroup_mb": 2500.0, "procesos": [
+                proc(1, 2000.0, "python3 /tmp/tabm_forzado_128_c3b.py /tmp/c /tmp/s"), proc(2, 400.0, HIJO, ppid=1)]}]
+
+    monkeypatch.setattr(s.subprocess, "run", run)
+    monkeypatch.setattr(s, "comprobar_que_se_puede", lambda: 1.0)
+    monkeypatch.setattr(s, "arrancar_contenedor", lambda memoria, imagen=None, sin_servidor=False: (None, "sonda-128-c0"))
+    monkeypatch.setattr(s, "poner_en_el_contenedor", lambda *a: None)
+    monkeypatch.setattr(s, "borrar_contenedor", lambda: None)
+    monkeypatch.setattr(s, "Muestreador", MuestreadorDeMentira)
+    monkeypatch.setattr(s, "AGENTE", tmp_path)
+    monkeypatch.setattr(s.r0, "csv_de", lambda gen, data_id: (b"a,y\n1,0\n", ["a", "y"], [], 1))
+    monkeypatch.setattr(s.time, "sleep", lambda x: None)
+    c = {"data_id": 1, "objetivo": "y", "tarea": "binary_classification", "clase_positiva": "1"}
+    rec = s.medir_tabm_forzado("APSFailure", c, None, "6g", tmp_path / "series", 3600)
+
+    assert rec["estado"] == "completed" and rec["campeon"] == "matrixai.dense.tabm_cpu"
+    assert rec["test"] == {"rol": "test", "evidencia": "independent_test", "metricas": {"auroc": 0.93}}
+    assert rec["memoria_pico_mb"] == 2500.0 and rec["memory_events"]["oom_kill"] == 0
+    assert rec["guarda_de_verdad"][0]["habria_dicho_estimada_y_disponible_gb"] == [7.0, 6.0]
+    assert rec["resumen_de_memoria"]["pico_servidor_mb"] == 2000.0               # el guion cuenta como el servidor
+    guardado = tmp_path / "series" / rec["estado_final_guardado"]["fichero"]
+    assert _json.load(_gzip.open(guardado, "rt"))["seleccion"]["candidate_engine"] == "matrixai.dense.tabm_cpu"
+    assert not list(tmp_path.glob("_*_cuerpo_tabm.json"))                         # el cuerpo con los datos no se queda
+
+    spec = importlib.util.spec_from_file_location("comparar_c4_128_desde_la_sonda", RUTA.with_name("comparar_c4_128.py"))
+    cmp = importlib.util.module_from_spec(spec); spec.loader.exec_module(cmp)
+    producto = dict(rec, campeon="lightgbm", test={"rol": "test", "evidencia": "independent_test", "metricas": {"auroc": 0.92}},
+                    media_de_la_seleccion={"metrica": "auroc", "motores": [{"motor": "lightgbm", "valor": 0.94, "compite": True}]})
+    fila = cmp.comparar_uno("APSFailure", producto, rec, exacto=False, suelo=0.0)
+    assert fila["clase"] == "sube" and fila["mismo_campeon"] is False and round(fila["diferencia"], 6) == 1.0

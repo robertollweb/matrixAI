@@ -1040,6 +1040,10 @@ def medir_tabm_forzado(nombre, c, gen, memoria, dir_series, tope_s):
         rec.update(estado="plazo" if rc == "plazo" else veredicto_tabm_forzado(rc, med), estado_del_estudio=est.get("estado"),
                    error=est.get("error") or med.get("error"), campeon=sel.get("candidate_engine"),
                    media_de_la_seleccion=sel.get("media_de_la_seleccion"), n_intentos_total=est.get("n_intentos_total"),
+                   # la cifra del TEST y lo demás con las MISMAS funciones del 120: el registro se compara con
+                   # `comparar_c4_128.py` contra el del producto (`c4_128_pcpu.json`), donde TabM no compitió
+                   test=r0.test_de(sel), perfiles_declarados=r0.perfiles_declarados(est),
+                   politica_de_arboles=sel.get("politica_de_arboles"),
                    intentos=filas, intentos_de_tabm=med.get("intentos_de_tabm"),
                    guarda_de_verdad=med.get("guarda_de_verdad"), motores_fuera_por_memoria=est.get("motores_fuera_por_memoria"),
                    presupuesto_segun_el_tamano=est.get("presupuesto_segun_el_tamano"),
@@ -1048,8 +1052,16 @@ def medir_tabm_forzado(nombre, c, gen, memoria, dir_series, tope_s):
         if "respuesta" in med:
             rec["respuesta"] = med["respuesta"]
         eventos = eventos_de_los_estados(med) or [(t0, "arranque_del_guion")]
-        return cerrar_registro(rec, muestras, eventos, dir_series, nombre + "-tabm-forzado", c, memoria,
-                               rol=rol_con_el_guion_de_servidor)
+        rec = cerrar_registro(rec, muestras, eventos, dir_series, nombre + "-tabm-forzado", c, memoria,
+                              rol=rol_con_el_guion_de_servidor)
+        # el pico del cgroup con el nombre que usa el instrumento del 120 (lo que mira el OOM)
+        rec["memoria_pico_mb"] = ((rec.get("resumen_de_memoria") or {}).get("pico_cgroup") or {}).get("cgroup_mb")
+        if est:                                           # el estado ENTERO, para releerlo sin repetir la medida
+            f = dir_series / f"{nombre}-tabm-forzado.estado.json.gz"
+            with gzip.open(f, "wt") as fh:
+                json.dump(est, fh, default=str)
+            rec["estado_final_guardado"] = {"fichero": f.name, "sha256": sha(f)}
+        return rec
     finally:
         ruta.unlink(missing_ok=True)
         borrar_contenedor()

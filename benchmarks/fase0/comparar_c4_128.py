@@ -105,16 +105,39 @@ def veredicto(filas: list[dict], *, exacto: bool) -> dict:
             "suben": [f["nombre"] for f in filas if f["clase"] == "sube"]}
 
 
-def comparar(ref_doc: dict, nuevo_doc: dict, *, exacto: bool) -> dict:
+def _por_nombre(doc: dict) -> dict:
+    """Los registros por NOMBRE de conjunto. La sonda en modo `--tabm-forzado` (128-C3b) los guarda como
+    `<conjunto>:tabm_forzado`; los demás modos de la sonda (`:retencion`, `:intento_sin_tope`) no son estudios del producto
+    con su test, y no entran."""
+    out = {}
+    for clave, rec in (doc.get("conjuntos") or {}).items():
+        nombre, _, modo = clave.partition(":")
+        if modo in ("", "tabm_forzado"):
+            out[nombre] = rec
+    return out
+
+
+def comparar(ref_doc: dict, nuevo_doc: dict, *, exacto: bool, suelo: float | None = None,
+             solo_comunes: bool = False) -> dict:
+    """`suelo`: un suelo EXPLÍCITO cuando una de las dos pasadas no lo midió (la sonda del C3b no repite los de control):
+    se usa el que se da, y se dice. `solo_comunes`: solo los conjuntos medidos en las dos (el C3b mide tres)."""
     s_ref, s_nuevo = suelo_de(ref_doc), suelo_de(nuevo_doc)
-    if not exacto and (s_ref is None or s_nuevo is None):
+    if exacto:
+        suelo_usado = 0.0
+    elif suelo is not None:
+        suelo_usado = float(suelo)
+    elif s_ref is None or s_nuevo is None:
         raise Incomparable(f"sin suelo de ruido en las dos pasadas (referencia {s_ref}, nuevo {s_nuevo}): sin él, la "
-                           "regla del producto no se puede aplicar")
-    suelo = 0.0 if exacto else max(s_ref, s_nuevo)
-    ref, nuevo = ref_doc.get("conjuntos") or {}, nuevo_doc.get("conjuntos") or {}
-    filas = [comparar_uno(n, ref.get(n), nuevo.get(n), exacto=exacto, suelo=suelo) for n in ref]
+                           "regla del producto no se puede aplicar (o se da uno con --suelo)")
+    else:
+        suelo_usado = max(s_ref, s_nuevo)
+    suelo = suelo_usado
+    ref, nuevo = _por_nombre(ref_doc), _por_nombre(nuevo_doc)
+    nombres = [n for n in ref if n in nuevo] if solo_comunes else list(ref)
+    filas = [comparar_uno(n, ref.get(n), nuevo.get(n), exacto=exacto, suelo=suelo) for n in nombres]
     extra = sorted(set(nuevo) - set(ref))
-    return {"exacto": exacto, "suelo": suelo, "suelo_ref": s_ref, "suelo_nuevo": s_nuevo, "filas": filas,
+    return {"exacto": exacto, "suelo": suelo, "suelo_ref": s_ref, "suelo_nuevo": s_nuevo, "solo_comunes": solo_comunes,
+            "filas": filas,
             "conjuntos_de_mas_en_el_nuevo": extra, **veredicto(filas, exacto=exacto)}
 
 
@@ -128,13 +151,19 @@ def _main(argv: list[str]) -> int:
     ap.add_argument("nuevo")
     ap.add_argument("--exacto", action="store_true")
     ap.add_argument("--json", default=None, help="escribe la comparación entera aquí")
+    ap.add_argument("--suelo", type=float, default=None,
+                    help="suelo explícito (puntos) si una pasada no lo midió, p. ej. la sonda del C3b contra c4_128_pcpu")
+    ap.add_argument("--solo-comunes", action="store_true", help="solo los conjuntos medidos en las dos pasadas")
     a = ap.parse_args(argv)
     try:
-        r = comparar(json.loads(Path(a.referencia).read_text()), json.loads(Path(a.nuevo).read_text()), exacto=a.exacto)
+        r = comparar(json.loads(Path(a.referencia).read_text()), json.loads(Path(a.nuevo).read_text()), exacto=a.exacto,
+                     suelo=a.suelo, solo_comunes=a.solo_comunes)
     except Incomparable as e:
         print(f"INCOMPARABLE: {e}")
         return 3
-    print(f"{'bit a bit' if r['exacto'] else 'suelo ' + _fmt(r['suelo'], 2) + ' puntos'}  ·  {a.nuevo} contra {a.referencia}")
+    origen = "" if r["exacto"] else (" (DADO con --suelo)" if a.suelo is not None else " (el mayor de las dos pasadas)")
+    print(f"{'bit a bit' if r['exacto'] else 'suelo ' + _fmt(r['suelo'], 2) + ' puntos' + origen}"
+          f"{' · solo los comunes' if r['solo_comunes'] else ''}  ·  {a.nuevo} contra {a.referencia}")
     for f in r["filas"]:
         print(f"  {f['nombre'][:34]:34} {f['clase']:20} campeón {str(f['campeon_ref'])[-14:]:>14} → "
               f"{str(f['campeon_nuevo'])[-14:]:14} test {_fmt(f.get('test_ref'))} → {_fmt(f.get('test_nuevo'))}  "
