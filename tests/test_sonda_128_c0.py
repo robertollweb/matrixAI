@@ -337,3 +337,29 @@ def test_tabm_forzado_lleva_el_entorno_del_producto_cpu_y_nunca_apaga_tabm():
     assert S.ENTORNO_TABM_FORZADO == S.r0.entorno_extra_de("pcpu")
     assert S.ENTORNO_TABM_FORZADO.get("MATRIXAI_ESTUDIO_SIN_DENSA") == "1"
     assert "MATRIXAI_ESTUDIO_SIN_TABM" not in S.ENTORNO_TABM_FORZADO
+
+
+def test_tabm_forzado_arranca_el_contenedor_SIN_el_servidor_http(monkeypatch):
+    """Un servidor ocioso al lado del guion sumaría su memoria al cgroup y, al borde del techo, fabricaría un OOM que en
+    producción no pasa: la orden de `docker run` lleva `sleep infinity` y ningún puerto, y no se espera ningún HTTP."""
+    s = _cargar()
+    ordenes = []
+
+    class Hecho:
+        returncode, stdout, stderr = 0, "", ""
+
+    monkeypatch.setattr(s.subprocess, "run", lambda orden, **kw: (ordenes.append(orden), Hecho())[1])
+    monkeypatch.setattr(s.signal, "signal", lambda *a: None)
+    monkeypatch.setattr(s.atexit, "register", lambda *a: None)
+    monkeypatch.setattr(s.r0, "pedir", lambda *a, **k: (_ for _ in ()).throw(AssertionError("sin servidor no hay HTTP")))
+    base, nombre = s.arrancar_contenedor("6g", imagen="img:x", sin_servidor=True)
+    run = next(o for o in ordenes if o[:2] == ["docker", "run"])
+    assert base is None and nombre == s.NOMBRE_CONTENEDOR
+    assert run[-3:] == ["img:x", "sleep", "infinity"] and "-p" not in run
+    assert "--memory=6g" in run and "--memory-swap=6g" in run and "--init" in run
+    assert inspect_fuente(s.medir_tabm_forzado).count("sin_servidor=True") == 1
+
+
+def inspect_fuente(f):
+    import inspect
+    return inspect.getsource(f)

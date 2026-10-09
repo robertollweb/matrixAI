@@ -600,8 +600,8 @@ def eventos_de_los_estados(med):
 
 def rol_con_el_guion_de_servidor(cmd):
     """128-C3b. En la medida de TabM forzado el estudio corre DENTRO del guion: ese proceso hace de servidor (tiene el job y
-    lanza los hijos). El servidor HTTP del contenedor se queda OCIOSO al lado: se cuenta aparte, y su RSS entra en el
-    cgroup (la cifra del cgroup es, por eso, una cota por arriba de la de un servidor solo)."""
+    lanza los hijos). El contenedor arranca SIN servidor HTTP (`arrancar_contenedor(sin_servidor=True)`); si aun así
+    apareciera uno (otra imagen, otro arranque), sale aparte como «servidor_ocioso» y no se confunde con el que mide."""
     if "tabm_forzado_128_c3b" in (cmd or ""):
         return "servidor"
     r = rol_de(cmd)
@@ -644,9 +644,13 @@ def comprobar_que_se_puede():
     return la
 
 
-def arrancar_contenedor(memoria, imagen=None):
+def arrancar_contenedor(memoria, imagen=None, sin_servidor=False):
     """Un contenedor con NOMBRE PROPIO, techo de memoria sin swap y `--init`. Lo de un intento anterior con el mismo nombre
-    se borra antes (un contenedor sobrevive al `timeout` de su guion). Devuelve (base_url, nombre)."""
+    se borra antes (un contenedor sobrevive al `timeout` de su guion). Devuelve (base_url, nombre).
+
+    `sin_servidor` (128-C3b): la imagen arranca `sleep infinity` en vez del servidor HTTP (su `CMD`; no tiene
+    `ENTRYPOINT`), para un guion que hace él mismo de servidor: así el cgroup lleva UN servidor, como en producción, y no
+    uno ocioso al lado que en un caso al borde del techo fabricaría un OOM. Sin puerto ni HTTP: `base_url` es `None`."""
     global _contenedor
     subprocess.run(["docker", "rm", "-f", NOMBRE_CONTENEDOR], capture_output=True)
     s = socket.socket(); s.bind(("127.0.0.1", 0)); puerto = s.getsockname()[1]; s.close()
@@ -654,12 +658,21 @@ def arrancar_contenedor(memoria, imagen=None):
     atexit.register(borrar_contenedor)
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(sig, lambda *_: (borrar_contenedor(), os._exit(143)))
-    r = subprocess.run(["docker", "run", "-d", "--init", "--name", NOMBRE_CONTENEDOR, "-p", f"127.0.0.1:{puerto}:8765",
+    r = subprocess.run(["docker", "run", "-d", "--init", "--name", NOMBRE_CONTENEDOR,
+                        *([] if sin_servidor else ["-p", f"127.0.0.1:{puerto}:8765"]),
                         f"--memory={memoria}", f"--memory-swap={memoria}", "--cpus=2",
-                        "-e", "MATRIXAI_LICENSE_ENABLED=false", imagen or IMAGEN],
+                        "-e", "MATRIXAI_LICENSE_ENABLED=false", imagen or IMAGEN,
+                        *(["sleep", "infinity"] if sin_servidor else [])],
                        capture_output=True, text=True)
     if r.returncode:
         raise SystemExit("docker run falló: " + r.stderr)
+    if sin_servidor:
+        t0 = time.time()
+        while time.time() - t0 < 60:
+            if subprocess.run(["docker", "exec", NOMBRE_CONTENEDOR, "true"], capture_output=True).returncode == 0:
+                return None, NOMBRE_CONTENEDOR
+            time.sleep(1)
+        raise SystemExit("el contenedor sin servidor no aceptó un exec en 60 s")
     base = f"http://127.0.0.1:{puerto}"
     t0 = time.time()
     while time.time() - t0 < 120:
@@ -977,8 +990,9 @@ def _memory_events(nombre_c):
 
 def medir_tabm_forzado(nombre, c, gen, memoria, dir_series, tope_s):
     """128-C3b: un estudio ENTERO dentro del contenedor (el guion `TABM_FORZADO`) con la guarda de memoria de TabM callada EN
-    MEMORIA, con el entorno del producto CPU (`ENTORNO_TABM_FORZADO`). Mismo muestreador que el resto; al acabar, lo que dice
-    el cgroup de sus OOM. No cambia el producto: ni su disco ni su imagen."""
+    MEMORIA, con el entorno del producto CPU (`ENTORNO_TABM_FORZADO`), en un contenedor SIN el servidor HTTP (el guion hace de
+    servidor: un solo servidor en el cgroup, como en producción). Mismo muestreador que el resto; al acabar, lo que dice el
+    cgroup de sus OOM. No cambia el producto: ni su disco ni su imagen."""
     comprobar_que_se_puede()
     csv_bytes, cols, excl, nfilas = r0.csv_de(gen, c["data_id"])
     cuerpo = {"csv_text": csv_bytes.decode("utf-8"), "objetivo": c["objetivo"], "tarea": c["tarea"],
@@ -987,12 +1001,13 @@ def medir_tabm_forzado(nombre, c, gen, memoria, dir_series, tope_s):
         cuerpo["clase_positiva"] = c["clase_positiva"]
     ruta = AGENTE / f"_{os.getpid()}_cuerpo_tabm.json"
     ruta.write_text(json.dumps(cuerpo))
-    base, nombre_c = arrancar_contenedor(memoria)
+    _, nombre_c = arrancar_contenedor(memoria, sin_servidor=True)
     rec = {"nombre": nombre, "data_id": c["data_id"], "tarea": c["tarea"], "objetivo": c["objetivo"], "inicio": ahora(),
            "csv": {"filas": nfilas, "columnas": len(cols), "bytes": len(csv_bytes), "excluidas_por_string": excl},
            "loadavg_al_empezar": open("/proc/loadavg").read().split()[:3],
            "sha256_guion_dentro": hashlib.sha256(TABM_FORZADO.encode()).hexdigest(),
-           "entorno_del_guion": dict(ENTORNO_TABM_FORZADO), "tope_s": tope_s}
+           "entorno_del_guion": dict(ENTORNO_TABM_FORZADO), "tope_s": tope_s,
+           "contenedor_sin_servidor": True}
     try:
         r = subprocess.run(["docker", "cp", str(ruta), f"{nombre_c}:/tmp/cuerpo_128_c3b.json"], capture_output=True, text=True)
         ruta.unlink(missing_ok=True)
