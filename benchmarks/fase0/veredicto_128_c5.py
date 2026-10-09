@@ -5,9 +5,19 @@
 
     python3 veredicto_128_c5.py resultado_128_c5.json [--suelo X]
 
-LA REGLA, la de Roberto (contrato 128 §2: «no podemos empeorar lo conseguido, es solo si mejoramos») y la E2 del
-08-10 («la del 120»): **la GPU entra si NINGÚN conjunto baja más que el suelo de ruido medido repitiendo, NINGUNO deja
-de terminar y ALGUNO mejora.** Si no, el dispositivo se queda en `cpu` y el código no se retira (la señal lo permite).
+LA REGLA (C5′, la de Roberto del 09-10 13:40, «banda de 1 punto + tiempo»; contrato 128, «REGLA NUEVA DE LA GPU»).
+Sustituye a la E2 («ninguno baja más que el suelo de ruido y alguno mejora»), que con un suelo de 0 contaba como baja
+hasta −0,08 puntos. Por conjunto, d = cifra del test de B (GPU) − la de A (CPU), en puntos; suelo = el MAYOR de los dos
+brazos; `m1 = max(1, suelo)` y `m2 = max(2, suelo)`:
+
+- **igual**: |d| < m1 · **sube**: d ≥ m1 · **baja tolerada**: −m2 < d ≤ −m1 (no bloquea por sí sola; cuenta en contra)
+  · **empeora**: d ≤ −m2, o deja de terminar (bloquea siempre).
+- **mejora de tiempo**: el estudio de B tarda la MITAD o menos que el de A (pared) y el conjunto queda «igual».
+- **ENTRA si** ninguno empeora y (suben + mejoras de tiempo) SUPERAN a las bajas toleradas (la regla 4 del 120, con el
+  tiempo como mejora). Si no, el dispositivo se queda en `cpu` y el código no se retira (la señal lo permite).
+- **El corte** (regla 9): en el primer conjunto que empeora o deja de terminar, o cuando las bajas toleradas ya no se
+  pueden compensar ni con TODOS los que faltan.
+- Una caída a CPU DECLARADA no cuenta como GPU: ni su subida ni su mejora de tiempo.
 
 - **La cifra de un conjunto** es la del campeón en el TEST (`seleccion.evaluacion_final`), en puntos ×100: la misma que
   C3′ (`veredicto_120_c3p.cifra_de_test`, importada, no copiada). Los dos brazos tienen los mismos candidatos, así que
@@ -17,8 +27,8 @@ de terminar y ALGUNO mejora.** Si no, el dispositivo se queda en `cpu` y el cód
   TabM depende del reloj (plazo de pared), así que el suelo de la CPU tampoco es cero, y en la GPU sumará el orden
   de las sumas de cuBLAS. Un campeón que cambia al repetir NO es un error (es ruido, y se declara); uno que completa
   en una repetición y no en la otra SÍ: el instrumento no es repetible, `Incomparable`.
-- **Baja** = B − A < −suelo; **sube** = B − A > suelo; **igual**, dentro del suelo. «Deja de completar» y «empieza a
-  completar» cuentan aparte (la primera siempre impide entrar; la segunda cuenta como mejora).
+- «Deja de completar» y «empieza a completar» cuentan aparte (la primera siempre impide entrar; la segunda cuenta como
+  mejora).
 - **Presencia**: el brazo B tiene que haber entrenado TabM en la GPU en algún conjunto (el dispositivo lo declara el
   motor) y el A en ninguno; si no, no se midió lo registrado y NO entra, diga lo que diga la tabla. Y (128, I1 de su
   auditoría) donde TabM es el CAMPEÓN del brazo B, su modelo ENTREGADO —el del reajuste final, el que recibe quien usa
@@ -31,8 +41,6 @@ de terminar y ALGUNO mejora.** Si no, el dispositivo se queda en `cpu` y el cód
   paquete GPU, y eso cuesta RAM de host y tiempo. En el kit lo paga el brazo B y no el A: una diferencia de memoria,
   un OOM o más pared del B puede venir de ahí y no de TabM. No se pudo medir sin una GPU (`COSTE_DE_VER_CUDA`); el JSON
   recoge la RAM pico de cada brazo (`veredicto.ram_pico_mb_por_brazo`) para verlo.
-- **El corte** (como la regla 9 del 120): la pasada del brazo B se corta en el primer conjunto que baja más que el
-  suelo o deja de completar. Lo no medido no cuenta como pérdida, pero sin los 13 el veredicto no entra.
 """
 from __future__ import annotations
 
@@ -43,6 +51,11 @@ from collections import Counter
 from pathlib import Path
 
 EXACTO = 1e-9
+#: C5′: la banda de «igual»/«sube» (puntos) y la bajada que ya es «empeora»; el suelo de ruido las SUBE si es mayor.
+BANDA_MINIMA = 1.0
+EMPEORA_MINIMA = 2.0
+#: C5′: B tarda esta fracción de la pared de A o menos → mejora de tiempo (si el resultado queda «igual»).
+FRACCION_DE_TIEMPO = 0.5
 AQUI = Path(__file__).resolve().parent
 #: aviso (NO regla): con un suelo así de alto la regla de arriba no distingue casi nada.
 SUELO_QUE_AVISA = 2.0
@@ -153,9 +166,29 @@ def presencia(conjuntos_a: dict[str, dict], conjuntos_b: dict[str, dict]) -> str
     return None
 
 
+def clase_por_diferencia(d: float, suelo: float) -> str:
+    """C5′: `sube` | `igual` | `baja_tolerada` | `empeora` según d = B − A (puntos) y el suelo. Los bordes son
+    del lado que dice el contrato: sube con d ≥ m1; baja tolerada con d ≤ −m1 (y > −m2); empeora con d ≤ −m2."""
+    m1, m2 = max(BANDA_MINIMA, suelo), max(EMPEORA_MINIMA, suelo)
+    if d <= -m2 + EXACTO:
+        return "empeora"
+    if d <= -m1 + EXACTO:
+        return "baja_tolerada"
+    if d >= m1 - EXACTO:
+        return "sube"
+    return "igual"
+
+
+def mejora_de_tiempo(pared_a, pared_b) -> bool:
+    """C5′: ¿el estudio de B tardó la mitad o menos que el de A? Sin las dos paredes medidas, no."""
+    return (isinstance(pared_a, (int, float)) and isinstance(pared_b, (int, float)) and pared_a > 0
+            and pared_b <= FRACCION_DE_TIEMPO * pared_a + EXACTO)
+
+
 def comparar(a: dict | None, b: dict, suelo: float) -> dict:
-    """Un conjunto: brazo A (CPU) frente a B (GPU). `clase` ∈ sube | baja | igual | deja_de_completar |
-    empieza_a_completar | ninguno_completa."""
+    """Un conjunto: brazo A (CPU) frente a B (GPU). `clase` ∈ sube | igual | mejora_de_tiempo | baja_tolerada |
+    empeora | deja_de_completar | empieza_a_completar | ninguno_completa. `mejora_de_tiempo` es un «igual» cuyo
+    estudio de B tardó la mitad o menos."""
     nombre = b.get("nombre") or (a or {}).get("nombre")
     ca, cb = completa(a), completa(b)
     base = {"nombre": nombre, "campeon_a": (a or {}).get("campeon"), "campeon_b": b.get("campeon"),
@@ -167,48 +200,73 @@ def comparar(a: dict | None, b: dict, suelo: float) -> dict:
             raise Incomparable(f"{nombre}: tarea {a.get('tarea')!r} en A y {b.get('tarea')!r} en B")
         xa, xb = cifra_de_test(a), cifra_de_test(b)
         d = xb - xa
-        clase = "baja" if d < -suelo - EXACTO else "sube" if d > suelo + EXACTO else "igual"
+        clase = clase_por_diferencia(d, suelo)
+        if clase == "igual" and mejora_de_tiempo(base["pared_a_s"], base["pared_b_s"]):
+            clase = "mejora_de_tiempo"
         return {**base, "clase": clase, "a": xa, "b": xb, "diferencia": d}
     clase = "deja_de_completar" if ca else "empieza_a_completar" if cb else "ninguno_completa"
     return {**base, "clase": clase, "a": cifra_de_test(a) if ca else None,
             "b": cifra_de_test(b) if cb else None, "diferencia": None}
 
 
-def corta(comparaciones: list[dict]) -> str | None:
-    """El corte tras el último conjunto medido del brazo B."""
+def _es_mejora(c: dict) -> bool:
+    """C5′: sube, mejora de tiempo o empieza a completar; la de un entregado que cayó a la CPU NO cuenta (N3)."""
+    return c["clase"] in ("sube", "mejora_de_tiempo", "empieza_a_completar") and not c.get("cayo_a_cpu_en_b")
+
+
+def corta(comparaciones: list[dict], esperados: int | None = None) -> str | None:
+    """El corte (regla 9) tras el último conjunto medido del brazo B: el último empeora o deja de completar, o las
+    bajas toleradas ya no se pueden compensar ni con TODOS los que faltan (`esperados` = cuántos tiene la pasada;
+    sin él solo se mira lo primero)."""
     ult = comparaciones[-1]
-    if ult["clase"] == "baja":
-        return f"{ult['nombre']} baja {ult['diferencia']:.2f} puntos (más que el suelo de ruido)"
+    if ult["clase"] == "empeora":
+        return f"{ult['nombre']} empeora {ult['diferencia']:.2f} puntos (la banda de empeorar)"
     if ult["clase"] == "deja_de_completar":
         return f"{ult['nombre']} deja de completar"
+    if esperados is not None:
+        bajas = sum(1 for c in comparaciones if c["clase"] == "baja_tolerada")
+        mejoras = sum(1 for c in comparaciones if _es_mejora(c))
+        faltan = max(0, esperados - len(comparaciones))
+        if bajas and bajas >= mejoras + faltan:
+            return (f"{bajas} bajas toleradas y {mejoras} mejoras: ni con los {faltan} conjuntos que faltan se "
+                    "compensan")
     return None
 
 
 def veredicto(comparaciones: list[dict], suelo: float, *, esperados: int, presencia_motivo: str | None = None) -> dict:
-    """La regla E2. `esperados` = cuántos conjuntos debía haber (13): con menos (corte o pasada parcial), NO entra."""
+    """La regla C5′. `esperados` = cuántos conjuntos debía haber (13): con menos (corte o pasada parcial), NO entra."""
     cl = Counter(c["clase"] for c in comparaciones)
-    mejoras = [c for c in comparaciones if c["clase"] in ("sube", "empieza_a_completar")]
+    candidatas = [c for c in comparaciones if c["clase"] in ("sube", "mejora_de_tiempo", "empieza_a_completar")]
     # N3: la mejora de un conjunto cuyo entregado cayó a la CPU no es de la GPU
-    suben = sum(1 for c in mejoras if not c.get("cayo_a_cpu_en_b"))
-    mejoras_caidas = [c["nombre"] for c in mejoras if c.get("cayo_a_cpu_en_b")]
+    suben = sum(1 for c in candidatas if c["clase"] != "mejora_de_tiempo" and _es_mejora(c))
+    tiempo = sum(1 for c in candidatas if c["clase"] == "mejora_de_tiempo" and _es_mejora(c))
+    mejoras_caidas = [c["nombre"] for c in candidatas if c.get("cayo_a_cpu_en_b")]
+    bajas = cl["baja_tolerada"]
     motivos = []
     if presencia_motivo:
         motivos.append(presencia_motivo)
-    if cl["baja"]:
-        motivos.append(f"bajan más que el suelo de ruido ({suelo:g} puntos): "
-                       f"{[c['nombre'] for c in comparaciones if c['clase'] == 'baja']}")
+    if cl["empeora"]:
+        motivos.append(f"empeoran (bajan {max(EMPEORA_MINIMA, suelo):g} puntos o más): "
+                       f"{[c['nombre'] for c in comparaciones if c['clase'] == 'empeora']}")
     if cl["deja_de_completar"]:
         motivos.append(f"dejan de completar: {[c['nombre'] for c in comparaciones if c['clase'] == 'deja_de_completar']}")
-    if not suben:
-        motivos.append("ninguno mejora" + (f" (solo {mejoras_caidas}, que cayó a CPU: no cuenta como GPU)"
-                                           if mejoras_caidas else ""))
+    if suben + tiempo <= bajas:
+        detalle = (f" (solo {mejoras_caidas}, que cayó a CPU: no cuenta como GPU)" if mejoras_caidas else "")
+        motivos.append(f"las mejoras ({suben} suben + {tiempo} de tiempo) no superan a las bajas toleradas "
+                       f"({bajas}: {[c['nombre'] for c in comparaciones if c['clase'] == 'baja_tolerada']})"
+                       + detalle)
     if len(comparaciones) < esperados:
         motivos.append(f"solo {len(comparaciones)} de {esperados} conjuntos medidos")
-    return {"regla": "E2: ninguno baja más que el suelo de ruido, ninguno deja de terminar, alguno mejora",
+    return {"regla": "C5′ (banda de 1 punto + tiempo): ninguno empeora ni deja de terminar y las mejoras "
+                     "(suben + mejoras de tiempo) superan a las bajas toleradas",
             "suelo_de_ruido": suelo, "suelo_alto": suelo > SUELO_QUE_AVISA,
+            "banda": {"igual_o_sube_desde": max(BANDA_MINIMA, suelo), "empeora_desde": max(EMPEORA_MINIMA, suelo),
+                      "mejora_de_tiempo_si_pared_b_le_a_x": FRACCION_DE_TIEMPO},
             "conjuntos": [c["nombre"] for c in comparaciones], "esperados": esperados,
-            "suben": suben, "mejoras_que_cayeron_a_cpu": mejoras_caidas,
-            "coste_no_medido_en_b": COSTE_DE_VER_CUDA, "bajan": cl["baja"], "dejan_de_completar": cl["deja_de_completar"],
+            "suben": suben, "mejoras_de_tiempo": tiempo, "bajas_toleradas": bajas,
+            "mejoras_que_cayeron_a_cpu": mejoras_caidas,
+            "coste_no_medido_en_b": COSTE_DE_VER_CUDA, "empeoran": cl["empeora"],
+            "dejan_de_completar": cl["deja_de_completar"],
             "iguales": cl["igual"], "ninguno_completa": cl["ninguno_completa"],
             "tabm_campeon_en_b": [c["nombre"] for c in comparaciones if c["campeon_b"] == MOTOR_TABM],
             "entra": not motivos, "motivos_para_no_entrar": motivos}

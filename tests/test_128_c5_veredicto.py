@@ -1,6 +1,7 @@
 """128 · C5 — el veredicto de la GPU (`benchmarks/fase0/veredicto_128_c5.py`), la regla E2 de Roberto: ninguno baja más
-que el suelo de ruido medido repitiendo, ninguno deja de terminar, alguno mejora. Con registros FABRICADOS (aquí no
-hay GPU). Cada prueba lleva su nombre porque cada una tiene su sabotaje."""
+que el suelo de ruido medido repitiendo, ninguno deja de terminar, alguno mejora — sustituida el 09-10 por la C5′ de
+Roberto («banda de 1 punto + tiempo», al final de este fichero). Con registros FABRICADOS (aquí no hay GPU). Cada
+prueba lleva su nombre porque cada una tiene su sabotaje."""
 from __future__ import annotations
 
 import importlib.util
@@ -58,22 +59,22 @@ def test_ENTRA_si_ninguno_baja_ninguno_deja_de_terminar_y_alguno_mejora():
     r = V.evaluar(_doc(a, b))
     v = r["veredicto"]
     assert v["entra"] is True, v
-    assert (v["suben"], v["bajan"], v["dejan_de_completar"]) == (1, 0, 0)
+    assert (v["suben"], v["bajas_toleradas"], v["empeoran"], v["dejan_de_completar"]) == (1, 0, 0, 0)
     assert [c["clase"] for c in r["comparaciones"] if c["nombre"] == "wilt"] == ["igual"]
 
 
 def test_NO_ENTRA_si_ninguno_mejora():
     v = V.evaluar(_doc(_brazo({}), _brazo({}, gpu=True)))["veredicto"]
-    assert v["entra"] is False and "ninguno mejora" in v["motivos_para_no_entrar"]
+    assert v["entra"] is False and any("no superan" in m for m in v["motivos_para_no_entrar"]), v
 
 
-def test_NO_ENTRA_si_UNO_baja_mas_que_el_suelo_aunque_otros_suban():
+def test_NO_ENTRA_si_UNO_empeora_aunque_otros_suban():
     a = _brazo({}, repeticion={"pc1": 80.4})                      # suelo de A = 0,4
-    b = _brazo({"micro-mass": 90.0, "wilt": 79.0}, gpu=True)      # wilt baja 1,0 > 0,4
+    b = _brazo({"micro-mass": 90.0, "mfeat-factors": 90.0, "wilt": 77.5}, gpu=True)      # wilt baja 2,5 >= 2
     r = V.evaluar(_doc(a, b))
     assert r["veredicto"]["suelo_de_ruido"] == pytest.approx(0.4)
-    assert [c["nombre"] for c in r["comparaciones"] if c["clase"] == "baja"] == ["wilt"]
-    assert r["veredicto"]["entra"] is False and r["veredicto"]["bajan"] == 1
+    assert [c["nombre"] for c in r["comparaciones"] if c["clase"] == "empeora"] == ["wilt"]
+    assert r["veredicto"]["entra"] is False and r["veredicto"]["empeoran"] == 1
 
 
 def test_una_bajada_DENTRO_del_suelo_no_es_una_bajada():
@@ -124,12 +125,13 @@ def test_NO_ENTRA_con_menos_conjuntos_de_los_esperados():
 
 
 # --- el corte ----------------------------------------------------------------------------------------------------
-def test_CORTA_en_el_primer_conjunto_que_baja_mas_que_el_suelo():
+def test_CORTA_en_el_primer_conjunto_que_empeora():
     base = V.comparar(_rec("wilt", 80), _rec("wilt", 80), 0.5)
     assert V.corta([base]) is None
-    baja = V.comparar(_rec("wilt", 80), _rec("wilt", 78), 0.5)
-    assert baja["clase"] == "baja" and "wilt baja -2.00" in V.corta([base, baja])
-    assert V.corta([base, V.comparar(_rec("wilt", 80), _rec("wilt", 79.7), 0.5)]) is None      # dentro del suelo
+    empeora = V.comparar(_rec("wilt", 80), _rec("wilt", 78), 0.5)
+    assert empeora["clase"] == "empeora" and "wilt empeora -2.00" in V.corta([base, empeora])
+    assert V.corta([base, V.comparar(_rec("wilt", 80), _rec("wilt", 79.7), 0.5)]) is None      # dentro de la banda
+    assert V.corta([base, V.comparar(_rec("wilt", 80), _rec("wilt", 78.9), 0.5)]) is None      # baja tolerada: no corta sola
 
 
 def test_CORTA_si_deja_de_completar():
@@ -260,7 +262,7 @@ def test_N3_una_mejora_cuyo_ENTREGADO_cayo_a_CPU_no_cuenta_como_mejora_de_la_GPU
     r = V.evaluar(_doc(a, b))
     v = r["veredicto"]
     assert v["entra"] is False and v["suben"] == 0, v
-    assert any("ninguno mejora" in m and "cayó a CPU: no cuenta como GPU" in m and "wilt" in m
+    assert any("no superan" in m and "cayó a CPU: no cuenta como GPU" in m and "wilt" in m
                for m in v["motivos_para_no_entrar"]), v["motivos_para_no_entrar"]
     assert v["mejoras_que_cayeron_a_cpu"] == ["wilt"]
     assert [c["nombre"] for c in v["caidas_a_cpu_en_b"]] == ["wilt"]
@@ -297,3 +299,157 @@ def test_N4_la_RAM_pico_de_cada_brazo_va_al_veredicto_y_el_coste_no_medido_se_di
     v = V.evaluar(_doc(a, b))["veredicto"]
     assert v["ram_pico_mb_por_brazo"] == {"A": 1500.0, "B": 2300.0}, v["ram_pico_mb_por_brazo"]
     assert "densa vea CUDA" in v["coste_no_medido_en_b"] and "NO medido" in v["coste_no_medido_en_b"]
+
+
+# =====================================================================================================================
+# 128-C5′ — la regla nueva de Roberto (09-10 13:40, «banda de 1 punto + tiempo»), escrita antes de construir
+# =====================================================================================================================
+def _par(d, *, suelo=0.0, pared_a=100.0, pared_b=100.0, nombre="wilt"):
+    """Un conjunto con B − A = d puntos."""
+    a, b = _rec(nombre, 80.0, pared=pared_a), _rec(nombre, 80.0 + d, pared=pared_b)
+    return V.comparar(a, b, suelo)
+
+
+@pytest.mark.parametrize("d,suelo,clase", [
+    (0.0, 0.0, "igual"), (0.99, 0.0, "igual"), (-0.99, 0.0, "igual"), (-0.08, 0.0, "igual"),       # |d| < 1
+    (1.0, 0.0, "sube"), (3.0, 0.0, "sube"),                                                          # d >= 1
+    (-1.0, 0.0, "baja_tolerada"), (-1.59, 0.0, "baja_tolerada"), (-1.99, 0.0, "baja_tolerada"),    # -2 < d <= -1
+    (-2.0, 0.0, "empeora"), (-2.5, 0.0, "empeora"), (-9.0, 0.0, "empeora"),                          # d <= -2
+    (1.4, 1.5, "igual"), (1.5, 1.5, "sube"),                                                         # el suelo SUBE la banda
+    (-1.4, 1.5, "igual"), (-1.5, 1.5, "baja_tolerada"), (-1.9, 1.5, "baja_tolerada"), (-2.0, 1.5, "empeora"),
+    (-2.4, 2.5, "igual"), (-2.5, 2.5, "empeora"),                                                    # suelo > 2: ya no hay tolerada
+])
+def test_C5p_las_clases_por_diferencia_y_sus_bordes(d, suelo, clase):
+    assert _par(d, suelo=suelo)["clase"] == clase
+
+
+def test_C5p_con_un_suelo_mayor_de_2_no_existe_la_baja_tolerada():
+    for d in (-2.6, -3.0, -2.5, -2.49, -2.0, -1.0):
+        assert _par(d, suelo=2.5)["clase"] in ("igual", "empeora")
+
+
+def test_C5p_mejora_de_tiempo_solo_si_el_B_tarda_la_mitad_o_menos_y_queda_igual():
+    assert _par(-0.08, pared_a=355.7, pared_b=117.1)["clase"] == "mejora_de_tiempo"      # us_crime de hoy: 3x más rápido
+    assert _par(0.0, pared_a=100.0, pared_b=50.0)["clase"] == "mejora_de_tiempo"         # justo la mitad
+    assert _par(0.0, pared_a=100.0, pared_b=50.01)["clase"] == "igual"
+    assert _par(0.5, pared_a=100.0, pared_b=10.0)["clase"] == "mejora_de_tiempo"
+    assert _par(2.0, pared_a=100.0, pared_b=10.0)["clase"] == "sube"                      # una subida no cuenta dos veces
+    assert _par(-1.5, pared_a=100.0, pared_b=10.0)["clase"] == "baja_tolerada"            # el tiempo no redime una baja
+    assert _par(-2.5, pared_a=100.0, pared_b=10.0)["clase"] == "empeora"
+    assert _par(0.0, pared_a=None, pared_b=10.0)["clase"] == "igual"                      # sin pared medida, no hay mejora
+    assert _par(0.0, pared_a=100.0, pared_b=None)["clase"] == "igual"
+
+
+def _con(b_cambios, a_cambios=None, *, gpu=True):
+    """Dos brazos de 13 donde los conjuntos de `b_cambios` = (cifra, pared_b) y los de `a_cambios` = pared_a."""
+    a = _brazo({})
+    b = _brazo({n: c for n, (c, _) in b_cambios.items()}, gpu=gpu)
+    for n, (_, pared) in b_cambios.items():
+        b["conjuntos"][n]["pared_estudio_s"] = pared
+    for n, pared in (a_cambios or {}).items():
+        a["conjuntos"][n]["pared_estudio_s"] = pared
+    return a, b
+
+
+def test_C5p_ENTRA_si_las_mejoras_superan_a_las_bajas_toleradas():
+    a, b = _con({"micro-mass": (83.0, 60.0), "wilt": (78.8, 60.0)})            # 1 sube, 1 baja tolerada (-1,2)
+    v = V.evaluar(_doc(a, b))["veredicto"]
+    assert (v["suben"], v["mejoras_de_tiempo"], v["bajas_toleradas"]) == (1, 0, 1) and v["entra"] is False
+    a, b = _con({"micro-mass": (83.0, 60.0), "mfeat-factors": (82.0, 60.0), "wilt": (78.8, 60.0)})
+    v = V.evaluar(_doc(a, b))["veredicto"]
+    assert (v["suben"], v["bajas_toleradas"]) == (2, 1) and v["entra"] is True, v
+
+
+def test_C5p_la_mejora_de_tiempo_cuenta_como_mejora():
+    a, b = _con({"micro-mass": (80.0, 20.0), "wilt": (78.8, 60.0)}, {"micro-mass": 60.0})
+    v = V.evaluar(_doc(a, b))["veredicto"]
+    assert (v["suben"], v["mejoras_de_tiempo"], v["bajas_toleradas"]) == (0, 1, 1) and v["entra"] is False
+    a, b = _con({"micro-mass": (80.0, 20.0), "pendigits": (80.0, 20.0), "wilt": (78.8, 60.0)},
+                {"micro-mass": 60.0, "pendigits": 60.0})
+    v = V.evaluar(_doc(a, b))["veredicto"]
+    assert (v["suben"], v["mejoras_de_tiempo"], v["bajas_toleradas"]) == (0, 2, 1) and v["entra"] is True, v
+
+
+def test_C5p_solo_mejoras_de_tiempo_entra_sin_ninguna_baja():
+    a, b = _con({"micro-mass": (80.0, 20.0)}, {"micro-mass": 60.0})
+    v = V.evaluar(_doc(a, b))["veredicto"]
+    assert v["entra"] is True and v["mejoras_de_tiempo"] == 1 and v["suben"] == 0
+
+
+def test_C5p_un_empeora_bloquea_aunque_haya_muchas_mejoras():
+    a, b = _con({"micro-mass": (90.0, 60.0), "mfeat-factors": (90.0, 60.0), "pendigits": (90.0, 60.0),
+                 "wilt": (77.9, 60.0)})                                         # wilt: -2,1
+    v = V.evaluar(_doc(a, b))["veredicto"]
+    assert v["entra"] is False and v["empeoran"] == 1 and v["suben"] == 3
+    assert any("empeoran" in m for m in v["motivos_para_no_entrar"])
+
+
+def test_C5p_la_baja_tolerada_sola_no_bloquea_y_sin_mejoras_no_entra_por_las_mejoras():
+    a, b = _con({"wilt": (78.8, 60.0)})
+    v = V.evaluar(_doc(a, b))["veredicto"]
+    assert v["empeoran"] == 0 and v["bajas_toleradas"] == 1 and v["entra"] is False
+    assert any("no superan" in m for m in v["motivos_para_no_entrar"])
+
+
+def test_C5p_una_mejora_de_tiempo_cuyo_entregado_cayo_a_CPU_no_cuenta_como_GPU():
+    a, b = _con({"wilt": (80.0, 20.0)}, {"wilt": 60.0})
+    b["conjuntos"]["wilt"]["campeon"] = TABM
+    b["conjuntos"]["wilt"]["entrenamiento_del_entregado"] = {"dispositivo": "cpu", "cayo_a_cpu": True}
+    v = V.evaluar(_doc(a, b))["veredicto"]
+    assert v["entra"] is False and v["mejoras_de_tiempo"] == 0 and v["mejoras_que_cayeron_a_cpu"] == ["wilt"]
+
+
+# --- el corte (regla 9) ------------------------------------------------------------------------------------------
+def test_C5p_el_corte_de_las_bajas_se_calcula_con_lo_que_falta():
+    def cadena(n_bajas, n_mejoras):
+        return ([_par(-1.5, nombre=f"b{i}") for i in range(n_bajas)]
+                + [_par(2.0, nombre=f"m{i}") for i in range(n_mejoras)])
+    # 5 bajas, 0 mejoras, faltan 3 de 8: 0 + 3 <= 5 -> corta
+    assert "ni con los 3" in V.corta(cadena(5, 0), esperados=8)
+    # 3 bajas, 0 mejoras, faltan 5 de 8: 0 + 5 > 3 -> sigue
+    assert V.corta(cadena(3, 0), esperados=8) is None
+    # el borde: 4 bajas, 0 mejoras, faltan 4 de 8: 0 + 4 <= 4 -> corta (con 4 mejoras empataría, y no basta: hay que SUPERAR)
+    assert V.corta(cadena(4, 0), esperados=8) is not None
+    # 4 bajas, 1 mejora, faltan 3 de 8: 1 + 3 <= 4 -> corta ; 4 bajas, 1 mejora, faltan 4 de 9: 5 > 4 -> sigue
+    assert V.corta(cadena(4, 1), esperados=8) is not None
+    assert V.corta(cadena(4, 1), esperados=9) is None
+    # sin `esperados` solo se mira el último conjunto
+    assert V.corta(cadena(5, 0)) is None
+
+
+def test_C5p_el_corte_no_cuenta_como_mejora_la_de_un_entregado_caido_a_CPU():
+    caida = _par(2.0, nombre="m0")
+    caida["cayo_a_cpu_en_b"] = True
+    cadena = [caida] + [_par(-1.5, nombre=f"b{i}") for i in range(3)]
+    assert V.corta(cadena, esperados=7) is not None              # 3 bajas, 0 mejoras (la caída no cuenta), faltan 3
+
+
+def test_C5p_el_corte_CORTA_en_un_empeora_y_en_dejar_de_completar():
+    assert "empeora" in V.corta([_par(-2.0)])
+    assert V.corta([_par(-2.0)], esperados=13) is not None
+
+
+# --- con los 4 conjuntos medidos hoy en el portátil de Roberto (RTX 2000 Ada) -------------------------------------
+HOY = Path(__file__).resolve().parent / "data" / "resultado_128_c5_portatil_4_de_control.json"
+
+
+def test_C5p_con_los_4_medidos_hoy_NO_ENTRA_por_1_mejora_de_tiempo_frente_a_1_baja_tolerada():
+    r = V.evaluar(json.loads(HOY.read_text()))
+    clases = {c["nombre"]: c["clase"] for c in r["comparaciones"]}
+    assert clases == {"dresses-sales": "igual", "climate-model-simulation-crashes": "igual",
+                      "us_crime": "mejora_de_tiempo", "pc1": "baja_tolerada"}, clases
+    d = {c["nombre"]: c["diferencia"] for c in r["comparaciones"]}
+    assert d["dresses-sales"] == pytest.approx(-0.33, abs=0.005) and d["us_crime"] == pytest.approx(-0.08, abs=0.005)
+    assert d["pc1"] == pytest.approx(-1.59, abs=0.005) and d["climate-model-simulation-crashes"] == 0.0
+    v = r["veredicto"]
+    assert (v["suben"], v["mejoras_de_tiempo"], v["bajas_toleradas"], v["empeoran"]) == (0, 1, 1, 0)
+    assert v["suelo_de_ruido"] == 0.0 and v["entra"] is False
+    assert any("no superan" in m for m in v["motivos_para_no_entrar"]), v["motivos_para_no_entrar"]
+    # y la pasada de hoy NO se habría cortado en ninguno de los cuatro (solo uno es baja tolerada, faltaban 9)
+    assert V.corta(r["comparaciones"], esperados=13) is None
+
+
+def test_C5p_el_CLI_dice_las_clases_nuevas(tmp_path, capsys):
+    V._main(["x", str(HOY)])
+    sal = capsys.readouterr().out
+    assert "mejora_de_tiempo" in sal and "baja_tolerada" in sal and "LA GPU NO ENTRA" in sal

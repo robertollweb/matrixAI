@@ -744,3 +744,27 @@ def test_N5_un_ENTREGADO_sin_dispositivo_declarado_el_B1_real_no_dice_se_entreno
     (tmp_path / "brazo_B.json").unlink()
     assert M.main(_args(tmp_path, "B", b2)) == 6
     assert "se entrenó en 'cpu'" in json.loads((tmp_path / "brazo_B.json").read_text())["corte"]["motivo"]
+
+
+# --- 128-C5′: `--sin-cortar` / `-SinCortar` llega al medidor desde los dos lanzadores -----------------------------------
+def test_C5p_lanzar_sh_pasa_sin_cortar_al_medidor_solo_si_se_pide(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    r, ordenes, _ = _lanzar(kit, tmp_path, "--sin-cortar")
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-800:]
+    medidores = [o for o in ordenes if "medir_c5.py --brazo" in o]
+    assert medidores and all(" --sin-cortar" in o for o in medidores), medidores
+    (tmp_path / "sin").mkdir()
+    r, ordenes, _ = _lanzar(_kit_empaquetado(tmp_path / "sin"), tmp_path / "sin")
+    assert r.returncode == 0
+    assert not any("--sin-cortar" in o for o in ordenes)
+
+
+def test_C5p_lanzar_ps1_pasa_sin_cortar_al_medidor_solo_si_se_pide(tmp_path):
+    r, log, _ = _pwsh(tmp_path, _CONSOLA.format(modo="Standard", parametros="-SinCortar -Brazos AB"))
+    assert r.returncode == 0, r.stdout[-2500:] + r.stderr[-1500:]
+    medidores = [o["args"] for o in _ordenes(log) if "--brazo" in o["args"]]
+    assert medidores and all("--sin-cortar" in m for m in medidores), medidores
+    (tmp_path / "sin").mkdir()
+    r, log, _ = _pwsh(tmp_path / "sin", _CONSOLA.format(modo="Standard", parametros=""))
+    assert r.returncode == 0
+    assert not any("--sin-cortar" in o["args"] for o in _ordenes(log) if "--brazo" in o["args"])

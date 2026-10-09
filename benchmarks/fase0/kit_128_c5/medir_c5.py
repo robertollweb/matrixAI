@@ -12,8 +12,10 @@ Lo que lanza el medidor a mano (normalmente lo hace `lanzar.ps1` / `lanzar.sh`):
 Un brazo = los 13 conjuntos de referencia, uno tras otro, con la REPETICIÓN de los 4 de control (el suelo de ruido
 de ese brazo) justo DESPUÉS de medir esos 4 —los de control van los primeros— y ANTES de los otros 9 (así el corte por
 la regla 9 ya tiene su suelo desde el principio). Se corta y se relanza donde estaba: tras cada conjunto se escribe `brazo_<X>.json` (os.replace) y
-al relanzar se reusan SOLO los `completed` con la misma procedencia. El brazo B se corta, como la regla 9 del 120, en
-el primer conjunto que baja más que el suelo de ruido o deja de completar (`veredicto_128_c5.corta`).
+al relanzar se reusan SOLO los `completed` con la misma procedencia. El brazo B se corta, como la regla 9 del 120, con la
+regla C5′ del veredicto (`veredicto_128_c5.corta`): en el primer conjunto que EMPEORA (baja el suelo de empeorar o más)
+o deja de completar, o cuando las bajas toleradas ya no se pueden compensar con los conjuntos que faltan. Con
+`--sin-cortar` no corta: mide los 13 y solo informa (el veredicto es el mismo).
 
 Códigos de salida: 0 bien · 2 los datos no cuadran con el manifiesto · 3 el brazo A no está terminado · 4 el Studio ya
 no contesta (el lanzador lo rearranca y vuelve a llamar) · 5 (`--prueba`) la GPU NO se usó · 6 incomparable, o lo que se
@@ -388,7 +390,7 @@ def medir_brazo(a: argparse.Namespace, estudiar_fn=estudiar) -> int:
             dif = "" if comp["diferencia"] is None else f" {comp['diferencia']:+.2f} puntos"
             print(f"   contra el brazo A: {comp['clase']}{dif} ({comp['campeon_a']} -> {comp['campeon_b']}; "
                   f"{comp['pared_a_s']} -> {comp['pared_b_s']} s)", flush=True)
-            porque = V.corta(comps)
+            porque = V.corta(comps, esperados=len(cola))
             if porque and not a.sin_cortar:
                 doc["corte"] = {"tipo": "regla_9", "motivo": porque, "tras": c["nombre"],
                                 "sin_medir": [x["nombre"] for x in cola[i + 1:]]}

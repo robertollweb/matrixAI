@@ -3,8 +3,12 @@
 **Qué hace.** Mide los 13 conjuntos de referencia del Studio dos veces, en el mismo PC y con la misma imagen del
 paquete GPU: **brazo A** con TabM en la CPU (`MATRIXAI_TABM_DISPOSITIVO=cpu`) y **brazo B** con TabM en la GPU
 (`auto` y `--gpus all`). En cada brazo repite los 4 conjuntos pequeños de control para saber cuánto bailan las cifras
-por sí solas (el *suelo de ruido*). La regla es la tuya: **la GPU entra solo si ningún conjunto baja más que ese
-suelo, ninguno deja de terminar y alguno mejora**. Si no, TabM sigue en la CPU y no se pierde nada.
+por sí solas (el *suelo de ruido*). La regla es la tuya (C5′, «banda de 1 punto + tiempo»): por conjunto, la diferencia del test
+(GPU − CPU) dentro de ±1 punto (o el suelo, si es mayor) es «igual»; por encima, **sube**; entre −1 y −2, **baja
+tolerada**; −2 o peor, o dejar de terminar, **empeora**. Si el estudio de la GPU tarda la mitad o menos y queda «igual»,
+es una **mejora de tiempo**. **La GPU entra si ninguno empeora y las mejoras (suben + tiempo) superan a las bajas
+toleradas.** Si no, TabM sigue en la CPU y no se pierde nada. Con `-SinCortar` (`--sin-cortar` en Linux) no se corta
+nunca: mide los 13 y solo informa; el veredicto es el mismo.
 
 Los 13 CSV ya van dentro (`datos/`, con su sha256 en `datos/manifiesto.json`): el estudio no necesita red ni descarga
 nada. No toca tu instalación normal del Studio: usa contenedores propios (`c5-128-…`) y una red propia que borra al
@@ -39,7 +43,7 @@ Cálculo de la estimación (no medida): brazo A ≈ 2–2,5 h, brazo B ≈ 1,3�
 cada uno. Cada conjunto tiene un tope de 1 h; si algún conjunto grande no termina, el brazo sigue con el siguiente.
 **Se puede cortar** (Ctrl+C, apagar el PC) **y volver a lanzar la MISMA orden**: sigue donde estaba (reusa lo ya
 medido con la misma imagen y los mismos ajustes; la capa GPU ya construida no se vuelve a bajar).
-Si el brazo B baja o deja de terminar un conjunto, **se corta solo** (no hace falta esperar las horas que quedan) y lo dice.
+Si el brazo B empeora o deja de terminar un conjunto (o las bajas toleradas ya no se pueden compensar), **se corta solo** (no hace falta esperar las horas que quedan) y lo dice.
 Ese corte **es el resultado**: si vuelves a lanzar la misma orden, no repite el brazo B (compone el JSON con él). Nunca
 se pisa una pasada: la que no se continúa (otra imagen u otros ajustes, o un corte del instrumento) se guarda al lado
 como `salida/brazo_B.anterior-<fecha-hora>.json`.
