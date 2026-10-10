@@ -34,7 +34,24 @@ def _cargar(ruta: Path, nombre: str):
 M = _cargar(KIT / "medir_c5.py", "medir_c5_en_pruebas")
 V = M.V
 CONTROL = ["dresses-sales", "climate-model-simulation-crashes", "us_crime", "pc1"]
-pytestmark = pytest.mark.skipif(not (KIT / "datos" / "manifiesto.json").is_file(), reason="el kit no tiene sus datos generados")
+
+
+def _csv_del_kit_que_faltan() -> list[str]:
+    """P4 (auditoría del 129-C3, 10-10): los CSV del kit NO van a git (`.gitignore`: `kit_128_c5/datos/*.csv.gz`, 48 MB que
+    se regeneran con `benchmarks/fase0/generar_kit_128_c5.py`) y el manifiesto SÍ. Mirar solo el manifiesto hacía que en un
+    clon o un worktree estas pruebas CORRIERAN y dieran 35 rojos que no decían nada. Se mira que ESTÉN los ficheros del
+    manifiesto, no que sean buenos: unos datos corrompidos siguen dando rojo (`test_los_datos_del_kit_cuadran_con_su_manifiesto_byte_a_byte`)."""
+    try:
+        conjuntos = M.leer_manifiesto(KIT / "datos")["conjuntos"]
+    except (OSError, ValueError, KeyError):
+        return ["manifiesto.json"]
+    return [c["fichero"] for c in conjuntos if not (KIT / "datos" / c["fichero"]).is_file()]
+
+
+_FALTAN = _csv_del_kit_que_faltan()
+pytestmark = pytest.mark.skipif(bool(_FALTAN), reason=(
+    f"el kit no tiene sus datos ({len(_FALTAN)} ficheros, p. ej. {_FALTAN[:2]}; ignorados por git): "
+    "regenerarlos con python3 benchmarks/fase0/generar_kit_128_c5.py"))
 
 
 # ------------------------------------------------------------------------------------------------ los datos
