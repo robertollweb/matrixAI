@@ -3,6 +3,7 @@
 # salida/resultado_128_c5.json para mandarlo. Linux (o WSL2). Ver LEEME.md.
 #
 #   ./lanzar.sh [--prueba] [--memoria 6g] [--cpus 2] [--brazos A|B|A,B] [--solo a,b] [--suelo X] [--salida DIR]
+#               [--sin-cortar]
 #               [--reconstruir] [--imagen IMG --imagen-medidor IMG]
 #
 # SIN --imagen (lo normal): carga la imagen BASE de este corte (imagen/matrixai-studio-128.tar) y CONSTRUYE en este PC
@@ -12,12 +13,13 @@
 # Se puede cortar (Ctrl+C) y volver a lanzar con la MISMA orden: sigue donde estaba.
 set -uo pipefail
 AQUI="$(cd "$(dirname "$0")" && pwd)"
-BRAZOS=AB ; IMAGEN="" ; RECONSTRUIR=0 ; PRUEBA=0 ; MEMORIA=6g ; CPUS=2 ; SOLO="" ; SUELO="" ; SALIDA="$AQUI/salida" ; MEDIDOR=""
+BRAZOS=AB ; IMAGEN="" ; RECONSTRUIR=0 ; PRUEBA=0 ; MEMORIA=6g ; CPUS=2 ; SOLO="" ; SUELO="" ; SALIDA="$AQUI/salida" ; MEDIDOR="" ; SIN_CORTAR=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --imagen) IMAGEN="$2"; shift 2;;
     --imagen-medidor) MEDIDOR="$2"; shift 2;;
     --prueba) PRUEBA=1; shift;;
+    --sin-cortar) SIN_CORTAR=1; shift;;
     --reconstruir) RECONSTRUIR=1; shift;;
     --brazos) BRAZOS="$(echo "$2" | tr -d , | tr a-z A-Z)"; shift 2;;
     --memoria) MEMORIA="$2"; shift 2;;
@@ -84,7 +86,7 @@ medidor() {  # medidor <brazo> [extra...]
   docker run --rm --name c5-128-medidor --network "$RED" --user "$(id -u):$(id -g)" -e HOME=/tmp --entrypoint python3 -v "$AQUI":/work/kit:ro -v "$SALIDA":/salida "$MEDIDOR" \
     /work/kit/medir_c5.py --brazo "$brazo" --studio "http://c5-128-studio-$brazo:8765" --salida /salida --datos /work/kit/datos \
     --imagen "$IMAGEN" --imagen-id "$IMAGEN_ID" --memoria "$MEMORIA" --cpus "$CPUS" --entorno "$ent" \
-    ${SOLO:+--solo "$SOLO"} ${SUELO:+--suelo "$SUELO"} $( [ "$PRUEBA" = 1 ] && echo --prueba ) "$@"
+    ${SOLO:+--solo "$SOLO"} ${SUELO:+--suelo "$SUELO"} $( [ "$PRUEBA" = 1 ] && echo --prueba ) $( [ "$SIN_CORTAR" = 1 ] && echo --sin-cortar ) "$@"
 }
 
 brazo() {  # brazo <A|B>

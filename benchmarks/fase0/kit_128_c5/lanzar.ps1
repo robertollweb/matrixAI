@@ -5,6 +5,7 @@
 # tests/test_128_c5_kit.py con pwsh 7 y un docker falso, tambien con el paso de argumentos "Legacy" de 5.1.
 #
 #   .\lanzar.ps1 [-Prueba] [-Memoria 6g] [-Cpus 2] [-Brazos AB] [-Solo a,b] [-Suelo X] [-Salida DIR]
+#                [-SinCortar]
 #                [-Reconstruir] [-Imagen IMG -ImagenMedidor IMG]
 #
 # SIN -Imagen (lo normal): carga la imagen BASE de este corte (imagen\matrixai-studio-128.tar) y CONSTRUYE en este PC
@@ -15,6 +16,7 @@
 param(
   [string]$Imagen = "",
   [switch]$Prueba,
+  [switch]$SinCortar,
   [string]$Memoria = "6g",
   [string]$Cpus = "2",
   [string[]]$Brazos = "AB",
@@ -124,6 +126,7 @@ function Medidor($brazo) {
   if ($Solo -ne "") { $argumentos += @("--solo", $Solo) }
   if ($Suelo -ne "") { $argumentos += @("--suelo", $Suelo) }
   if ($Prueba) { $argumentos += "--prueba" }
+  if ($SinCortar) { $argumentos += "--sin-cortar" }
   # "| Out-Host": lo que escribe el medidor va a la PANTALLA (el progreso de horas). Sin eso, dentro de una funcion
   # es su valor de retorno: "$rc = Medidor $b" se lo tragaba entero, $rc era una lista, "-ne 0" salia cierto y el
   # kit paraba tras el brazo A sin haber arrancado el B (B2). La funcion devuelve SOLO el codigo de salida.

@@ -1,0 +1,520 @@
+{
+ "origen": "resultado_128_c5.json del portátil de Roberto (RTX 2000 Ada), 2026-10-09, reducido a lo que lee el veredicto",
+ "esperados": 13,
+ "brazos": {
+  "A": {
+   "conjuntos": {
+    "dresses-sales": {
+     "nombre": "dresses-sales",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "matrixai.dense.tabm_cpu",
+     "pared_estudio_s": 65.5,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.6223316912972086,
+       "accuracy": 0.63,
+       "specificity": 0.8620689655172413
+      }
+     },
+     "entrenamiento_del_entregado": {
+      "cayo_a_cpu": false,
+      "dispositivo": null,
+      "epocas_completas": 23,
+      "epocas_ejecutadas": 23,
+      "mejor_epoca": 6,
+      "parado_por_plazo": false,
+      "plazo_antes_de_la_primera_epoca_completa": false,
+      "plazo_de_entrenamiento_segundos": 45.0,
+      "por_que_cayo": null,
+      "ultima_epoca_parcial": false
+     },
+     "dispositivos_vistos": {
+      "cpu": 21
+     },
+     "recursos": {
+      "ram_pico_mb": 938.5,
+      "vram_extra_mb": null
+     }
+    },
+    "climate-model-simulation-crashes": {
+     "nombre": "climate-model-simulation-crashes",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "sklearn.hgb",
+     "pared_estudio_s": 75.2,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.9618406285072951,
+       "accuracy": 0.9537037037037037,
+       "specificity": 1.0
+      }
+     },
+     "entrenamiento_del_entregado": null,
+     "dispositivos_vistos": {
+      "cpu": 20
+     },
+     "recursos": {
+      "ram_pico_mb": 987.7,
+      "vram_extra_mb": null
+     }
+    },
+    "us_crime": {
+     "nombre": "us_crime",
+     "tarea": "regression",
+     "estado": "completed",
+     "campeon": "matrixai.dense.tabm_cpu",
+     "pared_estudio_s": 355.7,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "rmse": 0.1289178468994911,
+       "r2": 0.7066851079107561,
+       "mae": 0.08610806428597317
+      }
+     },
+     "entrenamiento_del_entregado": {
+      "cayo_a_cpu": false,
+      "dispositivo": null,
+      "epocas_completas": 36,
+      "epocas_ejecutadas": 36,
+      "mejor_epoca": 21,
+      "parado_por_plazo": true,
+      "plazo_antes_de_la_primera_epoca_completa": false,
+      "plazo_de_entrenamiento_segundos": 45.0,
+      "por_que_cayo": null,
+      "ultima_epoca_parcial": false
+     },
+     "dispositivos_vistos": {
+      "cpu": 21
+     },
+     "recursos": {
+      "ram_pico_mb": 1342.5,
+      "vram_extra_mb": null
+     }
+    },
+    "pc1": {
+     "nombre": "pc1",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "matrixai.dense.tabm_cpu",
+     "pared_estudio_s": 140.4,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.7967637540453074,
+       "accuracy": 0.9276018099547512,
+       "specificity": 0.9951456310679612
+      }
+     },
+     "entrenamiento_del_entregado": {
+      "cayo_a_cpu": false,
+      "dispositivo": null,
+      "epocas_completas": 68,
+      "epocas_ejecutadas": 68,
+      "mejor_epoca": 51,
+      "parado_por_plazo": false,
+      "plazo_antes_de_la_primera_epoca_completa": false,
+      "plazo_de_entrenamiento_segundos": 45.0,
+      "por_que_cayo": null,
+      "ultima_epoca_parcial": false
+     },
+     "dispositivos_vistos": {
+      "cpu": 21
+     },
+     "recursos": {
+      "ram_pico_mb": 1079.4,
+      "vram_extra_mb": null
+     }
+    }
+   },
+   "repeticion_de_control": {
+    "dresses-sales": {
+     "nombre": "dresses-sales",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "matrixai.dense.tabm_cpu",
+     "pared_estudio_s": 65.4,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.6223316912972086,
+       "accuracy": 0.63,
+       "specificity": 0.8620689655172413
+      }
+     },
+     "entrenamiento_del_entregado": {
+      "cayo_a_cpu": false,
+      "dispositivo": null,
+      "epocas_completas": 23,
+      "epocas_ejecutadas": 23,
+      "mejor_epoca": 6,
+      "parado_por_plazo": false,
+      "plazo_antes_de_la_primera_epoca_completa": false,
+      "plazo_de_entrenamiento_segundos": 45.0,
+      "por_que_cayo": null,
+      "ultima_epoca_parcial": false
+     },
+     "dispositivos_vistos": {
+      "cpu": 21
+     },
+     "recursos": {
+      "ram_pico_mb": 1032.7,
+      "vram_extra_mb": null
+     }
+    },
+    "climate-model-simulation-crashes": {
+     "nombre": "climate-model-simulation-crashes",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "sklearn.hgb",
+     "pared_estudio_s": 80.3,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.9618406285072951,
+       "accuracy": 0.9537037037037037,
+       "specificity": 1.0
+      }
+     },
+     "entrenamiento_del_entregado": null,
+     "dispositivos_vistos": {
+      "cpu": 20
+     },
+     "recursos": {
+      "ram_pico_mb": 1080.5,
+      "vram_extra_mb": null
+     }
+    },
+    "us_crime": {
+     "nombre": "us_crime",
+     "tarea": "regression",
+     "estado": "completed",
+     "campeon": "matrixai.dense.tabm_cpu",
+     "pared_estudio_s": 355.6,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "rmse": 0.1289178468994911,
+       "r2": 0.7066851079107561,
+       "mae": 0.08610806428597317
+      }
+     },
+     "entrenamiento_del_entregado": {
+      "cayo_a_cpu": false,
+      "dispositivo": null,
+      "epocas_completas": 38,
+      "epocas_ejecutadas": 38,
+      "mejor_epoca": 21,
+      "parado_por_plazo": false,
+      "plazo_antes_de_la_primera_epoca_completa": false,
+      "plazo_de_entrenamiento_segundos": 45.0,
+      "por_que_cayo": null,
+      "ultima_epoca_parcial": false
+     },
+     "dispositivos_vistos": {
+      "cpu": 21
+     },
+     "recursos": {
+      "ram_pico_mb": 1394.1,
+      "vram_extra_mb": null
+     }
+    },
+    "pc1": {
+     "nombre": "pc1",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "matrixai.dense.tabm_cpu",
+     "pared_estudio_s": 125.4,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.7967637540453074,
+       "accuracy": 0.9276018099547512,
+       "specificity": 0.9951456310679612
+      }
+     },
+     "entrenamiento_del_entregado": {
+      "cayo_a_cpu": false,
+      "dispositivo": null,
+      "epocas_completas": 68,
+      "epocas_ejecutadas": 68,
+      "mejor_epoca": 51,
+      "parado_por_plazo": false,
+      "plazo_antes_de_la_primera_epoca_completa": false,
+      "plazo_de_entrenamiento_segundos": 45.0,
+      "por_que_cayo": null,
+      "ultima_epoca_parcial": false
+     },
+     "dispositivos_vistos": {
+      "cpu": 21
+     },
+     "recursos": {
+      "ram_pico_mb": 1111.2,
+      "vram_extra_mb": null
+     }
+    }
+   }
+  },
+  "B": {
+   "conjuntos": {
+    "dresses-sales": {
+     "nombre": "dresses-sales",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "matrixai.dense.tabm_cpu",
+     "pared_estudio_s": 67.6,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.6190476190476191,
+       "accuracy": 0.61,
+       "specificity": 0.8448275862068966
+      }
+     },
+     "entrenamiento_del_entregado": {
+      "cayo_a_cpu": false,
+      "dispositivo": "cuda",
+      "epocas_completas": 23,
+      "epocas_ejecutadas": 23,
+      "mejor_epoca": 6,
+      "parado_por_plazo": false,
+      "plazo_antes_de_la_primera_epoca_completa": false,
+      "plazo_de_entrenamiento_segundos": 45.0,
+      "por_que_cayo": null,
+      "ultima_epoca_parcial": false
+     },
+     "dispositivos_vistos": {
+      "cpu": 10,
+      "cuda": 23
+     },
+     "recursos": {
+      "ram_pico_mb": 1554.5,
+      "vram_extra_mb": 163.0
+     }
+    },
+    "climate-model-simulation-crashes": {
+     "nombre": "climate-model-simulation-crashes",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "sklearn.hgb",
+     "pared_estudio_s": 67.0,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.9618406285072951,
+       "accuracy": 0.9537037037037037,
+       "specificity": 1.0
+      }
+     },
+     "entrenamiento_del_entregado": null,
+     "dispositivos_vistos": {
+      "cpu": 10,
+      "cuda": 20
+     },
+     "recursos": {
+      "ram_pico_mb": 1558.6,
+      "vram_extra_mb": 163.0
+     }
+    },
+    "us_crime": {
+     "nombre": "us_crime",
+     "tarea": "regression",
+     "estado": "completed",
+     "campeon": "matrixai.dense.tabm_cpu",
+     "pared_estudio_s": 117.1,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "rmse": 0.1291032851489905,
+       "r2": 0.7058406799183957,
+       "mae": 0.0863254841516952
+      }
+     },
+     "entrenamiento_del_entregado": {
+      "cayo_a_cpu": false,
+      "dispositivo": "cuda",
+      "epocas_completas": 38,
+      "epocas_ejecutadas": 38,
+      "mejor_epoca": 21,
+      "parado_por_plazo": false,
+      "plazo_antes_de_la_primera_epoca_completa": false,
+      "plazo_de_entrenamiento_segundos": 45.0,
+      "por_que_cayo": null,
+      "ultima_epoca_parcial": false
+     },
+     "dispositivos_vistos": {
+      "cpu": 10,
+      "cuda": 23
+     },
+     "recursos": {
+      "ram_pico_mb": 1786.8,
+      "vram_extra_mb": 423.0
+     }
+    },
+    "pc1": {
+     "nombre": "pc1",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "lightgbm",
+     "pared_estudio_s": 77.0,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.7809061488673139,
+       "accuracy": 0.9230769230769231,
+       "specificity": 0.9757281553398058
+      }
+     },
+     "entrenamiento_del_entregado": null,
+     "dispositivos_vistos": {
+      "cpu": 10,
+      "cuda": 20
+     },
+     "recursos": {
+      "ram_pico_mb": 1714.3,
+      "vram_extra_mb": 201.0
+     }
+    }
+   },
+   "repeticion_de_control": {
+    "dresses-sales": {
+     "nombre": "dresses-sales",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "matrixai.dense.tabm_cpu",
+     "pared_estudio_s": 67.2,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.6190476190476191,
+       "accuracy": 0.61,
+       "specificity": 0.8448275862068966
+      }
+     },
+     "entrenamiento_del_entregado": {
+      "cayo_a_cpu": false,
+      "dispositivo": "cuda",
+      "epocas_completas": 23,
+      "epocas_ejecutadas": 23,
+      "mejor_epoca": 6,
+      "parado_por_plazo": false,
+      "plazo_antes_de_la_primera_epoca_completa": false,
+      "plazo_de_entrenamiento_segundos": 45.0,
+      "por_que_cayo": null,
+      "ultima_epoca_parcial": false
+     },
+     "dispositivos_vistos": {
+      "cpu": 10,
+      "cuda": 23
+     },
+     "recursos": {
+      "ram_pico_mb": 1697.4,
+      "vram_extra_mb": 0.0
+     }
+    },
+    "climate-model-simulation-crashes": {
+     "nombre": "climate-model-simulation-crashes",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "sklearn.hgb",
+     "pared_estudio_s": 66.9,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.9618406285072951,
+       "accuracy": 0.9537037037037037,
+       "specificity": 1.0
+      }
+     },
+     "entrenamiento_del_entregado": null,
+     "dispositivos_vistos": {
+      "cpu": 10,
+      "cuda": 20
+     },
+     "recursos": {
+      "ram_pico_mb": 1689.8,
+      "vram_extra_mb": 197.0
+     }
+    },
+    "us_crime": {
+     "nombre": "us_crime",
+     "tarea": "regression",
+     "estado": "completed",
+     "campeon": "matrixai.dense.tabm_cpu",
+     "pared_estudio_s": 117.1,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "rmse": 0.1291032851489905,
+       "r2": 0.7058406799183957,
+       "mae": 0.0863254841516952
+      }
+     },
+     "entrenamiento_del_entregado": {
+      "cayo_a_cpu": false,
+      "dispositivo": "cuda",
+      "epocas_completas": 38,
+      "epocas_ejecutadas": 38,
+      "mejor_epoca": 21,
+      "parado_por_plazo": false,
+      "plazo_antes_de_la_primera_epoca_completa": false,
+      "plazo_de_entrenamiento_segundos": 45.0,
+      "por_que_cayo": null,
+      "ultima_epoca_parcial": false
+     },
+     "dispositivos_vistos": {
+      "cpu": 10,
+      "cuda": 23
+     },
+     "recursos": {
+      "ram_pico_mb": 1854.1,
+      "vram_extra_mb": 423.0
+     }
+    },
+    "pc1": {
+     "nombre": "pc1",
+     "tarea": "binary_classification",
+     "estado": "completed",
+     "campeon": "lightgbm",
+     "pared_estudio_s": 76.7,
+     "test": {
+      "rol": "test",
+      "evidencia": "independent_test",
+      "metricas": {
+       "auroc": 0.7809061488673139,
+       "accuracy": 0.9230769230769231,
+       "specificity": 0.9757281553398058
+      }
+     },
+     "entrenamiento_del_entregado": null,
+     "dispositivos_vistos": {
+      "cpu": 10,
+      "cuda": 20
+     },
+     "recursos": {
+      "ram_pico_mb": 1741.1,
+      "vram_extra_mb": 163.0
+     }
+    }
+   }
+  }
+ }
+}
