@@ -116,6 +116,10 @@ def presencia(rec: dict, *, c3p: bool, con_densa: bool = True) -> str | None:
         # declaración, un estudio sin intentos de TabM no mide lo registrado.
         if (rec.get("motores_fuera_por_memoria") or {}).get(MOTOR_TABM):
             return None
+        # 129-C2: el plazo por tamaño deja fuera a TabM en CPU cuando su presupuesto pasa del techo, y lo DECLARA
+        # (`motores_fuera_por_plazo`); igual que la memoria: sin esa declaración, no mide lo registrado.
+        if (rec.get("motores_fuera_por_plazo") or {}).get(MOTOR_TABM):
+            return None
         return f"{n}: C3′ sin intentos de TabM — no se está midiendo C3′"
     if not c3p and MOTOR_TABM in motores:
         return f"{n}: R1-GPU con intentos de TabM — no es la referencia registrada"

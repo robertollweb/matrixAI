@@ -162,3 +162,14 @@ def test_presencia_admite_a_TabM_fuera_por_memoria_solo_si_se_declara():
     assert v.presencia(declarado, c3p=True, con_densa=False) is None
     otro = dict(sin_tabm, motores_fuera_por_memoria={"lightgbm": {"es": "x"}})
     assert "TabM" in v.presencia(otro, c3p=True, con_densa=False)
+
+
+def test_presencia_admite_a_TabM_fuera_por_plazo_solo_si_se_declara():
+    """129-C2: el plazo por tamaño deja fuera a TabM en CPU (Internet-Ads, KDD, APS, Allstate) y lo declara en
+    `motores_fuera_por_plazo`. El 10-10 la pasada del resto del C2 PARÓ en Internet-Advertisements porque esto faltaba."""
+    sin_tabm = rec(motores=("lightgbm", "baseline"))
+    declarado = dict(sin_tabm, motores_fuera_por_plazo={TABM: {"es": "su plazo pasa del techo", "techo_s": 800.0}})
+    assert v.presencia(declarado, c3p=True, con_densa=False) is None
+    otro = dict(sin_tabm, motores_fuera_por_plazo={"lightgbm": {"es": "x"}})
+    assert "TabM" in v.presencia(otro, c3p=True, con_densa=False)
+    assert "TabM" in v.presencia(dict(sin_tabm, motores_fuera_por_plazo={}), c3p=True, con_densa=False)

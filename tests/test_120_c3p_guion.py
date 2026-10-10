@@ -368,3 +368,11 @@ def test_registrar_guarda_lo_que_la_guarda_de_memoria_dejo_fuera():
     r = G.registrar("KDDCup09_appetency", {"data_id": 1, "tarea": "binary_classification", "objetivo": "y"}, {}, est,
                     1.0, 200, None, ["0"] * 3, "x")
     assert r["motores_fuera_por_memoria"][TABM]["estimada_gb"] == 7.8
+
+
+def test_registrar_guarda_lo_que_el_plazo_dejo_fuera():
+    est = {"estado": "completed", "seleccion": {"candidate_engine": "lightgbm"},
+           "motores_fuera_por_plazo": {TABM: {"es": "su plazo pasa del techo", "techo_s": 800.0}}}
+    r = G.registrar("Internet-Advertisements", {"data_id": 1, "tarea": "binary_classification", "objetivo": "y"}, {},
+                    est, 1.0, 200, None, ["0"] * 3, "x")
+    assert r["motores_fuera_por_plazo"][TABM]["techo_s"] == 800.0

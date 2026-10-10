@@ -436,7 +436,9 @@ def registrar(nombre, c, cuerpo_ok, est, pared, http, rechazo, loadavg, ini):
            "perfiles_declarados": perfiles_declarados(est),
            "politica_de_arboles": sel.get("politica_de_arboles"), "test": test_de(sel),
            # C3‴ (enmienda 9): la guarda de memoria declara aquí a TabM fuera de un estudio grande.
-           "motores_fuera_por_memoria": est.get("motores_fuera_por_memoria")}
+           "motores_fuera_por_memoria": est.get("motores_fuera_por_memoria"),
+           # 129-C2: y el plazo por tamaño, cuando el presupuesto de TabM pasa del techo en CPU.
+           "motores_fuera_por_plazo": est.get("motores_fuera_por_plazo")}
     return rec
 
 
