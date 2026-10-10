@@ -435,3 +435,537 @@ def test_medir_tabm_forzado_compone_el_registro_entero_y_comparable_con_el_del_p
                     media_de_la_seleccion={"metrica": "auroc", "motores": [{"motor": "lightgbm", "valor": 0.94, "compite": True}]})
     fila = cmp.comparar_uno("APSFailure", producto, rec, exacto=False, suelo=0.0)
     assert fila["clase"] == "sube" and fila["mismo_campeon"] is False and round(fila["diferencia"], 6) == 1.0
+
+
+# ============================================================================ 128-R4: TabM por FASES (sin Docker)
+# El guion `TABM_POR_FASES` corre dentro del contenedor; aquí se ejecuta su texto contra un motor DE MENTIRA con un reloj
+# simulado: cada función falsa «tarda» lo que dice avanzando el reloj, así que los segundos esperados son exactos.
+import json
+import threading
+import types
+
+import pytest
+
+
+def _guion():
+    ns = {"__name__": "tabm_por_fases_bajo_prueba"}
+    exec(compile(S.TABM_POR_FASES, "tabm_por_fases", "exec"), ns)
+    return ns
+
+
+class Reloj:
+    def __init__(self):
+        self.t = 100.0
+
+    def __call__(self):
+        return self.t
+
+    def avanza(self, s):
+        self.t += s
+
+
+class Memoria:
+    """RSS/VmHWM simulados: `hwm` es el máximo desde el último reinicio, como en /proc."""
+
+    def __init__(self):
+        self.rss, self.hwm, self.reinicios, self.deja_reiniciar = 300.0, 300.0, 0, True
+
+    def __call__(self):
+        return self.rss, self.hwm
+
+    def sube(self, mb):
+        self.rss += mb
+        self.hwm = max(self.hwm, self.rss)
+
+    def reiniciar(self):
+        if not self.deja_reiniciar:
+            return False
+        self.reinicios += 1
+        self.hwm = self.rss
+        return True
+
+
+PERDIDAS = [1.0, 0.8, 0.9]            # época 1 mejora, 2 mejora, 3 no
+
+
+def motor_de_mentira(reloj, mem):
+    """Lo que el guion envuelve, con la forma de las tres piezas reales: la densa (funciones del módulo y una clase con
+    `fit`/`_ajustar`/`predict`/..., donde `predict*` se HEREDAN de la base), `preparacion_tabm` y `tabm_plr`. `_ajustar` llama
+    por NOMBRE DE MÓDULO a lo que el real importa al llamar, así que una sustitución en el módulo se ve."""
+    prep, plr, densa = types.ModuleType("prep"), types.ModuleType("plr"), types.ModuleType("densa")
+
+    def _tipificar(*a):
+        reloj.avanza(1.0)
+
+    def ajustar_preparacion(*a):
+        reloj.avanza(2.0)
+        prep._tipificar()                        # por el nombre del módulo: la sustitución tiene que llegar aquí
+        return "preparacion"
+
+    def aplicar_preparacion(*a):
+        reloj.avanza(0.5)
+        return "x", "c"
+
+    def ajustar_estandarizacion_objetivo(*a):
+        reloj.avanza(0.25)
+
+    def aplicar_estandarizacion_objetivo(*a):
+        reloj.avanza(0.25)
+
+    for f in (_tipificar, ajustar_preparacion, aplicar_preparacion, ajustar_estandarizacion_objetivo, aplicar_estandarizacion_objetivo):
+        setattr(prep, f.__name__, f)
+
+    epoca = {"n": 0}
+
+    class RedTabMPLR:
+        def __init__(self, *a, **k):
+            reloj.avanza(0.7)
+
+    def perdida_del_ensamblado_por_lotes(*a):
+        reloj.avanza(0.4)
+        v = PERDIDAS[epoca["n"]]
+        epoca["n"] += 1
+        return v
+
+    plr.RedTabMPLR, plr.perdida_del_ensamblado_por_lotes = RedTabMPLR, perdida_del_ensamblado_por_lotes
+
+    def _ahora():
+        return reloj()
+
+    def _a_tensor(m):
+        reloj.avanza(0.5)
+        mem.sube(200)                            # un pico de +200 MB...
+        mem.rss -= 200                           # ...que se suelta
+        return m
+
+    def _a_dispositivo(t, d):
+        reloj.avanza(0.25)
+        return t
+
+    def _tensor_a_json(t):
+        reloj.avanza(0.1)
+        return {}
+
+    class Base:
+        def predict(self, *a):
+            reloj.avanza(0.6)
+
+        def predict_proba(self, *a):
+            reloj.avanza(0.6)
+
+        def decision_scores(self, *a):
+            reloj.avanza(0.6)
+
+    class MotorDensaTabM(Base):
+        def fit(self, *a):
+            r = self._ajustar(*a)
+            reloj.avanza(0.3)                    # el digest del predictor, fuera de `_ajustar`
+            return r
+
+        def _ajustar(self, *a):
+            epoca["n"] = 0
+            densa._ahora()
+            prep.ajustar_preparacion()
+            prep.aplicar_preparacion()
+            prep.aplicar_preparacion()
+            prep.ajustar_estandarizacion_objetivo()
+            prep.aplicar_estandarizacion_objetivo()
+            densa._a_tensor(1)
+            plr.RedTabMPLR()
+            densa._a_dispositivo(1, 1)
+            densa._a_dispositivo(1, 1)
+            reloj.avanza(0.05)                   # AdamW y generadores
+            densa._ahora()                       # «se agotó preparando?»
+            mejor = float("inf")
+            for _ in PERDIDAS:
+                densa._ahora()                   # comienzo de la época
+                reloj.avanza(2.0)                # entrenar
+                mem.sube(400)                    # un pico de +400 MB en el bucle (nada envuelto) que se suelta antes de validar
+                mem.rss -= 400
+                densa._ahora()                   # una llamada por lote
+                perdida = plr.perdida_del_ensamblado_por_lotes()
+                if perdida < mejor:
+                    mejor = perdida
+                    reloj.avanza(0.2)            # el checkpoint
+                densa._ahora()                   # duración de la anterior
+            reloj.avanza(0.1)                    # load_state_dict y armar el predictor: NO está en ninguna parte
+            densa._tensor_a_json(1)
+            densa._tensor_a_json(1)
+            return "resultado"
+
+        def _forward(self, *a):
+            prep.aplicar_preparacion()
+            reloj.avanza(0.3)
+
+        def _reconstruir_red(self, *a):
+            plr.RedTabMPLR()
+
+    for f in (_ahora, _a_tensor, _a_dispositivo, _tensor_a_json):
+        setattr(densa, f.__name__, f)
+    densa.MotorDensaTabM = MotorDensaTabM
+    return densa, prep, plr
+
+
+@pytest.fixture
+def banco():
+    g = _guion()
+    reloj, mem = Reloj(), Memoria()
+    densa, prep, plr = motor_de_mentira(reloj, mem)
+    traza = g["Traza"](reloj=reloj, memoria=mem, reiniciar=mem.reiniciar)
+    return types.SimpleNamespace(g=g, reloj=reloj, mem=mem, densa=densa, prep=prep, plr=plr, traza=traza)
+
+
+def correr(b, motor=None):
+    desinstalar = b.g["instalar"](b.traza, b.densa, b.prep, b.plr)
+    m = motor or b.densa.MotorDensaTabM()
+    with b.traza.fase("ejecutar_intento", envolvente=True):
+        m.fit()
+        m.predict()
+        m.predict_proba()
+    return desinstalar, m
+
+
+def por_nombre(traza, nombre):
+    return [f for f in traza.fases if f["nombre"] == nombre]
+
+
+def test_R4_el_guion_compila_y_no_toca_el_disco_del_producto():
+    compile(S.TABM_POR_FASES, "tabm_por_fases", "exec")
+    t = S.TABM_POR_FASES
+    assert "ej.ejecutar_estudio = medir" in t and "ej._memoria_de_tabm_que_no_cabe = callada" in t
+    assert "shutil" not in t and "write_text" not in t and 'open(salida, "w")' not in t
+    assert "en_fichero.cargar()" in t                    # las particiones del paso 4 viajan en un fichero
+    assert "dataclasses.replace(d.presupuesto, wall_seconds=plazo)" in t
+
+
+def test_R4_el_guion_de_intento_sin_tope_carga_las_particiones_del_fichero():
+    """El arreglo del paso 4 (copiado TAL CUAL de la rama de integración): `d.train` ahora es None cuando viajan en fichero."""
+    t = S.INTENTO_SIN_TOPE
+    assert "d.en_fichero.cargar()" in t and "train, validation, test = d.train, d.validation, d.test" in t
+    assert "d.train.row_ids" not in t and "pickle.dumps((motor, train, validation, test, d.spec)" in t
+    assert "sys.exit(3)" in t and "intentos.soltar()" in t
+
+
+def test_R4_los_temporizadores_envuelven_lo_que_dicen_con_sus_segundos_exactos(banco):
+    desinstalar, _ = correr(banco)
+    tz = banco.traza
+    w = lambda n: round(sum(f["wall_s"] for f in por_nombre(tz, n)), 4)
+    # preparación 3,0 (2,0 + tipificar 1,0) + 2 aplicar 1,0 + objetivo 0,5 + tensor 0,5 + red 0,7 + 2 a_dispositivo 0,5 + AdamW 0,05
+    # + 3 épocas (2,0 + 0,4) + 2 checkpoints 0,4 + sin dueño 0,1 + exportar 0,2
+    assert w("ajustar") == pytest.approx(3.0 + 1.0 + 0.5 + 0.5 + 0.7 + 0.5 + 0.05 + 3 * 2.4 + 0.4 + 0.1 + 0.2)
+    assert w("fit") == pytest.approx(w("ajustar") + 0.3)
+    assert w("ajustar_preparacion") == 3.0 and w("tipificar") == 1.0       # la envolvente CONTIENE a su hija
+    assert w("aplicar_preparacion") == 1.0 + 0.0           # las dos de `_ajustar` (la de `_forward` no se llamó todavía)
+    assert w("a_tensor") == 0.5 and w("construir_red") == 0.7 and w("a_dispositivo") == 0.5
+    assert w("validar") == pytest.approx(1.2) and w("exportar_pesos") == pytest.approx(0.2)
+    assert w("predict") == 0.6 and w("predict_proba") == 0.6
+    # la anidación: `tipificar` cuelga de `ajustar_preparacion`, que cuelga de `ajustar`, que cuelga de `fit`
+    assert por_nombre(tz, "tipificar")[0]["ruta"] == "ejecutar_intento/fit/ajustar/ajustar_preparacion/tipificar"
+    aj = por_nombre(tz, "ajustar")[0]
+    assert por_nombre(tz, "ajustar_preparacion")[0]["padre"] == aj["i"]
+    assert por_nombre(tz, "fit")[0]["envolvente"] and por_nombre(tz, "tipificar")[0]["envolvente"] is False
+    desinstalar()
+
+
+def test_R4_el_entrenamiento_el_checkpoint_y_el_optimizador_salen_de_las_marcas(banco):
+    desinstalar, _ = correr(banco)
+    ep = banco.traza.epocas
+    assert [e["n"] for e in ep] == [1, 2, 3]
+    assert [e["entrenar_s"] for e in ep] == [2.0, 2.0, 2.0]
+    assert [e["validar_s"] for e in ep] == [0.4, 0.4, 0.4]
+    assert [e["checkpoint_s"] for e in ep] == [0.2, 0.2, 0.0]          # la 3.ª no mejora: no hay copia del estado
+    assert [e["mejoro"] for e in ep] == [True, True, False]
+    assert [e["perdida_val"] for e in ep] == PERDIDAS
+    assert banco.traza.optimizador_s == 0.05
+    desinstalar()
+
+
+def test_R4_las_partes_del_ajuste_suman_y_lo_que_falta_se_da_como_otros(banco):
+    desinstalar, _ = correr(banco)
+    c = {"fases": banco.traza.fases, "epocas": banco.traza.epocas, "optimizador_s": banco.traza.optimizador_s}
+    p = S.partes_del_ajuste(c)
+    assert p["preparar_s"] == pytest.approx(3.0 + 0.5 + 0.5 + 0.25 + 0.25) and p["tipificar_s"] == 1.0   # tipificar va DENTRO
+    assert p["entrenar_s"] == pytest.approx(6.0) and p["validar_s"] == pytest.approx(1.2) and p["checkpoint_s"] == pytest.approx(0.4)
+    assert p["exportar_pesos_s"] == pytest.approx(0.2)
+    assert p["otros_s"] == pytest.approx(0.1, abs=1e-3)               # el avance «sin dueño» de `_ajustar`
+    assert p["otros_caben"] is True
+    desinstalar()
+
+
+def test_R4_desinstalar_deja_el_motor_como_estaba_tambien_lo_heredado(banco):
+    antes = {(id(o), a): o.__dict__.get(a) for o, a in
+             ((banco.densa, "_ahora"), (banco.densa, "_a_tensor"), (banco.prep, "_tipificar"), (banco.plr, "RedTabMPLR"),
+              (banco.plr, "perdida_del_ensamblado_por_lotes"), (banco.densa.MotorDensaTabM, "_ajustar"))}
+    cls = banco.densa.MotorDensaTabM
+    assert "predict" not in vars(cls)                                  # se hereda
+    desinstalar, _ = correr(banco)
+    assert "predict" in vars(cls) and "fit" in vars(cls) and cls.fit.__wrapped__ is not None
+    desinstalar()
+    assert "predict" not in vars(cls)                                  # lo heredado vuelve a heredarse, no queda un envoltorio
+    despues = {(id(o), a): o.__dict__.get(a) for o, a in
+               ((banco.densa, "_ahora"), (banco.densa, "_a_tensor"), (banco.prep, "_tipificar"), (banco.plr, "RedTabMPLR"),
+                (banco.plr, "perdida_del_ensamblado_por_lotes"), (cls, "_ajustar"))}
+    assert antes == despues
+    n = len(banco.traza.fases)
+    cls().fit()
+    assert len(banco.traza.fases) == n                                 # y ya no mide
+
+
+def test_R4_un_nombre_que_no_existe_es_un_error_y_no_deja_nada_puesto(banco):
+    del banco.prep._tipificar
+    cls = banco.densa.MotorDensaTabM
+    antes = {n: cls.__dict__[n] for n in ("fit", "_ajustar", "_forward")}
+    with pytest.raises(AttributeError):
+        banco.g["instalar"](banco.traza, banco.densa, banco.prep, banco.plr)
+    assert {n: cls.__dict__[n] for n in antes} == antes                       # lo ya puesto se quitó
+    assert "predict" not in vars(cls)
+
+
+def test_R4_una_fase_que_falla_se_cierra_y_no_deja_la_pila_abierta(banco):
+    with pytest.raises(RuntimeError):
+        with banco.traza.fase("a"):
+            banco.reloj.avanza(1.5)
+            raise RuntimeError("x")
+    assert banco.traza.pila == [] and banco.traza.fases[0]["wall_s"] == 1.5
+
+
+def test_R4_el_pico_de_una_envolvente_conserva_lo_que_paso_dentro_aunque_se_reinicie_el_hwm(banco):
+    desinstalar, _ = correr(banco)
+    aj = por_nombre(banco.traza, "ajustar")[0]
+    tensor = por_nombre(banco.traza, "a_tensor")[0]
+    assert tensor["pico_mb"] == 500.0                                  # 300 + 200 de pico
+    assert aj["pico_mb"] >= 700.0                                      # el pico del BUCLE (nada envuelto) también: se pliega al reiniciar
+    assert [e["hwm_entrenar_mb"] for e in banco.traza.epocas] == [700.0, 700.0, 700.0]
+    assert banco.traza.hwm_se_reinicia is True and banco.mem.reinicios > 0
+    desinstalar()
+
+
+def test_R4_si_el_nucleo_no_deja_reiniciar_el_hwm_se_dice(banco):
+    banco.mem.deja_reiniciar = False
+    desinstalar, _ = correr(banco)
+    assert banco.traza.hwm_se_reinicia is False
+    desinstalar()
+
+
+def test_R4_cada_corrida_cuadra_y_no_falta_ninguna_fase(banco):
+    t0 = banco.reloj()
+    desinstalar, _ = correr(banco)
+    banco.reloj.avanza(0.0)
+    c = {"fases": banco.traza.fases, "epocas": banco.traza.epocas, "optimizador_s": banco.traza.optimizador_s,
+         "estado": "completed", "pared_s": banco.reloj() - t0}
+    c["recursos"] = {"wall_seconds": por_nombre(banco.traza, "ajustar")[0]["wall_s"]}
+    q = S.cuadre_de_corrida(c)
+    assert q["cuadra"] and len(q["comprobaciones"]) == 3
+    assert S.faltan_fases(c) == []
+    desinstalar()
+
+
+def _corrida_a_mano(**cambios):
+    fases = [{"i": 0, "nombre": "cargar_particion", "padre": None, "ruta": "cargar_particion", "wall_s": 2.0, "envolvente": False,
+              "rss_ini_mb": 100.0, "rss_fin_mb": 300.0, "pico_mb": 320.0},
+             {"i": 1, "nombre": "ejecutar_intento", "padre": None, "ruta": "ejecutar_intento", "wall_s": 20.0, "envolvente": True,
+              "rss_ini_mb": 300.0, "rss_fin_mb": 400.0, "pico_mb": 900.0},
+             {"i": 2, "nombre": "fit", "padre": 1, "ruta": "ejecutar_intento/fit", "wall_s": 19.0, "envolvente": True,
+              "rss_ini_mb": 300.0, "rss_fin_mb": 400.0, "pico_mb": 900.0},
+             {"i": 3, "nombre": "ajustar", "padre": 2, "ruta": "ejecutar_intento/fit/ajustar", "wall_s": 18.0, "envolvente": True,
+              "rss_ini_mb": 300.0, "rss_fin_mb": 400.0, "pico_mb": 900.0},
+             {"i": 4, "nombre": "ajustar_preparacion", "padre": 3, "ruta": "x/ajustar_preparacion", "wall_s": 6.0, "envolvente": True,
+              "rss_ini_mb": 300.0, "rss_fin_mb": 500.0, "pico_mb": 600.0},
+             {"i": 5, "nombre": "a_tensor", "padre": 3, "ruta": "x/a_tensor", "wall_s": 1.0, "envolvente": False,
+              "rss_ini_mb": 500.0, "rss_fin_mb": 600.0, "pico_mb": 700.0},
+             {"i": 6, "nombre": "construir_red", "padre": 3, "ruta": "x/construir_red", "wall_s": 0.5, "envolvente": False,
+              "rss_ini_mb": 600.0, "rss_fin_mb": 600.0, "pico_mb": 600.0},
+             {"i": 7, "nombre": "a_dispositivo", "padre": 3, "ruta": "x/a_dispositivo", "wall_s": 0.5, "envolvente": False,
+              "rss_ini_mb": 600.0, "rss_fin_mb": 600.0, "pico_mb": 600.0}]
+    epocas = [{"n": 1, "entrenar_s": 4.0, "validar_s": 1.0, "checkpoint_s": 0.5, "perdida_val": 0.7, "mejoro": True, "hwm_entrenar_mb": 900.0},
+              {"n": 2, "entrenar_s": 4.0, "validar_s": 1.0, "checkpoint_s": 0.0, "perdida_val": 0.8, "mejoro": False, "hwm_entrenar_mb": 880.0}]
+    c = {"rotulo": "plazo_del_producto", "plazo_s": 45.0, "estado": "completed_budget_limited", "fases": fases, "epocas": epocas,
+         "optimizador_s": 0.0, "pared_s": 22.0, "recursos": {"wall_seconds": 18.0}}
+    c.update(cambios)
+    return c
+
+
+def test_R4_el_resumen_de_una_corrida_a_mano():
+    r = S.resumir_corrida(_corrida_a_mano())
+    p = r["partes_del_ajuste"]
+    assert (p["ajustar_s"], p["preparar_s"], p["entrenar_s"], p["validar_s"], p["checkpoint_s"]) == (18.0, 6.0, 8.0, 2.0, 0.5)
+    assert p["otros_s"] == pytest.approx(18.0 - (6.0 + 1.0 + 0.5 + 0.5 + 8.0 + 2.0 + 0.5)) and p["otros_s"] == -0.5   # se da tal cual
+    assert r["epocas"]["n"] == 2 and r["epocas"]["mejor_epoca"] == 1 and r["epocas"]["entrenar_mediana_s"] == 4.0
+    assert r["epocas"]["perdida_val_mejor"] == 0.7 and r["epocas"]["hwm_entrenar_max_mb"] == 900.0
+    assert r["pico_de_la_corrida_mb"] == 900.0 and r["por_ruta"]["x/a_tensor"]["llamadas"] == 1
+    assert r["cuadre"]["cuadra"] is True and r["faltan_fases"] == ["aplicar_preparacion", "validar", "exportar_pesos", "predict"]
+
+
+def test_R4_el_cuadre_TIENE_DIENTES():
+    # otros muy grande: algo no está medido
+    c = _corrida_a_mano()
+    c["fases"][3] = dict(c["fases"][3], wall_s=40.0)
+    assert not S.cuadre_de_corrida(dict(c, recursos={"wall_seconds": 40.0}))["cuadra"]
+    # ajustar del guion distinto del que mide el motor
+    assert not S.cuadre_de_corrida(_corrida_a_mano(recursos={"wall_seconds": 30.0}))["cuadra"]
+    # las fases de primer nivel no suman la pared de fuera
+    assert not S.cuadre_de_corrida(_corrida_a_mano(pared_s=60.0))["cuadra"]
+    # un tiempo repetido (partes que se pisan): otros muy negativo
+    e = _corrida_a_mano()
+    e["epocas"][0] = dict(e["epocas"][0], entrenar_s=30.0)
+    assert not S.cuadre_de_corrida(e)["cuadra"]
+    # sin recursos del motor (no hubo candidato) se salta esa comprobación, no la da por buena ni por mala
+    q = S.cuadre_de_corrida(_corrida_a_mano(recursos=None))
+    assert len(q["comprobaciones"]) == 2 and q["cuadra"]
+    # sin nada que comprobar NO cuadra
+    assert S.cuadre_de_corrida({"fases": [], "epocas": []})["cuadra"] is False
+
+
+def test_R4_faltan_fases_pide_mas_si_hubo_candidato():
+    c = _corrida_a_mano(estado="failed")
+    assert S.faltan_fases(c) == ["aplicar_preparacion"] and "validar" not in S.faltan_fases(c)
+    assert "fit" in S.faltan_fases(dict(c, fases=[f for f in c["fases"] if f["nombre"] != "fit"]))
+    assert "validar" in S.faltan_fases(_corrida_a_mano(estado="completed"))
+
+
+def test_R4_el_veredicto_y_la_linea():
+    ok = _corrida_a_mano()
+    ok["fases"] += [{"i": 8, "nombre": n, "padre": 3, "ruta": n, "wall_s": 0.0, "envolvente": False} for n in
+                    ("fit", "aplicar_preparacion", "validar", "exportar_pesos", "predict")]
+    ok["estado"] = "completed"
+    assert S.veredicto_tabm_por_fases(0, {"corridas": [ok, ok]}) == "completed"
+    assert S.veredicto_tabm_por_fases(0, {"corridas": [ok, _corrida_a_mano(pared_s=99.0)]}) == "no_cuadra"
+    assert S.veredicto_tabm_por_fases(0, {"corridas": [ok]}) == "failed"
+    assert S.veredicto_tabm_por_fases(137, {"corridas": [ok]}) == "failed"
+    assert S.veredicto_tabm_por_fases(3, {"corridas": [], "error": "TabM no tiene intento"}) == "sin_tabm"
+    assert S.veredicto_tabm_por_fases(3, {"corridas": []}) == "failed"
+    linea = S.linea_de_fases(S.resumir_corrida(ok))
+    assert "plazo_del_producto (45.0 s)" in linea and "preparar 6.0" in linea and "2 épocas" in linea and "cuadre SÍ" in linea
+    assert "sin `ajustar` medido" in S.linea_de_fases(S.resumir_corrida({"rotulo": "r", "plazo_s": 1, "estado": "failed"}))
+
+
+def test_R4_el_rol_del_guion_de_fases_es_el_del_servidor():
+    assert S.rol_con_el_guion_por_fases("python3 /tmp/tabm_por_fases_128_r4.py a b 1800") == "servidor"
+    assert S.rol_con_el_guion_por_fases(SRV) == "servidor_ocioso" and S.rol_con_el_guion_por_fases(HIJO) == "hijo_spawn"
+
+
+# ---- el guion ENTERO (`main`) contra un `estudio_job` de mentira: el cableado, no solo las piezas
+def _correr_main(monkeypatch, tmp_path, claves, hay_fichero=True, falla_la_primera=False):
+    reloj, mem = Reloj(), Memoria()
+    densa, prep, plr = motor_de_mentira(reloj, mem)
+    g = _guion()
+    visto = {"construidas": [], "presupuestos": [], "guarda": []}
+
+    class Presupuesto:
+        def __init__(self, wall_seconds, hilos=1, seed=0):
+            self.wall_seconds, self.hilos, self.seed = wall_seconds, hilos, seed
+
+    import dataclasses
+    Presupuesto = dataclasses.make_dataclass("Presupuesto", [("wall_seconds", float), ("hilos", int, 1), ("seed", int, 0)])
+
+    class Part:
+        row_ids = ["a", "b"]
+        features = [[1, 2]]
+
+    class EnFichero:
+        def cargar(self):
+            return Part(), Part(), Part()
+
+    class Desc:
+        def __init__(self, clave):
+            self.motor_id, self.dataset, self.pliegue, self.repeticion = clave[2], "d", clave[1], clave[0]
+            self.presupuesto = Presupuesto(45.0)
+            self.spec, self.split_plan_digest = "spec", "dig"
+            self.en_fichero = EnFichero() if hay_fichero else None
+            self.train = self.validation = self.test = None if hay_fichero else Part()
+
+        def candidate_id(self):
+            return "cand"
+
+    class Intentos:
+        _claves = claves
+
+        def _construir(self, *c):
+            visto["construidas"].append(c)
+            return Desc(c)
+
+    ej = types.ModuleType("matrixai_studio.estudio_job")
+    ej._MOTOR_TABM = "tabm"
+    ej._memoria_de_tabm_que_no_cabe = lambda f, c: ("no cabe", 99)
+    ej._jobs, ej.Leaderboard = {}, lambda estudio_id=None: "lb"
+
+    def iniciar_estudio(cuerpo):
+        visto["guarda"].append(ej._memoria_de_tabm_que_no_cabe(1, 2))        # lo que haría el producto al decidir
+
+        def hilo():
+            ej.ejecutar_estudio(types.SimpleNamespace(estudio_id="e"), {"tabm": densa.MotorDensaTabM()}, Intentos(),
+                                fase="seleccion", directorio_checkpoint=tmp_path)
+        t = threading.Thread(target=hilo)
+        ej._jobs["j"] = {"hilo": t}
+        t.start()
+        return {"estudio": {"job_id": "j"}}
+
+    ej.iniciar_estudio = iniciar_estudio
+    ej.ejecutar_estudio = None
+
+    arch = types.ModuleType("matrixai_engines.harness")
+
+    def ejecutar_intento(motor, train, validation, test, spec, presupuesto, **comun):
+        visto["presupuestos"].append(presupuesto.wall_seconds)
+        if falla_la_primera and len(visto["presupuestos"]) == 1:
+            raise RuntimeError("se rompió")
+        motor.fit()
+        motor.predict()
+        return types.SimpleNamespace(estado="completed", motivo_del_estado=None, recursos={"wall_seconds": 0.0, "cpu_seconds": 0.0},
+                                     config_efectiva={"a": {"entrenamiento_efectivo": {"epocas_ejecutadas": 3, "parado_por_plazo": False}}})
+    arch.ejecutar_intento = ejecutar_intento
+    for nombre, mod in (("matrixai_studio", types.ModuleType("matrixai_studio")), ("matrixai_studio.estudio_job", ej),
+                        ("matrixai_engines", types.ModuleType("matrixai_engines")), ("matrixai_engines.harness", arch),
+                        ("matrixai_engines.motores", types.ModuleType("matrixai_engines.motores")),
+                        ("matrixai_engines.motores.densa_tabm", densa), ("matrixai_engines.redes", types.ModuleType("matrixai_engines.redes")),
+                        ("matrixai_engines.redes.preparacion_tabm", prep), ("matrixai_engines.redes.tabm_plr", plr)):
+        monkeypatch.setitem(sys.modules, nombre, mod)
+    cuerpo, salida = tmp_path / "cuerpo.json", tmp_path / "salida.json"
+    cuerpo.write_text("{}")
+    monkeypatch.setattr(sys, "argv", ["g", str(cuerpo), str(salida), "1800"])
+    codigo = None
+    try:
+        g["main"]()
+    except SystemExit as e:
+        codigo = e.code
+    return codigo, json.loads(salida.read_text()), visto, (densa, prep, plr)
+
+
+CLAVES = [(0, 0, "baseline"), (0, 0, "tabm"), (0, 1, "tabm"), (1, 0, "tabm")]
+
+
+def test_R4_main_construye_solo_el_intento_de_tabm_del_primer_pliegue_y_lo_corre_con_dos_plazos(monkeypatch, tmp_path):
+    codigo, R, visto, (densa, prep, plr) = _correr_main(monkeypatch, tmp_path, CLAVES)
+    assert codigo is None
+    assert visto["construidas"] == [(0, 0, "tabm")]                       # ni el baseline ni otros pliegues
+    assert visto["presupuestos"] == [45.0, 1800.0]                       # el del producto y el amplio, EN ESE ORDEN
+    assert [c["rotulo"] for c in R["corridas"]] == ["plazo_del_producto", "plazo_amplio"]
+    assert [c["plazo_s"] for c in R["corridas"]] == [45.0, 1800.0]
+    for c in R["corridas"]:
+        nombres = {f["nombre"] for f in c["fases"]}
+        assert {"cargar_particion", "ejecutar_intento", "fit", "ajustar", "validar", "exportar_pesos", "predict"} <= nombres
+        assert len(c["epocas"]) == 3 and c["filas"]["train"] == 2
+        assert c["entrenamiento_efectivo"] == {"epocas_ejecutadas": 3, "parado_por_plazo": False}   # lo que PASÓ, del motor
+    assert [f["nombre"] for f in R["construccion"]] == ["construir_intento"]
+    assert R["guarda_de_verdad"] and visto["guarda"] == [None]            # la guarda calla, y dice lo que habría dicho
+    assert R["guarda_de_verdad"][0]["habria_dicho_estimada_y_disponible_gb"] == ["no cabe", 99]
+    assert R["iniciar_estudio"]["wall_s"] >= 0 and R["tope_del_producto_s"] == 45.0
+    # y cada corrida se desinstala: el motor queda como estaba entre una y otra y al final
+    assert not hasattr(densa.MotorDensaTabM.fit, "__wrapped__") and "predict" not in vars(densa.MotorDensaTabM)
+
+
+def test_R4_main_con_las_particiones_en_memoria_tambien_funciona(monkeypatch, tmp_path):
+    codigo, R, visto, _ = _correr_main(monkeypatch, tmp_path, CLAVES, hay_fichero=False)
+    assert codigo is None and len(R["corridas"]) == 2
+
+
+def test_R4_main_una_corrida_rota_no_quita_la_otra(monkeypatch, tmp_path):
+    codigo, R, visto, _ = _correr_main(monkeypatch, tmp_path, CLAVES, falla_la_primera=True)
+    assert [c["estado"] for c in R["corridas"]] == ["excepcion", "completed"]
+    assert "se rompió" in R["corridas"][0]["error"] and R["corridas"][0]["fases"]       # las fases de lo que llegó a pasar
+
+
+def test_R4_main_sin_intento_de_tabm_sale_con_3_y_lo_dice(monkeypatch, tmp_path):
+    codigo, R, visto, _ = _correr_main(monkeypatch, tmp_path, [(0, 0, "baseline")])
+    assert codigo == 3 and "TabM no tiene intento" in R["error"] and R["corridas"] == []
+    assert S.veredicto_tabm_por_fases(3, R) == "sin_tabm"
