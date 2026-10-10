@@ -812,3 +812,48 @@ def test_R98_el_CLI_escribe_la_evaluacion_en_un_fichero_NUEVO_y_se_niega_a_sobre
     assert V._main(["x", str(copia), "--evaluacion-nueva", str(nueva)]) == 2        # ya existe
     assert V._main(["x", str(copia), "--evaluacion-nueva", str(copia)]) == 2        # es el original
     assert copia.read_bytes() == ORIGINAL_E2.read_bytes() and json.loads(nueva.read_text()) == escrito
+
+
+# =====================================================================================================================
+# 128, H10 de la revisión externa: la lectura de NO INFERIORIDAD, informativa y aparte. La regla C5′ no cambia.
+# =====================================================================================================================
+def test_H10_con_el_JSON_real_enseña_la_diferencia_por_conjunto_la_peor_la_media_y_cuantos_bajan_y_suben():
+    r = V.evaluar(json.loads(ORIGINAL_E2.read_text()))
+    ni = r["veredicto"]["no_inferioridad"]
+    assert ni["decide"] is False and ni["emparejados"] == 4
+    assert set(ni["por_conjunto"]) == {"dresses-sales", "climate-model-simulation-crashes", "us_crime", "pc1"}
+    assert ni["por_conjunto"]["pc1"] == pytest.approx(-1.5858, abs=1e-3)
+    assert ni["peor"]["conjunto"] == "pc1" and ni["peor"]["diferencia"] == pytest.approx(-1.5858, abs=1e-3)
+    assert ni["media"] == pytest.approx(-0.49965, abs=1e-4)
+    assert (ni["bajan"], ni["suben"], ni["iguales"]) == (3, 0, 1)
+
+
+def test_H10_no_entra_en_la_decision_la_regla_C5p_da_lo_mismo_y_veredicto_no_la_lleva():
+    r = V.evaluar(json.loads(ORIGINAL_E2.read_text()))
+    v = r["veredicto"]
+    assert v["entra"] is False and v["producto_entra"] is False and (v["suben"], v["mejoras_de_tiempo"], v["bajas_toleradas"]) == (0, 1, 1)
+    # `veredicto()` (la decisión) no sabe de la no inferioridad: lo que decide no depende de ella
+    decision = V.veredicto(r["comparaciones"], v["suelo_de_ruido"], esperados=13)
+    assert "no_inferioridad" not in decision
+    # y NO hay motivo de la regla ni del instrumento que cite la no inferioridad
+    assert not any("inferioridad" in m for m in v["motivos_para_no_entrar"])
+
+
+def test_H10_una_pasada_donde_todas_las_diferencias_suben_o_bajan_se_cuenta_bien():
+    comps = [_par(+3.0, nombre="a"), _par(-1.5, nombre="b"), _par(0.0, nombre="c"), _par(+1.0, nombre="d")]
+    ni = V.no_inferioridad(comps)
+    assert ni["emparejados"] == 4 and ni["peor"] == {"conjunto": "b", "diferencia": pytest.approx(-1.5)}
+    assert (ni["bajan"], ni["suben"], ni["iguales"]) == (1, 2, 1) and ni["media"] == pytest.approx(0.625)
+
+
+def test_H10_sin_conjuntos_emparejados_todo_es_None_no_cero():
+    sin_ref = V.comparar(None, _rec("wilt", 80.0), 0.0)             # sin referencia en A: no hay diferencia
+    ni = V.no_inferioridad([sin_ref])
+    assert ni["emparejados"] == 0 and ni["peor"] is None and ni["media"] is None and ni["bajan"] is None
+    assert ni["suben"] is None and ni["iguales"] is None and ni["decide"] is False
+
+
+def test_H10_el_CLI_la_dice_y_dice_que_no_decide(capsys):
+    V._main(["x", str(ORIGINAL_E2)])
+    sal = capsys.readouterr().out
+    assert "NO INFERIORIDAD (informativa, no decide)" in sal and "peor pc1 -1.59" in sal and "LA GPU NO ENTRA" in sal

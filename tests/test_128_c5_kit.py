@@ -393,7 +393,9 @@ def _docker_falso(tmp_path):
           [ -f "$f" ] || exit 1
           if [ "$4" = "--format" ]; then
             case "$5" in
-              *Labels*) if [ -f "$f.base" ]; then printf '{"matrixai.kit.base":"%s"}\\n' "$(cat "$f.base")"; else echo null; fi;;
+              *Labels*) if [ -f "$f.base" ]; then printf '{"matrixai.kit.base":"%s"' "$(cat "$f.base")"
+                          [ -f "$f.dockerfile" ] && printf ',"matrixai.kit.dockerfile":"%s"' "$(cat "$f.dockerfile")"
+                          printf '}\\n'; else echo null; fi;;
               *) id="$(cat "$f")"; echo "${id:-sha256:abc}";;
             esac
           fi
@@ -402,16 +404,19 @@ def _docker_falso(tmp_path):
         case "$1" in
           load) printf '%s' "${ID_DEL_TAR:-sha256:abc}" > "$ESTADO_DOCKER/matrixai-studio_128"; echo "Loaded image: matrixai-studio:128";;
           build)
-            etiqueta=""; base=""; dir=""; prev=""
+            etiqueta=""; base=""; dsha=""; dir=""; prev=""
             for a in "$@"; do
               [ "$prev" = "-t" ] && etiqueta="$a"
-              [ "$prev" = "--label" ] && base="${a#matrixai.kit.base=}"
+              if [ "$prev" = "--label" ]; then
+                case "$a" in matrixai.kit.base=*) base="${a#matrixai.kit.base=}";; matrixai.kit.dockerfile=*) dsha="${a#matrixai.kit.dockerfile=}";; esac
+              fi
               prev="$a"; dir="$a"
             done
             cp "$dir/Dockerfile" "$ESTADO_DOCKER/Dockerfile.visto"
             printf 'sha256:capa-sobre-%s' "$base" > "$ESTADO_DOCKER/$(nombre "$etiqueta")"
-            [ -n "$base" ] && printf '%s' "$base" > "$ESTADO_DOCKER/$(nombre "$etiqueta").base";;
-          rmi) for a in "${@:2}"; do [ "$a" = -f ] || rm -f "$ESTADO_DOCKER/$(nombre "$a")" "$ESTADO_DOCKER/$(nombre "$a").base"; done;;
+            [ -n "$base" ] && printf '%s' "$base" > "$ESTADO_DOCKER/$(nombre "$etiqueta").base"
+            [ -n "$dsha" ] && printf '%s' "$dsha" > "$ESTADO_DOCKER/$(nombre "$etiqueta").dockerfile";;
+          rmi) for a in "${@:2}"; do [ "$a" = -f ] || rm -f "$ESTADO_DOCKER/$(nombre "$a")" "$ESTADO_DOCKER/$(nombre "$a").base" "$ESTADO_DOCKER/$(nombre "$a").dockerfile"; done;;
         esac
         exit 0
         '''))
@@ -556,8 +561,12 @@ _DOCKER_FALSO_PS = textwrap.dedent('''\
       image)
         img="$3"; fmt=""; [ "$4" = "--format" ] && fmt="$5"
         case "$fmt" in
-          *Labels*) b="${FALSO_BASE_DE_LA_CAPA-}"; [ -f "$ESTADO_FALSO/capa_construida" ] && b="$(cat "$ESTADO_FALSO/capa_construida")"
-                    if [ -n "$b" ]; then printf '{"matrixai.kit.base":"%s"}\\n' "$b"; else echo null; fi;;
+          *Labels*) b="${FALSO_BASE_DE_LA_CAPA-}"; d="${FALSO_DOCKERFILE_DE_LA_CAPA-}"
+                    [ -f "$ESTADO_FALSO/capa_construida" ] && b="$(cat "$ESTADO_FALSO/capa_construida")"
+                    [ -f "$ESTADO_FALSO/capa_construida_dockerfile" ] && d="$(cat "$ESTADO_FALSO/capa_construida_dockerfile")"
+                    if [ -n "$b" ]; then printf '{"matrixai.kit.base":"%s"' "$b"
+                      [ -n "$d" ] && printf ',"matrixai.kit.dockerfile":"%s"' "$d"
+                      printf '}\\n'; else echo null; fi;;
           *.Id*) if [ "$img" = "matrixai-studio:128" ]; then
                    id="${FALSO_ID_BASE-}"; [ -f "$ESTADO_FALSO/base_cargada" ] && id="${FALSO_ID_TRAS_CARGAR-$FALSO_ID_BASE}"
                    echo "$id"
@@ -565,7 +574,10 @@ _DOCKER_FALSO_PS = textwrap.dedent('''\
         esac
         exit 0;;
       load) touch "$ESTADO_FALSO/base_cargada"; echo "Loaded image: matrixai-studio:128"; exit 0;;
-      build) for a in "$@"; do case "$a" in matrixai.kit.base=*) printf '%s' "${a#matrixai.kit.base=}" > "$ESTADO_FALSO/capa_construida";; esac; done
+      build) for a in "$@"; do case "$a" in
+               matrixai.kit.base=*) printf '%s' "${a#matrixai.kit.base=}" > "$ESTADO_FALSO/capa_construida";;
+               matrixai.kit.dockerfile=*) printf '%s' "${a#matrixai.kit.dockerfile=}" > "$ESTADO_FALSO/capa_construida_dockerfile";;
+             esac; done
              echo "capa construida (falso)"; exit 0;;
       version|info) echo "docker falso $1"; exit 0;;
       run)
@@ -616,6 +628,7 @@ def _pwsh(tmp_path, orden: str, entorno: dict[str, str] | None = None, timeout=2
     kit = _kit_empaquetado(tmp_path) if not (tmp_path / "kit").exists() else tmp_path / "kit"
     id_del_kit = _ids_del_kit(kit)[0]
     entorno = {"FALSO_ID_BASE": id_del_kit, "FALSO_BASE_DE_LA_CAPA": id_del_kit, "ESTADO_FALSO": "/out",
+               "FALSO_DOCKERFILE_DE_LA_CAPA": hashlib.sha256((kit / "imagen" / "Dockerfile.gpu").read_bytes()).hexdigest(),
                **(entorno or {})}
     falso = tmp_path / "fakebin"
     falso.mkdir(exist_ok=True)
@@ -1224,12 +1237,18 @@ def test_I3_un_tar_sin_la_etiqueta_o_con_un_blob_que_no_es_lo_que_dice_PARA_al_e
         emp.armar(tmp_path / "k3", tar_base=tmp_path / "nada.tar")
 
 
-def _con_imagenes_de_otro_kit(estado, base="sha256:kit-1", capa_sobre="sha256:kit-1"):
-    """El Docker del portátil de Roberto tras el kit 1: las MISMAS etiquetas, otra imagen."""
+_SHA_DEL_DOCKERFILE_GPU = hashlib.sha256(_DOCKERFILE_GPU.read_bytes()).hexdigest()
+
+
+def _con_imagenes_de_otro_kit(estado, base="sha256:kit-1", capa_sobre="sha256:kit-1", dockerfile=_SHA_DEL_DOCKERFILE_GPU):
+    """El Docker del portátil de Roberto tras el kit 1: las MISMAS etiquetas, otra imagen. `dockerfile`: el sha256 del
+    Dockerfile.gpu con que se construyó la capa (128, m7); `None`: una capa de antes de esa etiqueta."""
     (estado / "matrixai-studio_128").write_text(base)
     (estado / "matrixai-studio-gpu-128_local").write_text("sha256:capa-vieja")
     if capa_sobre is not None:
         (estado / "matrixai-studio-gpu-128_local.base").write_text(capa_sobre)
+        if dockerfile is not None:
+            (estado / "matrixai-studio-gpu-128_local.dockerfile").write_text(dockerfile)
 
 
 def test_I3_sh_con_la_base_de_OTRO_kit_y_su_capa_recarga_el_tar_y_rehace_la_capa_sin_Reconstruir(tmp_path):
@@ -1276,6 +1295,23 @@ def test_I3_sh_con_la_base_y_la_capa_del_kit_no_carga_ni_construye(tmp_path):
     r, ordenes, _ = _lanzar(kit_c, tmp_path / "c", antes=lambda e: _con_imagenes_de_otro_kit(e, base=clasico,
                                                                                             capa_sobre=clasico))
     assert r.returncode == 0 and not any(o.startswith(("load ", "build ")) for o in ordenes)
+
+
+@pytest.mark.parametrize("dockerfile_de_la_capa", [None, "0" * 64], ids=["capa_de_antes_sin_la_etiqueta", "otro_Dockerfile"])
+def test_m7_sh_con_la_base_del_kit_pero_otro_Dockerfile_gpu_rehace_la_capa(tmp_path, dockerfile_de_la_capa):
+    """128, m7 de la re-auditoría final: la etiqueta de la base no cubría el Dockerfile.gpu. La capa sobre LA base del
+    kit, pero construida con otro Dockerfile (o sin esa etiqueta), se rehace; y la etiqueta nueva lleva el sha256 del
+    Dockerfile.gpu de ESTE kit."""
+    kit = _kit_empaquetado(tmp_path)
+    id_del_kit = _ids_del_kit(kit)[0]
+    r, ordenes, estado = _lanzar(kit, tmp_path, antes=lambda e: _con_imagenes_de_otro_kit(
+        e, base=id_del_kit, capa_sobre=id_del_kit, dockerfile=dockerfile_de_la_capa))
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-800:]
+    assert not any(o.startswith("load ") for o in ordenes)
+    (construye,) = [o for o in ordenes if o.startswith("build ")]
+    assert f"--label matrixai.kit.dockerfile={_SHA_DEL_DOCKERFILE_GPU} " in construye + " ", construye
+    assert (estado / "matrixai-studio-gpu-128_local.dockerfile").read_text() == _SHA_DEL_DOCKERFILE_GPU
+    assert "con su Dockerfile.gpu: la rehago" in r.stdout
 
 
 def test_I3_sh_si_el_tar_cargado_no_es_el_que_apunta_el_kit_PARA_sin_construir_ni_medir(tmp_path):
@@ -1344,6 +1380,16 @@ def test_I3_ps1_con_la_base_del_kit_y_la_capa_sobre_otra_solo_rehace_la_capa(tmp
     ordenes = [o["args"] for o in _ordenes(log)]
     assert not any(a[:1] == ["load"] for a in ordenes) and sum(a[:1] == ["build"] for a in ordenes) == 1
     assert "no se construyo sobre la base de este kit" in r.stdout and fases[-1] == "componer"
+
+
+def test_m7_ps1_con_la_base_del_kit_pero_otro_Dockerfile_gpu_rehace_la_capa(tmp_path):
+    r, log, fases = _pwsh(tmp_path, _LANZAR.format(modo="Standard"), {"FALSO_DOCKERFILE_DE_LA_CAPA": "0" * 64})
+    assert r.returncode == 0, r.stdout[-2500:] + r.stderr[-1500:]
+    ordenes = [o["args"] for o in _ordenes(log)]
+    (construye,) = [a for a in ordenes if a[:1] == ["build"]]
+    sha = hashlib.sha256((tmp_path / "kit" / "imagen" / "Dockerfile.gpu").read_bytes()).hexdigest()
+    assert f"matrixai.kit.dockerfile={sha}" in construye, construye
+    assert not any(a[:1] == ["load"] for a in ordenes) and "con su Dockerfile.gpu: la rehago" in r.stdout
 
 
 def test_I3_ps1_si_el_tar_cargado_no_es_el_del_kit_PARA_sin_construir_ni_medir(tmp_path):
