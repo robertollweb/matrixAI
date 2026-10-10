@@ -3,16 +3,20 @@
 # salida/resultado_128_c5.json para mandarlo. Linux (o WSL2). Ver LEEME.md.
 #
 #   ./lanzar.sh [--prueba] [--memoria 6g] [--cpus 2] [--brazos A|B|A,B] [--solo a,b] [--suelo X] [--salida DIR]
-#               [--sin-cortar]
+#               [--sin-cortar] [--fases | --solo-fases] [--conjuntos-fases a,b] [--plazo-fases 1800]
 #               [--reconstruir] [--imagen IMG --imagen-medidor IMG]
 #
 # SIN --imagen (lo normal): carga la imagen BASE de este corte (imagen/matrixai-studio-128.tar) y CONSTRUYE en este PC
 # la capa GPU (imagen/Dockerfile.gpu: PyTorch con CUDA 12.4, ~3 GB de descarga), igual que el instalador del paquete GPU.
 # Con --imagen se usa una ya hecha y no se construye nada.
 #
+# --fases (OPCIONAL, DESPUES de los dos brazos): mide TabM POR FASES en la GPU (128-R4: carga, preparacion, red, epocas,
+# validacion...) en 5 conjuntos y deja salida/tabm_por_fases_gpu.json. --solo-fases: solo ese paso (con los brazos ya hechos).
+#
 # Se puede cortar (Ctrl+C) y volver a lanzar con la MISMA orden: sigue donde estaba.
 set -uo pipefail
 AQUI="$(cd "$(dirname "$0")" && pwd)"
+FASES=0 ; SOLO_FASES=0 ; CONJ_FASES="APSFailure,KDDCup09_appetency,Allstate_Claims_Severity,house_16H,mfeat-factors" ; PLAZO_FASES=1800
 BRAZOS=AB ; IMAGEN="" ; RECONSTRUIR=0 ; PRUEBA=0 ; MEMORIA=6g ; CPUS=2 ; SOLO="" ; SUELO="" ; SALIDA="$AQUI/salida" ; MEDIDOR="" ; SIN_CORTAR=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -21,6 +25,10 @@ while [ $# -gt 0 ]; do
     --prueba) PRUEBA=1; shift;;
     --sin-cortar) SIN_CORTAR=1; shift;;
     --reconstruir) RECONSTRUIR=1; shift;;
+    --fases) FASES=1; shift;;
+    --solo-fases) FASES=1; SOLO_FASES=1; BRAZOS=""; shift;;
+    --conjuntos-fases) CONJ_FASES="$(echo "$2" | tr -d ' ')"; shift 2;;
+    --plazo-fases) PLAZO_FASES="$2"; shift 2;;
     --brazos) BRAZOS="$(echo "$2" | tr -d , | tr a-z A-Z)"; shift 2;;
     --memoria) MEMORIA="$2"; shift 2;;
     --cpus) CPUS="$2"; shift 2;;
@@ -38,7 +46,7 @@ mkdir -p "$SALIDA/maquina" ; chmod -R a+rwX "$SALIDA" 2>/dev/null || true
 SALIDA="$(cd "$SALIDA" && pwd)"
 RED=c5-128-red
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
-limpiar() { docker rm -f c5-128-studio-A c5-128-studio-B c5-128-medidor >/dev/null 2>&1; docker network rm "$RED" >/dev/null 2>&1; }
+limpiar() { docker rm -f c5-128-studio-A c5-128-studio-B c5-128-medidor c5-128-fases >/dev/null 2>&1; docker network rm "$RED" >/dev/null 2>&1; }
 trap 'limpiar' EXIT
 trap 'echo; echo "Cortado. Vuelve a lanzar la MISMA orden para seguir donde estaba."; exit 130' INT TERM
 limpiar
@@ -66,7 +74,7 @@ docker image inspect "$IMAGEN" >/dev/null 2>&1 || { echo "No existe la imagen $I
 IMAGEN_ID="$(docker image inspect "$IMAGEN" --format '{{.Id}}')"
 
 # --- 0. la GPU de verdad, dentro de Docker (si no, no se empieza). Solo si se va a medir el brazo B.
-case "$BRAZOS" in *B*)
+case "$BRAZOS$([ "$FASES" = 1 ] && echo B)" in *B*)
 log "Paso 0: comprobando que Docker ve la GPU..."
 docker run --rm --gpus all --entrypoint python3 "$IMAGEN" -c "import torch,sys; ok=torch.cuda.is_available(); print('torch', torch.__version__, 'cuda', torch.version.cuda, 'GPU:', torch.cuda.get_device_name(0) if ok else None); sys.exit(0 if ok else 1)" \
   | tee "$SALIDA/maquina/torch_gpu.txt" ; [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "PARO: Docker no ve la GPU con esta imagen (revisa NVIDIA Container Toolkit / Docker Desktop con GPU)."; exit 3; }
@@ -117,7 +125,34 @@ fi
 for b in A B; do
   case "$BRAZOS" in *"$b"*) brazo "$b" ; rc=$? ; [ $rc -eq 0 ] || { echo "El brazo $b termino con codigo $rc."; exit $rc; };; esac
 done
-if [ "$PRUEBA" = 1 ]; then log "Prueba hecha. Ahora lanza la medicion de verdad (sin --prueba)."; exit 0; fi
-case "$BRAZOS" in AB) ;; *) log "Hecho el brazo $BRAZOS (falta el otro para componer el resultado)."; exit 0;; esac
-docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp --entrypoint python3 -v "$AQUI":/work/kit:ro -v "$SALIDA":/salida "$MEDIDOR" /work/kit/medir_c5.py --componer --salida /salida --datos /work/kit/datos ${SUELO:+--suelo "$SUELO"}
-log "Hecho. Manda: $SALIDA/resultado_128_c5.json"
+# --- 3 (OPCIONAL, --fases): TabM POR FASES en la GPU. La sonda del 128-R4 corre DENTRO de la imagen GPU (no hace falta Python en
+# este PC) con --gpus all y el mismo techo de memoria; los CSV son los del kit (sha256 comprobado). Deja
+# salida/tabm_por_fases_gpu.json. Va DESPUES de componer: si falla, el resultado principal ya esta escrito.
+paso_fases() {
+  local conj="$CONJ_FASES" plazo="$PLAZO_FASES"
+  [ "$PRUEBA" = 1 ] && { conj="dresses-sales"; plazo=120; }
+  log "Paso opcional: TabM por fases en la GPU ($conj; plazo amplio $plazo s; memoria $MEMORIA)..."
+  docker rm -f c5-128-fases >/dev/null 2>&1
+  docker run --rm --init --name c5-128-fases --gpus all --memory="$MEMORIA" --memory-swap="$MEMORIA" --cpus="$CPUS" \
+    --user "$(id -u):$(id -g)" -e HOME=/tmp -e MATRIXAI_LICENSE_ENABLED=false --entrypoint python3 \
+    -v "$AQUI":/work/kit:ro -v "$SALIDA":/salida "$IMAGEN" \
+    /work/kit/sonda_128_c0.py --tabm-por-fases --gpu --dentro-del-contenedor --datos-del-kit /work/kit/datos \
+    --temporales /salida/fases_tmp --salida /salida/tabm_por_fases_gpu.json --imagen "$IMAGEN" --imagen-id "$IMAGEN_ID" \
+    --memoria "$MEMORIA" --plazo-amplio "$plazo" --tope-estudio 3600 --solo "$conj"
+  local rc=$?
+  [ $rc -eq 0 ] && log "Hecho. Manda tambien: $SALIDA/tabm_por_fases_gpu.json (y la carpeta tabm_por_fases_gpu_series/)." \
+                || echo "El paso de fases termino con codigo $rc (lo ya medido esta en $SALIDA/tabm_por_fases_gpu.json)."
+  return $rc
+}
+
+COMPONER=1
+if [ "$SOLO_FASES" = 1 ]; then COMPONER=0
+elif [ "$PRUEBA" = 1 ]; then log "Prueba hecha. Ahora lanza la medicion de verdad (sin --prueba)."; COMPONER=0
+else case "$BRAZOS" in AB) ;; *) log "Hecho el brazo $BRAZOS (falta el otro para componer el resultado)."; COMPONER=0; FASES=0;; esac
+fi
+if [ "$COMPONER" = 1 ]; then
+  docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp --entrypoint python3 -v "$AQUI":/work/kit:ro -v "$SALIDA":/salida "$MEDIDOR" /work/kit/medir_c5.py --componer --salida /salida --datos /work/kit/datos ${SUELO:+--suelo "$SUELO"}
+  log "Hecho. Manda: $SALIDA/resultado_128_c5.json"
+fi
+[ "$FASES" = 1 ] && { paso_fases; exit $?; }
+exit 0

@@ -17,6 +17,9 @@ de `/estudio/iniciar` (la preparación y el diagnóstico ocurren DENTRO de ese P
     python3 sonda_128_c0.py --tabm-forzado --memoria 6g    # 128-C3b: los tres con la guarda de TabM callada EN MEMORIA
     python3 sonda_128_c0.py --tabm-por-fases --humo        # 128-R4: un intento de TabM por FASES (dos plazos), dresses-sales
     python3 sonda_128_c0.py --tabm-por-fases --solo APSFailure,KDDCup09_appetency,Allstate_Claims_Severity --memoria 6g --tope-estudio 5400
+    # 128-R4 en GPU (el KIT 128-C5; ver su LEEME): los CSV del kit, con la GPU, y la sonda DENTRO del contenedor de la imagen GPU
+    python3 sonda_128_c0.py --tabm-por-fases --gpu --datos-del-kit kit_128_c5/datos --temporales /ruta/tmp --solo APSFailure
+    docker run --gpus all … python3 /work/kit/sonda_128_c0.py --tabm-por-fases --gpu --dentro-del-contenedor --datos-del-kit /work/kit/datos …
 
 El intento de Allstate se mide sin cambiar el producto: dentro del contenedor, un guion (`INTENTO_SIN_TOPE`) llama a
 `estudio_job.iniciar_estudio` con el mismo cuerpo que el HTTP, sustituye EN MEMORIA (no en disco) `ejecutar_estudio`
@@ -31,7 +34,7 @@ de `preparacion_tabm`/`tabm_plr`. Los hijos `spawn` re-importan del disco: solo 
 
 Solo LEE los repos (no escribe, ni deja __pycache__). Los hijos `spawn` re-ejecutan el módulo: todo va tras `__main__`.
 """
-import argparse, atexit, csv, gzip, hashlib, importlib.util, json, math, os, re, signal, socket, subprocess, sys, threading, time
+import argparse, atexit, csv, gzip, hashlib, importlib.util, io, json, math, os, re, signal, socket, subprocess, sys, threading, time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -44,6 +47,10 @@ TOPE_ESTUDIO_S = 3600          # por conjunto (sondeo); pasado esto se registra 
 CONJUNTOS_DEL_C0 = ("APSFailure", "KDDCup09_appetency", "Allstate_Claims_Severity")
 HUMO = ("dresses-sales",)
 PLAZO_AMPLIO_S = 1800.0        # 128-R4: el plazo «de sobra» de la segunda corrida de --tabm-por-fases
+#: 128-R4 en GPU: los cinco conjuntos que decide el plazo de TabM en el paquete GPU (los tres grandes, donde en CPU no llega a
+#: parar por paciencia ni con 1.800 s, y los dos medianos, que en CPU sí paran: 126 y 202 s).
+CONJUNTOS_DE_FASES_EN_GPU = ("APSFailure", "KDDCup09_appetency", "Allstate_Claims_Severity", "house_16H", "mfeat-factors")
+VARIABLE_DEL_DISPOSITIVO = "MATRIXAI_TABM_DISPOSITIVO"
 ARCHIVO_PARAR = "/tmp/parar_128_c0"
 ARCHIVO_MUESTRAS = "/tmp/muestras_128_c0.jsonl"
 MARCA_CONTROL = "RESERVA_128_C0"
@@ -617,6 +624,61 @@ def buscar(obj, clave, hondura=4):
     return None
 
 
+#: 128-R4 en GPU: lo que el MOTOR declara de su dispositivo (`hiperparametros` y `entrenamiento_efectivo` del predictor). Se LEE
+#: de lo que el motor dijo; si no lo dice, la clave no está (un valor ausente no es «cpu»).
+CLAVES_DEL_DISPOSITIVO = ("device", "dispositivo", "dispositivo_pedido", "gpu", "determinista", "tf32", "tf32_cudnn",
+                          "optimizador_implementacion", "dropout_desde", "caida_a_cpu", "clase_de_la_caida")
+
+
+def declaracion_de_dispositivo(config):
+    """El dispositivo REAL que declaró el motor de TabM en esta corrida (no el que se pidió con la variable de entorno)."""
+    return {k: v for k in CLAVES_DEL_DISPOSITIVO for v in [buscar(config, k)] if v is not None}
+
+
+def pidio_gpu():
+    """True si el entorno del producto pide algo distinto de la CPU. Con la CPU (lo de siempre) NO se toca `torch.cuda`: la
+    medida de la CPU no cambia por mirar una GPU que no se pidió."""
+    return (os.environ.get("MATRIXAI_TABM_DISPOSITIVO") or "cpu").strip().lower() != "cpu"
+
+
+def vram_reiniciar():
+    """Pone a cero el pico de VRAM de torch antes de una corrida (el intento corre en ESTE proceso, así que torch lo ve)."""
+    if not pidio_gpu():
+        return
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+    except Exception:
+        pass
+
+
+def vram_leer():
+    """La VRAM de la corrida: picos de torch (asignada y reservada) y, si hay `nvidia-smi`, lo que dice el controlador (incluye
+    el contexto de CUDA). `None` si no se pidió la GPU; `{"disponible": False}` si se pidió y torch no la ve."""
+    if not pidio_gpu():
+        return None
+    import subprocess
+    R = {"disponible": False, "gpu": None, "total_mb": None, "max_asignada_mb": None, "max_reservada_mb": None, "nvidia_smi": None}
+    try:
+        import torch
+        if torch.cuda.is_available():
+            p = torch.cuda.get_device_properties(0)
+            R.update(disponible=True, gpu=p.name, total_mb=round(p.total_memory / 2**20, 1),
+                     max_asignada_mb=round(torch.cuda.max_memory_allocated() / 2**20, 1),
+                     max_reservada_mb=round(torch.cuda.max_memory_reserved() / 2**20, 1))
+    except Exception as e:
+        R["error_torch"] = repr(e)[:300]
+    try:
+        o = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv,noheader,nounits"],
+                           capture_output=True, text=True, timeout=10)
+        if o.returncode == 0 and o.stdout.strip():
+            R["nvidia_smi"] = o.stdout.strip().splitlines()[0]
+    except Exception:
+        pass
+    return R
+
+
 def main():
     cuerpo = json.load(open(sys.argv[1]))
     salida = sys.argv[2]
@@ -627,7 +689,8 @@ def main():
     import matrixai_engines.redes.preparacion_tabm as prep
     import matrixai_engines.redes.tabm_plr as plr
     R = {"corridas": [], "guarda_de_verdad": [], "motor_tabm": ej._MOTOR_TABM, "plazo_amplio_s": plazo_amplio,
-         "densa_tabm": getattr(densa, "__file__", None), "estudio_job": getattr(ej, "__file__", None)}
+         "densa_tabm": getattr(densa, "__file__", None), "estudio_job": getattr(ej, "__file__", None),
+         "dispositivo_pedido_por_entorno": os.environ.get("MATRIXAI_TABM_DISPOSITIVO")}
     de_verdad = ej._memoria_de_tabm_que_no_cabe
 
     def callada(filas, columnas_de_entrada):
@@ -657,6 +720,7 @@ def main():
         for rotulo, plazo in (("plazo_del_producto", d.presupuesto.wall_seconds), ("plazo_amplio", plazo_amplio)):
             traza = Traza()
             c = {"rotulo": rotulo, "plazo_s": plazo, "rss_ini_mb": leer_memoria()[0], "error": None}
+            vram_reiniciar()
             desinstalar = instalar(traza, densa, prep, plr)
             t0 = time.perf_counter()
             try:
@@ -672,12 +736,14 @@ def main():
                                          dataclasses.replace(d.presupuesto, wall_seconds=plazo), **comun)
                 r = a.recursos or {}
                 c.update(estado=a.estado, motivo=a.motivo_del_estado, recursos={"wall_seconds": r.get("wall_seconds"),
-                         "cpu_seconds": r.get("cpu_seconds")}, entrenamiento_efectivo=buscar(a.config_efectiva, "entrenamiento_efectivo"))
+                         "cpu_seconds": r.get("cpu_seconds")}, entrenamiento_efectivo=buscar(a.config_efectiva, "entrenamiento_efectivo"),
+                         dispositivo_declarado=declaracion_de_dispositivo(a.config_efectiva))
             except Exception as e:                               # una corrida rota no quita la otra
                 c.update(estado="excepcion", error=repr(e)[:600])
             finally:
                 desinstalar()
             c["pared_s"] = round(time.perf_counter() - t0, 4)
+            c["vram"] = vram_leer()
             c.update(fases=traza.fases, epocas=traza.epocas, optimizador_s=traza.optimizador_s,
                      hwm_se_reinicia=traza.hwm_se_reinicia, rss_fin_mb=leer_memoria()[0])
             R["corridas"].append(c)
@@ -1073,6 +1139,19 @@ def linea_de_fases(res):
             + (f" | FALTAN {res['faltan_fases']}" if res["faltan_fases"] else ""))
 
 
+def linea_de_gpu(rec):
+    """128-R4 en GPU: una línea con lo que DECLARÓ el motor (no lo que se pidió) y la VRAM de cada corrida."""
+    d = rec.get("dispositivo_de_tabm") or {}
+    usada = {True: "la GPU SE USO", False: "la GPU NO SE USO (alguna corrida declara otro dispositivo)",
+             None: "sin dispositivo declarado: no se sabe"}[d.get("gpu_usada")]
+    partes = []
+    for rotulo, x in (d.get("por_corrida") or {}).items():
+        v = x.get("vram") or {}
+        partes.append(f"{rotulo}: {x.get('dispositivo')} | VRAM asignada {v.get('max_asignada_mb')} MB, reservada "
+                      f"{v.get('max_reservada_mb')} MB de {v.get('total_mb')} MB ({v.get('gpu')})")
+    return f"   {usada} | " + " | ".join(partes)
+
+
 def veredicto_tabm_por_fases(rc, med):
     """`completed`: las dos corridas se hicieron, miden lo que dicen (no falta ninguna fase) y cuadran. `sin_tabm`: el guion no
     encontró intento de TabM (sale con 3 sin medir nada). `no_cuadra`: hay las dos corridas pero una no cuadra o le falta una
@@ -1110,13 +1189,15 @@ def comprobar_que_se_puede():
     return la
 
 
-def arrancar_contenedor(memoria, imagen=None, sin_servidor=False):
+def arrancar_contenedor(memoria, imagen=None, sin_servidor=False, gpu=False):
     """Un contenedor con NOMBRE PROPIO, techo de memoria sin swap y `--init`. Lo de un intento anterior con el mismo nombre
     se borra antes (un contenedor sobrevive al `timeout` de su guion). Devuelve (base_url, nombre).
 
     `sin_servidor` (128-C3b): la imagen arranca `sleep infinity` en vez del servidor HTTP (su `CMD`; no tiene
     `ENTRYPOINT`), para un guion que hace él mismo de servidor: así el cgroup lleva UN servidor, como en producción, y no
-    uno ocioso al lado que en un caso al borde del techo fabricaría un OOM. Sin puerto ni HTTP: `base_url` es `None`."""
+    uno ocioso al lado que en un caso al borde del techo fabricaría un OOM. Sin puerto ni HTTP: `base_url` es `None`.
+
+    `gpu` (128-R4 en GPU): añade `--gpus all` a la orden de `docker run`. Sin ella, la orden es la de siempre."""
     global _contenedor
     subprocess.run(["docker", "rm", "-f", NOMBRE_CONTENEDOR], capture_output=True)
     s = socket.socket(); s.bind(("127.0.0.1", 0)); puerto = s.getsockname()[1]; s.close()
@@ -1127,6 +1208,7 @@ def arrancar_contenedor(memoria, imagen=None, sin_servidor=False):
     r = subprocess.run(["docker", "run", "-d", "--init", "--name", NOMBRE_CONTENEDOR,
                         *([] if sin_servidor else ["-p", f"127.0.0.1:{puerto}:8765"]),
                         f"--memory={memoria}", f"--memory-swap={memoria}", "--cpus=2",
+                        *(["--gpus", "all"] if gpu else []),
                         "-e", "MATRIXAI_LICENSE_ENABLED=false", imagen or IMAGEN,
                         *(["sleep", "infinity"] if sin_servidor else [])],
                        capture_output=True, text=True)
@@ -1533,25 +1615,109 @@ def medir_tabm_forzado(nombre, c, gen, memoria, dir_series, tope_s):
         borrar_contenedor()
 
 
-def medir_tabm_por_fases(nombre, c, gen, memoria, dir_series, tope_s, plazo_amplio):
-    """128-R4: un intento de TabM del primer pliegue, directo, por FASES y con dos plazos (el del producto y `plazo_amplio`),
-    dentro de un contenedor SIN servidor HTTP (el guion hace de servidor, como en el C3b) y con el entorno del paquete CPU.
-    Mismo muestreador de procesos que el resto. No cambia el producto: ni su disco ni su imagen; los hijos `spawn` no llevan
-    temporizadores (solo el intento directo)."""
-    comprobar_que_se_puede()
-    csv_bytes, cols, excl, nfilas = r0.csv_de(gen, c["data_id"])
+def entorno_de_fases(gpu=False):
+    """128-R4: el entorno del guion `TABM_POR_FASES`. Sin `gpu` es EXACTAMENTE `ENTORNO_TABM_FORZADO` (el paquete CPU); con `gpu`
+    añade `MATRIXAI_TABM_DISPOSITIVO=auto`, que es lo que lleva el brazo B del kit 128-C5 y lo que hace el paquete GPU."""
+    e = dict(ENTORNO_TABM_FORZADO)
+    if gpu:
+        e[VARIABLE_DEL_DISPOSITIVO] = "auto"
+    return e
+
+
+def banco_del_kit(datos):
+    """128-R4 en GPU: los conjuntos del `manifiesto.json` del kit 128-C5 (en el PC de Roberto no están los ARFF ni el banco del
+    120). Cada uno lleva lo mismo que el banco: data_id, tarea, objetivo y clase_positiva."""
+    m = json.loads((Path(datos) / "manifiesto.json").read_text())
+    return {c["nombre"]: dict(c) for c in m["conjuntos"]}
+
+
+def csv_del_kit(datos, c):
+    """El CSV del manifiesto con la misma forma que `r0.csv_de`: (bytes, columnas, excluidas, filas). Comprueba el sha256 del .gz
+    Y el del CSV descomprimido contra el manifiesto: si no cuadra, PARA (medir TabM con otros datos no mide lo que dice)."""
+    ruta = Path(datos) / c["fichero"]
+    if not ruta.is_file():
+        raise SystemExit(f"PARO: {c['nombre']}: falta {ruta}")
+    crudo = ruta.read_bytes()
+    if hashlib.sha256(crudo).hexdigest() != c["sha256_gz"]:
+        raise SystemExit(f"PARO: {c['nombre']}: el .gz no es el del manifiesto (sha256)")
+    try:
+        contenido = gzip.decompress(crudo)
+    except OSError as e:
+        raise SystemExit(f"PARO: {c['nombre']}: no se descomprime ({e})")
+    if hashlib.sha256(contenido).hexdigest() != c["sha256"] or len(contenido) != c["bytes"]:
+        raise SystemExit(f"PARO: {c['nombre']}: el CSV no es el del manifiesto (sha256)")
+    columnas = next(csv.reader(io.StringIO(contenido.decode("utf-8"), newline="")))
+    if len(columnas) != c["columnas"] or c["objetivo"] not in columnas:
+        raise SystemExit(f"PARO: {c['nombre']}: columnas {len(columnas)} != manifiesto {c['columnas']} o falta el objetivo")
+    return contenido, columnas, list(c.get("excluidas_por_string") or []), c["filas"]
+
+
+def _cuerpo_del_estudio(c, csv_bytes, cols):
     cuerpo = {"csv_text": csv_bytes.decode("utf-8"), "objetivo": c["objetivo"], "tarea": c["tarea"],
               "entradas": [x for x in cols if x != c["objetivo"]], "unidad_de_observacion": "una fila"}
     if c["tarea"] == "binary_classification" and c.get("clase_positiva") is not None:
         cuerpo["clase_positiva"] = c["clase_positiva"]
+    return cuerpo
+
+
+def dispositivo_de_las_corridas(med):
+    """128-R4 en GPU: en qué dispositivo dice el MOTOR que entrenó TabM en cada corrida (`dispositivo_declarado`, que el guion lee
+    del predictor; la clave `dispositivo` de `entrenamiento_efectivo`, o `device` de `hiperparametros`). `gpu_usada`: True si todas
+    las corridas con candidato declaran `cuda`; False si alguna declara otra cosa (también si CAYÓ a la CPU); None si ninguna
+    declara nada (no se infiere de la VRAM: un valor ausente no es una respuesta)."""
+    por_corrida, vistos = {}, []
+    for x in (med or {}).get("corridas") or []:
+        d = x.get("dispositivo_declarado") or {}
+        real = d.get("dispositivo") or d.get("device")
+        por_corrida[x.get("rotulo")] = {"dispositivo": real, "pedido": d.get("dispositivo_pedido"),
+                                        "caida_a_cpu": d.get("caida_a_cpu"), "declaracion": d,
+                                        "vram": x.get("vram")}
+        if real is not None:
+            vistos.append(real)
+    return {"entorno_pedido": (med or {}).get("dispositivo_pedido_por_entorno"), "por_corrida": por_corrida,
+            "gpu_usada": (all(v == "cuda" for v in vistos) if vistos else None)}
+
+
+def _componer_registro_de_fases(rec, med, rc, muestras, dir_series, nombre, c, memoria, t0):
+    """Lo que sigue a leer la salida del guion, igual en el contenedor lanzado por la sonda y en el modo del kit."""
+    rec["medida"] = med
+    rec["resumen_de_corridas"] = [resumir_corrida(x) for x in med.get("corridas") or []]
+    rec["estado"] = "plazo" if rc == "plazo" else veredicto_tabm_por_fases(rc, med)
+    rec["dispositivo_de_tabm"] = dispositivo_de_las_corridas(med)
+    rec["error"] = med.get("error")
+    rec["fin"] = ahora()
+    eventos = [(t0, "arranque_del_guion")]
+    for x in med.get("corridas") or []:                    # el instante de cada corrida, para repartir la memoria del contenedor
+        if x.get("fases"):
+            eventos.append((x["fases"][0]["t_pared"], x["rotulo"]))
+    rec = cerrar_registro(rec, muestras, eventos, dir_series, nombre, c, memoria, rol=rol_con_el_guion_por_fases)
+    rec["memoria_pico_mb"] = ((rec.get("resumen_de_memoria") or {}).get("pico_cgroup") or {}).get("cgroup_mb")
+    return rec
+
+
+def medir_tabm_por_fases(nombre, c, gen, memoria, dir_series, tope_s, plazo_amplio, datos_kit=None, gpu=False):
+    """128-R4: un intento de TabM del primer pliegue, directo, por FASES y con dos plazos (el del producto y `plazo_amplio`),
+    dentro de un contenedor SIN servidor HTTP (el guion hace de servidor, como en el C3b) y con el entorno del paquete CPU.
+    Mismo muestreador de procesos que el resto. No cambia el producto: ni su disco ni su imagen; los hijos `spawn` no llevan
+    temporizadores (solo el intento directo).
+
+    `datos_kit`: la carpeta `datos/` del kit 128-C5 (los CSV salen de ahí, con su sha256 comprobado) en vez de los ARFF de este
+    servidor. `gpu`: el contenedor lleva `--gpus all` y el guion `MATRIXAI_TABM_DISPOSITIVO=auto`; el registro dice el
+    dispositivo que DECLARÓ el motor (`dispositivo_de_tabm`) y la VRAM de cada corrida."""
+    comprobar_que_se_puede()
+    csv_bytes, cols, excl, nfilas = csv_del_kit(datos_kit, c) if datos_kit else r0.csv_de(gen, c["data_id"])
+    cuerpo = _cuerpo_del_estudio(c, csv_bytes, cols)
+    AGENTE.mkdir(parents=True, exist_ok=True)
     ruta = AGENTE / f"_{os.getpid()}_cuerpo_fases.json"
     ruta.write_text(json.dumps(cuerpo))
-    _, nombre_c = arrancar_contenedor(memoria, sin_servidor=True)
+    entorno = entorno_de_fases(gpu)
+    _, nombre_c = arrancar_contenedor(memoria, sin_servidor=True, gpu=gpu)
     rec = {"nombre": nombre, "data_id": c["data_id"], "tarea": c["tarea"], "objetivo": c["objetivo"], "inicio": ahora(),
-           "csv": {"filas": nfilas, "columnas": len(cols), "bytes": len(csv_bytes), "excluidas_por_string": excl},
+           "csv": {"filas": nfilas, "columnas": len(cols), "bytes": len(csv_bytes), "excluidas_por_string": excl,
+                   "origen": "kit" if datos_kit else "arff"},
            "loadavg_al_empezar": open("/proc/loadavg").read().split()[:3],
            "sha256_guion_dentro": hashlib.sha256(TABM_POR_FASES.encode()).hexdigest(),
-           "entorno_del_guion": dict(ENTORNO_TABM_FORZADO), "tope_s": tope_s, "plazo_amplio_s": plazo_amplio,
+           "entorno_del_guion": entorno, "tope_s": tope_s, "plazo_amplio_s": plazo_amplio, "gpu": bool(gpu),
            "contenedor_sin_servidor": True}
     try:
         r = subprocess.run(["docker", "cp", str(ruta), f"{nombre_c}:/tmp/cuerpo_128_r4.json"], capture_output=True, text=True)
@@ -1559,7 +1725,7 @@ def medir_tabm_por_fases(nombre, c, gen, memoria, dir_series, tope_s, plazo_ampl
         if r.returncode:
             raise SystemExit("docker cp falló: " + r.stderr)
         poner_en_el_contenedor(nombre_c, TABM_POR_FASES, "/tmp/tabm_por_fases_128_r4.py")
-        orden = ["docker", "exec", *[x for k, v in sorted(ENTORNO_TABM_FORZADO.items()) for x in ("-e", f"{k}={v}")],
+        orden = ["docker", "exec", *[x for k, v in sorted(entorno.items()) for x in ("-e", f"{k}={v}")],
                  nombre_c, "python3", "/tmp/tabm_por_fases_128_r4.py", "/tmp/cuerpo_128_r4.json", "/tmp/tabm_por_fases_128_r4.json",
                  str(plazo_amplio)]
         with Muestreador(nombre_c) as mu:
@@ -1580,21 +1746,109 @@ def medir_tabm_por_fases(nombre, c, gen, memoria, dir_series, tope_s, plazo_ampl
             med = {"error": "el guion no escribió su salida", "stdout": out.stdout[-500:]}
         rec["memory_events"] = _memory_events(nombre_c)
         rec["contenedor"] = r0.estado_del_contenedor(nombre_c)
-        rec["medida"] = med
-        rec["resumen_de_corridas"] = [resumir_corrida(x) for x in med.get("corridas") or []]
-        rec["estado"] = "plazo" if rc == "plazo" else veredicto_tabm_por_fases(rc, med)
-        rec["error"] = med.get("error")
-        rec["fin"] = ahora()
-        eventos = [(t0, "arranque_del_guion")]
-        for x in med.get("corridas") or []:                    # el instante de cada corrida, para repartir la memoria del contenedor
-            if x.get("fases"):
-                eventos.append((x["fases"][0]["t_pared"], x["rotulo"]))
-        rec = cerrar_registro(rec, muestras, eventos, dir_series, nombre, c, memoria, rol=rol_con_el_guion_por_fases)
-        rec["memoria_pico_mb"] = ((rec.get("resumen_de_memoria") or {}).get("pico_cgroup") or {}).get("cgroup_mb")
-        return rec
+        return _componer_registro_de_fases(rec, med, rc, muestras, dir_series, nombre, c, memoria, t0)
     finally:
         ruta.unlink(missing_ok=True)
         borrar_contenedor()
+
+
+# --- 128-R4 en GPU, modo del KIT: la sonda corre DENTRO del contenedor de la imagen GPU (lo lanza `lanzar.*`)
+class MuestreadorLocal:
+    """El muestreador de `MUESTREADOR` como proceso HERMANO de este (no hay otro contenedor al que hacer `docker exec`)."""
+
+    def __init__(self, carpeta):
+        self.carpeta = Path(carpeta)
+        self.muestras, self.parar, self.proc = self.carpeta / "muestras.jsonl", self.carpeta / "parar", None
+
+    def __enter__(self):
+        self.carpeta.mkdir(parents=True, exist_ok=True)
+        guion = self.carpeta / "muestreador_128_c0.py"
+        guion.write_text(MUESTREADOR)
+        for f in (self.muestras, self.parar):
+            f.unlink(missing_ok=True)
+        self.proc = subprocess.Popen([sys.executable, str(guion), str(self.muestras), str(self.parar)],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        t0 = time.time()
+        while time.time() - t0 < 30:
+            if self.leer():
+                return self
+            time.sleep(0.5)
+        raise SystemExit("el muestreador no escribió ninguna muestra en 30 s")
+
+    def leer(self):
+        out = []
+        try:
+            lineas = self.muestras.read_text().splitlines()
+        except OSError:
+            return out
+        for linea in lineas:
+            try:
+                out.append(json.loads(linea))
+            except ValueError:
+                pass
+        return out
+
+    def __exit__(self, *_):
+        self.parar.write_text("")
+        time.sleep(1.5)
+        try:
+            self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+
+
+def _memory_events_aqui(ruta="/sys/fs/cgroup/memory.events"):
+    """`memory.events` del cgroup de ESTE contenedor (v2), como `_memory_events` pero sin `docker exec`."""
+    try:
+        texto = Path(ruta).read_text()
+    except OSError as e:
+        return {"lectura": "falló", "stderr": str(e)[:300]}
+    return {k: int(v) for k, _, v in (l.partition(" ") for l in texto.splitlines()) if v.strip().isdigit()}
+
+
+def medir_tabm_por_fases_aqui(nombre, c, memoria, dir_series, tope_s, plazo_amplio, datos_kit, gpu=True):
+    """128-R4 en GPU, modo del KIT: lo mismo que `medir_tabm_por_fases`, pero ESTE proceso ya está dentro del contenedor (el de la
+    imagen GPU, con `--gpus all` y el techo de memoria que le puso el lanzador): el guion corre como subproceso, sin `docker`.
+    En el PC de Roberto no hay Python ni se puede hacer `docker exec` desde dentro. Los CSV salen del kit (sha256 comprobado) y los
+    temporales van a `AGENTE`. Lo que no hay aquí: `docker inspect` (OOMKilled) — el OOM se ve en `memory_events`."""
+    csv_bytes, cols, excl, nfilas = csv_del_kit(datos_kit, c)
+    cuerpo = _cuerpo_del_estudio(c, csv_bytes, cols)
+    AGENTE.mkdir(parents=True, exist_ok=True)
+    entorno = entorno_de_fases(gpu)
+    ruta_cuerpo, ruta_guion = AGENTE / f"{os.getpid()}_cuerpo_128_r4.json", AGENTE / f"{os.getpid()}_tabm_por_fases_128_r4.py"
+    ruta_salida = AGENTE / f"{os.getpid()}_tabm_por_fases_128_r4.json"
+    ruta_cuerpo.write_text(json.dumps(cuerpo))
+    ruta_guion.write_text(TABM_POR_FASES)
+    ruta_salida.unlink(missing_ok=True)
+    rec = {"nombre": nombre, "data_id": c["data_id"], "tarea": c["tarea"], "objetivo": c["objetivo"], "inicio": ahora(),
+           "csv": {"filas": nfilas, "columnas": len(cols), "bytes": len(csv_bytes), "excluidas_por_string": excl, "origen": "kit"},
+           "loadavg_al_empezar": open("/proc/loadavg").read().split()[:3],
+           "sha256_guion_dentro": hashlib.sha256(TABM_POR_FASES.encode()).hexdigest(),
+           "entorno_del_guion": entorno, "tope_s": tope_s, "plazo_amplio_s": plazo_amplio, "gpu": bool(gpu),
+           "contenedor_sin_servidor": True, "dentro_del_contenedor": True}
+    try:
+        with MuestreadorLocal(AGENTE / f"{os.getpid()}_muestreo") as mu:
+            t0 = time.time()
+            try:
+                p = subprocess.run([sys.executable, str(ruta_guion), str(ruta_cuerpo), str(ruta_salida), str(plazo_amplio)],
+                                   capture_output=True, text=True, timeout=tope_s, env={**os.environ, **entorno})
+                rc, err = p.returncode, p.stderr or ""
+            except subprocess.TimeoutExpired as e:
+                rc, err = "plazo", e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            rec["guion_rc"], rec["guion_pared_s"] = rc, round(time.time() - t0, 1)
+            rec["guion_stderr_cola"] = err[-1500:]
+            time.sleep(2)
+            muestras = mu.leer()
+        try:
+            med = json.loads(ruta_salida.read_text())
+        except (OSError, ValueError):
+            med = {"error": "el guion no escribió su salida"}
+        rec["memory_events"] = _memory_events_aqui()
+        rec["contenedor"] = {"dentro_del_contenedor": True}
+        return _componer_registro_de_fases(rec, med, rc, muestras, dir_series, nombre, c, memoria, t0)
+    finally:
+        for f in (ruta_cuerpo, ruta_guion, ruta_salida):
+            f.unlink(missing_ok=True)
 
 
 # ============================================================================ salida
@@ -1622,7 +1876,7 @@ def imprimir_intento(rec):
 
 
 def main():
-    global IMAGEN, SALIDA
+    global IMAGEN, SALIDA, AGENTE
     ap = argparse.ArgumentParser()
     ap.add_argument("--solo", default="", help="conjuntos separados por comas (de los del banco del 120)")
     ap.add_argument("--memoria", default=MEMORIA)
@@ -1642,21 +1896,47 @@ def main():
     ap.add_argument("--plazo-amplio", type=float, default=PLAZO_AMPLIO_S,
                     help="el plazo (s) de la segunda corrida de --tabm-por-fases")
     ap.add_argument("--tope-estudio", type=int, default=TOPE_ESTUDIO_S)
+    ap.add_argument("--datos-del-kit", default="",
+                    help="128-R4 en GPU: la carpeta `datos/` del kit 128-C5 (manifiesto.json + CSV .gz): los conjuntos y sus CSV salen "
+                         "de ahí (sha256 comprobado) en vez del banco del 120 y los ARFF de este servidor. Solo con --tabm-por-fases")
+    ap.add_argument("--temporales", default="",
+                    help="la carpeta de los ficheros temporales (el cuerpo del estudio con los datos); por omisión ~/.agentes/128-c0")
+    ap.add_argument("--gpu", action="store_true",
+                    help="128-R4 en GPU: el contenedor lleva `--gpus all` y el guion MATRIXAI_TABM_DISPOSITIVO=auto; el registro dice el "
+                         "dispositivo que DECLARÓ el motor y la VRAM. Sin ella, nada cambia (CPU)")
+    ap.add_argument("--dentro-del-contenedor", action="store_true",
+                    help="modo del KIT: esta sonda YA corre dentro del contenedor de la imagen GPU (sin `docker`): el guion corre como "
+                         "subproceso. Exige --tabm-por-fases y --datos-del-kit")
+    ap.add_argument("--imagen-id", default="", help="con --dentro-del-contenedor: el id de la imagen (lo sabe el lanzador, no el contenedor)")
     a = ap.parse_args()
     IMAGEN, SALIDA = a.imagen, Path(a.salida).resolve()
+    if a.temporales:
+        AGENTE = Path(a.temporales).resolve()
+    if a.dentro_del_contenedor and not (a.tabm_por_fases and a.datos_del_kit):
+        raise SystemExit("PARO: --dentro-del-contenedor exige --tabm-por-fases y --datos-del-kit")
+    if a.datos_del_kit and not a.tabm_por_fases:
+        raise SystemExit("PARO: --datos-del-kit solo está hecho para --tabm-por-fases")
+    if a.gpu and not a.tabm_por_fases:
+        raise SystemExit("PARO: --gpu solo está hecho para --tabm-por-fases")
     AGENTE.mkdir(parents=True, exist_ok=True)
-    imagen_id = subprocess.run(["docker", "image", "inspect", IMAGEN, "--format", "{{.Id}}"], capture_output=True, text=True).stdout.strip()
-    if not imagen_id:
-        raise SystemExit(f"PARO: la imagen {IMAGEN} no está cargada")
-    gen = r0.cargar_generador()
-    banco = {b["nombre"]: b for b in json.loads(r0.BORRADOR.read_text())["conjuntos"]["banco"]}
-    declarados = {d["nombre"]: d for d in json.loads(r0.SONDA.read_text())["datasets_declarados"]}
-    for n, b in banco.items():
-        for k in ("data_id", "tarea", "objetivo", "clase_positiva"):
-            if str(declarados[n][k]) != str(b[k]):
-                raise SystemExit(f"PARO: {n}.{k}: borrador {b[k]!r} != 119-C5a {declarados[n][k]!r}")
+    if a.dentro_del_contenedor:
+        imagen_id = a.imagen_id or "desconocido (dentro del contenedor)"
+    else:
+        imagen_id = subprocess.run(["docker", "image", "inspect", IMAGEN, "--format", "{{.Id}}"], capture_output=True, text=True).stdout.strip()
+        if not imagen_id:
+            raise SystemExit(f"PARO: la imagen {IMAGEN} no está cargada")
+    if a.datos_del_kit:
+        gen, banco = None, banco_del_kit(a.datos_del_kit)
+    else:
+        gen = r0.cargar_generador()
+        banco = {b["nombre"]: b for b in json.loads(r0.BORRADOR.read_text())["conjuntos"]["banco"]}
+        declarados = {d["nombre"]: d for d in json.loads(r0.SONDA.read_text())["datasets_declarados"]}
+        for n, b in banco.items():
+            for k in ("data_id", "tarea", "objetivo", "clase_positiva"):
+                if str(declarados[n][k]) != str(b[k]):
+                    raise SystemExit(f"PARO: {n}.{k}: borrador {b[k]!r} != 119-C5a {declarados[n][k]!r}")
     procedencia = {"imagen": IMAGEN, "imagen_id": imagen_id, "sha256_guion": sha(__file__),
-                   "sha256_referencia_120_r0": sha(r0.__file__), "sha256_generador_de_csv": sha(r0.GENERADOR),
+                   "sha256_referencia_120_r0": sha(r0.__file__), "sha256_generador_de_csv": None if a.datos_del_kit else sha(r0.GENERADOR),
                    "sha256_muestreador": hashlib.sha256(MUESTREADOR.encode()).hexdigest(),
                    "sha256_intento_sin_tope": hashlib.sha256(INTENTO_SIN_TOPE.encode()).hexdigest(),
                    "sha256_retencion": hashlib.sha256(RETENCION.encode()).hexdigest(),
@@ -1664,6 +1944,9 @@ def main():
                    "sha256_tabm_por_fases": hashlib.sha256(TABM_POR_FASES.encode()).hexdigest(),
                    "memoria_del_contenedor": a.memoria, "cpus": 2, "inicio": ahora(),
                    "loadavg_al_empezar": open("/proc/loadavg").read().split()[:3],
+                   "datos_del_kit": ({"carpeta": a.datos_del_kit, "sha256_manifiesto": sha(Path(a.datos_del_kit) / "manifiesto.json")}
+                                     if a.datos_del_kit else None),
+                   "gpu": bool(a.gpu), "dentro_del_contenedor": bool(a.dentro_del_contenedor),
                    "instrumento": "estudio por HTTP; RSS por proceso de /proc dentro del contenedor cada ~1 s; sin tracemalloc",
                    "limites": ["la preparación y el diagnóstico ocurren dentro del POST de iniciar: una sola fase «preparacion»",
                                "un proceso que viva menos de ~1 s puede no aparecer",
@@ -1688,22 +1971,30 @@ def main():
         procedencia["fin"] = ahora()
         guardar(SALIDA, datos)
         sys.exit(0 if datos["control"]["cuadra"] else 1)
-    nombres = list(HUMO) if a.humo else [x for x in a.solo.split(",") if x] or list(CONJUNTOS_DEL_C0)
+    por_omision = CONJUNTOS_DE_FASES_EN_GPU if a.datos_del_kit else CONJUNTOS_DEL_C0
+    nombres = list(HUMO) if a.humo else [x for x in a.solo.split(",") if x] or list(por_omision)
     for n in nombres:
         if n not in banco:
-            raise SystemExit(f"PARO: {n} no está en el banco del 120")
+            raise SystemExit(f"PARO: {n} no está en {'el manifiesto del kit' if a.datos_del_kit else 'el banco del 120'}")
     dir_series = SALIDA.with_name(SALIDA.stem + "_series")
     if a.tabm_por_fases:
         for n in nombres:
             print(f"[{ahora()}] {n}: TabM por fases (memoria {a.memoria}, plazo amplio {a.plazo_amplio} s, tope {a.tope_estudio} s) ...",
                   flush=True)
-            rec = medir_tabm_por_fases(n, banco[n], gen, a.memoria, dir_series, a.tope_estudio, a.plazo_amplio)
+            if a.dentro_del_contenedor:
+                rec = medir_tabm_por_fases_aqui(n, banco[n], a.memoria, dir_series, a.tope_estudio, a.plazo_amplio, a.datos_del_kit,
+                                                gpu=a.gpu)
+            else:
+                rec = medir_tabm_por_fases(n, banco[n], gen, a.memoria, dir_series, a.tope_estudio, a.plazo_amplio,
+                                           datos_kit=a.datos_del_kit or None, gpu=a.gpu)
             datos["conjuntos"][n + ":tabm_por_fases"] = rec
             guardar(SALIDA, datos)
             print(f"   {rec.get('estado')} | guion {rec.get('guion_pared_s')} s | cgroup {rec.get('memoria_pico_mb')} MB | "
                   f"oom_kill {(rec.get('memory_events') or {}).get('oom_kill')}", flush=True)
             for res in rec.get("resumen_de_corridas") or []:
                 print(linea_de_fases(res), flush=True)
+            if a.gpu:
+                print(linea_de_gpu(rec), flush=True)
             if rec.get("estado") == "sin_tabm":
                 procedencia["fin"] = ahora()
                 guardar(SALIDA, datos)

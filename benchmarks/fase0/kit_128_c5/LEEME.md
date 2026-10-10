@@ -68,8 +68,34 @@ fuera de KDDCup09, APSFailure y Allstate. Para separar «no cabe» de «la GPU n
 suelo del resultado principal (`suelo_de_ruido` de `veredicto`):
 `.\lanzar.ps1 -Memoria 24g -Solo KDDCup09_appetency,APSFailure,Allstate_Claims_Severity -Salida salida_grandes -Suelo <X>`.
 
+**4. Opcional (estimado 20 min – 1,5 h, no medido): TabM por fases en la GPU.** Para decidir el plazo de TabM en el paquete GPU:
+en la CPU (2 núcleos) una época de TabM en los tres grandes tarda ~100 s y la preparación 27–56 s, y ni con 1.800 s de plazo
+llega a parar por paciencia (11–13 épocas), así que allí TabM se queda fuera. Este paso mide **en tu GPU** dónde se va el
+tiempo de UN intento de TabM (carga, preparación, red, épocas, validación, checkpoint, exportación) con el plazo del producto y
+con uno de 1.800 s, en **APSFailure, KDDCup09_appetency, Allstate_Claims_Severity, house_16H y mfeat-factors** (los dos
+últimos paran por paciencia en la CPU, en 126 y 202 s). Va **después** de los dos brazos (el resultado principal ya está escrito
+cuando empieza), con la misma imagen GPU, `--gpus all` y 6 GB:
+
+| Windows (PowerShell) | Linux / WSL |
+|---|---|
+| `.\lanzar.ps1 -Fases` (con los brazos, o después de ellos) | `./lanzar.sh --fases` |
+| `.\lanzar.ps1 -SoloFases` (solo este paso, brazos ya hechos) | `./lanzar.sh --solo-fases` |
+
+Una prueba corta del paso (`dresses-sales`, plazo amplio de 120 s; unos minutos) con `-Fases -Prueba` / `--fases --prueba`.
+Opciones: `-ConjuntosFases a,b` (`--conjuntos-fases`) para otros conjuntos del kit, `-PlazoFases 1800` (`--plazo-fases`) y
+`-Memoria` (`--memoria`). **No reusa lo medido**: si lo cortas y lo relanzas, repite el paso entero.
+
+Cálculo de la estimación (no medida; en la CPU del servidor, los mismos cinco conjuntos tardaron 1.420–1.540 s cada grande y
+180–270 s cada mediano, 85 min en total): si una época en tu GPU es ~10 veces más rápida, son **minutos por conjunto** (la
+preparación de los datos, ~30–60 s, es CPU y no baja); si no lo es, hasta ~25 min cada grande. Cada conjunto tiene un tope de 1 h.
+
+Deja `salida/tabm_por_fases_gpu.json` (y `salida/tabm_por_fases_gpu_series/`), con, por conjunto y por corrida: las fases con su
+tiempo, el dispositivo que **declaró el motor** (no el que se pidió: `dispositivo_de_tabm`, y si dice `la GPU SE USO`), la VRAM
+(pico asignado y reservado por torch, y `nvidia-smi`) y la RAM. Si el motor cae a la CPU, lo dice ahí. El paso **no** mide la
+RAM por proceso de la forma en que lo hace el servidor (no hay `docker exec` desde dentro): el pico es el del contenedor.
+
 ## Qué me mandas
-**`salida/resultado_128_c5.json`** (si hiciste el paso 3, también `salida_grandes/resultado_128_c5.json`). Lleva la
+**`salida/resultado_128_c5.json`** (si hiciste el paso 3, también `salida_grandes/resultado_128_c5.json`; si hiciste el 4, también `salida/tabm_por_fases_gpu.json`). Lleva la
 procedencia (imagen, GPU, driver, versiones de torch y CUDA, CPU y RAM), las cifras de cada conjunto en los dos
 brazos, los picos de RAM y de memoria de la GPU, el suelo de ruido de cada brazo y el veredicto. Si algo falla, manda
 la carpeta `salida/` entera (lleva los registros del Studio de cada brazo). Para releer el veredicto en el servidor:

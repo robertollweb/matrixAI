@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """128-C5 — arma el KIT que se lleva al PC de Roberto: la carpeta `kit_128_c5/` (medidor, lanzadores, LEEME, datos) MÁS las
-cuatro piezas del repo que el medidor usa por ruta —`referencia_120_r0.py`, `veredicto_120.py`, `veredicto_120_c3p.py` y
-`veredicto_128_c5.py`—, COPIADAS tal cual (una sola fuente: no se reescriben), con un `SHA256SUMS` y un .zip.
+cinco piezas del repo que el kit usa por ruta —`referencia_120_r0.py`, `veredicto_120.py`, `veredicto_120_c3p.py`,
+`veredicto_128_c5.py` y `sonda_128_c0.py` (el paso OPCIONAL «TabM por fases en la GPU», `lanzar.* --fases`; importa
+`referencia_120_r0.py` por ruta, que ya va)—, COPIADAS tal cual (una sola fuente: no se reescriben), con un `SHA256SUMS` y un .zip.
 
     python3 empaquetar_kit_128_c5.py --destino /ruta/vacia [--zip kit_128_c5.zip] \
         [--tar-base /ruta/matrixai-studio-128.tar] [--dockerfile-gpu /ruta/Dockerfile.gpu]
@@ -21,7 +22,8 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 AQUI = Path(__file__).resolve().parent
 KIT = AQUI / "kit_128_c5"
-PIEZAS_DEL_REPO = ("referencia_120_r0.py", "veredicto_120.py", "veredicto_120_c3p.py", "veredicto_128_c5.py")
+#: `sonda_128_c0.py` (128-R4 en GPU) solo importa la biblioteca estándar y `referencia_120_r0.py` (por ruta, ya aquí): no necesita más.
+PIEZAS_DEL_REPO = ("referencia_120_r0.py", "veredicto_120.py", "veredicto_120_c3p.py", "veredicto_128_c5.py", "sonda_128_c0.py")
 DOCKERFILE_GPU_POR_OMISION = AQUI.parents[2] / "matrixaistudio" / "bundle-gpu" / "Dockerfile.gpu"
 NOMBRE_DEL_TAR = "matrixai-studio-128.tar"      # el que busca el lanzador
 FICHEROS_DEL_KIT = ("LEEME.md", "lanzar.sh", "lanzar.ps1", "lanzar.bat", "medir_c5.py", "muestreador.py")

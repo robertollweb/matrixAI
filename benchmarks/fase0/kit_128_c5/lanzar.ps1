@@ -5,12 +5,15 @@
 # tests/test_128_c5_kit.py con pwsh 7 y un docker falso, tambien con el paso de argumentos "Legacy" de 5.1.
 #
 #   .\lanzar.ps1 [-Prueba] [-Memoria 6g] [-Cpus 2] [-Brazos AB] [-Solo a,b] [-Suelo X] [-Salida DIR]
-#                [-SinCortar]
+#                [-SinCortar] [-Fases | -SoloFases] [-ConjuntosFases a,b] [-PlazoFases 1800]
 #                [-Reconstruir] [-Imagen IMG -ImagenMedidor IMG]
 #
 # SIN -Imagen (lo normal): carga la imagen BASE de este corte (imagen\matrixai-studio-128.tar) y CONSTRUYE en este PC
 # la capa GPU (imagen\Dockerfile.gpu: PyTorch con CUDA 12.4, ~3 GB de descarga), igual que el instalador del paquete GPU.
 # Con -Imagen se usa una ya hecha y no se construye nada.
+#
+# -Fases (OPCIONAL, DESPUES de los dos brazos): mide TabM POR FASES en la GPU (128-R4: carga, preparacion, red, epocas,
+# validacion...) en 5 conjuntos y deja salida\tabm_por_fases_gpu.json. -SoloFases: solo ese paso (con los brazos ya hechos).
 #
 # Se puede cortar (Ctrl+C) y volver a lanzar con la MISMA orden: sigue donde estaba.
 param(
@@ -24,7 +27,11 @@ param(
   [string]$Suelo = "",
   [string]$Salida = "",
   [string]$ImagenMedidor = "",
-  [switch]$Reconstruir
+  [switch]$Reconstruir,
+  [switch]$Fases,
+  [switch]$SoloFases,
+  [string[]]$ConjuntosFases = @(),
+  [int]$PlazoFases = 1800
 )
 $ErrorActionPreference = "Continue"
 # La salida del medidor (python, UTF-8) se lee bien en la consola de Windows.
@@ -35,6 +42,10 @@ if ($Salida -eq "") { $Salida = Join-Path $Aqui "salida" }
 # "a,b"); por eso son [string[]] y se UNEN aqui. Por lanzar.bat (-File) llegan como un solo texto "a,b": tambien vale.
 [string]$Brazos = (($Brazos -join ",") -replace ",", "").ToUpper()
 [string]$Solo = (($Solo | Where-Object { $_ -ne "" }) -join ",")
+# Lo mismo para -ConjuntosFases (paso opcional): una LISTA en la consola, un solo texto "a,b" por -File / lanzar.bat. Sin nada: los 5 de siempre.
+[string]$ConjuntosFases = (($ConjuntosFases | Where-Object { $_ -ne "" }) -join ",")
+if ($ConjuntosFases -eq "") { $ConjuntosFases = "APSFailure,KDDCup09_appetency,Allstate_Claims_Severity,house_16H,mfeat-factors" }
+if ($SoloFases) { $Fases = $true; $Brazos = "" }
 function Log($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
 function Parar($m, $codigo) { Write-Host $m -ForegroundColor Red; Limpiar; exit $codigo }
 
@@ -48,7 +59,7 @@ $Kit = $Aqui
 $Red = "c5-128-red"
 
 function Limpiar {
-  docker rm -f c5-128-studio-A c5-128-studio-B c5-128-medidor *> $null
+  docker rm -f c5-128-studio-A c5-128-studio-B c5-128-medidor c5-128-fases *> $null
   docker network rm $Red *> $null
 }
 Limpiar
@@ -87,7 +98,7 @@ if ($LASTEXITCODE -ne 0) { Parar "No existe la imagen $Imagen en este Docker (do
 $ImagenId = (docker image inspect $Imagen --format "{{.Id}}")
 
 # --- 0. la GPU de verdad, dentro de Docker (si no, no se empieza). Solo si se va a medir el brazo B.
-if ($Brazos.Contains("B")) {
+if ($Brazos.Contains("B") -or $Fases) {
   Log "Paso 0: comprobando que Docker ve la GPU..."
   $t = docker run --rm --gpus all --entrypoint python3 $Imagen -c "import torch,sys; ok=torch.cuda.is_available(); print('torch', torch.__version__, 'cuda', torch.version.cuda, 'GPU:', torch.cuda.get_device_name(0) if ok else None); sys.exit(0 if ok else 1)" 2>&1
   $t | Out-File -Encoding ascii (Join-Path $Salida "maquina\torch_gpu.txt")
@@ -164,11 +175,40 @@ foreach ($b in @("A", "B")) {
     if ($rc -ne 0) { Parar "El brazo $b termino con codigo $rc." $rc }
   }
 }
-if ($Prueba) { Log "Prueba hecha. Ahora lanza la medicion de verdad (sin -Prueba)."; Limpiar; exit 0 }
-if ($Brazos -ne "AB") { Log "Hecho el brazo $Brazos (falta el otro para componer el resultado)."; Limpiar; exit 0 }
-$comp = @("run", "--rm", "-e", "HOME=/tmp", "--entrypoint", "python3", "-v", "${Kit}:/work/kit:ro", "-v", "${Salida}:/salida", $ImagenMedidor,
-  "/work/kit/medir_c5.py", "--componer", "--salida", "/salida", "--datos", "/work/kit/datos")
-if ($Suelo -ne "") { $comp += @("--suelo", $Suelo) }
-& docker @comp | Out-Host
-Log "Hecho. Manda: $Salida\resultado_128_c5.json"
+# --- 3 (OPCIONAL, -Fases): TabM POR FASES en la GPU. La sonda del 128-R4 corre DENTRO de la imagen GPU (no hace falta Python en
+# este PC) con --gpus all y el mismo techo de memoria; los CSV son los del kit (sha256 comprobado). Deja
+# salida\tabm_por_fases_gpu.json. Va DESPUES de componer: si falla, el resultado principal ya esta escrito.
+# Todo argumento va en un ARRAY (& docker @args): lo que lleva comas ("a,b") es un solo texto, sin comillas dobles que 5.1 pierda.
+function PasoFases {
+  $conj = $ConjuntosFases; $plazo = $PlazoFases
+  if ($Prueba) { $conj = "dresses-sales"; $plazo = 120 }
+  Log "Paso opcional: TabM por fases en la GPU ($conj; plazo amplio $plazo s; memoria $Memoria)..."
+  docker rm -f c5-128-fases *> $null
+  $args_ = @("run", "--rm", "--init", "--name", "c5-128-fases", "--gpus", "all", "--memory=$Memoria", "--memory-swap=$Memoria", "--cpus=$Cpus",
+    "-e", "HOME=/tmp", "-e", "MATRIXAI_LICENSE_ENABLED=false", "--entrypoint", "python3",
+    "-v", "${Kit}:/work/kit:ro", "-v", "${Salida}:/salida", $Imagen,
+    "/work/kit/sonda_128_c0.py", "--tabm-por-fases", "--gpu", "--dentro-del-contenedor", "--datos-del-kit", "/work/kit/datos",
+    "--temporales", "/salida/fases_tmp", "--salida", "/salida/tabm_por_fases_gpu.json", "--imagen", $Imagen, "--imagen-id", $ImagenId,
+    "--memoria", $Memoria, "--plazo-amplio", "$plazo", "--tope-estudio", "3600", "--solo", $conj)
+  & docker @args_ | Out-Host
+  $codigo = [int]$LASTEXITCODE
+  if ($codigo -eq 0) { Log "Hecho. Manda tambien: $Salida\tabm_por_fases_gpu.json (y la carpeta tabm_por_fases_gpu_series\)." }
+  else { Write-Host "El paso de fases termino con codigo $codigo (lo ya medido esta en $Salida\tabm_por_fases_gpu.json)." }
+  return $codigo
+}
+
+$componer = $true
+if ($SoloFases) { $componer = $false }
+elseif ($Prueba) { Log "Prueba hecha. Ahora lanza la medicion de verdad (sin -Prueba)."; $componer = $false }
+elseif ($Brazos -ne "AB") { Log "Hecho el brazo $Brazos (falta el otro para componer el resultado)."; $componer = $false; $Fases = $false }
+if ($componer) {
+  $comp = @("run", "--rm", "-e", "HOME=/tmp", "--entrypoint", "python3", "-v", "${Kit}:/work/kit:ro", "-v", "${Salida}:/salida", $ImagenMedidor,
+    "/work/kit/medir_c5.py", "--componer", "--salida", "/salida", "--datos", "/work/kit/datos")
+  if ($Suelo -ne "") { $comp += @("--suelo", $Suelo) }
+  & docker @comp | Out-Host
+  Log "Hecho. Manda: $Salida\resultado_128_c5.json"
+}
+$rcFases = 0
+if ($Fases) { $rcFases = [int](PasoFases | Select-Object -Last 1) }
 Limpiar
+exit $rcFases

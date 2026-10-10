@@ -885,3 +885,190 @@ def test_R97_componer_con_dos_brazos_incomparables_dice_que_el_instrumento_no_mi
 def test_H16b_el_BANCO_del_veredicto_es_el_manifiesto_del_kit():
     manifiesto = M.leer_manifiesto(KIT / "datos")["conjuntos"]
     assert list(V.BANCO) == [c["nombre"] for c in sorted(manifiesto, key=lambda x: x["orden"])]
+
+
+# ------------------------------------------------------------------------------------------------ 128-R4 en GPU: el paso OPCIONAL «TabM por fases»
+# `lanzar.* --fases` / `-Fases`, DESPUÉS de los dos brazos: la sonda `sonda_128_c0.py` (que viaja en el kit) corre DENTRO de la imagen GPU,
+# con `--gpus all` y el techo de memoria, sobre los CSV del kit. Aquí, con un docker FALSO; la GPU de verdad no se puede comprobar.
+CONJUNTOS_DE_FASES = "APSFailure,KDDCup09_appetency,Allstate_Claims_Severity,house_16H,mfeat-factors"
+
+
+def _lanzar_libre(kit, tmp_path, *args):
+    """`lanzar.sh` con un docker falso y SIN forzar `--prueba --brazos B`. Devuelve (resultado, órdenes de docker, una por línea)."""
+    import os
+    bin_, estado, log = _docker_falso(tmp_path) if not (tmp_path / "bin").exists() else (
+        tmp_path / "bin", tmp_path / "estado", tmp_path / "docker.log")
+    entorno = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "LOG_DOCKER": str(log), "ESTADO_DOCKER": str(estado)}
+    r = subprocess.run(["bash", str(kit / "lanzar.sh"), "--salida", str(tmp_path / "salida"), *args],
+                       capture_output=True, text=True, env=entorno, timeout=120)
+    return r, (log.read_text().splitlines() if log.exists() else [])
+
+
+def _la_de_fases(ordenes):
+    return [o for o in ordenes if "sonda_128_c0.py" in o]
+
+
+def test_fases_sh_sin_el_flag_NO_hay_paso_de_fases_y_el_flujo_es_el_de_siempre(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    _docker_falso(tmp_path); _con_imagen_hecha(tmp_path)
+    r, ordenes = _lanzar_libre(kit, tmp_path, "--imagen", "otra_gpu")
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-800:]
+    assert not _la_de_fases(ordenes) and any("--componer" in o for o in ordenes)
+    assert "Paso opcional" not in r.stdout and not (tmp_path / "salida" / "tabm_por_fases_gpu.json").exists()
+
+
+def _con_imagen_hecha(tmp_path, nombre="otra_gpu"):
+    (tmp_path / "estado").mkdir(exist_ok=True)
+    (tmp_path / "estado" / nombre).touch()
+
+
+def test_fases_sh_tras_los_dos_brazos_y_tras_componer_corre_la_sonda_en_la_imagen_GPU_con_los_CSV_del_kit(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    _docker_falso(tmp_path); _con_imagen_hecha(tmp_path)
+    r, ordenes = _lanzar_libre(kit, tmp_path, "--imagen", "otra_gpu", "--fases")
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-800:]
+    f = _la_de_fases(ordenes)
+    assert len(f) == 1, f
+    o = f[0]
+    assert o.startswith("run ") and "--gpus all" in o and "--memory=6g" in o and "--memory-swap=6g" in o and "--cpus=2" in o
+    assert "--name c5-128-fases" in o and "--init" in o and "--entrypoint python3" in o and "otra_gpu " in o
+    assert "-v " + str(kit) + ":/work/kit:ro" in o and ":/salida" in o
+    assert "/work/kit/sonda_128_c0.py --tabm-por-fases --gpu --dentro-del-contenedor --datos-del-kit /work/kit/datos" in o
+    assert "--salida /salida/tabm_por_fases_gpu.json" in o and "--temporales /salida/fases_tmp" in o
+    assert "--plazo-amplio 1800" in o and "--solo " + CONJUNTOS_DE_FASES in o and "--memoria 6g" in o
+    # DESPUÉS de los dos brazos y de componer
+    indice = {k: next(i for i, x in enumerate(ordenes) if k in x) for k in ("--brazo A", "--brazo B", "--componer")}
+    assert indice["--brazo A"] < indice["--brazo B"] < indice["--componer"] < ordenes.index(o)
+    # y se comprueba que Docker ve la GPU (el paso 0 también vale para este paso)
+    assert any("--gpus all --entrypoint python3 otra_gpu -c import torch" in x for x in ordenes)
+
+
+def test_fases_sh_con_prueba_usa_un_conjunto_pequeno_y_plazo_corto_y_con_opciones_las_respeta(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    _docker_falso(tmp_path); _con_imagen_hecha(tmp_path)
+    r, ordenes = _lanzar_libre(kit, tmp_path, "--imagen", "otra_gpu", "--brazos", "B", "--prueba", "--fases")
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-800:]
+    (o,) = _la_de_fases(ordenes)
+    assert "--solo dresses-sales" in o and "--plazo-amplio 120" in o
+    assert not any("--componer" in x for x in ordenes)                       # una prueba no compone
+    (tmp_path / "b").mkdir(); _docker_falso(tmp_path / "b"); _con_imagen_hecha(tmp_path / "b")
+    r, ordenes = _lanzar_libre(_kit_empaquetado(tmp_path / "b"), tmp_path / "b", "--imagen", "otra_gpu", "--solo-fases",
+                               "--conjuntos-fases", "house_16H, mfeat-factors", "--plazo-fases", "600", "--memoria", "24g")
+    (o,) = _la_de_fases(ordenes)
+    assert "--solo house_16H,mfeat-factors" in o and "--plazo-amplio 600" in o and "--memory=24g" in o and "--memoria 24g" in o
+
+
+def test_fases_sh_solo_fases_no_mide_los_brazos_ni_compone_pero_si_comprueba_la_GPU(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    _docker_falso(tmp_path); _con_imagen_hecha(tmp_path)
+    r, ordenes = _lanzar_libre(kit, tmp_path, "--imagen", "otra_gpu", "--solo-fases")
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-800:]
+    assert len(_la_de_fases(ordenes)) == 1
+    assert not any("--brazo" in x or "--componer" in x or x.startswith("run -d") for x in ordenes)
+    assert any("--gpus all --entrypoint python3 otra_gpu -c import torch" in x for x in ordenes)
+
+
+def test_fases_sh_con_un_solo_brazo_no_corre_el_paso_porque_va_despues_de_los_dos(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    _docker_falso(tmp_path); _con_imagen_hecha(tmp_path)
+    r, ordenes = _lanzar_libre(kit, tmp_path, "--imagen", "otra_gpu", "--brazos", "A", "--fases")
+    assert r.returncode == 0 and not _la_de_fases(ordenes), ordenes
+
+
+def test_fases_sh_si_la_GPU_no_se_ve_para_con_3_y_no_arranca_la_sonda(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    bin_, estado, log = _docker_falso(tmp_path); _con_imagen_hecha(tmp_path)
+    falso = (bin_ / "docker").read_text().replace('case "$1" in\n  load)', 'case "$*" in *"import torch"*) exit 1;; esac\ncase "$1" in\n  load)', 1)
+    assert falso != (bin_ / "docker").read_text()
+    (bin_ / "docker").write_text(falso)
+    r, ordenes = _lanzar_libre(kit, tmp_path, "--imagen", "otra_gpu", "--solo-fases")
+    assert r.returncode == 3 and "no ve la GPU" in r.stdout and not _la_de_fases(ordenes)
+
+
+def test_fases_sh_el_fallo_de_la_sonda_se_devuelve_y_lo_ya_compuesto_queda_escrito(tmp_path, monkeypatch):
+    kit = _kit_empaquetado(tmp_path)
+    bin_, estado, log = _docker_falso(tmp_path); _con_imagen_hecha(tmp_path)
+    falso = (bin_ / "docker").read_text().replace('case "$1" in\n  load)', 'case "$*" in *sonda_128_c0*) exit 5;; esac\ncase "$1" in\n  load)', 1)
+    assert falso != (bin_ / "docker").read_text()
+    (bin_ / "docker").write_text(falso)
+    r, ordenes = _lanzar_libre(kit, tmp_path, "--imagen", "otra_gpu", "--fases")
+    assert r.returncode == 5 and "El paso de fases termino con codigo 5" in r.stdout
+    assert any("--componer" in x for x in ordenes) and "Hecho. Manda:" in r.stdout          # el resultado principal ya estaba compuesto
+
+
+def test_fases_los_dos_lanzadores_declaran_las_mismas_opciones_y_el_mismo_paso():
+    sh, ps = (KIT / "lanzar.sh").read_text(), (KIT / "lanzar.ps1").read_text()
+    for t in (sh, ps):
+        assert "sonda_128_c0.py" in t and "--tabm-por-fases" in t and "--gpu" in t and "--dentro-del-contenedor" in t
+        assert "--datos-del-kit" in t and "/work/kit/datos" in t and "tabm_por_fases_gpu.json" in t and "c5-128-fases" in t
+        assert "--gpus" in t and "--tope-estudio" in t and CONJUNTOS_DE_FASES in t
+    assert "--fases" in sh and "--solo-fases" in sh and "--conjuntos-fases" in sh and "--plazo-fases" in sh
+    assert "$Fases" in ps and "$SoloFases" in ps and "$ConjuntosFases" in ps and "$PlazoFases" in ps
+    (KIT / "lanzar.ps1").read_bytes().decode("ascii")
+
+
+def test_fases_ps1_trata_ConjuntosFases_como_una_lista_igual_que_Solo_y_la_une_con_comas():
+    """N1 (2.ª auditoría): en la consola de PowerShell `-ConjuntosFases a,b` llega como LISTA. Con `[string]` se juntaría con un espacio."""
+    ps = (KIT / "lanzar.ps1").read_text()
+    assert "[string[]]$ConjuntosFases" in ps
+    assert '[string]$ConjuntosFases = (($ConjuntosFases | Where-Object { $_ -ne "" }) -join ",")' in ps
+    assert '"--solo", $conj' in ps and "@args_" in ps           # un solo texto «a,b» en un array de argumentos, sin comillas dobles dentro
+
+
+def test_fases_el_leeme_cuenta_el_paso_con_su_orden_exacta_y_dice_que_la_estimacion_no_esta_medida():
+    t = (KIT / "LEEME.md").read_text()
+    assert ".\\lanzar.ps1 -Fases" in t and "./lanzar.sh --fases" in t and "-SoloFases" in t and "--solo-fases" in t
+    for c in CONJUNTOS_DE_FASES.split(","):
+        assert c in t
+    i = t.index("4. Opcional")
+    paso = t[i:t.index("## Qué me mandas")]
+    assert "Opcional (estimado 20 min – 1,5 h, no medido)" in paso and "Cálculo de la estimación (no medida;" in paso   # dicha como estimada, dos veces
+    assert "minutos por conjunto" in paso and "tabm_por_fases_gpu.json" in paso
+    assert "--gpus all" in paso and "6 GB" in paso and "1.800" in paso
+
+
+@pytest.mark.parametrize("modo", ["Standard", "Legacy"])
+def test_fases_ps1_corre_el_paso_tras_componer_con_la_lista_tecleada_en_la_consola(tmp_path, modo):
+    r, log, fases = _pwsh(tmp_path, _CONSOLA.format(modo=modo, parametros="-Fases -ConjuntosFases house_16H,mfeat-factors -PlazoFases 600"))
+    assert r.returncode == 0, r.stdout[-2500:] + r.stderr[-1500:]
+    assert fases == ["medidor", "A", "medidor", "B", "componer"], fases
+    ordenes = [o["args"] for o in _ordenes(log)]
+    (sonda,) = [a for a in ordenes if "/work/kit/sonda_128_c0.py" in a]
+    assert "--gpus" in sonda and sonda[sonda.index("--gpus") + 1] == "all" and "--memory=6g" in sonda
+    assert sonda[sonda.index("--solo") + 1] == "house_16H,mfeat-factors"            # NO «house_16H mfeat-factors»
+    assert sonda[sonda.index("--plazo-amplio") + 1] == "600" and sonda[sonda.index("--salida") + 1] == "/salida/tabm_por_fases_gpu.json"
+    assert "--dentro-del-contenedor" in sonda and "--tabm-por-fases" in sonda
+    assert ordenes.index(sonda) > max(i for i, a in enumerate(ordenes) if "--componer" in a)
+
+
+def test_fases_ps1_sin_lista_usa_los_cinco_de_siempre_y_SoloFases_no_mide_brazos(tmp_path):
+    r, log, fases = _pwsh(tmp_path, _CONSOLA.format(modo="Standard", parametros="-SoloFases"))
+    assert r.returncode == 0, r.stdout[-2500:] + r.stderr[-1500:]
+    assert fases == [], fases                                                       # ni medidor ni componer
+    (sonda,) = [o["args"] for o in _ordenes(log) if "/work/kit/sonda_128_c0.py" in o["args"]]
+    assert sonda[sonda.index("--solo") + 1] == CONJUNTOS_DE_FASES and sonda[sonda.index("--plazo-amplio") + 1] == "1800"
+
+
+def test_fases_ps1_sin_Fases_no_hay_paso_y_con_un_solo_brazo_tampoco(tmp_path):
+    r, log, _ = _pwsh(tmp_path, _CONSOLA.format(modo="Standard", parametros="-Brazos AB"))
+    assert r.returncode == 0 and not any("/work/kit/sonda_128_c0.py" in o["args"] for o in _ordenes(log))
+    (tmp_path / "a").mkdir()
+    r, log, _ = _pwsh(tmp_path / "a", _CONSOLA.format(modo="Standard", parametros="-Brazos A -Fases"))
+    assert r.returncode == 0 and not any("/work/kit/sonda_128_c0.py" in o["args"] for o in _ordenes(log))
+
+
+# --- el empaquetado: la sonda viaja en el kit, idéntica, con su SHA256SUMS, y arranca desde allí
+def test_fases_el_empaquetado_mete_la_sonda_identica_con_su_suma_y_la_sonda_arranca_desde_el_kit(tmp_path):
+    emp = _cargar(_FASE0 / "empaquetar_kit_128_c5.py", "empaquetar_la_sonda")
+    assert "sonda_128_c0.py" in emp.PIEZAS_DEL_REPO
+    destino = tmp_path / "kit"
+    escritos = emp.armar(destino)
+    assert (destino / "sonda_128_c0.py").read_bytes() == (_FASE0 / "sonda_128_c0.py").read_bytes()
+    sumas = dict(reversed(l.split("  ", 1)) for l in (destino / "SHA256SUMS").read_text().splitlines())
+    assert sumas["sonda_128_c0.py"] == hashlib.sha256((_FASE0 / "sonda_128_c0.py").read_bytes()).hexdigest()
+    assert destino / "sonda_128_c0.py" in escritos and "referencia_120_r0.py" in sumas              # y la pieza que la sonda importa por ruta
+    # sin el repo ni sus hermanos: la sonda del kit se carga (importa `referencia_120_r0.py` de su carpeta) y reconoce sus opciones
+    r = subprocess.run([sys.executable, "-I", str(destino / "sonda_128_c0.py"), "--help"], capture_output=True, text=True, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr[-1500:]
+    assert "--datos-del-kit" in r.stdout and "--dentro-del-contenedor" in r.stdout and "--gpu" in r.stdout
+    assert not list(destino.rglob("__pycache__"))
