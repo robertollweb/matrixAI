@@ -7,6 +7,8 @@ PRD-1: training timeout is configurable via MATRIXAI_TRAIN_TIMEOUT env var,
        default 300s (not 30s).
 """
 import os
+
+import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -95,6 +97,21 @@ class TestOriginIsLocal:
 # ── PRD-1 — Training timeout configurable ────────────────────────────────────
 
 class TestTrainingTimeout:
+    @pytest.fixture(autouse=True)
+    def _deja_playground_como_estaba(self):
+        """Estas pruebas RECARGAN `matrixai.playground` con otro entorno. Al recargarlo, sus funciones son objetos
+        nuevos y su plazo es el de la prueba (60, 0, 120 s); `matrixai.playground_api` seguía con los alias a los
+        objetos VIEJOS, y en el mismo proceso `test_playground_api.py::test_aliases_are_the_same_object_as_core`
+        fallaba si corría después (con `-n 4 --dist loadfile`, según cómo repartiera los ficheros: visto el 10-10 en la
+        unión del 128, y reproducido en `main` corriendo este fichero antes que aquel). Al acabar, se recargan los dos
+        con el entorno ya restaurado: el módulo vuelve a su plazo de verdad y los alias, a sus objetos."""
+        yield
+        import importlib
+        import matrixai.playground as pg
+        import matrixai.playground_api as api
+        importlib.reload(pg)
+        importlib.reload(api)
+
     def test_default_is_300(self):
         # Re-import with MATRIXAI_TRAIN_TIMEOUT unset to check the default
         with patch.dict(os.environ, {}, clear=False):
