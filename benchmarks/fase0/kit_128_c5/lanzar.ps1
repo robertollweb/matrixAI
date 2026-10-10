@@ -77,6 +77,10 @@ Limpiar
 $Ids = Join-Path $Aqui "imagen\matrixai-studio-128.ids"
 $Tar = Join-Path $Aqui "imagen\matrixai-studio-128.tar"
 $EtiquetaDeLaBase = "matrixai.kit.base"
+# 128, m7 de la re-auditoria final: la etiqueta de la base NO cubria el Dockerfile.gpu: un kit con la misma base y otro
+# Dockerfile.gpu reusaba la capa vieja. Segunda etiqueta con el sha256 del Dockerfile.gpu del kit; la capa vale si
+# lleva LAS DOS (si cambia el Dockerfile, se rehace). Una capa de antes (sin esta etiqueta) tambien se rehace.
+$EtiquetaDelDockerfile = "matrixai.kit.dockerfile"
 function IdDe($img) {
   $id = docker image inspect $img --format "{{.Id}}" 2>$null
   if ($LASTEXITCODE -ne 0) { return "" }
@@ -87,10 +91,12 @@ function EsLaBaseDelKit {
   if ($id -eq "") { return $false }
   return ((Get-Content $Ids | ForEach-Object { $_.Trim() }) -contains $id)
 }
-function CapaSobre($baseId) {
+function CapaSobre($baseId, $dockerfileSha) {
   $etiquetas = docker image inspect $Capa --format "{{json .Config.Labels}}" 2>$null
   if ($LASTEXITCODE -ne 0) { return $false }
-  return ("" + $etiquetas).Contains('"' + $EtiquetaDeLaBase + '":"' + $baseId + '"')
+  $texto = "" + $etiquetas
+  return ($texto.Contains('"' + $EtiquetaDeLaBase + '":"' + $baseId + '"') -and
+          $texto.Contains('"' + $EtiquetaDelDockerfile + '":"' + $dockerfileSha + '"'))
 }
 if ($Imagen -eq "") {
   if ($Reconstruir) { docker rmi -f $Capa $Base *> $null }
@@ -107,18 +113,19 @@ if ($Imagen -eq "") {
     if (-not (EsLaBaseDelKit)) { Parar ("PARO: cargado el tar, $Base es " + (IdDe $Base) + " y el kit apunta otra ($Ids): el tar no es el de este kit.") 2 }
   }
   $BaseId = IdDe $Base
-  if (-not (CapaSobre $BaseId)) {
+  $dockerfile = Join-Path $Aqui "imagen\Dockerfile.gpu"
+  if (-not (Test-Path $dockerfile)) { Parar "PARO: falta $dockerfile." 2 }
+  $DockerfileSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $dockerfile).Hash.ToLower()
+  if (-not (CapaSobre $BaseId $DockerfileSha)) {
     docker image inspect $Capa *> $null
-    if ($LASTEXITCODE -eq 0) { Log "La capa GPU $Capa de este Docker no se construyo sobre la base de este kit: la rehago." }
-    $dockerfile = Join-Path $Aqui "imagen\Dockerfile.gpu"
-    if (-not (Test-Path $dockerfile)) { Parar "PARO: falta $dockerfile." 2 }
+    if ($LASTEXITCODE -eq 0) { Log "La capa GPU $Capa de este Docker no se construyo sobre la base de este kit con su Dockerfile.gpu: la rehago." }
     $capaDir = Join-Path $Salida "maquina\capa"
     New-Item -ItemType Directory -Force -Path $capaDir | Out-Null
     $texto = [System.IO.File]::ReadAllText($dockerfile, [System.Text.Encoding]::UTF8) -replace "(?m)^FROM .*$", "FROM $Base"
     [System.IO.File]::WriteAllText((Join-Path $capaDir "Dockerfile"), $texto, (New-Object System.Text.UTF8Encoding($false)))
     Log "Construyendo la capa GPU (descarga PyTorch con CUDA, ~3 GB: tarda; se hace UNA vez por imagen base)..."
-    docker build -t $Capa --label "$EtiquetaDeLaBase=$BaseId" $capaDir 2>&1 | Tee-Object -FilePath (Join-Path $Salida "maquina\build_capa.log")
-    if (-not (CapaSobre $BaseId)) { Parar "PARO: no se pudo construir la capa GPU sobre la base de este kit (mira $Salida\maquina\build_capa.log; suele ser la red o el disco)." 2 }
+    docker build -t $Capa --label "$EtiquetaDeLaBase=$BaseId" --label "$EtiquetaDelDockerfile=$DockerfileSha" $capaDir 2>&1 | Tee-Object -FilePath (Join-Path $Salida "maquina\build_capa.log")
+    if (-not (CapaSobre $BaseId $DockerfileSha)) { Parar "PARO: no se pudo construir la capa GPU sobre la base y el Dockerfile.gpu de este kit (mira $Salida\maquina\build_capa.log; suele ser la red o el disco)." 2 }
   }
   $Imagen = $Capa
 }

@@ -63,9 +63,21 @@ limpiar
 IDS="$AQUI/imagen/matrixai-studio-128.ids"
 TAR="$AQUI/imagen/matrixai-studio-128.tar"
 ETIQUETA_DE_LA_BASE=matrixai.kit.base
+# 128, m7 de la re-auditoria final: la etiqueta de la base NO cubria el Dockerfile.gpu: un kit con la misma base y otro
+# Dockerfile.gpu reusaba la capa vieja. Segunda etiqueta con el sha256 del Dockerfile.gpu del kit; la capa vale si
+# lleva LAS DOS (si cambia el Dockerfile, se rehace). Una capa de antes (sin esta etiqueta) tambien se rehace.
+ETIQUETA_DEL_DOCKERFILE=matrixai.kit.dockerfile
+sha_del_fichero() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  else openssl dgst -sha256 "$1" | sed 's/^.*= //'; fi
+}
 id_de() { docker image inspect "$1" --format '{{.Id}}' 2>/dev/null; }
 es_la_base_del_kit() { local id; id="$(id_de "$BASE")" && [ -n "$id" ] && grep -Fxq -- "$id" "$IDS"; }
-capa_sobre() { docker image inspect "$CAPA" --format '{{json .Config.Labels}}' 2>/dev/null | grep -Fq "\"$ETIQUETA_DE_LA_BASE\":\"$1\""; }
+capa_sobre() {
+  local etiquetas; etiquetas="$(docker image inspect "$CAPA" --format '{{json .Config.Labels}}' 2>/dev/null)" || return 1
+  printf '%s' "$etiquetas" | grep -Fq "\"$ETIQUETA_DE_LA_BASE\":\"$1\"" && printf '%s' "$etiquetas" | grep -Fq "\"$ETIQUETA_DEL_DOCKERFILE\":\"$2\""
+}
 if [ -z "$IMAGEN" ]; then
   [ "$RECONSTRUIR" = 1 ] && docker rmi -f "$CAPA" "$BASE" >/dev/null 2>&1
   [ -f "$IDS" ] || { echo "PARO: falta $IDS (la identidad de la imagen base, que el empaquetador apunta junto a imagen/matrixai-studio-128.tar): sin ella no se sabe si la imagen de este Docker es la de este kit. Pide el kit entero o pasa --imagen."; exit 2; }
@@ -80,14 +92,15 @@ if [ -z "$IMAGEN" ]; then
     es_la_base_del_kit || { echo "PARO: cargado el tar, $BASE es $(id_de "$BASE") y el kit apunta otra ($IDS): el tar no es el de este kit."; exit 2; }
   fi
   BASE_ID="$(id_de "$BASE")"
-  if ! capa_sobre "$BASE_ID"; then
-    docker image inspect "$CAPA" >/dev/null 2>&1 && log "La capa GPU $CAPA de este Docker no se construyo sobre la base de este kit: la rehago."
-    [ -f "$AQUI/imagen/Dockerfile.gpu" ] || { echo "PARO: falta $AQUI/imagen/Dockerfile.gpu."; exit 2; }
+  [ -f "$AQUI/imagen/Dockerfile.gpu" ] || { echo "PARO: falta $AQUI/imagen/Dockerfile.gpu."; exit 2; }
+  DOCKERFILE_SHA="$(sha_del_fichero "$AQUI/imagen/Dockerfile.gpu")"
+  if ! capa_sobre "$BASE_ID" "$DOCKERFILE_SHA"; then
+    docker image inspect "$CAPA" >/dev/null 2>&1 && log "La capa GPU $CAPA de este Docker no se construyo sobre la base de este kit con su Dockerfile.gpu: la rehago."
     mkdir -p "$SALIDA/maquina/capa" && sed "s#^FROM .*#FROM $BASE#" "$AQUI/imagen/Dockerfile.gpu" > "$SALIDA/maquina/capa/Dockerfile"
     log "Construyendo la capa GPU (descarga PyTorch con CUDA, ~3 GB: tarda; se hace UNA vez por imagen base)..."
-    docker build -t "$CAPA" --label "$ETIQUETA_DE_LA_BASE=$BASE_ID" "$SALIDA/maquina/capa" 2>&1 | tee "$SALIDA/maquina/build_capa.log"
+    docker build -t "$CAPA" --label "$ETIQUETA_DE_LA_BASE=$BASE_ID" --label "$ETIQUETA_DEL_DOCKERFILE=$DOCKERFILE_SHA" "$SALIDA/maquina/capa" 2>&1 | tee "$SALIDA/maquina/build_capa.log"
     [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "PARO: no se pudo construir la capa GPU (mira $SALIDA/maquina/build_capa.log; suele ser la red o el disco)."; exit 2; }
-    capa_sobre "$BASE_ID" || { echo "PARO: la capa GPU construida no dice que este sobre la base $BASE_ID."; exit 2; }
+    capa_sobre "$BASE_ID" "$DOCKERFILE_SHA" || { echo "PARO: la capa GPU construida no dice que este sobre la base $BASE_ID y el Dockerfile.gpu $DOCKERFILE_SHA."; exit 2; }
   fi
   IMAGEN="$CAPA"
 fi

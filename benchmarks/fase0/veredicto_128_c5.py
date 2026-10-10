@@ -53,6 +53,10 @@ brazos; `m1 = max(1, suelo)` y `m2 = max(2, suelo)`:
 - **Un número no finito no es una cifra** (H15): una cifra de test NaN/±inf, un suelo negativo o no finito, o una
   pared negativa son `Incomparable`; una pared no finita, cero o ausente no cuenta como mejora de tiempo.
 - **RAM y tiempo, sobre los conjuntos COMUNES** (H17): `resumen_emparejado`; los que solo tiene un brazo, aparte.
+- **No inferioridad, INFORMATIVA y aparte** (128, H10 de la revisión externa): la regla C5′ no cambia, y el veredicto
+  enseña además `no_inferioridad`: por conjunto emparejado la diferencia del test B − A (puntos), la peor, la media y
+  cuántos bajan y suben. NO entra en la decisión (`decide: false`): la regla admite bajas toleradas compensables y
+  esto lo dice a las claras.
 - **Una evaluación NUEVA de un resultado ya medido** (R9.8): `evaluacion_nueva` evalúa con esta regla un
   `resultado_128_c5.json` anterior sin tocarlo, y cita su sha256 y su veredicto original.
 - **Lo que la comparación INCLUYE y no está medido** (128, N4): desde la reparación del B1 la densa ve CUDA en el
@@ -386,6 +390,31 @@ def veredicto(comparaciones: list[dict], suelo: float, *, esperados: int, presen
             "motivos_para_no_entrar": del_instrumento + de_la_regla}
 
 
+NO_INFERIORIDAD_NOTA = ("lectura INFORMATIVA de no inferioridad (H10 de la revisión externa): la diferencia B − A del test "
+                        "en puntos, conjunto a conjunto; NO entra en la decisión, que es la regla C5′ de arriba")
+
+
+def no_inferioridad(comparaciones: list[dict]) -> dict:
+    """128, H10 de la revisión externa. La regla C5′ (banda de 1 punto + tiempo) admite que B baje hasta dos puntos
+    mientras las mejoras superen a las bajas, y no dice «la GPU es igual o mejor»; mantenerla y ENSEÑAR, aparte, lo
+    que la regla no enseña: por cada conjunto EMPAREJADO (los dos brazos completaron, `diferencia` no nula) la
+    diferencia del test B − A en puntos, la PEOR, la MEDIA, cuántos bajan y cuántos suben. Informativa: `decide` es
+    siempre `False` y nada de aquí entra en `veredicto` (ni en `producto_entra`). Los puntos de AUROC, accuracy y R²
+    no son el mismo impacto operativo: se enseñan tal cual, sin pesarlos. Sin conjuntos emparejados, todo `None`
+    (un valor ausente no es un cero)."""
+    pares = [(c["nombre"], c["diferencia"]) for c in comparaciones
+             if c.get("diferencia") is not None and _numero_finito(c["diferencia"])]
+    base = {"decide": False, "nota": NO_INFERIORIDAD_NOTA, "emparejados": len(pares),
+            "por_conjunto": {n: d for n, d in pares}}
+    if not pares:
+        return {**base, "peor": None, "media": None, "bajan": None, "suben": None, "iguales": None}
+    nombre_peor, peor = min(pares, key=lambda nd: nd[1])
+    return {**base, "peor": {"conjunto": nombre_peor, "diferencia": peor},
+            "media": sum(d for _, d in pares) / len(pares),
+            "bajan": sum(1 for _, d in pares if d < -EXACTO), "suben": sum(1 for _, d in pares if d > EXACTO),
+            "iguales": sum(1 for _, d in pares if abs(d) <= EXACTO)}
+
+
 def incompatibilidades_de_huellas(huella_a, huella_b) -> list[str]:
     """128-C5′ (H16): por qué los dos brazos NO son comparables, o `[]`. La huella del brazo (`medir_c5`) trae la
     imagen (`imagen_id`), el código del medidor y del veredicto (sha256), el manifiesto de los CSV y los recursos
@@ -502,6 +531,7 @@ def evaluar(doc: dict, suelo_dado: float | None = None) -> dict:
     emparejado = resumen_emparejado(a["conjuntos"], b["conjuntos"])
     v["resumen_emparejado"] = emparejado                            # H17: RAM y pared sobre los conjuntos comunes
     v["ram_pico_mb_por_brazo"] = emparejado["ram_pico_mb"]          # N4, ahora sobre los comunes (antes: de grupos distintos)
+    v["no_inferioridad"] = no_inferioridad(comps)                   # H10: informativa, NO decide
     v["vram_auxiliar_en_b"] = {n: vram_auxiliar(r) for n, r in sorted(b["conjuntos"].items())
                                if vram_auxiliar(r) is not None}     # H18: auxiliar, no prueba
     v["campeones_que_cambian_al_repetir"] = {
@@ -571,6 +601,14 @@ def _main(argv: list[str]) -> int:
     print(json.dumps(r["veredicto"], ensure_ascii=False, indent=1))
     for k in r["veredicto"].get("caidas_a_cpu_en_b", []):
         print(f"CAYÓ A CPU en el brazo B: {k['nombre']} (campeón {k['campeon']}, {k['por_que']}): no cuenta como GPU")
+    ni = r["veredicto"].get("no_inferioridad")
+    if ni:
+        if ni["emparejados"]:
+            print(f"NO INFERIORIDAD (informativa, no decide): {ni['emparejados']} conjuntos emparejados · peor "
+                  f"{ni['peor']['conjunto']} {ni['peor']['diferencia']:+.2f} · media {ni['media']:+.2f} · "
+                  f"bajan {ni['bajan']} · suben {ni['suben']} · iguales {ni['iguales']}")
+        else:
+            print("NO INFERIORIDAD (informativa, no decide): ningún conjunto emparejado")
     print("NO MEDIDO, incluido en la comparación:", COSTE_DE_VER_CUDA)
     if (doc["brazos"]["B"] or {}).get("corte"):
         print("CORTADA:", doc["brazos"]["B"]["corte"])
