@@ -1,8 +1,8 @@
 # Kit 128-C5 — ¿entrena mejor TabM en tu GPU? (se mide en TU PC)
 
 **Qué hace.** Mide los 13 conjuntos de referencia del Studio dos veces, en el mismo PC y con la misma imagen del
-paquete GPU: **brazo A** con TabM en la CPU (`MATRIXAI_TABM_DISPOSITIVO=cpu`) y **brazo B** con TabM en la GPU
-(`auto` y `--gpus all`). En cada brazo repite los 4 conjuntos pequeños de control para saber cuánto bailan las cifras
+paquete GPU, los dos con la GPU a la vista (`--gpus all`): **brazo A** con TabM en la CPU (`MATRIXAI_TABM_DISPOSITIVO=cpu`)
+y **brazo B** con TabM en la GPU (`auto`). Solo cambia dónde entrena TabM. En cada brazo repite los 4 conjuntos pequeños de control para saber cuánto bailan las cifras
 por sí solas (el *suelo de ruido*). La regla es la tuya (C5′, «banda de 1 punto + tiempo»): por conjunto, la diferencia del test
 (GPU − CPU) dentro de ±1 punto (o el suelo, si es mayor) es «igual»; por encima, **sube**; entre −1 y −2, **baja
 tolerada**; −2 o peor, o dejar de terminar, **empeora**. Si el estudio de la GPU tarda la mitad o menos y queda «igual»,
@@ -19,9 +19,13 @@ terminar.
 - Internet la **primera vez**: el lanzador construye en TU PC la capa de PyTorch con CUDA 12.4 (descarga de ~3 GB,
   estimado 10–40 min según tu línea), igual que hace el instalador del paquete GPU. Se hace una vez; después se reusa.
 - Espacio: unos 4–5 GB para las imágenes, ~250 MB para el kit y unos pocos cientos de MB de resultados.
-- La carpeta del kit trae `imagen/matrixai-studio-128.tar` (imagen base de este corte, ~190 MB) y `imagen/Dockerfile.gpu`
-  (el del paquete GPU de este corte). **No hay que pasar ninguna imagen**: el lanzador carga el tar, construye la capa
-  GPU (`matrixai-studio-gpu-128:local`, no pisa tu instalación normal) y mide contra ella. Si el tar falta, para y lo dice.
+- La carpeta del kit trae `imagen/matrixai-studio-128.tar` (imagen base de este corte, ~190 MB), su identidad
+  (`imagen/matrixai-studio-128.ids`: el ID de esa imagen, leído del tar al empaquetar) e `imagen/Dockerfile.gpu` (el del
+  paquete GPU de este corte). **No hay que pasar ninguna imagen**: el lanzador carga el tar, construye la capa GPU
+  (`matrixai-studio-gpu-128:local`, no pisa tu instalación normal) y mide contra ella. Si el tar falta, para y lo dice.
+- **Si tu Docker ya tiene la imagen de un kit anterior** (las etiquetas son las mismas), el lanzador lo ve: compara el ID
+  de `matrixai-studio:128` con el de este kit y, si no es el mismo, carga el tar y rehace la capa GPU él solo (vuelve a
+  bajar PyTorch con CUDA, ~3 GB). Lo dice en pantalla. No hace falta `-Reconstruir`.
 
 ## Cómo se lanza (UNA orden por sistema)
 **1. Prueba corta (≈ 5–10 min más la construcción de la capa la primera vez, estimado).** Un conjunto pequeño por brazo;
@@ -53,11 +57,14 @@ y su modelo entregado se entrenó en la CPU sin decirlo. Sale con «código 6» 
 Opciones: `-Memoria 6g` (por omisión; es la del servidor, para que sea comparable) y `-Cpus 2`;
 `-Brazos A` o `-Brazos B` para medir solo uno (el B necesita el A ya hecho); `-Solo nombre1,nombre2` para un
 subconjunto; `-Reconstruir` borra la imagen base y la capa y las vuelve a hacer (si te mando otro tar). (En Linux:
-`--memoria`, `--cpus`, `--brazos`, `--solo`, `--reconstruir`.) `-Imagen <imagen>` (`--imagen`) salta todo lo anterior y usa
+`--memoria`, `--cpus`, `--brazos`, `--solo`, `--reconstruir`.) `-Reconstruir` ya no hace falta para un kit nuevo: el
+lanzador compara la imagen con la del kit y la rehace si no es la misma. `-Imagen <imagen>` (`--imagen`) salta todo lo anterior y usa
 una imagen GPU ya hecha.
 
-**Lo que esta comparación incluye y no está medido.** Desde la reparación del B1, el proceso de la densa ve CUDA en el
-paquete GPU, y eso cuesta RAM de host y tiempo; en este kit lo paga **solo el brazo B** (el A va con `cpu`). Si el B
+**Lo que esta comparación incluye y no está medido.** Los dos brazos ven la GPU y solo cambia la señal de TabM, así que
+lo que se compara es **encender la GPU para TabM**, entero. Eso incluye una cosa más que TabM: con TabM en la CPU (brazo
+A) la red densa esconde la GPU a su proceso mientras entrena, como siempre; con TabM en la GPU (brazo B) no la esconde
+(si la escondiera, TabM dejaba de verla en el reajuste final), y verla le cuesta algo de RAM del PC y de tiempo. Si el B
 gasta más memoria, tarda más o se queda sin RAM en un conjunto grande, puede ser eso y no TabM. No lo he podido medir
 sin una GPU: el resultado recoge la RAM pico de cada brazo (`veredicto.ram_pico_mb_por_brazo`, y por conjunto en
 `recursos.ram_pico_mb`) para verlo. Y si el modelo entregado de un conjunto **cayó a la CPU** en el B (lo declara), el
@@ -74,7 +81,8 @@ llega a parar por paciencia (11–13 épocas), así que allí TabM se queda fuer
 tiempo de UN intento de TabM (carga, preparación, red, épocas, validación, checkpoint, exportación) con el plazo del producto y
 con uno de 1.800 s, en **APSFailure, KDDCup09_appetency, Allstate_Claims_Severity, house_16H y mfeat-factors** (los dos
 últimos paran por paciencia en la CPU, en 126 y 202 s). Va **después** de los dos brazos (el resultado principal ya está escrito
-cuando empieza), con la misma imagen GPU, `--gpus all` y 6 GB:
+cuando empieza), con la misma imagen GPU, `--gpus all` y la misma memoria que los brazos (`-Memoria` / `--memoria`: 6 GB
+por omisión, o la que pases):
 
 | Windows (PowerShell) | Linux / WSL |
 |---|---|

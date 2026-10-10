@@ -9,6 +9,11 @@
 # SIN --imagen (lo normal): carga la imagen BASE de este corte (imagen/matrixai-studio-128.tar) y CONSTRUYE en este PC
 # la capa GPU (imagen/Dockerfile.gpu: PyTorch con CUDA 12.4, ~3 GB de descarga), igual que el instalador del paquete GPU.
 # Con --imagen se usa una ya hecha y no se construye nada.
+# Antes de medir COMPRUEBA que la base de este Docker es la de ESTE kit (su ID contra imagen/matrixai-studio-128.ids) y
+# que la capa se construyo sobre ella; si no, carga el tar y rehace la capa solo (128, I3 de la auditoria final: el kit 2
+# reusaba en silencio la imagen del kit 1, con las mismas etiquetas).
+#
+# Los DOS brazos van con --gpus all; solo cambia donde entrena TabM (A: cpu, B: auto). 128, I2 de la auditoria final.
 #
 # --fases (OPCIONAL, DESPUES de los dos brazos): mide TabM POR FASES en la GPU (128-R4: carga, preparacion, red, epocas,
 # validacion...) en 5 conjuntos y deja salida/tabm_por_fases_gpu.json. --solo-fases: solo ese paso (con los brazos ya hechos).
@@ -52,20 +57,37 @@ trap 'echo; echo "Cortado. Vuelve a lanzar la MISMA orden para seguir donde esta
 limpiar
 
 # --- -1. la imagen: base (tar) + capa GPU construida en ESTE PC (salvo --imagen)
+# 128, I3 de la auditoria final: NO basta con que las etiquetas existan (las del kit anterior son las mismas). La base
+# tiene que ser la del tar de ESTE kit (su ID en imagen/matrixai-studio-128.ids, que apunta el empaquetador leyendo el
+# tar) y la capa, construida sobre ESA base (la etiqueta $ETIQUETA_DE_LA_BASE que se le pone al construirla).
+IDS="$AQUI/imagen/matrixai-studio-128.ids"
+TAR="$AQUI/imagen/matrixai-studio-128.tar"
+ETIQUETA_DE_LA_BASE=matrixai.kit.base
+id_de() { docker image inspect "$1" --format '{{.Id}}' 2>/dev/null; }
+es_la_base_del_kit() { local id; id="$(id_de "$BASE")" && [ -n "$id" ] && grep -Fxq -- "$id" "$IDS"; }
+capa_sobre() { docker image inspect "$CAPA" --format '{{json .Config.Labels}}' 2>/dev/null | grep -Fq "\"$ETIQUETA_DE_LA_BASE\":\"$1\""; }
 if [ -z "$IMAGEN" ]; then
   [ "$RECONSTRUIR" = 1 ] && docker rmi -f "$CAPA" "$BASE" >/dev/null 2>&1
-  if ! docker image inspect "$CAPA" >/dev/null 2>&1; then
-    if ! docker image inspect "$BASE" >/dev/null 2>&1; then
-      [ -f "$AQUI/imagen/matrixai-studio-128.tar" ] || { echo "PARO: falta $AQUI/imagen/matrixai-studio-128.tar (la imagen base de este corte). Pidela o pasa --imagen."; exit 2; }
-      log "Cargando la imagen base (docker load, ~190 MB)..."
-      docker load -i "$AQUI/imagen/matrixai-studio-128.tar" || { echo "PARO: docker load fallo."; exit 2; }
-      docker image inspect "$BASE" >/dev/null 2>&1 || { echo "PARO: el tar no trae la etiqueta $BASE."; exit 2; }
+  [ -f "$IDS" ] || { echo "PARO: falta $IDS (la identidad de la imagen base, que el empaquetador apunta junto a imagen/matrixai-studio-128.tar): sin ella no se sabe si la imagen de este Docker es la de este kit. Pide el kit entero o pasa --imagen."; exit 2; }
+  if ! es_la_base_del_kit; then
+    if docker image inspect "$BASE" >/dev/null 2>&1; then
+      log "La imagen $BASE de este Docker NO es la de este kit ($(id_de "$BASE")): cargo la del kit y rehago la capa GPU."
     fi
+    [ -f "$TAR" ] || { echo "PARO: falta $TAR (la imagen base de este corte). Pidela o pasa --imagen."; exit 2; }
+    log "Cargando la imagen base (docker load, ~190 MB)..."
+    docker load -i "$TAR" || { echo "PARO: docker load fallo."; exit 2; }
+    docker image inspect "$BASE" >/dev/null 2>&1 || { echo "PARO: el tar no trae la etiqueta $BASE."; exit 2; }
+    es_la_base_del_kit || { echo "PARO: cargado el tar, $BASE es $(id_de "$BASE") y el kit apunta otra ($IDS): el tar no es el de este kit."; exit 2; }
+  fi
+  BASE_ID="$(id_de "$BASE")"
+  if ! capa_sobre "$BASE_ID"; then
+    docker image inspect "$CAPA" >/dev/null 2>&1 && log "La capa GPU $CAPA de este Docker no se construyo sobre la base de este kit: la rehago."
     [ -f "$AQUI/imagen/Dockerfile.gpu" ] || { echo "PARO: falta $AQUI/imagen/Dockerfile.gpu."; exit 2; }
     mkdir -p "$SALIDA/maquina/capa" && sed "s#^FROM .*#FROM $BASE#" "$AQUI/imagen/Dockerfile.gpu" > "$SALIDA/maquina/capa/Dockerfile"
-    log "Construyendo la capa GPU (descarga PyTorch con CUDA, ~3 GB: tarda; se hace UNA vez)..."
-    docker build -t "$CAPA" "$SALIDA/maquina/capa" 2>&1 | tee "$SALIDA/maquina/build_capa.log"
+    log "Construyendo la capa GPU (descarga PyTorch con CUDA, ~3 GB: tarda; se hace UNA vez por imagen base)..."
+    docker build -t "$CAPA" --label "$ETIQUETA_DE_LA_BASE=$BASE_ID" "$SALIDA/maquina/capa" 2>&1 | tee "$SALIDA/maquina/build_capa.log"
     [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "PARO: no se pudo construir la capa GPU (mira $SALIDA/maquina/build_capa.log; suele ser la red o el disco)."; exit 2; }
+    capa_sobre "$BASE_ID" || { echo "PARO: la capa GPU construida no dice que este sobre la base $BASE_ID."; exit 2; }
   fi
   IMAGEN="$CAPA"
 fi
@@ -73,8 +95,8 @@ fi
 docker image inspect "$IMAGEN" >/dev/null 2>&1 || { echo "No existe la imagen $IMAGEN en este Docker (docker images)."; exit 2; }
 IMAGEN_ID="$(docker image inspect "$IMAGEN" --format '{{.Id}}')"
 
-# --- 0. la GPU de verdad, dentro de Docker (si no, no se empieza). Solo si se va a medir el brazo B.
-case "$BRAZOS$([ "$FASES" = 1 ] && echo B)" in *B*)
+# --- 0. la GPU de verdad, dentro de Docker (si no, no se empieza). Para cualquier brazo: los DOS llevan --gpus all.
+case "$BRAZOS$([ "$FASES" = 1 ] && echo B)" in *A*|*B*)
 log "Paso 0: comprobando que Docker ve la GPU..."
 docker run --rm --gpus all --entrypoint python3 "$IMAGEN" -c "import torch,sys; ok=torch.cuda.is_available(); print('torch', torch.__version__, 'cuda', torch.version.cuda, 'GPU:', torch.cuda.get_device_name(0) if ok else None); sys.exit(0 if ok else 1)" \
   | tee "$SALIDA/maquina/torch_gpu.txt" ; [ "${PIPESTATUS[0]}" -eq 0 ] || { echo "PARO: Docker no ve la GPU con esta imagen (revisa NVIDIA Container Toolkit / Docker Desktop con GPU)."; exit 3; }
@@ -90,7 +112,8 @@ docker run --rm --entrypoint python3 -v "$AQUI":/work/kit:ro "$MEDIDOR" /work/ki
 
 medidor() {  # medidor <brazo> [extra...]
   local brazo="$1"; shift
-  local ent='{}'; [ "$brazo" = A ] && ent='{"MATRIXAI_TABM_DISPOSITIVO":"cpu"}' || ent='{"MATRIXAI_TABM_DISPOSITIVO":"auto","gpus":"all"}'
+  # los dos con la GPU a la vista (I2): el entorno que apunta el medidor lo dice en los dos
+  local ent='{}'; [ "$brazo" = A ] && ent='{"MATRIXAI_TABM_DISPOSITIVO":"cpu","gpus":"all"}' || ent='{"MATRIXAI_TABM_DISPOSITIVO":"auto","gpus":"all"}'
   docker run --rm --name c5-128-medidor --network "$RED" --user "$(id -u):$(id -g)" -e HOME=/tmp --entrypoint python3 -v "$AQUI":/work/kit:ro -v "$SALIDA":/salida "$MEDIDOR" \
     /work/kit/medir_c5.py --brazo "$brazo" --studio "http://c5-128-studio-$brazo:8765" --salida /salida --datos /work/kit/datos \
     --imagen "$IMAGEN" --imagen-id "$IMAGEN_ID" --memoria "$MEMORIA" --cpus "$CPUS" --entorno "$ent" \
@@ -102,8 +125,11 @@ brazo() {  # brazo <A|B>
   while [ $intento -lt 3 ]; do
     intento=$((intento+1))
     docker rm -f "c5-128-studio-$b" >/dev/null 2>&1
-    local gpu=(); local disp=cpu
-    [ "$b" = B ] && { gpu=(--gpus all); disp=auto; }
+    # 128, I2 de la auditoria final: los DOS brazos ven la GPU (--gpus all) y solo cambia donde entrena TabM. Asi la
+    # comparacion aisla a TabM: con la GPU a la vista y TabM en cpu, la densa la esconde como en la v2.12 (A); con
+    # TabM en auto no la esconde y el coste de verla va con TabM en la GPU (B).
+    local gpu=(--gpus all); local disp=cpu
+    [ "$b" = B ] && disp=auto
     log "Brazo $b: arrancando el Studio (TabM en '$disp', memoria $MEMORIA, $CPUS CPU) ..."
     docker run -d --init --name "c5-128-studio-$b" --network "$RED" --memory="$MEMORIA" --memory-swap="$MEMORIA" --cpus="$CPUS" \
       -e MATRIXAI_LICENSE_ENABLED=false -e "MATRIXAI_TABM_DISPOSITIVO=$disp" "${gpu[@]}" \
