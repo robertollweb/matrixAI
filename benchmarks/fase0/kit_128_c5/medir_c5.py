@@ -140,6 +140,19 @@ def picos(muestras: list[dict], t0: float, t1: float) -> dict:
             "gpu_uso_pico_pct": maximo("gpu_util", dentro), "muestras": len(dentro)}
 
 
+def dispositivos_de_tabm(est: dict) -> dict:
+    """128-C5′ (H18): las declaraciones de dispositivo SOLO de las entradas del motor TabM del estado (`engine` =
+    `V.MOTOR_TABM`): su `config_efectiva` (el predictor) lleva `hiperparametros.device` y `entrenamiento_efectivo.
+    dispositivo`. `dispositivos_vistos` cuenta las de TODO el estado, y una declaración de otro componente no prueba
+    que TabM usara la GPU. Lo que el estado no enseñe no se inventa: sin entradas de TabM, cuenta vacía."""
+    cuenta: Counter = Counter()
+    for _ruta, entradas in R0.buscar_entradas(est):
+        for x in entradas:
+            if isinstance(x, dict) and x.get("engine") == V.MOTOR_TABM:
+                dispositivos_vistos(x, cuenta)
+    return dict(cuenta)
+
+
 def dispositivos_vistos(o, cuenta: Counter | None = None) -> dict:
     """Cuántas veces el estado del estudio dice `device`/`dispositivo` = cpu | cuda, y cuántas `caida_a_cpu`,
     donde estén. Lo que el estado no enseñe no se inventa: sin nada, cuenta vacía."""
@@ -209,6 +222,7 @@ def estudiar(url: str, c: dict, datos: Path, estados: Path, muestreo: Path | Non
         rec["job_id"] = job
         rec["entrenamiento_del_entregado"] = (est.get("seleccion") or {}).get("entrenamiento_del_entregado")
         rec["dispositivos_vistos"] = dispositivos_vistos(est)
+        rec["dispositivos_de_tabm"] = dispositivos_de_tabm(est)     # 128-C5′ (H18): la prueba de presencia
     rec["csv"] = {"filas": c["filas"], "columnas": c["columnas"], "bytes": c["bytes"], "sha256": c["sha256"]}
     rec["recursos"] = picos(leer_muestras(muestreo), t0, t1)
     rec["inicio_epoch"], rec["fin_epoch"] = round(t0, 1), round(t1, 1)
@@ -276,6 +290,14 @@ def medir_brazo(a: argparse.Namespace, estudiar_fn=estudiar) -> int:
         if not ruta_a.is_file() or not json.loads(ruta_a.read_text()).get("terminado"):
             print("PARO: el brazo B se compara con el A y el A no está terminado.", flush=True); return 3
         brazo_a = json.loads(ruta_a.read_text())
+        # 128-C5′ (H16): antes de medir B, el A tiene que ser COMPARABLE con él: la misma imagen, el mismo código
+        # del medidor y del veredicto, el mismo manifiesto y los mismos recursos. La huella servía para reusar el
+        # MISMO brazo; no se cruzaba con la del otro.
+        incompatibles = V.incompatibilidades_de_huellas(brazo_a.get("huella"), huella)
+        if incompatibles:
+            print("PARO: el brazo A y el B no son comparables (se midió con otra cosa):\n  "
+                  + "\n  ".join(incompatibles), flush=True)
+            return 6
 
     previo: dict = {}
     anterior = json.loads(ruta_brazo.read_text()) if ruta_brazo.is_file() else None
@@ -330,7 +352,7 @@ def medir_brazo(a: argparse.Namespace, estudiar_fn=estudiar) -> int:
         tras horas): el brazo A no puede entrenar TabM en la GPU, y en el B, si TabM es el campeón, su modelo
         ENTREGADO tiene que constar en la GPU o declarar su caída (el B1: búsqueda en GPU, entregado de CPU callado)."""
         rec = doc["conjuntos"].get(n)
-        if a.brazo == "A" and rec and V.completa(rec) and V.entreno_tabm_en_gpu(rec):
+        if a.brazo == "A" and rec and V.completa(rec) and V.declara_cuda_en_algun_sitio(rec):
             motivo = f"{n}: el brazo A (CPU) entrenó TabM en la GPU: no es la referencia registrada"
         elif a.brazo == "B" and V.entregado_de_tabm_en_cpu_sin_decirlo(rec):
             e = (rec or {}).get("entrenamiento_del_entregado") or {}
@@ -387,6 +409,13 @@ def medir_brazo(a: argparse.Namespace, estudiar_fn=estudiar) -> int:
             comps.append(comp)
             doc["comparaciones"][c["nombre"]] = comp
             guardar(ruta_brazo, doc)
+            if comp["clase"] == "sin_referencia":
+                # 128-C5′ (H16): al A le falta ese conjunto («no medido»): no hay con qué comparar. Es del INSTRUMENTO
+                # (el A no es la referencia completa), no un corte de la regla 9, y no se sigue midiendo horas.
+                motivo = (f"{c['nombre']}: el brazo A no tiene ese conjunto (no medido): no hay con qué comparar; "
+                          "hay que medir el A completo")
+                doc["corte"] = {"tipo": "instrumento", "motivo": motivo, "tras": c["nombre"]}
+                raise Corte(motivo, 6)
             dif = "" if comp["diferencia"] is None else f" {comp['diferencia']:+.2f} puntos"
             print(f"   contra el brazo A: {comp['clase']}{dif} ({comp['campeon_a']} -> {comp['campeon_b']}; "
                   f"{comp['pared_a_s']} -> {comp['pared_b_s']} s)", flush=True)
@@ -409,9 +438,11 @@ def medir_brazo(a: argparse.Namespace, estudiar_fn=estudiar) -> int:
     guardar(ruta_brazo, doc)
     if a.prueba and a.brazo == "B":
         rec = doc["conjuntos"].get(CONJUNTO_DE_PRUEBA, {})
-        usada = V.entreno_tabm_en_gpu(rec, con_vram=True)
+        # 128-C5′ (H18): la GPU se USÓ si TabM lo DECLARÓ (entregado o intentos); la VRAM de más es auxiliar y no basta.
+        usada = V.entreno_tabm_en_gpu(rec)
         print("PRUEBA:", "la GPU SE USO" if usada else "la GPU NO SE USO", "-- dispositivo del modelo:",
-              (rec.get("entrenamiento_del_entregado") or {}).get("dispositivo"), "-- VRAM extra:",
+              (rec.get("entrenamiento_del_entregado") or {}).get("dispositivo"), "-- intentos de TabM:",
+              rec.get("dispositivos_de_tabm"), "-- VRAM extra (auxiliar, no prueba):",
               rec.get("recursos", {}).get("vram_extra_mb"), "MB", flush=True)
         if not usada:
             return 5
@@ -436,11 +467,14 @@ def componer(a: argparse.Namespace) -> int:
     try:
         doc.update(V.evaluar(doc, a.suelo))
     except V.Incomparable as e:
-        doc["veredicto"] = {"entra": False, "motivos_para_no_entrar": [f"incomparable: {e}"]}
+        doc["veredicto"] = V.sin_veredicto_por_incomparable(str(e))
     guardar(salida / "resultado_128_c5.json", doc)
     v = doc["veredicto"]
     print(json.dumps(v, ensure_ascii=False, indent=1))
-    print("LA GPU ENTRA" if v.get("entra") else "LA GPU NO ENTRA (el dispositivo se queda en cpu)")
+    # 128-C5′ (R9.7): dos cosas distintas, dichas por separado
+    print("INSTRUMENTO:", "midió bien" if v.get("instrumento_midio_bien") else
+          "NO midió bien: " + "; ".join(v.get("motivos_del_instrumento") or []))
+    print("LA GPU ENTRA" if v.get("producto_entra") else "LA GPU NO ENTRA (el dispositivo se queda en cpu)")
     print("Manda salida/resultado_128_c5.json")
     return 0
 

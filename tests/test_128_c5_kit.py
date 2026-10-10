@@ -768,3 +768,120 @@ def test_C5p_lanzar_ps1_pasa_sin_cortar_al_medidor_solo_si_se_pide(tmp_path):
     r, log, _ = _pwsh(tmp_path / "sin", _CONSOLA.format(modo="Standard", parametros=""))
     assert r.returncode == 0
     assert not any("--sin-cortar" in o["args"] for o in _ordenes(log) if "--brazo" in o["args"])
+
+
+# ------------------------------------------------------------------------------------------------ 128-C5′ (revisión del 10-10)
+def test_H18_los_dispositivos_de_TabM_son_solo_los_de_las_entradas_del_motor_TabM():
+    est = {"leaderboard": [
+        {"engine": V.MOTOR_TABM, "candidate": "t-p0-r0", "wall_seconds": 5.0, "config_efectiva": {
+            "hiperparametros": {"device": "cuda"}, "entrenamiento_efectivo": {"dispositivo": "cuda"}}},
+        {"engine": V.MOTOR_TABM, "candidate": "t-p1-r0", "wall_seconds": 5.0,
+         "config_efectiva": {"hiperparametros": {"device": "cpu", "caida_a_cpu": "cuda_no_disponible"}}},
+        {"engine": "matrixai.dense.torch_cpu", "candidate": "d-p0-r0", "wall_seconds": 3.0,
+         "config_efectiva": {"hiperparametros": {"device": "cuda"}}},          # otro componente: NO cuenta
+        {"engine": "lightgbm", "candidate": "l-p0-r0", "wall_seconds": 1.0}]}
+    assert M.dispositivos_de_tabm(est) == {"cuda": 2, "cpu": 1, "caidas_a_cpu": 1}
+    assert M.dispositivos_vistos(est)["cuda"] == 3                                 # lo de todo el estado, que NO prueba
+    assert M.dispositivos_de_tabm({"leaderboard": [{"engine": "lightgbm", "wall_seconds": 1.0}]}) == {}
+    assert M.dispositivos_de_tabm({}) == {}
+
+
+def test_H18_el_registro_de_un_conjunto_lleva_los_dispositivos_de_TabM(tmp_path, estudios):
+    a = estudios("A")
+    M.main(_args(tmp_path, "A", a))
+    b = estudios("B", gpu=True)
+    assert M.main(_args(tmp_path, "B", b, "--solo", "dresses-sales", "--sin-comparar")) == 0
+    rec = json.loads((tmp_path / "brazo_B.json").read_text())["conjuntos"]["dresses-sales"]
+    assert rec["dispositivos_de_tabm"] == {"cuda": 1} and V.entreno_tabm_en_gpu(rec) is True
+
+
+def test_H18_la_PRUEBA_con_solo_VRAM_de_mas_y_sin_declaracion_de_dispositivo_NO_da_la_GPU_por_usada(
+        tmp_path, estudios, capsys, monkeypatch):
+    a = estudios("A")
+    M.main(_args(tmp_path, "A", a, "--prueba"))
+    b = estudios("B", gpu=False)                                    # el Studio no declara cuda en ningún sitio
+    monkeypatch.setattr(M, "picos", lambda m, t0, t1: {"ram_pico_mb": 100.0, "vram_pico_mb": 3000.0,
+                                                       "vram_antes_mb": 0.0, "vram_extra_mb": 3000.0,
+                                                       "gpu_uso_pico_pct": 50.0, "muestras": 3})
+    assert M.main(_args(tmp_path, "B", b, "--prueba")) == 5
+    sal = capsys.readouterr().out
+    assert "NO SE USO" in sal and "VRAM extra (auxiliar, no prueba): 3000.0" in sal
+
+
+def _argumentos_de_B(tmp_path, b, **cambios):
+    base = {"--imagen-id": "sha256:abc", "--memoria": "6g", "--cpus": "2"}
+    base.update(cambios)
+    return ["--brazo", "B", "--studio", b.url, "--salida", str(tmp_path), "--datos", str(KIT / "datos"),
+            "--imagen", "img:c5"] + [x for kv in base.items() for x in kv]
+
+
+@pytest.mark.parametrize("cambio", [{"--imagen-id": "sha256:otra"}, {"--memoria": "8g"}, {"--cpus": "4"}])
+def test_H16c_el_brazo_B_PARA_antes_de_medir_si_su_huella_no_es_compatible_con_la_del_A(tmp_path, estudios, cambio, capsys):
+    a = estudios("A")
+    assert M.main(_args(tmp_path, "A", a)) == 0
+    b = estudios("B", gpu=True)
+    assert M.main(_argumentos_de_B(tmp_path, b, **cambio)) == 6
+    sal = capsys.readouterr().out
+    assert "no son comparables" in sal and next(iter(cambio)).lstrip("-").replace("-", "_") in sal
+    assert b.iniciados == [] and not (tmp_path / "brazo_B.json").exists()          # no se midió NI UN conjunto
+
+
+def test_H16c_si_el_codigo_del_veredicto_del_A_no_es_el_de_ahora_el_B_PARA(tmp_path, estudios, capsys):
+    a = estudios("A")
+    assert M.main(_args(tmp_path, "A", a)) == 0
+    ruta = tmp_path / "brazo_A.json"
+    brazo_a = json.loads(ruta.read_text())
+    brazo_a["huella"]["sha256_veredicto"] = "0" * 64                                # el A se midió con otro veredicto
+    ruta.write_text(json.dumps(brazo_a))
+    b = estudios("B", gpu=True)
+    assert M.main(_args(tmp_path, "B", b)) == 6
+    assert "sha256_veredicto" in capsys.readouterr().out and b.iniciados == []
+
+
+def test_H16c_con_la_misma_huella_el_B_mide_y_el_entorno_distinto_del_brazo_no_cuenta(tmp_path, estudios):
+    a = estudios("A")
+    assert M.main(_args(tmp_path, "A", a, "--entorno", json.dumps({"MATRIXAI_TABM_DISPOSITIVO": "cpu"}))) == 0
+    b = estudios("B", gpu=True)
+    assert M.main(_args(tmp_path, "B", b, "--entorno", json.dumps({"MATRIXAI_TABM_DISPOSITIVO": "auto", "gpus": "all"}))) == 0
+
+
+def test_H16a_un_brazo_A_sin_ese_conjunto_PARA_al_B_como_instrumento_no_como_regla_9(tmp_path, estudios):
+    a = estudios("A")
+    assert M.main(_args(tmp_path, "A", a, "--solo", "wilt")) == 0                   # el A terminó, pero SOLO con wilt
+    b = estudios("B", gpu=True)
+    assert M.main(_args(tmp_path, "B", b, "--solo", "pc1,wilt", "--suelo", "0")) == 6
+    brazo = json.loads((tmp_path / "brazo_B.json").read_text())
+    assert brazo["corte"]["tipo"] == "instrumento" and "no tiene ese conjunto" in brazo["corte"]["motivo"]
+    assert brazo["terminado"] is False and brazo["comparaciones"]["pc1"]["clase"] == "sin_referencia"
+
+
+def test_R97_componer_enseña_el_instrumento_y_el_producto_por_separado(tmp_path, estudios, capsys):
+    a, b = _brazos(tmp_path, estudios, {("B", "micro-mass"): 83.0})
+    assert M.main(_args(tmp_path, "B", b)) == 0
+    capsys.readouterr()
+    assert M.main(["--componer", "--salida", str(tmp_path), "--datos", str(KIT / "datos")]) == 0
+    sal = capsys.readouterr().out
+    v = json.loads((tmp_path / "resultado_128_c5.json").read_text())["veredicto"]
+    assert (v["instrumento_midio_bien"], v["la_regla_se_cumple"], v["producto_entra"]) == (True, True, True)
+    assert "INSTRUMENTO: midió bien" in sal and "LA GPU ENTRA" in sal
+
+
+def test_R97_componer_con_dos_brazos_incomparables_dice_que_el_instrumento_no_midio_bien(tmp_path, estudios, capsys):
+    a, b = _brazos(tmp_path, estudios, {("B", "micro-mass"): 83.0})
+    assert M.main(_args(tmp_path, "B", b)) == 0
+    ruta = tmp_path / "brazo_B.json"
+    brazo_b = json.loads(ruta.read_text())
+    brazo_b["huella"]["imagen_id"] = "sha256:otra"
+    ruta.write_text(json.dumps(brazo_b))
+    capsys.readouterr()
+    assert M.main(["--componer", "--salida", str(tmp_path), "--datos", str(KIT / "datos")]) == 0
+    sal = capsys.readouterr().out
+    v = json.loads((tmp_path / "resultado_128_c5.json").read_text())["veredicto"]
+    assert v["instrumento_midio_bien"] is False and v["la_regla_se_cumple"] is None and v["producto_entra"] is False
+    assert any("imagen_id" in m for m in v["motivos_del_instrumento"])
+    assert "INSTRUMENTO: NO midió bien" in sal and "LA GPU NO ENTRA" in sal
+
+
+def test_H16b_el_BANCO_del_veredicto_es_el_manifiesto_del_kit():
+    manifiesto = M.leer_manifiesto(KIT / "datos")["conjuntos"]
+    assert list(V.BANCO) == [c["nombre"] for c in sorted(manifiesto, key=lambda x: x["orden"])]
