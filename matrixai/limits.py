@@ -42,6 +42,16 @@ Lo que NO desapareció con ellos, porque sí protegía de algo real:
     ANTES de empezar que un CSV no cabe en la RAM de esta máquina. Un tope
     que desaparece sin que nadie lo note es tan malo como uno absurdo: sin
     esto, un fichero enorme ya no daría un mensaje, daría un OOM del kernel.
+
+128-C3c — `max_tabm_memoria_pct`, UN LÍMITE MÁS DE LOS PERFILES (decisión de Roberto,
+2026-10-10: «la guarda debe ser dinámica: en la configuración del Studio ya hay una opción
+para poner límites y la guarda debe ser uno más, se puede elegir ilimitado»). Es el % de la
+memoria de la instalación que puede pedir un estudio con TabM (la guarda de
+`estudio_job._memoria_de_tabm_que_no_cabe`): equilibrado 100, avanzado 100, ilimitado SIN
+guarda (TabM compite siempre; el AVISO de memoria, que no bloquea, sigue avisando), y el
+servicio compartido SIEMPRE 100 (sin override: la máquina no es de quien sube el fichero). A
+diferencia del resto, no cuesta CALCULAR: acota lo que se arriesga a ocupar. Con 100 la guarda
+decide exactamente lo que decidía antes de existir el límite.
 """
 from __future__ import annotations
 
@@ -74,6 +84,10 @@ _EQUILIBRADO: dict[str, int | None] = {
     # 8 MB de pesos en float32 y entrenan en CPU en minutos, que es el listón del
     # perfil por defecto.
     "max_params": 2_000_000,
+    # 128-C3c — % de la memoria de la instalación que puede pedir un estudio con TabM
+    # (la guarda de memoria de TabM). 100 = lo de siempre: «si la estimación supera la
+    # memoria disponible, TabM no compite». Se sube a mano (p. ej. 130) o se quita (`0`).
+    "max_tabm_memoria_pct": 100,
 }
 # Perfil "avanzado": máquina potente; topes altos pero aún con red de seguridad anti-typo.
 # `max_rows`/`max_csv_bytes` a None como en "equilibrado": si el perfil por
@@ -90,6 +104,9 @@ _AVANZADO: dict[str, int | None] = {
     # ~200 MB de pesos: razonable en una GPU de portátil y en Colab, inviable en
     # CPU — que es exactamente la diferencia que separa este perfil del anterior.
     "max_params": 50_000_000,
+    # 128-C3c — como el equilibrado: «avanzado» sube lo que CUESTA calcular, no apuesta la
+    # memoria; quien quiera apostarla elige «ilimitado» o sube este número a mano.
+    "max_tabm_memoria_pct": 100,
 }
 # Perfil "ilimitado": sin topes. SOLO descargable (hosted nunca lo ofrece).
 _ILIMITADO: dict[str, int | None] = {k: None for k in _EQUILIBRADO}
@@ -108,6 +125,9 @@ _HOSTED: dict[str, int | None] = {
     "max_labels": 12,
     "max_sequence_length": 512,
     "max_params": 2_000_000,
+    # 128-C3c — SIEMPRE 100 y sin «sin límite»: un servicio compartido no apuesta la memoria
+    # de todos en un estudio de uno (la guarda es la que evita el OOM de la demo).
+    "max_tabm_memoria_pct": 100,
 }
 
 _PROFILES: dict[str, dict[str, int | None]] = {
@@ -124,6 +144,7 @@ _ENV_BY_KEY = {
     "max_labels": "MATRIXAI_MAX_LABELS",
     "max_sequence_length": "MATRIXAI_MAX_SEQUENCE_LENGTH",
     "max_params": "MATRIXAI_MAX_PARAMS",
+    "max_tabm_memoria_pct": "MATRIXAI_MAX_TABM_MEMORIA_PCT",
 }
 
 _UNLIMITED_TOKENS = {"0", "none", "unlimited", "ilimitado", "sin", "off"}
@@ -194,6 +215,11 @@ def _profile_name() -> str:
     return name if name in _PROFILES else "equilibrado"
 
 
+def perfil_activo() -> str:
+    """El nombre del perfil que rige: en hosted siempre «equilibrado» (el que la SPA sabe rotular)."""
+    return "equilibrado" if is_hosted() else _profile_name()
+
+
 def _parse_override(raw: str):
     """int (tope), None (sin tope) o _INVALID si no parsea."""
     token = raw.strip().lower()
@@ -259,6 +285,7 @@ _LIMIT_UNITS = {
     "max_labels": "labels",
     "max_sequence_length": "chars",
     "max_params": "params",
+    "max_tabm_memoria_pct": "percent",
 }
 
 
@@ -314,6 +341,7 @@ _LIMIT_UNITS_ES = {
     "max_labels": "etiquetas",
     "max_sequence_length": "caracteres",
     "max_params": "parámetros",
+    "max_tabm_memoria_pct": "% de la memoria",
 }
 
 
