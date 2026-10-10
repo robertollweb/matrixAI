@@ -557,7 +557,8 @@ def test_un_intento_fallido_se_registra_sin_metrica_y_con_su_clasificacion():
 @pytest.mark.parametrize("clave, valor, esperada", [
     ("intento_agoto_el_tiempo", 52.4, "agotado_por_el_techo"),
     ("intento_sin_resultado", -9, "murio_sin_resultado"),
-    ("intento_fallo_no_declarado_en_subproceso", "ValueError: x", "excepcion_no_declarada")])
+    ("intento_fallo_no_declarado_en_subproceso", "ValueError: x", "excepcion_no_declarada"),
+    ("intento_no_termino_de_cargar", 300.0, "no_termino_de_cargar")])
 def test_los_prefijos_de_los_fallos_son_los_de_los_motores(clave, valor, esperada):
     assert sonda.clasificar_el_fallo("failed", motivo_real(clave, valor=valor)["es"]) == esperada
 
