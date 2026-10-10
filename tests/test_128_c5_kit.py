@@ -330,16 +330,20 @@ def test_los_lanzadores_existen_y_el_ps1_es_ASCII_puro():
 
 
 @pytest.mark.parametrize("fichero", ["lanzar.sh", "lanzar.ps1"])
-def test_los_dos_lanzadores_hacen_lo_mismo_B_con_GPU_y_auto_A_sin_GPU_y_cpu(fichero):
+def test_los_dos_lanzadores_hacen_lo_mismo_los_DOS_brazos_con_GPU_A_cpu_y_B_auto(fichero):
+    """128, I2 de la auditoría final: antes SOLO el brazo B llevaba `--gpus all`, y la comparación mezclaba con TabM en
+    la GPU lo que cuesta que la densa vea CUDA. Ahora los dos ven la GPU y solo cambia la señal de TabM."""
     t = (KIT / fichero).read_text()
     assert "MATRIXAI_TABM_DISPOSITIVO" in t and "c5-128-studio-" in t and "--gpus" in t and "all" in t
     assert "auto" in t and "cpu" in t
     assert "MATRIXAI_LICENSE_ENABLED=false" in t and "--memory-swap" in t and "--init" in t
-    # SOLO el brazo B lleva la GPU: la reserva de GPU del Studio va dentro de la rama del B
     if fichero == "lanzar.sh":
-        assert '[ "$b" = B ] && { gpu=(--gpus all); disp=auto; }' in t
+        assert 'local gpu=(--gpus all); local disp=cpu' in t and '[ "$b" = B ] && disp=auto' in t
+        assert 'ent=\'{"MATRIXAI_TABM_DISPOSITIVO":"cpu","gpus":"all"}\'' in t
     else:
-        assert 'if ($b -eq "B") { $gpu = @("--gpus", "all"); $disp = "auto" } else { $gpu = @(); $disp = "cpu" }' in t
+        assert '$gpu = @("--gpus", "all")' in t and 'if ($b -eq "B") { $disp = "auto" } else { $disp = "cpu" }' in t
+        assert "$gpu = @()" not in t
+        assert """$ent = '{"MATRIXAI_TABM_DISPOSITIVO":"cpu","gpus":"all"}'""" in t
     assert "/work/kit" in t and "kit:ro" in t
 
 
@@ -354,7 +358,11 @@ _DOCKERFILE_GPU = _FASE0.parents[2] / "matrixaistudio" / "bundle-gpu" / "Dockerf
 
 
 def _docker_falso(tmp_path):
-    """Un `docker` que solo anota las órdenes: `image inspect` dice que no existe lo que aún no se cargó/construyó."""
+    """Un `docker` que solo anota las órdenes: `image inspect` dice que no existe lo que aún no se cargó/construyó.
+
+    128 (I3 de la auditoría final): cada imagen guarda su ID (`load` le pone el de `ID_DEL_TAR`, el del tar que se
+    cargaría de verdad) y la capa, la base sobre la que se construyó (su `--label matrixai.kit.base=…`), que es lo que el
+    lanzador compara ahora. Una imagen «hecha» a mano (un fichero vacío) tiene el ID `sha256:abc` y ninguna etiqueta."""
     bin_ = tmp_path / "bin"
     bin_.mkdir()
     estado = tmp_path / "estado"
@@ -364,13 +372,29 @@ def _docker_falso(tmp_path):
         echo "$@" >> "$LOG_DOCKER"
         nombre() { echo "$1" | tr '/:' '__'; }
         if [ "$1" = image ] && [ "$2" = inspect ]; then
-          [ -f "$ESTADO_DOCKER/$(nombre "$3")" ] || exit 1
-          [ "$4" = "--format" ] && echo sha256:abc
+          f="$ESTADO_DOCKER/$(nombre "$3")"
+          [ -f "$f" ] || exit 1
+          if [ "$4" = "--format" ]; then
+            case "$5" in
+              *Labels*) if [ -f "$f.base" ]; then printf '{"matrixai.kit.base":"%s"}\\n' "$(cat "$f.base")"; else echo null; fi;;
+              *) id="$(cat "$f")"; echo "${id:-sha256:abc}";;
+            esac
+          fi
           exit 0
         fi
         case "$1" in
-          load) touch "$ESTADO_DOCKER/matrixai-studio_128"; echo "Loaded image: matrixai-studio:128";;
-          build) cp "$4/Dockerfile" "$ESTADO_DOCKER/Dockerfile.visto"; touch "$ESTADO_DOCKER/$(nombre "$3")";;
+          load) printf '%s' "${ID_DEL_TAR:-sha256:abc}" > "$ESTADO_DOCKER/matrixai-studio_128"; echo "Loaded image: matrixai-studio:128";;
+          build)
+            etiqueta=""; base=""; dir=""; prev=""
+            for a in "$@"; do
+              [ "$prev" = "-t" ] && etiqueta="$a"
+              [ "$prev" = "--label" ] && base="${a#matrixai.kit.base=}"
+              prev="$a"; dir="$a"
+            done
+            cp "$dir/Dockerfile" "$ESTADO_DOCKER/Dockerfile.visto"
+            printf 'sha256:capa-sobre-%s' "$base" > "$ESTADO_DOCKER/$(nombre "$etiqueta")"
+            [ -n "$base" ] && printf '%s' "$base" > "$ESTADO_DOCKER/$(nombre "$etiqueta").base";;
+          rmi) for a in "${@:2}"; do [ "$a" = -f ] || rm -f "$ESTADO_DOCKER/$(nombre "$a")" "$ESTADO_DOCKER/$(nombre "$a").base"; done;;
         esac
         exit 0
         '''))
@@ -378,22 +402,58 @@ def _docker_falso(tmp_path):
     return bin_, estado, tmp_path / "docker.log"
 
 
+def _tar_oci_falso(ruta: Path, etiqueta="matrixai-studio:128", semilla="base-128") -> tuple[str, str]:
+    """Un `docker save` mínimo y COHERENTE (formato OCI, como el de este servidor): `index.json` → un índice interno →
+    un manifiesto → la configuración, cada blob con el sha256 de su contenido, y `manifest.json` con la etiqueta.
+    Devuelve (el digest del índice: el `.Id` con containerd; el de la configuración: el `.Id` con el almacén clásico)."""
+    import io
+    import tarfile
+    def blob(d):
+        crudo = json.dumps(d, sort_keys=True).encode()
+        return hashlib.sha256(crudo).hexdigest(), crudo
+    hc, config = blob({"semilla": semilla, "config": {"Labels": None}})
+    hm, manifiesto = blob({"schemaVersion": 2, "config": {"digest": f"sha256:{hc}"}, "layers": []})
+    hi, indice = blob({"schemaVersion": 2, "manifests": [{"digest": f"sha256:{hm}"}]})
+    ficheros = {"oci-layout": b'{"imageLayoutVersion":"1.0.0"}',
+                "index.json": json.dumps({"schemaVersion": 2, "manifests": [{
+                    "mediaType": "application/vnd.oci.image.index.v1+json", "digest": f"sha256:{hi}",
+                    "annotations": {"io.containerd.image.name": f"docker.io/library/{etiqueta}",
+                                    "org.opencontainers.image.ref.name": etiqueta.split(":", 1)[1]}}]}).encode(),
+                "manifest.json": json.dumps([{"Config": f"blobs/sha256/{hc}", "RepoTags": [etiqueta],
+                                              "Layers": []}]).encode(),
+                f"blobs/sha256/{hc}": config, f"blobs/sha256/{hm}": manifiesto, f"blobs/sha256/{hi}": indice}
+    with tarfile.open(ruta, "w") as t:
+        for nombre, crudo in ficheros.items():
+            info = tarfile.TarInfo(nombre)
+            info.size = len(crudo)
+            t.addfile(info, io.BytesIO(crudo))
+    return f"sha256:{hi}", f"sha256:{hc}"
+
+
 def _kit_empaquetado(tmp_path, con_tar=True):
     emp = _cargar(_FASE0 / "empaquetar_kit_128_c5.py", "empaquetar_para_la_capa")
     tar = tmp_path / "base.tar"
-    tar.write_bytes(b"tar-de-mentira")
+    _tar_oci_falso(tar)
     kit = tmp_path / "kit"
     emp.armar(kit, tar_base=tar if con_tar else None)
     return kit
 
 
-def _lanzar(kit, tmp_path, *args, antes=None):
+def _ids_del_kit(kit):
+    ruta = kit / "imagen" / "matrixai-studio-128.ids"
+    return ruta.read_text().split() if ruta.exists() else []
+
+
+def _lanzar(kit, tmp_path, *args, antes=None, id_del_tar=None):
     import os
     bin_, estado, log = _docker_falso(tmp_path) if not (tmp_path / "bin").exists() else (
         tmp_path / "bin", tmp_path / "estado", tmp_path / "docker.log")
     if antes:
         antes(estado)
-    entorno = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "LOG_DOCKER": str(log), "ESTADO_DOCKER": str(estado)}
+    # lo que daría `docker load` con el tar del kit: su ID (el de containerd, el primero que apunta el empaquetador)
+    id_del_tar = id_del_tar or (_ids_del_kit(kit) or ["sha256:abc"])[0]
+    entorno = {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "LOG_DOCKER": str(log), "ESTADO_DOCKER": str(estado),
+               "ID_DEL_TAR": id_del_tar}
     r = subprocess.run(["bash", str(kit / "lanzar.sh"), "--prueba", "--brazos", "B", "--salida", str(tmp_path / "salida"), *args],
                        capture_output=True, text=True, env=entorno, timeout=120)
     return r, (log.read_text().splitlines() if log.exists() else []), estado
@@ -402,7 +462,7 @@ def _lanzar(kit, tmp_path, *args, antes=None):
 def test_el_kit_CONSTRUYE_la_capa_GPU_en_el_PC_cargando_el_tar_y_con_el_Dockerfile_de_la_integracion(tmp_path):
     kit = _kit_empaquetado(tmp_path)
     assert (kit / "imagen" / "Dockerfile.gpu").read_bytes() == _DOCKERFILE_GPU.read_bytes()      # copiado tal cual
-    assert (kit / "imagen" / "matrixai-studio-128.tar").read_bytes() == b"tar-de-mentira"
+    assert (kit / "imagen" / "matrixai-studio-128.tar").read_bytes() == (tmp_path / "base.tar").read_bytes()
     r, ordenes, estado = _lanzar(kit, tmp_path)
     assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-800:]
     carga = [i for i, o in enumerate(ordenes) if o.startswith("load -i ") and o.endswith("matrixai-studio-128.tar")]
@@ -472,8 +532,24 @@ _DOCKER_FALSO_PS = textwrap.dedent('''\
         case "$a" in C5_ENTORNO) printf 'EFECTIVO_C5 %s\\n' "${C5_ENTORNO-<sin>}" >> "$LOG_DOCKER";;
                      C5_ENTORNO=*) printf 'EFECTIVO_C5 %s\\n' "${a#C5_ENTORNO=}" >> "$LOG_DOCKER";; esac
       fi; prev="$a"; done
+    # 128 (I3): la base y la capa con IDENTIDAD. La base de este Docker da `FALSO_ID_BASE` (tras un `load`,
+    # `FALSO_ID_TRAS_CARGAR`); la capa dice sobre qué base se construyó (`FALSO_BASE_DE_LA_CAPA`; tras un `build`, su
+    # `--label`). Otra imagen da `sha256:falso`. El estado vive en `ESTADO_FALSO` (/out).
     case "$1" in
-      image) for a in "$@"; do [ "$a" = "{{.Id}}" ] && echo "sha256:falso"; done; exit 0;;
+      image)
+        img="$3"; fmt=""; [ "$4" = "--format" ] && fmt="$5"
+        case "$fmt" in
+          *Labels*) b="${FALSO_BASE_DE_LA_CAPA-}"; [ -f "$ESTADO_FALSO/capa_construida" ] && b="$(cat "$ESTADO_FALSO/capa_construida")"
+                    if [ -n "$b" ]; then printf '{"matrixai.kit.base":"%s"}\\n' "$b"; else echo null; fi;;
+          *.Id*) if [ "$img" = "matrixai-studio:128" ]; then
+                   id="${FALSO_ID_BASE-}"; [ -f "$ESTADO_FALSO/base_cargada" ] && id="${FALSO_ID_TRAS_CARGAR-$FALSO_ID_BASE}"
+                   echo "$id"
+                 else echo "sha256:falso"; fi;;
+        esac
+        exit 0;;
+      load) touch "$ESTADO_FALSO/base_cargada"; echo "Loaded image: matrixai-studio:128"; exit 0;;
+      build) for a in "$@"; do case "$a" in matrixai.kit.base=*) printf '%s' "${a#matrixai.kit.base=}" > "$ESTADO_FALSO/capa_construida";; esac; done
+             echo "capa construida (falso)"; exit 0;;
       version|info) echo "docker falso $1"; exit 0;;
       run)
         medidor=0; brazo=""; prev=""
@@ -511,12 +587,19 @@ def _como_correr_pwsh():
 
 
 def _pwsh(tmp_path, orden: str, entorno: dict[str, str] | None = None, timeout=240):
-    """Corre `orden` en pwsh con el kit en /kit (solo lectura), el docker falso primero en el PATH y /out escribible."""
+    """Corre `orden` en pwsh con el kit EMPAQUETADO en /kit (solo lectura), el docker falso primero en el PATH y /out
+    escribible. 128 (I3 de la auditoría final): el kit empaquetado, no la carpeta del repo, porque el lanzador exige la
+    identidad de su imagen (`imagen/matrixai-studio-128.ids`, la apunta el empaquetador). Por omisión la base y la capa
+    de este «Docker» son las del kit (no se carga ni se construye nada); `entorno` lo cambia."""
     import os
     import uuid
     modo, motivo = _como_correr_pwsh()
     if modo is None:
         pytest.skip(motivo)
+    kit = _kit_empaquetado(tmp_path) if not (tmp_path / "kit").exists() else tmp_path / "kit"
+    id_del_kit = _ids_del_kit(kit)[0]
+    entorno = {"FALSO_ID_BASE": id_del_kit, "FALSO_BASE_DE_LA_CAPA": id_del_kit, "ESTADO_FALSO": "/out",
+               **(entorno or {})}
     falso = tmp_path / "fakebin"
     falso.mkdir(exist_ok=True)
     (falso / "docker").write_text(_DOCKER_FALSO_PS)
@@ -526,7 +609,7 @@ def _pwsh(tmp_path, orden: str, entorno: dict[str, str] | None = None, timeout=2
     out.chmod(0o777)
     entorno = {"LOG_DOCKER": "/out/docker.log", "FASES": "/out/fases.log", **(entorno or {})}
     if modo == "host":
-        rutas = {"/kit": str(KIT), "/out": str(out), "/fakebin": str(falso)}
+        rutas = {"/kit": str(kit), "/out": str(out), "/fakebin": str(falso)}
         for viejo, nuevo in rutas.items():
             orden = orden.replace(viejo, nuevo)
             entorno = {k: v.replace(viejo, nuevo) for k, v in entorno.items()}
@@ -536,7 +619,7 @@ def _pwsh(tmp_path, orden: str, entorno: dict[str, str] | None = None, timeout=2
         nombre = f"rep128-pwsh-{uuid.uuid4().hex[:10]}"
         args = ["docker", "run", "--rm", "--name", nombre, "--network", "none", "--memory=1g", "--memory-swap=1g",
                 "--cpus=1", "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
-                "-v", f"{KIT}:/kit:ro", "-v", f"{falso}:/fakebin:ro", "-v", f"{out}:/out"]
+                "-v", f"{kit}:/kit:ro", "-v", f"{falso}:/fakebin:ro", "-v", f"{out}:/out"]
         for k, v in entorno.items():
             args += ["-e", f"{k}={v}"]
         try:
@@ -589,15 +672,18 @@ def test_lanzar_ps1_de_principio_a_fin_corre_los_DOS_brazos_ENSENA_el_medidor_y_
         brazo = o["args"][o["args"].index("--brazo") + 1]
         # lo que vería el medidor en su contenedor se lee como JSON (con «Legacy» —5.1— y el JSON en la línea de
         # órdenes, llegaba `{MATRIXAI_TABM_DISPOSITIVO:cpu}`: sin comillas, y el medidor no lo podía leer)
-        assert json.loads(o["efectivo"]) == ({"MATRIXAI_TABM_DISPOSITIVO": "cpu"} if brazo == "A" else
+        assert json.loads(o["efectivo"]) == ({"MATRIXAI_TABM_DISPOSITIVO": "cpu", "gpus": "all"} if brazo == "A" else
                                              {"MATRIXAI_TABM_DISPOSITIVO": "auto", "gpus": "all"}), o["efectivo"]
         # y por eso el JSON NO va en la línea de órdenes: `-e C5_ENTORNO` y el valor, del entorno del lanzador
         assert "C5_ENTORNO" in o["args"] and not any(a.startswith("C5_ENTORNO=") for a in o["args"]), o["args"]
         assert o["args"][o["args"].index("--entorno-de-env") + 1] == "C5_ENTORNO"
-    # el Studio del B con la GPU y `auto`; el del A sin GPU y `cpu`
+    # los DOS Studios con la GPU (I2 de la auditoría final): el del B con `auto`, el del A con `cpu`
     studios = [o["args"] for o in _ordenes(log) if o["args"][:2] == ["run", "-d"]]
-    assert any("--gpus" in a and "MATRIXAI_TABM_DISPOSITIVO=auto" in a for a in studios)
-    assert any("--gpus" not in a and "MATRIXAI_TABM_DISPOSITIVO=cpu" in a for a in studios)
+    assert len(studios) == 2 and all("--gpus" in a and a[a.index("--gpus") + 1] == "all" for a in studios), studios
+    assert any("MATRIXAI_TABM_DISPOSITIVO=auto" in a and "c5-128-studio-B" in a for a in studios)
+    assert any("MATRIXAI_TABM_DISPOSITIVO=cpu" in a and "c5-128-studio-A" in a for a in studios)
+    # y con la base y la capa del kit ya en este «Docker», ni se carga ni se construye nada
+    assert not any(o["args"][:1] in (["load"], ["build"]) for o in _ordenes(log))
 
 
 def test_lanzar_ps1_si_el_brazo_A_falla_PARA_con_su_codigo_y_no_arranca_el_B(tmp_path):
@@ -1025,6 +1111,8 @@ def test_fases_el_leeme_cuenta_el_paso_con_su_orden_exacta_y_dice_que_la_estimac
     assert "Opcional (estimado 20 min – 1,5 h, no medido)" in paso and "Cálculo de la estimación (no medida;" in paso   # dicha como estimada, dos veces
     assert "minutos por conjunto" in paso and "tabm_por_fases_gpu.json" in paso
     assert "--gpus all" in paso and "6 GB" in paso and "1.800" in paso
+    # M10 de la auditoría final: el paso usa la memoria de `-Memoria` (la orden de Roberto lleva 16g), no «6 GB» fijos
+    assert "la misma memoria que los brazos (`-Memoria` / `--memoria`" in paso and "y 6 GB:" not in paso
 
 
 @pytest.mark.parametrize("modo", ["Standard", "Legacy"])
@@ -1072,3 +1160,179 @@ def test_fases_el_empaquetado_mete_la_sonda_identica_con_su_suma_y_la_sonda_arra
     assert r.returncode == 0, r.stderr[-1500:]
     assert "--datos-del-kit" in r.stdout and "--dentro-del-contenedor" in r.stdout and "--gpu" in r.stdout
     assert not list(destino.rglob("__pycache__"))
+
+
+# ------------------------------------------------------------------------------------------------ 128, auditoría final: I3 y el brazo A
+# I3: los dos kits del 128 usan las mismas etiquetas (`matrixai-studio:128`, `matrixai-studio-gpu-128:local`) y el lanzador
+# solo cargaba y construía si la capa NO existía: el kit 2, seguido al pie de su LEEME (sin `-Reconstruir`), medía en
+# silencio la imagen del kit 1 —sin el arreglo del dropout ni FP32— y decía «la GPU SE USÓ». Ahora el empaquetador apunta
+# el ID de la imagen DEL TAR (`imagen/matrixai-studio-128.ids`) y el lanzador lo compara con la base de este Docker y con
+# la base sobre la que se construyó la capa; si no es la del kit, recarga y reconstruye él solo, o para diciendo por qué.
+def test_I3_el_empaquetado_apunta_los_IDs_de_la_imagen_LEIDOS_DEL_TAR(tmp_path):
+    emp = _cargar(_FASE0 / "empaquetar_kit_128_c5.py", "empaquetar_ids")
+    tar = tmp_path / "base.tar"
+    del_indice, de_la_config = _tar_oci_falso(tar)
+    kit = tmp_path / "kit"
+    emp.armar(kit, tar_base=tar)
+    assert _ids_del_kit(kit) == [del_indice, de_la_config]           # containerd (este servidor) y el almacén clásico
+    sumas = dict(reversed(l.split("  ", 1)) for l in (kit / "SHA256SUMS").read_text().splitlines())
+    assert "imagen/matrixai-studio-128.ids" in sumas                  # viaja en el kit con su suma
+    # otro tar (otra imagen con la MISMA etiqueta) da otros IDs: es lo que distingue el kit 2 del 1
+    otro = tmp_path / "otro.tar"
+    assert set(_tar_oci_falso(otro, semilla="kit-1")).isdisjoint({del_indice, de_la_config})
+
+
+def test_I3_un_tar_sin_la_etiqueta_o_con_un_blob_que_no_es_lo_que_dice_PARA_al_empaquetar(tmp_path):
+    import tarfile
+    emp = _cargar(_FASE0 / "empaquetar_kit_128_c5.py", "empaquetar_ids_malos")
+    sin_etiqueta = tmp_path / "otra.tar"
+    _tar_oci_falso(sin_etiqueta, etiqueta="matrixai-studio:otra")
+    with pytest.raises(SystemExit, match="no trae la etiqueta matrixai-studio:128"):
+        emp.armar(tmp_path / "k1", tar_base=sin_etiqueta)
+    bueno = tmp_path / "bueno.tar"
+    _, config = _tar_oci_falso(bueno)
+    roto = tmp_path / "roto.tar"
+    with tarfile.open(bueno) as t, tarfile.open(roto, "w") as r:
+        for m in t.getmembers():
+            datos = t.extractfile(m).read()
+            if m.name == f"blobs/sha256/{config.split(':')[1]}":
+                datos = datos.replace(b"base-128", b"base-129")         # mismo tamaño, otro contenido
+            r.addfile(m, __import__("io").BytesIO(datos))
+    with pytest.raises(SystemExit, match="no es lo que dice su nombre"):
+        emp.armar(tmp_path / "k2", tar_base=roto)
+    with pytest.raises(SystemExit, match="no es un `docker save`"):
+        (tmp_path / "nada.tar").write_bytes(b"")
+        with tarfile.open(tmp_path / "nada.tar", "w"):
+            pass
+        emp.armar(tmp_path / "k3", tar_base=tmp_path / "nada.tar")
+
+
+def _con_imagenes_de_otro_kit(estado, base="sha256:kit-1", capa_sobre="sha256:kit-1"):
+    """El Docker del portátil de Roberto tras el kit 1: las MISMAS etiquetas, otra imagen."""
+    (estado / "matrixai-studio_128").write_text(base)
+    (estado / "matrixai-studio-gpu-128_local").write_text("sha256:capa-vieja")
+    if capa_sobre is not None:
+        (estado / "matrixai-studio-gpu-128_local.base").write_text(capa_sobre)
+
+
+def test_I3_sh_con_la_base_de_OTRO_kit_y_su_capa_recarga_el_tar_y_rehace_la_capa_sin_Reconstruir(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    r, ordenes, estado = _lanzar(kit, tmp_path, antes=_con_imagenes_de_otro_kit)
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-800:]
+    assert "NO es la de este kit (sha256:kit-1)" in r.stdout, r.stdout[-1500:]
+    assert sum(o.startswith("load -i ") for o in ordenes) == 1
+    (construye,) = [o for o in ordenes if o.startswith("build ")]
+    assert construye.startswith("build -t matrixai-studio-gpu-128:local --label matrixai.kit.base=" + _ids_del_kit(kit)[0])
+    # y los brazos miden contra la capa NUEVA
+    assert (estado / "matrixai-studio-gpu-128_local.base").read_text() == _ids_del_kit(kit)[0]
+    assert ordenes.index(construye) < next(i for i, o in enumerate(ordenes) if "medir_c5.py --brazo" in o)
+
+
+def test_I3_sh_con_la_base_del_kit_y_una_capa_sobre_otra_base_solo_rehace_la_capa(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    id_del_kit = _ids_del_kit(kit)[0]
+    r, ordenes, _ = _lanzar(kit, tmp_path, antes=lambda e: _con_imagenes_de_otro_kit(e, base=id_del_kit))
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-800:]
+    assert not any(o.startswith("load ") for o in ordenes)
+    assert sum(o.startswith(f"build -t matrixai-studio-gpu-128:local --label matrixai.kit.base={id_del_kit} ")
+               for o in ordenes) == 1
+    assert "no se construyo sobre la base de este kit" in r.stdout
+    # una capa construida a mano sin la etiqueta (la de un kit anterior al arreglo) también se rehace
+    (tmp_path / "b").mkdir()
+    kit_b = _kit_empaquetado(tmp_path / "b")
+    r, ordenes, _ = _lanzar(kit_b, tmp_path / "b",
+                            antes=lambda e: _con_imagenes_de_otro_kit(e, base=_ids_del_kit(kit_b)[0], capa_sobre=None))
+    assert r.returncode == 0 and sum(o.startswith("build ") for o in ordenes) == 1
+
+
+def test_I3_sh_con_la_base_y_la_capa_del_kit_no_carga_ni_construye(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    id_del_kit = _ids_del_kit(kit)[0]
+    r, ordenes, _ = _lanzar(kit, tmp_path, antes=lambda e: _con_imagenes_de_otro_kit(e, base=id_del_kit,
+                                                                                    capa_sobre=id_del_kit))
+    assert r.returncode == 0, r.stdout[-1500:]
+    assert not any(o.startswith(("load ", "build ")) for o in ordenes)
+    # la base con el ID del ALMACÉN CLÁSICO (el de la configuración) también es la del kit
+    (tmp_path / "c").mkdir()
+    kit_c = _kit_empaquetado(tmp_path / "c")
+    clasico = _ids_del_kit(kit_c)[1]
+    r, ordenes, _ = _lanzar(kit_c, tmp_path / "c", antes=lambda e: _con_imagenes_de_otro_kit(e, base=clasico,
+                                                                                            capa_sobre=clasico))
+    assert r.returncode == 0 and not any(o.startswith(("load ", "build ")) for o in ordenes)
+
+
+def test_I3_sh_si_el_tar_cargado_no_es_el_que_apunta_el_kit_PARA_sin_construir_ni_medir(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    r, ordenes, _ = _lanzar(kit, tmp_path, id_del_tar="sha256:otro-tar")
+    assert r.returncode == 2 and "el tar no es el de este kit" in r.stdout, r.stdout[-1500:]
+    assert sum(o.startswith("load ") for o in ordenes) == 1
+    assert not any(o.startswith("build ") or "medir_c5.py --brazo" in o for o in ordenes)
+
+
+def test_I3_sh_un_kit_sin_su_identidad_PARA_en_vez_de_medir_lo_que_haya(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    (kit / "imagen" / "matrixai-studio-128.ids").unlink()
+    r, ordenes, _ = _lanzar(kit, tmp_path, antes=lambda e: _con_imagenes_de_otro_kit(e))
+    assert r.returncode == 2 and "matrixai-studio-128.ids" in r.stdout, r.stdout[-1500:]
+    assert not any(o.startswith(("load ", "build ")) or "medir_c5.py --brazo" in o for o in ordenes)
+
+
+def test_I2_sh_los_DOS_brazos_con_la_GPU_A_cpu_B_auto_y_el_medidor_lo_apunta(tmp_path):
+    kit = _kit_empaquetado(tmp_path)
+    _docker_falso(tmp_path); _con_imagen_hecha(tmp_path)
+    r, ordenes = _lanzar_libre(kit, tmp_path, "--imagen", "otra_gpu")
+    assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-800:]
+    studios = [o for o in ordenes if o.startswith("run -d")]
+    assert len(studios) == 2 and all("--gpus all" in o for o in studios), studios
+    assert any("c5-128-studio-A" in o and "MATRIXAI_TABM_DISPOSITIVO=cpu" in o for o in studios)
+    assert any("c5-128-studio-B" in o and "MATRIXAI_TABM_DISPOSITIVO=auto" in o for o in studios)
+    (medidor_a,) = [o for o in ordenes if "medir_c5.py --brazo A" in o]
+    assert '--entorno {"MATRIXAI_TABM_DISPOSITIVO":"cpu","gpus":"all"}' in medidor_a
+    # y el paso 0 (Docker ve la GPU) también con un solo brazo A: el A ya la necesita
+    (tmp_path / "a").mkdir(); _docker_falso(tmp_path / "a"); _con_imagen_hecha(tmp_path / "a")
+    r, ordenes = _lanzar_libre(_kit_empaquetado(tmp_path / "a"), tmp_path / "a", "--imagen", "otra_gpu", "--brazos", "A")
+    assert r.returncode == 0 and any("--gpus all --entrypoint python3 otra_gpu -c import torch" in o for o in ordenes)
+
+
+def test_I2_el_veredicto_admite_los_dos_brazos_con_la_GPU_a_la_vista():
+    """El brazo A con `gpus: all` en su entorno no es «otra cosa» para la huella: lo único que distingue a los dos brazos
+    sigue siendo la señal (y que vean la GPU, que ahora es igual)."""
+    base = {"imagen_id": "sha256:x", "sha256_medir_c5": "a", "sha256_veredicto": "b", "sha256_manifiesto": "c",
+            "memoria": "6g", "cpus": "2"}
+    a = {**base, "entorno": {"MATRIXAI_TABM_DISPOSITIVO": "cpu", "gpus": "all"}, "brazo": "A"}
+    b = {**base, "entorno": {"MATRIXAI_TABM_DISPOSITIVO": "auto", "gpus": "all"}, "brazo": "B"}
+    assert V.incompatibilidades_de_huellas(a, b) == []
+
+
+@pytest.mark.parametrize("modo", ["Standard", "Legacy"])
+def test_I3_ps1_con_la_base_de_OTRO_kit_recarga_y_rehace_la_capa_y_mide_contra_ella(tmp_path, modo):
+    kit = _kit_empaquetado(tmp_path)
+    id_del_kit = _ids_del_kit(kit)[0]
+    r, log, fases = _pwsh(tmp_path, _LANZAR.format(modo=modo), {
+        "FALSO_ID_BASE": "sha256:kit-1", "FALSO_ID_TRAS_CARGAR": id_del_kit, "FALSO_BASE_DE_LA_CAPA": "sha256:kit-1"})
+    assert r.returncode == 0, r.stdout[-2500:] + r.stderr[-1500:]
+    assert "NO es la de este kit (sha256:kit-1)" in r.stdout, r.stdout[-2000:]
+    ordenes = [o["args"] for o in _ordenes(log)]
+    assert sum(a[:1] == ["load"] for a in ordenes) == 1
+    (construye,) = [a for a in ordenes if a[:1] == ["build"]]
+    # la etiqueta llega ENTERA también con el paso de argumentos de 5.1 («Legacy»)
+    assert construye[construye.index("--label") + 1] == f"matrixai.kit.base={id_del_kit}", construye
+    assert fases == ["medidor", "A", "medidor", "B", "componer"], fases
+    assert ordenes.index(construye) < next(i for i, a in enumerate(ordenes) if "--brazo" in a)
+
+
+def test_I3_ps1_con_la_base_del_kit_y_la_capa_sobre_otra_solo_rehace_la_capa(tmp_path):
+    r, log, fases = _pwsh(tmp_path, _LANZAR.format(modo="Standard"), {"FALSO_BASE_DE_LA_CAPA": "sha256:kit-1"})
+    assert r.returncode == 0, r.stdout[-2500:] + r.stderr[-1500:]
+    ordenes = [o["args"] for o in _ordenes(log)]
+    assert not any(a[:1] == ["load"] for a in ordenes) and sum(a[:1] == ["build"] for a in ordenes) == 1
+    assert "no se construyo sobre la base de este kit" in r.stdout and fases[-1] == "componer"
+
+
+def test_I3_ps1_si_el_tar_cargado_no_es_el_del_kit_PARA_sin_construir_ni_medir(tmp_path):
+    r, log, fases = _pwsh(tmp_path, _LANZAR.format(modo="Standard"), {
+        "FALSO_ID_BASE": "sha256:kit-1", "FALSO_ID_TRAS_CARGAR": "sha256:otro-tar"})
+    assert r.returncode == 2 and "el tar no es el de este kit" in r.stdout, r.stdout[-2500:] + r.stderr[-1500:]
+    ordenes = [o["args"] for o in _ordenes(log)]
+    assert sum(a[:1] == ["load"] for a in ordenes) == 1 and not any(a[:1] == ["build"] for a in ordenes)
+    assert fases == []

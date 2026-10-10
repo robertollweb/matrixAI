@@ -11,6 +11,11 @@
 # SIN -Imagen (lo normal): carga la imagen BASE de este corte (imagen\matrixai-studio-128.tar) y CONSTRUYE en este PC
 # la capa GPU (imagen\Dockerfile.gpu: PyTorch con CUDA 12.4, ~3 GB de descarga), igual que el instalador del paquete GPU.
 # Con -Imagen se usa una ya hecha y no se construye nada.
+# Antes de medir COMPRUEBA que la base de este Docker es la de ESTE kit (su ID contra imagen\matrixai-studio-128.ids) y
+# que la capa se construyo sobre ella; si no, carga el tar y rehace la capa solo (128, I3 de la auditoria final: el kit 2
+# reusaba en silencio la imagen del kit 1, con las mismas etiquetas).
+#
+# Los DOS brazos van con --gpus all; solo cambia donde entrena TabM (A: cpu, B: auto). 128, I2 de la auditoria final.
 #
 # -Fases (OPCIONAL, DESPUES de los dos brazos): mide TabM POR FASES en la GPU (128-R4: carga, preparacion, red, epocas,
 # validacion...) en 5 conjuntos y deja salida\tabm_por_fases_gpu.json. -SoloFases: solo ese paso (con los brazos ya hechos).
@@ -65,30 +70,55 @@ function Limpiar {
 Limpiar
 
 # --- -1. la imagen: base (tar) + capa GPU construida en ESTE PC (salvo -Imagen)
+# 128, I3 de la auditoria final: NO basta con que las etiquetas existan (las del kit anterior son las mismas). La base
+# tiene que ser la del tar de ESTE kit (su ID en imagen\matrixai-studio-128.ids, que apunta el empaquetador leyendo el
+# tar) y la capa, construida sobre ESA base (la etiqueta $EtiquetaDeLaBase que se le pone al construirla). Los formatos
+# de docker van SIN comillas dobles dentro: PowerShell 5.1 se las come al pasarlos a un programa externo (B2).
+$Ids = Join-Path $Aqui "imagen\matrixai-studio-128.ids"
+$Tar = Join-Path $Aqui "imagen\matrixai-studio-128.tar"
+$EtiquetaDeLaBase = "matrixai.kit.base"
+function IdDe($img) {
+  $id = docker image inspect $img --format "{{.Id}}" 2>$null
+  if ($LASTEXITCODE -ne 0) { return "" }
+  return ("" + $id).Trim()
+}
+function EsLaBaseDelKit {
+  $id = IdDe $Base
+  if ($id -eq "") { return $false }
+  return ((Get-Content $Ids | ForEach-Object { $_.Trim() }) -contains $id)
+}
+function CapaSobre($baseId) {
+  $etiquetas = docker image inspect $Capa --format "{{json .Config.Labels}}" 2>$null
+  if ($LASTEXITCODE -ne 0) { return $false }
+  return ("" + $etiquetas).Contains('"' + $EtiquetaDeLaBase + '":"' + $baseId + '"')
+}
 if ($Imagen -eq "") {
   if ($Reconstruir) { docker rmi -f $Capa $Base *> $null }
-  docker image inspect $Capa *> $null
-  if ($LASTEXITCODE -ne 0) {
+  if (-not (Test-Path $Ids)) { Parar "PARO: falta $Ids (la identidad de la imagen base, que el empaquetador apunta junto a imagen\matrixai-studio-128.tar): sin ella no se sabe si la imagen de este Docker es la de este kit. Pide el kit entero o pasa -Imagen." 2 }
+  if (-not (EsLaBaseDelKit)) {
+    $otra = IdDe $Base
+    if ($otra -ne "") { Log "La imagen $Base de este Docker NO es la de este kit ($otra): cargo la del kit y rehago la capa GPU." }
+    if (-not (Test-Path $Tar)) { Parar "PARO: falta $Tar (la imagen base de este corte). Pidela o pasa -Imagen." 2 }
+    Log "Cargando la imagen base (docker load, ~190 MB)..."
+    docker load -i $Tar
+    if ($LASTEXITCODE -ne 0) { Parar "PARO: docker load fallo." 2 }
     docker image inspect $Base *> $null
-    if ($LASTEXITCODE -ne 0) {
-      $tar = Join-Path $Aqui "imagen\matrixai-studio-128.tar"
-      if (-not (Test-Path $tar)) { Parar "PARO: falta $tar (la imagen base de este corte). Pidela o pasa -Imagen." 2 }
-      Log "Cargando la imagen base (docker load, ~190 MB)..."
-      docker load -i $tar
-      if ($LASTEXITCODE -ne 0) { Parar "PARO: docker load fallo." 2 }
-      docker image inspect $Base *> $null
-      if ($LASTEXITCODE -ne 0) { Parar "PARO: el tar no trae la etiqueta $Base." 2 }
-    }
+    if ($LASTEXITCODE -ne 0) { Parar "PARO: el tar no trae la etiqueta $Base." 2 }
+    if (-not (EsLaBaseDelKit)) { Parar ("PARO: cargado el tar, $Base es " + (IdDe $Base) + " y el kit apunta otra ($Ids): el tar no es el de este kit.") 2 }
+  }
+  $BaseId = IdDe $Base
+  if (-not (CapaSobre $BaseId)) {
+    docker image inspect $Capa *> $null
+    if ($LASTEXITCODE -eq 0) { Log "La capa GPU $Capa de este Docker no se construyo sobre la base de este kit: la rehago." }
     $dockerfile = Join-Path $Aqui "imagen\Dockerfile.gpu"
     if (-not (Test-Path $dockerfile)) { Parar "PARO: falta $dockerfile." 2 }
     $capaDir = Join-Path $Salida "maquina\capa"
     New-Item -ItemType Directory -Force -Path $capaDir | Out-Null
     $texto = [System.IO.File]::ReadAllText($dockerfile, [System.Text.Encoding]::UTF8) -replace "(?m)^FROM .*$", "FROM $Base"
     [System.IO.File]::WriteAllText((Join-Path $capaDir "Dockerfile"), $texto, (New-Object System.Text.UTF8Encoding($false)))
-    Log "Construyendo la capa GPU (descarga PyTorch con CUDA, ~3 GB: tarda; se hace UNA vez)..."
-    docker build -t $Capa $capaDir 2>&1 | Tee-Object -FilePath (Join-Path $Salida "maquina\build_capa.log")
-    docker image inspect $Capa *> $null
-    if ($LASTEXITCODE -ne 0) { Parar "PARO: no se pudo construir la capa GPU (mira $Salida\maquina\build_capa.log; suele ser la red o el disco)." 2 }
+    Log "Construyendo la capa GPU (descarga PyTorch con CUDA, ~3 GB: tarda; se hace UNA vez por imagen base)..."
+    docker build -t $Capa --label "$EtiquetaDeLaBase=$BaseId" $capaDir 2>&1 | Tee-Object -FilePath (Join-Path $Salida "maquina\build_capa.log")
+    if (-not (CapaSobre $BaseId)) { Parar "PARO: no se pudo construir la capa GPU sobre la base de este kit (mira $Salida\maquina\build_capa.log; suele ser la red o el disco)." 2 }
   }
   $Imagen = $Capa
 }
@@ -97,8 +127,8 @@ docker image inspect $Imagen *> $null
 if ($LASTEXITCODE -ne 0) { Parar "No existe la imagen $Imagen en este Docker (docker images)." 2 }
 $ImagenId = (docker image inspect $Imagen --format "{{.Id}}")
 
-# --- 0. la GPU de verdad, dentro de Docker (si no, no se empieza). Solo si se va a medir el brazo B.
-if ($Brazos.Contains("B") -or $Fases) {
+# --- 0. la GPU de verdad, dentro de Docker (si no, no se empieza). Para cualquier brazo: los DOS llevan --gpus all.
+if ($Brazos -ne "" -or $Fases) {
   Log "Paso 0: comprobando que Docker ve la GPU..."
   $t = docker run --rm --gpus all --entrypoint python3 $Imagen -c "import torch,sys; ok=torch.cuda.is_available(); print('torch', torch.__version__, 'cuda', torch.version.cuda, 'GPU:', torch.cuda.get_device_name(0) if ok else None); sys.exit(0 if ok else 1)" 2>&1
   $t | Out-File -Encoding ascii (Join-Path $Salida "maquina\torch_gpu.txt")
@@ -125,7 +155,8 @@ docker run --rm --entrypoint python3 -v "${Kit}:/work/kit:ro" $ImagenMedidor /wo
 if ($LASTEXITCODE -ne 0) { Parar "PARO: los datos del kit no son los del manifiesto." 2 }
 
 function Medidor($brazo) {
-  if ($brazo -eq "A") { $ent = '{"MATRIXAI_TABM_DISPOSITIVO":"cpu"}' } else { $ent = '{"MATRIXAI_TABM_DISPOSITIVO":"auto","gpus":"all"}' }
+  # los dos con la GPU a la vista (I2): el entorno que apunta el medidor lo dice en los dos
+  if ($brazo -eq "A") { $ent = '{"MATRIXAI_TABM_DISPOSITIVO":"cpu","gpus":"all"}' } else { $ent = '{"MATRIXAI_TABM_DISPOSITIVO":"auto","gpus":"all"}' }
   # El JSON lleva comillas dobles y PowerShell 5.1 se las come al pasar argumentos a un programa externo: llegaba
   # C5_ENTORNO={MATRIXAI_TABM_DISPOSITIVO:cpu} y el medidor no lo podia leer (B2). Por eso NO va en la linea de
   # ordenes: va en el entorno de ESTE proceso y "-e C5_ENTORNO" (sin "=") le dice a docker que lo copie de ahi.
@@ -150,7 +181,11 @@ function Medidor($brazo) {
 function Brazo($b) {
   for ($intento = 1; $intento -le 3; $intento++) {
     docker rm -f "c5-128-studio-$b" *> $null
-    if ($b -eq "B") { $gpu = @("--gpus", "all"); $disp = "auto" } else { $gpu = @(); $disp = "cpu" }
+    # 128, I2 de la auditoria final: los DOS brazos ven la GPU (--gpus all) y solo cambia donde entrena TabM. Asi la
+    # comparacion aisla a TabM: con la GPU a la vista y TabM en cpu, la densa la esconde como en la v2.12 (A); con
+    # TabM en auto no la esconde y el coste de verla va con TabM en la GPU (B).
+    $gpu = @("--gpus", "all")
+    if ($b -eq "B") { $disp = "auto" } else { $disp = "cpu" }
     Log "Brazo ${b}: arrancando el Studio (TabM en '$disp', memoria $Memoria, $Cpus CPU) ..."
     $run = @("run", "-d", "--init", "--name", "c5-128-studio-$b", "--network", $Red, "--memory=$Memoria", "--memory-swap=$Memoria", "--cpus=$Cpus",
       "-e", "MATRIXAI_LICENSE_ENABLED=false", "-e", "MATRIXAI_TABM_DISPOSITIVO=$disp") + $gpu + @("-v", "${Kit}:/work/kit:ro", "-v", "${Salida}:/salida", $Imagen)

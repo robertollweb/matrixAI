@@ -11,11 +11,21 @@ Y la CARPETA `imagen/`: el `Dockerfile.gpu` de la integración (por omisión el 
 repo) COPIADO tal cual, y el TAR de la imagen base (`docker save matrixai-studio:128`; `--tar-base`). El lanzador carga el
 tar y construye la capa GPU (PyTorch con CUDA) en el PC de Roberto, como el instalador del paquete GPU. Sin `--tar-base` el
 kit sale sin el tar y el lanzador pararía diciendo que falta: se avisa al empaquetar.
+
+LA IDENTIDAD DE LA IMAGEN BASE (128, I3 de la auditoría final): `imagen/matrixai-studio-128.ids`, leída DEL TAR (no de este
+Docker) y comprobada contra el contenido de sus blobs. Los dos kits del 128 usan la misma etiqueta (`matrixai-studio:128`) y
+la misma capa (`matrixai-studio-gpu-128:local`), y el lanzador solo cargaba y construía si la capa NO existía: el kit 2,
+seguido al pie de su LEEME, medía en silencio la imagen del kit 1. Ahora el lanzador compara el ID de la base cargada con
+estos y, si no es uno de ellos, carga el tar y rehace la capa él solo. Un ID por línea, porque Docker da uno u otro según su
+almacén de imágenes: con el de containerd (el de este servidor), el digest del índice OCI (`index.json`); con el clásico,
+el de la configuración de la imagen (`manifest.json`, `Config`).
 """
 import argparse
 import hashlib
+import json
 import shutil
 import sys
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -26,7 +36,62 @@ KIT = AQUI / "kit_128_c5"
 PIEZAS_DEL_REPO = ("referencia_120_r0.py", "veredicto_120.py", "veredicto_120_c3p.py", "veredicto_128_c5.py", "sonda_128_c0.py")
 DOCKERFILE_GPU_POR_OMISION = AQUI.parents[2] / "matrixaistudio" / "bundle-gpu" / "Dockerfile.gpu"
 NOMBRE_DEL_TAR = "matrixai-studio-128.tar"      # el que busca el lanzador
+#: 128 (I3 de la auditoría final): los IDs de la imagen del tar, uno por línea (los lee el lanzador).
+NOMBRE_DE_LOS_IDS = "matrixai-studio-128.ids"
+#: La etiqueta que el lanzador espera en el tar (`BASE` en `lanzar.sh`, `$Base` en `lanzar.ps1`).
+ETIQUETA_DE_LA_BASE = "matrixai-studio:128"
 FICHEROS_DEL_KIT = ("LEEME.md", "lanzar.sh", "lanzar.ps1", "lanzar.bat", "medir_c5.py", "muestreador.py")
+
+
+def _blob(tar: tarfile.TarFile, digest: str) -> bytes:
+    """El blob `sha256:<hex>` del tar, COMPROBADO: su sha256 tiene que ser su nombre (un tar a medias no da un ID)."""
+    algoritmo, _, hexa = digest.partition(":")
+    if algoritmo != "sha256" or len(hexa) != 64:
+        raise SystemExit(f"PARO: digest raro en el tar: {digest!r}")
+    contenido = tar.extractfile(f"blobs/sha256/{hexa}").read()
+    if hashlib.sha256(contenido).hexdigest() != hexa:
+        raise SystemExit(f"PARO: el blob {digest} del tar no es lo que dice su nombre (¿tar corrupto?)")
+    return contenido
+
+
+def identidad_de_la_imagen(tar_base: Path) -> list[str]:
+    """Los IDs con que Docker puede llamar a la imagen de `tar_base` (`docker save`), leídos DEL TAR y comprobados.
+
+    - `index.json` (OCI): el digest del manifiesto o índice de la etiqueta; es el `.Id` con el almacén de containerd.
+    - `manifest.json` (`docker save`): `Config` es el blob de la configuración; su digest es el `.Id` con el clásico.
+    Exige que el tar traiga la etiqueta que el lanzador busca (`ETIQUETA_DE_LA_BASE`). Sin ningún ID, PARA."""
+    ids: list[str] = []
+    with tarfile.open(tar_base) as tar:
+        nombres = set(tar.getnames())
+        if "manifest.json" not in nombres:
+            raise SystemExit(f"PARO: {tar_base} no es un `docker save` (le falta manifest.json)")
+        manifiesto = json.loads(tar.extractfile("manifest.json").read())
+        de_la_base = [m for m in manifiesto if ETIQUETA_DE_LA_BASE in (m.get("RepoTags") or [])]
+        if not de_la_base:
+            raise SystemExit(f"PARO: el tar no trae la etiqueta {ETIQUETA_DE_LA_BASE} (trae "
+                             f"{[t for m in manifiesto for t in (m.get('RepoTags') or [])]}): el lanzador no la encontraría")
+        if "index.json" in nombres:
+            indice = json.loads(tar.extractfile("index.json").read())
+            nombre_ref = ETIQUETA_DE_LA_BASE.split(":", 1)[1]
+            for m in indice.get("manifests", []):
+                anotaciones = m.get("annotations") or {}
+                if anotaciones.get("org.opencontainers.image.ref.name") in (nombre_ref, None) or \
+                        anotaciones.get("io.containerd.image.name", "").endswith(ETIQUETA_DE_LA_BASE):
+                    _blob(tar, m["digest"])
+                    ids.append(m["digest"])
+        for m in de_la_base:
+            config = m["Config"]                  # «blobs/sha256/<hex>» (OCI) o «<hex>.json» (formato viejo)
+            hexa = config.rsplit("/", 1)[-1].removesuffix(".json")
+            digest = f"sha256:{hexa}"
+            if config.startswith("blobs/"):
+                _blob(tar, digest)
+            elif hashlib.sha256(tar.extractfile(config).read()).hexdigest() != hexa:
+                raise SystemExit(f"PARO: la configuración {config} del tar no es lo que dice su nombre")
+            ids.append(digest)
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        raise SystemExit(f"PARO: no sé leer la identidad de la imagen de {tar_base}")
+    return ids
 
 
 def armar(destino: Path, *, dockerfile_gpu: Path | None = None, tar_base: Path | None = None) -> list[Path]:
@@ -48,8 +113,11 @@ def armar(destino: Path, *, dockerfile_gpu: Path | None = None, tar_base: Path |
     shutil.copy2(dockerfile_gpu, destino / "imagen" / "Dockerfile.gpu")
     escritos.append(destino / "imagen" / "Dockerfile.gpu")
     if tar_base:
+        ids = identidad_de_la_imagen(Path(tar_base))         # antes de copiar: un tar que no vale no entra
         shutil.copy2(tar_base, destino / "imagen" / NOMBRE_DEL_TAR)
         escritos.append(destino / "imagen" / NOMBRE_DEL_TAR)
+        (destino / "imagen" / NOMBRE_DE_LOS_IDS).write_text("".join(f"{i}\n" for i in ids))
+        escritos.append(destino / "imagen" / NOMBRE_DE_LOS_IDS)
     else:
         print(f"AVISO: sin --tar-base el kit NO lleva imagen/{NOMBRE_DEL_TAR}: el lanzador pararía diciendo que falta.", file=sys.stderr)
     (destino / "datos").mkdir()
