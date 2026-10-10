@@ -631,6 +631,9 @@ _PREFIJOS_DE_LOS_FALLOS = (
     ("agotado_por_el_techo", "el intento superó"),
     ("murio_sin_resultado", "el proceso aislado terminó"),
     ("excepcion_no_declarada", "el subproceso aislado capturó una excepción no declarada"),
+    # 128-C1 paso 4, menor M4 de la re-auditoría de N1–N5: la carga que no terminó (`intento_no_termino_de_cargar`)
+    # no es un fallo que el motor declare: lo mató el padre por el reloj antes de que empezara a ajustar.
+    ("no_termino_de_cargar", "el proceso del intento no terminó de arrancar y cargar sus datos"),
 )
 
 

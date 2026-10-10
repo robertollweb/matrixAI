@@ -25,3 +25,7 @@ notasRober.txt
 # Documentación interna de desarrollo (uso personal, no para el repo público)
 documentacion/
 pr1-validation/
+
+# 128-C5: los 13 CSV del kit se REGENERAN (benchmarks/fase0/generar_kit_128_c5.py, con sus sha256) y se reparten en el zip;
+# 48 MB que no van a git.
+benchmarks/fase0/kit_128_c5/datos/*.csv.gz

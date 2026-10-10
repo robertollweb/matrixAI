@@ -28,6 +28,7 @@ Lo que fija (enmienda 7 del protocolo 120, registrada ANTES del código y de med
 from __future__ import annotations
 
 import json
+import math
 import sys
 from collections import Counter
 from pathlib import Path
@@ -64,7 +65,15 @@ def cifra_de_test(rec: dict) -> float | None:
     valor = (test.get("metricas") or {}).get(metrica)
     if valor is None:
         raise Incomparable(f"{nombre}: el test no trae {metrica}: {sorted((test.get('metricas') or {}))}")
-    return 100.0 * float(valor)
+    # 128-C5′ (H15 de la revisión del 10-10): una cifra NO FINITA (NaN, ±inf) o que ni es un número no es una
+    # cifra: con NaN todas las comparaciones dan falso y la diferencia caía en «igual». Es un instrumento roto.
+    try:
+        cifra = 100.0 * float(valor)
+    except (TypeError, ValueError):
+        raise Incomparable(f"{nombre}: la cifra de test {metrica} no es un número ({valor!r})") from None
+    if not math.isfinite(cifra):
+        raise Incomparable(f"{nombre}: la cifra de test {metrica} no es finita ({valor!r}): instrumento roto")
+    return cifra
 
 
 def suelo_de_ruido(primera: dict[str, dict], segunda: dict[str, dict]) -> float:

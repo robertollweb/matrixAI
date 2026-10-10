@@ -207,21 +207,100 @@ def test_la_retencion_compila_mide_antes_y_despues_y_no_toca_el_producto():
 
 
 def test_la_retencion_lee_la_memoria_de_este_proceso_y_el_asignador():
-    """Se ejecutan sus funciones (sin el estudio): el RSS de `/proc` y `mallinfo2`, con `malloc_trim` de verdad."""
-    import ctypes
-    ns = {"__name__": "retencion_bajo_prueba"}
-    exec(compile(S.RETENCION, "retencion", "exec"), ns)
-    est = ns["estado_del_proceso"]()
-    assert est["status_mb"]["VmRSS"] > 5 and est["smaps_rollup_mb"]["Rss"] > 5
-    libc = ctypes.CDLL("libc.so.6")
-    antes = ns["mallinfo"](libc)
-    assert antes is None or antes["arena_mb"] >= 0
-    bloque = [bytearray(1024) for _ in range(200_000)]       # ~200 MB en trozos pequeños (el asignador, no mmap)
-    grande = ns["estado_del_proceso"]()["status_mb"]["VmRSS"]
-    assert grande > est["status_mb"]["VmRSS"] + 100
-    del bloque
-    libc.malloc_trim(0)
-    assert ns["estado_del_proceso"]()["status_mb"]["VmRSS"] < grande - 50     # lo que se suelta, se devuelve
+    """Se ejecutan sus funciones (sin el estudio): el RSS de `/proc` y `mallinfo2`, con `malloc_trim` de verdad.
+
+    En un proceso Python LIMPIO (08-10): en un trabajador de `pytest-xdist` que ya ha corrido otras pruebas, el montón
+    está fragmentado y `malloc_trim` no devuelve los 200 MB recién soltados (cayó dos veces con `-n 4` y pasaba solo):
+    eso medía el estado del trabajador, no las funciones de la sonda."""
+    import json, subprocess, sys
+    codigo = ("import sys\n"
+              "ns = {'__name__': 'retencion_bajo_prueba'}\n"
+              "exec(compile(sys.stdin.read(), 'retencion', 'exec'), ns)\n"
+              "estado_del_proceso, mallinfo = ns['estado_del_proceso'], ns['mallinfo']\n"
+              "import ctypes, json\n"
+              "est = estado_del_proceso()\n"
+              "libc = ctypes.CDLL('libc.so.6')\n"
+              "antes = mallinfo(libc)\n"
+              "bloque = [bytearray(1024) for _ in range(200_000)]\n"
+              "grande = estado_del_proceso()['status_mb']['VmRSS']\n"
+              "del bloque\n"
+              "libc.malloc_trim(0)\n"
+              "despues = estado_del_proceso()['status_mb']['VmRSS']\n"
+              "print(json.dumps({'rss': est['status_mb']['VmRSS'], 'smaps': est['smaps_rollup_mb']['Rss'], "
+              "'arena': None if antes is None else antes['arena_mb'], 'grande': grande, 'despues': despues}))\n")
+    r = subprocess.run([sys.executable, "-c", codigo], input=S.RETENCION, capture_output=True, text=True,
+                       timeout=120)
+    assert r.returncode == 0, r.stderr[-1500:]
+    m = json.loads(r.stdout.strip().splitlines()[-1])
+    assert m["rss"] > 5 and m["smaps"] > 5
+    assert m["arena"] is None or m["arena"] >= 0
+    assert m["grande"] > m["rss"] + 100
+    assert m["despues"] < m["grande"] - 50     # lo que se suelta, se devuelve
+
+
+# ------------------------------------------------------------------------------------ M1 de la auditoría del paso 4 del 128-C1
+# El guion del «intento sin tope» (el modo de `--solo Allstate_Claims_Severity` y de `--humo`) corre aquí, de verdad, con un
+# CSV pequeño, contra los motores y el backend de la integración (los hermanos de este repo).
+import json
+import random
+import subprocess
+import textwrap
+
+_RAIZ = Path(__file__).resolve().parents[2]
+_BACKEND = _RAIZ / "matrixaistudio" / "studio-backend"
+_MOTORES = _RAIZ / "matrixai-engines" / "src"
+
+
+def _correr_guion_sin_tope(tmp_path, *, antes_de_correr=""):
+    if not (_BACKEND.is_dir() and _MOTORES.is_dir()):
+        import pytest
+        pytest.skip("hacen falta los hermanos matrixaistudio y matrixai-engines")
+    r = random.Random(3)
+    filas = ["id,x1,x2,y"]
+    for i in range(160):
+        x1, x2 = r.uniform(0, 10), r.uniform(0, 1)
+        filas.append(f"{i},{x1:.3f},{x2:.3f},{'si' if x1 + 3 * x2 + r.gauss(0, 1) > 6 else 'no'}")
+    cuerpo = {"csv_text": "\n".join(filas), "objetivo": "y", "tarea": "binary_classification", "clase_positiva": "si",
+              "entradas": ["x1", "x2"], "unidad_de_observacion": "una fila", "observation_id_field": "id", "folds": 2}
+    (tmp_path / "cuerpo.json").write_text(json.dumps(cuerpo))
+    (tmp_path / "guion.py").write_text(S.INTENTO_SIN_TOPE)
+    envoltorio = "\n".join([
+        "import runpy, sys",
+        textwrap.dedent(antes_de_correr),
+        f"sys.argv = ['guion.py', {str(tmp_path / 'cuerpo.json')!r}, {str(tmp_path / 'salida.json')!r}]",
+        f"runpy.run_path({str(tmp_path / 'guion.py')!r}, run_name='__main__')"])
+    (tmp_path / "envoltorio.py").write_text(envoltorio)
+    env = dict(os.environ, MATRIXAI_ESTUDIOS_DIR=str(tmp_path / "estudios"), MATRIXAI_ESTUDIO_SIN_TABM="1",
+               MATRIXAI_ESTUDIO_SIN_DENSA="1", PYTHONPATH=os.pathsep.join(
+                   [str(_MOTORES), str(_RAIZ / "matrixAI"), str(_BACKEND)]))
+    p = subprocess.run([sys.executable, str(tmp_path / "envoltorio.py")], capture_output=True, text=True,
+                       env=env, timeout=600)
+    salida = tmp_path / "salida.json"
+    return p, (json.loads(salida.read_text()) if salida.exists() else None)
+
+
+def test_el_intento_sin_tope_mide_con_las_particiones_en_fichero(tmp_path):
+    """Con el paso 4 la descripción de cada intento lleva `train=None` y `en_fichero`: el guion las CARGA y mide."""
+    p, med = _correr_guion_sin_tope(tmp_path)
+    assert p.returncode == 0, p.stderr[-1500:]
+    assert med and len(med["motores"]) >= 2, (med, p.stderr[-800:])
+    for m in med["motores"]:
+        assert m["filas_train"] > 50 and m["filas_test"] > 20 and m["columnas_tras_preparar"] >= 2
+        assert m["directo"]["estado"] == "completed" and m["aislado"]["estado"] == "completed"
+
+
+def test_el_intento_sin_tope_que_no_mide_nada_sale_con_un_codigo_distinto_de_cero(tmp_path):
+    """Antes: `motores: []` y código 0 en silencio. Aquí el recorrido de los intentos revienta (como reventó con
+    `d.train == None`) y el guion tiene que decirlo y salir con error."""
+    p, med = _correr_guion_sin_tope(tmp_path, antes_de_correr=textwrap.dedent("""
+        import matrixai_studio.estudio_job as ej
+        def roto(self):
+            raise AttributeError("'NoneType' object has no attribute 'row_ids'")
+            yield
+        ej._IntentosDelEstudio.__iter__ = roto
+    """))
+    assert p.returncode != 0, "la sonda salió con 0 sin medir nada"
+    assert med and med["motores"] == [] and "no midió" in med["error"]
 
 
 # ----------------------------------------------------------------------------- 128-C3b: TabM FORZADO en los grandes
@@ -845,7 +924,7 @@ def test_R4_el_rol_del_guion_de_fases_es_el_del_servidor():
 
 
 # ---- el guion ENTERO (`main`) contra un `estudio_job` de mentira: el cableado, no solo las piezas
-def _correr_main(monkeypatch, tmp_path, claves, hay_fichero=True, falla_la_primera=False):
+def _correr_main(monkeypatch, tmp_path, claves, hay_fichero=True, falla_la_primera=False, config_efectiva=None):
     reloj, mem = Reloj(), Memoria()
     densa, prep, plr = motor_de_mentira(reloj, mem)
     g = _guion()
@@ -912,7 +991,7 @@ def _correr_main(monkeypatch, tmp_path, claves, hay_fichero=True, falla_la_prime
         motor.fit()
         motor.predict()
         return types.SimpleNamespace(estado="completed", motivo_del_estado=None, recursos={"wall_seconds": 0.0, "cpu_seconds": 0.0},
-                                     config_efectiva={"a": {"entrenamiento_efectivo": {"epocas_ejecutadas": 3, "parado_por_plazo": False}}})
+                                     config_efectiva=config_efectiva or {"a": {"entrenamiento_efectivo": {"epocas_ejecutadas": 3, "parado_por_plazo": False}}})
     arch.ejecutar_intento = ejecutar_intento
     for nombre, mod in (("matrixai_studio", types.ModuleType("matrixai_studio")), ("matrixai_studio.estudio_job", ej),
                         ("matrixai_engines", types.ModuleType("matrixai_engines")), ("matrixai_engines.harness", arch),
@@ -969,3 +1048,428 @@ def test_R4_main_sin_intento_de_tabm_sale_con_3_y_lo_dice(monkeypatch, tmp_path)
     codigo, R, visto, _ = _correr_main(monkeypatch, tmp_path, [(0, 0, "baseline")])
     assert codigo == 3 and "TabM no tiene intento" in R["error"] and R["corridas"] == []
     assert S.veredicto_tabm_por_fases(3, R) == "sin_tabm"
+
+
+
+# ============================================================================ 128-R4 en GPU (el paso OPCIONAL del kit 128-C5), sin Docker
+import gzip
+import hashlib
+import json
+import types
+
+
+def _kit_de_datos(tmp_path, conjuntos=None):
+    """Una carpeta `datos/` como la del kit: `manifiesto.json` + un .csv.gz por conjunto, con sus dos sha256."""
+    datos = tmp_path / "datos"
+    datos.mkdir()
+    filas = []
+    for i, (nombre, csv_texto, extra) in enumerate(conjuntos or [("pc1", "a,b,y\n1,2,0\n3,4,1\n", {})]):
+        crudo = csv_texto.encode()
+        gz = gzip.compress(crudo, mtime=0)
+        (datos / f"{nombre}.csv.gz").write_bytes(gz)
+        c = {"orden": i + 1, "nombre": nombre, "data_id": 100 + i, "tarea": "binary_classification", "objetivo": "y",
+             "clase_positiva": "1", "fichero": f"{nombre}.csv.gz", "filas": csv_texto.count("\n") - 1,
+             "columnas": csv_texto.splitlines()[0].count(",") + 1, "excluidas_por_string": [], "bytes": len(crudo),
+             "sha256": hashlib.sha256(crudo).hexdigest(), "bytes_gz": len(gz), "sha256_gz": hashlib.sha256(gz).hexdigest()}
+        c.update(extra)
+        filas.append(c)
+    (datos / "manifiesto.json").write_text(json.dumps({"conjuntos": filas}))
+    return datos
+
+
+def test_R4gpu_el_csv_del_kit_sale_del_manifiesto_con_la_forma_de_csv_de(tmp_path):
+    datos = _kit_de_datos(tmp_path, [("pc1", "a,b,y\n1,2,0\n3,4,1\n", {"excluidas_por_string": ["nombre"]})])
+    banco = S.banco_del_kit(datos)
+    assert list(banco) == ["pc1"] and banco["pc1"]["objetivo"] == "y" and banco["pc1"]["clase_positiva"] == "1"
+    contenido, cols, excl, filas = S.csv_del_kit(datos, banco["pc1"])
+    assert contenido == b"a,b,y\n1,2,0\n3,4,1\n" and cols == ["a", "b", "y"] and excl == ["nombre"] and filas == 2
+    cuerpo = S._cuerpo_del_estudio(banco["pc1"], contenido, cols)
+    assert cuerpo["entradas"] == ["a", "b"] and cuerpo["objetivo"] == "y" and cuerpo["clase_positiva"] == "1"
+    assert cuerpo["tarea"] == "binary_classification" and cuerpo["csv_text"] == contenido.decode()
+
+
+def test_R4gpu_un_csv_del_kit_que_no_cuadra_con_su_sha256_PARA_en_vez_de_medir_otros_datos(tmp_path):
+    datos = _kit_de_datos(tmp_path)
+    c = S.banco_del_kit(datos)["pc1"]
+    # 1) el .gz cambia un byte
+    gz = (datos / c["fichero"]).read_bytes()
+    (datos / c["fichero"]).write_bytes(gz[:-1] + bytes([gz[-1] ^ 1]))
+    with pytest.raises(SystemExit, match="PARO.*pc1.*sha256"):
+        S.csv_del_kit(datos, c)
+    # 2) el .gz es el del manifiesto pero el manifiesto promete otro CSV descomprimido
+    (datos / c["fichero"]).write_bytes(gz)
+    with pytest.raises(SystemExit, match="PARO.*el CSV no es el del manifiesto"):
+        S.csv_del_kit(datos, dict(c, sha256="0" * 64))
+    # 3) falta el fichero
+    (datos / c["fichero"]).unlink()
+    with pytest.raises(SystemExit, match="PARO.*falta"):
+        S.csv_del_kit(datos, c)
+
+
+def test_R4gpu_un_csv_con_otro_numero_de_columnas_o_sin_el_objetivo_PARA(tmp_path):
+    datos = _kit_de_datos(tmp_path)
+    c = S.banco_del_kit(datos)["pc1"]
+    with pytest.raises(SystemExit, match="PARO.*columnas"):
+        S.csv_del_kit(datos, dict(c, columnas=9))
+    with pytest.raises(SystemExit, match="PARO.*columnas"):
+        S.csv_del_kit(datos, dict(c, objetivo="z"))
+
+
+class _Hecho:
+    returncode, stdout, stderr = 0, "", ""
+
+
+def _arrancar(s, monkeypatch, **kw):
+    ordenes = []
+    monkeypatch.setattr(s.subprocess, "run", lambda orden, **k: (ordenes.append(orden), _Hecho())[1])
+    monkeypatch.setattr(s.signal, "signal", lambda *a: None)
+    monkeypatch.setattr(s.atexit, "register", lambda *a: None)
+    s.arrancar_contenedor("6g", imagen="img:gpu", sin_servidor=True, **kw)
+    return next(o for o in ordenes if o[:2] == ["docker", "run"])
+
+
+def test_R4gpu_con_gpu_el_contenedor_lleva_gpus_all_y_sin_ella_la_orden_es_la_de_siempre(monkeypatch):
+    s = _cargar()
+    con = _arrancar(s, monkeypatch, gpu=True)
+    assert con[con.index("--gpus") + 1] == "all" and con.index("--gpus") < con.index("img:gpu")
+    assert con[-3:] == ["img:gpu", "sleep", "infinity"] and "--memory=6g" in con and "--memory-swap=6g" in con and "-p" not in con
+    sin = _arrancar(s, monkeypatch)
+    assert "--gpus" not in sin and sin == [x for x in con if x not in ("--gpus", "all")]       # y NADA más cambió
+    assert "gpu=gpu" in inspect_fuente(s.medir_tabm_por_fases) and "sin_servidor=True" in inspect_fuente(s.medir_tabm_por_fases)
+
+
+def test_R4gpu_el_entorno_de_la_gpu_es_el_de_la_CPU_mas_el_dispositivo_auto():
+    assert S.entorno_de_fases() == S.ENTORNO_TABM_FORZADO and S.entorno_de_fases(False) == S.ENTORNO_TABM_FORZADO
+    gpu = S.entorno_de_fases(True)
+    assert gpu == {**S.ENTORNO_TABM_FORZADO, "MATRIXAI_TABM_DISPOSITIVO": "auto"}
+    assert "MATRIXAI_TABM_DISPOSITIVO" not in S.ENTORNO_TABM_FORZADO         # la CPU no lo trae: el motor usa su valor por omisión
+    assert gpu["MATRIXAI_ESTUDIO_SIN_DENSA"] == "1" and "MATRIXAI_ESTUDIO_SIN_TABM" not in gpu
+
+
+def _con_instante(**cambios):
+    """`_corrida_a_mano` con el instante de pared de su primera fase, que el guion apunta y el anfitrión usa para repartir la memoria."""
+    c = _corrida_a_mano(**cambios)
+    c["fases"][0]["t_pared"] = 130.0
+    return c
+
+
+def _corrida_en(dispositivo, rotulo, **extra):
+    decl = {"dispositivo": dispositivo, "device": dispositivo, "dispositivo_pedido": "auto", "tf32": False, "dropout_desde": "cpu"}
+    decl.update(extra)
+    return _con_instante(rotulo=rotulo, dispositivo_declarado=decl,
+                           vram={"disponible": True, "gpu": "RTX 2000 Ada", "total_mb": 8188.0, "max_asignada_mb": 900.0,
+                                 "max_reservada_mb": 1200.0, "nvidia_smi": "RTX 2000 Ada, 1500, 8188"})
+
+
+def test_R4gpu_gpu_usada_es_lo_que_DECLARO_el_motor_no_lo_que_se_pidio():
+    d = S.dispositivo_de_las_corridas({"dispositivo_pedido_por_entorno": "auto",
+                                       "corridas": [_corrida_en("cuda", "plazo_del_producto"), _corrida_en("cuda", "plazo_amplio")]})
+    assert d["gpu_usada"] is True and d["entorno_pedido"] == "auto"
+    assert d["por_corrida"]["plazo_amplio"]["vram"]["max_asignada_mb"] == 900.0 and d["por_corrida"]["plazo_amplio"]["pedido"] == "auto"
+    # una corrida que CAYÓ a la CPU: se pidió auto, el motor dice cpu y por qué -> la GPU NO se usó
+    caida = S.dispositivo_de_las_corridas({"corridas": [_corrida_en("cuda", "a"), _corrida_en("cpu", "b", caida_a_cpu="sin memoria")]})
+    assert caida["gpu_usada"] is False and caida["por_corrida"]["b"]["caida_a_cpu"] == "sin memoria"
+    # sin ninguna declaración: no se sabe (ni se infiere de la VRAM)
+    sin = S.dispositivo_de_las_corridas({"corridas": [_corrida_a_mano(rotulo="a", vram={"max_asignada_mb": 500.0})]})
+    assert sin["gpu_usada"] is None
+    assert S.dispositivo_de_las_corridas({})["gpu_usada"] is None
+
+
+def test_R4gpu_la_linea_de_gpu_dice_si_se_uso_y_la_vram():
+    rec = {"dispositivo_de_tabm": S.dispositivo_de_las_corridas({"corridas": [_corrida_en("cuda", "plazo_amplio")]})}
+    linea = S.linea_de_gpu(rec)
+    assert "la GPU SE USO" in linea and "plazo_amplio: cuda" in linea and "asignada 900.0 MB" in linea and "8188.0" in linea
+    assert "NO SE USO" in S.linea_de_gpu({"dispositivo_de_tabm": S.dispositivo_de_las_corridas({"corridas": [_corrida_en("cpu", "x")]})})
+    assert "no se sabe" in S.linea_de_gpu({})
+
+
+def test_R4gpu_el_guion_lee_del_predictor_lo_que_el_motor_declara_y_no_inventa_lo_que_no_dice():
+    g = _guion()
+    cfg = {"hiperparametros": {"backend": "torch", "device": "cuda", "dispositivo_pedido": "auto", "gpu": {"nombre": "RTX"},
+                               "tf32": False, "tf32_cudnn": False, "determinista": False,
+                               "optimizador_implementacion": {"foreach": False, "fused": False}, "dropout_desde": "cpu"},
+           "entrenamiento_efectivo": {"epocas_ejecutadas": 3, "dispositivo": "cuda", "dispositivo_pedido": "auto"}}
+    d = g["declaracion_de_dispositivo"](cfg)
+    assert d["device"] == "cuda" and d["dispositivo"] == "cuda" and d["dropout_desde"] == "cpu" and d["tf32"] is False
+    assert d["gpu"] == {"nombre": "RTX"} and d["optimizador_implementacion"] == {"foreach": False, "fused": False}
+    assert "caida_a_cpu" not in d                                              # lo que el motor no dice, no está
+    assert g["declaracion_de_dispositivo"]({"hiperparametros": {"device": "cpu"}}) == {"device": "cpu"}
+    assert g["declaracion_de_dispositivo"](None) == {}
+
+
+def test_R4gpu_el_guion_no_toca_torch_cuda_en_la_CPU(monkeypatch):
+    g = _guion()
+    monkeypatch.delenv("MATRIXAI_TABM_DISPOSITIVO", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", None)                 # si lo importara, ImportError (que el guion tragaría): lo vemos abajo
+    assert g["pidio_gpu"]() is False and g["vram_leer"]() is None
+    monkeypatch.setenv("MATRIXAI_TABM_DISPOSITIVO", "cpu")
+    assert g["pidio_gpu"]() is False and g["vram_leer"]() is None
+    g["vram_reiniciar"]()                                           # no hace nada, no lanza
+    for valor in ("auto", "cuda", " AUTO "):
+        monkeypatch.setenv("MATRIXAI_TABM_DISPOSITIVO", valor)
+        assert g["pidio_gpu"]() is True
+
+
+def _torch_de_mentira(monkeypatch, disponible=True):
+    llamadas = []
+    cuda = types.SimpleNamespace(
+        is_available=lambda: disponible, reset_peak_memory_stats=lambda: llamadas.append("reset"),
+        get_device_properties=lambda i: types.SimpleNamespace(name="RTX 2000 Ada", total_memory=8 * 2**30),
+        max_memory_allocated=lambda: 900 * 2**20, max_memory_reserved=lambda: 1200 * 2**20)
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(cuda=cuda))
+    return llamadas
+
+
+def test_R4gpu_el_guion_mide_la_vram_con_torch_y_nvidia_smi_cuando_se_pidio_la_gpu(monkeypatch):
+    g = _guion()
+    monkeypatch.setenv("MATRIXAI_TABM_DISPOSITIVO", "auto")
+    llamadas = _torch_de_mentira(monkeypatch)
+    import subprocess as sp
+    monkeypatch.setattr(sp, "run", lambda orden, **k: types.SimpleNamespace(returncode=0, stdout="RTX 2000 Ada, 1500, 8188\n", stderr=""))
+    g["vram_reiniciar"]()
+    v = g["vram_leer"]()
+    assert llamadas == ["reset"]
+    assert v == {"disponible": True, "gpu": "RTX 2000 Ada", "total_mb": 8192.0, "max_asignada_mb": 900.0, "max_reservada_mb": 1200.0,
+                 "nvidia_smi": "RTX 2000 Ada, 1500, 8188"}
+    _torch_de_mentira(monkeypatch, disponible=False)                # se pidió la GPU y torch no la ve: se DICE
+    assert g["vram_leer"]()["disponible"] is False and g["vram_leer"]()["max_asignada_mb"] is None
+
+
+def test_R4gpu_main_del_guion_apunta_el_dispositivo_declarado_y_la_vram_de_cada_corrida(monkeypatch, tmp_path):
+    monkeypatch.setenv("MATRIXAI_TABM_DISPOSITIVO", "auto")
+    llamadas = _torch_de_mentira(monkeypatch)
+    import subprocess as sp
+    monkeypatch.setattr(sp, "run", lambda orden, **k: types.SimpleNamespace(returncode=1, stdout="", stderr=""))     # sin nvidia-smi
+    cfg = {"hiperparametros": {"device": "cuda", "dispositivo_pedido": "auto", "dropout_desde": "cpu", "tf32": False},
+           "entrenamiento_efectivo": {"epocas_ejecutadas": 3, "dispositivo": "cuda"}}
+    codigo, R, visto, _ = _correr_main(monkeypatch, tmp_path, CLAVES, config_efectiva=cfg)
+    assert codigo is None and R["dispositivo_pedido_por_entorno"] == "auto"
+    assert llamadas == ["reset", "reset"]                            # un reinicio por corrida: el pico de la segunda no hereda el de la primera
+    for c in R["corridas"]:
+        assert c["dispositivo_declarado"]["device"] == "cuda" and c["dispositivo_declarado"]["dropout_desde"] == "cpu"
+        assert c["vram"]["max_asignada_mb"] == 900.0 and c["vram"]["nvidia_smi"] is None
+    assert S.dispositivo_de_las_corridas(R)["gpu_usada"] is True
+
+
+def test_R4gpu_main_del_guion_en_CPU_deja_la_vram_en_None_y_el_resto_como_estaba(monkeypatch, tmp_path):
+    monkeypatch.delenv("MATRIXAI_TABM_DISPOSITIVO", raising=False)
+    codigo, R, visto, _ = _correr_main(monkeypatch, tmp_path, CLAVES)
+    assert codigo is None and [c["vram"] for c in R["corridas"]] == [None, None]
+    assert R["dispositivo_pedido_por_entorno"] is None and [c["dispositivo_declarado"] for c in R["corridas"]] == [{}, {}]
+    assert S.dispositivo_de_las_corridas(R)["gpu_usada"] is None
+    assert visto["presupuestos"] == [45.0, 1800.0]
+
+
+# --- el lado ANFITRIÓN (Docker simulado): la orden de `docker exec` y el registro
+def _med_con_gpu(dispositivo="cuda"):
+    return {"corridas": [_corrida_en(dispositivo, "plazo_del_producto"), _corrida_en(dispositivo, "plazo_amplio")],
+            "dispositivo_pedido_por_entorno": "auto", "plazo_amplio_s": 1800.0}
+
+
+def _muestreador_de_mentira():
+    class M:
+        def __init__(self, *a): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def leer(self):
+            return [{"t": 120.0, "cgroup_mb": 2500.0, "procesos": [proc(1, 2000.0, "python3 /tmp/tabm_por_fases_128_r4.py /tmp/c /tmp/s 1800")]}]
+    return M
+
+
+def test_R4gpu_medir_tabm_por_fases_con_gpu_y_kit_exec_con_el_dispositivo_auto_los_csv_del_kit_y_el_registro(tmp_path, monkeypatch):
+    s = _cargar()
+    datos = _kit_de_datos(tmp_path)
+    c = s.banco_del_kit(datos)["pc1"]
+    ordenes, arranque = [], {}
+
+    def run(orden, **kw):
+        ordenes.append(orden)
+        texto = " ".join(map(str, orden))
+        if "cat /tmp/tabm_por_fases_128_r4.json" in texto:
+            return types.SimpleNamespace(stdout=json.dumps(_med_con_gpu()), returncode=0, stderr="")
+        if "memory.events" in texto:
+            return types.SimpleNamespace(stdout="max 0\noom_kill 0\n", returncode=0, stderr="")
+        if orden[:2] == ["docker", "inspect"]:
+            return types.SimpleNamespace(stdout="false|0|running|", returncode=0, stderr="")
+        return types.SimpleNamespace(stdout="", returncode=0, stderr="")
+
+    def arrancar(memoria, imagen=None, sin_servidor=False, gpu=False):
+        arranque.update(memoria=memoria, sin_servidor=sin_servidor, gpu=gpu)
+        return None, "sonda-128-c0"
+
+    monkeypatch.setattr(s.subprocess, "run", run)
+    monkeypatch.setattr(s, "comprobar_que_se_puede", lambda: 1.0)
+    monkeypatch.setattr(s, "arrancar_contenedor", arrancar)
+    monkeypatch.setattr(s, "poner_en_el_contenedor", lambda *a: None)
+    monkeypatch.setattr(s, "borrar_contenedor", lambda: None)
+    monkeypatch.setattr(s, "Muestreador", _muestreador_de_mentira())
+    monkeypatch.setattr(s, "AGENTE", tmp_path / "tmp")
+    monkeypatch.setattr(s.r0, "csv_de", lambda *a: (_ for _ in ()).throw(AssertionError("con el kit no se leen los ARFF del servidor")))
+    monkeypatch.setattr(s.time, "sleep", lambda x: None)
+    rec = s.medir_tabm_por_fases("pc1", c, None, "6g", tmp_path / "series", 3600, 1800.0, datos_kit=datos, gpu=True)
+
+    assert arranque == {"memoria": "6g", "sin_servidor": True, "gpu": True}
+    ejec = next(o for o in ordenes if o[:2] == ["docker", "exec"] and "/tmp/tabm_por_fases_128_r4.py" in o)
+    e = [ejec[i + 1] for i, x in enumerate(ejec) if x == "-e"]
+    assert "MATRIXAI_TABM_DISPOSITIVO=auto" in e and "MATRIXAI_ESTUDIO_SIN_DENSA=1" in e
+    assert rec["gpu"] is True and rec["entorno_del_guion"]["MATRIXAI_TABM_DISPOSITIVO"] == "auto" and rec["csv"]["origen"] == "kit"
+    assert rec["csv"]["filas"] == 2 and rec["estado"] in ("completed", "no_cuadra")
+    assert rec["dispositivo_de_tabm"]["gpu_usada"] is True
+    assert rec["dispositivo_de_tabm"]["por_corrida"]["plazo_amplio"]["vram"]["max_asignada_mb"] == 900.0
+    assert rec["medida"]["corridas"][1]["vram"]["total_mb"] == 8188.0 and rec["memory_events"]["oom_kill"] == 0
+    assert not list((tmp_path / "tmp").glob("_*_cuerpo_fases.json"))             # el cuerpo con los datos no se queda
+
+
+def test_R4gpu_medir_tabm_por_fases_en_CPU_NO_pone_el_dispositivo_y_lee_los_arff_como_siempre(tmp_path, monkeypatch):
+    s = _cargar()
+    ordenes, arranque = [], {}
+    def run(orden, **kw):
+        ordenes.append(orden)
+        if "cat /tmp/tabm_por_fases_128_r4.json" in " ".join(map(str, orden)):
+            return types.SimpleNamespace(stdout=json.dumps({"corridas": [_con_instante(), _con_instante(rotulo="plazo_amplio")]}),
+                                         returncode=0, stderr="")
+        return types.SimpleNamespace(stdout="max 0\noom_kill 0\n" if "memory.events" in " ".join(map(str, orden)) else "", returncode=0, stderr="")
+    monkeypatch.setattr(s.subprocess, "run", run)
+    monkeypatch.setattr(s, "comprobar_que_se_puede", lambda: 1.0)
+    monkeypatch.setattr(s, "arrancar_contenedor", lambda memoria, imagen=None, sin_servidor=False, gpu=False: (arranque.update(gpu=gpu), (None, "n"))[1])
+    monkeypatch.setattr(s, "poner_en_el_contenedor", lambda *a: None)
+    monkeypatch.setattr(s, "borrar_contenedor", lambda: None)
+    monkeypatch.setattr(s, "Muestreador", _muestreador_de_mentira())
+    monkeypatch.setattr(s, "AGENTE", tmp_path / "tmp")
+    monkeypatch.setattr(s.r0, "csv_de", lambda gen, data_id: (b"a,y\n1,0\n", ["a", "y"], [], 1))
+    monkeypatch.setattr(s.time, "sleep", lambda x: None)
+    c = {"data_id": 1, "objetivo": "y", "tarea": "binary_classification", "clase_positiva": "1"}
+    rec = s.medir_tabm_por_fases("APSFailure", c, None, "6g", tmp_path / "series", 3600, 1800.0)
+    assert arranque == {"gpu": False} and rec["gpu"] is False and rec["csv"]["origen"] == "arff"
+    ejec = next(o for o in ordenes if o[:2] == ["docker", "exec"] and "/tmp/tabm_por_fases_128_r4.py" in o)
+    assert not any(x.startswith("MATRIXAI_TABM_DISPOSITIVO") for x in ejec)
+    assert rec["entorno_del_guion"] == s.ENTORNO_TABM_FORZADO and rec["dispositivo_de_tabm"]["gpu_usada"] is None
+
+
+def test_R4gpu_el_modo_del_kit_corre_el_guion_como_subproceso_sin_docker_y_con_el_dispositivo_auto(tmp_path, monkeypatch):
+    """Dentro del contenedor del kit no hay `docker` (ni Python en el PC de quien lo usa): el guion corre aquí, con la GPU."""
+    s = _cargar()
+    datos = _kit_de_datos(tmp_path)
+    c = s.banco_del_kit(datos)["pc1"]
+    visto = {}
+
+    def run(orden, **kw):
+        assert orden[0] != "docker", f"el modo del kit no puede llamar a docker: {orden}"
+        visto.update(orden=orden, env=kw.get("env"), timeout=kw.get("timeout"))
+        assert json.loads(Path(orden[2]).read_text())["objetivo"] == "y"                 # el cuerpo del estudio está donde dice
+        Path(orden[3]).write_text(json.dumps(_med_con_gpu()))                              # lo que escribiría el guion
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    class MuestreadorLocalFalso:
+        def __init__(self, carpeta): visto["carpeta_de_muestras"] = carpeta
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def leer(self): return _muestreador_de_mentira()().leer()
+
+    monkeypatch.setattr(s.subprocess, "run", run)
+    monkeypatch.setattr(s, "MuestreadorLocal", MuestreadorLocalFalso)
+    monkeypatch.setattr(s, "AGENTE", tmp_path / "tmp")
+    monkeypatch.setattr(s, "_memory_events_aqui", lambda: {"oom_kill": 0})
+    monkeypatch.setattr(s.time, "sleep", lambda x: None)
+    monkeypatch.setattr(s, "comprobar_que_se_puede", lambda: (_ for _ in ()).throw(AssertionError("sin docker no hay nada que comprobar")))
+    rec = s.medir_tabm_por_fases_aqui("pc1", c, "6g", tmp_path / "series", 3600, 1800.0, datos, gpu=True)
+    assert visto["orden"][0] == sys.executable and visto["orden"][-1] == "1800.0" and visto["timeout"] == 3600
+    assert visto["env"]["MATRIXAI_TABM_DISPOSITIVO"] == "auto" and visto["env"]["MATRIXAI_ESTUDIO_SIN_DENSA"] == "1"
+    assert rec["dentro_del_contenedor"] is True and rec["gpu"] is True and rec["csv"]["origen"] == "kit"
+    assert rec["dispositivo_de_tabm"]["gpu_usada"] is True and rec["memory_events"] == {"oom_kill": 0}
+    assert rec["estado"] in ("completed", "no_cuadra") and rec["guion_rc"] == 0
+    assert not list((tmp_path / "tmp").glob("*_cuerpo_128_r4.json")) and not list((tmp_path / "tmp").glob("*tabm_por_fases_128_r4.*"))
+
+
+def test_R4gpu_el_modo_del_kit_sin_salida_del_guion_lo_dice_y_no_inventa_nada(tmp_path, monkeypatch):
+    s = _cargar()
+    datos = _kit_de_datos(tmp_path)
+    c = s.banco_del_kit(datos)["pc1"]
+    monkeypatch.setattr(s.subprocess, "run", lambda orden, **kw: types.SimpleNamespace(returncode=137, stdout="", stderr="Killed"))
+    monkeypatch.setattr(s, "MuestreadorLocal", _muestreador_de_mentira())
+    monkeypatch.setattr(s, "AGENTE", tmp_path / "tmp")
+    monkeypatch.setattr(s, "_memory_events_aqui", lambda: {"oom_kill": 1})
+    monkeypatch.setattr(s.time, "sleep", lambda x: None)
+    rec = s.medir_tabm_por_fases_aqui("pc1", c, "6g", tmp_path / "series", 3600, 1800.0, datos)
+    assert rec["estado"] == "failed" and rec["error"] == "el guion no escribió su salida" and rec["guion_rc"] == 137
+    assert rec["memory_events"]["oom_kill"] == 1 and rec["dispositivo_de_tabm"]["gpu_usada"] is None
+
+
+def test_R4gpu_memory_events_aqui_lee_el_cgroup_de_este_contenedor(tmp_path):
+    f = tmp_path / "memory.events"
+    f.write_text("low 0\nhigh 0\nmax 3\noom 1\noom_kill 1\n")
+    assert S._memory_events_aqui(str(f)) == {"low": 0, "high": 0, "max": 3, "oom": 1, "oom_kill": 1}
+    assert S._memory_events_aqui(str(tmp_path / "no_existe"))["lectura"] == "falló"
+
+
+def test_R4gpu_el_muestreador_local_arranca_escribe_y_se_para(tmp_path):
+    with S.MuestreadorLocal(tmp_path / "m") as mu:
+        muestras = mu.leer()
+        assert muestras and "t" in muestras[0]
+    assert mu.proc.poll() is not None                                    # el hermano terminó con el fichero de parar
+
+
+def _main_en_el_kit(monkeypatch, tmp_path, *args, datos=None):
+    s = _cargar()
+    datos = datos or _kit_de_datos(tmp_path, [(n, "a,b,y\n1,2,0\n3,4,1\n", {}) for n in S.CONJUNTOS_DE_FASES_EN_GPU + ("dresses-sales",)])
+    llamadas = []
+
+    def aqui(nombre, c, memoria, dir_series, tope_s, plazo_amplio, datos_kit, gpu=True):
+        llamadas.append({"nombre": nombre, "memoria": memoria, "tope_s": tope_s, "plazo_amplio": plazo_amplio, "datos": datos_kit, "gpu": gpu})
+        return {"estado": "completed", "guion_pared_s": 1.0, "memoria_pico_mb": 1.0, "memory_events": {"oom_kill": 0},
+                "resumen_de_corridas": [], "dispositivo_de_tabm": S.dispositivo_de_las_corridas(_med_con_gpu())}
+
+    monkeypatch.setattr(s, "medir_tabm_por_fases_aqui", aqui)
+    monkeypatch.setattr(s, "AGENTE", tmp_path / "t0")
+    monkeypatch.setattr(s.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("en el kit no se llama a docker")))
+    monkeypatch.setattr(sys, "argv", ["sonda", "--tabm-por-fases", "--dentro-del-contenedor", "--gpu", "--datos-del-kit", str(datos),
+                                      "--temporales", str(tmp_path / "tmp"), "--salida", str(tmp_path / "salida" / "fases.json"),
+                                      "--imagen", "img:gpu", "--imagen-id", "sha256:abc", *args])
+    (tmp_path / "salida").mkdir()
+    return s, llamadas
+
+
+def test_R4gpu_main_en_el_kit_toma_los_cinco_conjuntos_por_omision_y_no_necesita_docker_ni_el_banco_del_120(monkeypatch, tmp_path):
+    s, llamadas = _main_en_el_kit(monkeypatch, tmp_path)
+    s.main()
+    assert [x["nombre"] for x in llamadas] == ["APSFailure", "KDDCup09_appetency", "Allstate_Claims_Severity", "house_16H", "mfeat-factors"]
+    assert all(x["gpu"] is True and x["datos"] == str(tmp_path / "datos") for x in llamadas) and llamadas[0]["plazo_amplio"] == 1800.0
+    datos = json.loads((tmp_path / "salida" / "fases.json").read_text())
+    p = datos["procedencia"]
+    assert p["imagen_id"] == "sha256:abc" and p["gpu"] is True and p["dentro_del_contenedor"] is True
+    assert p["sha256_generador_de_csv"] is None and p["datos_del_kit"]["sha256_manifiesto"] and "fin" in p
+    assert sorted(datos["conjuntos"]) == sorted(n + ":tabm_por_fases" for n in S.CONJUNTOS_DE_FASES_EN_GPU)
+    assert (tmp_path / "tmp").is_dir()                                      # --temporales manda
+
+
+def test_R4gpu_main_en_el_kit_con_solo_y_plazo_y_un_conjunto_que_no_esta_en_el_manifiesto_PARA(monkeypatch, tmp_path, capsys):
+    s, llamadas = _main_en_el_kit(monkeypatch, tmp_path, "--solo", "dresses-sales", "--plazo-amplio", "120", "--memoria", "6g")
+    s.main()
+    assert [(x["nombre"], x["plazo_amplio"], x["memoria"]) for x in llamadas] == [("dresses-sales", 120.0, "6g")]
+    assert "la GPU SE USO" in capsys.readouterr().out
+    (tmp_path / "otro").mkdir()
+    s, llamadas = _main_en_el_kit(monkeypatch, tmp_path / "otro", "--solo", "no_existe")
+    with pytest.raises(SystemExit, match="no está en el manifiesto del kit"):
+        s.main()
+    assert llamadas == []
+
+
+@pytest.mark.parametrize("argumentos,motivo", [
+    (["--tabm-por-fases", "--dentro-del-contenedor"], "exige --tabm-por-fases y --datos-del-kit"),
+    (["--dentro-del-contenedor", "--datos-del-kit", "x"], "exige --tabm-por-fases y --datos-del-kit"),
+    (["--datos-del-kit", "x"], "--datos-del-kit solo está hecho para --tabm-por-fases"),
+    (["--gpu"], "--gpu solo está hecho para --tabm-por-fases"),
+])
+def test_R4gpu_las_opciones_nuevas_solo_valen_para_tabm_por_fases(monkeypatch, tmp_path, argumentos, motivo):
+    s = _cargar()
+    monkeypatch.setattr(s.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("antes de docker")))
+    monkeypatch.setattr(s, "AGENTE", tmp_path / "t0")
+    monkeypatch.setattr(sys, "argv", ["sonda", "--salida", str(tmp_path / "s.json"), *argumentos])
+    with pytest.raises(SystemExit, match=motivo):
+        s.main()
+    assert not (tmp_path / "t0").exists()                                   # ni un fichero escrito antes de parar
+
+
+def test_R4gpu_el_guion_nuevo_sigue_compilando_y_sin_cambiar_el_producto():
+    compile(S.TABM_POR_FASES, "tabm_por_fases", "exec")
+    assert "def declaracion_de_dispositivo" in S.TABM_POR_FASES and "reset_peak_memory_stats" in S.TABM_POR_FASES
