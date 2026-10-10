@@ -1,0 +1,1983 @@
+{
+ "procedencia": {
+  "imagen": "matrixai-studio:128-c1",
+  "imagen_id": "sha256:63c0ebeaa7f4d85e759d28545348344ae7135a4ede40d2dbb3083ee1b313a7b0",
+  "sha256_guion": "d708ffb6e48b69561477df9f77f2dc767c46e807146a9f382536247c709d48f8",
+  "sha256_referencia_120_r0": "a7ab59c6db76dcb5d8a3d919fc821f23600b3f2e3abe1b8be4c972369cba1167",
+  "sha256_generador_de_csv": "607c99db9cece62189920ffd2548abd76b536ed9f561ec77a2fc2ed1b044f00a",
+  "sha256_muestreador": "c48f566a449158392efbd99ceafc07a49d2a43e8ec455c99d4ac63b95faadbb1",
+  "sha256_intento_sin_tope": "8c670b8ebd5b611c2339ad9622ce0c6f4614fd5468c490aca6d929fb3dc6cc35",
+  "sha256_retencion": "60e7056eb94ffb93af693912709f02726e03c7f78c77c9caa68b068142774160",
+  "memoria_del_contenedor": "6g",
+  "cpus": 2,
+  "inicio": "2026-10-08 20:31:10",
+  "loadavg_al_empezar": [
+   "0.13",
+   "0.17",
+   "0.14"
+  ],
+  "instrumento": "estudio por HTTP; RSS por proceso de /proc dentro del contenedor cada ~1 s; sin tracemalloc",
+  "limites": [
+   "la preparación y el diagnóstico ocurren dentro del POST de iniciar: una sola fase «preparacion»",
+   "un proceso que viva menos de ~1 s puede no aparecer",
+   "el motor de cada intento es INFERIDO del orden del leaderboard final",
+   "la suma de RSS cuenta dos veces lo compartido; el pico del cgroup es lo que mira el OOM"
+  ],
+  "fin": "2026-10-08 21:12:21"
+ },
+ "control": null,
+ "conjuntos": {
+  "APSFailure:retencion": {
+   "nombre": "APSFailure",
+   "data_id": 41138,
+   "tarea": "binary_classification",
+   "inicio": "2026-10-08 20:31:20",
+   "csv": {
+    "filas": 76000,
+    "columnas": 171,
+    "bytes": 77240985
+   },
+   "loadavg_al_empezar": [
+    "0.26",
+    "0.20",
+    "0.15"
+   ],
+   "sha256_guion_dentro": "60e7056eb94ffb93af693912709f02726e03c7f78c77c9caa68b068142774160",
+   "guion_rc": 137,
+   "guion_pared_s": 425.4,
+   "guion_stderr_cola": "/usr/local/lib/python3.12/site-packages/matrixai_engines/motores/arbol_sklearn_hgb.py:757: RuntimeWarning: overflow encountered in exp\n  positiva = 1.0 / (1.0 + np.exp(-crudas.ravel()))\n/usr/local/lib/python3.12/site-packages/matrixai_engines/motores/arbol_sklearn_hgb.py:757: RuntimeWarning: overflow encountered in exp\n  positiva = 1.0 / (1.0 + np.exp(-crudas.ravel()))\nTraceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n  File \"/usr/local/lib/python3.12/multiprocessing/spawn.py\", line 122, in spawn_main\n    exitcode = _main(fd, parent_sentinel)\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/multiprocessing/spawn.py\", line 132, in _main\n    self = reduction.pickle.load(from_parent)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n_pickle.UnpicklingError: pickle data was truncated\n/usr/local/lib/python3.12/multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 3 leaked semaphore objects to clean up at shutdown\n  warnings.warn('resource_tracker: There appear to be %d '\n",
+   "retencion": {
+    "pasos": [
+     {
+      "paso": "0_antes_de_iniciar",
+      "t": 1791484282.042188,
+      "status_mb": {
+       "VmHWM": 158.2,
+       "VmRSS": 123.5,
+       "RssAnon": 105.5,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 123.5,
+       "Pss": 113.8,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.7,
+       "Private_Dirty": 105.5,
+       "Anonymous": 105.5
+      },
+      "mallinfo2": {
+       "arena_mb": 10.0,
+       "en_uso_uordblks_mb": 9.5,
+       "libre_fordblks_mb": 0.5,
+       "mmap_hblkhd_mb": 75.0,
+       "trozos_libres": 1104
+      }
+     },
+     {
+      "paso": "1_tras_iniciar_la_preparacion_y_el_diagnostico",
+      "t": 1791484323.8976977,
+      "status_mb": {
+       "VmHWM": 2681.7,
+       "VmRSS": 1886.5,
+       "RssAnon": 1868.5,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 1886.5,
+       "Pss": 1876.8,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.7,
+       "Private_Dirty": 1868.5,
+       "Anonymous": 1868.5
+      },
+      "mallinfo2": {
+       "arena_mb": 1066.0,
+       "en_uso_uordblks_mb": 490.5,
+       "libre_fordblks_mb": 575.5,
+       "mmap_hblkhd_mb": 75.0,
+       "trozos_libres": 1361
+      }
+     }
+    ],
+    "eventos": []
+   },
+   "contenedor": {
+    "oom_killed": true,
+    "codigo_de_salida": "0",
+    "estado": "running",
+    "error": ""
+   },
+   "estado": "failed",
+   "fin": "2026-10-08 20:38:30",
+   "motor_de_cada_intento_inferido": {},
+   "resumen_de_memoria": {
+    "muestras": 428,
+    "pico_total": {
+     "rss_total_mb": 6151.2,
+     "t": 1791484704.9651058,
+     "fase": "arranque_del_guion",
+     "grupo": "arranque_del_guion",
+     "procesos": {
+      "1": [
+       "init",
+       0.4
+      ],
+      "7": [
+       "sh",
+       1.7
+      ],
+      "8": [
+       "servidor",
+       56.1
+      ],
+      "36": [
+       "guion_de_retencion",
+       4350.5
+      ],
+      "114": [
+       "resource_tracker",
+       12.3
+      ],
+      "540": [
+       "hijo_spawn",
+       1730.2
+      ]
+     }
+    },
+    "pico_cgroup": {
+     "cgroup_mb": 6144.0,
+     "t": 1791484704.9651058,
+     "fase": "arranque_del_guion",
+     "grupo": "arranque_del_guion"
+    },
+    "pico_servidor_mb": 57.2,
+    "por_rol": {
+     "init": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.7
+     },
+     "sh": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 1.7
+     },
+     "servidor": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 57.2
+     },
+     "guion_de_retencion": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 4566.0
+     },
+     "exec_de_docker": {
+      "procesos_distintos": 3,
+      "pico_rss_mb": 11.9
+     },
+     "resource_tracker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 12.4
+     },
+     "hijo_spawn": {
+      "procesos_distintos": 10,
+      "pico_rss_mb": 2059.2
+     }
+    },
+    "por_fase": {
+     "antes": {
+      "muestras": 1,
+      "pico_total_mb": 59.6,
+      "pico_servidor_mb": 57.2,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 65.8,
+      "duracion_s": 0.0
+     },
+     "arranque_del_guion": {
+      "muestras": 427,
+      "pico_total_mb": 6151.2,
+      "pico_servidor_mb": 57.2,
+      "pico_hijo_mb": 2059.2,
+      "pico_cgroup_mb": 6144.0,
+      "duracion_s": 426.0
+     }
+    },
+    "hijo_mayor": {
+     "pid": 401,
+     "ppid": 36,
+     "rol": "hijo_spawn",
+     "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+     "primera_t": 1791484589.9649942,
+     "ultima_t": 1791484611.9654167,
+     "pico_rss_mb": 2059.2,
+     "pico_hwm_mb": 2059.2,
+     "fase_del_pico": "arranque_del_guion",
+     "servidor_en_el_pico_mb": 56.3,
+     "grupo_al_nacer": "arranque_del_guion",
+     "vive_s": 22.0,
+     "sobre_pico_del_servidor": 36.0,
+     "sobre_servidor_en_ese_instante": 36.575
+    },
+    "por_proceso": [
+     {
+      "pid": 1,
+      "ppid": 0,
+      "rol": "init",
+      "cmd": "/sbin/docker-init -- sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791484280.9646606,
+      "ultima_t": 1791484707.9645026,
+      "pico_rss_mb": 0.7,
+      "pico_hwm_mb": 0.7,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "antes",
+      "vive_s": 427.0
+     },
+     {
+      "pid": 7,
+      "ppid": 1,
+      "rol": "sh",
+      "cmd": "sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791484280.9646606,
+      "ultima_t": 1791484707.9645026,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 52.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 427.0
+     },
+     {
+      "pid": 8,
+      "ppid": 7,
+      "rol": "servidor",
+      "cmd": "python -m matrixai_studio --host 0.0.0.0 --port 8765",
+      "primera_t": 1791484280.9646606,
+      "ultima_t": 1791484707.9645026,
+      "pico_rss_mb": 57.2,
+      "pico_hwm_mb": 57.7,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 57.2,
+      "grupo_al_nacer": "antes",
+      "vive_s": 427.0
+     },
+     {
+      "pid": 36,
+      "ppid": 0,
+      "rol": "guion_de_retencion",
+      "cmd": "python3 /tmp/retencion_128_c1.py /tmp/cuerpo_128_c1.json /tmp/retencion_128_c1.json",
+      "primera_t": 1791484281.9691262,
+      "ultima_t": 1791484704.9651058,
+      "pico_rss_mb": 4566.0,
+      "pico_hwm_mb": 4606.5,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.3,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 423.0
+     },
+     {
+      "pid": 98,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791484343.9649608,
+      "ultima_t": 1791484343.9649608,
+      "pico_rss_mb": 11.9,
+      "pico_hwm_mb": 11.9,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 57.2,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 114,
+      "ppid": 36,
+      "rol": "resource_tracker",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.resource_tracker import main;main(5)",
+      "primera_t": 1791484354.9650016,
+      "ultima_t": 1791484705.965097,
+      "pico_rss_mb": 12.4,
+      "pico_hwm_mb": 12.4,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.7,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 351.0
+     },
+     {
+      "pid": 115,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484360.964946,
+      "ultima_t": 1791484385.9649887,
+      "pico_rss_mb": 2058.4,
+      "pico_hwm_mb": 2058.4,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 25.0,
+      "sobre_pico_del_servidor": 35.986,
+      "sobre_servidor_en_ese_instante": 36.176
+     },
+     {
+      "pid": 163,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484394.9652104,
+      "ultima_t": 1791484424.9650903,
+      "pico_rss_mb": 1906.1,
+      "pico_hwm_mb": 1976.6,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 30.0,
+      "sobre_pico_del_servidor": 33.323,
+      "sobre_servidor_en_ese_instante": 33.499
+     },
+     {
+      "pid": 212,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484432.968697,
+      "ultima_t": 1791484437.9651034,
+      "pico_rss_mb": 1670.3,
+      "pico_hwm_mb": 1794.3,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 5.0,
+      "sobre_pico_del_servidor": 29.201,
+      "sobre_servidor_en_ese_instante": 29.355
+     },
+     {
+      "pid": 246,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791484464.9651408,
+      "ultima_t": 1791484464.9651408,
+      "pico_rss_mb": 11.1,
+      "pico_hwm_mb": 11.1,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 254,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484474.9650898,
+      "ultima_t": 1791484499.965412,
+      "pico_rss_mb": 2059.1,
+      "pico_hwm_mb": 2059.1,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.3,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 25.0,
+      "sobre_pico_del_servidor": 35.998,
+      "sobre_servidor_en_ese_instante": 36.574
+     },
+     {
+      "pid": 310,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484508.9650111,
+      "ultima_t": 1791484538.9649832,
+      "pico_rss_mb": 1974.3,
+      "pico_hwm_mb": 1976.2,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.3,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 30.0,
+      "sobre_pico_del_servidor": 34.516,
+      "sobre_servidor_en_ese_instante": 35.067
+     },
+     {
+      "pid": 359,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484546.9647841,
+      "ultima_t": 1791484551.9648268,
+      "pico_rss_mb": 1789.4,
+      "pico_hwm_mb": 1794.3,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.3,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 5.0,
+      "sobre_pico_del_servidor": 31.283,
+      "sobre_servidor_en_ese_instante": 31.783
+     },
+     {
+      "pid": 401,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484589.9649942,
+      "ultima_t": 1791484611.9654167,
+      "pico_rss_mb": 2059.2,
+      "pico_hwm_mb": 2059.2,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.3,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 22.0,
+      "sobre_pico_del_servidor": 36.0,
+      "sobre_servidor_en_ese_instante": 36.575
+     },
+     {
+      "pid": 416,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791484595.9647343,
+      "ultima_t": 1791484595.9647343,
+      "pico_rss_mb": 10.8,
+      "pico_hwm_mb": 10.8,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.3,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 449,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484619.969272,
+      "ultima_t": 1791484650.9649067,
+      "pico_rss_mb": 1907.0,
+      "pico_hwm_mb": 1976.4,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.3,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 31.0,
+      "sobre_pico_del_servidor": 33.339,
+      "sobre_servidor_en_ese_instante": 33.872
+     },
+     {
+      "pid": 498,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484658.9652514,
+      "ultima_t": 1791484663.9650145,
+      "pico_rss_mb": 1794.2,
+      "pico_hwm_mb": 1794.2,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.3,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 5.0,
+      "sobre_pico_del_servidor": 31.367,
+      "sobre_servidor_en_ese_instante": 31.869
+     },
+     {
+      "pid": 540,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484700.9652002,
+      "ultima_t": 1791484705.965097,
+      "pico_rss_mb": 1730.2,
+      "pico_hwm_mb": 1758.9,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.1,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 5.0,
+      "sobre_pico_del_servidor": 30.248,
+      "sobre_servidor_en_ese_instante": 30.841
+     }
+    ]
+   },
+   "memoria_del_contenedor": "6g",
+   "eventos_de_fase": [
+    [
+     1791484281.0,
+     "arranque_del_guion"
+    ],
+    [
+     1791484710.2,
+     "fin"
+    ]
+   ],
+   "serie_temporal": {
+    "fichero": "APSFailure-retencion.series.json.gz",
+    "sha256": "1fc8405d7f9eb4a7618e721cd75caff1d1b375edfd57f36e6c8728266fec0d8b",
+    "muestras": 428
+   }
+  },
+  "KDDCup09_appetency:retencion": {
+   "nombre": "KDDCup09_appetency",
+   "data_id": 1111,
+   "tarea": "binary_classification",
+   "inicio": "2026-10-08 20:38:37",
+   "csv": {
+    "filas": 50000,
+    "columnas": 231,
+    "bytes": 26295632
+   },
+   "loadavg_al_empezar": [
+    "1.05",
+    "0.95",
+    "0.55"
+   ],
+   "sha256_guion_dentro": "60e7056eb94ffb93af693912709f02726e03c7f78c77c9caa68b068142774160",
+   "guion_rc": 0,
+   "guion_pared_s": 906.7,
+   "guion_stderr_cola": "",
+   "retencion": {
+    "pasos": [
+     {
+      "paso": "0_antes_de_iniciar",
+      "t": 1791484718.8108454,
+      "status_mb": {
+       "VmHWM": 86.1,
+       "VmRSS": 86.1,
+       "RssAnon": 68.2,
+       "RssFile": 17.9
+      },
+      "smaps_rollup_mb": {
+       "Rss": 86.1,
+       "Pss": 76.4,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.7,
+       "Private_Dirty": 68.2,
+       "Anonymous": 68.2
+      },
+      "mallinfo2": {
+       "arena_mb": 25.3,
+       "en_uso_uordblks_mb": 10.4,
+       "libre_fordblks_mb": 14.8,
+       "mmap_hblkhd_mb": 25.5,
+       "trozos_libres": 1085
+      }
+     },
+     {
+      "paso": "1_tras_iniciar_la_preparacion_y_el_diagnostico",
+      "t": 1791484733.3569586,
+      "status_mb": {
+       "VmHWM": 1169.7,
+       "VmRSS": 944.1,
+       "RssAnon": 926.2,
+       "RssFile": 17.9
+      },
+      "smaps_rollup_mb": {
+       "Rss": 944.3,
+       "Pss": 934.7,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.7,
+       "Private_Dirty": 926.5,
+       "Anonymous": 926.5
+      },
+      "mallinfo2": {
+       "arena_mb": 734.4,
+       "en_uso_uordblks_mb": 328.4,
+       "libre_fordblks_mb": 406.0,
+       "mmap_hblkhd_mb": 25.5,
+       "trozos_libres": 1202
+      }
+     },
+     {
+      "paso": "2_estudio_terminado_tal_cual",
+      "t": 1791485624.2699773,
+      "status_mb": {
+       "VmHWM": 3289.1,
+       "VmRSS": 1893.9,
+       "RssAnon": 1875.8,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 1767.9,
+       "Pss": 1757.6,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.7,
+       "Private_Dirty": 1749.8,
+       "Anonymous": 1749.8
+      },
+      "mallinfo2": {
+       "arena_mb": 1501.5,
+       "en_uso_uordblks_mb": 11.0,
+       "libre_fordblks_mb": 1490.5,
+       "mmap_hblkhd_mb": 25.5,
+       "trozos_libres": 1375
+      }
+     },
+     {
+      "paso": "3_otra_lectura_sin_hacer_nada",
+      "t": 1791485624.3240623,
+      "status_mb": {
+       "VmHWM": 3289.1,
+       "VmRSS": 1625.9,
+       "RssAnon": 1607.8,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 1513.7,
+       "Pss": 1503.4,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.7,
+       "Private_Dirty": 1495.6,
+       "Anonymous": 1495.6
+      },
+      "mallinfo2": {
+       "arena_mb": 1375.3,
+       "en_uso_uordblks_mb": 10.9,
+       "libre_fordblks_mb": 1364.4,
+       "mmap_hblkhd_mb": 25.5,
+       "trozos_libres": 1329
+      }
+     },
+     {
+      "paso": "4_tras_gc_collect",
+      "t": 1791485624.3739955,
+      "status_mb": {
+       "VmHWM": 3289.1,
+       "VmRSS": 1504.8,
+       "RssAnon": 1486.7,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 1504.8,
+       "Pss": 1494.5,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.7,
+       "Private_Dirty": 1486.7,
+       "Anonymous": 1486.7
+      },
+      "mallinfo2": {
+       "arena_mb": 1375.3,
+       "en_uso_uordblks_mb": 10.9,
+       "libre_fordblks_mb": 1364.4,
+       "mmap_hblkhd_mb": 25.5,
+       "trozos_libres": 1329
+      },
+      "objetos_recogidos": 99
+     },
+     {
+      "paso": "5_tras_malloc_trim_0",
+      "t": 1791485624.5664804,
+      "status_mb": {
+       "VmHWM": 3289.1,
+       "VmRSS": 141.8,
+       "RssAnon": 123.7,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 141.8,
+       "Pss": 131.5,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.7,
+       "Private_Dirty": 123.7,
+       "Anonymous": 123.7
+      },
+      "mallinfo2": {
+       "arena_mb": 1370.0,
+       "en_uso_uordblks_mb": 10.9,
+       "libre_fordblks_mb": 1359.1,
+       "mmap_hblkhd_mb": 25.5,
+       "trozos_libres": 1329
+      },
+      "malloc_trim_devolvio": 1,
+      "malloc_trim_s": 0.164
+     },
+     {
+      "paso": "6_tras_una_segunda_pasada",
+      "t": 1791485624.588193,
+      "status_mb": {
+       "VmHWM": 3289.1,
+       "VmRSS": 141.8,
+       "RssAnon": 123.7,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 141.8,
+       "Pss": 131.5,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.7,
+       "Private_Dirty": 123.7,
+       "Anonymous": 123.7
+      },
+      "mallinfo2": {
+       "arena_mb": 1370.0,
+       "en_uso_uordblks_mb": 10.9,
+       "libre_fordblks_mb": 1359.1,
+       "mmap_hblkhd_mb": 25.5,
+       "trozos_libres": 1329
+      }
+     }
+    ],
+    "eventos": [],
+    "estado_final": "completed",
+    "resumen": {
+     "rss_terminado_mb": 1893.9,
+     "rss_tras_gc_mb": 1504.8,
+     "rss_tras_trim_mb": 141.8,
+     "pico_hwm_mb": 3289.1,
+     "devuelto_por_gc_mb": 389.1,
+     "devuelto_por_malloc_trim_mb": 1363.0
+    }
+   },
+   "contenedor": {
+    "oom_killed": false,
+    "codigo_de_salida": "0",
+    "estado": "running",
+    "error": ""
+   },
+   "estado": "completed",
+   "fin": "2026-10-08 20:53:48",
+   "motor_de_cada_intento_inferido": {},
+   "resumen_de_memoria": {
+    "muestras": 909,
+    "pico_total": {
+     "rss_total_mb": 4470.4,
+     "t": 1791485256.9246957,
+     "fase": "arranque_del_guion",
+     "grupo": "arranque_del_guion",
+     "procesos": {
+      "1": [
+       "init",
+       0.7
+      ],
+      "7": [
+       "sh",
+       1.8
+      ],
+      "8": [
+       "servidor",
+       56.5
+      ],
+      "36": [
+       "guion_de_retencion",
+       2729.0
+      ],
+      "130": [
+       "resource_tracker",
+       12.3
+      ],
+      "621": [
+       "hijo_spawn",
+       1670.1
+      ]
+     }
+    },
+    "pico_cgroup": {
+     "cgroup_mb": 4505.6,
+     "t": 1791485256.9246957,
+     "fase": "arranque_del_guion",
+     "grupo": "arranque_del_guion"
+    },
+    "pico_servidor_mb": 56.5,
+    "por_rol": {
+     "init": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.7
+     },
+     "sh": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 1.8
+     },
+     "servidor": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 56.5
+     },
+     "guion_de_retencion": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 3287.6
+     },
+     "otro": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.0
+     },
+     "resource_tracker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 12.3
+     },
+     "hijo_spawn": {
+      "procesos_distintos": 16,
+      "pico_rss_mb": 1849.4
+     },
+     "exec_de_docker": {
+      "procesos_distintos": 6,
+      "pico_rss_mb": 12.0
+     }
+    },
+    "por_fase": {
+     "antes": {
+      "muestras": 1,
+      "pico_total_mb": 59.0,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 70.0,
+      "duracion_s": 0.0
+     },
+     "arranque_del_guion": {
+      "muestras": 908,
+      "pico_total_mb": 4470.4,
+      "pico_servidor_mb": 56.5,
+      "pico_hijo_mb": 1849.4,
+      "pico_cgroup_mb": 4505.6,
+      "duracion_s": 907.0
+     }
+    },
+    "hijo_mayor": {
+     "pid": 891,
+     "ppid": 36,
+     "rol": "hijo_spawn",
+     "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+     "primera_t": 1791485447.9243705,
+     "ultima_t": 1791485623.9242709,
+     "pico_rss_mb": 1849.4,
+     "pico_hwm_mb": 1925.6,
+     "fase_del_pico": "arranque_del_guion",
+     "servidor_en_el_pico_mb": 56.5,
+     "grupo_al_nacer": "arranque_del_guion",
+     "vive_s": 176.0,
+     "sobre_pico_del_servidor": 32.733,
+     "sobre_servidor_en_ese_instante": 32.733
+    },
+    "por_proceso": [
+     {
+      "pid": 1,
+      "ppid": 0,
+      "rol": "init",
+      "cmd": "/sbin/docker-init -- sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791484717.9237373,
+      "ultima_t": 1791485625.9237156,
+      "pico_rss_mb": 0.7,
+      "pico_hwm_mb": 0.7,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "antes",
+      "vive_s": 908.0
+     },
+     {
+      "pid": 7,
+      "ppid": 1,
+      "rol": "sh",
+      "cmd": "sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791484717.9237373,
+      "ultima_t": 1791485625.9237156,
+      "pico_rss_mb": 1.8,
+      "pico_hwm_mb": 1.8,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "antes",
+      "vive_s": 908.0
+     },
+     {
+      "pid": 8,
+      "ppid": 7,
+      "rol": "servidor",
+      "cmd": "python -m matrixai_studio --host 0.0.0.0 --port 8765",
+      "primera_t": 1791484717.9237373,
+      "ultima_t": 1791485625.9237156,
+      "pico_rss_mb": 56.5,
+      "pico_hwm_mb": 57.6,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "antes",
+      "vive_s": 908.0
+     },
+     {
+      "pid": 36,
+      "ppid": 0,
+      "rol": "guion_de_retencion",
+      "cmd": "python3 /tmp/retencion_128_c1.py /tmp/cuerpo_128_c1.json /tmp/retencion_128_c1.json",
+      "primera_t": 1791484718.9243257,
+      "ultima_t": 1791485623.9242709,
+      "pico_rss_mb": 3287.6,
+      "pico_hwm_mb": 3289.1,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 905.0
+     },
+     {
+      "pid": 82,
+      "ppid": 0,
+      "rol": "otro",
+      "cmd": "",
+      "primera_t": 1791484760.9244084,
+      "ultima_t": 1791484760.9244084,
+      "pico_rss_mb": 0.0,
+      "pico_hwm_mb": 0.0,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 130,
+      "ppid": 36,
+      "rol": "resource_tracker",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.resource_tracker import main;main(5)",
+      "primera_t": 1791484811.9240482,
+      "ultima_t": 1791485623.9242709,
+      "pico_rss_mb": 12.3,
+      "pico_hwm_mb": 12.3,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 812.0
+     },
+     {
+      "pid": 131,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484815.9534945,
+      "ultima_t": 1791484839.924738,
+      "pico_rss_mb": 1587.8,
+      "pico_hwm_mb": 1668.0,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 24.0,
+      "sobre_pico_del_servidor": 28.103,
+      "sobre_servidor_en_ese_instante": 28.103
+     },
+     {
+      "pid": 179,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484846.9241972,
+      "ultima_t": 1791484878.9245694,
+      "pico_rss_mb": 1586.4,
+      "pico_hwm_mb": 1654.2,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 32.0,
+      "sobre_pico_del_servidor": 28.078,
+      "sobre_servidor_en_ese_instante": 28.078
+     },
+     {
+      "pid": 228,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484884.9247482,
+      "ultima_t": 1791484887.924684,
+      "pico_rss_mb": 1287.1,
+      "pico_hwm_mb": 1347.5,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 22.781,
+      "sobre_servidor_en_ese_instante": 22.781
+     },
+     {
+      "pid": 238,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791484891.9240236,
+      "ultima_t": 1791484891.9240236,
+      "pico_rss_mb": 11.1,
+      "pico_hwm_mb": 11.1,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 294,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484958.9246228,
+      "ultima_t": 1791484981.9247234,
+      "pico_rss_mb": 1595.7,
+      "pico_hwm_mb": 1669.1,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 23.0,
+      "sobre_pico_del_servidor": 28.242,
+      "sobre_servidor_en_ese_instante": 28.242
+     },
+     {
+      "pid": 342,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791484987.9545305,
+      "ultima_t": 1791485019.9242911,
+      "pico_rss_mb": 1616.6,
+      "pico_hwm_mb": 1690.4,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 32.0,
+      "sobre_pico_del_servidor": 28.612,
+      "sobre_servidor_en_ese_instante": 28.612
+     },
+     {
+      "pid": 383,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791485022.924248,
+      "ultima_t": 1791485022.924248,
+      "pico_rss_mb": 10.4,
+      "pico_hwm_mb": 10.4,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 391,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485025.924298,
+      "ultima_t": 1791485028.9243464,
+      "pico_rss_mb": 1335.8,
+      "pico_hwm_mb": 1347.6,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 23.642,
+      "sobre_servidor_en_ese_instante": 23.642
+     },
+     {
+      "pid": 459,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485097.924571,
+      "ultima_t": 1791485120.9246128,
+      "pico_rss_mb": 1588.6,
+      "pico_hwm_mb": 1668.6,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 23.0,
+      "sobre_pico_del_servidor": 28.117,
+      "sobre_servidor_en_ese_instante": 28.117
+     },
+     {
+      "pid": 507,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485126.924209,
+      "ultima_t": 1791485158.924611,
+      "pico_rss_mb": 1616.6,
+      "pico_hwm_mb": 1690.4,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 32.0,
+      "sobre_pico_del_servidor": 28.612,
+      "sobre_servidor_en_ese_instante": 28.612
+     },
+     {
+      "pid": 538,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791485153.9247293,
+      "ultima_t": 1791485153.9247293,
+      "pico_rss_mb": 12.0,
+      "pico_hwm_mb": 12.0,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 556,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485164.9246087,
+      "ultima_t": 1791485168.9245389,
+      "pico_rss_mb": 1263.8,
+      "pico_hwm_mb": 1347.2,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 4.0,
+      "sobre_pico_del_servidor": 22.368,
+      "sobre_servidor_en_ese_instante": 22.368
+     },
+     {
+      "pid": 621,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485238.9245865,
+      "ultima_t": 1791485260.9242387,
+      "pico_rss_mb": 1670.1,
+      "pico_hwm_mb": 1670.1,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 22.0,
+      "sobre_pico_del_servidor": 29.559,
+      "sobre_servidor_en_ese_instante": 29.559
+     },
+     {
+      "pid": 669,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485266.9243824,
+      "ultima_t": 1791485297.9243615,
+      "pico_rss_mb": 1615.1,
+      "pico_hwm_mb": 1690.6,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 31.0,
+      "sobre_pico_del_servidor": 28.586,
+      "sobre_servidor_en_ese_instante": 28.586
+     },
+     {
+      "pid": 692,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791485284.9246979,
+      "ultima_t": 1791485284.9246979,
+      "pico_rss_mb": 10.8,
+      "pico_hwm_mb": 10.8,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 710,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485303.924334,
+      "ultima_t": 1791485306.9245024,
+      "pico_rss_mb": 1269.5,
+      "pico_hwm_mb": 1347.8,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 22.469,
+      "sobre_servidor_en_ese_instante": 22.469
+     },
+     {
+      "pid": 784,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485376.9242864,
+      "ultima_t": 1791485397.924289,
+      "pico_rss_mb": 1670.5,
+      "pico_hwm_mb": 1670.5,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 21.0,
+      "sobre_pico_del_servidor": 29.566,
+      "sobre_servidor_en_ese_instante": 29.566
+     },
+     {
+      "pid": 824,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485404.9242158,
+      "ultima_t": 1791485435.9240277,
+      "pico_rss_mb": 1616.9,
+      "pico_hwm_mb": 1691.0,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 31.0,
+      "sobre_pico_del_servidor": 28.618,
+      "sobre_servidor_en_ese_instante": 28.618
+     },
+     {
+      "pid": 847,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791485415.9247134,
+      "ultima_t": 1791485415.9247134,
+      "pico_rss_mb": 11.1,
+      "pico_hwm_mb": 11.1,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 873,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485441.9242008,
+      "ultima_t": 1791485444.924337,
+      "pico_rss_mb": 1258.5,
+      "pico_hwm_mb": 1347.5,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 22.274,
+      "sobre_servidor_en_ese_instante": 22.274
+     },
+     {
+      "pid": 891,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485447.9243705,
+      "ultima_t": 1791485623.9242709,
+      "pico_rss_mb": 1849.4,
+      "pico_hwm_mb": 1925.6,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 176.0,
+      "sobre_pico_del_servidor": 32.733,
+      "sobre_servidor_en_ese_instante": 32.733
+     },
+     {
+      "pid": 986,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791485546.9245336,
+      "ultima_t": 1791485546.9245336,
+      "pico_rss_mb": 12.0,
+      "pico_hwm_mb": 12.0,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.5,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     }
+    ]
+   },
+   "memoria_del_contenedor": "6g",
+   "eventos_de_fase": [
+    [
+     1791484718.0,
+     "arranque_del_guion"
+    ],
+    [
+     1791485628.4,
+     "fin"
+    ]
+   ],
+   "serie_temporal": {
+    "fichero": "KDDCup09_appetency-retencion.series.json.gz",
+    "sha256": "1f74ff2997109dfcad0f0a5836cccd228566b139c05af57a6aa5849528cb27ad",
+    "muestras": 909
+   }
+  },
+  "Allstate_Claims_Severity:retencion": {
+   "nombre": "Allstate_Claims_Severity",
+   "data_id": 42571,
+   "tarea": "regression",
+   "inicio": "2026-10-08 20:54:00",
+   "csv": {
+    "filas": 188318,
+    "columnas": 132,
+    "bytes": 78081124
+   },
+   "loadavg_al_empezar": [
+    "1.01",
+    "1.09",
+    "0.95"
+   ],
+   "sha256_guion_dentro": "60e7056eb94ffb93af693912709f02726e03c7f78c77c9caa68b068142774160",
+   "guion_rc": 0,
+   "guion_pared_s": 1096.2,
+   "guion_stderr_cola": "",
+   "retencion": {
+    "pasos": [
+     {
+      "paso": "0_antes_de_iniciar",
+      "t": 1791485642.379149,
+      "status_mb": {
+       "VmHWM": 160.0,
+       "VmRSS": 124.1,
+       "RssAnon": 106.3,
+       "RssFile": 17.8
+      },
+      "smaps_rollup_mb": {
+       "Rss": 124.1,
+       "Pss": 114.5,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.8,
+       "Private_Dirty": 106.3,
+       "Anonymous": 106.3
+      },
+      "mallinfo2": {
+       "arena_mb": 10.0,
+       "en_uso_uordblks_mb": 9.5,
+       "libre_fordblks_mb": 0.5,
+       "mmap_hblkhd_mb": 75.8,
+       "trozos_libres": 1088
+      }
+     },
+     {
+      "paso": "1_tras_iniciar_la_preparacion_y_el_diagnostico",
+      "t": 1791485669.7193387,
+      "status_mb": {
+       "VmHWM": 2297.8,
+       "VmRSS": 1755.0,
+       "RssAnon": 1737.1,
+       "RssFile": 17.8
+      },
+      "smaps_rollup_mb": {
+       "Rss": 1755.0,
+       "Pss": 1745.4,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.8,
+       "Private_Dirty": 1737.2,
+       "Anonymous": 1737.2
+      },
+      "mallinfo2": {
+       "arena_mb": 1402.6,
+       "en_uso_uordblks_mb": 622.9,
+       "libre_fordblks_mb": 779.7,
+       "mmap_hblkhd_mb": 75.8,
+       "trozos_libres": 1206
+      }
+     },
+     {
+      "paso": "2_estudio_terminado_tal_cual",
+      "t": 1791486736.7773592,
+      "status_mb": {
+       "VmHWM": 3466.3,
+       "VmRSS": 2722.1,
+       "RssAnon": 2704.1,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 2594.1,
+       "Pss": 2583.8,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.8,
+       "Private_Dirty": 2576.1,
+       "Anonymous": 2576.1
+      },
+      "mallinfo2": {
+       "arena_mb": 2262.1,
+       "en_uso_uordblks_mb": 10.1,
+       "libre_fordblks_mb": 2252.0,
+       "mmap_hblkhd_mb": 75.8,
+       "trozos_libres": 1442
+      }
+     },
+     {
+      "paso": "3_otra_lectura_sin_hacer_nada",
+      "t": 1791486736.8327138,
+      "status_mb": {
+       "VmHWM": 3466.3,
+       "VmRSS": 2476.6,
+       "RssAnon": 2458.7,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 2466.1,
+       "Pss": 2455.8,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.8,
+       "Private_Dirty": 2448.1,
+       "Anonymous": 2448.1
+      },
+      "mallinfo2": {
+       "arena_mb": 2039.9,
+       "en_uso_uordblks_mb": 9.9,
+       "libre_fordblks_mb": 2030.0,
+       "mmap_hblkhd_mb": 75.8,
+       "trozos_libres": 1330
+      }
+     },
+     {
+      "paso": "4_tras_gc_collect",
+      "t": 1791486736.9147937,
+      "status_mb": {
+       "VmHWM": 3466.3,
+       "VmRSS": 2251.3,
+       "RssAnon": 2233.3,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 2251.3,
+       "Pss": 2241.0,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.8,
+       "Private_Dirty": 2233.3,
+       "Anonymous": 2233.3
+      },
+      "mallinfo2": {
+       "arena_mb": 2039.9,
+       "en_uso_uordblks_mb": 9.9,
+       "libre_fordblks_mb": 2030.0,
+       "mmap_hblkhd_mb": 75.8,
+       "trozos_libres": 1330
+      },
+      "objetos_recogidos": 99
+     },
+     {
+      "paso": "5_tras_malloc_trim_0",
+      "t": 1791486737.2433672,
+      "status_mb": {
+       "VmHWM": 3466.3,
+       "VmRSS": 222.7,
+       "RssAnon": 204.7,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 222.7,
+       "Pss": 212.4,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.8,
+       "Private_Dirty": 204.7,
+       "Anonymous": 204.7
+      },
+      "mallinfo2": {
+       "arena_mb": 2037.4,
+       "en_uso_uordblks_mb": 9.9,
+       "libre_fordblks_mb": 2027.5,
+       "mmap_hblkhd_mb": 75.8,
+       "trozos_libres": 1330
+      },
+      "malloc_trim_devolvio": 1,
+      "malloc_trim_s": 0.283
+     },
+     {
+      "paso": "6_tras_una_segunda_pasada",
+      "t": 1791486737.2775106,
+      "status_mb": {
+       "VmHWM": 3466.3,
+       "VmRSS": 222.7,
+       "RssAnon": 204.7,
+       "RssFile": 18.0
+      },
+      "smaps_rollup_mb": {
+       "Rss": 222.7,
+       "Pss": 212.4,
+       "Shared_Dirty": 0.0,
+       "Private_Clean": 0.8,
+       "Private_Dirty": 204.7,
+       "Anonymous": 204.7
+      },
+      "mallinfo2": {
+       "arena_mb": 2037.4,
+       "en_uso_uordblks_mb": 9.9,
+       "libre_fordblks_mb": 2027.5,
+       "mmap_hblkhd_mb": 75.8,
+       "trozos_libres": 1330
+      }
+     }
+    ],
+    "eventos": [],
+    "estado_final": "completed",
+    "resumen": {
+     "rss_terminado_mb": 2722.1,
+     "rss_tras_gc_mb": 2251.3,
+     "rss_tras_trim_mb": 222.7,
+     "pico_hwm_mb": 3466.3,
+     "devuelto_por_gc_mb": 470.8,
+     "devuelto_por_malloc_trim_mb": 2028.6
+    }
+   },
+   "contenedor": {
+    "oom_killed": false,
+    "codigo_de_salida": "0",
+    "estado": "running",
+    "error": ""
+   },
+   "estado": "completed",
+   "fin": "2026-10-08 21:12:21",
+   "motor_de_cada_intento_inferido": {},
+   "resumen_de_memoria": {
+    "muestras": 1099,
+    "pico_total": {
+     "rss_total_mb": 4726.5,
+     "t": 1791486665.1883094,
+     "fase": "arranque_del_guion",
+     "grupo": "arranque_del_guion",
+     "procesos": {
+      "1": [
+       "init",
+       0.7
+      ],
+      "7": [
+       "sh",
+       1.7
+      ],
+      "8": [
+       "servidor",
+       56.9
+      ],
+      "36": [
+       "guion_de_retencion",
+       2752.7
+      ],
+      "106": [
+       "resource_tracker",
+       12.2
+      ],
+      "1018": [
+       "hijo_spawn",
+       1902.3
+      ]
+     }
+    },
+    "pico_cgroup": {
+     "cgroup_mb": 4662.9,
+     "t": 1791486665.1883094,
+     "fase": "arranque_del_guion",
+     "grupo": "arranque_del_guion"
+    },
+    "pico_servidor_mb": 56.9,
+    "por_rol": {
+     "init": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.7
+     },
+     "sh": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 1.7
+     },
+     "servidor": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 56.9
+     },
+     "guion_de_retencion": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 3464.7
+     },
+     "resource_tracker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 12.2
+     },
+     "hijo_spawn": {
+      "procesos_distintos": 16,
+      "pico_rss_mb": 1902.3
+     },
+     "exec_de_docker": {
+      "procesos_distintos": 2,
+      "pico_rss_mb": 9.7
+     }
+    },
+    "por_fase": {
+     "antes": {
+      "muestras": 1,
+      "pico_total_mb": 59.3,
+      "pico_servidor_mb": 56.9,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 49.5,
+      "duracion_s": 0.0
+     },
+     "arranque_del_guion": {
+      "muestras": 1098,
+      "pico_total_mb": 4726.5,
+      "pico_servidor_mb": 56.9,
+      "pico_hijo_mb": 1902.3,
+      "pico_cgroup_mb": 4662.9,
+      "duracion_s": 1097.0
+     }
+    },
+    "hijo_mayor": {
+     "pid": 1018,
+     "ppid": 36,
+     "rol": "hijo_spawn",
+     "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+     "primera_t": 1791486533.1882975,
+     "ultima_t": 1791486736.188443,
+     "pico_rss_mb": 1902.3,
+     "pico_hwm_mb": 2055.2,
+     "fase_del_pico": "arranque_del_guion",
+     "servidor_en_el_pico_mb": 56.9,
+     "grupo_al_nacer": "arranque_del_guion",
+     "vive_s": 203.0,
+     "sobre_pico_del_servidor": 33.432,
+     "sobre_servidor_en_ese_instante": 33.432
+    },
+    "por_proceso": [
+     {
+      "pid": 1,
+      "ppid": 0,
+      "rol": "init",
+      "cmd": "/sbin/docker-init -- sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791485641.1878304,
+      "ultima_t": 1791486739.1880145,
+      "pico_rss_mb": 0.7,
+      "pico_hwm_mb": 0.7,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "antes",
+      "vive_s": 1098.0
+     },
+     {
+      "pid": 7,
+      "ppid": 1,
+      "rol": "sh",
+      "cmd": "sh -c python -m matrixai_studio --host ${MATRIXAI_STUDIO_HOST} --port ${MATRIXAI_STUDIO_PORT}",
+      "primera_t": 1791485641.1878304,
+      "ultima_t": 1791486739.1880145,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "antes",
+      "vive_s": 1098.0
+     },
+     {
+      "pid": 8,
+      "ppid": 7,
+      "rol": "servidor",
+      "cmd": "python -m matrixai_studio --host 0.0.0.0 --port 8765",
+      "primera_t": 1791485641.1878304,
+      "ultima_t": 1791486739.1880145,
+      "pico_rss_mb": 56.9,
+      "pico_hwm_mb": 57.8,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "antes",
+      "vive_s": 1098.0
+     },
+     {
+      "pid": 36,
+      "ppid": 0,
+      "rol": "guion_de_retencion",
+      "cmd": "python3 /tmp/retencion_128_c1.py /tmp/cuerpo_128_c1.json /tmp/retencion_128_c1.json",
+      "primera_t": 1791485642.1882405,
+      "ultima_t": 1791486737.188259,
+      "pico_rss_mb": 3464.7,
+      "pico_hwm_mb": 3466.3,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 1095.0
+     },
+     {
+      "pid": 106,
+      "ppid": 36,
+      "rol": "resource_tracker",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.resource_tracker import main;main(5)",
+      "primera_t": 1791485713.1882362,
+      "ultima_t": 1791486737.188259,
+      "pico_rss_mb": 12.2,
+      "pico_hwm_mb": 12.2,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 1024.0
+     },
+     {
+      "pid": 115,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485716.1881006,
+      "ultima_t": 1791485760.1905823,
+      "pico_rss_mb": 1239.3,
+      "pico_hwm_mb": 1239.3,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 44.0,
+      "sobre_pico_del_servidor": 21.78,
+      "sobre_servidor_en_ese_instante": 21.78
+     },
+     {
+      "pid": 179,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485766.1884036,
+      "ultima_t": 1791485830.1883419,
+      "pico_rss_mb": 1211.1,
+      "pico_hwm_mb": 1366.4,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 64.0,
+      "sobre_pico_del_servidor": 21.285,
+      "sobre_servidor_en_ese_instante": 21.285
+     },
+     {
+      "pid": 252,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485836.1881094,
+      "ultima_t": 1791485838.1884923,
+      "pico_rss_mb": 841.9,
+      "pico_hwm_mb": 871.3,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 14.796,
+      "sobre_servidor_en_ese_instante": 14.796
+     },
+     {
+      "pid": 294,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485883.1897323,
+      "ultima_t": 1791485930.1885114,
+      "pico_rss_mb": 1238.4,
+      "pico_hwm_mb": 1238.4,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 47.0,
+      "sobre_pico_del_servidor": 21.764,
+      "sobre_servidor_en_ese_instante": 21.764
+     },
+     {
+      "pid": 358,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791485936.1882875,
+      "ultima_t": 1791485998.1883104,
+      "pico_rss_mb": 1223.3,
+      "pico_hwm_mb": 1378.6,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 62.0,
+      "sobre_pico_del_servidor": 21.499,
+      "sobre_servidor_en_ese_instante": 21.499
+     },
+     {
+      "pid": 431,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791486005.1885293,
+      "ultima_t": 1791486008.1885977,
+      "pico_rss_mb": 852.6,
+      "pico_hwm_mb": 852.6,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 14.984,
+      "sobre_servidor_en_ese_instante": 14.984
+     },
+     {
+      "pid": 481,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791486055.1885107,
+      "ultima_t": 1791486104.1884475,
+      "pico_rss_mb": 1239.2,
+      "pico_hwm_mb": 1239.2,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 49.0,
+      "sobre_pico_del_servidor": 21.779,
+      "sobre_servidor_en_ese_instante": 21.779
+     },
+     {
+      "pid": 519,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791486087.1886895,
+      "ultima_t": 1791486087.1886895,
+      "pico_rss_mb": 9.4,
+      "pico_hwm_mb": 9.4,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 552,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791486110.188162,
+      "ultima_t": 1791486175.1886158,
+      "pico_rss_mb": 1210.4,
+      "pico_hwm_mb": 1365.8,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 65.0,
+      "sobre_pico_del_servidor": 21.272,
+      "sobre_servidor_en_ese_instante": 21.272
+     },
+     {
+      "pid": 625,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791486182.1883733,
+      "ultima_t": 1791486184.1883113,
+      "pico_rss_mb": 846.3,
+      "pico_hwm_mb": 871.6,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 14.873,
+      "sobre_servidor_en_ese_instante": 14.873
+     },
+     {
+      "pid": 667,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791486228.188207,
+      "ultima_t": 1791486278.1886117,
+      "pico_rss_mb": 1238.6,
+      "pico_hwm_mb": 1238.6,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 50.0,
+      "sobre_pico_del_servidor": 21.768,
+      "sobre_servidor_en_ese_instante": 21.768
+     },
+     {
+      "pid": 739,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791486284.1884692,
+      "ultima_t": 1791486349.187934,
+      "pico_rss_mb": 1357.3,
+      "pico_hwm_mb": 1363.5,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 65.0,
+      "sobre_pico_del_servidor": 23.854,
+      "sobre_servidor_en_ese_instante": 23.854
+     },
+     {
+      "pid": 812,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791486355.1883707,
+      "ultima_t": 1791486357.1883643,
+      "pico_rss_mb": 776.3,
+      "pico_hwm_mb": 776.3,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 13.643,
+      "sobre_servidor_en_ese_instante": 13.643
+     },
+     {
+      "pid": 822,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791486359.1884885,
+      "ultima_t": 1791486359.1884885,
+      "pico_rss_mb": 9.7,
+      "pico_hwm_mb": 9.7,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 862,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791486402.1884809,
+      "ultima_t": 1791486451.1883574,
+      "pico_rss_mb": 1238.5,
+      "pico_hwm_mb": 1238.5,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 49.0,
+      "sobre_pico_del_servidor": 21.766,
+      "sobre_servidor_en_ese_instante": 21.766
+     },
+     {
+      "pid": 926,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791486457.1884522,
+      "ultima_t": 1791486521.1882043,
+      "pico_rss_mb": 1207.6,
+      "pico_hwm_mb": 1362.7,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 64.0,
+      "sobre_pico_del_servidor": 21.223,
+      "sobre_servidor_en_ese_instante": 21.223
+     },
+     {
+      "pid": 1000,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791486527.1882215,
+      "ultima_t": 1791486529.1884148,
+      "pico_rss_mb": 849.3,
+      "pico_hwm_mb": 849.3,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 14.926,
+      "sobre_servidor_en_ese_instante": 14.926
+     },
+     {
+      "pid": 1018,
+      "ppid": 36,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791486533.1882975,
+      "ultima_t": 1791486736.188443,
+      "pico_rss_mb": 1902.3,
+      "pico_hwm_mb": 2055.2,
+      "fase_del_pico": "arranque_del_guion",
+      "servidor_en_el_pico_mb": 56.9,
+      "grupo_al_nacer": "arranque_del_guion",
+      "vive_s": 203.0,
+      "sobre_pico_del_servidor": 33.432,
+      "sobre_servidor_en_ese_instante": 33.432
+     }
+    ]
+   },
+   "memoria_del_contenedor": "6g",
+   "eventos_de_fase": [
+    [
+     1791485641.2,
+     "arranque_del_guion"
+    ],
+    [
+     1791486741.2,
+     "fin"
+    ]
+   ],
+   "serie_temporal": {
+    "fichero": "Allstate_Claims_Severity-retencion.series.json.gz",
+    "sha256": "6b9fa049fbbcec08c377aac8581685fe52c50e7dfcc26ade54161754487da7e9",
+    "muestras": 1099
+   }
+  }
+ }
+}

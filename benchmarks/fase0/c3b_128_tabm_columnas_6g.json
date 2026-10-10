@@ -1,0 +1,6528 @@
+{
+ "procedencia": {
+  "imagen": "matrixai-studio-cpu-local:128-c4",
+  "imagen_id": "sha256:eaf6c3ffabfb4e64658d74afd1348fc58d349b2b093724039d13c4365e0d063d",
+  "sha256_guion": "c507ed3413d4f5b15e185760fd40bc345f006d8962dac09afaf466cf1db7ae1b",
+  "sha256_referencia_120_r0": "a7ab59c6db76dcb5d8a3d919fc821f23600b3f2e3abe1b8be4c972369cba1167",
+  "sha256_generador_de_csv": "607c99db9cece62189920ffd2548abd76b536ed9f561ec77a2fc2ed1b044f00a",
+  "sha256_muestreador": "c48f566a449158392efbd99ceafc07a49d2a43e8ec455c99d4ac63b95faadbb1",
+  "sha256_intento_sin_tope": "8c670b8ebd5b611c2339ad9622ce0c6f4614fd5468c490aca6d929fb3dc6cc35",
+  "sha256_retencion": "60e7056eb94ffb93af693912709f02726e03c7f78c77c9caa68b068142774160",
+  "sha256_tabm_forzado": "766d76ae56a7a818c1f936f945d36dd66994fc88735f1108e57f33cb207d699e",
+  "memoria_del_contenedor": "6g",
+  "cpus": 2,
+  "inicio": "2026-10-09 15:36:38",
+  "loadavg_al_empezar": [
+   "2.25",
+   "2.60",
+   "2.75"
+  ],
+  "instrumento": "estudio por HTTP; RSS por proceso de /proc dentro del contenedor cada ~1 s; sin tracemalloc",
+  "limites": [
+   "la preparación y el diagnóstico ocurren dentro del POST de iniciar: una sola fase «preparacion»",
+   "un proceso que viva menos de ~1 s puede no aparecer",
+   "el motor de cada intento es INFERIDO del orden del leaderboard final",
+   "la suma de RSS cuenta dos veces lo compartido; el pico del cgroup es lo que mira el OOM"
+  ],
+  "fin": "2026-10-09 16:20:42"
+ },
+ "control": null,
+ "conjuntos": {
+  "micro-mass:tabm_forzado": {
+   "nombre": "micro-mass",
+   "data_id": 1515,
+   "tarea": "multiclass_classification",
+   "objetivo": "Class",
+   "inicio": "2026-10-09 15:36:39",
+   "csv": {
+    "filas": 571,
+    "columnas": 1301,
+    "bytes": 2073435,
+    "excluidas_por_string": []
+   },
+   "loadavg_al_empezar": [
+    "2.25",
+    "2.60",
+    "2.75"
+   ],
+   "sha256_guion_dentro": "766d76ae56a7a818c1f936f945d36dd66994fc88735f1108e57f33cb207d699e",
+   "entorno_del_guion": {
+    "MATRIXAI_ESTUDIO_SIN_DENSA": "1"
+   },
+   "tope_s": 2400,
+   "contenedor_sin_servidor": true,
+   "guion_rc": 0,
+   "guion_pared_s": 708.0,
+   "guion_stderr_cola": "",
+   "memory_events": {
+    "low": 0,
+    "high": 0,
+    "max": 0,
+    "oom": 0,
+    "oom_kill": 0,
+    "oom_group_kill": 0
+   },
+   "contenedor": {
+    "oom_killed": false,
+    "codigo_de_salida": "0",
+    "estado": "running",
+    "error": ""
+   },
+   "estado": "completed",
+   "estado_del_estudio": "completed",
+   "error": null,
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "accuracy",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.8737277859933338
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.10495086035597437
+     },
+     {
+      "compite": false,
+      "de": 5,
+      "motor": "matrixai.dense.tabm_cpu",
+      "n_partes": 1,
+      "valor": null
+     }
+    ],
+    "n_esperados": 5
+   },
+   "n_intentos_total": 20,
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "accuracy": 0.8495575221238938,
+     "log_loss": 0.4850899469235375,
+     "macro_f1": 0.8416
+    }
+   },
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 303,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "failed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 308,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "failed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 311,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "failed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 315,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "failed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 317,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "failed",
+     "declara": false,
+     "tamano": null,
+     "l2": null,
+     "filas_de_train": null,
+     "aplicada": null,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "lightgbm",
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 303,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 5
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": false,
+      "filas_de_train": 303,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.127998805139214,
+     "metrica": "accuracy",
+     "valor": 0.8712871287128713,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010920312954112887,
+     "metrica": "accuracy",
+     "valor": 0.09900990099009901,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 35.87254338618368,
+     "metrica": "accuracy",
+     "valor": 0.09900990099009901,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.7399997389875352,
+     "metrica": "accuracy",
+     "valor": 0.8526315789473684,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.0089134331792593,
+     "metrica": "accuracy",
+     "valor": 0.10526315789473684,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.2629743658471853,
+     "metrica": "accuracy",
+     "valor": 0.8791208791208791,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010328741045668721,
+     "metrica": "accuracy",
+     "valor": 0.10989010989010989,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.4558042781427503,
+     "metrica": "accuracy",
+     "valor": 0.896551724137931,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011053993832319975,
+     "metrica": "accuracy",
+     "valor": 0.10344827586206896,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.2917312260251492,
+     "metrica": "accuracy",
+     "valor": 0.8690476190476191,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011067118030041456,
+     "metrica": "accuracy",
+     "valor": 0.10714285714285714,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "accuracy",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    }
+   ],
+   "intentos_de_tabm": 5,
+   "guarda_de_verdad": [
+    {
+     "filas": 571,
+     "columnas_de_entrada": 1300,
+     "habria_dicho_estimada_y_disponible_gb": null
+    }
+   ],
+   "motores_fuera_por_memoria": {},
+   "presupuesto_segun_el_tamano": null,
+   "pared_estudio_s": 706.7,
+   "fin": "2026-10-09 15:48:31",
+   "motor_de_cada_intento_inferido": {
+    "1": "lightgbm",
+    "2": "sklearn.hgb",
+    "3": "baseline",
+    "4": "matrixai.dense.tabm_cpu",
+    "5": "lightgbm",
+    "6": "sklearn.hgb",
+    "7": "baseline",
+    "8": "matrixai.dense.tabm_cpu",
+    "9": "lightgbm",
+    "10": "sklearn.hgb",
+    "11": "baseline",
+    "12": "matrixai.dense.tabm_cpu",
+    "13": "lightgbm",
+    "14": "sklearn.hgb",
+    "15": "baseline",
+    "16": "matrixai.dense.tabm_cpu",
+    "17": "lightgbm",
+    "18": "sklearn.hgb",
+    "19": "baseline",
+    "20": "matrixai.dense.tabm_cpu"
+   },
+   "resumen_de_memoria": {
+    "muestras": 711,
+    "pico_total": {
+     "rss_total_mb": 3129.5,
+     "t": 1791553210.848589,
+     "fase": "intento 8/20",
+     "grupo": "intento:matrixai.dense.tabm_cpu",
+     "procesos": {
+      "1": [
+       "init",
+       0.7
+      ],
+      "6": [
+       "otro",
+       1.8
+      ],
+      "31": [
+       "servidor",
+       285.8
+      ],
+      "45": [
+       "resource_tracker",
+       12.5
+      ],
+      "312": [
+       "hijo_spawn",
+       2828.7
+      ]
+     }
+    },
+    "pico_cgroup": {
+     "cgroup_mb": 2980.1,
+     "t": 1791553210.848589,
+     "fase": "intento 8/20",
+     "grupo": "intento:matrixai.dense.tabm_cpu"
+    },
+    "pico_servidor_mb": 468.9,
+    "por_rol": {
+     "init": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.7
+     },
+     "otro": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 1.8
+     },
+     "servidor": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 468.9
+     },
+     "resource_tracker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 12.5
+     },
+     "hijo_spawn": {
+      "procesos_distintos": 19,
+      "pico_rss_mb": 2828.7
+     },
+     "exec_de_docker": {
+      "procesos_distintos": 4,
+      "pico_rss_mb": 12.0
+     }
+    },
+    "por_fase": {
+     "antes": {
+      "muestras": 1,
+      "pico_total_mb": 2.5,
+      "pico_servidor_mb": 0.0,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 5.5,
+      "duracion_s": 0.0
+     },
+     "preparacion": {
+      "muestras": 1,
+      "pico_total_mb": 85.2,
+      "pico_servidor_mb": 82.7,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 72.3,
+      "duracion_s": 0.0
+     },
+     "intento:lightgbm": {
+      "muestras": 38,
+      "pico_total_mb": 681.6,
+      "pico_servidor_mb": 401.8,
+      "pico_hijo_mb": 264.8,
+      "pico_cgroup_mb": 597.4,
+      "duracion_s": 562.0
+     },
+     "intento:sklearn.hgb": {
+      "muestras": 200,
+      "pico_total_mb": 601.5,
+      "pico_servidor_mb": 304.6,
+      "pico_hijo_mb": 299.9,
+      "pico_cgroup_mb": 518.1,
+      "duracion_s": 594.0
+     },
+     "intento:matrixai.dense.tabm_cpu": {
+      "muestras": 453,
+      "pico_total_mb": 3129.5,
+      "pico_servidor_mb": 468.9,
+      "pico_hijo_mb": 2828.7,
+      "pico_cgroup_mb": 2980.1,
+      "duracion_s": 644.0
+     },
+     "intento:baseline": {
+      "muestras": 2,
+      "pico_total_mb": 559.0,
+      "pico_servidor_mb": 294.5,
+      "pico_hijo_mb": 249.5,
+      "pico_cgroup_mb": 447.2,
+      "duracion_s": 1.0
+     },
+     "reajuste_final": {
+      "muestras": 13,
+      "pico_total_mb": 732.8,
+      "pico_servidor_mb": 286.9,
+      "pico_hijo_mb": 431.0,
+      "pico_cgroup_mb": 570.3,
+      "duracion_s": 12.0
+     },
+     "fin": {
+      "muestras": 3,
+      "pico_total_mb": 269.4,
+      "pico_servidor_mb": 266.9,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 219.6,
+      "duracion_s": 2.0
+     }
+    },
+    "hijo_mayor": {
+     "pid": 312,
+     "ppid": 31,
+     "rol": "hijo_spawn",
+     "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+     "primera_t": 1791553187.8486307,
+     "ultima_t": 1791553276.8486557,
+     "pico_rss_mb": 2828.7,
+     "pico_hwm_mb": 2893.6,
+     "fase_del_pico": "intento 8/20",
+     "servidor_en_el_pico_mb": 285.8,
+     "grupo_al_nacer": "intento:sklearn.hgb",
+     "vive_s": 89.0,
+     "sobre_pico_del_servidor": 6.033,
+     "sobre_servidor_en_ese_instante": 9.897
+    },
+    "por_proceso": [
+     {
+      "pid": 1,
+      "ppid": 0,
+      "rol": "init",
+      "cmd": "/sbin/docker-init -- sleep infinity",
+      "primera_t": 1791552999.8478122,
+      "ultima_t": 1791553709.8479655,
+      "pico_rss_mb": 0.7,
+      "pico_hwm_mb": 0.7,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 0.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 710.0
+     },
+     {
+      "pid": 6,
+      "ppid": 1,
+      "rol": "otro",
+      "cmd": "sleep infinity",
+      "primera_t": 1791552999.8478122,
+      "ultima_t": 1791553709.8479655,
+      "pico_rss_mb": 1.8,
+      "pico_hwm_mb": 1.8,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 0.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 710.0
+     },
+     {
+      "pid": 31,
+      "ppid": 0,
+      "rol": "servidor",
+      "cmd": "python3 /tmp/tabm_forzado_128_c3b.py /tmp/cuerpo_128_c3b.json /tmp/tabm_forzado_128_c3b.json",
+      "primera_t": 1791553000.8482456,
+      "ultima_t": 1791553707.8482423,
+      "pico_rss_mb": 468.9,
+      "pico_hwm_mb": 585.4,
+      "fase_del_pico": "intento 4/20",
+      "servidor_en_el_pico_mb": 468.9,
+      "grupo_al_nacer": "preparacion",
+      "vive_s": 707.0
+     },
+     {
+      "pid": 45,
+      "ppid": 31,
+      "rol": "resource_tracker",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.resource_tracker import main;main(5)",
+      "primera_t": 1791553003.848139,
+      "ultima_t": 1791553706.8490138,
+      "pico_rss_mb": 12.5,
+      "pico_hwm_mb": 12.5,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 286.9,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 703.0
+     },
+     {
+      "pid": 46,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553003.848139,
+      "ultima_t": 1791553007.8485098,
+      "pico_rss_mb": 262.8,
+      "pico_hwm_mb": 271.7,
+      "fase_del_pico": "intento 1/20",
+      "servidor_en_el_pico_mb": 85.6,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 4.0,
+      "sobre_pico_del_servidor": 0.56,
+      "sobre_servidor_en_ese_instante": 3.07
+     },
+     {
+      "pid": 77,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553008.8484275,
+      "ultima_t": 1791553047.8488784,
+      "pico_rss_mb": 299.9,
+      "pico_hwm_mb": 299.9,
+      "fase_del_pico": "intento 2/20",
+      "servidor_en_el_pico_mb": 87.8,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 39.0,
+      "sobre_pico_del_servidor": 0.64,
+      "sobre_servidor_en_ese_instante": 3.416
+     },
+     {
+      "pid": 121,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791553029.8487978,
+      "ultima_t": 1791553029.8487978,
+      "pico_rss_mb": 12.0,
+      "pico_hwm_mb": 12.0,
+      "fase_del_pico": "intento 2/20",
+      "servidor_en_el_pico_mb": 87.8,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 135,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553048.84834,
+      "ultima_t": 1791553048.84834,
+      "pico_rss_mb": 36.3,
+      "pico_hwm_mb": 36.3,
+      "fase_del_pico": "intento 2/20",
+      "servidor_en_el_pico_mb": 87.7,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.077,
+      "sobre_servidor_en_ese_instante": 0.414
+     },
+     {
+      "pid": 145,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553049.848401,
+      "ultima_t": 1791553135.8487039,
+      "pico_rss_mb": 2698.6,
+      "pico_hwm_mb": 2924.3,
+      "fase_del_pico": "intento 4/20",
+      "servidor_en_el_pico_mb": 87.7,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 86.0,
+      "sobre_pico_del_servidor": 5.755,
+      "sobre_servidor_en_ese_instante": 30.771
+     },
+     {
+      "pid": 227,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553139.850101,
+      "ultima_t": 1791553145.8484924,
+      "pico_rss_mb": 264.8,
+      "pico_hwm_mb": 271.2,
+      "fase_del_pico": "intento 5/20",
+      "servidor_en_el_pico_mb": 401.8,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 6.0,
+      "sobre_pico_del_servidor": 0.565,
+      "sobre_servidor_en_ese_instante": 0.659
+     },
+     {
+      "pid": 258,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553146.8486044,
+      "ultima_t": 1791553185.8486538,
+      "pico_rss_mb": 274.8,
+      "pico_hwm_mb": 312.8,
+      "fase_del_pico": "intento 6/20",
+      "servidor_en_el_pico_mb": 285.8,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 39.0,
+      "sobre_pico_del_servidor": 0.586,
+      "sobre_servidor_en_ese_instante": 0.962
+     },
+     {
+      "pid": 274,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791553150.8488853,
+      "ultima_t": 1791553150.8488853,
+      "pico_rss_mb": 11.8,
+      "pico_hwm_mb": 11.8,
+      "fase_del_pico": "intento 6/20",
+      "servidor_en_el_pico_mb": 285.8,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 302,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553186.848407,
+      "ultima_t": 1791553186.848407,
+      "pico_rss_mb": 137.8,
+      "pico_hwm_mb": 137.8,
+      "fase_del_pico": "intento 6/20",
+      "servidor_en_el_pico_mb": 285.8,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.294,
+      "sobre_servidor_en_ese_instante": 0.482
+     },
+     {
+      "pid": 312,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553187.8486307,
+      "ultima_t": 1791553276.8486557,
+      "pico_rss_mb": 2828.7,
+      "pico_hwm_mb": 2893.6,
+      "fase_del_pico": "intento 8/20",
+      "servidor_en_el_pico_mb": 285.8,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 89.0,
+      "sobre_pico_del_servidor": 6.033,
+      "sobre_servidor_en_ese_instante": 9.897
+     },
+     {
+      "pid": 398,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553279.8487492,
+      "ultima_t": 1791553283.8485143,
+      "pico_rss_mb": 253.5,
+      "pico_hwm_mb": 271.3,
+      "fase_del_pico": "intento 9/20",
+      "servidor_en_el_pico_mb": 293.0,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 4.0,
+      "sobre_pico_del_servidor": 0.541,
+      "sobre_servidor_en_ese_instante": 0.865
+     },
+     {
+      "pid": 429,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553285.9191353,
+      "ultima_t": 1791553323.8496718,
+      "pico_rss_mb": 287.9,
+      "pico_hwm_mb": 300.8,
+      "fase_del_pico": "intento 10/20",
+      "servidor_en_el_pico_mb": 295.5,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 37.9,
+      "sobre_pico_del_servidor": 0.614,
+      "sobre_servidor_en_ese_instante": 0.974
+     },
+     {
+      "pid": 483,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553325.919406,
+      "ultima_t": 1791553415.8484082,
+      "pico_rss_mb": 2467.1,
+      "pico_hwm_mb": 2954.4,
+      "fase_del_pico": "intento 12/20",
+      "servidor_en_el_pico_mb": 293.1,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 89.9,
+      "sobre_pico_del_servidor": 5.261,
+      "sobre_servidor_en_ese_instante": 8.417
+     },
+     {
+      "pid": 567,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553418.8511107,
+      "ultima_t": 1791553422.8486862,
+      "pico_rss_mb": 254.0,
+      "pico_hwm_mb": 272.1,
+      "fase_del_pico": "intento 13/20",
+      "servidor_en_el_pico_mb": 298.1,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 4.0,
+      "sobre_pico_del_servidor": 0.542,
+      "sobre_servidor_en_ese_instante": 0.852
+     },
+     {
+      "pid": 598,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553423.8487272,
+      "ultima_t": 1791553462.8482924,
+      "pico_rss_mb": 287.6,
+      "pico_hwm_mb": 312.7,
+      "fase_del_pico": "intento 14/20",
+      "servidor_en_el_pico_mb": 298.9,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 39.0,
+      "sobre_pico_del_servidor": 0.613,
+      "sobre_servidor_en_ese_instante": 0.962
+     },
+     {
+      "pid": 651,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553464.8486426,
+      "ultima_t": 1791553554.8501348,
+      "pico_rss_mb": 2413.8,
+      "pico_hwm_mb": 2900.7,
+      "fase_del_pico": "intento 16/20",
+      "servidor_en_el_pico_mb": 294.6,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 90.0,
+      "sobre_pico_del_servidor": 5.148,
+      "sobre_servidor_en_ese_instante": 8.193
+     },
+     {
+      "pid": 711,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791553533.8487825,
+      "ultima_t": 1791553533.8487825,
+      "pico_rss_mb": 8.9,
+      "pico_hwm_mb": 8.9,
+      "fase_del_pico": "intento 16/20",
+      "servidor_en_el_pico_mb": 294.6,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 735,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553557.9212327,
+      "ultima_t": 1791553561.8488433,
+      "pico_rss_mb": 260.9,
+      "pico_hwm_mb": 271.3,
+      "fase_del_pico": "intento 17/20",
+      "servidor_en_el_pico_mb": 303.1,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 3.9,
+      "sobre_pico_del_servidor": 0.556,
+      "sobre_servidor_en_ese_instante": 0.861
+     },
+     {
+      "pid": 759,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553562.8485417,
+      "ultima_t": 1791553601.848662,
+      "pico_rss_mb": 274.9,
+      "pico_hwm_mb": 299.9,
+      "fase_del_pico": "intento 18/20",
+      "servidor_en_el_pico_mb": 304.6,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 39.0,
+      "sobre_pico_del_servidor": 0.586,
+      "sobre_servidor_en_ese_instante": 0.902
+     },
+     {
+      "pid": 803,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553602.8485055,
+      "ultima_t": 1791553602.8485055,
+      "pico_rss_mb": 20.1,
+      "pico_hwm_mb": 20.1,
+      "fase_del_pico": "intento 18/20",
+      "servidor_en_el_pico_mb": 301.1,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.043,
+      "sobre_servidor_en_ese_instante": 0.067
+     },
+     {
+      "pid": 813,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553603.8483796,
+      "ultima_t": 1791553693.8483734,
+      "pico_rss_mb": 2714.4,
+      "pico_hwm_mb": 2899.0,
+      "fase_del_pico": "intento 20/20",
+      "servidor_en_el_pico_mb": 301.2,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 90.0,
+      "sobre_pico_del_servidor": 5.789,
+      "sobre_servidor_en_ese_instante": 9.012
+     },
+     {
+      "pid": 872,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791553664.848438,
+      "ultima_t": 1791553664.848438,
+      "pico_rss_mb": 9.7,
+      "pico_hwm_mb": 9.7,
+      "fase_del_pico": "intento 20/20",
+      "servidor_en_el_pico_mb": 301.2,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 897,
+      "ppid": 31,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553694.8484638,
+      "ultima_t": 1791553706.8490138,
+      "pico_rss_mb": 431.0,
+      "pico_hwm_mb": 433.0,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 286.8,
+      "grupo_al_nacer": "reajuste_final",
+      "vive_s": 12.0,
+      "sobre_pico_del_servidor": 0.919,
+      "sobre_servidor_en_ese_instante": 1.503
+     }
+    ]
+   },
+   "memoria_del_contenedor": "6g",
+   "eventos_de_fase": [
+    [
+     1791553000.7,
+     "preparacion"
+    ],
+    [
+     1791553001.8,
+     "intento 1/20"
+    ],
+    [
+     1791553009.8,
+     "intento 2/20"
+    ],
+    [
+     1791553049.8,
+     "intento 4/20"
+    ],
+    [
+     1791553140.1,
+     "intento 5/20"
+    ],
+    [
+     1791553148.1,
+     "intento 6/20"
+    ],
+    [
+     1791553188.1,
+     "intento 8/20"
+    ],
+    [
+     1791553278.2,
+     "intento 9/20"
+    ],
+    [
+     1791553286.2,
+     "intento 10/20"
+    ],
+    [
+     1791553326.2,
+     "intento 12/20"
+    ],
+    [
+     1791553418.3,
+     "intento 13/20"
+    ],
+    [
+     1791553424.3,
+     "intento 14/20"
+    ],
+    [
+     1791553464.4,
+     "intento 15/20"
+    ],
+    [
+     1791553466.4,
+     "intento 16/20"
+    ],
+    [
+     1791553556.5,
+     "intento 17/20"
+    ],
+    [
+     1791553564.5,
+     "intento 18/20"
+    ],
+    [
+     1791553604.5,
+     "intento 20/20"
+    ],
+    [
+     1791553694.6,
+     "reajuste_final"
+    ],
+    [
+     1791553707.3,
+     "fin"
+    ]
+   ],
+   "serie_temporal": {
+    "fichero": "micro-mass-tabm-forzado.series.json.gz",
+    "sha256": "a073715d3d124959c24331f6d2caed11f7d07281a7e567d4002fd0f32e412197",
+    "muestras": 711
+   },
+   "memoria_pico_mb": 2980.1,
+   "estado_final_guardado": {
+    "fichero": "micro-mass-tabm-forzado.estado.json.gz",
+    "sha256": "7cb230d8923b267ed6f82e60a3f8e62f2e88c2b72b5faba4499977063a35e275"
+   }
+  },
+  "Internet-Advertisements:tabm_forzado": {
+   "nombre": "Internet-Advertisements",
+   "data_id": 40978,
+   "tarea": "binary_classification",
+   "objetivo": "class",
+   "inicio": "2026-10-09 15:48:34",
+   "csv": {
+    "filas": 3279,
+    "columnas": 1559,
+    "bytes": 10273510,
+    "excluidas_por_string": []
+   },
+   "loadavg_al_empezar": [
+    "2.16",
+    "2.75",
+    "2.78"
+   ],
+   "sha256_guion_dentro": "766d76ae56a7a818c1f936f945d36dd66994fc88735f1108e57f33cb207d699e",
+   "entorno_del_guion": {
+    "MATRIXAI_ESTUDIO_SIN_DENSA": "1"
+   },
+   "tope_s": 2400,
+   "contenedor_sin_servidor": true,
+   "guion_rc": 0,
+   "guion_pared_s": 724.3,
+   "guion_stderr_cola": "",
+   "memory_events": {
+    "low": 0,
+    "high": 0,
+    "max": 0,
+    "oom": 0,
+    "oom_kill": 0,
+    "oom_group_kill": 0
+   },
+   "contenedor": {
+    "oom_killed": false,
+    "codigo_de_salida": "0",
+    "estado": "running",
+    "error": ""
+   },
+   "estado": "completed",
+   "estado_del_estudio": "completed",
+   "error": null,
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9692461455056108
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.9685990549706107
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "n_intentos_total": 20,
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "auroc": 0.9773165279062597,
+     "accuracy": 0.9603658536585366,
+     "specificity": 0.9946808510638298
+    }
+   },
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1782,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1782,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1783,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1783,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1784,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1784,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1784,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1784,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1784,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1784,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "lightgbm",
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 1782,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 5,
+     "sklearn.hgb": 5
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": false,
+      "filas_de_train": 1782,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": false,
+      "filas_de_train": 1782,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.133583259070292,
+     "metrica": "auroc",
+     "valor": 0.9683239655584789,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 14.14813030208461,
+     "metrica": "auroc",
+     "valor": 0.9671280794068404,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008258481975644827,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "auroc",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.475494991056621,
+     "metrica": "auroc",
+     "valor": 0.9904116977287709,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 13.77034206991084,
+     "metrica": "auroc",
+     "valor": 0.9918499430694553,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008755424991250038,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "auroc",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.220394178992137,
+     "metrica": "auroc",
+     "valor": 0.9507335297512377,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 13.847166783874854,
+     "metrica": "auroc",
+     "valor": 0.945691461895939,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010703846113756299,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "auroc",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.062874670838937,
+     "metrica": "auroc",
+     "valor": 0.9554111107736233,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 13.139390573836863,
+     "metrica": "auroc",
+     "valor": 0.9583725662910427,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.01222165604121983,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "auroc",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 5.03074830211699,
+     "metrica": "auroc",
+     "valor": 0.9813504237159433,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 13.008850916987285,
+     "metrica": "auroc",
+     "valor": 0.9799532241897762,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008138435892760754,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "failed",
+     "motivo": {
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+     },
+     "wall_seconds": null,
+     "metrica": "auroc",
+     "valor": null,
+     "valor_indefinido": {
+      "es": "el intento superó 90.0 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+      "en": "the attempt exceeded 90.0 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+     }
+    }
+   ],
+   "intentos_de_tabm": 5,
+   "guarda_de_verdad": [
+    {
+     "filas": 3279,
+     "columnas_de_entrada": 1558,
+     "habria_dicho_estimada_y_disponible_gb": null
+    }
+   ],
+   "motores_fuera_por_memoria": {},
+   "presupuesto_segun_el_tamano": null,
+   "pared_estudio_s": 723.2,
+   "fin": "2026-10-09 16:00:42",
+   "motor_de_cada_intento_inferido": {
+    "1": "lightgbm",
+    "2": "sklearn.hgb",
+    "3": "baseline",
+    "4": "matrixai.dense.tabm_cpu",
+    "5": "lightgbm",
+    "6": "sklearn.hgb",
+    "7": "baseline",
+    "8": "matrixai.dense.tabm_cpu",
+    "9": "lightgbm",
+    "10": "sklearn.hgb",
+    "11": "baseline",
+    "12": "matrixai.dense.tabm_cpu",
+    "13": "lightgbm",
+    "14": "sklearn.hgb",
+    "15": "baseline",
+    "16": "matrixai.dense.tabm_cpu",
+    "17": "lightgbm",
+    "18": "sklearn.hgb",
+    "19": "baseline",
+    "20": "matrixai.dense.tabm_cpu"
+   },
+   "resumen_de_memoria": {
+    "muestras": 727,
+    "pico_total": {
+     "rss_total_mb": 4278.4,
+     "t": 1791554219.3613162,
+     "fase": "intento 16/20",
+     "grupo": "intento:matrixai.dense.tabm_cpu",
+     "procesos": {
+      "1": [
+       "init",
+       0.7
+      ],
+      "7": [
+       "otro",
+       1.7
+      ],
+      "32": [
+       "servidor",
+       286.5
+      ],
+      "60": [
+       "resource_tracker",
+       12.4
+      ],
+      "641": [
+       "hijo_spawn",
+       3977.1
+      ]
+     }
+    },
+    "pico_cgroup": {
+     "cgroup_mb": 4370.6,
+     "t": 1791554219.3613162,
+     "fase": "intento 16/20",
+     "grupo": "intento:matrixai.dense.tabm_cpu"
+    },
+    "pico_servidor_mb": 1198.6,
+    "por_rol": {
+     "init": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.7
+     },
+     "otro": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 1.7
+     },
+     "servidor": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 1198.6
+     },
+     "resource_tracker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 12.4
+     },
+     "hijo_spawn": {
+      "procesos_distintos": 21,
+      "pico_rss_mb": 3977.1
+     },
+     "exec_de_docker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 10.3
+     },
+     "sh": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 1.7
+     }
+    },
+    "por_fase": {
+     "antes": {
+      "muestras": 1,
+      "pico_total_mb": 2.4,
+      "pico_servidor_mb": 0.0,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 5.6,
+      "duracion_s": 0.0
+     },
+     "preparacion": {
+      "muestras": 5,
+      "pico_total_mb": 469.1,
+      "pico_servidor_mb": 466.7,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 457.2,
+      "duracion_s": 4.0
+     },
+     "intento:lightgbm": {
+      "muestras": 106,
+      "pico_total_mb": 1295.1,
+      "pico_servidor_mb": 1198.6,
+      "pico_hijo_mb": 995.4,
+      "pico_cgroup_mb": 1450.1,
+      "duracion_s": 562.0
+     },
+     "intento:sklearn.hgb": {
+      "muestras": 92,
+      "pico_total_mb": 1455.0,
+      "pico_servidor_mb": 295.2,
+      "pico_hijo_mb": 1159.4,
+      "pico_cgroup_mb": 1611.1,
+      "duracion_s": 558.0
+     },
+     "intento:baseline": {
+      "muestras": 18,
+      "pico_total_mb": 1021.3,
+      "pico_servidor_mb": 293.0,
+      "pico_hijo_mb": 736.4,
+      "pico_cgroup_mb": 1203.2,
+      "duracion_s": 544.0
+     },
+     "intento:matrixai.dense.tabm_cpu": {
+      "muestras": 461,
+      "pico_total_mb": 4278.4,
+      "pico_servidor_mb": 292.7,
+      "pico_hijo_mb": 3977.1,
+      "pico_cgroup_mb": 4370.6,
+      "duracion_s": 632.0
+     },
+     "reajuste_final": {
+      "muestras": 42,
+      "pico_total_mb": 1387.6,
+      "pico_servidor_mb": 128.9,
+      "pico_hijo_mb": 1243.9,
+      "pico_cgroup_mb": 1331.3,
+      "duracion_s": 41.0
+     },
+     "fin": {
+      "muestras": 2,
+      "pico_total_mb": 2.4,
+      "pico_servidor_mb": 0.0,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 81.4,
+      "duracion_s": 1.0
+     }
+    },
+    "hijo_mayor": {
+     "pid": 641,
+     "ppid": 32,
+     "rol": "hijo_spawn",
+     "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+     "primera_t": 1791554169.3613162,
+     "ultima_t": 1791554260.361329,
+     "pico_rss_mb": 3977.1,
+     "pico_hwm_mb": 3977.1,
+     "fase_del_pico": "intento 16/20",
+     "servidor_en_el_pico_mb": 286.5,
+     "grupo_al_nacer": "intento:baseline",
+     "vive_s": 91.0,
+     "sobre_pico_del_servidor": 3.318,
+     "sobre_servidor_en_ese_instante": 13.882
+    },
+    "por_proceso": [
+     {
+      "pid": 1,
+      "ppid": 0,
+      "rol": "init",
+      "cmd": "/sbin/docker-init -- sleep infinity",
+      "primera_t": 1791553714.360626,
+      "ultima_t": 1791554440.3605876,
+      "pico_rss_mb": 0.7,
+      "pico_hwm_mb": 0.7,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 0.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 726.0
+     },
+     {
+      "pid": 7,
+      "ppid": 1,
+      "rol": "otro",
+      "cmd": "sleep infinity",
+      "primera_t": 1791553714.360626,
+      "ultima_t": 1791554440.3605876,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 0.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 726.0
+     },
+     {
+      "pid": 32,
+      "ppid": 0,
+      "rol": "servidor",
+      "cmd": "python3 /tmp/tabm_forzado_128_c3b.py /tmp/cuerpo_128_c3b.json /tmp/tabm_forzado_128_c3b.json",
+      "primera_t": 1791553715.3608675,
+      "ultima_t": 1791554438.361093,
+      "pico_rss_mb": 1198.6,
+      "pico_hwm_mb": 1262.4,
+      "fase_del_pico": "intento 1/20",
+      "servidor_en_el_pico_mb": 1198.6,
+      "grupo_al_nacer": "preparacion",
+      "vive_s": 723.0
+     },
+     {
+      "pid": 60,
+      "ppid": 32,
+      "rol": "resource_tracker",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.resource_tracker import main;main(5)",
+      "primera_t": 1791553729.3609157,
+      "ultima_t": 1791554438.361093,
+      "pico_rss_mb": 12.4,
+      "pico_hwm_mb": 12.4,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 128.9,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 709.0
+     },
+     {
+      "pid": 61,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553729.3609157,
+      "ultima_t": 1791553739.3630397,
+      "pico_rss_mb": 974.1,
+      "pico_hwm_mb": 1015.6,
+      "fase_del_pico": "intento 1/20",
+      "servidor_en_el_pico_mb": 257.9,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 10.0,
+      "sobre_pico_del_servidor": 0.813,
+      "sobre_servidor_en_ese_instante": 3.777
+     },
+     {
+      "pid": 106,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553740.3609972,
+      "ultima_t": 1791553759.361329,
+      "pico_rss_mb": 1145.0,
+      "pico_hwm_mb": 1159.6,
+      "fase_del_pico": "intento 2/20",
+      "servidor_en_el_pico_mb": 258.3,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 19.0,
+      "sobre_pico_del_servidor": 0.955,
+      "sobre_servidor_en_ese_instante": 4.433
+     },
+     {
+      "pid": 137,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553760.3612583,
+      "ultima_t": 1791553761.3610876,
+      "pico_rss_mb": 736.4,
+      "pico_hwm_mb": 736.4,
+      "fase_del_pico": "intento 3/20",
+      "servidor_en_el_pico_mb": 258.1,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 1.0,
+      "sobre_pico_del_servidor": 0.614,
+      "sobre_servidor_en_ese_instante": 2.853
+     },
+     {
+      "pid": 147,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553762.3631124,
+      "ultima_t": 1791553854.3610568,
+      "pico_rss_mb": 3654.1,
+      "pico_hwm_mb": 3974.9,
+      "fase_del_pico": "intento 4/20",
+      "servidor_en_el_pico_mb": 257.9,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 92.0,
+      "sobre_pico_del_servidor": 3.049,
+      "sobre_servidor_en_ese_instante": 14.169
+     },
+     {
+      "pid": 242,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553867.3614988,
+      "ultima_t": 1791553878.3613253,
+      "pico_rss_mb": 973.2,
+      "pico_hwm_mb": 1015.0,
+      "fase_del_pico": "intento 5/20",
+      "servidor_en_el_pico_mb": 268.9,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 11.0,
+      "sobre_pico_del_servidor": 0.812,
+      "sobre_servidor_en_ese_instante": 3.619
+     },
+     {
+      "pid": 273,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553879.3613708,
+      "ultima_t": 1791553897.3609521,
+      "pico_rss_mb": 1114.0,
+      "pico_hwm_mb": 1144.2,
+      "fase_del_pico": "intento 6/20",
+      "servidor_en_el_pico_mb": 269.5,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 18.0,
+      "sobre_pico_del_servidor": 0.929,
+      "sobre_servidor_en_ese_instante": 4.134
+     },
+     {
+      "pid": 289,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791553885.3614922,
+      "ultima_t": 1791553885.3614922,
+      "pico_rss_mb": 10.3,
+      "pico_hwm_mb": 10.3,
+      "fase_del_pico": "intento 6/20",
+      "servidor_en_el_pico_mb": 269.5,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 304,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553898.361015,
+      "ultima_t": 1791553899.3610325,
+      "pico_rss_mb": 699.3,
+      "pico_hwm_mb": 699.3,
+      "fase_del_pico": "intento 7/20",
+      "servidor_en_el_pico_mb": 269.2,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 1.0,
+      "sobre_pico_del_servidor": 0.583,
+      "sobre_servidor_en_ese_instante": 2.598
+     },
+     {
+      "pid": 314,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791553900.3624055,
+      "ultima_t": 1791553992.3608725,
+      "pico_rss_mb": 3609.1,
+      "pico_hwm_mb": 3976.0,
+      "fase_del_pico": "intento 8/20",
+      "servidor_en_el_pico_mb": 268.0,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 92.0,
+      "sobre_pico_del_servidor": 3.011,
+      "sobre_servidor_en_ese_instante": 13.467
+     },
+     {
+      "pid": 402,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554003.3612258,
+      "ultima_t": 1791554013.3611636,
+      "pico_rss_mb": 995.4,
+      "pico_hwm_mb": 1015.4,
+      "fase_del_pico": "intento 9/20",
+      "servidor_en_el_pico_mb": 280.2,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 10.0,
+      "sobre_pico_del_servidor": 0.83,
+      "sobre_servidor_en_ese_instante": 3.552
+     },
+     {
+      "pid": 433,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554014.3610606,
+      "ultima_t": 1791554032.3624225,
+      "pico_rss_mb": 1159.4,
+      "pico_hwm_mb": 1159.4,
+      "fase_del_pico": "intento 10/20",
+      "servidor_en_el_pico_mb": 280.8,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 18.0,
+      "sobre_pico_del_servidor": 0.967,
+      "sobre_servidor_en_ese_instante": 4.129
+     },
+     {
+      "pid": 449,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791554016.3614197,
+      "ultima_t": 1791554016.3614197,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 10/20",
+      "servidor_en_el_pico_mb": 280.8,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 464,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554033.361163,
+      "ultima_t": 1791554034.3620527,
+      "pico_rss_mb": 725.9,
+      "pico_hwm_mb": 725.9,
+      "fase_del_pico": "intento 11/20",
+      "servidor_en_el_pico_mb": 280.6,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 1.0,
+      "sobre_pico_del_servidor": 0.606,
+      "sobre_servidor_en_ese_instante": 2.587
+     },
+     {
+      "pid": 474,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554035.362151,
+      "ultima_t": 1791554126.3610158,
+      "pico_rss_mb": 3896.3,
+      "pico_hwm_mb": 3973.9,
+      "fase_del_pico": "intento 12/20",
+      "servidor_en_el_pico_mb": 279.7,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 91.0,
+      "sobre_pico_del_servidor": 3.251,
+      "sobre_servidor_en_ese_instante": 13.93
+     },
+     {
+      "pid": 569,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554138.3611305,
+      "ultima_t": 1791554147.3609421,
+      "pico_rss_mb": 973.2,
+      "pico_hwm_mb": 1015.1,
+      "fase_del_pico": "intento 13/20",
+      "servidor_en_el_pico_mb": 292.4,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 9.0,
+      "sobre_pico_del_servidor": 0.812,
+      "sobre_servidor_en_ese_instante": 3.328
+     },
+     {
+      "pid": 600,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554148.3611,
+      "ultima_t": 1791554165.3615978,
+      "pico_rss_mb": 1124.3,
+      "pico_hwm_mb": 1143.9,
+      "fase_del_pico": "intento 14/20",
+      "servidor_en_el_pico_mb": 291.0,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 17.0,
+      "sobre_pico_del_servidor": 0.938,
+      "sobre_servidor_en_ese_instante": 3.864
+     },
+     {
+      "pid": 624,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554166.3610747,
+      "ultima_t": 1791554168.3608897,
+      "pico_rss_mb": 556.2,
+      "pico_hwm_mb": 870.0,
+      "fase_del_pico": "intento 15/20",
+      "servidor_en_el_pico_mb": 289.8,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.464,
+      "sobre_servidor_en_ese_instante": 1.919
+     },
+     {
+      "pid": 641,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554169.3613162,
+      "ultima_t": 1791554260.361329,
+      "pico_rss_mb": 3977.1,
+      "pico_hwm_mb": 3977.1,
+      "fase_del_pico": "intento 16/20",
+      "servidor_en_el_pico_mb": 286.5,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 91.0,
+      "sobre_pico_del_servidor": 3.318,
+      "sobre_servidor_en_ese_instante": 13.882
+     },
+     {
+      "pid": 729,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554271.360928,
+      "ultima_t": 1791554281.3613374,
+      "pico_rss_mb": 985.7,
+      "pico_hwm_mb": 1015.4,
+      "fase_del_pico": "intento 17/20",
+      "servidor_en_el_pico_mb": 294.6,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 10.0,
+      "sobre_pico_del_servidor": 0.822,
+      "sobre_servidor_en_ese_instante": 3.346
+     },
+     {
+      "pid": 760,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554282.3613257,
+      "ultima_t": 1791554299.3609488,
+      "pico_rss_mb": 1144.8,
+      "pico_hwm_mb": 1159.8,
+      "fase_del_pico": "intento 18/20",
+      "servidor_en_el_pico_mb": 295.2,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 17.0,
+      "sobre_pico_del_servidor": 0.955,
+      "sobre_servidor_en_ese_instante": 3.878
+     },
+     {
+      "pid": 791,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554300.3652098,
+      "ultima_t": 1791554302.3611999,
+      "pico_rss_mb": 686.2,
+      "pico_hwm_mb": 869.6,
+      "fase_del_pico": "intento 19/20",
+      "servidor_en_el_pico_mb": 293.0,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.573,
+      "sobre_servidor_en_ese_instante": 2.342
+     },
+     {
+      "pid": 801,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554303.3608916,
+      "ultima_t": 1791554394.3609157,
+      "pico_rss_mb": 3816.2,
+      "pico_hwm_mb": 3974.5,
+      "fase_del_pico": "intento 20/20",
+      "servidor_en_el_pico_mb": 292.7,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 91.0,
+      "sobre_pico_del_servidor": 3.184,
+      "sobre_servidor_en_ese_instante": 13.038
+     },
+     {
+      "pid": 882,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554396.3610494,
+      "ultima_t": 1791554438.361093,
+      "pico_rss_mb": 1243.9,
+      "pico_hwm_mb": 1258.3,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 128.9,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 42.0,
+      "sobre_pico_del_servidor": 1.038,
+      "sobre_servidor_en_ese_instante": 9.65
+     }
+    ]
+   },
+   "memoria_del_contenedor": "6g",
+   "eventos_de_fase": [
+    [
+     1791553715.3,
+     "preparacion"
+    ],
+    [
+     1791553719.4,
+     "intento 1/20"
+    ],
+    [
+     1791553741.5,
+     "intento 2/20"
+    ],
+    [
+     1791553759.5,
+     "intento 3/20"
+    ],
+    [
+     1791553763.5,
+     "intento 4/20"
+    ],
+    [
+     1791553855.6,
+     "intento 5/20"
+    ],
+    [
+     1791553879.8,
+     "intento 6/20"
+    ],
+    [
+     1791553897.8,
+     "intento 7/20"
+    ],
+    [
+     1791553901.8,
+     "intento 8/20"
+    ],
+    [
+     1791553993.9,
+     "intento 9/20"
+    ],
+    [
+     1791554014.0,
+     "intento 10/20"
+    ],
+    [
+     1791554034.0,
+     "intento 11/20"
+    ],
+    [
+     1791554036.0,
+     "intento 12/20"
+    ],
+    [
+     1791554128.1,
+     "intento 13/20"
+    ],
+    [
+     1791554148.2,
+     "intento 14/20"
+    ],
+    [
+     1791554166.3,
+     "intento 15/20"
+    ],
+    [
+     1791554170.3,
+     "intento 16/20"
+    ],
+    [
+     1791554262.4,
+     "intento 17/20"
+    ],
+    [
+     1791554282.6,
+     "intento 18/20"
+    ],
+    [
+     1791554300.6,
+     "intento 19/20"
+    ],
+    [
+     1791554304.6,
+     "intento 20/20"
+    ],
+    [
+     1791554396.7,
+     "reajuste_final"
+    ],
+    [
+     1791554438.6,
+     "fin"
+    ]
+   ],
+   "serie_temporal": {
+    "fichero": "Internet-Advertisements-tabm-forzado.series.json.gz",
+    "sha256": "2dec0e64d2e7bc9524013cebbed49374c64d53797f7eabcf0ebffb5665661c95",
+    "muestras": 727
+   },
+   "memoria_pico_mb": 4370.6,
+   "estado_final_guardado": {
+    "fichero": "Internet-Advertisements-tabm-forzado.estado.json.gz",
+    "sha256": "afd4e11b8e60b503660559e98da9ce4177ca8ac330846fcf17e2923702fd0967"
+   }
+  },
+  "mfeat-factors:tabm_forzado": {
+   "nombre": "mfeat-factors",
+   "data_id": 12,
+   "tarea": "multiclass_classification",
+   "objetivo": "class",
+   "inicio": "2026-10-09 16:00:43",
+   "csv": {
+    "filas": 2000,
+    "columnas": 217,
+    "bytes": 1468383,
+    "excluidas_por_string": []
+   },
+   "loadavg_al_empezar": [
+    "1.29",
+    "1.67",
+    "2.20"
+   ],
+   "sha256_guion_dentro": "766d76ae56a7a818c1f936f945d36dd66994fc88735f1108e57f33cb207d699e",
+   "entorno_del_guion": {
+    "MATRIXAI_ESTUDIO_SIN_DENSA": "1"
+   },
+   "tope_s": 2400,
+   "contenedor_sin_servidor": true,
+   "guion_rc": 0,
+   "guion_pared_s": 453.6,
+   "guion_stderr_cola": "",
+   "memory_events": {
+    "low": 0,
+    "high": 0,
+    "max": 0,
+    "oom": 0,
+    "oom_kill": 0,
+    "oom_group_kill": 0
+   },
+   "contenedor": {
+    "oom_killed": false,
+    "codigo_de_salida": "0",
+    "estado": "running",
+    "error": ""
+   },
+   "estado": "completed",
+   "estado_del_estudio": "completed",
+   "error": null,
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "accuracy",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9637499999999999
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.9625
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.1
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "matrixai.dense.tabm_cpu",
+      "n_partes": 5,
+      "valor": 0.9625
+     }
+    ],
+    "n_esperados": 5
+   },
+   "n_intentos_total": 20,
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "accuracy": 0.975,
+     "log_loss": 0.08462634888317934,
+     "macro_f1": 0.974888
+    }
+   },
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "lightgbm",
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 1088,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 5,
+     "sklearn.hgb": 5
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": false,
+      "filas_de_train": 1088,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": false,
+      "filas_de_train": 1088,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.548958203056827,
+     "metrica": "accuracy",
+     "valor": 0.965625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 10.79251438099891,
+     "metrica": "accuracy",
+     "valor": 0.971875,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011866579065099359,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 41.829467275878415,
+     "metrica": "accuracy",
+     "valor": 0.965625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.3810773629229516,
+     "metrica": "accuracy",
+     "valor": 0.953125,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 9.297107873018831,
+     "metrica": "accuracy",
+     "valor": 0.9375,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009450651006773114,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.951102981111035,
+     "metrica": "accuracy",
+     "valor": 0.95625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.570656686089933,
+     "metrica": "accuracy",
+     "valor": 0.959375,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 9.275508765131235,
+     "metrica": "accuracy",
+     "valor": 0.95625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007815790129825473,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 41.401323318015784,
+     "metrica": "accuracy",
+     "valor": 0.94375,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.375698555028066,
+     "metrica": "accuracy",
+     "valor": 0.975,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 9.770184195134789,
+     "metrica": "accuracy",
+     "valor": 0.971875,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00867563602514565,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 41.964122316101566,
+     "metrica": "accuracy",
+     "valor": 0.98125,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.584054013947025,
+     "metrica": "accuracy",
+     "valor": 0.965625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 10.506926737958565,
+     "metrica": "accuracy",
+     "valor": 0.975,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008990115951746702,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 42.12948445510119,
+     "metrica": "accuracy",
+     "valor": 0.965625,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_de_tabm": 5,
+   "guarda_de_verdad": [
+    {
+     "filas": 2000,
+     "columnas_de_entrada": 216,
+     "habria_dicho_estimada_y_disponible_gb": null
+    }
+   ],
+   "motores_fuera_por_memoria": {},
+   "presupuesto_segun_el_tamano": null,
+   "pared_estudio_s": 452.4,
+   "fin": "2026-10-09 16:08:21",
+   "motor_de_cada_intento_inferido": {
+    "1": "lightgbm",
+    "2": "sklearn.hgb",
+    "3": "baseline",
+    "4": "matrixai.dense.tabm_cpu",
+    "5": "lightgbm",
+    "6": "sklearn.hgb",
+    "7": "baseline",
+    "8": "matrixai.dense.tabm_cpu",
+    "9": "lightgbm",
+    "10": "sklearn.hgb",
+    "11": "baseline",
+    "12": "matrixai.dense.tabm_cpu",
+    "13": "lightgbm",
+    "14": "sklearn.hgb",
+    "15": "baseline",
+    "16": "matrixai.dense.tabm_cpu",
+    "17": "lightgbm",
+    "18": "sklearn.hgb",
+    "19": "baseline",
+    "20": "matrixai.dense.tabm_cpu"
+   },
+   "resumen_de_memoria": {
+    "muestras": 456,
+    "pico_total": {
+     "rss_total_mb": 1207.3,
+     "t": 1791554856.9513078,
+     "fase": "reajuste_final",
+     "grupo": "reajuste_final",
+     "procesos": {
+      "1": [
+       "init",
+       0.7
+      ],
+      "7": [
+       "otro",
+       1.7
+      ],
+      "33": [
+       "servidor",
+       259.6
+      ],
+      "47": [
+       "resource_tracker",
+       12.5
+      ],
+      "687": [
+       "hijo_spawn",
+       932.8
+      ]
+     }
+    },
+    "pico_cgroup": {
+     "cgroup_mb": 1017.7,
+     "t": 1791554856.9513078,
+     "fase": "reajuste_final",
+     "grupo": "reajuste_final"
+    },
+    "pico_servidor_mb": 313.8,
+    "por_rol": {
+     "init": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.7
+     },
+     "otro": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 1.7
+     },
+     "servidor": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 313.8
+     },
+     "resource_tracker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 12.5
+     },
+     "hijo_spawn": {
+      "procesos_distintos": 19,
+      "pico_rss_mb": 932.8
+     },
+     "exec_de_docker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 9.1
+     }
+    },
+    "por_fase": {
+     "antes": {
+      "muestras": 1,
+      "pico_total_mb": 2.4,
+      "pico_servidor_mb": 0.0,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 5.5,
+      "duracion_s": 0.0
+     },
+     "preparacion": {
+      "muestras": 1,
+      "pico_total_mb": 105.4,
+      "pico_servidor_mb": 103.0,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 92.8,
+      "duracion_s": 0.0
+     },
+     "intento:lightgbm": {
+      "muestras": 38,
+      "pico_total_mb": 509.2,
+      "pico_servidor_mb": 313.8,
+      "pico_hijo_mb": 216.5,
+      "pico_cgroup_mb": 411.6,
+      "duracion_s": 309.0
+     },
+     "intento:sklearn.hgb": {
+      "muestras": 66,
+      "pico_total_mb": 513.0,
+      "pico_servidor_mb": 275.8,
+      "pico_hijo_mb": 224.7,
+      "pico_cgroup_mb": 416.7,
+      "duracion_s": 314.9
+     },
+     "intento:baseline": {
+      "muestras": 4,
+      "pico_total_mb": 506.6,
+      "pico_servidor_mb": 270.5,
+      "pico_hijo_mb": 221.2,
+      "pico_cgroup_mb": 382.2,
+      "duracion_s": 227.0
+     },
+     "intento:matrixai.dense.tabm_cpu": {
+      "muestras": 271,
+      "pico_total_mb": 1161.7,
+      "pico_servidor_mb": 308.6,
+      "pico_hijo_mb": 900.0,
+      "pico_cgroup_mb": 996.5,
+      "duracion_s": 354.1
+     },
+     "reajuste_final": {
+      "muestras": 73,
+      "pico_total_mb": 1207.3,
+      "pico_servidor_mb": 259.6,
+      "pico_hijo_mb": 932.8,
+      "pico_cgroup_mb": 1017.7,
+      "duracion_s": 72.0
+     },
+     "fin": {
+      "muestras": 2,
+      "pico_total_mb": 2.4,
+      "pico_servidor_mb": 0.0,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 19.8,
+      "duracion_s": 1.0
+     }
+    },
+    "hijo_mayor": {
+     "pid": 687,
+     "ppid": 33,
+     "rol": "hijo_spawn",
+     "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+     "primera_t": 1791554824.0155275,
+     "ultima_t": 1791554896.950917,
+     "pico_rss_mb": 932.8,
+     "pico_hwm_mb": 939.4,
+     "fase_del_pico": "reajuste_final",
+     "servidor_en_el_pico_mb": 259.6,
+     "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+     "vive_s": 72.9,
+     "sobre_pico_del_servidor": 2.973,
+     "sobre_servidor_en_ese_instante": 3.593
+    },
+    "por_proceso": [
+     {
+      "pid": 1,
+      "ppid": 0,
+      "rol": "init",
+      "cmd": "/sbin/docker-init -- sleep infinity",
+      "primera_t": 1791554443.950635,
+      "ultima_t": 1791554898.9506605,
+      "pico_rss_mb": 0.7,
+      "pico_hwm_mb": 0.7,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 0.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 455.0
+     },
+     {
+      "pid": 7,
+      "ppid": 1,
+      "rol": "otro",
+      "cmd": "sleep infinity",
+      "primera_t": 1791554443.950635,
+      "ultima_t": 1791554898.9506605,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 0.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 455.0
+     },
+     {
+      "pid": 33,
+      "ppid": 0,
+      "rol": "servidor",
+      "cmd": "python3 /tmp/tabm_forzado_128_c3b.py /tmp/cuerpo_128_c3b.json /tmp/tabm_forzado_128_c3b.json",
+      "primera_t": 1791554444.9507778,
+      "ultima_t": 1791554896.950917,
+      "pico_rss_mb": 313.8,
+      "pico_hwm_mb": 332.7,
+      "fase_del_pico": "intento 5/20",
+      "servidor_en_el_pico_mb": 313.8,
+      "grupo_al_nacer": "preparacion",
+      "vive_s": 452.0
+     },
+     {
+      "pid": 47,
+      "ppid": 33,
+      "rol": "resource_tracker",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.resource_tracker import main;main(5)",
+      "primera_t": 1791554446.9512725,
+      "ultima_t": 1791554896.950917,
+      "pico_rss_mb": 12.5,
+      "pico_hwm_mb": 12.5,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 259.6,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 450.0
+     },
+     {
+      "pid": 48,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554446.9512725,
+      "ultima_t": 1791554452.9512522,
+      "pico_rss_mb": 201.2,
+      "pico_hwm_mb": 220.0,
+      "fase_del_pico": "intento 1/20",
+      "servidor_en_el_pico_mb": 88.2,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 6.0,
+      "sobre_pico_del_servidor": 0.641,
+      "sobre_servidor_en_ese_instante": 2.281
+     },
+     {
+      "pid": 79,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554454.0140936,
+      "ultima_t": 1791554466.951371,
+      "pico_rss_mb": 209.6,
+      "pico_hwm_mb": 216.4,
+      "fase_del_pico": "intento 2/20",
+      "servidor_en_el_pico_mb": 89.5,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 12.9,
+      "sobre_pico_del_servidor": 0.668,
+      "sobre_servidor_en_ese_instante": 2.342
+     },
+     {
+      "pid": 117,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554467.951249,
+      "ultima_t": 1791554467.951249,
+      "pico_rss_mb": 37.4,
+      "pico_hwm_mb": 37.4,
+      "fase_del_pico": "intento 3/20",
+      "servidor_en_el_pico_mb": 89.0,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.119,
+      "sobre_servidor_en_ese_instante": 0.42
+     },
+     {
+      "pid": 127,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554468.9511538,
+      "ultima_t": 1791554520.9512546,
+      "pico_rss_mb": 900.0,
+      "pico_hwm_mb": 901.7,
+      "fase_del_pico": "intento 4/20",
+      "servidor_en_el_pico_mb": 88.9,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 52.0,
+      "sobre_pico_del_servidor": 2.868,
+      "sobre_servidor_en_ese_instante": 10.124
+     },
+     {
+      "pid": 190,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554525.013773,
+      "ultima_t": 1791554529.9513817,
+      "pico_rss_mb": 216.5,
+      "pico_hwm_mb": 220.3,
+      "fase_del_pico": "intento 5/20",
+      "servidor_en_el_pico_mb": 277.8,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 4.9,
+      "sobre_pico_del_servidor": 0.69,
+      "sobre_servidor_en_ese_instante": 0.779
+     },
+     {
+      "pid": 221,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554530.9523554,
+      "ultima_t": 1791554541.950971,
+      "pico_rss_mb": 209.6,
+      "pico_hwm_mb": 216.4,
+      "fase_del_pico": "intento 6/20",
+      "servidor_en_el_pico_mb": 259.5,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 11.0,
+      "sobre_pico_del_servidor": 0.668,
+      "sobre_servidor_en_ese_instante": 0.808
+     },
+     {
+      "pid": 245,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554542.950835,
+      "ultima_t": 1791554542.950835,
+      "pico_rss_mb": 19.6,
+      "pico_hwm_mb": 19.6,
+      "fase_del_pico": "intento 6/20",
+      "servidor_en_el_pico_mb": 259.6,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.062,
+      "sobre_servidor_en_ese_instante": 0.076
+     },
+     {
+      "pid": 255,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554543.9511201,
+      "ultima_t": 1791554598.9510632,
+      "pico_rss_mb": 888.2,
+      "pico_hwm_mb": 913.0,
+      "fase_del_pico": "intento 8/20",
+      "servidor_en_el_pico_mb": 258.6,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 55.0,
+      "sobre_pico_del_servidor": 2.83,
+      "sobre_servidor_en_ese_instante": 3.435
+     },
+     {
+      "pid": 318,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554600.951155,
+      "ultima_t": 1791554606.9509583,
+      "pico_rss_mb": 216.3,
+      "pico_hwm_mb": 220.0,
+      "fase_del_pico": "intento 9/20",
+      "servidor_en_el_pico_mb": 272.9,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 6.0,
+      "sobre_pico_del_servidor": 0.689,
+      "sobre_servidor_en_ese_instante": 0.793
+     },
+     {
+      "pid": 349,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554607.9513292,
+      "ultima_t": 1791554618.9510624,
+      "pico_rss_mb": 209.6,
+      "pico_hwm_mb": 216.3,
+      "fase_del_pico": "intento 10/20",
+      "servidor_en_el_pico_mb": 268.1,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 11.0,
+      "sobre_pico_del_servidor": 0.668,
+      "sobre_servidor_en_ese_instante": 0.782
+     },
+     {
+      "pid": 373,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554619.9513972,
+      "ultima_t": 1791554619.9513972,
+      "pico_rss_mb": 19.9,
+      "pico_hwm_mb": 19.9,
+      "fase_del_pico": "intento 10/20",
+      "servidor_en_el_pico_mb": 267.5,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.063,
+      "sobre_servidor_en_ese_instante": 0.074
+     },
+     {
+      "pid": 383,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554620.9513853,
+      "ultima_t": 1791554671.9512854,
+      "pico_rss_mb": 866.4,
+      "pico_hwm_mb": 902.4,
+      "fase_del_pico": "intento 12/20",
+      "servidor_en_el_pico_mb": 267.5,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 51.0,
+      "sobre_pico_del_servidor": 2.761,
+      "sobre_servidor_en_ese_instante": 3.239
+     },
+     {
+      "pid": 438,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554673.9509544,
+      "ultima_t": 1791554678.950894,
+      "pico_rss_mb": 201.6,
+      "pico_hwm_mb": 201.6,
+      "fase_del_pico": "intento 13/20",
+      "servidor_en_el_pico_mb": 289.5,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 5.0,
+      "sobre_pico_del_servidor": 0.642,
+      "sobre_servidor_en_ese_instante": 0.696
+     },
+     {
+      "pid": 469,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554680.9513905,
+      "ultima_t": 1791554692.9510183,
+      "pico_rss_mb": 209.8,
+      "pico_hwm_mb": 216.6,
+      "fase_del_pico": "intento 14/20",
+      "servidor_en_el_pico_mb": 271.2,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 12.0,
+      "sobre_pico_del_servidor": 0.669,
+      "sobre_servidor_en_ese_instante": 0.774
+     },
+     {
+      "pid": 503,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554693.9514315,
+      "ultima_t": 1791554746.9510522,
+      "pico_rss_mb": 812.5,
+      "pico_hwm_mb": 913.1,
+      "fase_del_pico": "intento 16/20",
+      "servidor_en_el_pico_mb": 270.6,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 53.0,
+      "sobre_pico_del_servidor": 2.589,
+      "sobre_servidor_en_ese_instante": 3.003
+     },
+     {
+      "pid": 548,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791554735.9509978,
+      "ultima_t": 1791554735.9509978,
+      "pico_rss_mb": 9.1,
+      "pico_hwm_mb": 9.1,
+      "fase_del_pico": "intento 16/20",
+      "servidor_en_el_pico_mb": 270.6,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 566,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554748.9509203,
+      "ultima_t": 1791554753.9510334,
+      "pico_rss_mb": 201.4,
+      "pico_hwm_mb": 201.4,
+      "fase_del_pico": "intento 17/20",
+      "servidor_en_el_pico_mb": 291.6,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 5.0,
+      "sobre_pico_del_servidor": 0.642,
+      "sobre_servidor_en_ese_instante": 0.691
+     },
+     {
+      "pid": 590,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554754.9513223,
+      "ultima_t": 1791554768.9510992,
+      "pico_rss_mb": 224.7,
+      "pico_hwm_mb": 225.1,
+      "fase_del_pico": "intento 18/20",
+      "servidor_en_el_pico_mb": 273.4,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 14.0,
+      "sobre_pico_del_servidor": 0.716,
+      "sobre_servidor_en_ese_instante": 0.822
+     },
+     {
+      "pid": 631,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554769.9514635,
+      "ultima_t": 1791554822.9508529,
+      "pico_rss_mb": 816.7,
+      "pico_hwm_mb": 905.8,
+      "fase_del_pico": "intento 20/20",
+      "servidor_en_el_pico_mb": 272.1,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 53.0,
+      "sobre_pico_del_servidor": 2.603,
+      "sobre_servidor_en_ese_instante": 3.001
+     },
+     {
+      "pid": 687,
+      "ppid": 33,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554824.0155275,
+      "ultima_t": 1791554896.950917,
+      "pico_rss_mb": 932.8,
+      "pico_hwm_mb": 939.4,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 259.6,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 72.9,
+      "sobre_pico_del_servidor": 2.973,
+      "sobre_servidor_en_ese_instante": 3.593
+     }
+    ]
+   },
+   "memoria_del_contenedor": "6g",
+   "eventos_de_fase": [
+    [
+     1791554444.8,
+     "preparacion"
+    ],
+    [
+     1791554445.5,
+     "intento 1/20"
+    ],
+    [
+     1791554453.5,
+     "intento 2/20"
+    ],
+    [
+     1791554467.5,
+     "intento 3/20"
+    ],
+    [
+     1791554469.5,
+     "intento 4/20"
+    ],
+    [
+     1791554523.6,
+     "intento 5/20"
+    ],
+    [
+     1791554531.6,
+     "intento 6/20"
+    ],
+    [
+     1791554543.6,
+     "intento 8/20"
+    ],
+    [
+     1791554601.7,
+     "intento 9/20"
+    ],
+    [
+     1791554607.7,
+     "intento 10/20"
+    ],
+    [
+     1791554621.7,
+     "intento 12/20"
+    ],
+    [
+     1791554673.7,
+     "intento 13/20"
+    ],
+    [
+     1791554681.7,
+     "intento 14/20"
+    ],
+    [
+     1791554693.7,
+     "intento 15/20"
+    ],
+    [
+     1791554695.8,
+     "intento 16/20"
+    ],
+    [
+     1791554747.8,
+     "intento 17/20"
+    ],
+    [
+     1791554755.9,
+     "intento 18/20"
+    ],
+    [
+     1791554769.9,
+     "intento 20/20"
+    ],
+    [
+     1791554824.0,
+     "reajuste_final"
+    ],
+    [
+     1791554897.2,
+     "fin"
+    ]
+   ],
+   "serie_temporal": {
+    "fichero": "mfeat-factors-tabm-forzado.series.json.gz",
+    "sha256": "85337ece0c0b4dbd50f6c387dd6d2db9b3974b3efe2aa033de5cdae7954f0a13",
+    "muestras": 456
+   },
+   "memoria_pico_mb": 1017.7,
+   "estado_final_guardado": {
+    "fichero": "mfeat-factors-tabm-forzado.estado.json.gz",
+    "sha256": "33e3bf821748b3ea8d845be55b66ce8758b3de77bba6bdca8694e28b4f2ad26e"
+   }
+  },
+  "us_crime:tabm_forzado": {
+   "nombre": "us_crime",
+   "data_id": 42730,
+   "tarea": "regression",
+   "objetivo": "ViolentCrimesPerPop",
+   "inicio": "2026-10-09 16:08:22",
+   "csv": {
+    "filas": 1994,
+    "columnas": 127,
+    "bytes": 1069334,
+    "excluidas_por_string": [
+     "communityname"
+    ]
+   },
+   "loadavg_al_empezar": [
+    "1.14",
+    "1.36",
+    "1.84"
+   ],
+   "sha256_guion_dentro": "766d76ae56a7a818c1f936f945d36dd66994fc88735f1108e57f33cb207d699e",
+   "entorno_del_guion": {
+    "MATRIXAI_ESTUDIO_SIN_DENSA": "1"
+   },
+   "tope_s": 2400,
+   "contenedor_sin_servidor": true,
+   "guion_rc": 0,
+   "guion_pared_s": 366.7,
+   "guion_stderr_cola": "",
+   "memory_events": {
+    "low": 0,
+    "high": 0,
+    "max": 0,
+    "oom": 0,
+    "oom_kill": 0,
+    "oom_group_kill": 0
+   },
+   "contenedor": {
+    "oom_killed": false,
+    "codigo_de_salida": "0",
+    "estado": "running",
+    "error": ""
+   },
+   "estado": "completed",
+   "estado_del_estudio": "completed",
+   "error": null,
+   "campeon": "matrixai.dense.tabm_cpu",
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.13963166320214226
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.14023195573759334
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.2313232277454691
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "matrixai.dense.tabm_cpu",
+      "n_partes": 5,
+      "valor": 0.13591168025023087
+     }
+    ],
+    "n_esperados": 5
+   },
+   "n_intentos_total": 20,
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "rmse": 0.1273916814187011,
+     "r2": 0.7135886885789829,
+     "mae": 0.08619711878039826
+    }
+   },
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "matrixai.dense.tabm_cpu",
+     "politica_por_tamano": null
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 5,
+     "sklearn.hgb": 5
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": false,
+      "filas_de_train": 1084,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": false,
+      "filas_de_train": 1084,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4629747299477458,
+     "metrica": "rmse",
+     "valor": 0.14750364040813663,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.1554945560637861,
+     "metrica": "rmse",
+     "valor": 0.14986346681735024,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008482803124934435,
+     "metrica": "rmse",
+     "valor": 0.2468383367236631,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 42.530182542977855,
+     "metrica": "rmse",
+     "valor": 0.14400211789549083,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.43996850796975195,
+     "metrica": "rmse",
+     "valor": 0.13436152283648664,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9858546641189605,
+     "metrica": "rmse",
+     "valor": 0.13224954545446468,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00841374509036541,
+     "metrica": "rmse",
+     "valor": 0.21455925549266888,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 43.59793506516144,
+     "metrica": "rmse",
+     "valor": 0.12893981059302043,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.476122495951131,
+     "metrica": "rmse",
+     "valor": 0.14828150445767288,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0144817749969661,
+     "metrica": "rmse",
+     "valor": 0.14780333930032435,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011138392146676779,
+     "metrica": "rmse",
+     "valor": 0.2478674154798131,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 45.075690960045904,
+     "metrica": "rmse",
+     "valor": 0.14140690730636138,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.46369851008057594,
+     "metrica": "rmse",
+     "valor": 0.1348348070354004,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.1279786888044327,
+     "metrica": "rmse",
+     "valor": 0.13555992679587459,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008145479951053858,
+     "metrica": "rmse",
+     "valor": 0.22531862057448315,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.41656567296013,
+     "metrica": "rmse",
+     "valor": 0.13688343619868915,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.42396860383450985,
+     "metrica": "rmse",
+     "valor": 0.13317684127301477,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9864617141429335,
+     "metrica": "rmse",
+     "valor": 0.13568350031995283,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008010686142370105,
+     "metrica": "rmse",
+     "valor": 0.22203251045671732,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 42.49284699908458,
+     "metrica": "rmse",
+     "valor": 0.12832612925759254,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_de_tabm": 5,
+   "guarda_de_verdad": [
+    {
+     "filas": 1994,
+     "columnas_de_entrada": 126,
+     "habria_dicho_estimada_y_disponible_gb": null
+    }
+   ],
+   "motores_fuera_por_memoria": {},
+   "presupuesto_segun_el_tamano": null,
+   "pared_estudio_s": 365.5,
+   "fin": "2026-10-09 16:14:33",
+   "motor_de_cada_intento_inferido": {
+    "1": "lightgbm",
+    "2": "sklearn.hgb",
+    "3": "baseline",
+    "4": "matrixai.dense.tabm_cpu",
+    "5": "lightgbm",
+    "6": "sklearn.hgb",
+    "7": "baseline",
+    "8": "matrixai.dense.tabm_cpu",
+    "9": "lightgbm",
+    "10": "sklearn.hgb",
+    "11": "baseline",
+    "12": "matrixai.dense.tabm_cpu",
+    "13": "lightgbm",
+    "14": "sklearn.hgb",
+    "15": "baseline",
+    "16": "matrixai.dense.tabm_cpu",
+    "17": "lightgbm",
+    "18": "sklearn.hgb",
+    "19": "baseline",
+    "20": "matrixai.dense.tabm_cpu"
+   },
+   "resumen_de_memoria": {
+    "muestras": 369,
+    "pico_total": {
+     "rss_total_mb": 946.6,
+     "t": 1791555222.658577,
+     "fase": "reajuste_final",
+     "grupo": "reajuste_final",
+     "procesos": {
+      "1": [
+       "init",
+       0.7
+      ],
+      "7": [
+       "otro",
+       1.8
+      ],
+      "32": [
+       "servidor",
+       240.7
+      ],
+      "46": [
+       "resource_tracker",
+       12.5
+      ],
+      "631": [
+       "hijo_spawn",
+       690.9
+      ]
+     }
+    },
+    "pico_cgroup": {
+     "cgroup_mb": 760.6,
+     "t": 1791555066.6586728,
+     "fase": "intento 12/20",
+     "grupo": "intento:matrixai.dense.tabm_cpu"
+    },
+    "pico_servidor_mb": 274.3,
+    "por_rol": {
+     "init": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.7
+     },
+     "otro": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 1.8
+     },
+     "servidor": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 274.3
+     },
+     "resource_tracker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 12.5
+     },
+     "hijo_spawn": {
+      "procesos_distintos": 18,
+      "pico_rss_mb": 690.9
+     },
+     "exec_de_docker": {
+      "procesos_distintos": 2,
+      "pico_rss_mb": 11.6
+     },
+     "sh": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 1.7
+     }
+    },
+    "por_fase": {
+     "antes": {
+      "muestras": 1,
+      "pico_total_mb": 2.5,
+      "pico_servidor_mb": 0.0,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 5.5,
+      "duracion_s": 0.0
+     },
+     "preparacion": {
+      "muestras": 1,
+      "pico_total_mb": 92.6,
+      "pico_servidor_mb": 90.1,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 79.6,
+      "duracion_s": 0.0
+     },
+     "intento:lightgbm": {
+      "muestras": 18,
+      "pico_total_mb": 438.1,
+      "pico_servidor_mb": 258.7,
+      "pico_hijo_mb": 164.5,
+      "pico_cgroup_mb": 336.7,
+      "duracion_s": 239.0
+     },
+     "intento:sklearn.hgb": {
+      "muestras": 16,
+      "pico_total_mb": 439.4,
+      "pico_servidor_mb": 247.2,
+      "pico_hijo_mb": 178.5,
+      "pico_cgroup_mb": 338.8,
+      "duracion_s": 239.0
+     },
+     "intento:matrixai.dense.tabm_cpu": {
+      "muestras": 258,
+      "pico_total_mb": 929.3,
+      "pico_servidor_mb": 274.3,
+      "pico_hijo_mb": 669.6,
+      "pico_cgroup_mb": 760.6,
+      "duracion_s": 285.0
+     },
+     "intento:baseline": {
+      "muestras": 2,
+      "pico_total_mb": 457.3,
+      "pico_servidor_mb": 244.6,
+      "pico_hijo_mb": 197.7,
+      "pico_cgroup_mb": 328.4,
+      "duracion_s": 1.0
+     },
+     "reajuste_final": {
+      "muestras": 71,
+      "pico_total_mb": 946.6,
+      "pico_servidor_mb": 241.2,
+      "pico_hijo_mb": 690.9,
+      "pico_cgroup_mb": 758.8,
+      "duracion_s": 70.0
+     },
+     "fin": {
+      "muestras": 2,
+      "pico_total_mb": 2.5,
+      "pico_servidor_mb": 0.0,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 29.7,
+      "duracion_s": 1.0
+     }
+    },
+    "hijo_mayor": {
+     "pid": 631,
+     "ppid": 32,
+     "rol": "hijo_spawn",
+     "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+     "primera_t": 1791555197.6587133,
+     "ultima_t": 1791555268.6586714,
+     "pico_rss_mb": 690.9,
+     "pico_hwm_mb": 714.9,
+     "fase_del_pico": "reajuste_final",
+     "servidor_en_el_pico_mb": 240.7,
+     "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+     "vive_s": 71.0,
+     "sobre_pico_del_servidor": 2.519,
+     "sobre_servidor_en_ese_instante": 2.87
+    },
+    "por_proceso": [
+     {
+      "pid": 1,
+      "ppid": 0,
+      "rol": "init",
+      "cmd": "/sbin/docker-init -- sleep infinity",
+      "primera_t": 1791554902.6580908,
+      "ultima_t": 1791555270.6584256,
+      "pico_rss_mb": 0.7,
+      "pico_hwm_mb": 0.7,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 0.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 368.0
+     },
+     {
+      "pid": 7,
+      "ppid": 1,
+      "rol": "otro",
+      "cmd": "sleep infinity",
+      "primera_t": 1791554902.6580908,
+      "ultima_t": 1791555270.6584256,
+      "pico_rss_mb": 1.8,
+      "pico_hwm_mb": 1.8,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 0.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 368.0
+     },
+     {
+      "pid": 32,
+      "ppid": 0,
+      "rol": "servidor",
+      "cmd": "python3 /tmp/tabm_forzado_128_c3b.py /tmp/cuerpo_128_c3b.json /tmp/tabm_forzado_128_c3b.json",
+      "primera_t": 1791554903.658414,
+      "ultima_t": 1791555268.6586714,
+      "pico_rss_mb": 274.3,
+      "pico_hwm_mb": 281.6,
+      "fase_del_pico": "intento 8/20",
+      "servidor_en_el_pico_mb": 274.3,
+      "grupo_al_nacer": "preparacion",
+      "vive_s": 365.0
+     },
+     {
+      "pid": 46,
+      "ppid": 32,
+      "rol": "resource_tracker",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.resource_tracker import main;main(5)",
+      "primera_t": 1791554904.6612246,
+      "ultima_t": 1791555268.6586714,
+      "pico_rss_mb": 12.5,
+      "pico_hwm_mb": 12.5,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 241.2,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 364.0
+     },
+     {
+      "pid": 47,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554904.6612246,
+      "ultima_t": 1791554906.6585662,
+      "pico_rss_mb": 154.6,
+      "pico_hwm_mb": 154.6,
+      "fase_del_pico": "intento 1/20",
+      "servidor_en_el_pico_mb": 77.8,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.564,
+      "sobre_servidor_en_ese_instante": 1.987
+     },
+     {
+      "pid": 78,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554907.6611204,
+      "ultima_t": 1791554910.6585264,
+      "pico_rss_mb": 175.5,
+      "pico_hwm_mb": 177.6,
+      "fase_del_pico": "intento 2/20",
+      "servidor_en_el_pico_mb": 77.9,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 0.64,
+      "sobre_servidor_en_ese_instante": 2.253
+     },
+     {
+      "pid": 105,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554911.6587164,
+      "ultima_t": 1791554961.6587605,
+      "pico_rss_mb": 658.4,
+      "pico_hwm_mb": 694.4,
+      "fase_del_pico": "intento 4/20",
+      "servidor_en_el_pico_mb": 77.7,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 50.0,
+      "sobre_pico_del_servidor": 2.4,
+      "sobre_servidor_en_ese_instante": 8.474
+     },
+     {
+      "pid": 150,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791554932.6588602,
+      "ultima_t": 1791554932.6588602,
+      "pico_rss_mb": 11.1,
+      "pico_hwm_mb": 11.1,
+      "fase_del_pico": "intento 4/20",
+      "servidor_en_el_pico_mb": 77.7,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 182,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554963.6593907,
+      "ultima_t": 1791554965.6588347,
+      "pico_rss_mb": 162.4,
+      "pico_hwm_mb": 162.4,
+      "fase_del_pico": "intento 5/20",
+      "servidor_en_el_pico_mb": 252.8,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.592,
+      "sobre_servidor_en_ese_instante": 0.642
+     },
+     {
+      "pid": 206,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554966.658732,
+      "ultima_t": 1791554968.6586912,
+      "pico_rss_mb": 177.9,
+      "pico_hwm_mb": 177.9,
+      "fase_del_pico": "intento 6/20",
+      "servidor_en_el_pico_mb": 241.4,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.649,
+      "sobre_servidor_en_ese_instante": 0.737
+     },
+     {
+      "pid": 223,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554969.659388,
+      "ultima_t": 1791554969.659388,
+      "pico_rss_mb": 35.6,
+      "pico_hwm_mb": 35.6,
+      "fase_del_pico": "intento 6/20",
+      "servidor_en_el_pico_mb": 241.5,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.13,
+      "sobre_servidor_en_ese_instante": 0.147
+     },
+     {
+      "pid": 233,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791554970.6587024,
+      "ultima_t": 1791555020.6585827,
+      "pico_rss_mb": 655.6,
+      "pico_hwm_mb": 684.5,
+      "fase_del_pico": "intento 8/20",
+      "servidor_en_el_pico_mb": 241.5,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 50.0,
+      "sobre_pico_del_servidor": 2.39,
+      "sobre_servidor_en_ese_instante": 2.715
+     },
+     {
+      "pid": 289,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555022.660971,
+      "ultima_t": 1791555023.6588929,
+      "pico_rss_mb": 150.6,
+      "pico_hwm_mb": 150.6,
+      "fase_del_pico": "intento 9/20",
+      "servidor_en_el_pico_mb": 256.2,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 1.0,
+      "sobre_pico_del_servidor": 0.549,
+      "sobre_servidor_en_ese_instante": 0.588
+     },
+     {
+      "pid": 320,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555024.6586185,
+      "ultima_t": 1791555027.6591444,
+      "pico_rss_mb": 165.4,
+      "pico_hwm_mb": 179.5,
+      "fase_del_pico": "intento 10/20",
+      "servidor_en_el_pico_mb": 244.8,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 3.0,
+      "sobre_pico_del_servidor": 0.603,
+      "sobre_servidor_en_ese_instante": 0.676
+     },
+     {
+      "pid": 347,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555028.6585653,
+      "ultima_t": 1791555080.6589673,
+      "pico_rss_mb": 669.6,
+      "pico_hwm_mb": 693.1,
+      "fase_del_pico": "intento 12/20",
+      "servidor_en_el_pico_mb": 244.7,
+      "grupo_al_nacer": "intento:baseline",
+      "vive_s": 52.0,
+      "sobre_pico_del_servidor": 2.441,
+      "sobre_servidor_en_ese_instante": 2.736
+     },
+     {
+      "pid": 385,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791555063.6589394,
+      "ultima_t": 1791555063.6589394,
+      "pico_rss_mb": 11.6,
+      "pico_hwm_mb": 11.6,
+      "fase_del_pico": "intento 12/20",
+      "servidor_en_el_pico_mb": 244.7,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 403,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555082.6585739,
+      "ultima_t": 1791555084.6586633,
+      "pico_rss_mb": 143.1,
+      "pico_hwm_mb": 165.9,
+      "fase_del_pico": "intento 13/20",
+      "servidor_en_el_pico_mb": 258.7,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.522,
+      "sobre_servidor_en_ese_instante": 0.553
+     },
+     {
+      "pid": 434,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555085.6594365,
+      "ultima_t": 1791555087.658892,
+      "pico_rss_mb": 178.5,
+      "pico_hwm_mb": 178.5,
+      "fase_del_pico": "intento 14/20",
+      "servidor_en_el_pico_mb": 245.9,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.651,
+      "sobre_servidor_en_ese_instante": 0.726
+     },
+     {
+      "pid": 451,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555088.658619,
+      "ultima_t": 1791555088.658619,
+      "pico_rss_mb": 71.0,
+      "pico_hwm_mb": 71.0,
+      "fase_del_pico": "intento 14/20",
+      "servidor_en_el_pico_mb": 245.6,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.259,
+      "sobre_servidor_en_ese_instante": 0.289
+     },
+     {
+      "pid": 461,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555089.6586478,
+      "ultima_t": 1791555140.6585603,
+      "pico_rss_mb": 667.3,
+      "pico_hwm_mb": 687.3,
+      "fase_del_pico": "intento 16/20",
+      "servidor_en_el_pico_mb": 245.7,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 51.0,
+      "sobre_pico_del_servidor": 2.433,
+      "sobre_servidor_en_ese_instante": 2.716
+     },
+     {
+      "pid": 517,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555141.658505,
+      "ultima_t": 1791555143.658544,
+      "pico_rss_mb": 164.5,
+      "pico_hwm_mb": 164.5,
+      "fase_del_pico": "intento 17/20",
+      "servidor_en_el_pico_mb": 258.6,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.6,
+      "sobre_servidor_en_ese_instante": 0.636
+     },
+     {
+      "pid": 541,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555144.6587107,
+      "ultima_t": 1791555146.6588876,
+      "pico_rss_mb": 169.4,
+      "pico_hwm_mb": 177.2,
+      "fase_del_pico": "intento 18/20",
+      "servidor_en_el_pico_mb": 247.2,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.618,
+      "sobre_servidor_en_ese_instante": 0.685
+     },
+     {
+      "pid": 575,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555147.6586666,
+      "ultima_t": 1791555196.6592934,
+      "pico_rss_mb": 646.1,
+      "pico_hwm_mb": 687.0,
+      "fase_del_pico": "intento 20/20",
+      "servidor_en_el_pico_mb": 247.0,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 49.0,
+      "sobre_pico_del_servidor": 2.355,
+      "sobre_servidor_en_ese_instante": 2.616
+     },
+     {
+      "pid": 613,
+      "ppid": 0,
+      "rol": "sh",
+      "cmd": "/bin/sh -c curl -sf http://localhost:${MATRIXAI_STUDIO_PORT}/api/studio/status || exit 1",
+      "primera_t": 1791555184.6589475,
+      "ultima_t": 1791555184.6589475,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "intento 20/20",
+      "servidor_en_el_pico_mb": 247.0,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 631,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555197.6587133,
+      "ultima_t": 1791555268.6586714,
+      "pico_rss_mb": 690.9,
+      "pico_hwm_mb": 714.9,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 240.7,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 71.0,
+      "sobre_pico_del_servidor": 2.519,
+      "sobre_servidor_en_ese_instante": 2.87
+     }
+    ]
+   },
+   "memoria_del_contenedor": "6g",
+   "eventos_de_fase": [
+    [
+     1791554903.5,
+     "preparacion"
+    ],
+    [
+     1791554903.9,
+     "intento 1/20"
+    ],
+    [
+     1791554907.9,
+     "intento 2/20"
+    ],
+    [
+     1791554911.9,
+     "intento 4/20"
+    ],
+    [
+     1791554964.0,
+     "intento 5/20"
+    ],
+    [
+     1791554968.0,
+     "intento 6/20"
+    ],
+    [
+     1791554970.0,
+     "intento 8/20"
+    ],
+    [
+     1791555022.0,
+     "intento 9/20"
+    ],
+    [
+     1791555026.0,
+     "intento 10/20"
+    ],
+    [
+     1791555028.0,
+     "intento 11/20"
+    ],
+    [
+     1791555030.0,
+     "intento 12/20"
+    ],
+    [
+     1791555082.1,
+     "intento 13/20"
+    ],
+    [
+     1791555086.1,
+     "intento 14/20"
+    ],
+    [
+     1791555090.1,
+     "intento 16/20"
+    ],
+    [
+     1791555142.1,
+     "intento 17/20"
+    ],
+    [
+     1791555144.1,
+     "intento 18/20"
+    ],
+    [
+     1791555148.1,
+     "intento 20/20"
+    ],
+    [
+     1791555198.2,
+     "reajuste_final"
+    ],
+    [
+     1791555269.0,
+     "fin"
+    ]
+   ],
+   "serie_temporal": {
+    "fichero": "us_crime-tabm-forzado.series.json.gz",
+    "sha256": "089629f1026c22891e2233fe9386a02c3a04201edff42ea9351a13fcba63da6a",
+    "muestras": 369
+   },
+   "memoria_pico_mb": 760.6,
+   "estado_final_guardado": {
+    "fichero": "us_crime-tabm-forzado.estado.json.gz",
+    "sha256": "931cb8847f935f2ff0f0fd5ca2a30b65410352bc65ad23ffb51be5796487c506"
+   }
+  },
+  "house_16H:tabm_forzado": {
+   "nombre": "house_16H",
+   "data_id": 574,
+   "tarea": "regression",
+   "objetivo": "price",
+   "inicio": "2026-10-09 16:14:34",
+   "csv": {
+    "filas": 22784,
+    "columnas": 17,
+    "bytes": 4027503,
+    "excluidas_por_string": []
+   },
+   "loadavg_al_empezar": [
+    "1.26",
+    "1.32",
+    "1.66"
+   ],
+   "sha256_guion_dentro": "766d76ae56a7a818c1f936f945d36dd66994fc88735f1108e57f33cb207d699e",
+   "entorno_del_guion": {
+    "MATRIXAI_ESTUDIO_SIN_DENSA": "1"
+   },
+   "tope_s": 2400,
+   "contenedor_sin_servidor": true,
+   "guion_rc": 0,
+   "guion_pared_s": 363.3,
+   "guion_stderr_cola": "",
+   "memory_events": {
+    "low": 0,
+    "high": 0,
+    "max": 0,
+    "oom": 0,
+    "oom_kill": 0,
+    "oom_group_kill": 0
+   },
+   "contenedor": {
+    "oom_killed": false,
+    "codigo_de_salida": "0",
+    "estado": "running",
+    "error": ""
+   },
+   "estado": "completed",
+   "estado_del_estudio": "completed",
+   "error": null,
+   "campeon": "matrixai.dense.tabm_cpu",
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 31942.68372232339
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 31827.045513697172
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 53356.451309943535
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "matrixai.dense.tabm_cpu",
+      "n_partes": 5,
+      "valor": 31789.407717169153
+     }
+    ],
+    "n_esperados": 5
+   },
+   "n_intentos_total": 20,
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "rmse": 28693.540426900207,
+     "r2": 0.6766674704798243,
+     "mae": 15044.09583530258
+    }
+   },
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12393,
+     "aplicada": true,
+     "arboles_efectivos": 213,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12393,
+     "aplicada": true,
+     "arboles_efectivos": 215,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12393,
+     "aplicada": true,
+     "arboles_efectivos": 115,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12393,
+     "aplicada": true,
+     "arboles_efectivos": 154,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 101,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 159,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 133,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 179,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 272,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 211,
+     "paro": "temprana"
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "matrixai.dense.tabm_cpu",
+     "politica_por_tamano": null
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 213,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 115,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 101,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 133,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 272,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 215,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 154,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 159,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 179,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 211,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 0,
+     "sklearn.hgb": 0
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": true,
+      "arboles_efectivos": 133,
+      "arboles_entrenados": 133,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 133,
+       "arboles_efectivos_de_la_busqueda": [
+        213,
+        115,
+        101,
+        133,
+        272
+       ],
+       "arboles_pedidos": 133,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 12393,
+      "hojas": 31,
+      "hojas_minimas": 20,
+      "l2": 1.0,
+      "medida_en": "contrato_120",
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ],
+      "tasa": 0.05
+     },
+     "sklearn.hgb": {
+      "aplicada": true,
+      "arboles_efectivos": 179,
+      "arboles_entrenados": 179,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 179,
+       "arboles_efectivos_de_la_busqueda": [
+        215,
+        154,
+        159,
+        179,
+        211
+       ],
+       "arboles_pedidos": 179,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 12393,
+      "hojas": 31,
+      "hojas_minimas": 20,
+      "l2": 1.0,
+      "medida_en": "contrato_120",
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ],
+      "tasa": 0.05
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.8623912280891091,
+     "metrica": "rmse",
+     "valor": 34131.19801352813,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.7247734300326556,
+     "metrica": "rmse",
+     "valor": 34014.846394377186,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.007999856024980545,
+     "metrica": "rmse",
+     "valor": 57846.654179607634,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.15328939398751,
+     "metrica": "rmse",
+     "valor": 33440.78434261344,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.6693414151668549,
+     "metrica": "rmse",
+     "valor": 32283.174317608118,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.7108921268954873,
+     "metrica": "rmse",
+     "valor": 31998.81637102402,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00856911507435143,
+     "metrica": "rmse",
+     "valor": 54559.52794957142,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 43.8046198009979,
+     "metrica": "rmse",
+     "valor": 33039.42245940439,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.7007872010581195,
+     "metrica": "rmse",
+     "valor": 30710.726757928507,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.7198827220126987,
+     "metrica": "rmse",
+     "valor": 30475.050029856277,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008818333968520164,
+     "metrica": "rmse",
+     "valor": 50855.5378159914,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.82870246213861,
+     "metrica": "rmse",
+     "valor": 30168.509855471966,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9357090531848371,
+     "metrica": "rmse",
+     "valor": 30672.994225981663,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.785077679902315,
+     "metrica": "rmse",
+     "valor": 30546.735721812944,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00806868588551879,
+     "metrica": "rmse",
+     "valor": 50740.54195181217,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.16421513911337,
+     "metrica": "rmse",
+     "valor": 30626.903230222775,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9717022490222007,
+     "metrica": "rmse",
+     "valor": 31915.325296570514,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.627102250000462,
+     "metrica": "rmse",
+     "valor": 32099.779051415444,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009522045031189919,
+     "metrica": "rmse",
+     "valor": 52779.99465273503,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.08413990586996,
+     "metrica": "rmse",
+     "valor": 31671.418698133173,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_de_tabm": 5,
+   "guarda_de_verdad": [
+    {
+     "filas": 22784,
+     "columnas_de_entrada": 16,
+     "habria_dicho_estimada_y_disponible_gb": null
+    }
+   ],
+   "motores_fuera_por_memoria": {},
+   "presupuesto_segun_el_tamano": null,
+   "pared_estudio_s": 362.0,
+   "fin": "2026-10-09 16:20:41",
+   "motor_de_cada_intento_inferido": {
+    "1": "lightgbm",
+    "2": "sklearn.hgb",
+    "3": "baseline",
+    "4": "matrixai.dense.tabm_cpu",
+    "5": "lightgbm",
+    "6": "sklearn.hgb",
+    "7": "baseline",
+    "8": "matrixai.dense.tabm_cpu",
+    "9": "lightgbm",
+    "10": "sklearn.hgb",
+    "11": "baseline",
+    "12": "matrixai.dense.tabm_cpu",
+    "13": "lightgbm",
+    "14": "sklearn.hgb",
+    "15": "baseline",
+    "16": "matrixai.dense.tabm_cpu",
+    "17": "lightgbm",
+    "18": "sklearn.hgb",
+    "19": "baseline",
+    "20": "matrixai.dense.tabm_cpu"
+   },
+   "resumen_de_memoria": {
+    "muestras": 366,
+    "pico_total": {
+     "rss_total_mb": 831.5,
+     "t": 1791555613.6652474,
+     "fase": "reajuste_final",
+     "grupo": "reajuste_final",
+     "procesos": {
+      "1": [
+       "init",
+       0.7
+      ],
+      "7": [
+       "otro",
+       1.7
+      ],
+      "32": [
+       "servidor",
+       262.8
+      ],
+      "46": [
+       "resource_tracker",
+       12.4
+      ],
+      "631": [
+       "hijo_spawn",
+       553.9
+      ]
+     }
+    },
+    "pico_cgroup": {
+     "cgroup_mb": 663.7,
+     "t": 1791555394.665402,
+     "fase": "intento 8/20",
+     "grupo": "intento:matrixai.dense.tabm_cpu"
+    },
+    "pico_servidor_mb": 294.2,
+    "por_rol": {
+     "init": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 0.7
+     },
+     "otro": {
+      "procesos_distintos": 2,
+      "pico_rss_mb": 1.7
+     },
+     "servidor": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 294.2
+     },
+     "resource_tracker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 12.4
+     },
+     "hijo_spawn": {
+      "procesos_distintos": 20,
+      "pico_rss_mb": 553.9
+     },
+     "exec_de_docker": {
+      "procesos_distintos": 1,
+      "pico_rss_mb": 11.3
+     }
+    },
+    "por_fase": {
+     "antes": {
+      "muestras": 1,
+      "pico_total_mb": 2.4,
+      "pico_servidor_mb": 0.0,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 5.4,
+      "duracion_s": 0.0
+     },
+     "preparacion": {
+      "muestras": 1,
+      "pico_total_mb": 104.5,
+      "pico_servidor_mb": 102.1,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 91.6,
+      "duracion_s": 0.0
+     },
+     "intento:lightgbm": {
+      "muestras": 23,
+      "pico_total_mb": 480.4,
+      "pico_servidor_mb": 281.4,
+      "pico_hijo_mb": 188.8,
+      "pico_cgroup_mb": 382.5,
+      "duracion_s": 244.0
+     },
+     "intento:sklearn.hgb": {
+      "muestras": 30,
+      "pico_total_mb": 486.7,
+      "pico_servidor_mb": 278.3,
+      "pico_hijo_mb": 196.4,
+      "pico_cgroup_mb": 389.2,
+      "duracion_s": 243.0
+     },
+     "intento:matrixai.dense.tabm_cpu": {
+      "muestras": 246,
+      "pico_total_mb": 828.4,
+      "pico_servidor_mb": 294.2,
+      "pico_hijo_mb": 539.1,
+      "pico_cgroup_mb": 663.7,
+      "duracion_s": 285.0
+     },
+     "reajuste_final": {
+      "muestras": 62,
+      "pico_total_mb": 831.5,
+      "pico_servidor_mb": 262.8,
+      "pico_hijo_mb": 553.9,
+      "pico_cgroup_mb": 643.4,
+      "duracion_s": 61.0
+     },
+     "fin": {
+      "muestras": 3,
+      "pico_total_mb": 275.9,
+      "pico_servidor_mb": 261.1,
+      "pico_hijo_mb": 0.0,
+      "pico_cgroup_mb": 214.3,
+      "duracion_s": 2.0
+     }
+    },
+    "hijo_mayor": {
+     "pid": 631,
+     "ppid": 32,
+     "rol": "hijo_spawn",
+     "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+     "primera_t": 1791555575.6650097,
+     "ultima_t": 1791555636.6654546,
+     "pico_rss_mb": 553.9,
+     "pico_hwm_mb": 558.2,
+     "fase_del_pico": "reajuste_final",
+     "servidor_en_el_pico_mb": 262.8,
+     "grupo_al_nacer": "reajuste_final",
+     "vive_s": 61.0,
+     "sobre_pico_del_servidor": 1.883,
+     "sobre_servidor_en_ese_instante": 2.108
+    },
+    "por_proceso": [
+     {
+      "pid": 1,
+      "ppid": 0,
+      "rol": "init",
+      "cmd": "/sbin/docker-init -- sleep infinity",
+      "primera_t": 1791555274.664826,
+      "ultima_t": 1791555639.6647553,
+      "pico_rss_mb": 0.7,
+      "pico_hwm_mb": 0.7,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 0.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 365.0
+     },
+     {
+      "pid": 7,
+      "ppid": 1,
+      "rol": "otro",
+      "cmd": "sleep infinity",
+      "primera_t": 1791555274.664826,
+      "ultima_t": 1791555639.6647553,
+      "pico_rss_mb": 1.7,
+      "pico_hwm_mb": 1.7,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 0.0,
+      "grupo_al_nacer": "antes",
+      "vive_s": 365.0
+     },
+     {
+      "pid": 32,
+      "ppid": 0,
+      "rol": "servidor",
+      "cmd": "python3 /tmp/tabm_forzado_128_c3b.py /tmp/cuerpo_128_c3b.json /tmp/tabm_forzado_128_c3b.json",
+      "primera_t": 1791555275.664897,
+      "ultima_t": 1791555637.6651058,
+      "pico_rss_mb": 294.2,
+      "pico_hwm_mb": 294.2,
+      "fase_del_pico": "intento 16/20",
+      "servidor_en_el_pico_mb": 294.2,
+      "grupo_al_nacer": "preparacion",
+      "vive_s": 362.0
+     },
+     {
+      "pid": 46,
+      "ppid": 32,
+      "rol": "resource_tracker",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.resource_tracker import main;main(5)",
+      "primera_t": 1791555278.6653328,
+      "ultima_t": 1791555637.6651058,
+      "pico_rss_mb": 12.4,
+      "pico_hwm_mb": 12.4,
+      "fase_del_pico": "fin",
+      "servidor_en_el_pico_mb": 261.1,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 359.0
+     },
+     {
+      "pid": 47,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555278.6653328,
+      "ultima_t": 1791555280.6654038,
+      "pico_rss_mb": 188.5,
+      "pico_hwm_mb": 188.5,
+      "fase_del_pico": "intento 1/20",
+      "servidor_en_el_pico_mb": 115.6,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.641,
+      "sobre_servidor_en_ese_instante": 1.631
+     },
+     {
+      "pid": 78,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555281.6650515,
+      "ultima_t": 1791555286.6653237,
+      "pico_rss_mb": 196.4,
+      "pico_hwm_mb": 196.5,
+      "fase_del_pico": "intento 2/20",
+      "servidor_en_el_pico_mb": 116.6,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 5.0,
+      "sobre_pico_del_servidor": 0.668,
+      "sobre_servidor_en_ese_instante": 1.684
+     },
+     {
+      "pid": 102,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555287.665143,
+      "ultima_t": 1791555287.665143,
+      "pico_rss_mb": 79.1,
+      "pico_hwm_mb": 79.1,
+      "fase_del_pico": "intento 2/20",
+      "servidor_en_el_pico_mb": 119.0,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.269,
+      "sobre_servidor_en_ese_instante": 0.665
+     },
+     {
+      "pid": 112,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555288.6655347,
+      "ultima_t": 1791555335.6654549,
+      "pico_rss_mb": 519.8,
+      "pico_hwm_mb": 545.7,
+      "fase_del_pico": "intento 4/20",
+      "servidor_en_el_pico_mb": 118.1,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 47.0,
+      "sobre_pico_del_servidor": 1.767,
+      "sobre_servidor_en_ese_instante": 4.401
+     },
+     {
+      "pid": 150,
+      "ppid": 0,
+      "rol": "exec_de_docker",
+      "cmd": "runc init",
+      "primera_t": 1791555304.6653461,
+      "ultima_t": 1791555304.6653461,
+      "pico_rss_mb": 11.3,
+      "pico_hwm_mb": 11.3,
+      "fase_del_pico": "intento 4/20",
+      "servidor_en_el_pico_mb": 118.1,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 182,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555338.66544,
+      "ultima_t": 1791555340.6653633,
+      "pico_rss_mb": 173.4,
+      "pico_hwm_mb": 173.4,
+      "fase_del_pico": "intento 5/20",
+      "servidor_en_el_pico_mb": 275.2,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.589,
+      "sobre_servidor_en_ese_instante": 0.63
+     },
+     {
+      "pid": 206,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555342.6661654,
+      "ultima_t": 1791555346.6651149,
+      "pico_rss_mb": 193.6,
+      "pico_hwm_mb": 194.4,
+      "fase_del_pico": "intento 6/20",
+      "servidor_en_el_pico_mb": 273.8,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 4.0,
+      "sobre_pico_del_servidor": 0.658,
+      "sobre_servidor_en_ese_instante": 0.707
+     },
+     {
+      "pid": 230,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555347.6650617,
+      "ultima_t": 1791555347.6650617,
+      "pico_rss_mb": 80.0,
+      "pico_hwm_mb": 80.0,
+      "fase_del_pico": "intento 6/20",
+      "servidor_en_el_pico_mb": 274.4,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.272,
+      "sobre_servidor_en_ese_instante": 0.292
+     },
+     {
+      "pid": 240,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555348.6652434,
+      "ultima_t": 1791555395.6651182,
+      "pico_rss_mb": 539.1,
+      "pico_hwm_mb": 541.5,
+      "fase_del_pico": "intento 8/20",
+      "servidor_en_el_pico_mb": 274.5,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 47.0,
+      "sobre_pico_del_servidor": 1.832,
+      "sobre_servidor_en_ese_instante": 1.964
+     },
+     {
+      "pid": 296,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555397.6651268,
+      "ultima_t": 1791555399.6653786,
+      "pico_rss_mb": 188.8,
+      "pico_hwm_mb": 188.8,
+      "fase_del_pico": "intento 9/20",
+      "servidor_en_el_pico_mb": 276.4,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.642,
+      "sobre_servidor_en_ese_instante": 0.683
+     },
+     {
+      "pid": 320,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555400.6654174,
+      "ultima_t": 1791555404.6653538,
+      "pico_rss_mb": 195.2,
+      "pico_hwm_mb": 195.2,
+      "fase_del_pico": "intento 10/20",
+      "servidor_en_el_pico_mb": 275.0,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 4.0,
+      "sobre_pico_del_servidor": 0.663,
+      "sobre_servidor_en_ese_instante": 0.71
+     },
+     {
+      "pid": 354,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555407.6651344,
+      "ultima_t": 1791555455.66522,
+      "pico_rss_mb": 515.7,
+      "pico_hwm_mb": 552.1,
+      "fase_del_pico": "intento 12/20",
+      "servidor_en_el_pico_mb": 274.9,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 48.0,
+      "sobre_pico_del_servidor": 1.753,
+      "sobre_servidor_en_ese_instante": 1.876
+     },
+     {
+      "pid": 385,
+      "ppid": 0,
+      "rol": "otro",
+      "cmd": "",
+      "primera_t": 1791555435.6654935,
+      "ultima_t": 1791555435.6654935,
+      "pico_rss_mb": 0.0,
+      "pico_hwm_mb": 0.0,
+      "fase_del_pico": "intento 12/20",
+      "servidor_en_el_pico_mb": 274.9,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 0.0
+     },
+     {
+      "pid": 410,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555457.6671526,
+      "ultima_t": 1791555459.6653984,
+      "pico_rss_mb": 188.3,
+      "pico_hwm_mb": 188.3,
+      "fase_del_pico": "intento 13/20",
+      "servidor_en_el_pico_mb": 276.7,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.64,
+      "sobre_servidor_en_ese_instante": 0.681
+     },
+     {
+      "pid": 434,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555460.665104,
+      "ultima_t": 1791555464.6654494,
+      "pico_rss_mb": 195.5,
+      "pico_hwm_mb": 195.5,
+      "fase_del_pico": "intento 14/20",
+      "servidor_en_el_pico_mb": 275.3,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 4.0,
+      "sobre_pico_del_servidor": 0.665,
+      "sobre_servidor_en_ese_instante": 0.71
+     },
+     {
+      "pid": 458,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555466.6651216,
+      "ultima_t": 1791555466.6651216,
+      "pico_rss_mb": 86.1,
+      "pico_hwm_mb": 93.2,
+      "fase_del_pico": "intento 14/20",
+      "servidor_en_el_pico_mb": 275.1,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.293,
+      "sobre_servidor_en_ese_instante": 0.313
+     },
+     {
+      "pid": 468,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555467.665042,
+      "ultima_t": 1791555514.6651616,
+      "pico_rss_mb": 513.3,
+      "pico_hwm_mb": 528.4,
+      "fase_del_pico": "intento 16/20",
+      "servidor_en_el_pico_mb": 275.3,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 47.0,
+      "sobre_pico_del_servidor": 1.745,
+      "sobre_servidor_en_ese_instante": 1.865
+     },
+     {
+      "pid": 517,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555516.665296,
+      "ultima_t": 1791555518.6654963,
+      "pico_rss_mb": 188.4,
+      "pico_hwm_mb": 188.4,
+      "fase_del_pico": "intento 17/20",
+      "servidor_en_el_pico_mb": 277.2,
+      "grupo_al_nacer": "intento:matrixai.dense.tabm_cpu",
+      "vive_s": 2.0,
+      "sobre_pico_del_servidor": 0.64,
+      "sobre_servidor_en_ese_instante": 0.68
+     },
+     {
+      "pid": 548,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555520.6652875,
+      "ultima_t": 1791555524.6655405,
+      "pico_rss_mb": 195.8,
+      "pico_hwm_mb": 196.6,
+      "fase_del_pico": "intento 18/20",
+      "servidor_en_el_pico_mb": 276.1,
+      "grupo_al_nacer": "intento:lightgbm",
+      "vive_s": 4.0,
+      "sobre_pico_del_servidor": 0.666,
+      "sobre_servidor_en_ese_instante": 0.709
+     },
+     {
+      "pid": 565,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555525.665217,
+      "ultima_t": 1791555525.665217,
+      "pico_rss_mb": 35.8,
+      "pico_hwm_mb": 35.8,
+      "fase_del_pico": "intento 18/20",
+      "servidor_en_el_pico_mb": 275.7,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 0.0,
+      "sobre_pico_del_servidor": 0.122,
+      "sobre_servidor_en_ese_instante": 0.13
+     },
+     {
+      "pid": 575,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555526.6654155,
+      "ultima_t": 1791555573.6650186,
+      "pico_rss_mb": 515.7,
+      "pico_hwm_mb": 538.4,
+      "fase_del_pico": "intento 20/20",
+      "servidor_en_el_pico_mb": 275.9,
+      "grupo_al_nacer": "intento:sklearn.hgb",
+      "vive_s": 47.0,
+      "sobre_pico_del_servidor": 1.753,
+      "sobre_servidor_en_ese_instante": 1.869
+     },
+     {
+      "pid": 631,
+      "ppid": 32,
+      "rol": "hijo_spawn",
+      "cmd": "/usr/local/bin/python3 -c from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=6, pipe_handle=8) --multiprocessing-fork",
+      "primera_t": 1791555575.6650097,
+      "ultima_t": 1791555636.6654546,
+      "pico_rss_mb": 553.9,
+      "pico_hwm_mb": 558.2,
+      "fase_del_pico": "reajuste_final",
+      "servidor_en_el_pico_mb": 262.8,
+      "grupo_al_nacer": "reajuste_final",
+      "vive_s": 61.0,
+      "sobre_pico_del_servidor": 1.883,
+      "sobre_servidor_en_ese_instante": 2.108
+     }
+    ]
+   },
+   "memoria_del_contenedor": "6g",
+   "eventos_de_fase": [
+    [
+     1791555275.5,
+     "preparacion"
+    ],
+    [
+     1791555276.7,
+     "intento 1/20"
+    ],
+    [
+     1791555282.7,
+     "intento 2/20"
+    ],
+    [
+     1791555288.7,
+     "intento 4/20"
+    ],
+    [
+     1791555338.8,
+     "intento 5/20"
+    ],
+    [
+     1791555342.8,
+     "intento 6/20"
+    ],
+    [
+     1791555348.8,
+     "intento 8/20"
+    ],
+    [
+     1791555396.9,
+     "intento 9/20"
+    ],
+    [
+     1791555400.9,
+     "intento 10/20"
+    ],
+    [
+     1791555407.0,
+     "intento 12/20"
+    ],
+    [
+     1791555457.0,
+     "intento 13/20"
+    ],
+    [
+     1791555461.1,
+     "intento 14/20"
+    ],
+    [
+     1791555467.1,
+     "intento 16/20"
+    ],
+    [
+     1791555517.1,
+     "intento 17/20"
+    ],
+    [
+     1791555521.1,
+     "intento 18/20"
+    ],
+    [
+     1791555527.1,
+     "intento 20/20"
+    ],
+    [
+     1791555575.2,
+     "reajuste_final"
+    ],
+    [
+     1791555637.5,
+     "fin"
+    ]
+   ],
+   "serie_temporal": {
+    "fichero": "house_16H-tabm-forzado.series.json.gz",
+    "sha256": "44c913c9ec7881cee8636a31630b3dddff543c37dc89497b6877b9e50a0e3400",
+    "muestras": 366
+   },
+   "memoria_pico_mb": 663.7,
+   "estado_final_guardado": {
+    "fichero": "house_16H-tabm-forzado.estado.json.gz",
+    "sha256": "709143bae23a61474a88a09701d4c387652abbc1fb23a7f2a4dedf2b5b266957"
+   }
+  }
+ }
+}

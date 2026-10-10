@@ -1,0 +1,4 @@
+{
+ "estado": "sondeo_fallido",
+ "error": "RemoteDisconnected('Remote end closed connection without response')"
+}

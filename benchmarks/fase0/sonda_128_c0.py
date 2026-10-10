@@ -14,6 +14,9 @@ de `/estudio/iniciar` (la preparación y el diagnóstico ocurren DENTRO de ese P
     python3 sonda_128_c0.py --solo Allstate_Claims_Severity                       # UN intento por motor, SIN tope
     python3 sonda_128_c0.py --retencion --humo             # 128-C1 paso 0: ¿devuelve el asignador lo que se suelta? (gc + malloc_trim)
     python3 sonda_128_c0.py                                # los tres, en ese orden (APS, KDDCup09, Allstate)
+    python3 sonda_128_c0.py --tabm-forzado --memoria 6g    # 128-C3b: los tres con la guarda de TabM callada EN MEMORIA
+    python3 sonda_128_c0.py --tabm-por-fases --humo        # 128-R4: un intento de TabM por FASES (dos plazos), dresses-sales
+    python3 sonda_128_c0.py --tabm-por-fases --solo APSFailure,KDDCup09_appetency,Allstate_Claims_Severity --memoria 6g --tope-estudio 5400
 
 El intento de Allstate se mide sin cambiar el producto: dentro del contenedor, un guion (`INTENTO_SIN_TOPE`) llama a
 `estudio_job.iniciar_estudio` con el mismo cuerpo que el HTTP, sustituye EN MEMORIA (no en disco) `ejecutar_estudio`
@@ -21,9 +24,14 @@ por una medida del primer pliegue —un intento de cada motor— y por cada uno 
 (preparación), el pickle de lo que viaja al hijo, `ejecutar_intento` directo (sin hijo) y `ejecutar_intento_aislado`
 (el camino real) con el tope puesto en 100.000 s. Del reparto salen el ajuste (`recursos.wall_seconds`) y «lo demás».
 
+128-R4 (`--tabm-por-fases`): ¿en qué se va el tiempo de UN intento de TabM en un conjunto grande y cuánto necesita para entrenar
+de verdad? El guion `TABM_POR_FASES` ejecuta el intento del primer pliegue «directo» (en el proceso del guion) dos veces, con el plazo
+del producto y con uno amplio (`--plazo-amplio`, 1.800 s), con temporizadores puestos EN MEMORIA que envuelven funciones del motor y
+de `preparacion_tabm`/`tabm_plr`. Los hijos `spawn` re-importan del disco: solo el intento directo lleva temporizadores.
+
 Solo LEE los repos (no escribe, ni deja __pycache__). Los hijos `spawn` re-ejecutan el módulo: todo va tras `__main__`.
 """
-import argparse, atexit, csv, gzip, hashlib, importlib.util, json, os, re, signal, socket, subprocess, sys, threading, time
+import argparse, atexit, csv, gzip, hashlib, importlib.util, json, math, os, re, signal, socket, subprocess, sys, threading, time
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -35,6 +43,7 @@ SALIDA = AQUI / "sonda_128_c0.json"
 TOPE_ESTUDIO_S = 3600          # por conjunto (sondeo); pasado esto se registra «plazo» y se cancela
 CONJUNTOS_DEL_C0 = ("APSFailure", "KDDCup09_appetency", "Allstate_Claims_Severity")
 HUMO = ("dresses-sales",)
+PLAZO_AMPLIO_S = 1800.0        # 128-R4: el plazo «de sobra» de la segunda corrida de --tabm-por-fases
 ARCHIVO_PARAR = "/tmp/parar_128_c0"
 ARCHIVO_MUESTRAS = "/tmp/muestras_128_c0.jsonl"
 MARCA_CONTROL = "RESERVA_128_C0"
@@ -345,6 +354,363 @@ if __name__ == "__main__":
     main()
 '''
 
+TABM_FORZADO = r'''
+# 128-C3b (medida, no cambia el producto): ¿cabe TabM en un conjunto GRANDE con la memoria de la medida? Corre un estudio
+# ENTERO en este proceso (el mismo `iniciar_estudio` que el HTTP, con sus hijos de verdad) con la GUARDA DE MEMORIA de TabM
+# (`_memoria_de_tabm_que_no_cabe`, su punto de sustitución declarado) cambiada EN MEMORIA por una que nunca habla: el disco
+# del producto no se toca, y los hijos `spawn` (que re-importan del disco) no deciden quién compite. Apunta lo que la guarda
+# DE VERDAD habría dicho y, cada ~2 s, la fase (para repartir la memoria por motor). Si al terminar no hay NINGÚN intento de
+# TabM, la medida no midió lo que dice (la sustitución no llegó): sale con 3.
+import json, os, sys, time
+
+
+def main():
+    cuerpo = json.load(open(sys.argv[1]))
+    salida = sys.argv[2]
+    import matrixai_studio.estudio_job as ej
+    R = {"guarda_de_verdad": [], "estados": [], "motor_tabm": ej._MOTOR_TABM}
+    de_verdad = ej._memoria_de_tabm_que_no_cabe
+
+    def callada(filas, columnas_de_entrada):
+        R["guarda_de_verdad"].append({"filas": filas, "columnas_de_entrada": columnas_de_entrada,
+                                      "habria_dicho_estimada_y_disponible_gb": de_verdad(filas, columnas_de_entrada)})
+        return None
+
+    ej._memoria_de_tabm_que_no_cabe = callada
+    R["t_inicio"] = time.time()
+    r = ej.iniciar_estudio(cuerpo)
+    R["t_tras_iniciar"] = time.time()
+    job_id = (r.get("estudio") or {}).get("job_id")
+    job = ej._jobs.get(job_id)
+    if job is None:
+        R["respuesta"] = r
+        escribir(R, salida)
+        sys.exit(2)
+    visto = None
+    while True:                                   # como el sondeo del HTTP: el estado cada ~2 s
+        vivo = job["hilo"].is_alive()
+        est = ej.estudio_status(job_id)
+        ahora = (est.get("estado"), est.get("n_intentos_completados"), est.get("n_intentos_total"))
+        if ahora != visto:
+            R["estados"].append([time.time(), *ahora])
+            visto = ahora
+            escribir(R, salida)                   # si el OOM se lleva ESTE proceso, las fases ya vistas quedan
+        if not vivo:
+            break
+        job["hilo"].join(timeout=2.0)
+    R["t_fin"] = time.time()
+    R["estado_final"] = est
+    R["intentos_de_tabm"] = sum(1 for e in est.get("leaderboard") or [] if e.get("engine") == ej._MOTOR_TABM)
+    escribir(R, salida)
+    if not R["intentos_de_tabm"]:
+        sys.exit(3)
+
+
+def escribir(R, salida):
+    tmp = salida + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(R, f, indent=1, default=str)
+    os.replace(tmp, salida)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+TABM_POR_FASES = r'''
+# 128-R4 (medida, no cambia el producto): ¿EN QUÉ se va el tiempo de UN intento de TabM en un conjunto grande y CUÁNTO necesita
+# para entrenar de verdad? Corre `iniciar_estudio` en este proceso (el mismo que el HTTP, con la guarda de memoria de TabM
+# callada EN MEMORIA como hace TABM_FORZADO), sustituye `ejecutar_estudio` por una medida del primer pliegue y ahí ejecuta el
+# intento de TabM «directo» (`ejecutar_intento`, en ESTE proceso) DOS veces: con el plazo del producto y con uno amplio.
+#
+# Los TEMPORIZADORES se ponen EN MEMORIA, envolviendo funciones del motor y de sus módulos en ESTE proceso (se quitan al acabar
+# cada corrida): el disco del producto no se toca, y los hijos `spawn` (que re-importan del disco) NO los llevan -- por eso solo
+# el intento directo está medido por fases. Cada fase guarda segundos de pared y RSS/VmHWM al entrar y al salir. VmHWM se
+# REINICIA al entrar en cada fase hoja (`/proc/self/clear_refs` <- 5) para que el pico sea el de la fase; antes de reiniciar,
+# el pico se pliega en las fases abiertas que la envuelven (así una envolvente conserva su pico entero).
+#
+# Por ÉPOCA: el entrenamiento y el checkpoint no son funciones, son el bucle de `_ajustar_con_torch`. Se derivan de dos marcas:
+# la validación (`perdida_del_ensamblado_por_lotes`, envuelta) y la primera llamada a `_ahora` tras una marca (el bucle la
+# llama al empezar cada época y justo después del checkpoint). entrenar = (entrada a la validación) - (primer `_ahora` tras la
+# marca anterior); checkpoint = (primer `_ahora` tras la validación) - (salida de la validación).
+import contextlib, dataclasses, functools, gc, json, math, os, sys, time
+
+
+def leer_memoria():
+    """(VmRSS, VmHWM) de este proceso en MB, o (None, None) si no se puede leer."""
+    rss = hwm = None
+    try:
+        with open("/proc/self/status") as f:
+            for linea in f:
+                if linea.startswith("VmRSS:"):
+                    rss = round(int(linea.split()[1]) / 1024, 1)
+                elif linea.startswith("VmHWM:"):
+                    hwm = round(int(linea.split()[1]) / 1024, 1)
+    except (OSError, ValueError, IndexError):
+        pass
+    return rss, hwm
+
+
+def reiniciar_hwm():
+    """Pone VmHWM al RSS de ahora. True si el núcleo lo dejó."""
+    try:
+        with open("/proc/self/clear_refs", "w") as f:
+            f.write("5")
+        return True
+    except OSError:
+        return False
+
+
+class Traza:
+    """Las fases de UNA corrida, con su anidamiento. Una fase HOJA reinicia VmHWM al entrar; una ENVOLVENTE no (su pico es el
+    máximo de lo que pasó dentro)."""
+
+    def __init__(self, reloj=time.perf_counter, memoria=leer_memoria, reiniciar=reiniciar_hwm):
+        self.reloj, self.memoria, self._reiniciar = reloj, memoria, reiniciar
+        self.fases, self.pila, self.epocas = [], [], []
+        self.optimizador_s = None
+        self.hwm_se_reinicia = None
+
+    def reiniciar_hwm(self):
+        """Devuelve el VmHWM de antes de reiniciar y lo pliega en las fases abiertas."""
+        _, hwm = self.memoria()
+        for f in self.pila:
+            f["_acc"] = max(f["_acc"], hwm or 0.0)
+        ok = bool(self._reiniciar())
+        self.hwm_se_reinicia = ok if self.hwm_se_reinicia is None else (self.hwm_se_reinicia and ok)
+        return hwm
+
+    @contextlib.contextmanager
+    def fase(self, nombre, envolvente=False):
+        rss0, hwm0 = self.memoria()
+        previo = None if envolvente else self.reiniciar_hwm()
+        reg = {"i": len(self.fases), "nombre": nombre, "envolvente": bool(envolvente),
+               "ruta": "/".join([f["nombre"] for f in self.pila] + [nombre]),
+               "padre": self.pila[-1]["i"] if self.pila else None,
+               "rss_ini_mb": rss0, "hwm_ini_mb": hwm0, "hwm_previo_mb": previo, "_acc": 0.0,
+               "t_pared": time.time()}
+        self.fases.append(reg)
+        self.pila.append(reg)
+        t0 = self.reloj()
+        try:
+            yield reg
+        finally:
+            t1 = self.reloj()
+            rss1, hwm1 = self.memoria()
+            self.pila.pop()
+            pico = max(reg.pop("_acc"), hwm1 or 0.0)
+            reg.update(wall_s=round(t1 - t0, 4), rss_fin_mb=rss1, hwm_fin_mb=hwm1, pico_mb=round(pico, 1) if pico else None)
+            for f in self.pila:
+                f["_acc"] = max(f["_acc"], pico)
+
+
+def instalar(traza, densa, prep, plr):
+    """Envuelve EN MEMORIA lo que mide. Un nombre que no existe en el motor ES UN ERROR (AttributeError), no una fase que no
+    se mide: una medida que calla porque la función cambió de nombre no mide lo que dice. Devuelve `desinstalar()`."""
+    guardado = []
+    st = {"pendiente": None, "t_fin_disp": None, "t_fin_val": None, "inicio_entreno": None, "mejor": math.inf}
+
+    def poner(objeto, atributo, nuevo):
+        guardado.append((objeto, atributo, atributo in vars(objeto), getattr(objeto, atributo)))
+        setattr(objeto, atributo, nuevo)
+
+    def envolver(objeto, atributo, nombre, envolvente=False):
+        original = getattr(objeto, atributo)
+
+        @functools.wraps(original)
+        def w(*a, **k):
+            with traza.fase(nombre, envolvente):
+                return original(*a, **k)
+        poner(objeto, atributo, w)
+
+    def desinstalar():
+        for objeto, atributo, propio, original in reversed(guardado):
+            if propio:
+                setattr(objeto, atributo, original)
+            else:
+                delattr(objeto, atributo)
+        guardado.clear()
+    try:
+        motor_cls = densa.MotorDensaTabM
+        for atributo, nombre in (("fit", "fit"), ("_ajustar", "ajustar"), ("predict", "predict"), ("predict_proba", "predict_proba"),
+                                 ("decision_scores", "decision_scores"), ("_forward", "forward")):
+            envolver(motor_cls, atributo, nombre, envolvente=True)
+        envolver(motor_cls, "_reconstruir_red", "reconstruir_red")
+        envolver(densa, "_a_tensor", "a_tensor")
+        envolver(densa, "_tensor_a_json", "exportar_pesos")
+        envolver(prep, "ajustar_preparacion", "ajustar_preparacion", envolvente=True)
+        envolver(prep, "_tipificar", "tipificar")
+        envolver(prep, "aplicar_preparacion", "aplicar_preparacion")
+        envolver(prep, "ajustar_estandarizacion_objetivo", "ajustar_estandarizacion_objetivo")
+        envolver(prep, "aplicar_estandarizacion_objetivo", "aplicar_estandarizacion_objetivo")
+
+        original_disp = densa._a_dispositivo
+
+        def a_dispositivo(*a, **k):
+            with traza.fase("a_dispositivo"):
+                r = original_disp(*a, **k)
+            st["pendiente"], st["t_fin_disp"] = "optimizador", traza.reloj()      # lo siguiente: AdamW, generadores, primer _ahora
+            return r
+        poner(densa, "_a_dispositivo", a_dispositivo)
+
+        original_ahora = densa._ahora
+
+        def ahora():
+            if st["pendiente"] is not None:
+                t = traza.reloj()
+                if st["pendiente"] == "optimizador":
+                    traza.optimizador_s = round(t - st["t_fin_disp"], 4)
+                elif traza.epocas:
+                    traza.epocas[-1]["checkpoint_s"] = round(t - st["t_fin_val"], 4)
+                st["inicio_entreno"], st["pendiente"] = t, None
+            return original_ahora()
+        poner(densa, "_ahora", ahora)
+
+        original_val = plr.perdida_del_ensamblado_por_lotes
+
+        def validar(*a, **k):
+            entra = traza.reloj()
+            entrenar = None if st["inicio_entreno"] is None else round(entra - st["inicio_entreno"], 4)
+            with traza.fase("validar") as reg:
+                perdida = original_val(*a, **k)
+            mejora = isinstance(perdida, (int, float)) and math.isfinite(perdida) and perdida < st["mejor"]
+            if mejora:
+                st["mejor"] = perdida
+            traza.epocas.append({"n": len(traza.epocas) + 1, "entrenar_s": entrenar, "validar_s": reg["wall_s"],
+                                 "checkpoint_s": None, "perdida_val": perdida, "mejoro": bool(mejora),
+                                 "rss_mb": reg["rss_fin_mb"], "hwm_entrenar_mb": reg["hwm_previo_mb"], "t_pared": time.time()})
+            st["pendiente"], st["t_fin_val"], st["inicio_entreno"] = "checkpoint", traza.reloj(), None
+            return perdida
+        poner(plr, "perdida_del_ensamblado_por_lotes", validar)
+
+        original_red = plr.RedTabMPLR
+
+        class RedTabMPLR(original_red):
+            def __init__(self, *a, **k):
+                with traza.fase("construir_red"):
+                    super().__init__(*a, **k)
+        RedTabMPLR.__name__, RedTabMPLR.__qualname__ = original_red.__name__, original_red.__qualname__
+        poner(plr, "RedTabMPLR", RedTabMPLR)
+    except BaseException:
+        desinstalar()                  # a medias NO se deja nada puesto en el motor
+        raise
+    return desinstalar
+
+
+def escribir(R, salida):
+    tmp = salida + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(R, f, indent=1, default=str)
+    os.replace(tmp, salida)
+
+
+def buscar(obj, clave, hondura=4):
+    """El valor de `clave` en un dict anidado (la declaración de lo que PASÓ en el entrenamiento: épocas, mejor época, si paró
+    por plazo o por paciencia). `None` si no está: no se inventa."""
+    if isinstance(obj, dict) and hondura:
+        if clave in obj:
+            return obj[clave]
+        for v in obj.values():
+            r = buscar(v, clave, hondura - 1)
+            if r is not None:
+                return r
+    return None
+
+
+def main():
+    cuerpo = json.load(open(sys.argv[1]))
+    salida = sys.argv[2]
+    plazo_amplio = float(sys.argv[3])
+    import matrixai_studio.estudio_job as ej
+    from matrixai_engines.harness import ejecutar_intento
+    import matrixai_engines.motores.densa_tabm as densa
+    import matrixai_engines.redes.preparacion_tabm as prep
+    import matrixai_engines.redes.tabm_plr as plr
+    R = {"corridas": [], "guarda_de_verdad": [], "motor_tabm": ej._MOTOR_TABM, "plazo_amplio_s": plazo_amplio,
+         "densa_tabm": getattr(densa, "__file__", None), "estudio_job": getattr(ej, "__file__", None)}
+    de_verdad = ej._memoria_de_tabm_que_no_cabe
+
+    def callada(filas, columnas_de_entrada):
+        R["guarda_de_verdad"].append({"filas": filas, "columnas_de_entrada": columnas_de_entrada,
+                                      "habria_dicho_estimada_y_disponible_gb": de_verdad(filas, columnas_de_entrada)})
+        return None
+
+    ej._memoria_de_tabm_que_no_cabe = callada
+
+    def medir(estudio, motores, intentos, *, fase, directorio_checkpoint, cancelado=lambda: False,
+              aislar_por_proceso=False):
+        claves = list(intentos._claves)
+        elegidas = [c for c in claves if c[:2] == claves[0][:2] and c[2] == ej._MOTOR_TABM]
+        if not elegidas:
+            R["error"] = "TabM no tiene intento en el primer pliegue (la guarda callada no llegó, o está fuera por su biblioteca)"
+            escribir(R, salida)
+            return ej.Leaderboard(estudio_id=estudio.estudio_id)
+        previa = Traza()
+        with previa.fase("construir_intento"):                  # la preparación del PRODUCTO en el padre (compartida con los árboles)
+            d = intentos._construir(*elegidas[0])
+        R["construccion"] = previa.fases
+        motor = motores[d.motor_id]
+        R["tope_del_producto_s"] = d.presupuesto.wall_seconds
+        R["hilos"] = d.presupuesto.hilos
+        comun = dict(candidate=d.candidate_id(), split_plan_digest=d.split_plan_digest, dataset=d.dataset,
+                     pliegue=d.pliegue, repeticion=d.repeticion)
+        for rotulo, plazo in (("plazo_del_producto", d.presupuesto.wall_seconds), ("plazo_amplio", plazo_amplio)):
+            traza = Traza()
+            c = {"rotulo": rotulo, "plazo_s": plazo, "rss_ini_mb": leer_memoria()[0], "error": None}
+            desinstalar = instalar(traza, densa, prep, plr)
+            t0 = time.perf_counter()
+            try:
+                with traza.fase("cargar_particion"):             # lo que carga el hijo del producto
+                    if getattr(d, "en_fichero", None) is not None:
+                        train, validation, test = d.en_fichero.cargar()
+                    else:
+                        train, validation, test = d.train, d.validation, d.test
+                c["filas"] = {"train": len(train.row_ids), "validation": len(validation.row_ids) if validation else 0,
+                              "test": len(test.row_ids), "columnas_tras_preparar": len(train.features[0])}
+                with traza.fase("ejecutar_intento", envolvente=True):
+                    a = ejecutar_intento(motor, train, validation, test, d.spec,
+                                         dataclasses.replace(d.presupuesto, wall_seconds=plazo), **comun)
+                r = a.recursos or {}
+                c.update(estado=a.estado, motivo=a.motivo_del_estado, recursos={"wall_seconds": r.get("wall_seconds"),
+                         "cpu_seconds": r.get("cpu_seconds")}, entrenamiento_efectivo=buscar(a.config_efectiva, "entrenamiento_efectivo"))
+            except Exception as e:                               # una corrida rota no quita la otra
+                c.update(estado="excepcion", error=repr(e)[:600])
+            finally:
+                desinstalar()
+            c["pared_s"] = round(time.perf_counter() - t0, 4)
+            c.update(fases=traza.fases, epocas=traza.epocas, optimizador_s=traza.optimizador_s,
+                     hwm_se_reinicia=traza.hwm_se_reinicia, rss_fin_mb=leer_memoria()[0])
+            R["corridas"].append(c)
+            escribir(R, salida)
+            train = validation = test = a = None
+            gc.collect()
+        escribir(R, salida)
+        return ej.Leaderboard(estudio_id=estudio.estudio_id)
+
+    ej.ejecutar_estudio = medir
+    ej._reajustar_en_un_proceso_aparte = lambda *a, **k: None
+    R["t_inicio"] = time.time()
+    t0 = time.perf_counter()
+    r0 = leer_memoria()
+    r = ej.iniciar_estudio(cuerpo)
+    R["iniciar_estudio"] = {"wall_s": round(time.perf_counter() - t0, 2), "rss_ini_mb": r0[0], "rss_fin_mb": leer_memoria()[0],
+                            "hwm_fin_mb": leer_memoria()[1]}
+    job = ej._jobs.get((r.get("estudio") or {}).get("job_id"))
+    if job is None:
+        R["respuesta"] = r
+        escribir(R, salida)
+        sys.exit(2)
+    job["hilo"].join()
+    R["t_fin"] = time.time()
+    escribir(R, salida)
+    if len(R["corridas"]) != 2:
+        sys.exit(3)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
 
 # ============================================================================ lo que no necesita Docker: roles, fases, resumen
 def rol_de(cmd):
@@ -535,6 +901,192 @@ def etiqueta_de_estado(est, total_previo=None):
     return "fin"
 
 
+def eventos_de_los_estados(med):
+    """128-C3b. Del sondeo que hace DENTRO el guion de TabM forzado (`[t, estado, completados, total]`) a los eventos de fase
+    de la sonda («preparacion», «intento k/N», «reajuste_final», «fin»), con la misma `etiqueta_de_estado` que el sondeo
+    por HTTP. Sin `t_fin` (el OOM se llevó el guion) no hay «fin»: la última fase vista sigue abierta."""
+    eventos = [(med["t_inicio"], "preparacion")] if med.get("t_inicio") else []
+    total = None
+    for t, estado, k, n in med.get("estados") or []:
+        total = n or total
+        et = etiqueta_de_estado({"estado": estado, "n_intentos_completados": k, "n_intentos_total": n}, total)
+        if et != "fin" and (not eventos or eventos[-1][1] != et):
+            eventos.append((t, et))
+    if med.get("t_fin"):
+        eventos.append((med["t_fin"], "fin"))
+    return eventos
+
+
+def rol_con_el_guion_de_servidor(cmd):
+    """128-C3b. En la medida de TabM forzado el estudio corre DENTRO del guion: ese proceso hace de servidor (tiene el job y
+    lanza los hijos). El contenedor arranca SIN servidor HTTP (`arrancar_contenedor(sin_servidor=True)`); si aun así
+    apareciera uno (otra imagen, otro arranque), sale aparte como «servidor_ocioso» y no se confunde con el que mide."""
+    if "tabm_forzado_128_c3b" in (cmd or ""):
+        return "servidor"
+    r = rol_de(cmd)
+    return "servidor_ocioso" if r == "servidor" else r
+
+
+def veredicto_tabm_forzado(rc, med):
+    """128-C3b. `completed`: el estudio terminó Y TabM compitió. `sin_tabm`: la sustitución no llegó (el guion sale con 3, o
+    hay estado final sin ningún intento de TabM): la medida no mide lo que dice, y NO es un «completed». `failed`: lo demás,
+    también morir por memoria (lo dicen el contenedor y el `memory.events` del cgroup)."""
+    med = med or {}
+    est = med.get("estado_final")
+    if rc == 3 or (est is not None and not med.get("intentos_de_tabm")):
+        return "sin_tabm"
+    if rc == 0 and (est or {}).get("estado") == "completed":
+        return "completed"
+    return "failed"
+
+
+# ============================================================================ 128-R4: las fases de TabM (sin Docker)
+#: Lo que `TABM_POR_FASES` tuvo que llamar para que la corrida «mida lo que dice». Antes de la primera época SIEMPRE se llega
+#: a estas (aunque el plazo se agote preparando); las de después, solo si hubo candidato.
+FASES_SIEMPRE = ("fit", "ajustar", "ajustar_preparacion", "aplicar_preparacion", "a_tensor", "construir_red", "a_dispositivo")
+FASES_CON_CANDIDATO = ("validar", "exportar_pesos", "predict")
+#: Cuánto puede NO cuadrar una suma de fases con su total: el mayor de 1 s y el 5 %. Declarado, no escondido.
+MARGEN_ABS_S, MARGEN_REL = 1.0, 0.05
+
+
+def rol_con_el_guion_por_fases(cmd):
+    """128-R4. El guion `TABM_POR_FASES` hace de servidor (tiene el job): como `rol_con_el_guion_de_servidor` del C3b."""
+    if "tabm_por_fases_128_r4" in (cmd or ""):
+        return "servidor"
+    r = rol_de(cmd)
+    return "servidor_ocioso" if r == "servidor" else r
+
+
+def _margen(total):
+    return max(MARGEN_ABS_S, MARGEN_REL * abs(total or 0.0))
+
+
+def _suma(fases, nombre, padre=None):
+    return round(sum(f.get("wall_s") or 0.0 for f in fases if f["nombre"] == nombre
+                     and (padre is None or f["padre"] == padre)), 4)
+
+
+def _mediana(xs):
+    xs = sorted(x for x in xs if x is not None)
+    if not xs:
+        return None
+    m = len(xs) // 2
+    return round(xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2, 4)
+
+
+def partes_del_ajuste(c):
+    """De una corrida (`fases` + `epocas` del guion) a EN QUÉ se va `ajustar` (= el reloj del plazo de TabM) y si la suma cuadra.
+    `otros_s` es lo que no está en ninguna parte (poner la red en su sitio, AdamW, `load_state_dict`, armar el predictor, los
+    hilos…): se da, no se esconde; tiene que caber en el margen o la corrida NO cuadra. Si no hubo `ajustar` (la corrida
+    murió antes), devuelve None."""
+    fases, epocas = c.get("fases") or [], c.get("epocas") or []
+    aj = next((f for f in fases if f["nombre"] == "ajustar"), None)
+    if aj is None or aj.get("wall_s") is None:
+        return None
+    hijas = lambda n: _suma(fases, n, aj["i"])
+    p = {"ajustar_s": aj["wall_s"],
+         "preparar_s": round(hijas("ajustar_preparacion") + hijas("aplicar_preparacion")
+                             + hijas("ajustar_estandarizacion_objetivo") + hijas("aplicar_estandarizacion_objetivo"), 4),
+         "tipificar_s": _suma(fases, "tipificar"),                # dentro de preparar_s: no se suma dos veces
+         "a_tensor_s": hijas("a_tensor"), "construir_red_s": hijas("construir_red"), "a_dispositivo_s": hijas("a_dispositivo"),
+         "optimizador_s": c.get("optimizador_s") or 0.0,
+         "entrenar_s": round(sum(e.get("entrenar_s") or 0.0 for e in epocas), 4),
+         "validar_s": round(sum(e.get("validar_s") or 0.0 for e in epocas), 4),
+         "checkpoint_s": round(sum(e.get("checkpoint_s") or 0.0 for e in epocas), 4),
+         "exportar_pesos_s": hijas("exportar_pesos")}
+    conocido = sum(p[k] for k in ("preparar_s", "a_tensor_s", "construir_red_s", "a_dispositivo_s", "optimizador_s",
+                                  "entrenar_s", "validar_s", "checkpoint_s", "exportar_pesos_s"))
+    p["otros_s"] = round(p["ajustar_s"] - conocido, 4)
+    p["otros_caben"] = -_margen(p["ajustar_s"]) <= p["otros_s"] <= _margen(p["ajustar_s"])
+    return p
+
+
+def cuadre_de_corrida(c):
+    """Tres comprobaciones, cada una con su margen (el mayor de 1 s y el 5 %). Devuelve {comprobaciones, cuadra}.
+    1. `otros_s` del ajuste cabe (la suma de partes llega a `ajustar`).
+    2. `ajustar` medido por el guion = `recursos.wall_seconds` que mide el propio motor (se salta si no hubo candidato).
+    3. las fases de primer nivel (cargar + ejecutar_intento) suman la pared medida FUERA de ellas."""
+    fases, out = c.get("fases") or [], []
+    p = partes_del_ajuste(c)
+    if p is not None:
+        out.append({"nombre": "las partes del ajuste suman el ajuste", "diferencia_s": p["otros_s"],
+                    "margen_s": round(_margen(p["ajustar_s"]), 3), "cuadra": p["otros_caben"]})
+        rec = (c.get("recursos") or {}).get("wall_seconds")
+        if rec is not None:
+            d = round(p["ajustar_s"] - rec, 4)
+            out.append({"nombre": "ajustar medido = recursos.wall_seconds del motor", "diferencia_s": d,
+                        "margen_s": round(_margen(rec), 3), "cuadra": abs(d) <= _margen(rec)})
+    if c.get("pared_s") is not None:
+        primer_nivel = round(sum(f.get("wall_s") or 0.0 for f in fases if f["padre"] is None), 4)
+        d = round(c["pared_s"] - primer_nivel, 4)
+        out.append({"nombre": "las fases de primer nivel suman la pared de la corrida", "diferencia_s": d,
+                    "margen_s": round(_margen(c["pared_s"]), 3), "cuadra": abs(d) <= _margen(c["pared_s"])})
+    return {"comprobaciones": out, "cuadra": bool(out) and all(x["cuadra"] for x in out)}
+
+
+def faltan_fases(c):
+    """Las fases que tenían que haberse llamado y no están: la prueba de que los temporizadores ENVOLVIERON algo."""
+    llamadas = {f["nombre"] for f in c.get("fases") or []}
+    pedidas = FASES_SIEMPRE + (FASES_CON_CANDIDATO if c.get("estado") in ("completed", "completed_budget_limited") else ())
+    return [n for n in pedidas if n not in llamadas]
+
+
+def resumir_corrida(c):
+    """Todo lo derivado de una corrida del guion: partes del ajuste, épocas, cuadre, picos por ruta y lo que falta."""
+    fases, epocas = c.get("fases") or [], c.get("epocas") or []
+    por_ruta = {}
+    for f in fases:
+        q = por_ruta.setdefault(f["ruta"], {"llamadas": 0, "wall_s": 0.0, "rss_ini_mb": f.get("rss_ini_mb"), "pico_mb": None})
+        q["llamadas"] += 1
+        q["wall_s"] = round(q["wall_s"] + (f.get("wall_s") or 0.0), 4)
+        q["rss_fin_mb"] = f.get("rss_fin_mb")
+        if f.get("pico_mb") is not None:
+            q["pico_mb"] = f["pico_mb"] if q["pico_mb"] is None else max(q["pico_mb"], f["pico_mb"])
+    picos = [(f["pico_mb"], f["ruta"]) for f in fases if f.get("pico_mb") is not None]
+    mejor = next((e["n"] for e in reversed(epocas) if e.get("mejoro")), None)
+    finitas = [e["perdida_val"] for e in epocas if isinstance(e.get("perdida_val"), (int, float)) and math.isfinite(e["perdida_val"])]
+    hwms = [e["hwm_entrenar_mb"] for e in epocas if e.get("hwm_entrenar_mb") is not None]
+    return {"rotulo": c.get("rotulo"), "plazo_s": c.get("plazo_s"), "estado": c.get("estado"), "pared_s": c.get("pared_s"),
+            "partes_del_ajuste": partes_del_ajuste(c),
+            "epocas": {"n": len(epocas), "mejor_epoca": mejor,
+                       "entrenar_mediana_s": _mediana([e.get("entrenar_s") for e in epocas]),
+                       "validar_mediana_s": _mediana([e.get("validar_s") for e in epocas]),
+                       "perdida_val_primera": finitas[0] if finitas else None,
+                       "perdida_val_mejor": min(finitas) if finitas else None,
+                       "hwm_entrenar_max_mb": max(hwms) if hwms else None},
+            "cuadre": cuadre_de_corrida(c), "faltan_fases": faltan_fases(c),
+            "pico_de_la_corrida_mb": max(picos)[0] if picos else None, "fase_del_pico": max(picos)[1] if picos else None,
+            "por_ruta": por_ruta}
+
+
+def linea_de_fases(res):
+    """Una línea por corrida: dónde se fue el ajuste y si la suma cuadra."""
+    p, e = res.get("partes_del_ajuste"), res["epocas"]
+    if p is None:
+        return f"   {res['rotulo']} ({res['plazo_s']} s): {res['estado']} sin `ajustar` medido"
+    return (f"   {res['rotulo']} ({res['plazo_s']} s): {res['estado']} | ajustar {p['ajustar_s']} s = preparar {p['preparar_s']} "
+            f"(tipificar {p['tipificar_s']}) + tensores {p['a_tensor_s']} + red {p['construir_red_s']} + a_dispositivo "
+            f"{p['a_dispositivo_s']} + optimizador {p['optimizador_s']} + entrenar {p['entrenar_s']} + validar {p['validar_s']} + "
+            f"checkpoint {p['checkpoint_s']} + exportar {p['exportar_pesos_s']} + otros {p['otros_s']} | {e['n']} épocas "
+            f"(mejor {e['mejor_epoca']}; entrenar/época {e['entrenar_mediana_s']} s, validar {e['validar_mediana_s']} s) | pico "
+            f"{res['pico_de_la_corrida_mb']} MB ({res['fase_del_pico']}) | cuadre {'SÍ' if res['cuadre']['cuadra'] else 'NO'}"
+            + (f" | FALTAN {res['faltan_fases']}" if res["faltan_fases"] else ""))
+
+
+def veredicto_tabm_por_fases(rc, med):
+    """`completed`: las dos corridas se hicieron, miden lo que dicen (no falta ninguna fase) y cuadran. `sin_tabm`: el guion no
+    encontró intento de TabM (sale con 3 sin medir nada). `no_cuadra`: hay las dos corridas pero una no cuadra o le falta una
+    fase. `failed`: lo demás (también morir por memoria)."""
+    cs = (med or {}).get("corridas") or []
+    if rc == 3 and not cs and "error" in (med or {}):
+        return "sin_tabm"
+    if rc == 0 and len(cs) == 2:
+        if any(faltan_fases(c) for c in cs) or not all(cuadre_de_corrida(c)["cuadra"] for c in cs):
+            return "no_cuadra"
+        return "completed"
+    return "failed"
+
+
 # ============================================================================ Docker
 _contenedor = None
 
@@ -558,9 +1110,13 @@ def comprobar_que_se_puede():
     return la
 
 
-def arrancar_contenedor(memoria, imagen=None):
+def arrancar_contenedor(memoria, imagen=None, sin_servidor=False):
     """Un contenedor con NOMBRE PROPIO, techo de memoria sin swap y `--init`. Lo de un intento anterior con el mismo nombre
-    se borra antes (un contenedor sobrevive al `timeout` de su guion). Devuelve (base_url, nombre)."""
+    se borra antes (un contenedor sobrevive al `timeout` de su guion). Devuelve (base_url, nombre).
+
+    `sin_servidor` (128-C3b): la imagen arranca `sleep infinity` en vez del servidor HTTP (su `CMD`; no tiene
+    `ENTRYPOINT`), para un guion que hace él mismo de servidor: así el cgroup lleva UN servidor, como en producción, y no
+    uno ocioso al lado que en un caso al borde del techo fabricaría un OOM. Sin puerto ni HTTP: `base_url` es `None`."""
     global _contenedor
     subprocess.run(["docker", "rm", "-f", NOMBRE_CONTENEDOR], capture_output=True)
     s = socket.socket(); s.bind(("127.0.0.1", 0)); puerto = s.getsockname()[1]; s.close()
@@ -568,12 +1124,21 @@ def arrancar_contenedor(memoria, imagen=None):
     atexit.register(borrar_contenedor)
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(sig, lambda *_: (borrar_contenedor(), os._exit(143)))
-    r = subprocess.run(["docker", "run", "-d", "--init", "--name", NOMBRE_CONTENEDOR, "-p", f"127.0.0.1:{puerto}:8765",
+    r = subprocess.run(["docker", "run", "-d", "--init", "--name", NOMBRE_CONTENEDOR,
+                        *([] if sin_servidor else ["-p", f"127.0.0.1:{puerto}:8765"]),
                         f"--memory={memoria}", f"--memory-swap={memoria}", "--cpus=2",
-                        "-e", "MATRIXAI_LICENSE_ENABLED=false", imagen or IMAGEN],
+                        "-e", "MATRIXAI_LICENSE_ENABLED=false", imagen or IMAGEN,
+                        *(["sleep", "infinity"] if sin_servidor else [])],
                        capture_output=True, text=True)
     if r.returncode:
         raise SystemExit("docker run falló: " + r.stderr)
+    if sin_servidor:
+        t0 = time.time()
+        while time.time() - t0 < 60:
+            if subprocess.run(["docker", "exec", NOMBRE_CONTENEDOR, "true"], capture_output=True).returncode == 0:
+                return None, NOMBRE_CONTENEDOR
+            time.sleep(1)
+        raise SystemExit("el contenedor sin servidor no aceptó un exec en 60 s")
     base = f"http://127.0.0.1:{puerto}"
     t0 = time.time()
     while time.time() - t0 < 120:
@@ -758,7 +1323,7 @@ def medir_estudio(nombre, c, gen, memoria, tope_s, dir_series):
         borrar_contenedor()
 
 
-def cerrar_registro(rec, muestras, eventos, dir_series, nombre, c, memoria):
+def cerrar_registro(rec, muestras, eventos, dir_series, nombre, c, memoria, rol=rol_de):
     lb = None
     # los motores de cada intento, inferidos del orden de las entradas de la búsqueda
     if rec.get("intentos"):
@@ -767,7 +1332,7 @@ def cerrar_registro(rec, muestras, eventos, dir_series, nombre, c, memoria):
     rec["motor_de_cada_intento_inferido"] = {str(k + 1): v for k, v in mpi.items()}
     if (rec.get("medida") or {}).get("motores"):       # el guion del intento sin tope dice su motor, no se infiere
         mpi = {i: m["motor"] for i, m in enumerate(rec["medida"]["motores"])}
-    rec["resumen_de_memoria"] = resumir(muestras, eventos, mpi)
+    rec["resumen_de_memoria"] = resumir(muestras, eventos, mpi, rol=rol)
     rec["memoria_del_contenedor"] = memoria
     rec["eventos_de_fase"] = [[round(t, 1), e] for t, e in eventos]
     dir_series.mkdir(exist_ok=True)
@@ -870,6 +1435,168 @@ def medir_retencion(nombre, c, gen, memoria, dir_series):
         borrar_contenedor()
 
 
+#: 128-C3b: el paquete CPU tal como se publica (la densa anterior fuera), las MISMAS variables que `--pcpu` del 120: así el
+#: estudio con TabM forzado se compara con el de la referencia del producto, que en los grandes corre sin TabM por la guarda.
+ENTORNO_TABM_FORZADO = r0.entorno_extra_de("pcpu")
+
+
+def _memory_events(nombre_c):
+    """`memory.events` del cgroup del contenedor (v2): cuántas veces llegó al techo (`max`) y cuántos procesos mató el OOM
+    (`oom_kill`). Un hijo muerto por memoria NO marca `OOMKilled` en el contenedor (eso es solo su proceso 1)."""
+    r = subprocess.run(["docker", "exec", nombre_c, "cat", "/sys/fs/cgroup/memory.events"], capture_output=True, text=True)
+    if r.returncode:
+        return {"lectura": "falló", "stderr": r.stderr.strip()[:300]}
+    out = {}
+    for linea in r.stdout.splitlines():
+        k, _, v = linea.partition(" ")
+        if v.strip().isdigit():
+            out[k] = int(v)
+    return out
+
+
+def medir_tabm_forzado(nombre, c, gen, memoria, dir_series, tope_s):
+    """128-C3b: un estudio ENTERO dentro del contenedor (el guion `TABM_FORZADO`) con la guarda de memoria de TabM callada EN
+    MEMORIA, con el entorno del producto CPU (`ENTORNO_TABM_FORZADO`), en un contenedor SIN el servidor HTTP (el guion hace de
+    servidor: un solo servidor en el cgroup, como en producción). Mismo muestreador que el resto; al acabar, lo que dice el
+    cgroup de sus OOM. No cambia el producto: ni su disco ni su imagen."""
+    comprobar_que_se_puede()
+    csv_bytes, cols, excl, nfilas = r0.csv_de(gen, c["data_id"])
+    cuerpo = {"csv_text": csv_bytes.decode("utf-8"), "objetivo": c["objetivo"], "tarea": c["tarea"],
+              "entradas": [x for x in cols if x != c["objetivo"]], "unidad_de_observacion": "una fila"}
+    if c["tarea"] == "binary_classification" and c.get("clase_positiva") is not None:
+        cuerpo["clase_positiva"] = c["clase_positiva"]
+    ruta = AGENTE / f"_{os.getpid()}_cuerpo_tabm.json"
+    ruta.write_text(json.dumps(cuerpo))
+    _, nombre_c = arrancar_contenedor(memoria, sin_servidor=True)
+    rec = {"nombre": nombre, "data_id": c["data_id"], "tarea": c["tarea"], "objetivo": c["objetivo"], "inicio": ahora(),
+           "csv": {"filas": nfilas, "columnas": len(cols), "bytes": len(csv_bytes), "excluidas_por_string": excl},
+           "loadavg_al_empezar": open("/proc/loadavg").read().split()[:3],
+           "sha256_guion_dentro": hashlib.sha256(TABM_FORZADO.encode()).hexdigest(),
+           "entorno_del_guion": dict(ENTORNO_TABM_FORZADO), "tope_s": tope_s,
+           "contenedor_sin_servidor": True}
+    try:
+        r = subprocess.run(["docker", "cp", str(ruta), f"{nombre_c}:/tmp/cuerpo_128_c3b.json"], capture_output=True, text=True)
+        ruta.unlink(missing_ok=True)
+        if r.returncode:
+            raise SystemExit("docker cp falló: " + r.stderr)
+        poner_en_el_contenedor(nombre_c, TABM_FORZADO, "/tmp/tabm_forzado_128_c3b.py")
+        orden = ["docker", "exec", *[x for k, v in sorted(ENTORNO_TABM_FORZADO.items()) for x in ("-e", f"{k}={v}")],
+                 nombre_c, "python3", "/tmp/tabm_forzado_128_c3b.py", "/tmp/cuerpo_128_c3b.json", "/tmp/tabm_forzado_128_c3b.json"]
+        with Muestreador(nombre_c) as mu:
+            t0 = time.time()
+            try:
+                p = subprocess.run(orden, capture_output=True, text=True, timeout=tope_s)
+                rc, err = p.returncode, p.stderr or ""
+            except subprocess.TimeoutExpired as e:
+                rc, err = "plazo", e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            rec["guion_rc"], rec["guion_pared_s"] = rc, round(time.time() - t0, 1)
+            rec["guion_stderr_cola"] = err[-1500:]
+            time.sleep(2)
+            muestras = mu.leer()
+        out = subprocess.run(["docker", "exec", nombre_c, "cat", "/tmp/tabm_forzado_128_c3b.json"], capture_output=True, text=True)
+        try:
+            med = json.loads(out.stdout)
+        except ValueError:
+            med = {"error": "el guion no escribió su salida", "stdout": out.stdout[-500:]}
+        rec["memory_events"] = _memory_events(nombre_c)
+        rec["contenedor"] = r0.estado_del_contenedor(nombre_c)
+        est = med.get("estado_final") or {}
+        _, filas = r0.intentos_de(est)
+        sel = est.get("seleccion") or {}
+        rec.update(estado="plazo" if rc == "plazo" else veredicto_tabm_forzado(rc, med), estado_del_estudio=est.get("estado"),
+                   error=est.get("error") or med.get("error"), campeon=sel.get("candidate_engine"),
+                   media_de_la_seleccion=sel.get("media_de_la_seleccion"), n_intentos_total=est.get("n_intentos_total"),
+                   # la cifra del TEST y lo demás con las MISMAS funciones del 120: el registro se compara con
+                   # `comparar_c4_128.py` contra el del producto (`c4_128_pcpu.json`), donde TabM no compitió
+                   test=r0.test_de(sel), perfiles_declarados=r0.perfiles_declarados(est),
+                   politica_de_arboles=sel.get("politica_de_arboles"),
+                   intentos=filas, intentos_de_tabm=med.get("intentos_de_tabm"),
+                   guarda_de_verdad=med.get("guarda_de_verdad"), motores_fuera_por_memoria=est.get("motores_fuera_por_memoria"),
+                   presupuesto_segun_el_tamano=est.get("presupuesto_segun_el_tamano"),
+                   pared_estudio_s=(round(med["t_fin"] - med["t_inicio"], 1) if med.get("t_fin") and med.get("t_inicio")
+                                    else None), fin=ahora())
+        if "respuesta" in med:
+            rec["respuesta"] = med["respuesta"]
+        eventos = eventos_de_los_estados(med) or [(t0, "arranque_del_guion")]
+        rec = cerrar_registro(rec, muestras, eventos, dir_series, nombre + "-tabm-forzado", c, memoria,
+                              rol=rol_con_el_guion_de_servidor)
+        # el pico del cgroup con el nombre que usa el instrumento del 120 (lo que mira el OOM)
+        rec["memoria_pico_mb"] = ((rec.get("resumen_de_memoria") or {}).get("pico_cgroup") or {}).get("cgroup_mb")
+        if est:                                           # el estado ENTERO, para releerlo sin repetir la medida
+            f = dir_series / f"{nombre}-tabm-forzado.estado.json.gz"
+            with gzip.open(f, "wt") as fh:
+                json.dump(est, fh, default=str)
+            rec["estado_final_guardado"] = {"fichero": f.name, "sha256": sha(f)}
+        return rec
+    finally:
+        ruta.unlink(missing_ok=True)
+        borrar_contenedor()
+
+
+def medir_tabm_por_fases(nombre, c, gen, memoria, dir_series, tope_s, plazo_amplio):
+    """128-R4: un intento de TabM del primer pliegue, directo, por FASES y con dos plazos (el del producto y `plazo_amplio`),
+    dentro de un contenedor SIN servidor HTTP (el guion hace de servidor, como en el C3b) y con el entorno del paquete CPU.
+    Mismo muestreador de procesos que el resto. No cambia el producto: ni su disco ni su imagen; los hijos `spawn` no llevan
+    temporizadores (solo el intento directo)."""
+    comprobar_que_se_puede()
+    csv_bytes, cols, excl, nfilas = r0.csv_de(gen, c["data_id"])
+    cuerpo = {"csv_text": csv_bytes.decode("utf-8"), "objetivo": c["objetivo"], "tarea": c["tarea"],
+              "entradas": [x for x in cols if x != c["objetivo"]], "unidad_de_observacion": "una fila"}
+    if c["tarea"] == "binary_classification" and c.get("clase_positiva") is not None:
+        cuerpo["clase_positiva"] = c["clase_positiva"]
+    ruta = AGENTE / f"_{os.getpid()}_cuerpo_fases.json"
+    ruta.write_text(json.dumps(cuerpo))
+    _, nombre_c = arrancar_contenedor(memoria, sin_servidor=True)
+    rec = {"nombre": nombre, "data_id": c["data_id"], "tarea": c["tarea"], "objetivo": c["objetivo"], "inicio": ahora(),
+           "csv": {"filas": nfilas, "columnas": len(cols), "bytes": len(csv_bytes), "excluidas_por_string": excl},
+           "loadavg_al_empezar": open("/proc/loadavg").read().split()[:3],
+           "sha256_guion_dentro": hashlib.sha256(TABM_POR_FASES.encode()).hexdigest(),
+           "entorno_del_guion": dict(ENTORNO_TABM_FORZADO), "tope_s": tope_s, "plazo_amplio_s": plazo_amplio,
+           "contenedor_sin_servidor": True}
+    try:
+        r = subprocess.run(["docker", "cp", str(ruta), f"{nombre_c}:/tmp/cuerpo_128_r4.json"], capture_output=True, text=True)
+        ruta.unlink(missing_ok=True)
+        if r.returncode:
+            raise SystemExit("docker cp falló: " + r.stderr)
+        poner_en_el_contenedor(nombre_c, TABM_POR_FASES, "/tmp/tabm_por_fases_128_r4.py")
+        orden = ["docker", "exec", *[x for k, v in sorted(ENTORNO_TABM_FORZADO.items()) for x in ("-e", f"{k}={v}")],
+                 nombre_c, "python3", "/tmp/tabm_por_fases_128_r4.py", "/tmp/cuerpo_128_r4.json", "/tmp/tabm_por_fases_128_r4.json",
+                 str(plazo_amplio)]
+        with Muestreador(nombre_c) as mu:
+            t0 = time.time()
+            try:
+                p = subprocess.run(orden, capture_output=True, text=True, timeout=tope_s)
+                rc, err = p.returncode, p.stderr or ""
+            except subprocess.TimeoutExpired as e:
+                rc, err = "plazo", e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            rec["guion_rc"], rec["guion_pared_s"] = rc, round(time.time() - t0, 1)
+            rec["guion_stderr_cola"] = err[-1500:]
+            time.sleep(2)
+            muestras = mu.leer()
+        out = subprocess.run(["docker", "exec", nombre_c, "cat", "/tmp/tabm_por_fases_128_r4.json"], capture_output=True, text=True)
+        try:
+            med = json.loads(out.stdout)
+        except ValueError:
+            med = {"error": "el guion no escribió su salida", "stdout": out.stdout[-500:]}
+        rec["memory_events"] = _memory_events(nombre_c)
+        rec["contenedor"] = r0.estado_del_contenedor(nombre_c)
+        rec["medida"] = med
+        rec["resumen_de_corridas"] = [resumir_corrida(x) for x in med.get("corridas") or []]
+        rec["estado"] = "plazo" if rc == "plazo" else veredicto_tabm_por_fases(rc, med)
+        rec["error"] = med.get("error")
+        rec["fin"] = ahora()
+        eventos = [(t0, "arranque_del_guion")]
+        for x in med.get("corridas") or []:                    # el instante de cada corrida, para repartir la memoria del contenedor
+            if x.get("fases"):
+                eventos.append((x["fases"][0]["t_pared"], x["rotulo"]))
+        rec = cerrar_registro(rec, muestras, eventos, dir_series, nombre, c, memoria, rol=rol_con_el_guion_por_fases)
+        rec["memoria_pico_mb"] = ((rec.get("resumen_de_memoria") or {}).get("pico_cgroup") or {}).get("cgroup_mb")
+        return rec
+    finally:
+        ruta.unlink(missing_ok=True)
+        borrar_contenedor()
+
+
 # ============================================================================ salida
 def guardar(salida, datos):
     tmp = salida.with_suffix(".json.tmp")
@@ -906,6 +1633,14 @@ def main():
     ap.add_argument("--retencion", action="store_true",
                     help="128-C1 paso 0: un estudio entero en el contenedor y, al acabar, cuánto devuelven gc y malloc_trim(0) "
                          "(solo con --humo en el desarrollo; la de APSFailure va a la cola)")
+    ap.add_argument("--tabm-forzado", action="store_true",
+                    help="128-C3b: un estudio entero en el contenedor con la guarda de memoria de TabM callada EN MEMORIA "
+                         "(el entorno de --pcpu): ¿cabe TabM en los grandes? (la de los tres va a la cola)")
+    ap.add_argument("--tabm-por-fases", action="store_true",
+                    help="128-R4: un intento de TabM del primer pliegue por FASES (carga, preparación, red, épocas, validación, "
+                         "checkpoint, exportación) con el plazo del producto y con uno amplio (la de los tres va a la cola)")
+    ap.add_argument("--plazo-amplio", type=float, default=PLAZO_AMPLIO_S,
+                    help="el plazo (s) de la segunda corrida de --tabm-por-fases")
     ap.add_argument("--tope-estudio", type=int, default=TOPE_ESTUDIO_S)
     a = ap.parse_args()
     IMAGEN, SALIDA = a.imagen, Path(a.salida).resolve()
@@ -925,6 +1660,8 @@ def main():
                    "sha256_muestreador": hashlib.sha256(MUESTREADOR.encode()).hexdigest(),
                    "sha256_intento_sin_tope": hashlib.sha256(INTENTO_SIN_TOPE.encode()).hexdigest(),
                    "sha256_retencion": hashlib.sha256(RETENCION.encode()).hexdigest(),
+                   "sha256_tabm_forzado": hashlib.sha256(TABM_FORZADO.encode()).hexdigest(),
+                   "sha256_tabm_por_fases": hashlib.sha256(TABM_POR_FASES.encode()).hexdigest(),
                    "memoria_del_contenedor": a.memoria, "cpus": 2, "inicio": ahora(),
                    "loadavg_al_empezar": open("/proc/loadavg").read().split()[:3],
                    "instrumento": "estudio por HTTP; RSS por proceso de /proc dentro del contenedor cada ~1 s; sin tracemalloc",
@@ -932,6 +1669,19 @@ def main():
                                "un proceso que viva menos de ~1 s puede no aparecer",
                                "el motor de cada intento es INFERIDO del orden del leaderboard final",
                                "la suma de RSS cuenta dos veces lo compartido; el pico del cgroup es lo que mira el OOM"]}
+    if a.tabm_por_fases:
+        procedencia["tabm_por_fases"] = {
+            "plazo_amplio_s": a.plazo_amplio, "tope_s": a.tope_estudio, "margen_de_cuadre": f"el mayor de {MARGEN_ABS_S} s y el {MARGEN_REL:.0%}",
+            "limites": ["los temporizadores se ponen EN MEMORIA en el proceso del guion; los hijos `spawn` re-importan del disco y NO los "
+                        "llevan: solo el intento DIRECTO está medido por fases (el aislado del producto añade pickle/fichero y el hijo)",
+                        "las dos corridas van una tras otra en el MISMO proceso: la segunda hereda el asignador y las cachés de la primera",
+                        "el intento se construye con `_construir` (la preparación del producto en el padre, que los árboles comparten); "
+                        "su coste NO está en el plazo de TabM (el reloj empieza en `_ajustar`)",
+                        "entrenar y checkpoint por época se DERIVAN de dos marcas (validación y primer `_ahora` tras ella), no son funciones",
+                        "VmHWM se reinicia con /proc/self/clear_refs al entrar en cada fase hoja; si el núcleo no lo deja, "
+                        "`hwm_se_reinicia` lo dice y el pico es acumulado",
+                        "solo se mide un intento (primer pliegue, repetición 0, semilla del producto): una época por validación "
+                        "cruzada de otros pliegues puede variar con la carga de la máquina"]}
     datos = {"procedencia": procedencia, "control": None, "conjuntos": {}}
     if a.control:
         datos["control"] = control()
@@ -943,6 +1693,39 @@ def main():
         if n not in banco:
             raise SystemExit(f"PARO: {n} no está en el banco del 120")
     dir_series = SALIDA.with_name(SALIDA.stem + "_series")
+    if a.tabm_por_fases:
+        for n in nombres:
+            print(f"[{ahora()}] {n}: TabM por fases (memoria {a.memoria}, plazo amplio {a.plazo_amplio} s, tope {a.tope_estudio} s) ...",
+                  flush=True)
+            rec = medir_tabm_por_fases(n, banco[n], gen, a.memoria, dir_series, a.tope_estudio, a.plazo_amplio)
+            datos["conjuntos"][n + ":tabm_por_fases"] = rec
+            guardar(SALIDA, datos)
+            print(f"   {rec.get('estado')} | guion {rec.get('guion_pared_s')} s | cgroup {rec.get('memoria_pico_mb')} MB | "
+                  f"oom_kill {(rec.get('memory_events') or {}).get('oom_kill')}", flush=True)
+            for res in rec.get("resumen_de_corridas") or []:
+                print(linea_de_fases(res), flush=True)
+            if rec.get("estado") == "sin_tabm":
+                procedencia["fin"] = ahora()
+                guardar(SALIDA, datos)
+                raise SystemExit(f"PARO: {n} sin intento de TabM; la sustitución de la guarda no llegó")
+        procedencia["fin"] = ahora()
+        guardar(SALIDA, datos)
+        return
+    if a.tabm_forzado:
+        for n in nombres:
+            print(f"[{ahora()}] {n}: TabM forzado (memoria {a.memoria}, tope {a.tope_estudio} s) ...", flush=True)
+            rec = medir_tabm_forzado(n, banco[n], gen, a.memoria, dir_series, a.tope_estudio)
+            datos["conjuntos"][n + ":tabm_forzado"] = rec
+            guardar(SALIDA, datos)
+            print(linea_de_resumen(rec), f"| TabM: {rec.get('intentos_de_tabm')} intentos | campeón {rec.get('campeon')} | "
+                  f"oom_kill {(rec.get('memory_events') or {}).get('oom_kill')}", flush=True)
+            if rec.get("estado") == "sin_tabm":         # el instrumento no mide lo que dice: seguir sería gastar la noche
+                procedencia["fin"] = ahora()
+                guardar(SALIDA, datos)
+                raise SystemExit(f"PARO: {n} sin intentos de TabM; la sustitución de la guarda no llegó")
+        procedencia["fin"] = ahora()
+        guardar(SALIDA, datos)
+        return
     if a.retencion:
         for n in nombres:
             print(f"[{ahora()}] {n}: retención (memoria {a.memoria}) ...", flush=True)

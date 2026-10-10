@@ -1,0 +1,4 @@
+{
+ "estado": "sondeo_fallido",
+ "error": "URLError(ConnectionRefusedError(111, 'Connection refused'))"
+}
