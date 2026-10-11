@@ -323,21 +323,26 @@ def tipar_columnas_numericas(filas: list[dict[str, Any]],
     columna se convierte solo si TODOS sus valores no vacíos parsean; si no, es
     categórica de verdad y se deja tal cual.
     """
+    # 10-10 (medido en el arranque de APSFailure, 76.000 × 171: 19,5 → 12,9 s, salida IDÉNTICA): cada columna se lee UNA
+    # vez (`valores`), los vacíos se quitan sobre el CONJUNTO de valores distintos y no sobre cada fila, y se escribe con
+    # `zip`. Las mismas decisiones que antes, en el mismo orden: `test_tipar_columnas_igual_que_antes.py` lo compara con
+    # una copia literal de la versión anterior en formas de datos reales.
     tocadas: list[str] = []
     for columna in columnas:
-        no_vacios = [f.get(columna) for f in filas]
-        no_vacios = [v for v in no_vacios if v not in (None, "")]
-        if not no_vacios:
+        valores = [f.get(columna) for f in filas]
+        distintos = set(valores)
+        distintos.discard(None)
+        distintos.discard("")
+        if not distintos:
             continue
         try:
-            tipados = {v: float(v) for v in set(no_vacios)}
+            tipados = {v: float(v) for v in distintos}
         except (TypeError, ValueError):
             continue  # columna categórica de verdad -- se deja tal cual
-        if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in no_vacios):
+        if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in distintos):
             continue  # ya estaba tipada: no se toca ni se declara tocada
-        for fila in filas:
-            valor = fila.get(columna)
-            if valor not in (None, ""):
+        for fila, valor in zip(filas, valores):
+            if valor is not None and valor != "":
                 fila[columna] = tipados[valor]
         tocadas.append(columna)
     return tuple(tocadas)
