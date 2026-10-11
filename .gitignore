@@ -29,3 +29,6 @@ pr1-validation/
 # 128-C5: los 13 CSV del kit se REGENERAN (benchmarks/fase0/generar_kit_128_c5.py, con sus sha256) y se reparten en el zip;
 # 48 MB que no van a git.
 benchmarks/fase0/kit_128_c5/datos/*.csv.gz
+
+# 130-C0: los CSV del examen nuevo (22: 12 + reserva) se REGENERAN y se verifican por sha256 del protocolo_130.json; 14 MB que no van a git.
+benchmarks/fase0/datos_130/

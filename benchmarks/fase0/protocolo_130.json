@@ -1,0 +1,2840 @@
+{
+ "version_protocolo": "130.v1",
+ "contrato": "130_EVALUACION_NUEVA",
+ "fecha_registro": "2026-10-11 10:34 (Europe/Madrid)",
+ "creado_por": "agente 130-c0 (Sonnet), cumpliendo el C0 aprobado por Roberto el 2026-10-11 05:50",
+ "estado": "SELLADO en el C0: elegidos y datos hasheados SIN haber mirado ninguna cifra de rendimiento de ningún motor. Cualquier cambio posterior = protocolo_130_enmienda_N.json fechada y firmada por Roberto.",
+ "producto_congelado": {
+  "estado": "PENDIENTE (§1.1, §3.6): se escribe por enmienda cuando el 129 esté cerrado y el kit GPU del 128 devuelto, ANTES de abrir nada",
+  "commit_nucleo": null,
+  "commit_motores": null,
+  "commit_studio": null,
+  "digest_imagen": null,
+  "brazo_A": "v2.12 publicada (referencia_128_pcpu_v212.json)",
+  "brazo_B": "producto CPU congelado (128 + lo que entre del 129)"
+ },
+ "criterios": {
+  "c1_sin_solape": "ni el mismo data_id, ni el mismo nombre, ni el mismo conjunto con otro id: comparado contra los 40 ARFF de ~/fase0_openml_datos (nombre normalizado, data_id y las primeras 300 filas línea a línea contra las 752.891 líneas de datos de los 40). Los 13 del banco y los 8 del 120-C5 están todos dentro de los 40 (comprobado por data_id).",
+  "c2_tamano": {
+   "filas_min": 500,
+   "filas_max": 100000,
+   "columnas_max": 1600,
+   "cubos": "pequeno: 500–2.000 · mediano: 2.001–20.000 · grande: >20.000 (los cortes de _bucket de generar_protocolo.py del 101; el contrato decía <2.000 / 2.000–20.000: ningún elegido está en el borde)"
+  },
+  "c3_tarea": "≥5 binarias, ≥3 multiclase (≥1 con ≥5 clases), ≥3 regresiones; la rejilla fija 5 binarias, 3 multiclase y 4 regresiones",
+  "c4_cobertura": "≥3 con faltantes (cualquier celda ausente, como `tiene_faltantes` del generador del 101; el % se declara), ≥3 con categóricas (≥1 con un predictor de ≥50 niveles), ≥2 desbalanceados (minoritaria ≤10 %), ≥2 solo numéricas, ≥1 ancho (>500 columnas del CSV, objetivo incluido). Se mide de nuevo sobre los ARFF reales tras descargar (ficha.cobertura).",
+  "c5_licencia": {
+   "LICENCIAS_PERMITIDAS": [
+    "public",
+    "cc0",
+    "public domain",
+    "cc0 public domain"
+   ],
+   "comparacion": "valor de OpenML `licence`, recortado y en minúsculas, IGUAL a uno de los permitidos (la lista exacta de generar_protocolo.py del 101). «CC BY 4.0», «CC BY», «CC BY-NC-SA», «CC0: Public Domain», «CC 0: Public Domain», «Public Domain (CC0)» y «NA» quedan FUERA aunque algunas sean claramente libres: ampliar la lista es decisión de Roberto, por enmienda"
+  },
+  "c6_origen": "ARFF de OpenML con data_id, versión, file_id, md5 de OpenML (coincide con el descargado en los 22) y sha256 del ARFF, del CSV y del .csv.gz",
+  "c7_sin_trampas": "se miró el objetivo y, por columna, la pureza respecto al objetivo (nominales de ≤50 niveles), nominales casi únicos y |Pearson|≥0,98 (regresión) UNA vez en la preparación; ninguna cifra de motor. Además se QUITAN las columnas que OpenML declara `ignore_attribute` o `row_id_attribute` (identificadores y, en sarcos, los otros 6 pares de torsión, que serían fuga): es la única diferencia con el conversor del kit 128 (generar_kit_128_c5.py / csv_de), que no las quita.",
+  "c8_eleccion": "procedimiento de `seleccion` abajo, sin cifras de rendimiento"
+ },
+ "conversion": {
+  "conversor": "el mismo `leer_arff` de studio-backend/scripts/generar_ejemplos_medidos.py y el mismo csv.writer(lineterminator='\\n') que referencia_120_r0.csv_de / generar_kit_128_c5.py, MÁS quitar `ignore_attribute` y `row_id_attribute` (c7); gz determinista (mtime 0, nivel 9, sin nombre)",
+  "clase_positiva": "la minoritaria con desempate por nombre (clase_positiva_medida, la de Fase 0), solo en binarias"
+ },
+ "seleccion": {
+  "procedimiento": [
+   "1. Lista candidata: la del §3.3 (22 nombres) + AMPLIACIÓN de C0 con 62 nombres más de OpenML/AMLB/CC18 añadida tras ver, solo por metadatos, que la lista del §3.3 no tiene ninguna regresión pequeña ni grande con licencia permitida (todas las de TabArena traen CC BY) ni cubre el hueco ancho/alta cardinalidad. Ninguna cifra de rendimiento se miró para ampliar.",
+   "2. Por nombre se toma UNA versión: la de menor data_id que sea activa, cuya tarea (nclasses: 0=regresión, 2=binaria, ≥3=multiclase) sea la declarada para ese nombre, con licencia permitida, 500–100.000 filas, ≤1.600 columnas y objetivo por defecto.",
+   "3. Pool = esas versiones, menos las familias duplicadas y los sintéticos. Rejilla de 12 celdas (cubo, tarea), en este orden: pequeno/bin; pequeno/bin; pequeno/multi; pequeno/reg; mediano/bin; mediano/bin; mediano/multi; mediano/reg; grande/bin; grande/multi; grande/reg; grande/reg",
+   "4. Para cada semilla s = 20261010, 20261011, …: rng = random.Random(s); por cada celda en orden, pool de la celda ordenado por data_id sin los ya elegidos, y rng.choice(pool). Se acepta la PRIMERA semilla cuyo conjunto de 12 cumple todos los mínimos de c3 y c4 (según las qualities de OpenML).",
+   "5. Reserva: por celda, random.Random(f'20261010:reserva:{i}').choice(pool ordenado por data_id sin los ya elegidos). Una celda sin candidato queda como HUECO declarado.",
+   "6. Sustitución antes de abrir: si un elegido resultara tener fuga/identificador, hash que no cuadra o licencia que no se confirma, se sustituye por la reserva de SU celda, por enmienda; nunca se sustituye por su rendimiento."
+  ],
+  "semilla_base": 20261010,
+  "semilla_aceptada": 20261021,
+  "semillas_probadas": 12,
+  "celdas": [
+   {
+    "i": 0,
+    "cubo": "pequeno",
+    "tarea": "binary_classification"
+   },
+   {
+    "i": 1,
+    "cubo": "pequeno",
+    "tarea": "binary_classification"
+   },
+   {
+    "i": 2,
+    "cubo": "pequeno",
+    "tarea": "multiclass_classification"
+   },
+   {
+    "i": 3,
+    "cubo": "pequeno",
+    "tarea": "regression"
+   },
+   {
+    "i": 4,
+    "cubo": "mediano",
+    "tarea": "binary_classification"
+   },
+   {
+    "i": 5,
+    "cubo": "mediano",
+    "tarea": "binary_classification"
+   },
+   {
+    "i": 6,
+    "cubo": "mediano",
+    "tarea": "multiclass_classification"
+   },
+   {
+    "i": 7,
+    "cubo": "mediano",
+    "tarea": "regression"
+   },
+   {
+    "i": 8,
+    "cubo": "grande",
+    "tarea": "binary_classification"
+   },
+   {
+    "i": 9,
+    "cubo": "grande",
+    "tarea": "multiclass_classification"
+   },
+   {
+    "i": 10,
+    "cubo": "grande",
+    "tarea": "regression"
+   },
+   {
+    "i": 11,
+    "cubo": "grande",
+    "tarea": "regression"
+   }
+  ],
+  "sha256_scripts": {
+   "seleccionar_py": "885d226a35a0b3e4352309e7e498fc5f50aab0bdf63edddcaa968427c5aab38a",
+   "elegir_py": "8848ba218c3d40d0a95b786bd5e4f1b07fb1611d2eb878d5933f9c67d238bf57",
+   "procesar_py": "95b7af785e848e31139236994b1b8242f8fe9437f150b1b7050bf765c125ebcb",
+   "donde": "/home/deployer/.agentes/130-c0/ (C1 los integra en generar_protocolo_130.py)"
+  }
+ },
+ "datasets": [
+  {
+   "orden": 1,
+   "nombre": "Fitness_Club",
+   "data_id": 46927,
+   "version_openml": 1,
+   "rol": "examen",
+   "celda": 0,
+   "tarea": "binary_classification",
+   "cubo_de_tamano": "pequeno",
+   "metrica_de_cierre": "auroc",
+   "objetivo": "attended",
+   "clase_positiva": "Yes",
+   "n_filas": 1500,
+   "n_columnas_csv": 7,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 2,
+   "cobertura": {
+    "tiene_faltantes": true,
+    "pct_celdas_faltantes": 0.19,
+    "n_categoricas": 3,
+    "max_cardinalidad_nominal_en_predictores": 7,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.3027,
+    "desbalanceado": false,
+    "solo_numericas": false,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public Domain",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/46927 campo «licence»: 'Public Domain' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/46927)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/46927",
+    "descarga": "https://www.openml.org/data/v1/download/22125238",
+    "file_id": "22125238",
+    "fuente_original": "https://www.kaggle.com/datasets/ddosad/datacamps-data-science-associate-certification",
+    "md5_openml": "8e13e2646ca3c13c07f975551fc1c26b",
+    "md5_arff_descargado": "8e13e2646ca3c13c07f975551fc1c26b",
+    "sha256_arff": "890a327d1e00a1c98beed59557914196321f7c02693e9e93f48207d72fe14b40",
+    "subido_a_openml": "2025-04-30T20:16:53"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/Fitness_Club.csv.gz",
+    "sha256_csv": "a1ecea4965e46e82a9120ba174a9c348d7caaa6e309a4bb38c4a028ccaf4ae87",
+    "bytes_csv": 41665,
+    "sha256_gz": "69a7e09820afe9772668470e761d4f5517d4c987b18e7a32b39ced10f13f6930",
+    "bytes_gz": 9255
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  },
+  {
+   "orden": 2,
+   "nombre": "cylinder-bands",
+   "data_id": 6332,
+   "version_openml": 2,
+   "rol": "examen",
+   "celda": 1,
+   "tarea": "binary_classification",
+   "cubo_de_tamano": "pequeno",
+   "metrica_de_cierre": "auroc",
+   "objetivo": "band_type",
+   "clase_positiva": "band",
+   "n_filas": 540,
+   "n_columnas_csv": 38,
+   "columnas_quitadas_por_openml": [
+    "timestamp",
+    "cylinder_number"
+   ],
+   "columnas_string_excluidas": [],
+   "n_clases": 2,
+   "cobertura": {
+    "tiene_faltantes": true,
+    "pct_celdas_faltantes": 4.868,
+    "n_categoricas": 19,
+    "max_cardinalidad_nominal_en_predictores": 71,
+    "alta_cardinalidad": true,
+    "proporcion_clase_minoritaria": 0.4222,
+    "desbalanceado": false,
+    "solo_numericas": false,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/6332 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/6332)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/6332",
+    "descarga": "https://www.openml.org/data/v1/download/1854224",
+    "file_id": "1854224",
+    "fuente_original": null,
+    "md5_openml": "59ec3d17d1fb9fa79c3108a7a5a9bc5e",
+    "md5_arff_descargado": "59ec3d17d1fb9fa79c3108a7a5a9bc5e",
+    "sha256_arff": "6e792f09b2d59d0500a2ba9a5975b31b5eef9534b98f5bf87ab8047452e4c45e",
+    "subido_a_openml": "2016-03-30T22:09:17"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/cylinder-bands.csv.gz",
+    "sha256_csv": "979abedd14b3daf694cf5798b3854d36f6b2b5b62d1258f4fdaf57af0c0126d9",
+    "bytes_csv": 95394,
+    "sha256_gz": "1a3a809a22002dbfc0bbfd46dae2c3b72bf49467502ffef111d20ffd64121058",
+    "bytes_gz": 14912
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  },
+  {
+   "orden": 3,
+   "nombre": "cmc",
+   "data_id": 23,
+   "version_openml": 1,
+   "rol": "examen",
+   "celda": 2,
+   "tarea": "multiclass_classification",
+   "cubo_de_tamano": "pequeno",
+   "metrica_de_cierre": "accuracy",
+   "objetivo": "Contraceptive_method_used",
+   "clase_positiva": null,
+   "n_filas": 1473,
+   "n_columnas_csv": 10,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 3,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 7,
+    "max_cardinalidad_nominal_en_predictores": 4,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.2261,
+    "desbalanceado": false,
+    "solo_numericas": false,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/23 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/23)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/23",
+    "descarga": "https://www.openml.org/data/v1/download/23",
+    "file_id": "23",
+    "fuente_original": "https://archive.ics.uci.edu/ml/datasets/Contraceptive+Method+Choice",
+    "md5_openml": "3149646ecff276abac3e892d1556655f",
+    "md5_arff_descargado": "3149646ecff276abac3e892d1556655f",
+    "sha256_arff": "9d8694d39e05d9d2963fccbe4f71e2af04c72c13de45f5dcbe775a586f214567",
+    "subido_a_openml": "2014-04-06T23:21:03"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/cmc.csv.gz",
+    "sha256_csv": "0279e13bbb89a59f117ecd667038f8276d58d7d03d6c7aeff3dbd84f1a5ba225",
+    "bytes_csv": 31158,
+    "sha256_gz": "5e3afdcc80d001a4d0932e7b3a6abd8bafa1895e13c5ab800d7a1a26123c32d5",
+    "bytes_gz": 6256
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  },
+  {
+   "orden": 4,
+   "nombre": "sensory",
+   "data_id": 546,
+   "version_openml": 1,
+   "rol": "examen",
+   "celda": 3,
+   "tarea": "regression",
+   "cubo_de_tamano": "pequeno",
+   "metrica_de_cierre": "r2",
+   "objetivo": "Score",
+   "clase_positiva": null,
+   "n_filas": 576,
+   "n_columnas_csv": 12,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": null,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 11,
+    "max_cardinalidad_nominal_en_predictores": 6,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": null,
+    "desbalanceado": false,
+    "solo_numericas": false,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/546 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/546)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/546",
+    "descarga": "https://www.openml.org/data/v1/download/52658",
+    "file_id": "52658",
+    "fuente_original": null,
+    "md5_openml": "90a4c323a5a44133825833c302bfcc94",
+    "md5_arff_descargado": "90a4c323a5a44133825833c302bfcc94",
+    "sha256_arff": "158968b205cce12fa1b58da519aece8a1e396a633ce5fbf6a960be4413b93d56",
+    "subido_a_openml": "2014-09-29T00:09:15"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/sensory.csv.gz",
+    "sha256_csv": "0e2bef698145fb2e1d1638b1a60ea02c62668837e1ce38955d33dd3319891bf5",
+    "bytes_csv": 15646,
+    "sha256_gz": "4e367eff9d45746562b0e7ad72a59a70ce443f7e38dd665feb29fb7b6fc586e4",
+    "bytes_gz": 2772
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  },
+  {
+   "orden": 5,
+   "nombre": "madelon",
+   "data_id": 1485,
+   "version_openml": 1,
+   "rol": "examen",
+   "celda": 4,
+   "tarea": "binary_classification",
+   "cubo_de_tamano": "mediano",
+   "metrica_de_cierre": "auroc",
+   "objetivo": "Class",
+   "clase_positiva": "1",
+   "n_filas": 2600,
+   "n_columnas_csv": 501,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 2,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.5,
+    "desbalanceado": false,
+    "solo_numericas": true,
+    "ancho": true
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/1485 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/1485)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/1485",
+    "descarga": "https://www.openml.org/data/v1/download/1590986",
+    "file_id": "1590986",
+    "fuente_original": null,
+    "md5_openml": "9a4a0c7fa94e6f824962b4c6fbd1812c",
+    "md5_arff_descargado": "9a4a0c7fa94e6f824962b4c6fbd1812c",
+    "sha256_arff": "ac33b79e8849b0e2e0417c62c50a421237b3dd522c2b344f8da3c0f72a80ad7c",
+    "subido_a_openml": "2015-05-22T23:46:18"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/madelon.csv.gz",
+    "sha256_csv": "0cebf74528804d611d46c0b2c0389a168e51455d784ebf5be15fc17bfecd40d2",
+    "bytes_csv": 5207592,
+    "sha256_gz": "5c6e10eb3c2cb72c4d6cfd02eccc8881499d8973293ef38ef8209f84a32187a3",
+    "bytes_gz": 1556298
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  },
+  {
+   "orden": 6,
+   "nombre": "hypothyroid",
+   "data_id": 1000,
+   "version_openml": 2,
+   "rol": "examen",
+   "celda": 5,
+   "tarea": "binary_classification",
+   "cubo_de_tamano": "mediano",
+   "metrica_de_cierre": "auroc",
+   "objetivo": "binaryClass",
+   "clase_positiva": "N",
+   "n_filas": 3772,
+   "n_columnas_csv": 30,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 2,
+   "cobertura": {
+    "tiene_faltantes": true,
+    "pct_celdas_faltantes": 5.359,
+    "n_categoricas": 22,
+    "max_cardinalidad_nominal_en_predictores": 5,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.0771,
+    "desbalanceado": true,
+    "solo_numericas": false,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/1000 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/1000)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/1000",
+    "descarga": "https://www.openml.org/data/v1/download/53534",
+    "file_id": "53534",
+    "fuente_original": null,
+    "md5_openml": "69ae4de6f74f2335eaa5d88e96a3dc83",
+    "md5_arff_descargado": "69ae4de6f74f2335eaa5d88e96a3dc83",
+    "sha256_arff": "c93000ceb10e3ca320f3ad9f1513852f67e808058321e6ca15cee11bbae52a4e",
+    "subido_a_openml": "2014-10-04T22:44:48"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/hypothyroid.csv.gz",
+    "sha256_csv": "1464a70f2bfc0b3ec7561072ac181bf4353fc25525e83d34d173b9c50f5f3c7c",
+    "bytes_csv": 270043,
+    "sha256_gz": "3a67ee7a71f0b591aabba94d7ae258501415f367fd308d123de0f6ba5cedd279",
+    "bytes_gz": 42135
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  },
+  {
+   "orden": 7,
+   "nombre": "satimage",
+   "data_id": 182,
+   "version_openml": 1,
+   "rol": "examen",
+   "celda": 6,
+   "tarea": "multiclass_classification",
+   "cubo_de_tamano": "mediano",
+   "metrica_de_cierre": "accuracy",
+   "objetivo": "class",
+   "clase_positiva": null,
+   "n_filas": 6430,
+   "n_columnas_csv": 37,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 6,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.0972,
+    "desbalanceado": true,
+    "solo_numericas": true,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/182 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/182)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/182",
+    "descarga": "https://www.openml.org/data/v1/download/3619",
+    "file_id": "3619",
+    "fuente_original": null,
+    "md5_openml": "72857195d1f6c4c2171c386594f870b2",
+    "md5_arff_descargado": "72857195d1f6c4c2171c386594f870b2",
+    "sha256_arff": "85a02ca850ecd8a005f746fa4d4dfe543250d8da51ef90590ba9db0f31546850",
+    "subido_a_openml": "2014-04-23T13:14:59"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/satimage.csv.gz",
+    "sha256_csv": "b6a7b73091f0b8c3919d1f8b9465e7d22f3e849b251f0373b5865d32dd1c41bd",
+    "bytes_csv": 2217373,
+    "sha256_gz": "5f674f4d6c5d2c79fb241e0c23b136e337d9cde9182f6fe5f5fa129cd63244f1",
+    "bytes_gz": 555798
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  },
+  {
+   "orden": 8,
+   "nombre": "Mercedes_Benz_Greener_Manufacturing",
+   "data_id": 42570,
+   "version_openml": 2,
+   "rol": "examen",
+   "celda": 7,
+   "tarea": "regression",
+   "cubo_de_tamano": "mediano",
+   "metrica_de_cierre": "r2",
+   "objetivo": "y",
+   "clase_positiva": null,
+   "n_filas": 4209,
+   "n_columnas_csv": 377,
+   "columnas_quitadas_por_openml": [
+    "ID"
+   ],
+   "columnas_string_excluidas": [],
+   "n_clases": null,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 8,
+    "max_cardinalidad_nominal_en_predictores": 47,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": null,
+    "desbalanceado": false,
+    "solo_numericas": false,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/42570 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/42570)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/42570",
+    "descarga": "https://www.openml.org/data/v1/download/21854646",
+    "file_id": "21854646",
+    "fuente_original": "https://www.kaggle.com/c/mercedes-benz-greener-manufacturing/overview",
+    "md5_openml": "911ec27d0321a1ae709d81d052e6350d",
+    "md5_arff_descargado": "911ec27d0321a1ae709d81d052e6350d",
+    "sha256_arff": "44cb0065e346847de80f8a2a0fdfa9f38cfff90275129f3419cffb420d690910",
+    "subido_a_openml": "2020-06-29T23:39:22"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/Mercedes_Benz_Greener_Manufacturing.csv.gz",
+    "sha256_csv": "af3d17687c900ddb73a9a69b8164faef67c792c9912917e66faa390fb2a6e383",
+    "bytes_csv": 3200477,
+    "sha256_gz": "c25417c60ac2161ea1dff5d0a8f7e5d19a63ed68a817fc932ba3f928b4388142",
+    "bytes_gz": 168586
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  },
+  {
+   "orden": 9,
+   "nombre": "nomao",
+   "data_id": 1486,
+   "version_openml": 1,
+   "rol": "examen",
+   "celda": 8,
+   "tarea": "binary_classification",
+   "cubo_de_tamano": "grande",
+   "metrica_de_cierre": "auroc",
+   "objetivo": "Class",
+   "clase_positiva": "1",
+   "n_filas": 34465,
+   "n_columnas_csv": 119,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 2,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 29,
+    "max_cardinalidad_nominal_en_predictores": 3,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.2856,
+    "desbalanceado": false,
+    "solo_numericas": false,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/1486 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/1486)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/1486",
+    "descarga": "https://www.openml.org/data/v1/download/1592278",
+    "file_id": "1592278",
+    "fuente_original": "https://archive.ics.uci.edu/ml/datasets/Nomao",
+    "md5_openml": "8fc1ac73fbe5236892e166f9f24d7221",
+    "md5_arff_descargado": "8fc1ac73fbe5236892e166f9f24d7221",
+    "sha256_arff": "94b4e6229e434d04fb61f081e547c95ec0bfa99e9ea9e880acd5276d13b972e6",
+    "subido_a_openml": "2015-05-25T19:09:04"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/nomao.csv.gz",
+    "sha256_csv": "9cec8068d4abe109b6691594a0ed337234bf6691ecedffa746e8717a7835db2c",
+    "bytes_csv": 20198508,
+    "sha256_gz": "465d6e6343dc6c1cc21762bc7ef3db11c4766276e0ceea959ba6f03c83e2b6c8",
+    "bytes_gz": 1219808
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  },
+  {
+   "orden": 10,
+   "nombre": "jungle_chess_2pcs_raw_endgame_complete",
+   "data_id": 41027,
+   "version_openml": 1,
+   "rol": "examen",
+   "celda": 9,
+   "tarea": "multiclass_classification",
+   "cubo_de_tamano": "grande",
+   "metrica_de_cierre": "accuracy",
+   "objetivo": "class",
+   "clase_positiva": null,
+   "n_filas": 44819,
+   "n_columnas_csv": 7,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 3,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.0967,
+    "desbalanceado": true,
+    "solo_numericas": true,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/41027 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/41027)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/41027",
+    "descarga": "https://www.openml.org/data/v1/download/18631418",
+    "file_id": "18631418",
+    "fuente_original": null,
+    "md5_openml": "25ca110c24c9dc3ffdcb5c2453382778",
+    "md5_arff_descargado": "25ca110c24c9dc3ffdcb5c2453382778",
+    "sha256_arff": "647f9cded1b34558bd4587106bfabcb908e706194e78d3014fea6d594e909d75",
+    "subido_a_openml": "2018-02-20T12:00:05"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/jungle_chess_2pcs_raw_endgame_complete.csv.gz",
+    "sha256_csv": "1174ae9354253c81ebfa88dd2de4281cf9fcfe60a8ad8a40b6ac5f06ada8313d",
+    "bytes_csv": 627588,
+    "sha256_gz": "fd035d999dbcb56475d1a47a63c45a5bc283abc5cbf9a7eed638f4b131011986",
+    "bytes_gz": 106574
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  },
+  {
+   "orden": 11,
+   "nombre": "houses",
+   "data_id": 537,
+   "version_openml": 1,
+   "rol": "examen",
+   "celda": 10,
+   "tarea": "regression",
+   "cubo_de_tamano": "grande",
+   "metrica_de_cierre": "r2",
+   "objetivo": "median_house_value",
+   "clase_positiva": null,
+   "n_filas": 20640,
+   "n_columnas_csv": 9,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": null,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": null,
+    "desbalanceado": false,
+    "solo_numericas": true,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/537 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/537)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/537",
+    "descarga": "https://www.openml.org/data/v1/download/52649",
+    "file_id": "52649",
+    "fuente_original": "http://lib.stat.cmu.edu/datasets/",
+    "md5_openml": "fcdfbbaed87326c1724ad400c4328a8e",
+    "md5_arff_descargado": "fcdfbbaed87326c1724ad400c4328a8e",
+    "sha256_arff": "d9747476bff8fcce7d3531190bb3b638413bf5cbf05d4175a229760946dd3a27",
+    "subido_a_openml": "2014-09-29T00:08:56"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/houses.csv.gz",
+    "sha256_csv": "e42af4a06aa4b328a0b0fa2f605e91a61097a8046ae5a3745f1e33c73e7cc3da",
+    "bytes_csv": 4479000,
+    "sha256_gz": "e9f8ff0cd799523648b2208d3c7e9d43cad11e487db1f23da54ab6943b364bd7",
+    "bytes_gz": 509505
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  },
+  {
+   "orden": 12,
+   "nombre": "sarcos",
+   "data_id": 43873,
+   "version_openml": 3,
+   "rol": "examen",
+   "celda": 11,
+   "tarea": "regression",
+   "cubo_de_tamano": "grande",
+   "metrica_de_cierre": "r2",
+   "objetivo": "V22",
+   "clase_positiva": null,
+   "n_filas": 44484,
+   "n_columnas_csv": 22,
+   "columnas_quitadas_por_openml": [
+    "V23",
+    "V24",
+    "V25",
+    "V26",
+    "V27",
+    "V28"
+   ],
+   "columnas_string_excluidas": [],
+   "n_clases": null,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": null,
+    "desbalanceado": false,
+    "solo_numericas": true,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/43873 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/43873)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/43873",
+    "descarga": "https://www.openml.org/data/v1/download/22102750",
+    "file_id": "22102750",
+    "fuente_original": null,
+    "md5_openml": "4a6774d6e48b6787554d5a1589a3e1c0",
+    "md5_arff_descargado": "4a6774d6e48b6787554d5a1589a3e1c0",
+    "sha256_arff": "2e4ad09bd95fdebe3681c709219c6ac4285ea709786306a8ceace7a8fe77211a",
+    "subido_a_openml": "2022-04-20T17:44:43"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/sarcos.csv.gz",
+    "sha256_csv": "6bcd8a5344de1ab8ce91080161a710e63818171006f02784d0ab3fac8cb601b8",
+    "bytes_csv": 9239845,
+    "sha256_gz": "b8d37320d3cd13b56dd525d62ba009d640b6fe1a791160b627f146f8566e9fbf",
+    "bytes_gz": 3891927
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true
+  }
+ ],
+ "reserva": [
+  {
+   "orden": null,
+   "nombre": "oil_spill",
+   "data_id": 311,
+   "version_openml": 1,
+   "rol": "reserva",
+   "celda": 0,
+   "tarea": "binary_classification",
+   "cubo_de_tamano": "pequeno",
+   "metrica_de_cierre": "auroc",
+   "objetivo": "class",
+   "clase_positiva": "1",
+   "n_filas": 937,
+   "n_columnas_csv": 50,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 2,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.0438,
+    "desbalanceado": true,
+    "solo_numericas": true,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/311 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/311)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/311",
+    "descarga": "https://www.openml.org/data/v1/download/52215",
+    "file_id": "52215",
+    "fuente_original": null,
+    "md5_openml": "c236facd7285fb3357922a6918aef8dd",
+    "md5_arff_descargado": "c236facd7285fb3357922a6918aef8dd",
+    "sha256_arff": "072cad5c283637460b00283b708873de259bd17454cd4583ac1e450000531e41",
+    "subido_a_openml": "2014-08-25T11:40:11"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/oil_spill.csv.gz",
+    "sha256_csv": "71eaf6c334c74d7df3248a89cea71a2698a509841a4ecf593617d55a61e79c2d",
+    "bytes_csv": 232161,
+    "sha256_gz": "e10e0c4161663baee9e2947efefd2a83a24d9d3ce163c761cf78afb90e347934",
+    "bytes_gz": 75964
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true,
+   "reemplaza_a": 46927
+  },
+  {
+   "orden": null,
+   "nombre": "qsar-biodeg",
+   "data_id": 1494,
+   "version_openml": 1,
+   "rol": "reserva",
+   "celda": 1,
+   "tarea": "binary_classification",
+   "cubo_de_tamano": "pequeno",
+   "metrica_de_cierre": "auroc",
+   "objetivo": "Class",
+   "clase_positiva": "2",
+   "n_filas": 1055,
+   "n_columnas_csv": 42,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 2,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.3374,
+    "desbalanceado": false,
+    "solo_numericas": true,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/1494 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/1494)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/1494",
+    "descarga": "https://www.openml.org/data/v1/download/1592286",
+    "file_id": "1592286",
+    "fuente_original": null,
+    "md5_openml": "a2c189cd65511103fa540d7186155c24",
+    "md5_arff_descargado": "a2c189cd65511103fa540d7186155c24",
+    "sha256_arff": "959bdf9d436405525d63b01c85d8d5f6f9d5f8ff90f9b1d163ef8b5d7255722c",
+    "subido_a_openml": "2015-05-25T21:14:53"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/qsar-biodeg.csv.gz",
+    "sha256_csv": "ad02229fa8f73a96187358ff8106b686dd6cb34a5f27fa35fb3b4d4a6b06e45d",
+    "bytes_csv": 153339,
+    "sha256_gz": "8e192b3306263a595dca56b666d8e74e9122b169f8e868f3788a7a2efac859f7",
+    "bytes_gz": 45433
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true,
+   "reemplaza_a": 6332
+  },
+  {
+   "orden": null,
+   "nombre": "eucalyptus",
+   "data_id": 188,
+   "version_openml": 1,
+   "rol": "reserva",
+   "celda": 2,
+   "tarea": "multiclass_classification",
+   "cubo_de_tamano": "pequeno",
+   "metrica_de_cierre": "accuracy",
+   "objetivo": "Utility",
+   "clase_positiva": null,
+   "n_filas": 736,
+   "n_columnas_csv": 20,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 5,
+   "cobertura": {
+    "tiene_faltantes": true,
+    "pct_celdas_faltantes": 3.043,
+    "n_categoricas": 5,
+    "max_cardinalidad_nominal_en_predictores": 27,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.1427,
+    "desbalanceado": false,
+    "solo_numericas": false,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/188 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/188)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/188",
+    "descarga": "https://www.openml.org/data/v1/download/3625",
+    "file_id": "3625",
+    "fuente_original": "http://www.cs.waikato.ac.nz/ml/weka/datasets.html",
+    "md5_openml": "adaf2938bd76922c010d3d32592bdb80",
+    "md5_arff_descargado": "adaf2938bd76922c010d3d32592bdb80",
+    "sha256_arff": "59a2fe2cb13540ea64a01faba34048209e096bb75a105b9c053950df4f6d678c",
+    "subido_a_openml": "2014-04-23T13:15:28"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/eucalyptus.csv.gz",
+    "sha256_csv": "4e992c3b3349d1fc98726c7cb5332d36de91761787827d56fb5173b6612f7b01",
+    "bytes_csv": 75114,
+    "sha256_gz": "ef8966d8f0e52bf40c35f47f0931e94b8e31c9b80fcd4f39145de9815c7363e6",
+    "bytes_gz": 10936
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true,
+   "reemplaza_a": 23
+  },
+  {
+   "orden": null,
+   "nombre": "treasury",
+   "data_id": 42367,
+   "version_openml": 1,
+   "rol": "reserva",
+   "celda": 3,
+   "tarea": "regression",
+   "cubo_de_tamano": "pequeno",
+   "metrica_de_cierre": "r2",
+   "objetivo": "1MonthCDRate",
+   "clase_positiva": null,
+   "n_filas": 1049,
+   "n_columnas_csv": 16,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": null,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": null,
+    "desbalanceado": false,
+    "solo_numericas": true,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "CC0",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/42367 campo «licence»: 'CC0' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/42367)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/42367",
+    "descarga": "https://www.openml.org/data/v1/download/21829189",
+    "file_id": "21829189",
+    "fuente_original": "https://sci2s.ugr.es/keel/dataset.php?cod=42",
+    "md5_openml": "1f300674335fa9b76be679b02bffb439",
+    "md5_arff_descargado": "1f300674335fa9b76be679b02bffb439",
+    "sha256_arff": "9f996e1b289f3f5b4d1137bfc339eaf7f2a5e6186243d9a244b8d9832b6a7b20",
+    "subido_a_openml": "2020-04-19T04:59:15"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/treasury.csv.gz",
+    "sha256_csv": "52370e5e0570404cc11b19c4ff29f1e153e3c9b7475eb89a19d221a7bff61cca",
+    "bytes_csv": 95848,
+    "sha256_gz": "dfbc80476aaf816247b44bc8049e4b8f51e5650a1a8934399a334864c75c6967",
+    "bytes_gz": 40075
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [
+    [
+     "3M-Rate-SecondaryMarket",
+     "pearson",
+     0.9903
+    ],
+    [
+     "3Y-CMaturityRate",
+     "pearson",
+     0.9917
+    ],
+    [
+     "moneyStock",
+     "pearson",
+     0.9947
+    ]
+   ],
+   "sellado": true,
+   "reemplaza_a": 546
+  },
+  {
+   "orden": null,
+   "nombre": "mammography",
+   "data_id": 310,
+   "version_openml": 1,
+   "rol": "reserva",
+   "celda": 4,
+   "tarea": "binary_classification",
+   "cubo_de_tamano": "mediano",
+   "metrica_de_cierre": "auroc",
+   "objetivo": "class",
+   "clase_positiva": "1",
+   "n_filas": 11183,
+   "n_columnas_csv": 7,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 2,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.0232,
+    "desbalanceado": true,
+    "solo_numericas": true,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/310 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/310)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/310",
+    "descarga": "https://www.openml.org/data/v1/download/52214",
+    "file_id": "52214",
+    "fuente_original": null,
+    "md5_openml": "5feded5bcc067a737ec94f50ad42e93a",
+    "md5_arff_descargado": "5feded5bcc067a737ec94f50ad42e93a",
+    "sha256_arff": "495e3e9689e740a0de044feb2ebd3ecd2d30c13d725e3d820ea2afd7454c3f3b",
+    "subido_a_openml": "2014-08-25T11:38:52"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/mammography.csv.gz",
+    "sha256_csv": "10a7acd6a34e4f8f52db7144ae646e259394d94edeb55c6273fe412f9edda6fa",
+    "bytes_csv": 805581,
+    "sha256_gz": "6c62b77a3dc7aa720029df2ddf83ad5799a9471ca947d43246991afe60407f48",
+    "bytes_gz": 162215
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true,
+   "reemplaza_a": 1485
+  },
+  {
+   "orden": null,
+   "nombre": "MagicTelescope",
+   "data_id": 1120,
+   "version_openml": 1,
+   "rol": "reserva",
+   "celda": 5,
+   "tarea": "binary_classification",
+   "cubo_de_tamano": "mediano",
+   "metrica_de_cierre": "auroc",
+   "objetivo": "class:",
+   "clase_positiva": "h",
+   "n_filas": 19020,
+   "n_columnas_csv": 11,
+   "columnas_quitadas_por_openml": [
+    "ID"
+   ],
+   "columnas_string_excluidas": [],
+   "n_clases": 2,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.3516,
+    "desbalanceado": false,
+    "solo_numericas": true,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/1120 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/1120)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/1120",
+    "descarga": "https://www.openml.org/data/v1/download/54003",
+    "file_id": "54003",
+    "fuente_original": null,
+    "md5_openml": "f6dee76810bd7211716fee7b2b0317cb",
+    "md5_arff_descargado": "f6dee76810bd7211716fee7b2b0317cb",
+    "sha256_arff": "ff35972a47140925b0b698b3f0de8471d3d2f0ede19a553b2d3c58ba7caa19ee",
+    "subido_a_openml": "2014-10-07T00:42:01"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/MagicTelescope.csv.gz",
+    "sha256_csv": "4fbb220f2c8eb0f5a69ffc7a2bd658f57f8c5b092b4c0cebf00323a953553a3d",
+    "bytes_csv": 1477478,
+    "sha256_gz": "86c64e98db14a08c41fa779693af9128d8c9f6a0fef6280beebe7bd6608b01c5",
+    "bytes_gz": 644072
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true,
+   "reemplaza_a": 1000
+  },
+  {
+   "orden": null,
+   "nombre": "page-blocks",
+   "data_id": 30,
+   "version_openml": 1,
+   "rol": "reserva",
+   "celda": 6,
+   "tarea": "multiclass_classification",
+   "cubo_de_tamano": "mediano",
+   "metrica_de_cierre": "accuracy",
+   "objetivo": "class",
+   "clase_positiva": null,
+   "n_filas": 5473,
+   "n_columnas_csv": 11,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 5,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.0051,
+    "desbalanceado": true,
+    "solo_numericas": true,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/30 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/30)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/30",
+    "descarga": "https://www.openml.org/data/v1/download/30",
+    "file_id": "30",
+    "fuente_original": "https://archive.ics.uci.edu/ml/datasets/Page+Blocks+Classification",
+    "md5_openml": "7883524a483cd354918d3e20c0b5842d",
+    "md5_arff_descargado": "7883524a483cd354918d3e20c0b5842d",
+    "sha256_arff": "47b2fd65005c014f237d70cdb0d490746f03eddb83e1aac8c65c9328ab6abc23",
+    "subido_a_openml": "2014-04-06T23:21:43"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/page-blocks.csv.gz",
+    "sha256_csv": "34cf4a7e6e5f9cc0fb37c6ddb3920f4559069ec25da5fd31bff0010fba907c6a",
+    "bytes_csv": 237910,
+    "sha256_gz": "7b7a3572d902f985f282bfef92db2125d8860935ba74dba77f8be35735247b3d",
+    "bytes_gz": 84418
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true,
+   "reemplaza_a": 182
+  },
+  {
+   "orden": null,
+   "nombre": "sulfur",
+   "data_id": 23515,
+   "version_openml": 1,
+   "rol": "reserva",
+   "celda": 7,
+   "tarea": "regression",
+   "cubo_de_tamano": "mediano",
+   "metrica_de_cierre": "r2",
+   "objetivo": "y1",
+   "clase_positiva": null,
+   "n_filas": 10081,
+   "n_columnas_csv": 7,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": null,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 0,
+    "max_cardinalidad_nominal_en_predictores": 0,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": null,
+    "desbalanceado": false,
+    "solo_numericas": true,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/23515 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/23515)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/23515",
+    "descarga": "https://www.openml.org/data/v1/download/2095629",
+    "file_id": "2095629",
+    "fuente_original": "https://www.springer.com/gb/book/9781846284793",
+    "md5_openml": "2dcfef1ab9993feda26039590ada2bec",
+    "md5_arff_descargado": "2dcfef1ab9993feda26039590ada2bec",
+    "sha256_arff": "ddaf697553a2b8697821a388a22ab1ea5503f16a8883aa3983866952a9e9aaa1",
+    "subido_a_openml": "2016-07-06T17:22:53"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/sulfur.csv.gz",
+    "sha256_csv": "9f5c9d2ae6161f2a175311a67c69d6a9f731a73e5507d63a40a16e7a8ddce4be",
+    "bytes_csv": 627196,
+    "sha256_gz": "933faf0132e7a91badfa95710dceabdbc0b7ec388c3a1c510428df4a78067c2e",
+    "bytes_gz": 238377
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true,
+   "reemplaza_a": 42570
+  },
+  {
+   "orden": null,
+   "nombre": "electricity",
+   "data_id": 151,
+   "version_openml": 1,
+   "rol": "reserva",
+   "celda": 8,
+   "tarea": "binary_classification",
+   "cubo_de_tamano": "grande",
+   "metrica_de_cierre": "auroc",
+   "objetivo": "class",
+   "clase_positiva": "UP",
+   "n_filas": 45312,
+   "n_columnas_csv": 9,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 2,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 1,
+    "max_cardinalidad_nominal_en_predictores": 7,
+    "alta_cardinalidad": false,
+    "proporcion_clase_minoritaria": 0.4245,
+    "desbalanceado": false,
+    "solo_numericas": false,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/151 campo «licence»: 'Public' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/151)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/151",
+    "descarga": "https://www.openml.org/data/v1/download/2419",
+    "file_id": "2419",
+    "fuente_original": "http://www.inescporto.pt/~jgama/ales/ales_5.html",
+    "md5_openml": "8ca97867d960ae029ae3a9ac2c923d34",
+    "md5_arff_descargado": "8ca97867d960ae029ae3a9ac2c923d34",
+    "sha256_arff": "2d86fbc74c69a5c04bcde0119bce280dd6d8efa0115987edc75b77ccf024d7f2",
+    "subido_a_openml": "2014-04-10T02:42:23"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/electricity.csv.gz",
+    "sha256_csv": "1990d7ea200d6a7830e15b009311f0f79ea8f07b1986826d140af9867a98879a",
+    "bytes_csv": 3091690,
+    "sha256_gz": "fb2895139b562359013e993d74d61ea390a1a2fa195ad883fb824ac1041485aa",
+    "bytes_gz": 693656
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true,
+   "reemplaza_a": 1486
+  },
+  {
+   "orden": null,
+   "nombre": "SDSS17",
+   "data_id": 46955,
+   "version_openml": 1,
+   "rol": "reserva",
+   "celda": 9,
+   "tarea": "multiclass_classification",
+   "cubo_de_tamano": "grande",
+   "metrica_de_cierre": "accuracy",
+   "objetivo": "ObjectType",
+   "clase_positiva": null,
+   "n_filas": 78053,
+   "n_columnas_csv": 12,
+   "columnas_quitadas_por_openml": [],
+   "columnas_string_excluidas": [],
+   "n_clases": 3,
+   "cobertura": {
+    "tiene_faltantes": false,
+    "pct_celdas_faltantes": 0.0,
+    "n_categoricas": 2,
+    "max_cardinalidad_nominal_en_predictores": 6264,
+    "alta_cardinalidad": true,
+    "proporcion_clase_minoritaria": 0.1793,
+    "desbalanceado": false,
+    "solo_numericas": false,
+    "ancho": false
+   },
+   "licencia": {
+    "valor_en_openml": "Public Domain",
+    "dentro_de_LICENCIAS_PERMITIDAS": true,
+    "cita": "OpenML data/46955 campo «licence»: 'Public Domain' (leído el 2026-10-11 en https://www.openml.org/api/v1/json/data/46955)"
+   },
+   "origen": {
+    "pagina": "https://www.openml.org/d/46955",
+    "descarga": "https://www.openml.org/data/v1/download/22125266",
+    "file_id": "22125266",
+    "fuente_original": "https://www.kaggle.com/datasets/fedesoriano/stellar-classification-dataset-sdss17",
+    "md5_openml": "a9dd3721fda74c64c661f574d797f512",
+    "md5_arff_descargado": "a9dd3721fda74c64c661f574d797f512",
+    "sha256_arff": "feb9d9b7ffc9ffbccfab3422b65c23c8386c38b5d1628dc49e3e3755c7dd19ee",
+    "subido_a_openml": "2025-04-30T20:20:39"
+   },
+   "fichero": {
+    "ruta": "benchmarks/fase0/datos_130/SDSS17.csv.gz",
+    "sha256_csv": "c29ce9d3c84513ab3368dc64072e837e7d485a6c8100fdf1d5d11013e69727f5",
+    "bytes_csv": 8265108,
+    "sha256_gz": "4aa12e4c7a34a64bcd058768e2ec93b7905e630df4f16ecb676223ecc260a21f",
+    "bytes_gz": 3689135
+   },
+   "solape_con_los_40": {
+    "mismo_data_id": false,
+    "mismo_nombre": false,
+    "lineas_identicas_en_las_primeras_300_filas": 0
+   },
+   "fuga_detectada": [],
+   "sellado": true,
+   "reemplaza_a": 41027
+  },
+  {
+   "celda": 10,
+   "cubo_de_tamano": "grande",
+   "tarea": "regression",
+   "data_id": null,
+   "motivo": "HUECO: no queda ningún candidato elegible en esta celda (los dos únicos de grande/regresión con licencia permitida y ≤100.000 filas, houses y sarcos, ya están en el examen)"
+  },
+  {
+   "celda": 11,
+   "cubo_de_tamano": "grande",
+   "tarea": "regression",
+   "data_id": null,
+   "motivo": "HUECO: no queda ningún candidato elegible en esta celda (los dos únicos de grande/regresión con licencia permitida y ≤100.000 filas, houses y sarcos, ya están en el examen)"
+  }
+ ],
+ "pool_elegible": [
+  {
+   "data_id": 151,
+   "nombre": "electricity",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "bin",
+   "filas": 45312,
+   "columnas": 9
+  },
+  {
+   "data_id": 179,
+   "nombre": "adult",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "bin",
+   "filas": 48842,
+   "columnas": 15
+  },
+  {
+   "data_id": 1461,
+   "nombre": "bank-marketing",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "bin",
+   "filas": 45211,
+   "columnas": 17
+  },
+  {
+   "data_id": 1486,
+   "nombre": "nomao",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "bin",
+   "filas": 34465,
+   "columnas": 119
+  },
+  {
+   "data_id": 23517,
+   "nombre": "numerai28.6",
+   "version": 2,
+   "cubo": "grande",
+   "tarea": "bin",
+   "filas": 96320,
+   "columnas": 22
+  },
+  {
+   "data_id": 42477,
+   "nombre": "default-of-credit-card-clients",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "bin",
+   "filas": 30000,
+   "columnas": 24
+  },
+  {
+   "data_id": 554,
+   "nombre": "mnist_784",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "multi",
+   "filas": 70000,
+   "columnas": 785
+  },
+  {
+   "data_id": 40685,
+   "nombre": "shuttle",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "multi",
+   "filas": 58000,
+   "columnas": 10
+  },
+  {
+   "data_id": 40996,
+   "nombre": "Fashion-MNIST",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "multi",
+   "filas": 70000,
+   "columnas": 785
+  },
+  {
+   "data_id": 41027,
+   "nombre": "jungle_chess_2pcs_raw_endgame_complete",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "multi",
+   "filas": 44819,
+   "columnas": 7
+  },
+  {
+   "data_id": 41166,
+   "nombre": "volkert",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "multi",
+   "filas": 58310,
+   "columnas": 181
+  },
+  {
+   "data_id": 41168,
+   "nombre": "jannis",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "multi",
+   "filas": 83733,
+   "columnas": 55
+  },
+  {
+   "data_id": 46955,
+   "nombre": "SDSS17",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "multi",
+   "filas": 78053,
+   "columnas": 12
+  },
+  {
+   "data_id": 537,
+   "nombre": "houses",
+   "version": 1,
+   "cubo": "grande",
+   "tarea": "reg",
+   "filas": 20640,
+   "columnas": 9
+  },
+  {
+   "data_id": 43873,
+   "nombre": "sarcos",
+   "version": 3,
+   "cubo": "grande",
+   "tarea": "reg",
+   "filas": 44484,
+   "columnas": 22
+  },
+  {
+   "data_id": 44,
+   "nombre": "spambase",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "bin",
+   "filas": 4601,
+   "columnas": 58
+  },
+  {
+   "data_id": 310,
+   "nombre": "mammography",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "bin",
+   "filas": 11183,
+   "columnas": 7
+  },
+  {
+   "data_id": 1000,
+   "nombre": "hypothyroid",
+   "version": 2,
+   "cubo": "mediano",
+   "tarea": "bin",
+   "filas": 3772,
+   "columnas": 30
+  },
+  {
+   "data_id": 1067,
+   "nombre": "kc1",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "bin",
+   "filas": 2109,
+   "columnas": 22
+  },
+  {
+   "data_id": 1120,
+   "nombre": "MagicTelescope",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "bin",
+   "filas": 19020,
+   "columnas": 12
+  },
+  {
+   "data_id": 1471,
+   "nombre": "eeg-eye-state",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "bin",
+   "filas": 14980,
+   "columnas": 15
+  },
+  {
+   "data_id": 1485,
+   "nombre": "madelon",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "bin",
+   "filas": 2600,
+   "columnas": 501
+  },
+  {
+   "data_id": 1489,
+   "nombre": "phoneme",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "bin",
+   "filas": 5404,
+   "columnas": 6
+  },
+  {
+   "data_id": 26,
+   "nombre": "nursery",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "multi",
+   "filas": 12960,
+   "columnas": 9
+  },
+  {
+   "data_id": 30,
+   "nombre": "page-blocks",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "multi",
+   "filas": 5473,
+   "columnas": 11
+  },
+  {
+   "data_id": 36,
+   "nombre": "segment",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "multi",
+   "filas": 2310,
+   "columnas": 20
+  },
+  {
+   "data_id": 182,
+   "nombre": "satimage",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "multi",
+   "filas": 6430,
+   "columnas": 37
+  },
+  {
+   "data_id": 300,
+   "nombre": "isolet",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "multi",
+   "filas": 7797,
+   "columnas": 618
+  },
+  {
+   "data_id": 1476,
+   "nombre": "gas-drift",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "multi",
+   "filas": 13910,
+   "columnas": 129
+  },
+  {
+   "data_id": 1497,
+   "nombre": "wall-robot-navigation",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "multi",
+   "filas": 5456,
+   "columnas": 25
+  },
+  {
+   "data_id": 40499,
+   "nombre": "texture",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "multi",
+   "filas": 5500,
+   "columnas": 41
+  },
+  {
+   "data_id": 40670,
+   "nombre": "dna",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "multi",
+   "filas": 3186,
+   "columnas": 181
+  },
+  {
+   "data_id": 189,
+   "nombre": "kin8nm",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 8192,
+   "columnas": 9
+  },
+  {
+   "data_id": 197,
+   "nombre": "cpu_act",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 8192,
+   "columnas": 22
+  },
+  {
+   "data_id": 216,
+   "nombre": "elevators",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 16599,
+   "columnas": 19
+  },
+  {
+   "data_id": 296,
+   "nombre": "Ailerons",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 13750,
+   "columnas": 41
+  },
+  {
+   "data_id": 416,
+   "nombre": "yprop_4_1",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 8885,
+   "columnas": 252
+  },
+  {
+   "data_id": 23515,
+   "nombre": "sulfur",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 10081,
+   "columnas": 7
+  },
+  {
+   "data_id": 23516,
+   "nombre": "debutanizer",
+   "version": 1,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 2394,
+   "columnas": 8
+  },
+  {
+   "data_id": 42570,
+   "nombre": "Mercedes_Benz_Greener_Manufacturing",
+   "version": 2,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 4209,
+   "columnas": 377
+  },
+  {
+   "data_id": 42688,
+   "nombre": "Brazilian_houses",
+   "version": 4,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 10692,
+   "columnas": 13
+  },
+  {
+   "data_id": 42712,
+   "nombre": "Bike_Sharing_Demand",
+   "version": 2,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 17379,
+   "columnas": 13
+  },
+  {
+   "data_id": 42726,
+   "nombre": "abalone",
+   "version": 5,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 4177,
+   "columnas": 9
+  },
+  {
+   "data_id": 44981,
+   "nombre": "pumadyn32nh",
+   "version": 2,
+   "cubo": "mediano",
+   "tarea": "reg",
+   "filas": 8192,
+   "columnas": 33
+  },
+  {
+   "data_id": 29,
+   "nombre": "credit-approval",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "bin",
+   "filas": 690,
+   "columnas": 16
+  },
+  {
+   "data_id": 31,
+   "nombre": "credit-g",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "bin",
+   "filas": 1000,
+   "columnas": 21
+  },
+  {
+   "data_id": 311,
+   "nombre": "oil_spill",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "bin",
+   "filas": 937,
+   "columnas": 50
+  },
+  {
+   "data_id": 1464,
+   "nombre": "blood-transfusion-service-center",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "bin",
+   "filas": 748,
+   "columnas": 5
+  },
+  {
+   "data_id": 1480,
+   "nombre": "ilpd",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "bin",
+   "filas": 583,
+   "columnas": 11
+  },
+  {
+   "data_id": 1494,
+   "nombre": "qsar-biodeg",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "bin",
+   "filas": 1055,
+   "columnas": 42
+  },
+  {
+   "data_id": 6332,
+   "nombre": "cylinder-bands",
+   "version": 2,
+   "cubo": "pequeno",
+   "tarea": "bin",
+   "filas": 540,
+   "columnas": 40
+  },
+  {
+   "data_id": 40981,
+   "nombre": "Australian",
+   "version": 4,
+   "cubo": "pequeno",
+   "tarea": "bin",
+   "filas": 690,
+   "columnas": 15
+  },
+  {
+   "data_id": 46927,
+   "nombre": "Fitness_Club",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "bin",
+   "filas": 1500,
+   "columnas": 7
+  },
+  {
+   "data_id": 23,
+   "nombre": "cmc",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "multi",
+   "filas": 1473,
+   "columnas": 10
+  },
+  {
+   "data_id": 54,
+   "nombre": "vehicle",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "multi",
+   "filas": 846,
+   "columnas": 19
+  },
+  {
+   "data_id": 188,
+   "nombre": "eucalyptus",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "multi",
+   "filas": 736,
+   "columnas": 20
+  },
+  {
+   "data_id": 307,
+   "nombre": "vowel",
+   "version": 2,
+   "cubo": "pequeno",
+   "tarea": "multi",
+   "filas": 990,
+   "columnas": 13
+  },
+  {
+   "data_id": 458,
+   "nombre": "analcatdata_authorship",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "multi",
+   "filas": 841,
+   "columnas": 71
+  },
+  {
+   "data_id": 1468,
+   "nombre": "cnae-9",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "multi",
+   "filas": 1080,
+   "columnas": 857
+  },
+  {
+   "data_id": 1501,
+   "nombre": "semeion",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "multi",
+   "filas": 1593,
+   "columnas": 257
+  },
+  {
+   "data_id": 40975,
+   "nombre": "car",
+   "version": 3,
+   "cubo": "pequeno",
+   "tarea": "multi",
+   "filas": 1728,
+   "columnas": 7
+  },
+  {
+   "data_id": 40982,
+   "nombre": "steel-plates-fault",
+   "version": 3,
+   "cubo": "pequeno",
+   "tarea": "multi",
+   "filas": 1941,
+   "columnas": 28
+  },
+  {
+   "data_id": 223,
+   "nombre": "stock",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "reg",
+   "filas": 950,
+   "columnas": 10
+  },
+  {
+   "data_id": 522,
+   "nombre": "pm10",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "reg",
+   "filas": 500,
+   "columnas": 8
+  },
+  {
+   "data_id": 541,
+   "nombre": "socmob",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "reg",
+   "filas": 1156,
+   "columnas": 6
+  },
+  {
+   "data_id": 546,
+   "nombre": "sensory",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "reg",
+   "filas": 576,
+   "columnas": 12
+  },
+  {
+   "data_id": 547,
+   "nombre": "no2",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "reg",
+   "filas": 500,
+   "columnas": 8
+  },
+  {
+   "data_id": 549,
+   "nombre": "strikes",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "reg",
+   "filas": 625,
+   "columnas": 7
+  },
+  {
+   "data_id": 42367,
+   "nombre": "treasury",
+   "version": 1,
+   "cubo": "pequeno",
+   "tarea": "reg",
+   "filas": 1049,
+   "columnas": 16
+  }
+ ],
+ "candidatos_considerados": [
+  {
+   "nombre": "abalone",
+   "data_id": 42726,
+   "filas": 4177,
+   "columnas": 9,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "adult",
+   "data_id": 179,
+   "filas": 48842,
+   "columnas": 15,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "Ailerons",
+   "data_id": 296,
+   "filas": 13750,
+   "columnas": 41,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "analcatdata_authorship",
+   "data_id": 458,
+   "filas": 841,
+   "columnas": 71,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "Australian",
+   "data_id": 40981,
+   "filas": 690,
+   "columnas": 15,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "bank-marketing",
+   "data_id": 1461,
+   "filas": 45211,
+   "columnas": 17,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "Bike_Sharing_Demand",
+   "data_id": 42712,
+   "filas": 17379,
+   "columnas": 13,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "blood-transfusion-service-center",
+   "data_id": 1464,
+   "filas": 748,
+   "columnas": 5,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "Brazilian_houses",
+   "data_id": 42688,
+   "filas": 10692,
+   "columnas": 13,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "car",
+   "data_id": 40975,
+   "filas": 1728,
+   "columnas": 7,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "cmc",
+   "data_id": 23,
+   "filas": 1473,
+   "columnas": 10,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "cnae-9",
+   "data_id": 1468,
+   "filas": 1080,
+   "columnas": 857,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "cpu_act",
+   "data_id": 197,
+   "filas": 8192,
+   "columnas": 22,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "credit-approval",
+   "data_id": 29,
+   "filas": 690,
+   "columnas": 16,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "credit-g",
+   "data_id": 31,
+   "filas": 1000,
+   "columnas": 21,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "cylinder-bands",
+   "data_id": 6332,
+   "filas": 540,
+   "columnas": 40,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "debutanizer",
+   "data_id": 23516,
+   "filas": 2394,
+   "columnas": 8,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "default-of-credit-card-clients",
+   "data_id": 42477,
+   "filas": 30000,
+   "columnas": 24,
+   "tarea": "bin",
+   "licencia": "CC0",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "dna",
+   "data_id": 40670,
+   "filas": 3186,
+   "columnas": 181,
+   "tarea": "multi",
+   "licencia": "public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "eeg-eye-state",
+   "data_id": 1471,
+   "filas": 14980,
+   "columnas": 15,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "electricity",
+   "data_id": 151,
+   "filas": 45312,
+   "columnas": 9,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "reserva de su celda"
+  },
+  {
+   "nombre": "elevators",
+   "data_id": 216,
+   "filas": 16599,
+   "columnas": 19,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "eucalyptus",
+   "data_id": 188,
+   "filas": 736,
+   "columnas": 20,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "reserva de su celda"
+  },
+  {
+   "nombre": "Fashion-MNIST",
+   "data_id": 40996,
+   "filas": 70000,
+   "columnas": 785,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "Fitness_Club",
+   "data_id": 46927,
+   "filas": 1500,
+   "columnas": 7,
+   "tarea": "bin",
+   "licencia": "Public Domain",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "gas-drift",
+   "data_id": 1476,
+   "filas": 13910,
+   "columnas": 129,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "houses",
+   "data_id": 537,
+   "filas": 20640,
+   "columnas": 9,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "hypothyroid",
+   "data_id": 1000,
+   "filas": 3772,
+   "columnas": 30,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "ilpd",
+   "data_id": 1480,
+   "filas": 583,
+   "columnas": 11,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "isolet",
+   "data_id": 300,
+   "filas": 7797,
+   "columnas": 618,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "jannis",
+   "data_id": 41168,
+   "filas": 83733,
+   "columnas": 55,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "jungle_chess_2pcs_raw_endgame_complete",
+   "data_id": 41027,
+   "filas": 44819,
+   "columnas": 7,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "kc1",
+   "data_id": 1067,
+   "filas": 2109,
+   "columnas": 22,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "kin8nm",
+   "data_id": 189,
+   "filas": 8192,
+   "columnas": 9,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "madelon",
+   "data_id": 1485,
+   "filas": 2600,
+   "columnas": 501,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "MagicTelescope",
+   "data_id": 1120,
+   "filas": 19020,
+   "columnas": 12,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "reserva de su celda"
+  },
+  {
+   "nombre": "mammography",
+   "data_id": 310,
+   "filas": 11183,
+   "columnas": 7,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "reserva de su celda"
+  },
+  {
+   "nombre": "Mercedes_Benz_Greener_Manufacturing",
+   "data_id": 42570,
+   "filas": 4209,
+   "columnas": 377,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "mnist_784",
+   "data_id": 554,
+   "filas": 70000,
+   "columnas": 785,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "no2",
+   "data_id": 547,
+   "filas": 500,
+   "columnas": 8,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "nomao",
+   "data_id": 1486,
+   "filas": 34465,
+   "columnas": 119,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "numerai28.6",
+   "data_id": 23517,
+   "filas": 96320,
+   "columnas": 22,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "nursery",
+   "data_id": 26,
+   "filas": 12960,
+   "columnas": 9,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "oil_spill",
+   "data_id": 311,
+   "filas": 937,
+   "columnas": 50,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "reserva de su celda"
+  },
+  {
+   "nombre": "OnlineNewsPopularity",
+   "data_id": 4545,
+   "filas": 39644,
+   "columnas": 61,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "excluido del pool: su única columna nominal es la URL (cadena identificadora, excluida del CSV por tipo string) y las qualities de OpenML (cardinalidad 39.644) hacen falsas sus banderas de cobertura"
+  },
+  {
+   "nombre": "page-blocks",
+   "data_id": 30,
+   "filas": 5473,
+   "columnas": 11,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "reserva de su celda"
+  },
+  {
+   "nombre": "phoneme",
+   "data_id": 1489,
+   "filas": 5404,
+   "columnas": 6,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "pm10",
+   "data_id": 522,
+   "filas": 500,
+   "columnas": 8,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "pumadyn32nh",
+   "data_id": 44981,
+   "filas": 8192,
+   "columnas": 33,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "qsar-biodeg",
+   "data_id": 1494,
+   "filas": 1055,
+   "columnas": 42,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "reserva de su celda"
+  },
+  {
+   "nombre": "sarcos",
+   "data_id": 43873,
+   "filas": 44484,
+   "columnas": 22,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "satimage",
+   "data_id": 182,
+   "filas": 6430,
+   "columnas": 37,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "SDSS17",
+   "data_id": 46955,
+   "filas": 78053,
+   "columnas": 12,
+   "tarea": "multi",
+   "licencia": "Public Domain",
+   "destino": "reserva de su celda"
+  },
+  {
+   "nombre": "segment",
+   "data_id": 36,
+   "filas": 2310,
+   "columnas": 20,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "semeion",
+   "data_id": 1501,
+   "filas": 1593,
+   "columnas": 257,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "sensory",
+   "data_id": 546,
+   "filas": 576,
+   "columnas": 12,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "ELEGIDO (examen)"
+  },
+  {
+   "nombre": "shuttle",
+   "data_id": 40685,
+   "filas": 58000,
+   "columnas": 10,
+   "tarea": "multi",
+   "licencia": "public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "socmob",
+   "data_id": 541,
+   "filas": 1156,
+   "columnas": 6,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "spambase",
+   "data_id": 44,
+   "filas": 4601,
+   "columnas": 58,
+   "tarea": "bin",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "steel-plates-fault",
+   "data_id": 40982,
+   "filas": 1941,
+   "columnas": 28,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "stock",
+   "data_id": 223,
+   "filas": 950,
+   "columnas": 10,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "strikes",
+   "data_id": 549,
+   "filas": 625,
+   "columnas": 7,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "sulfur",
+   "data_id": 23515,
+   "filas": 10081,
+   "columnas": 7,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "reserva de su celda"
+  },
+  {
+   "nombre": "texture",
+   "data_id": 40499,
+   "filas": 5500,
+   "columnas": 41,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "treasury",
+   "data_id": 42367,
+   "filas": 1049,
+   "columnas": 16,
+   "tarea": "reg",
+   "licencia": "CC0",
+   "destino": "reserva de su celda"
+  },
+  {
+   "nombre": "vehicle",
+   "data_id": 54,
+   "filas": 846,
+   "columnas": 19,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "volkert",
+   "data_id": 41166,
+   "filas": 58310,
+   "columnas": 181,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "vowel",
+   "data_id": 307,
+   "filas": 990,
+   "columnas": 13,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "wall-robot-navigation",
+   "data_id": 1497,
+   "filas": 5456,
+   "columnas": 25,
+   "tarea": "multi",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "yprop_4_1",
+   "data_id": 416,
+   "filas": 8885,
+   "columnas": 252,
+   "tarea": "reg",
+   "licencia": "Public",
+   "destino": "elegible, no sorteado"
+  },
+  {
+   "nombre": "online_shoppers_intention",
+   "data_id": null,
+   "destino": "DESCARTADO: 46947: licencia «CC BY 4.0» fuera de la lista"
+  },
+  {
+   "nombre": "GiveMeSomeCredit",
+   "data_id": null,
+   "destino": "DESCARTADO: 46929: 150000 filas fuera de 500–100.000"
+  },
+  {
+   "nombre": "concrete_compressive_strength",
+   "data_id": null,
+   "destino": "DESCARTADO: 44959: licencia «CC BY 4.0» fuera de la lista; 46917: licencia «CC BY 4.0» fuera de la lista"
+  },
+  {
+   "nombre": "QSAR_fish_toxicity",
+   "data_id": null,
+   "destino": "DESCARTADO: 44970: licencia «CC BY 4.0» fuera de la lista; 46954: licencia «CC BY 4.0» fuera de la lista"
+  },
+  {
+   "nombre": "airfoil_self_noise",
+   "data_id": null,
+   "destino": "DESCARTADO: 43919: licencia «CC BY 4.0» fuera de la lista; 44957: licencia «CC BY 4.0» fuera de la lista; 46904: licencia «CC BY 4.0» fuera de la lista"
+  },
+  {
+   "nombre": "miami_housing",
+   "data_id": null,
+   "destino": "DESCARTADO: 44983: licencia «CC0: Public Domain» fuera de la lista; 46942: licencia «CC BY-NC-SA» fuera de la lista"
+  },
+  {
+   "nombre": "physiochemical_protein",
+   "data_id": null,
+   "destino": "DESCARTADO: 44963: licencia «CC BY 4.0» fuera de la lista; 46949: licencia «CC BY 4.0» fuera de la lista"
+  },
+  {
+   "nombre": "superconductivity",
+   "data_id": null,
+   "destino": "DESCARTADO: 44964: licencia «CC BY 4.0» fuera de la lista; 46961: licencia «CC BY 4.0» fuera de la lista"
+  },
+  {
+   "nombre": "kings_county",
+   "data_id": null,
+   "destino": "DESCARTADO: 44989: licencia «CC 0: Public Domain» fuera de la lista"
+  },
+  {
+   "nombre": "fps_benchmark",
+   "data_id": null,
+   "destino": "DESCARTADO: 44992: licencia «CC BY» fuera de la lista"
+  },
+  {
+   "nombre": "colleges",
+   "data_id": null,
+   "destino": "DESCARTADO: 42121: licencia «NA» fuera de la lista; 42134: licencia «NA» fuera de la lista; 42159: licencia «NA» fuera de la lista; 42723: licencia «NA» fuera de la lista; 42727: licencia «NA» fuera de la lista"
+  },
+  {
+   "nombre": "california_housing",
+   "data_id": null,
+   "destino": "DESCARTADO: misma familia que houses (California housing); una sola versión por familia"
+  },
+  {
+   "nombre": "cpu_small",
+   "data_id": null,
+   "destino": "DESCARTADO: misma familia que cpu_act"
+  },
+  {
+   "nombre": "fried / mv / 2dplanes",
+   "data_id": null,
+   "destino": "DESCARTADO: conjuntos sintéticos (generadores de Friedman), no reales"
+  },
+  {
+   "nombre": "weather_ankara",
+   "data_id": 42368,
+   "destino": "DESCARTADO: 321 filas (< 500)"
+  },
+  {
+   "nombre": "mortgage / delta_ailerons / medical_charges / nyc-taxi-green-dec-2016 / Diabetes130US / KDDCup09_upselling",
+   "data_id": null,
+   "destino": "DESCARTADO: fuera de 500–100.000 filas, o sin resolver en OpenML por nombre, o misma familia que un conjunto ya usado (KDDCup09_appetency)"
+  }
+ ],
+ "semillas_de_particion": {
+  "semillas_de_estudio": [
+   0,
+   1,
+   2
+  ],
+  "origen": "las del protocolo_exploratorio del 101 (`particion.semillas: [0, 1, 2]`) y §4.1 del contrato; deterministas y fijadas ya",
+  "nota": "Por leer en el C1 (riesgo 2 del contrato): que el instrumento pase la semilla al estudio y que en `iid` mueva el test; en `temporal` las 3 particiones son 1 y se declara. Aquí solo se fijan los valores."
+ },
+ "metrica": {
+  "cifra_de_un_conjunto": "test del campeón (`seleccion.evaluacion_final`), ×100, con la métrica de cierre por tarea de veredicto_120_c3p.METRICA_DE_CIERRE",
+  "de_cierre": {
+   "binary_classification": "auroc",
+   "multiclass_classification": "accuracy",
+   "regression": "r2"
+  },
+  "unidad": "puntos (×100), signo tal que más es mejor; diferencia d = B − A, pareada por conjunto y semilla"
+ },
+ "regla_no_inferior": {
+  "nombre": "R (recomendada por el contrato, aprobada por Roberto el 2026-10-11 05:50)",
+  "por_conjunto": {
+   "media_de_las_3_semillas_minima": -1.0,
+   "semilla_peor_minima": -2.0,
+   "unidad": "puntos",
+   "nota": "alarma, no prueba (3 semillas no dan potencia por conjunto)"
+  },
+  "agregado": {
+   "estadistico": "cota inferior UNILATERAL al 95 % de la media de los 12 d_i (t de Student pareada; bootstrap de conjuntos como comprobación)",
+   "cota_minima_exclusiva": -0.5,
+   "unidad": "puntos",
+   "nivel": 0.95
+  },
+  "terminacion": "nadie deja de terminar donde el A terminaba, ni cae por memoria o tiempo",
+  "ruido_de_particion": "si la desviación entre las 3 semillas de un conjunto supera 2 puntos, la evidencia de ese conjunto es «insuficiente»: no cuenta para la regla por conjunto pero se declara y cuenta en el agregado",
+  "mejora": "además, cota inferior del agregado > 0 (informativo, no necesario)",
+  "pliegues": "el test (una cifra por semilla y conjunto) es la observación; ningún ±1,96·SE con los pliegues de CV",
+  "si_empeora": "no se afloja la regla ni se publica el corte; decide Roberto (contrato §6 riesgo 4 y §8.6 A)"
+ },
+ "recursos": {
+  "estimacion_de_contrato": "~1,1–2,2 h por pasada de 12 conjuntos, 6 pasadas (A0 A1 A2 B0 B1 B2): ESTIMADO, no medido",
+  "memoria": "6 GB",
+  "cpus": 5,
+  "techo_por_pasada_s": 12000,
+  "cola": "una a una, ninguna después de las 08:00; sin suites ni commits al lado"
+ },
+ "digest_sha256": "2fafdbe74b4ded303dbafc8a029c71da7aac8224aa462519d4e7935392276b9f",
+ "como_se_calculo": "digest_canonico (JCS sobre matrixai.estudio.validacion, el de protocolo.py) del documento SIN los campos `digest_sha256` y `como_se_calculo`"
+}
