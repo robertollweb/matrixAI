@@ -13,6 +13,10 @@ Tres mapas de los 13 conjuntos no sellados del banco (los del 120/128), SIN camb
 3. **La cola 85/15** (`colas`): con la partición real del estudio (semilla 0, 5 pliegues), por conjunto y pliegue, las clases
    (o la media y la dispersión, en regresión) de la cola que `_reparto_de_entrena` aparta para la parada temprana frente a las
    del `entrena` entero; si los pliegues comparten cola; y, si el conjunto declara grupos, si la cola parte una unidad.
+   **Es la cola POSICIONAL de B0** (`_reparto_de_entrena(pliegue)`, SIN contexto). Desde el 129-C3 «B1 mínimo» el PRODUCTO
+   la corrige donde tiene un defecto (`_reparto_de_entrena(pliegue, contexto)`: una clase ausente, una unidad partida),
+   así que contra ese Studio el mapa 3 describe el reparto de antes, no el del producto; `corte_85_15` lo dice
+   (`es_85_posicional`, `el_producto_corrige_la_cola`, `mide`).
 
 Cómo se obtienen 2 y 3 sin copiar nada: un subproceso por conjunto llama a `estudio_job.iniciar_estudio` con el MISMO cuerpo
 que el HTTP del 120/128 y sustituye EN MEMORIA `ejecutar_estudio` por una captura (como `sonda_128_c0.py`): el estudio hace
@@ -458,14 +462,25 @@ def cuerpo_del_estudio(gen, c: dict) -> dict:
 
 
 def _la_fuente_dice_85(ej) -> dict:
-    """Localiza el corte 85/15 EN LA FUENTE (línea y texto), para citarlo y para que el mapa falle si cambia."""
+    """Localiza el corte 85/15 EN LA FUENTE (línea y texto), para citarlo y para que el mapa falle si cambia.
+
+    129-C3, B1 MÍNIMO (M3 de su auditoría): el corte posicional sigue en la fuente, pero el producto ya no reparte SOLO
+    con él: si `_reparto_de_entrena` recibe un `contexto`, lo corrige donde la cola tiene un defecto. Entonces
+    `es_85_posicional` es `False` (el producto no es el 85/15 posicional a secas), `el_producto_corrige_la_cola` es
+    `True` y `mide` dice que este mapa (que llama sin contexto) mide el posicional de B0, no el del producto."""
     import inspect  # noqa: PLC0415
 
     lineas, inicio = inspect.getsourcelines(ej._reparto_de_entrena)
     corte = next(((inicio + i, l.strip()) for i, l in enumerate(lineas) if "0.85" in l and "corte" in l), None)
+    corrige = "contexto" in inspect.signature(ej._reparto_de_entrena).parameters
+    mide = "el reparto posicional de B0: `_reparto_de_entrena(pliegue)`, sin contexto"
+    if corrige:
+        mide += ("; el producto ya no es ese: con su contexto corrige la cola donde tiene un defecto (129-C3, B1 "
+                 "mínimo: una clase ausente, una unidad partida)")
     return {"funcion": "_reparto_de_entrena", "archivo": inspect.getsourcefile(ej._reparto_de_entrena),
             "linea_de_la_funcion": inicio, "linea_del_corte": corte[0] if corte else None,
-            "texto_del_corte": corte[1] if corte else None, "es_85_posicional": bool(corte)}
+            "texto_del_corte": corte[1] if corte else None, "es_85_posicional": bool(corte) and not corrige,
+            "el_producto_corrige_la_cola": corrige, "mide": mide}
 
 
 def trabajo_de_un_conjunto(nombre: str, c: dict, salida: Path) -> int:
@@ -521,7 +536,7 @@ def trabajo_de_un_conjunto(nombre: str, c: dict, salida: Path) -> int:
             colas_ids: dict[int, list] = {}
             for i in range(n_pliegues):
                 pliegue = propuesta.pliegues.pliegue_de(repeticion=0, pliegue=i)
-                ajuste, cola = ej._reparto_de_entrena(pliegue)
+                ajuste, cola = ej._reparto_de_entrena(pliegue)     # SIN contexto: el posicional de B0 (ver `_la_fuente_dice_85`)
                 colas_ids[i] = list(cola)
                 ent = list(pliegue.entrena)
                 if problema.task == "regression":

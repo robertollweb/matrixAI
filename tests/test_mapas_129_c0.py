@@ -343,10 +343,37 @@ def test_la_fuente_del_85_15_se_localiza_en_el_estudio_real():
     import inspect
     r = M._la_fuente_dice_85(ej)
     lineas = inspect.getsource(ej).splitlines()
-    assert r["es_85_posicional"] is True and "0.85" in lineas[r["linea_del_corte"] - 1]
+    assert "0.85" in lineas[r["linea_del_corte"] - 1]
     assert r["texto_del_corte"] == lineas[r["linea_del_corte"] - 1].strip()
+    # 129-C3 (B1 mínimo): contra un Studio que corrige la cola, el producto ya NO es el posicional, y se dice
+    corrige = "contexto" in inspect.signature(ej._reparto_de_entrena).parameters
+    assert r["el_producto_corrige_la_cola"] is corrige and r["es_85_posicional"] is (not corrige)
+    assert "posicional de B0" in r["mide"] and ("ya no es ese" in r["mide"]) is corrige
     fake = type("F", (), {"_reparto_de_entrena": staticmethod(lambda p: ([], []))})   # sin 0.85: lo dice
     assert M._la_fuente_dice_85(fake)["es_85_posicional"] is False
+
+
+def _reparto_posicional_de_b0(pliegue):
+    ids_train = list(pliegue.entrena)
+    corte = int(len(ids_train) * 0.85)
+    return ids_train[:corte], ids_train[corte:]
+
+
+def _reparto_del_b1_minimo(pliegue, contexto=None):
+    ids_train = list(pliegue.entrena)
+    corte = int(len(ids_train) * 0.85)
+    return ids_train[:corte], ids_train[corte:]
+
+
+def test_la_guarda_del_85_15_no_dice_posicional_contra_un_studio_que_corrige_la_cola():
+    """M3 de la auditoría del B1 mínimo: el corte 0.85 sigue en la fuente de los dos, pero solo el de B0 ES el reparto
+    del producto; con `contexto` (el B1 mínimo) el mapa mide el posicional de B0 y tiene que decirlo."""
+    b0 = M._la_fuente_dice_85(type("B0", (), {"_reparto_de_entrena": staticmethod(_reparto_posicional_de_b0)}))
+    b1 = M._la_fuente_dice_85(type("B1", (), {"_reparto_de_entrena": staticmethod(_reparto_del_b1_minimo)}))
+    assert b0["linea_del_corte"] and b1["linea_del_corte"]
+    assert (b0["es_85_posicional"], b0["el_producto_corrige_la_cola"]) == (True, False)
+    assert (b1["es_85_posicional"], b1["el_producto_corrige_la_cola"]) == (False, True)
+    assert "ya no es ese" in b1["mide"] and "ya no es ese" not in b0["mide"]
 
 
 def test_sha256_de_un_fichero(tmp_path):
