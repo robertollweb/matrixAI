@@ -146,6 +146,28 @@ def test_r1gpu_un_control_que_no_cuadra_para(entorno):
     assert datos["control"]["cuadra"] is False and "suelo_de_ruido" not in datos
 
 
+def test_con_sin_control_de_arboles_un_control_que_no_cuadra_NO_para_y_lo_dice(entorno, monkeypatch):
+    """129-C3 (11-10): un corte que cambia a propósito lo que entrenan los árboles (la cola por clase) incumple el control
+    por diseño; con el motivo declarado, el control se calcula y se guarda, la medida sigue, y el motivo queda escrito."""
+    monkeypatch.setattr(G, "SIN_CONTROL_DE_ARBOLES", "129-C3: el reparto interno cambia lo que entrenan los árboles")
+    datos = _datos()
+    regs = {n: _rec(n) for n in HUMO + ["wilt"]}
+    regs["pc1"]["media_de_la_seleccion"]["motores"][0]["valor"] += 0.01
+    correr, llamadas = _correr_desde(datos, regs, {n: _rec(n) for n in HUMO})
+    G.correr_c3p("r1gpu", _banco("wilt"), datos, correr, None)
+    assert datos["control"]["cuadra"] is False
+    assert datos["control"]["omitido_porque"].startswith("129-C3")
+    assert [n for n, _ in llamadas] == HUMO + HUMO + ["wilt"]      # siguió: la repetición y el resto
+    assert "suelo_de_ruido" in datos and datos["corte"] is None
+
+
+def test_sin_control_de_arboles_necesita_su_motivo(monkeypatch, entorno):
+    monkeypatch.setattr(sys, "argv", ["referencia_120_r0.py", "--sin-control-de-arboles", " ", "--salida", str(entorno / "s.json")])
+    monkeypatch.setattr(G, "guardar", lambda *a, **k: pytest.fail("la guarda dejó pasar: guardar"))
+    with pytest.raises(SystemExit, match="MOTIVO"):
+        G.main()
+
+
 # ------------------------------------------------------------------ C3′ contra R1-GPU
 def _contra(suelo=0.0, **tests):
     return {"suelo_de_ruido": suelo, "control": {"cuadra": True},

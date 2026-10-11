@@ -49,6 +49,12 @@ GENERADOR = NUCLEO.parent / "matrixaistudio/studio-backend/scripts/generar_ejemp
 EJEMPLOS = NUCLEO.parent / "matrixaistudio/studio-backend/matrixai_studio/ejemplos_medidos"
 SALIDA = AQUI / "referencia_120_r0.json"
 ESTADOS = AQUI / "referencia_120_r0_estados"
+# 129-C3 (11-10): el control de los 4 ejemplos exige que los ÁRBOLES den lo de siempre (prueba de que la imagen y el
+# instrumento son los de siempre cuando lo que cambia es una red). Un corte que cambia A PROPÓSITO con qué filas entrenan
+# todos los motores (el reparto interno del C3: la cola por clase) lo incumple por diseño, y el control paraba la medida
+# (la noche del 11-10: los 4 trabajos del C3 y el C4 en rc=2). Con `--sin-control-de-arboles MOTIVO` el control se
+# CALCULA, se imprime y se guarda igual, pero no para, y el motivo queda en `datos["control"]["omitido_porque"]`.
+SIN_CONTROL_DE_ARBOLES: str | None = None
 TOPE_ESTUDIO_S = 3600          # por conjunto (sondeo); pasado esto, se registra «plazo» y se cancela
 MENOR_ES_MEJOR = {"rmse", "mae", "log_loss", "brier"}
 # Lo medido ESTA NOCHE contra la MISMA imagen (cierre-v272/ejemplos_v272.log), a 4 decimales.
@@ -504,7 +510,7 @@ def guardar(datos):
 
 
 def main():
-    global IMAGEN, SALIDA, ESTADOS, MEMORIA, POLITICA, ENTORNO_EXTRA
+    global IMAGEN, SALIDA, ESTADOS, MEMORIA, POLITICA, ENTORNO_EXTRA, SIN_CONTROL_DE_ARBOLES
     ap = argparse.ArgumentParser()
     ap.add_argument("--solo-humo", action="store_true"); ap.add_argument("--forzar", action="store_true")
     ap.add_argument("--solo", default="")
@@ -531,7 +537,13 @@ def main():
                     help="C3″ (enmienda 8): TabM en el paquete CPU (sin la densa anterior), contra --contra (una R-CPU)")
     ap.add_argument("--c3p", action="store_true",
                     help="C3′ (enmienda 7): TabM como un motor más, contra --contra (una R1-GPU); cifra = la del test")
+    ap.add_argument("--sin-control-de-arboles", default=None, metavar="MOTIVO",
+                    help="129-C3: el corte cambia a propósito lo que entrenan los árboles; el control de los 4 se "
+                         "calcula y se guarda, pero no para (el MOTIVO queda en el JSON)")
     a = ap.parse_args()
+    if a.sin_control_de_arboles is not None and not a.sin_control_de_arboles.strip():
+        raise SystemExit("--sin-control-de-arboles necesita su MOTIVO (queda escrito en el JSON)")
+    SIN_CONTROL_DE_ARBOLES = a.sin_control_de_arboles
     if sum(map(bool, (a.politica, a.r1gpu, a.c3p, a.rcpu, a.c3s, a.pcpu))) > 1:
         raise SystemExit("--politica, --r1gpu, --c3p, --rcpu y --c3s son medidas distintas: una cada vez")
     if bool(a.politica or a.c3p or a.c3s) != bool(a.contra):
@@ -685,9 +697,13 @@ def main():
             and len(pend_control) == 4:
         ok, lin = controlar(datos["conjuntos"])
         datos["control"] = {"cuadra": ok, "lineas": lin}
+        if SIN_CONTROL_DE_ARBOLES:
+            datos["control"]["omitido_porque"] = SIN_CONTROL_DE_ARBOLES
         guardar(datos)
-        print("\n".join(lin)); print("CONTROL:", "CUADRA" if ok else "NO CUADRA — PARO", flush=True)
-        if not ok:
+        print("\n".join(lin)); print("CONTROL:", "CUADRA" if ok else
+                                      ("NO CUADRA — NO PARA: " + SIN_CONTROL_DE_ARBOLES) if SIN_CONTROL_DE_ARBOLES
+                                      else "NO CUADRA — PARO", flush=True)
+        if not ok and not SIN_CONTROL_DE_ARBOLES:
             datos["procedencia"]["fin"] = ahora(); guardar(datos); sys.exit(2)
     if not a.solo_humo:
         for b in banco:
@@ -723,8 +739,13 @@ def correr_c3p(modo, banco, datos, correr, contra_doc):
             ok, lin = controlar(datos["conjuntos"])
             datos["control"] = {"cuadra": ok, "lineas": lin}
             guardar(datos)
-            print("\n".join(lin)); print("CONTROL:", "CUADRA" if ok else "NO CUADRA — PARO", flush=True)
-            if not ok:
+            if SIN_CONTROL_DE_ARBOLES:
+                datos["control"]["omitido_porque"] = SIN_CONTROL_DE_ARBOLES
+                guardar(datos)
+            print("\n".join(lin)); print("CONTROL:", "CUADRA" if ok else
+                                          ("NO CUADRA — NO PARA: " + SIN_CONTROL_DE_ARBOLES) if SIN_CONTROL_DE_ARBOLES
+                                          else "NO CUADRA — PARO", flush=True)
+            if not ok and not SIN_CONTROL_DE_ARBOLES:
                 _paro(datos, "instrumento", "el control de los 4 ejemplos no cuadra", n, nombres[i + 1:], codigo=2)
             if modo in ("r1gpu", "rcpu", "pcpu"):
                 estados = ESTADOS
