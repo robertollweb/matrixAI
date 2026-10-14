@@ -640,10 +640,30 @@ def test_main_escribe_procedencia_sello_y_el_veredicto(entorno_de_main):
     assert not c0.verificar_sello(doc)
 
 
-def test_componer_uno_nuevo_con_el_mismo_codigo_da_el_mismo_sello(entorno_de_main):
+class _TimeConElRelojQuieto:
+    """El `time` de `c0` con `perf_counter` quieto, y lo demás, el de verdad."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def perf_counter(self):
+        return 0.0
+
+    def __getattr__(self, nombre):
+        return getattr(self._real, nombre)
+
+
+def test_componer_uno_nuevo_con_el_mismo_codigo_da_el_mismo_sello(entorno_de_main, monkeypatch):
     """No es leer el escrito: dos pasadas COMPLETAS desde cero (--forzar) con el
     mismo código y los mismos datos componen dos documentos con el MISMO sello; y
-    cambiar una cifra o el digest del código lo cambia."""
+    cambiar una cifra o el digest del código lo cambia.
+
+    Con el reloj de `c0` QUIETO: el documento sellado guarda `preparacion_s`, que
+    `c0` mide de verdad alrededor de `particiones_para` (aquí, ~0,5 ms), y con su
+    redondeo a 3 decimales salía 0,0 en una pasada y 0,001 en la otra. Medido el
+    14-10: rojo 1 de cada 3 veces con la máquina quieta, y en 6 pares, esa la ÚNICA
+    diferencia. Un tiempo medido no es «el mismo dato»; lo que se prueba es lo demás."""
+    monkeypatch.setattr(c0, "time", _TimeConElRelojQuieto(c0.time))
     correr, llamadas, valores, tmp = entorno_de_main
     a = correr(tmp / "a.json", "--forzar")
     b = correr(tmp / "b.json", "--forzar")
