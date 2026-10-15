@@ -7,6 +7,169 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.16.0] — 2026-10-15
+
+Each installation can now decide how much of its memory a study with the TabM network may ask for, and opening a study on a
+large table costs less. The rest of what ships with MatrixAI Studio v2.13 — large tables finishing with 6 GB, the network's
+deadline by table size — lives in the Studio and its engines; what was measured is below.
+
+### Added
+- **`max_tabm_memoria_pct`, one more limit of the profiles** (`matrixai.limits`). The share of the installation's memory that
+  a study with TabM may ask for: `balanced` and `advanced` 100 (exactly the guard of before: if the estimate exceeds the
+  memory available, TabM does not compete), `unlimited` without a guard (TabM always competes; the memory warning, which never
+  blocks, still warns), and the shared service always 100, without an override. Per-installation override:
+  `MATRIXAI_MAX_TABM_MEMORIA_PCT` (`0` or `unlimited` removes it). Unit: `percent`. With 100 the guard decides exactly what it
+  decided before the limit existed (630 combinations compared).
+- **`perfil_activo()`**: the name of the profile in force (always `equilibrado` in the hosted service).
+
+### Changed
+- **`tipar_columnas_numericas` is cheaper, with the same decisions** (`matrixai.training.preparacion`). Each column is read
+  once, the empty values are removed from the set of distinct values and not from every row, and the typed values are written
+  with `zip`. Same output in the same order: `test_tipar_columnas_igual_que_antes.py` compares it with a literal copy of the
+  previous version on real data shapes. Measured on the start of a study on APSFailure (76,000 × 171): 19.5 → 12.9 s for this
+  step, identical output.
+
+### Tests
+- The tests that reload `matrixai.playground` leave it as they found it (a fixture reloads both modules afterwards); they were
+  red depending on the order with `-n 4`.
+
+### Measured (benchmarks, not part of the package)
+All of this in MatrixAI Studio's study, with the CPU package, 2 CPUs and 6 GB for Docker, on 13 public datasets (the 120
+bank), unless it says otherwise. Figures are the champion's on the untouched test rows (AUROC, accuracy or R², ×100).
+- **Contract 128 — large tables finish.** Before, two of the 13 did not finish with 6 GB: APSFailure (76,000 × 171, a 77 MB
+  CSV) ended with the container killed for memory (`oom_killed`; with 9 GB it finished with a peak of 7,138 MB, about 90 times
+  the CSV) and Allstate_Claims_Severity (188,318 rows) ended without a champion (every attempt went over its budget of
+  39.3 s and was killed from outside). With the final code of the contract, **13 of 13 finish with a champion** in the two
+  modes measured (without TabM and the product with TabM):
+  - APSFailure: LightGBM, AUROC 98.82; peak 3,373 MB without TabM and 3,534 MB with it.
+  - Allstate_Claims_Severity: histogram gradient boosting, R² 56.22; peak 2,406 / 2,721 MB.
+  - KDDCup09_appetency: peak 5,791 → 2,254 MB without TabM and 5,710 → 2,444 MB with it. Internet-Advertisements with TabM
+    competing: 6,019 → 4,358 MB (it was at 98 % of the 6 GB).
+  - What changed: the preparation runs once per fold and not once per engine, the partition is no longer copied twice, the
+    parent releases its copy and returns the memory to the system (`malloc_trim`) before each child, the final refit streams its
+    data, and above 20 million cells the attempt's budget grows with the size of the table (3.5 µs per cell).
+  - With the 128 alone, the 11 studies that already finished keep their champion and their test figure (11 of 11 with TabM; 11 of 11 without it).
+    Without TabM, two comparisons were measured, not one: the C4 against the v2.12 reference matches to the last decimal of the
+    selection means in 10 of 11, and the final code against the C4 in 12 of 13. The exception is pendigits both times, a tree
+    engine stopped by the clock (same champion, same test figure 98.7267). The final code was not compared against the v2.12 directly.
+- **Contract 129 — the champion does not depend on the clock.** TabM's deadline per attempt now comes from one function of the
+  table's size (rows × input columns), with the same 60 s as before for the small tables (4 of 13: bit for bit) and longer for
+  the ones that need it, with a ceiling; where even the ceiling is not enough on a CPU, TabM stays out and the study says so
+  («it does not have the time»). Against the same night's reference: micro-mass +3.54 (84.96 → 88.50), house_16H +0.62
+  (and now stable), pendigits +0.32, us_crime −0.51 (71.36 → 70.85), mfeat-factors −0.25 against 97.50. The 3 passes of the
+  four tables that depended on the clock are bit for bit equal to each other. Entered with the 1-point band (nothing drops a
+  point or more).
+- **Minimal 85/15 split.** The internal split (the 15 % tail the network validates on) only changes where the positional tail
+  leaves out a class that should have at least one row, or splits a `groups` unit; everywhere else it is bit for bit the one
+  of before. In the bank it fires in one fold (fold 0 of micro-mass, class_15): micro-mass 88.50 → 89.38 (+0.89; noise floor
+  2.65), finishing in 3,101 s.
+- **Final measure of the 13 with the integration** (C2 + faster start + the GPU deadline + minimal split; 6 GB): 13 of 13
+  finish and **all 13 are bit for bit** equal to the reference (micro-mass against the minimal split's 89.38); the control of
+  the tree engines matches. Against v2.12, with TabM: 6 identical, micro-mass +4.42, pendigits +0.32, house_16H +0.23,
+  us_crime −0.51, mfeat-factors −0.25 (computed from the two result files). The studies that use TabM longer take longer
+  (house_16H 352 → 1,074 s, pendigits 492 → 902 s, mfeat-factors 436 → 1,378 s, us_crime 366 → 717 s, micro-mass 707 → 3,066 s);
+  Internet-Advertisements, where TabM now stays out declared, goes from 711 to 250 s with the same figure.
+- **Contract 128-R2 — the per-size budget counts the classes.** The rule that gives the trees more time per attempt above 20 million cells
+  only counted rows × columns, and a multiclass table costs the trees about one tree per class, so poker-hand (10 classes; a sample of
+  272,000 training rows × 20 inputs) ended `completed` without a champion in 983 s: LightGBM, histogram gradient boosting and the dense
+  network died of budget in all 5 folds. The size is now rows × columns × classes (1 for binary and regression), with the same 20 million
+  threshold and the same 3.5 µs. Measured on the real path with 2 CPUs and 6 GB: **poker-hand-500k finishes with a champion** (histogram
+  gradient boosting, test accuracy 0.592) in 2,494 s, LightGBM 5 of 5 folds in 18–19.6 s and histogram gradient boosting 5 of 5 in 63–68 s.
+  **The 13 of the bank are exactly what they were** (the function returns the same value; micro-mass, the largest multiclass, stays at
+  14.8 million, 74 % of the threshold) with TabM, without it and with the CPU package emulated. **Ceiling:** the classes count 20 at most,
+  the largest number measured (for a text column of 5,000 distinct values the budget would otherwise have been 17,500 s per attempt and
+  73 h of reservation); above 20 an attempt can cost more than was reserved, in which case its limit stops it and the study says so.
+  The study and its envelope declare it («With 5,000 classes, the budget counts 20, the maximum measured…»), also when counting 20 the
+  table is no longer large. Above 20 classes the only real run is the re-audit's study of 1,000 classes (20,000 × 55, 2 folds): the trees
+  are stopped by their limit, it says so, and it completes in 637 s (that run is the audit's; it is not a benchmark in the repository).
+- **Start of a large study.** Opening a study on APSFailure (analysis + start, without training): reusing the analysis the
+  confirmation already did takes it from 35.5 to 18.7 s with an identical answer, and the typing above takes the typing step
+  from 19.5 to 12.9 s; both together are ESTIMATED at about 12 s (each was measured separately). The screen used to give up
+  at 30 s while the study kept running (the start took 43 s on APSFailure and 27 s on Allstate, measured on 2026-10-10); it now
+  waits up to 300 s.
+- **The deadline for TabM on a GPU (CUDA), calibrated on a laptop with an NVIDIA GPU.** Its cost per epoch is modelled per batch
+  (6.4 ms + 0.028 ms per input column + 0.12 ms per categorical column, plus a start of 3.6 s) with a margin of 1.5, from the 70 TabM fits that
+  the kit 4 measured on CUDA (all stopped by patience; the worst measured/estimated ratio of the model is 0.993). Every
+  measured dataset gets at least 1.5 times what it needed (APSFailure 1.99, Allstate 2.18). With a GPU a table never gets
+  less time than on the CPU. Beyond what was measured in rows (401 batches) the deadline stays the conservative one; a real
+  CSV of about a million rows is informative only (kit 6, below): poker-hand-500k ran on the GPU; the whole poker-hand did not (TabM is out by the row rule).
+- **The GPU (kit 6, read on 2026-10-14): it enters.** Measured on a laptop with an NVIDIA GPU, 16 GB for the container, 2 CPUs, the 13 public
+  datasets, the GPU arm (TabM on CUDA with `binarias`: binary columns enter as a single input) against the CPU arm (the input of today), the same code,
+  with the 1-point band + time rule (C5′). 13 of 13 complete in both arms; the noise floor is 0 points in both. Result: **3 go up, 3 improve in time,
+  1 drops within the tolerance, 0 get worse, 6 are equal.**
+  - Up: house_16H +2.82, KDDCup09_appetency +2.63 and Allstate_Claims_Severity +2.30 (TabM wins on the GPU where on the CPU it does not compete).
+  - Faster, same figure: micro-mass 2,013 → 494 s, mfeat-factors 841 → 208 s, pendigits 596 → 273 s.
+  - Drops, tolerated: us_crime −1.96 (LightGBM → TabM; TabM wins the selection by a hair and loses about 2 points on a test of ~400 rows; 426 → 122 s).
+  - Equal: dresses-sales, climate-model-simulation-crashes, wilt (+0.01) and APSFailure (identical), pc1 +0.19 and
+    Internet-Advertisements +0.19 (**in kit 4, with the previous GPU input, Internet-Advertisements dropped 2.07**; `binarias` fixes it).
+  - On the large tables the study takes **longer** on the GPU, because TabM is out of them on the CPU and on the GPU it competes and trains:
+    Internet-Advertisements 358 → 782 s, KDDCup09 692 → 1,338 s, APSFailure 621 → 1,302 s, Allstate 1,096 → 3,480 s. The 13 studies add up to 7,816 s on the
+    CPU and 8,668 s on the GPU. On the medium tables the GPU is 2 to 4 times faster. Highest system memory peak: 6.5 GB with the GPU (APSFailure) against 6.2 GB
+    without; the GPU arm also carries the cost of the dense network seeing CUDA, which was not measured separately.
+  - Informative, not a promise: Run_or_walk_information (88,588 rows) test 99.966 on CPU (1,403 s) and 99.971 on GPU (614 s). poker-hand-500k (500,000 rows,
+    10 classes) with TabM on the GPU: test accuracy 0.998 (selection 0.83; the trees, 0.596 on the selection), in 8,606 s, 3 of the 5 TabM attempts stopped
+    by their deadline (it competed at 1,063 batches, 2.65 times what had been measured). The whole poker-hand (1,025,009 rows): TabM is out by the previous
+    row rule (it asks for 3,114 s, the cap is 1,800 s).
+  - **Decision (2026-10-13): binary columns enter TabM as a single input only when TabM trains on the GPU; on the CPU the input is the one
+    of today** (also after a fall to the CPU). The CPU is bit for bit the product of before (checked on the real path of the study and on the 40 of the
+    38/40, not measured), so the 38/40 and the CPU measures stand. The GPU does not carry the 38/40.
+  - History, for the record: kit 3 (code of the 128) entered; kit 4 (deadline for CUDA, previous input) did not, only because of Internet-Advertisements
+    (−2.07: TabM wins the selection and the test figure is 2.07 below the tree's; it stops by patience in 5 of 5 folds, so it is neither the clock nor the
+    GPU); kit 5 showed `binarias` fixes it (+0.20) at the price of us_crime (−1.97); kit 6, with the final code, is the result above.
+  - **The model that is delivered trains with its time (128-R3).** In the large tables, the dense network that won the selection was
+    refitted with far less time than in the search (in poker-hand-500k, a 12 s training limit against 131 s) and could be delivered without a
+    single complete epoch. Now, in the large tables, the refit of each candidate gets the per-attempt time of the search, and in every size the
+    dense network gets the per-attempt time of its own search (22.4 s instead of 16 s in the others). The trees and the reference are refitted
+    exactly as before. A refitted network that predicts worse than the reference on the selection rows, or did not complete a single epoch, is
+    not delivered: the next candidate wins, and Results says why. In the "MatrixAI network" mode, a TabM that did not complete a single epoch
+    is no longer delivered with a warning: there is no model, and the reason says so.
+    Measured on the server with poker-hand-500k (5 folds, 2 CPUs, 6 GB): the study completes in 2,463 s, the dense network is refitted with
+    175 s and completes one epoch, and sklearn.hgb wins with 0.592 accuracy on the test rows against 0.501 for the reference. Recomposed on the
+    states of kit 6 with the real functions, none of the 13 public datasets changes its champion or its delivered model.
+- **Measured and left out**:
+  - *Complete 85/15 split* (stratified by class, and `groups` by whole units): **not included**. It drops dresses-sales by
+    10.80 points (noise floor 7.59), wilt by 0.059 (floor 0.017) and Internet-Advertisements by 0.14 (floor 0.091), more than
+    the floor in each, and micro-mass did not finish within the instrument's cap of 3,600 s. The minimal split above keeps
+    what it fixed.
+  - *The checkpoint chosen by the study's main metric*: **discarded**, as its rule said. It had to improve the four datasets
+    where it can act without dropping any, and pc1 does not move (dresses-sales +3.37 against a floor of 7.59, climate +2.24
+    against 6.29, pc1 0, wilt +0.10).
+  - *A new input for TabM* (constant columns removed, binary columns as one simple input; measured on top of the complete
+    split): **not included**. House_16H +1.60 and TabM completing every fold on the wide tables (Internet-Advertisements
+    0/5 → 5/5), but us_crime −2.01, and its rule says nothing may drop 2 points. Measured by halves on us_crime (against
+    70.85): both −2.01, constant columns removed −1.16, binary input alone +0.64. On the GPU (kit 5) the binary input alone gave
+    us_crime −1.97, see above.
+  - *Binary columns as a single input on every device («only binaries», 129-C6′)*: **not included**. Its rule asked that the 38/40 lose
+    nothing; with it the check gives 37 of 40 (30 of 32 + 7 of 8), because yeast drops: TabM goes from 1.594 to 2.041 points from the best
+    engine (CatBoost) and the margin goes from 0.406 to −0.041. Not caused by the other engines (13 mid-size: 65 of 65 equal; 4 large:
+    20 of 20; the control with the old input on yeast: 12 of 12 attempts equal to the 119's). The decision above keeps it for the GPU only.
+  - *A tie-breaker for the champion* (when a network and a tree are tied within one standard error of the paired fold difference, the
+    tree wins): **not included**; it needs an instrument that can read it (the tests of 100–220 rows are noisier than the margin it has to
+    see) and goes to its own contract after this release (131). Nothing of it is in 1.16.0.
+### Benchmarks (not part of the package)
+- The 120 instrument records `motores_fuera_por_plazo` and accepts TabM out of a study when the study declares it out by its
+  deadline (as it already did for memory); without that declaration it still stops.
+- `--sin-control-de-arboles REASON`: for a change that alters on purpose what the tree engines train on, the 4-example control
+  is computed and stored but does not stop the run; the reason is written in the result.
+- The 128 probes and references: `sonda_128_c0.py` (resident memory per process and phase from `/proc` inside the container;
+  `--retencion`, `--tabm-forzado`, `--tabm-por-fases`), `referencia_120_r0.py --pcpu` (a reference of the published CPU product),
+  the references of v2.12 and of the contract's integration with their per-study states, and the comparers
+  `comparar_c4_128.py` (bit for bit), `reloj_c4_128.py` (same work ⇒ same value, the clock against the code),
+  `rango_c4_128.py` (dispersion between passes) and `tabla_c3b_128.py`.
+- The GPU kit (`benchmarks/fase0/kit_128_c5/`, for a Windows or Linux machine with Docker): both arms with the same image, the 13
+  datasets, `-SinCortar`, an optional per-phase measure of TabM on the GPU, and `veredicto_128_c5.py` with the rule «1-point band
+  + time» and a non-inferiority figure that is informative. The kit's test skips with its reason when the kit's CSVs (not in
+  git) are missing.
+- `mapas_129_c0.py` / `.json`: why TabM stops, which columns reach it, and whether the internal tail is representative.
+- The results of the server measures cited above, with their per-dataset states and their provenance (the commits and what was
+  measured inside each image): `final_128_rcpu` / `pcpu`, the 129-C2 (`c2_*`), C3 (`c3_*`), C4 (`c4_129`) and its variants
+  (`r6var_*`), the C5 (`c5_129_*`), the large tables of 129-C6′ (`c6b_129_grandes`), the 38/40 check with «only binaries»
+  (`c6b_129_pasada_38_40/`) and the two Studio studies of poker-hand-500k (`studio_128_r2_poker_500k/`, `studio_128_r3_poker_500k/`,
+  each with the script that ran it). The GPU kits ran on a laptop: their per-dataset results are not in the repository.
+- `protocolo_130.json`: the new exam of the 130 contract, chosen by metadata only and sealed before looking.
+- `benchmarks/datos_publicos/`: the downloadable receipts of the 38/40 (protocol, amendments and the two sealed artifacts with
+  their SHA-256).
+
 ## [1.15.0] — 2026-10-06
 
 The examples of the prompt are read as they are written, the declared range of a regression's output is used to
