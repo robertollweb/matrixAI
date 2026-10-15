@@ -69,7 +69,7 @@ def _ejemplos(n=200, seed=0):
 def _entrenar(**kw):
     from matrixai.training.dense_torch_trainer import train_dense_network_torch
     net, ps = _setup()
-    return train_dense_network_torch(net, ps, _ejemplos(), "cross_entropy", lr=kw.pop("lr", 0.05),
+    return train_dense_network_torch(net, ps, _ejemplos(kw.pop("n", 200)), "cross_entropy", lr=kw.pop("lr", 0.05),
                                      epochs=kw.pop("epochs", 6), device="cpu", seed=3,
                                      batch_size=8, materialize=True, **kw)
 
@@ -198,12 +198,12 @@ def test_el_plazo_llega_desde_la_superficie_publica(monkeypatch):
 # motor declaraba un plazo de 450 s que nadie aplicaba. Estas pruebas van por la
 # superficie pública con un CSV que produce esa red de verdad, y lo COMPRUEBAN.
 
-def _proyecto_compuesto():
+def _proyecto_compuesto(n=600):
     from matrixai.playground import _network_is_composite
     from matrixai.playground_api import generate_project_from_dataset
     rng = random.Random(0)
     lineas = ["x,c,y"] + [f"{rng.random():.4f},v{rng.randrange(300)},{'si' if rng.random() > 0.5 else 'no'}"
-                          for _ in range(600)]
+                          for _ in range(n)]
     gen = generate_project_from_dataset("\n".join(lineas) + "\n", "y", locale="es",
                                         column_type_overrides={"y": "categorical"})
     assert _network_is_composite(gen["mxai"]), "el CSV tenía que producir una red COMPUESTA"
@@ -273,30 +273,33 @@ def _marcas(epochs):
     return [bool(e.get("parcial")) for e in epochs]
 
 
-def test_131_c5_densa_el_plazo_en_la_ULTIMA_tanda_de_la_epoca_no_la_marca_parcial(monkeypatch):
+# 200 filas → 160 de entrenamiento = 20 tandas de 8 (DIVISIBLE); 203 → 162 = 21 tandas, la última de 2 filas
+# (NO divisible). El suelo en vez del techo en «¿quedan tandas?» solo se ve con el segundo (131-C5, M1).
+@pytest.mark.parametrize("n, tandas_esperadas", [(200, 20), (203, 21)])
+def test_131_c5_densa_el_plazo_en_la_ULTIMA_tanda_de_la_epoca_no_la_marca_parcial(monkeypatch, n, tandas_esperadas):
     reloj = _con_reloj(monkeypatch, "matrixai.training.dense_torch_trainer", None)
-    libre = _entrenar(plazo=1.0, epochs=3)
+    libre = _entrenar(plazo=1.0, epochs=3, n=n)
     tandas = reloj.llamadas // len(libre["epochs"])
-    assert tandas > 2 and reloj.llamadas == tandas * len(libre["epochs"])  # 160 filas / lote 8 = 20
+    assert reloj.llamadas == tandas * len(libre["epochs"]) and tandas == tandas_esperadas
     assert libre["parado_por_plazo"] is False and _marcas(libre["epochs"]) == [False] * len(libre["epochs"])
 
     # vence en la última tanda de la época 1: se PARA (parado_por_plazo) pero la época está COMPLETA
     _con_reloj(monkeypatch, "matrixai.training.dense_torch_trainer", tandas)
-    borde = _entrenar(plazo=1.0, epochs=3)
+    borde = _entrenar(plazo=1.0, epochs=3, n=n)
     assert borde["parado_por_plazo"] is True and len(borde["epochs"]) == 1
     assert _marcas(borde["epochs"]) == [False], borde["epochs"]
 
     # vence una tanda ANTES de la última: quedaba una tanda, la época está a medias
     _con_reloj(monkeypatch, "matrixai.training.dense_torch_trainer", tandas - 1)
-    medias = _entrenar(plazo=1.0, epochs=3)
+    medias = _entrenar(plazo=1.0, epochs=3, n=n)
     assert medias["parado_por_plazo"] is True and len(medias["epochs"]) == 1
     assert _marcas(medias["epochs"]) == [True], medias["epochs"]
 
     # vence en la última tanda de la época 2: las dos completas; a mitad de la 2: la 1 completa y la 2 a medias
     _con_reloj(monkeypatch, "matrixai.training.dense_torch_trainer", 2 * tandas)
-    assert _marcas(_entrenar(plazo=1.0, epochs=3)["epochs"]) == [False, False]
+    assert _marcas(_entrenar(plazo=1.0, epochs=3, n=n)["epochs"]) == [False, False]
     _con_reloj(monkeypatch, "matrixai.training.dense_torch_trainer", tandas + 5)
-    assert _marcas(_entrenar(plazo=1.0, epochs=3)["epochs"]) == [False, True]
+    assert _marcas(_entrenar(plazo=1.0, epochs=3, n=n)["epochs"]) == [False, True]
 
 
 def _entrenar_compuesta_torch(monkeypatch, gen, vence_en):
@@ -308,11 +311,14 @@ def _entrenar_compuesta_torch(monkeypatch, gen, vence_en):
     return res, reloj
 
 
-def test_131_c5_compuesta_el_plazo_en_la_ULTIMA_tanda_de_la_epoca_no_la_marca_parcial(monkeypatch):
-    gen = _proyecto_compuesto()
+# 600 filas → 480 de entrenamiento = 60 tandas de 8 (DIVISIBLE); 603 → 482 = 61 tandas, la última de 2 filas
+# (NO divisible: el suelo en vez del techo, o `<=`, solo se ve ahí; 131-C5, M1).
+@pytest.mark.parametrize("n, tandas_esperadas", [(600, 60), (603, 61)])
+def test_131_c5_compuesta_el_plazo_en_la_ULTIMA_tanda_de_la_epoca_no_la_marca_parcial(monkeypatch, n, tandas_esperadas):
+    gen = _proyecto_compuesto(n)
     libre, reloj = _entrenar_compuesta_torch(monkeypatch, gen, None)
     tandas = reloj.llamadas // len(libre["epochs"])
-    assert tandas > 2 and reloj.llamadas == tandas * len(libre["epochs"])
+    assert reloj.llamadas == tandas * len(libre["epochs"]) and tandas == tandas_esperadas
     assert libre["parado_por_plazo"] is False and not any(_marcas(libre["epochs"]))
 
     borde, _ = _entrenar_compuesta_torch(monkeypatch, gen, tandas)
