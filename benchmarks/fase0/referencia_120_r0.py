@@ -23,8 +23,15 @@ MATRIXAI_POLITICA_DE_ARBOLES y se miden los 13; cada intento de árboles complet
 pedida (si no, PARO: no se estaría midiendo C2); (3) tras cada conjunto, `veredicto_120.comparar` contra `--contra` y
 la regla 9 (`veredicto_120.corta`): al primer conjunto que baja ≥ 2 o deja de completar, la pasada se corta y lo dice.
 
+131-C1 · `--semilla N`: manda `seed: N` en el cuerpo del estudio (`payload["seed"]`, por omisión 0 en el servidor). La MISMA
+semilla gobierna el test (estratificado por clase: mismo TAMAÑO y misma PROPORCIÓN de clases, otras filas) y los pliegues de
+la búsqueda (medido en el C0): «semilla 1» es otro test Y otra selección. Sin la opción el cuerpo es, byte a byte, el de
+siempre (sin la clave `seed`). La semilla va en la procedencia y en cada registro; un punto de control se reutiliza solo
+con la MISMA semilla. Con una semilla distinta de 0 el control de los 4 de árboles (es el de la semilla 0) se calcula y
+se guarda pero no para (queda dicho en `control.omitido_porque`).
+
 Punto de control: r0.json (reescrito con os.replace tras cada conjunto). Se reusan SOLO registros `completed` con la
-misma imagen y el mismo guion. Solo LEE los repos (ni escribe, ni deja __pycache__: dont_write_bytecode).
+misma imagen, el mismo guion y la misma semilla. Solo LEE los repos (ni escribe, ni deja __pycache__: dont_write_bytecode).
 """
 import argparse, atexit, re, urllib.error, csv, hashlib, importlib.util, io, json, os, signal, socket, subprocess, sys, time, urllib.request
 from pathlib import Path
@@ -66,6 +73,7 @@ CONTROL = {
 }
 #: C3′ (enmienda 7, segunda corrección): R1-GPU es la MISMA imagen que C3′ con TabM apagado por su interruptor.
 ENTORNO_EXTRA: dict = {}
+SEMILLA: int | None = None     # 131-C1 --semilla: None = el cuerpo de siempre, sin la clave `seed`
 POLITICA = None                # --politica: l2_0 | l2_1 → MATRIXAI_POLITICA_DE_ARBOLES (solo para medir C2)
 MOTORES_DE_ARBOLES = ("lightgbm", "sklearn.hgb")
 _contenedor = None
@@ -429,12 +437,42 @@ def test_de(sel):
             "metricas": {m.get("metric_id"): m.get("value") for m in ef.get("metrics") or [] if isinstance(m, dict)}}
 
 
+def cuerpo_del_estudio(c, cols, texto, semilla=None):
+    """El cuerpo de `POST /api/studio/estudio/iniciar` de un conjunto. SIN `semilla` es, byte a byte, el de siempre (el
+    servidor usa `seed = 0`); con ella lleva `seed` (131-C1)."""
+    cuerpo = {"csv_text": texto, "objetivo": c["objetivo"], "tarea": c["tarea"],
+              "entradas": [x for x in cols if x != c["objetivo"]], "unidad_de_observacion": "una fila"}
+    if c["tarea"] == "binary_classification" and c.get("clase_positiva") is not None:
+        cuerpo["clase_positiva"] = c["clase_positiva"]
+    if semilla is not None:
+        cuerpo["seed"] = semilla
+    return cuerpo
+
+
+def reutilizables(previo_doc, imagen, guion, politica, modo, semilla):
+    """Los registros `completed` de un punto de control que se pueden reusar: misma imagen, mismo guion, misma política,
+    mismo modo y la MISMA semilla (131-C1: sin esto, una semilla distinta reutilizaría la medida de otra), tanto en la
+    procedencia como en el registro. Un registro sin `semilla` es de antes del 131 (= None)."""
+    pro = previo_doc.get("procedencia", {})
+    if not (pro.get("imagen_id") == imagen and pro.get("sha256_guion") == guion and pro.get("politica") == politica
+            and pro.get("modo") == modo and pro.get("semilla") == semilla and not previo_doc.get("corte")):
+        return {}
+    return {k: v for k, v in previo_doc.get("conjuntos", {}).items()
+            if v.get("estado") == "completed" and v.get("semilla") == semilla}
+
+
+def semilla_ajena(previo_doc, semilla):
+    """El motivo para PARAR si `--salida` ya tiene registros de OTRA semilla (escribir encima los perdería), o None."""
+    otra = previo_doc.get("procedencia", {}).get("semilla")
+    return None if otra == semilla else f"la salida ya tiene medidas de la semilla {otra!r} y esta es la {semilla!r}"
+
+
 def registrar(nombre, c, cuerpo_ok, est, pared, http, rechazo, loadavg, ini):
     sel = est.get("seleccion") or {}
     media = sel.get("media_de_la_seleccion")
     ruta, filas = intentos_de(est)
     rec = {"nombre": nombre, "data_id": c["data_id"], "tarea": c["tarea"], "objetivo": c["objetivo"],
-           "clase_positiva_enviada": cuerpo_ok.get("clase_positiva"), "http": http, "rechazo": rechazo,
+           "clase_positiva_enviada": cuerpo_ok.get("clase_positiva"), "semilla": SEMILLA, "http": http, "rechazo": rechazo,
            "estado": est.get("estado"), "campeon": sel.get("candidate_engine"), "media_de_la_seleccion": media,
            "motores_que_no_puntuaron": sel.get("motores_que_no_puntuaron") or est.get("motores_que_no_puntuaron"),
            "intentos": filas, "intentos_ruta_en_el_estado": ruta, "pared_estudio_s": round(pared, 1),
@@ -456,10 +494,7 @@ def compiten(rec):
 def estudiar(base, nombre, c, gen):
     csv_bytes, cols, excl, nfilas = csv_de(gen, c["data_id"])
     texto = csv_bytes.decode("utf-8")
-    cuerpo = {"csv_text": texto, "objetivo": c["objetivo"], "tarea": c["tarea"],
-              "entradas": [x for x in cols if x != c["objetivo"]], "unidad_de_observacion": "una fila"}
-    if c["tarea"] == "binary_classification" and c.get("clase_positiva") is not None:
-        cuerpo["clase_positiva"] = c["clase_positiva"]
+    cuerpo = cuerpo_del_estudio(c, cols, texto, SEMILLA)
     ini = ahora(); la = open("/proc/loadavg").read().split()[:3]; t0 = time.time()
     http, r = pedir_o_rechazo(base, "/api/studio/estudio/iniciar", cuerpo)
     job = r.get("job_id") or (r.get("estudio") or {}).get("job_id") if isinstance(r, dict) else None
@@ -510,7 +545,7 @@ def guardar(datos):
 
 
 def main():
-    global IMAGEN, SALIDA, ESTADOS, MEMORIA, POLITICA, ENTORNO_EXTRA, SIN_CONTROL_DE_ARBOLES
+    global IMAGEN, SALIDA, ESTADOS, MEMORIA, POLITICA, ENTORNO_EXTRA, SIN_CONTROL_DE_ARBOLES, SEMILLA
     ap = argparse.ArgumentParser()
     ap.add_argument("--solo-humo", action="store_true"); ap.add_argument("--forzar", action="store_true")
     ap.add_argument("--solo", default="")
@@ -540,7 +575,14 @@ def main():
     ap.add_argument("--sin-control-de-arboles", default=None, metavar="MOTIVO",
                     help="129-C3: el corte cambia a propósito lo que entrenan los árboles; el control de los 4 se "
                          "calcula y se guarda, pero no para (el MOTIVO queda en el JSON)")
+    ap.add_argument("--semilla", type=int, default=None, metavar="N",
+                    help="131-C1: manda seed=N (gobierna el test Y los pliegues de la búsqueda); sin ella, el cuerpo de siempre")
     a = ap.parse_args()
+    SEMILLA = a.semilla
+    if SEMILLA is not None and SEMILLA != 0 and a.sin_control_de_arboles is None:
+        # El control de los 4 (a 4 decimales) es el de la semilla 0: con otra, otros pliegues, otras medias. No es un
+        # fallo del instrumento. Se calcula y se guarda igual, y el motivo queda en el JSON.
+        a.sin_control_de_arboles = f"semilla {SEMILLA}: el control de los 4 ejemplos es el de la semilla 0"
     if a.sin_control_de_arboles is not None and not a.sin_control_de_arboles.strip():
         raise SystemExit("--sin-control-de-arboles necesita su MOTIVO (queda escrito en el JSON)")
     SIN_CONTROL_DE_ARBOLES = a.sin_control_de_arboles
@@ -609,16 +651,16 @@ def main():
     previo = {}
     if SALIDA.exists() and not a.forzar:
         p = json.loads(SALIDA.read_text())
-        if (p.get("procedencia", {}).get("imagen_id") == imagen and p.get("procedencia", {}).get("sha256_guion") == guion
-                and p.get("procedencia", {}).get("politica") == POLITICA
-                and p.get("procedencia", {}).get("modo") == MODO and not p.get("corte")):
-            previo = {k: v for k, v in p.get("conjuntos", {}).items() if v.get("estado") == "completed"}
+        motivo = semilla_ajena(p, SEMILLA)
+        if motivo:
+            raise SystemExit(f"PARO: {motivo}: otra --salida, o --forzar")
+        previo = reutilizables(p, imagen, guion, POLITICA, MODO, SEMILLA)
     datos = {"procedencia": {"imagen": IMAGEN, "imagen_id": imagen, "sha256_guion": guion,
                              "sha256_generador_de_csv": sha(GENERADOR),
                              "sha256_borrador_protocolo": sha(BORRADOR), "inicio": ahora(), "csv_byte_a_byte": bytes_ok,
                              "instrumento": "estudio del Studio por HTTP; folds/repeats por omisión; cifra = seleccion.media_de_la_seleccion",
                              "nota_multiclase": "clase_positiva solo se envía en binarias",
-                             "memoria_del_contenedor": MEMORIA, "politica": POLITICA, "modo": MODO,
+                             "memoria_del_contenedor": MEMORIA, "politica": POLITICA, "modo": MODO, "semilla": SEMILLA,
                              "entorno_extra": dict(ENTORNO_EXTRA),
                              "sha256_veredicto_c3p": sha(AQUI / "veredicto_120_c3p.py"),
                              "sha256_enmienda_7": sha(AQUI / "protocolo_120_enmienda_7.json"),
@@ -657,7 +699,7 @@ def main():
                 muestreo.__enter__()
             rec = estudiar(srv["base"], n, b, gen)
         except (urllib.error.URLError, ConnectionError, OSError) as e:   # el servidor ya no contesta
-            rec = {"nombre": n, "estado": "servidor_muerto", "error": repr(e)[:300], "http": None,
+            rec = {"nombre": n, "estado": "servidor_muerto", "error": repr(e)[:300], "http": None, "semilla": SEMILLA,
                    "pared_estudio_s": None, "campeon": None}
         finally:
             if muestreo:
