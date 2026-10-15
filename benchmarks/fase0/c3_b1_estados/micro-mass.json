@@ -1,0 +1,2368 @@
+{
+ "ok": true,
+ "job_id": "08033aaf16c942fb86d5f516886f0e8f",
+ "estado": "plazo",
+ "guardado": false,
+ "n_intentos_total": 20,
+ "n_intentos_completados": 20,
+ "leaderboard": [
+  {
+   "candidate": "lightgbm-csv-p0-r0",
+   "engine": "lightgbm",
+   "engine_version": "1.0.0+lightgbm4.7.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openmp",
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "classes_lgbm": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "columnas": {
+     "bytes": 31587,
+     "omitido": "tamano",
+     "sha256": "1c67d1d9877bad2950f2853af50c35f5835716353b0dca197a5728233ee9da2c"
+    },
+    "columnas_envenenadas": [],
+    "component_id": "305ae6781a23409ce955cdd20f660b73e5f5ed6c797538e699a5008f2f1e14cd",
+    "digest_de_lo_aprendido": "7486ded19f45409485b652184becc91a7f7f0ccc9a8caf410f22ba896dd68ec5",
+    "engine_version": "1.0.0+lightgbm4.7.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "hiperparametros": {
+     "n_estimators": 100,
+     "num_leaves": 15,
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 303,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "modelo_texto": {
+     "bytes": 2429912,
+     "omitido": "tamano",
+     "sha256": "c0cc00f1418e0f62667ff0ac7d1be88b917e9d1d79921c4d140f5a835c1d547e"
+    },
+    "motivos_de_tipo": {
+     "bytes": 161587,
+     "omitido": "tamano",
+     "sha256": "eaeff77e9224f93bbeff66377e5b595af0830fb934a10a036b8e10af52f8107a"
+    },
+    "positive_label": null,
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification",
+    "tipos": {
+     "bytes": 60187,
+     "omitido": "tamano",
+     "sha256": "912edb321bd3c4b1c226c5afb417a00b4633232c376ed22251d0d08df2064996"
+    },
+    "vocabularios": {}
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.8712871287128713,
+    "undefined_reason": null,
+    "n_observations": 101,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 2.066218545,
+   "wall_seconds": 2.0665213980246335,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "soportado",
+   "motivo_del_nivel": null,
+   "alcance_de_la_medicion": {
+    "protocolo": "101-C1.v1",
+    "protocolo_digest": "ea50ca482a815627364b3439bfcf10e78295a13ae5f821219d0fb40329e65301",
+    "motores_del_protocolo": [
+     "dummy",
+     "sklearn.logreg",
+     "sklearn.hgb",
+     "lightgbm",
+     "xgboost",
+     "catboost",
+     "matrixai.dense.torch_cpu"
+    ],
+    "motores_que_corrieron": [
+     "dummy",
+     "sklearn.logreg",
+     "sklearn.hgb",
+     "lightgbm",
+     "xgboost",
+     "catboost",
+     "matrixai.dense.torch_cpu"
+    ],
+    "motores_que_no_compitieron": [],
+    "datasets_del_protocolo": 40,
+    "datasets_que_corrieron": 40,
+    "configuraciones_del_protocolo": 13,
+    "configuraciones_que_corrieron": 7,
+    "tareas_sin_medir": [],
+    "cubos_sin_medir": [],
+    "aciertos_por_ser_el_mejor": 7,
+    "datasets_cumplidos": 34,
+    "datasets_evaluados": 40,
+    "margen_en_datasets": 2,
+    "cumplidos_con_menos_semillas": 35,
+    "cumplidos_por_semilla": null,
+    "aciertos_que_la_dispersion_discute": [
+     "PhishingWebsites"
+    ],
+    "cumplidos_cuyo_intervalo_cruza_el_liston": [
+     "Satellite"
+    ],
+    "motores_que_cambian_de_lado_del_liston_segun_la_semilla": [
+     "xgboost"
+    ]
+   }
+  },
+  {
+   "candidate": "sklearn.hgb-csv-p0-r0",
+   "engine": "sklearn.hgb",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "baseline-csv-p0-r0",
+   "engine": "baseline",
+   "engine_version": "1.0.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "component_id": "5d86199e4590e4b89ff74928ece2b065142c87bcc2277f8f6adfab5e88828996",
+    "digest_de_lo_aprendido": "2eb16022b51c80c323c358beeb6ca131c6394947117faaa2af2e7ca7d3ab8e68",
+    "distribucion": [
+     0.0891089108910891,
+     0.0429042904290429,
+     0.04950495049504951,
+     0.036303630363036306,
+     0.056105610561056105,
+     0.0297029702970297,
+     0.056105610561056105,
+     0.056105610561056105,
+     0.10561056105610561,
+     0.0462046204620462,
+     0.033003300330033,
+     0.0462046204620462,
+     0.0462046204620462,
+     0.0924092409240924,
+     0.04950495049504951,
+     0.0231023102310231,
+     0.0297029702970297,
+     0.0462046204620462,
+     0.019801980198019802,
+     0.0462046204620462
+    ],
+    "engine_version": "1.0.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "mayoritaria": "class_17",
+    "positive_label": null,
+    "referencia": "distribucion_de_clases_de_train",
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.09900990099009901,
+    "undefined_reason": null,
+    "n_observations": 101,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 0.009595617,
+   "wall_seconds": 0.009536794852465391,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "matrixai.dense.tabm_cpu-csv-p0-r0",
+   "engine": "matrixai.dense.tabm_cpu",
+   "engine_version": "1.2.0+torch2.6.0+cpu",
+   "config_efectiva": {
+    "arquitectura": {
+     "d_block": 256,
+     "d_embedding": 24,
+     "d_out": 20,
+     "dropout": 0.1,
+     "frequency_init_scale": 0.01,
+     "k": 8,
+     "n_blocks": 2,
+     "n_frequencies": 48
+    },
+    "backend_de_hilos": "openblas",
+    "cardinalidades_categoricas": [],
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "columnas_categoricas": [],
+    "columnas_numericas": {
+     "bytes": 31587,
+     "omitido": "tamano",
+     "sha256": "1c67d1d9877bad2950f2853af50c35f5835716353b0dca197a5728233ee9da2c"
+    },
+    "component_id": "4dbaddc49063fdb73e6a591ce9a87a87edadbd11d161392d726f7f81ffacfc67",
+    "digest_de_lo_aprendido": "0fb9ad1de139565a5c868d49eebda0c148a267a61e48c23fd071016cb74fd38a",
+    "engine_version": "1.2.0+torch2.6.0+cpu",
+    "entrenamiento_efectivo": {
+     "epocas_completas": 60,
+     "epocas_ejecutadas": 60,
+     "mejor_epoca": 43,
+     "mejor_perdida_de_validacion": 0.3344808949364556,
+     "parado_por_paciencia": true,
+     "parado_por_plazo": false,
+     "plazo_antes_de_la_primera_epoca_completa": false,
+     "plazo_de_entrenamiento_segundos": 534.71925,
+     "ultima_epoca_parcial": false
+    },
+    "formato_de_los_pesos": "float32-little-endian-base64",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "hiperparametros": {
+     "backend": "torch",
+     "categorias_raras": {
+      "indice_compartido": "INDICE_RARO",
+      "minimo_de_apariciones_en_train": 5
+     },
+     "desconocida_entrenada": {
+      "generador": "propio_sembrado_con_sha256('desconocida:<semilla del intento>')",
+      "probabilidad_por_celda": 0.02,
+      "solo_al_entrenar": true
+     },
+     "device": "cpu",
+     "fraccion_del_presupuesto_para_entrenar": 0.75,
+     "lote": 256,
+     "optimizador": "adamw",
+     "parada_temprana": {
+      "metrica": "validation_loss_del_ensamblado",
+      "paciencia": 16,
+      "para_tras_epocas_sin_mejora": 17
+     },
+     "perdida_de_entrenamiento": "media_de_las_k_cabezas",
+     "plazo_desde": "entrada_en_ajustar",
+     "recorte_de_gradiente": 1.0,
+     "tasa_de_aprendizaje": 0.002,
+     "weight_decay": 0.0003
+    },
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "pesos": {
+     "bytes": 121431116,
+     "omitido": "tamano",
+     "sha256": "e7a3851263a6871f2e82cf09c44c3f02ff2e33d1aafe4985f242cb93089bb614"
+    },
+    "preparacion": {
+     "bytes": 824311,
+     "omitido": "tamano",
+     "sha256": "1a075cbeea9c34f1c9e132a5b15b19c6288944914e9bb4887c0eeca844fad931"
+    },
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.9306930693069307,
+    "undefined_reason": null,
+    "n_observations": 101,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 521.7583169760001,
+   "wall_seconds": 521.7244660439901,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "lightgbm-csv-p1-r0",
+   "engine": "lightgbm",
+   "engine_version": "1.0.0+lightgbm4.7.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "classes_lgbm": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "columnas": {
+     "bytes": 31587,
+     "omitido": "tamano",
+     "sha256": "1c67d1d9877bad2950f2853af50c35f5835716353b0dca197a5728233ee9da2c"
+    },
+    "columnas_envenenadas": [],
+    "component_id": "79d31b2d59bce904ff201ecd328132c7f70473e9adde72720fa517a36c845186",
+    "digest_de_lo_aprendido": "dd160fa41da56ce04764105d8262f6bf475212c7c5b7cb8cf9eaed9870cd612e",
+    "engine_version": "1.0.0+lightgbm4.7.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "hiperparametros": {
+     "n_estimators": 100,
+     "num_leaves": 15,
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 308,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "modelo_texto": {
+     "bytes": 2431495,
+     "omitido": "tamano",
+     "sha256": "5603642eedea56b4890dd42fb8dd71595458a9e72e6c43adbfb4f8e33aa01f70"
+    },
+    "motivos_de_tipo": {
+     "bytes": 161587,
+     "omitido": "tamano",
+     "sha256": "0b27efed3157cac905af211f97cfc2395d4a89bc0dae0e72018a28df44911682"
+    },
+    "positive_label": null,
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification",
+    "tipos": {
+     "bytes": 60187,
+     "omitido": "tamano",
+     "sha256": "912edb321bd3c4b1c226c5afb417a00b4633232c376ed22251d0d08df2064996"
+    },
+    "vocabularios": {}
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.8947368421052632,
+    "undefined_reason": null,
+    "n_observations": 95,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 2.3490176270000003,
+   "wall_seconds": 2.351301373913884,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "soportado",
+   "motivo_del_nivel": null,
+   "alcance_de_la_medicion": {
+    "protocolo": "101-C1.v1",
+    "protocolo_digest": "ea50ca482a815627364b3439bfcf10e78295a13ae5f821219d0fb40329e65301",
+    "motores_del_protocolo": [
+     "dummy",
+     "sklearn.logreg",
+     "sklearn.hgb",
+     "lightgbm",
+     "xgboost",
+     "catboost",
+     "matrixai.dense.torch_cpu"
+    ],
+    "motores_que_corrieron": [
+     "dummy",
+     "sklearn.logreg",
+     "sklearn.hgb",
+     "lightgbm",
+     "xgboost",
+     "catboost",
+     "matrixai.dense.torch_cpu"
+    ],
+    "motores_que_no_compitieron": [],
+    "datasets_del_protocolo": 40,
+    "datasets_que_corrieron": 40,
+    "configuraciones_del_protocolo": 13,
+    "configuraciones_que_corrieron": 7,
+    "tareas_sin_medir": [],
+    "cubos_sin_medir": [],
+    "aciertos_por_ser_el_mejor": 7,
+    "datasets_cumplidos": 34,
+    "datasets_evaluados": 40,
+    "margen_en_datasets": 2,
+    "cumplidos_con_menos_semillas": 35,
+    "cumplidos_por_semilla": null,
+    "aciertos_que_la_dispersion_discute": [
+     "PhishingWebsites"
+    ],
+    "cumplidos_cuyo_intervalo_cruza_el_liston": [
+     "Satellite"
+    ],
+    "motores_que_cambian_de_lado_del_liston_segun_la_semilla": [
+     "xgboost"
+    ]
+   }
+  },
+  {
+   "candidate": "sklearn.hgb-csv-p1-r0",
+   "engine": "sklearn.hgb",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "baseline-csv-p1-r0",
+   "engine": "baseline",
+   "engine_version": "1.0.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "component_id": "d71f026f07e45ba5b5e17d649000332b93846568c2df52f8ce59751f511e0ab8",
+    "digest_de_lo_aprendido": "f2eeca10621d9003ad8a7eb13244ea35f05c7bf96a12d891e7a4eb854d9c7b1f",
+    "distribucion": [
+     0.08766233766233766,
+     0.04220779220779221,
+     0.048701298701298704,
+     0.03571428571428571,
+     0.05519480519480519,
+     0.02922077922077922,
+     0.05844155844155844,
+     0.05519480519480519,
+     0.1038961038961039,
+     0.045454545454545456,
+     0.03571428571428571,
+     0.045454545454545456,
+     0.045454545454545456,
+     0.09090909090909091,
+     0.048701298701298704,
+     0.025974025974025976,
+     0.02922077922077922,
+     0.048701298701298704,
+     0.01948051948051948,
+     0.048701298701298704
+    ],
+    "engine_version": "1.0.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "mayoritaria": "class_17",
+    "positive_label": null,
+    "referencia": "distribucion_de_clases_de_train",
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.10526315789473684,
+    "undefined_reason": null,
+    "n_observations": 95,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 0.00914824000000003,
+   "wall_seconds": 0.009085646132007241,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "matrixai.dense.tabm_cpu-csv-p1-r0",
+   "engine": "matrixai.dense.tabm_cpu",
+   "engine_version": "1.2.0+torch2.6.0+cpu",
+   "config_efectiva": {
+    "arquitectura": {
+     "d_block": 256,
+     "d_embedding": 24,
+     "d_out": 20,
+     "dropout": 0.1,
+     "frequency_init_scale": 0.01,
+     "k": 8,
+     "n_blocks": 2,
+     "n_frequencies": 48
+    },
+    "backend_de_hilos": "openblas",
+    "cardinalidades_categoricas": [],
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "columnas_categoricas": [],
+    "columnas_numericas": {
+     "bytes": 31587,
+     "omitido": "tamano",
+     "sha256": "1c67d1d9877bad2950f2853af50c35f5835716353b0dca197a5728233ee9da2c"
+    },
+    "component_id": "2e1da865c305b60adab44051cee21d3b1d8c54d622b170ef318e44e61780ab61",
+    "digest_de_lo_aprendido": "e62d54a4ce866d06ba2014eca9df76de85159d2354f9cf8a26dcb532eabd2fb3",
+    "engine_version": "1.2.0+torch2.6.0+cpu",
+    "entrenamiento_efectivo": {
+     "epocas_completas": 61,
+     "epocas_ejecutadas": 61,
+     "mejor_epoca": 45,
+     "mejor_perdida_de_validacion": 0.09303011027249423,
+     "parado_por_paciencia": false,
+     "parado_por_plazo": true,
+     "plazo_antes_de_la_primera_epoca_completa": false,
+     "plazo_de_entrenamiento_segundos": 534.71925,
+     "ultima_epoca_parcial": false
+    },
+    "formato_de_los_pesos": "float32-little-endian-base64",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "hiperparametros": {
+     "backend": "torch",
+     "categorias_raras": {
+      "indice_compartido": "INDICE_RARO",
+      "minimo_de_apariciones_en_train": 5
+     },
+     "desconocida_entrenada": {
+      "generador": "propio_sembrado_con_sha256('desconocida:<semilla del intento>')",
+      "probabilidad_por_celda": 0.02,
+      "solo_al_entrenar": true
+     },
+     "device": "cpu",
+     "fraccion_del_presupuesto_para_entrenar": 0.75,
+     "lote": 256,
+     "optimizador": "adamw",
+     "parada_temprana": {
+      "metrica": "validation_loss_del_ensamblado",
+      "paciencia": 16,
+      "para_tras_epocas_sin_mejora": 17
+     },
+     "perdida_de_entrenamiento": "media_de_las_k_cabezas",
+     "plazo_desde": "entrada_en_ajustar",
+     "recorte_de_gradiente": 1.0,
+     "tasa_de_aprendizaje": 0.002,
+     "weight_decay": 0.0003
+    },
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "pesos": {
+     "bytes": 121431116,
+     "omitido": "tamano",
+     "sha256": "9f6cb4f1747cebcaa03894889de55f3f3a26e09fbffb5af3123694fdbc816a65"
+    },
+    "preparacion": {
+     "bytes": 824285,
+     "omitido": "tamano",
+     "sha256": "7deb12517b0fbb11179d51fc92d29bc73dd82dec19f90199e04378b6017d2cc4"
+    },
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.9473684210526315,
+    "undefined_reason": null,
+    "n_observations": 95,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 532.413193718,
+   "wall_seconds": 532.3316207749303,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "lightgbm-csv-p2-r0",
+   "engine": "lightgbm",
+   "engine_version": "1.0.0+lightgbm4.7.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "classes_lgbm": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "columnas": {
+     "bytes": 31587,
+     "omitido": "tamano",
+     "sha256": "1c67d1d9877bad2950f2853af50c35f5835716353b0dca197a5728233ee9da2c"
+    },
+    "columnas_envenenadas": [],
+    "component_id": "80f576ac7e678f8fe187f1047e4e500e0e97fcb352287c05c1cbb2107517858c",
+    "digest_de_lo_aprendido": "9f3a70fa0bd9d8c44bbd4b967e59755caa1d7bf99a94605ab5bdb14f59d00b44",
+    "engine_version": "1.0.0+lightgbm4.7.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "hiperparametros": {
+     "n_estimators": 100,
+     "num_leaves": 15,
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 311,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "modelo_texto": {
+     "bytes": 2450804,
+     "omitido": "tamano",
+     "sha256": "78d4ec6ddb87dacdba6d61a6b0cfd6baf2d177d6c8c7b4753ba0e1281c6aab22"
+    },
+    "motivos_de_tipo": {
+     "bytes": 161587,
+     "omitido": "tamano",
+     "sha256": "6dd3f43186fc9eed59466309bde18f3a75599f4ae8f31704e44eb033e6e58f28"
+    },
+    "positive_label": null,
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification",
+    "tipos": {
+     "bytes": 60187,
+     "omitido": "tamano",
+     "sha256": "912edb321bd3c4b1c226c5afb417a00b4633232c376ed22251d0d08df2064996"
+    },
+    "vocabularios": {}
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.9120879120879121,
+    "undefined_reason": null,
+    "n_observations": 91,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 2.29660475,
+   "wall_seconds": 2.2968395720236003,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "soportado",
+   "motivo_del_nivel": null,
+   "alcance_de_la_medicion": {
+    "protocolo": "101-C1.v1",
+    "protocolo_digest": "ea50ca482a815627364b3439bfcf10e78295a13ae5f821219d0fb40329e65301",
+    "motores_del_protocolo": [
+     "dummy",
+     "sklearn.logreg",
+     "sklearn.hgb",
+     "lightgbm",
+     "xgboost",
+     "catboost",
+     "matrixai.dense.torch_cpu"
+    ],
+    "motores_que_corrieron": [
+     "dummy",
+     "sklearn.logreg",
+     "sklearn.hgb",
+     "lightgbm",
+     "xgboost",
+     "catboost",
+     "matrixai.dense.torch_cpu"
+    ],
+    "motores_que_no_compitieron": [],
+    "datasets_del_protocolo": 40,
+    "datasets_que_corrieron": 40,
+    "configuraciones_del_protocolo": 13,
+    "configuraciones_que_corrieron": 7,
+    "tareas_sin_medir": [],
+    "cubos_sin_medir": [],
+    "aciertos_por_ser_el_mejor": 7,
+    "datasets_cumplidos": 34,
+    "datasets_evaluados": 40,
+    "margen_en_datasets": 2,
+    "cumplidos_con_menos_semillas": 35,
+    "cumplidos_por_semilla": null,
+    "aciertos_que_la_dispersion_discute": [
+     "PhishingWebsites"
+    ],
+    "cumplidos_cuyo_intervalo_cruza_el_liston": [
+     "Satellite"
+    ],
+    "motores_que_cambian_de_lado_del_liston_segun_la_semilla": [
+     "xgboost"
+    ]
+   }
+  },
+  {
+   "candidate": "sklearn.hgb-csv-p2-r0",
+   "engine": "sklearn.hgb",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "baseline-csv-p2-r0",
+   "engine": "baseline",
+   "engine_version": "1.0.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "component_id": "ad5125b6def07dd123e2726ce96f56857087ea94c076d3cefdd1008e26459603",
+    "digest_de_lo_aprendido": "a8015e67355eb11fd4cfd5c8d037bf2121f64e50778e6dc8bf8f71cdc2e39df0",
+    "distribucion": [
+     0.08681672025723473,
+     0.04180064308681672,
+     0.04823151125401929,
+     0.03858520900321544,
+     0.05466237942122187,
+     0.028938906752411574,
+     0.05787781350482315,
+     0.05466237942122187,
+     0.10289389067524116,
+     0.04823151125401929,
+     0.03536977491961415,
+     0.04501607717041801,
+     0.04823151125401929,
+     0.0932475884244373,
+     0.04823151125401929,
+     0.02572347266881029,
+     0.028938906752411574,
+     0.04501607717041801,
+     0.01929260450160772,
+     0.04823151125401929
+    ],
+    "engine_version": "1.0.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "mayoritaria": "class_17",
+    "positive_label": null,
+    "referencia": "distribucion_de_clases_de_train",
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.10989010989010989,
+    "undefined_reason": null,
+    "n_observations": 91,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 0.012645938999999995,
+   "wall_seconds": 0.012595884036272764,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "matrixai.dense.tabm_cpu-csv-p2-r0",
+   "engine": "matrixai.dense.tabm_cpu",
+   "engine_version": "1.2.0+torch2.6.0+cpu",
+   "config_efectiva": {
+    "arquitectura": {
+     "d_block": 256,
+     "d_embedding": 24,
+     "d_out": 20,
+     "dropout": 0.1,
+     "frequency_init_scale": 0.01,
+     "k": 8,
+     "n_blocks": 2,
+     "n_frequencies": 48
+    },
+    "backend_de_hilos": "openblas",
+    "cardinalidades_categoricas": [],
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "columnas_categoricas": [],
+    "columnas_numericas": {
+     "bytes": 31587,
+     "omitido": "tamano",
+     "sha256": "1c67d1d9877bad2950f2853af50c35f5835716353b0dca197a5728233ee9da2c"
+    },
+    "component_id": "7ff219c5ab5317b8279077027e6a7ba6366a5292d51bebe62ff175b7e1c4a14b",
+    "digest_de_lo_aprendido": "2b5027dd6b1265969bbbdef63b5cba6a6de2280bdd3b88178b36cca9353dbbc3",
+    "engine_version": "1.2.0+torch2.6.0+cpu",
+    "entrenamiento_efectivo": {
+     "epocas_completas": 59,
+     "epocas_ejecutadas": 59,
+     "mejor_epoca": 44,
+     "mejor_perdida_de_validacion": 0.19763405408178056,
+     "parado_por_paciencia": false,
+     "parado_por_plazo": true,
+     "plazo_antes_de_la_primera_epoca_completa": false,
+     "plazo_de_entrenamiento_segundos": 534.71925,
+     "ultima_epoca_parcial": false
+    },
+    "formato_de_los_pesos": "float32-little-endian-base64",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "hiperparametros": {
+     "backend": "torch",
+     "categorias_raras": {
+      "indice_compartido": "INDICE_RARO",
+      "minimo_de_apariciones_en_train": 5
+     },
+     "desconocida_entrenada": {
+      "generador": "propio_sembrado_con_sha256('desconocida:<semilla del intento>')",
+      "probabilidad_por_celda": 0.02,
+      "solo_al_entrenar": true
+     },
+     "device": "cpu",
+     "fraccion_del_presupuesto_para_entrenar": 0.75,
+     "lote": 256,
+     "optimizador": "adamw",
+     "parada_temprana": {
+      "metrica": "validation_loss_del_ensamblado",
+      "paciencia": 16,
+      "para_tras_epocas_sin_mejora": 17
+     },
+     "perdida_de_entrenamiento": "media_de_las_k_cabezas",
+     "plazo_desde": "entrada_en_ajustar",
+     "recorte_de_gradiente": 1.0,
+     "tasa_de_aprendizaje": 0.002,
+     "weight_decay": 0.0003
+    },
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "pesos": {
+     "bytes": 121431116,
+     "omitido": "tamano",
+     "sha256": "6bcdd0ebc040ba70ea63e29b0da21d1960b7e358f8926cd0ae129b5660742a98"
+    },
+    "preparacion": {
+     "bytes": 824161,
+     "omitido": "tamano",
+     "sha256": "09781c55fb8e197509244e8821313bdab4b22ce164541727c0536e410c62c1d4"
+    },
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.9120879120879121,
+    "undefined_reason": null,
+    "n_observations": 91,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 528.111613766,
+   "wall_seconds": 528.0953088910319,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "lightgbm-csv-p3-r0",
+   "engine": "lightgbm",
+   "engine_version": "1.0.0+lightgbm4.7.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openmp",
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "classes_lgbm": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "columnas": {
+     "bytes": 31587,
+     "omitido": "tamano",
+     "sha256": "1c67d1d9877bad2950f2853af50c35f5835716353b0dca197a5728233ee9da2c"
+    },
+    "columnas_envenenadas": [],
+    "component_id": "19dc4983daa40fdac3a1274703287f688ed6bc22fc34fcf10374d43bb6c3903e",
+    "digest_de_lo_aprendido": "e62d472fbf35d1b3e0a927573fa153ca4cdb845227d5106401513c7d1915f33f",
+    "engine_version": "1.0.0+lightgbm4.7.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "hiperparametros": {
+     "n_estimators": 100,
+     "num_leaves": 15,
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 315,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "modelo_texto": {
+     "bytes": 2444785,
+     "omitido": "tamano",
+     "sha256": "ca2e3e319652d2f5f032ecbfd5e9a2d3d15e2454a684570137761018b5495a2a"
+    },
+    "motivos_de_tipo": {
+     "bytes": 161587,
+     "omitido": "tamano",
+     "sha256": "b759856824f70a00aea621d736ce5746fcce624ef2591ab7bf568b4bd1cfa67f"
+    },
+    "positive_label": null,
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification",
+    "tipos": {
+     "bytes": 60187,
+     "omitido": "tamano",
+     "sha256": "912edb321bd3c4b1c226c5afb417a00b4633232c376ed22251d0d08df2064996"
+    },
+    "vocabularios": {}
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.8735632183908046,
+    "undefined_reason": null,
+    "n_observations": 87,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 2.2919572169999998,
+   "wall_seconds": 2.3028633480425924,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "soportado",
+   "motivo_del_nivel": null,
+   "alcance_de_la_medicion": {
+    "protocolo": "101-C1.v1",
+    "protocolo_digest": "ea50ca482a815627364b3439bfcf10e78295a13ae5f821219d0fb40329e65301",
+    "motores_del_protocolo": [
+     "dummy",
+     "sklearn.logreg",
+     "sklearn.hgb",
+     "lightgbm",
+     "xgboost",
+     "catboost",
+     "matrixai.dense.torch_cpu"
+    ],
+    "motores_que_corrieron": [
+     "dummy",
+     "sklearn.logreg",
+     "sklearn.hgb",
+     "lightgbm",
+     "xgboost",
+     "catboost",
+     "matrixai.dense.torch_cpu"
+    ],
+    "motores_que_no_compitieron": [],
+    "datasets_del_protocolo": 40,
+    "datasets_que_corrieron": 40,
+    "configuraciones_del_protocolo": 13,
+    "configuraciones_que_corrieron": 7,
+    "tareas_sin_medir": [],
+    "cubos_sin_medir": [],
+    "aciertos_por_ser_el_mejor": 7,
+    "datasets_cumplidos": 34,
+    "datasets_evaluados": 40,
+    "margen_en_datasets": 2,
+    "cumplidos_con_menos_semillas": 35,
+    "cumplidos_por_semilla": null,
+    "aciertos_que_la_dispersion_discute": [
+     "PhishingWebsites"
+    ],
+    "cumplidos_cuyo_intervalo_cruza_el_liston": [
+     "Satellite"
+    ],
+    "motores_que_cambian_de_lado_del_liston_segun_la_semilla": [
+     "xgboost"
+    ]
+   }
+  },
+  {
+   "candidate": "sklearn.hgb-csv-p3-r0",
+   "engine": "sklearn.hgb",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "baseline-csv-p3-r0",
+   "engine": "baseline",
+   "engine_version": "1.0.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "component_id": "3d2459346d6f6c7a7ce90ac4f4f0a0768bdaf72d33085f52c0aa32f48e02d7a0",
+    "digest_de_lo_aprendido": "14c7c07fe6be0d495f896be6fb1af83ab6cf29f7a9e0fd969699ec199997c7fa",
+    "distribucion": [
+     0.08571428571428572,
+     0.04126984126984127,
+     0.050793650793650794,
+     0.0380952380952381,
+     0.05396825396825397,
+     0.02857142857142857,
+     0.05714285714285714,
+     0.05396825396825397,
+     0.10476190476190476,
+     0.047619047619047616,
+     0.03492063492063492,
+     0.044444444444444446,
+     0.047619047619047616,
+     0.09206349206349207,
+     0.050793650793650794,
+     0.025396825396825397,
+     0.02857142857142857,
+     0.047619047619047616,
+     0.01904761904761905,
+     0.047619047619047616
+    ],
+    "engine_version": "1.0.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "mayoritaria": "class_17",
+    "positive_label": null,
+    "referencia": "distribucion_de_clases_de_train",
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.10344827586206896,
+    "undefined_reason": null,
+    "n_observations": 87,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 0.009792980000000062,
+   "wall_seconds": 0.009730853140354156,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "matrixai.dense.tabm_cpu-csv-p3-r0",
+   "engine": "matrixai.dense.tabm_cpu",
+   "engine_version": "1.2.0+torch2.6.0+cpu",
+   "config_efectiva": {
+    "arquitectura": {
+     "d_block": 256,
+     "d_embedding": 24,
+     "d_out": 20,
+     "dropout": 0.1,
+     "frequency_init_scale": 0.01,
+     "k": 8,
+     "n_blocks": 2,
+     "n_frequencies": 48
+    },
+    "backend_de_hilos": "openblas",
+    "cardinalidades_categoricas": [],
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "columnas_categoricas": [],
+    "columnas_numericas": {
+     "bytes": 31587,
+     "omitido": "tamano",
+     "sha256": "1c67d1d9877bad2950f2853af50c35f5835716353b0dca197a5728233ee9da2c"
+    },
+    "component_id": "e2a433b30c33e366e1c4cef3f95c3810454a30b83db5cec8c86f7b80a37746e9",
+    "digest_de_lo_aprendido": "b79a932162f495bcf899567ac3d136ddd838a7b1c511cc5af7b239462cf49171",
+    "engine_version": "1.2.0+torch2.6.0+cpu",
+    "entrenamiento_efectivo": {
+     "epocas_completas": 55,
+     "epocas_ejecutadas": 55,
+     "mejor_epoca": 38,
+     "mejor_perdida_de_validacion": 0.2916483942951475,
+     "parado_por_paciencia": true,
+     "parado_por_plazo": false,
+     "plazo_antes_de_la_primera_epoca_completa": false,
+     "plazo_de_entrenamiento_segundos": 534.71925,
+     "ultima_epoca_parcial": false
+    },
+    "formato_de_los_pesos": "float32-little-endian-base64",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "hiperparametros": {
+     "backend": "torch",
+     "categorias_raras": {
+      "indice_compartido": "INDICE_RARO",
+      "minimo_de_apariciones_en_train": 5
+     },
+     "desconocida_entrenada": {
+      "generador": "propio_sembrado_con_sha256('desconocida:<semilla del intento>')",
+      "probabilidad_por_celda": 0.02,
+      "solo_al_entrenar": true
+     },
+     "device": "cpu",
+     "fraccion_del_presupuesto_para_entrenar": 0.75,
+     "lote": 256,
+     "optimizador": "adamw",
+     "parada_temprana": {
+      "metrica": "validation_loss_del_ensamblado",
+      "paciencia": 16,
+      "para_tras_epocas_sin_mejora": 17
+     },
+     "perdida_de_entrenamiento": "media_de_las_k_cabezas",
+     "plazo_desde": "entrada_en_ajustar",
+     "recorte_de_gradiente": 1.0,
+     "tasa_de_aprendizaje": 0.002,
+     "weight_decay": 0.0003
+    },
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "pesos": {
+     "bytes": 121431116,
+     "omitido": "tamano",
+     "sha256": "7d70b8459e5aa717f66a63aedac650fd73592810d3c5a1c4de326a019128d13c"
+    },
+    "preparacion": {
+     "bytes": 824097,
+     "omitido": "tamano",
+     "sha256": "11f3c7714558c6be595304da1f67dc218ba63f56a13e1b8ada9adf2d2805d87b"
+    },
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.9195402298850575,
+    "undefined_reason": null,
+    "n_observations": 87,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 491.376758493,
+   "wall_seconds": 491.31080231792293,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "lightgbm-csv-p4-r0",
+   "engine": "lightgbm",
+   "engine_version": "1.0.0+lightgbm4.7.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "classes_lgbm": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "columnas": {
+     "bytes": 31587,
+     "omitido": "tamano",
+     "sha256": "1c67d1d9877bad2950f2853af50c35f5835716353b0dca197a5728233ee9da2c"
+    },
+    "columnas_envenenadas": [],
+    "component_id": "91a636faa6ea29e0d04382aff23d46488743e950c2b5d9785c00f234bae4291d",
+    "digest_de_lo_aprendido": "42e81dd18d8dc470cd7eeda1e461da4c450acbd6ce5a4e80e002c9d05649da4d",
+    "engine_version": "1.0.0+lightgbm4.7.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "hiperparametros": {
+     "n_estimators": 100,
+     "num_leaves": 15,
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 317,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "modelo_texto": {
+     "bytes": 2447221,
+     "omitido": "tamano",
+     "sha256": "f83891d8fb9f159dee451f412cafa265dc566cce7d34edea703577a4826cc887"
+    },
+    "motivos_de_tipo": {
+     "bytes": 161587,
+     "omitido": "tamano",
+     "sha256": "5b85fc4f039e826253ac6ca95f7d6a66a093d45c69946aaa9393af250fc8c8f6"
+    },
+    "positive_label": null,
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification",
+    "tipos": {
+     "bytes": 60187,
+     "omitido": "tamano",
+     "sha256": "912edb321bd3c4b1c226c5afb417a00b4633232c376ed22251d0d08df2064996"
+    },
+    "vocabularios": {}
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.8928571428571429,
+    "undefined_reason": null,
+    "n_observations": 84,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 2.342972675,
+   "wall_seconds": 2.3438809618819505,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "soportado",
+   "motivo_del_nivel": null,
+   "alcance_de_la_medicion": {
+    "protocolo": "101-C1.v1",
+    "protocolo_digest": "ea50ca482a815627364b3439bfcf10e78295a13ae5f821219d0fb40329e65301",
+    "motores_del_protocolo": [
+     "dummy",
+     "sklearn.logreg",
+     "sklearn.hgb",
+     "lightgbm",
+     "xgboost",
+     "catboost",
+     "matrixai.dense.torch_cpu"
+    ],
+    "motores_que_corrieron": [
+     "dummy",
+     "sklearn.logreg",
+     "sklearn.hgb",
+     "lightgbm",
+     "xgboost",
+     "catboost",
+     "matrixai.dense.torch_cpu"
+    ],
+    "motores_que_no_compitieron": [],
+    "datasets_del_protocolo": 40,
+    "datasets_que_corrieron": 40,
+    "configuraciones_del_protocolo": 13,
+    "configuraciones_que_corrieron": 7,
+    "tareas_sin_medir": [],
+    "cubos_sin_medir": [],
+    "aciertos_por_ser_el_mejor": 7,
+    "datasets_cumplidos": 34,
+    "datasets_evaluados": 40,
+    "margen_en_datasets": 2,
+    "cumplidos_con_menos_semillas": 35,
+    "cumplidos_por_semilla": null,
+    "aciertos_que_la_dispersion_discute": [
+     "PhishingWebsites"
+    ],
+    "cumplidos_cuyo_intervalo_cruza_el_liston": [
+     "Satellite"
+    ],
+    "motores_que_cambian_de_lado_del_liston_segun_la_semilla": [
+     "xgboost"
+    ]
+   }
+  },
+  {
+   "candidate": "sklearn.hgb-csv-p4-r0",
+   "engine": "sklearn.hgb",
+   "engine_version": "desconocida",
+   "config_efectiva": {},
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "n/a",
+    "value": null,
+    "undefined_reason": {
+     "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado",
+     "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared"
+    },
+    "n_observations": null,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "failed",
+   "fase": "seleccion",
+   "motivo": {
+    "en": "the attempt exceeded 39.33333333333333 s (the declared budget plus margin) without finishing: the process was killed from the outside, this is not a failure the engine itself declared",
+    "es": "el intento superó 39.33333333333333 s (el presupuesto declarado más el margen) sin terminar: el proceso se ha matado desde fuera, no es un fallo que el motor haya declarado"
+   },
+   "cpu_seconds": null,
+   "wall_seconds": null,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "version_del_motor_fuera_de_lo_aprobado",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "baseline-csv-p4-r0",
+   "engine": "baseline",
+   "engine_version": "1.0.0",
+   "config_efectiva": {
+    "backend_de_hilos": "openblas",
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "component_id": "dff1541f17702a3e91f34d2ffa71a1a7fe8f5e12cdc326a35148fb6c3e56fbb4",
+    "digest_de_lo_aprendido": "bd88de3d80db9971fcb9254b62a3663f749d4248aab9661f6d2342ba71b730a2",
+    "distribucion": [
+     0.08517350157728706,
+     0.04416403785488959,
+     0.050473186119873815,
+     0.03785488958990536,
+     0.05362776025236593,
+     0.031545741324921134,
+     0.056782334384858045,
+     0.05362776025236593,
+     0.10410094637223975,
+     0.0473186119873817,
+     0.03470031545741325,
+     0.04416403785488959,
+     0.0473186119873817,
+     0.0914826498422713,
+     0.050473186119873815,
+     0.025236593059936908,
+     0.028391167192429023,
+     0.04416403785488959,
+     0.022082018927444796,
+     0.0473186119873817
+    ],
+    "engine_version": "1.0.0",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "mayoritaria": "class_17",
+    "positive_label": null,
+    "referencia": "distribucion_de_clases_de_train",
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.10714285714285714,
+    "undefined_reason": null,
+    "n_observations": 84,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 0.00866508399999999,
+   "wall_seconds": 0.008627167902886868,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  },
+  {
+   "candidate": "matrixai.dense.tabm_cpu-csv-p4-r0",
+   "engine": "matrixai.dense.tabm_cpu",
+   "engine_version": "1.2.0+torch2.6.0+cpu",
+   "config_efectiva": {
+    "arquitectura": {
+     "d_block": 256,
+     "d_embedding": 24,
+     "d_out": 20,
+     "dropout": 0.1,
+     "frequency_init_scale": 0.01,
+     "k": 8,
+     "n_blocks": 2,
+     "n_frequencies": 48
+    },
+    "backend_de_hilos": "openblas",
+    "cardinalidades_categoricas": [],
+    "classes": [
+     "class_1",
+     "class_10",
+     "class_11",
+     "class_12",
+     "class_13",
+     "class_14",
+     "class_15",
+     "class_16",
+     "class_17",
+     "class_18",
+     "class_19",
+     "class_2",
+     "class_20",
+     "class_3",
+     "class_4",
+     "class_5",
+     "class_6",
+     "class_7",
+     "class_8",
+     "class_9"
+    ],
+    "columnas_categoricas": [],
+    "columnas_numericas": {
+     "bytes": 31587,
+     "omitido": "tamano",
+     "sha256": "1c67d1d9877bad2950f2853af50c35f5835716353b0dca197a5728233ee9da2c"
+    },
+    "component_id": "d8e655cb5ac1c9ff127efbb6609100db874d1006129dfdcc5c36c1acebedee47",
+    "digest_de_lo_aprendido": "7db3035fccb5cd6120518aceb88af2966cb5641f7ae954c6de28633e012c96f2",
+    "engine_version": "1.2.0+torch2.6.0+cpu",
+    "entrenamiento_efectivo": {
+     "epocas_completas": 51,
+     "epocas_ejecutadas": 51,
+     "mejor_epoca": 34,
+     "mejor_perdida_de_validacion": 0.14621053453077348,
+     "parado_por_paciencia": true,
+     "parado_por_plazo": false,
+     "plazo_antes_de_la_primera_epoca_completa": false,
+     "plazo_de_entrenamiento_segundos": 534.71925,
+     "ultima_epoca_parcial": false
+    },
+    "formato_de_los_pesos": "float32-little-endian-base64",
+    "hilos_efectivos": 1,
+    "hilos_solicitados": 1,
+    "hiperparametros": {
+     "backend": "torch",
+     "categorias_raras": {
+      "indice_compartido": "INDICE_RARO",
+      "minimo_de_apariciones_en_train": 5
+     },
+     "desconocida_entrenada": {
+      "generador": "propio_sembrado_con_sha256('desconocida:<semilla del intento>')",
+      "probabilidad_por_celda": 0.02,
+      "solo_al_entrenar": true
+     },
+     "device": "cpu",
+     "fraccion_del_presupuesto_para_entrenar": 0.75,
+     "lote": 256,
+     "optimizador": "adamw",
+     "parada_temprana": {
+      "metrica": "validation_loss_del_ensamblado",
+      "paciencia": 16,
+      "para_tras_epocas_sin_mejora": 17
+     },
+     "perdida_de_entrenamiento": "media_de_las_k_cabezas",
+     "plazo_desde": "entrada_en_ajustar",
+     "recorte_de_gradiente": 1.0,
+     "tasa_de_aprendizaje": 0.002,
+     "weight_decay": 0.0003
+    },
+    "library_versions": {
+     "lightgbm": "4.7.0",
+     "matrixai_core": "1.15.0",
+     "numpy": "2.5.4",
+     "onnx": "1.23.2",
+     "onnxmltools": "1.16.0",
+     "onnxruntime": "1.31.0",
+     "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.41",
+     "python": "3.12.15",
+     "scikit-learn": "1.9.1",
+     "scipy": "1.18.1",
+     "threadpoolctl": "3.7.0",
+     "torch": "2.6.0+cpu"
+    },
+    "pesos": {
+     "bytes": 121431116,
+     "omitido": "tamano",
+     "sha256": "a84653022cb41135593593d50425afffa123e6dd6267f63a1109e3494e6c83f0"
+    },
+    "preparacion": {
+     "bytes": 824162,
+     "omitido": "tamano",
+     "sha256": "ca177ccf780e0327e545cc54eb3bf4ffc38f240724bbd1a5d30d4b9eed10024f"
+    },
+    "seed_efectiva": 0,
+    "seed_solicitada": 0,
+    "task": "multiclass_classification"
+   },
+   "metrica_de_seleccion": {
+    "metric_id": "accuracy",
+    "formula_version": "1.0.0",
+    "value": 0.8809523809523809,
+    "undefined_reason": null,
+    "n_observations": 84,
+    "n_units": null,
+    "uncertainty": null
+   },
+   "estado": "completed",
+   "fase": "seleccion",
+   "motivo": null,
+   "cpu_seconds": 458.516593637,
+   "wall_seconds": 458.4501775901299,
+   "ram_mb": null,
+   "latencia_end_to_end_ms": null,
+   "nivel_de_madurez": "experimental",
+   "motivo_del_nivel": "motor_fuera_de_la_cartera_aprobada",
+   "alcance_de_la_medicion": null
+  }
+ ],
+ "seleccion": null,
+ "error": null,
+ "error_motivo": null,
+ "presupuesto_total_segundos": 4457.754,
+ "segundos_reales": 3600.530386209488,
+ "identificador_de_fila": "__fila__",
+ "identificador_de_fila_sintetico": true,
+ "filas_sin_objetivo": 0,
+ "nombre_de_los_datos": null,
+ "etiquetas_originales": {
+  "class_10": "10",
+  "class_17": "17",
+  "class_11": "11",
+  "class_20": "20",
+  "class_15": "15",
+  "class_14": "14",
+  "class_7": "7",
+  "class_18": "18",
+  "class_8": "8",
+  "class_4": "4",
+  "class_13": "13",
+  "class_2": "2",
+  "class_9": "9",
+  "class_12": "12",
+  "class_5": "5",
+  "class_19": "19",
+  "class_1": "1",
+  "class_16": "16",
+  "class_3": "3",
+  "class_6": "6"
+ },
+ "entradas_excluidas": [],
+ "motores_fuera_por_memoria": {},
+ "motores_fuera_por_plazo": {},
+ "plazo_de_tabm": {
+  "segundos_por_intento": 712.959,
+  "estimado_s": 356.5,
+  "pedido_s": 713.0,
+  "techo_s": 800.0,
+  "techo_alcanzado": false,
+  "dispositivo": "cpu",
+  "filas_train": 303,
+  "columnas_crudas": 1300,
+  "columnas_de_entrada": 2600
+ },
+ "reparto_interno": {
+  "criterio": "por_clase",
+  "diseno": "iid",
+  "pliegues": [
+   {
+    "diseno": "iid",
+    "filas_entrena": 357,
+    "filas_de_cola_pedidas": 54,
+    "criterio": "por_clase",
+    "filas_de_cola": 54,
+    "clases": 20,
+    "clases_sin_cola": [],
+    "repeticion": 0,
+    "pliegue": 0
+   },
+   {
+    "diseno": "iid",
+    "filas_entrena": 363,
+    "filas_de_cola_pedidas": 55,
+    "criterio": "por_clase",
+    "filas_de_cola": 55,
+    "clases": 20,
+    "clases_sin_cola": [],
+    "repeticion": 0,
+    "pliegue": 1
+   },
+   {
+    "diseno": "iid",
+    "filas_entrena": 367,
+    "filas_de_cola_pedidas": 56,
+    "criterio": "por_clase",
+    "filas_de_cola": 56,
+    "clases": 20,
+    "clases_sin_cola": [],
+    "repeticion": 0,
+    "pliegue": 2
+   },
+   {
+    "diseno": "iid",
+    "filas_entrena": 371,
+    "filas_de_cola_pedidas": 56,
+    "criterio": "por_clase",
+    "filas_de_cola": 56,
+    "clases": 20,
+    "clases_sin_cola": [],
+    "repeticion": 0,
+    "pliegue": 3
+   },
+   {
+    "diseno": "iid",
+    "filas_entrena": 374,
+    "filas_de_cola_pedidas": 57,
+    "criterio": "por_clase",
+    "filas_de_cola": 57,
+    "clases": 20,
+    "clases_sin_cola": [],
+    "repeticion": 0,
+    "pliegue": 4
+   }
+  ]
+ },
+ "tabm_en_cpu_por_vram": null,
+ "presupuesto_segun_el_tamano": null,
+ "modo": null,
+ "origen": null,
+ "parametros_del_modo": null,
+ "tarea": "multiclass_classification",
+ "paquete": {
+  "disponible": true,
+  "motivo": null
+ },
+ "nombres_de_metricas": {
+  "auroc": {
+   "es": "AUROC",
+   "en": "AUROC"
+  },
+  "average_precision": {
+   "es": "Precisión media (AP)",
+   "en": "Average precision (AP)"
+  },
+  "pr_auc_trapezoidal": {
+   "es": "Área bajo la curva PR (trapecios)",
+   "en": "PR AUC (trapezoidal)"
+  },
+  "log_loss": {
+   "es": "Pérdida logarítmica",
+   "en": "Log loss"
+  },
+  "brier_score": {
+   "es": "Puntuación de Brier",
+   "en": "Brier score"
+  },
+  "calibration_in_the_large": {
+   "es": "Calibración global",
+   "en": "Calibration-in-the-large"
+  },
+  "sensitivity": {
+   "es": "Sensibilidad",
+   "en": "Sensitivity"
+  },
+  "specificity": {
+   "es": "Especificidad",
+   "en": "Specificity"
+  },
+  "ppv": {
+   "es": "Valor predictivo positivo (VPP)",
+   "en": "Positive predictive value (PPV)"
+  },
+  "npv": {
+   "es": "Valor predictivo negativo (VPN)",
+   "en": "Negative predictive value (NPV)"
+  },
+  "accuracy": {
+   "es": "Exactitud",
+   "en": "Accuracy"
+  },
+  "macro_f1": {
+   "es": "F1 macro",
+   "en": "Macro F1"
+  },
+  "mae": {
+   "es": "MAE",
+   "en": "MAE"
+  },
+  "rmse": {
+   "es": "RMSE",
+   "en": "RMSE"
+  },
+  "r2": {
+   "es": "R²",
+   "en": "R²"
+  }
+ }
+}

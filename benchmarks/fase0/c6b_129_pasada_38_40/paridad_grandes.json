@@ -1,0 +1,202 @@
+[
+ {
+  "dataset": "KDDCup09_appetency",
+  "motor": "sklearn.lineal",
+  "metrica": "auroc",
+  "hoy": 0.5913993808899536,
+  "v2": 0.5913993808899536,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "KDDCup09_appetency",
+  "motor": "lightgbm",
+  "metrica": "auroc",
+  "hoy": 0.7377853889113867,
+  "v2": 0.7377853889113867,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "KDDCup09_appetency",
+  "motor": "sklearn.hgb",
+  "metrica": "auroc",
+  "hoy": 0.7828579044062972,
+  "v2": 0.7828579044062972,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "KDDCup09_appetency",
+  "motor": "xgboost",
+  "metrica": "auroc",
+  "hoy": 0.7594948510452344,
+  "v2": 0.7594948510452344,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "KDDCup09_appetency",
+  "motor": "catboost",
+  "metrica": "auroc",
+  "hoy": 0.8158742469896746,
+  "v2": 0.8158742469896746,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "APSFailure",
+  "motor": "sklearn.lineal",
+  "metrica": "auroc",
+  "hoy": 0.9787124714481499,
+  "v2": 0.9787124714481499,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "APSFailure",
+  "motor": "lightgbm",
+  "metrica": "auroc",
+  "hoy": 0.9951220344144968,
+  "v2": 0.9951220344144968,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "APSFailure",
+  "motor": "sklearn.hgb",
+  "metrica": "auroc",
+  "hoy": 0.9939535252017664,
+  "v2": 0.9939535252017664,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "APSFailure",
+  "motor": "xgboost",
+  "metrica": "auroc",
+  "hoy": 0.9953927211816659,
+  "v2": 0.9953927211816659,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "APSFailure",
+  "motor": "catboost",
+  "metrica": "auroc",
+  "hoy": 0.9955180752246079,
+  "v2": 0.9955180752246079,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "Internet-Advertisements",
+  "motor": "sklearn.lineal",
+  "metrica": "auroc",
+  "hoy": 0.9885715386987357,
+  "v2": 0.9885715386987357,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "Internet-Advertisements",
+  "motor": "lightgbm",
+  "metrica": "auroc",
+  "hoy": 0.974695497995683,
+  "v2": 0.974695497995683,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "Internet-Advertisements",
+  "motor": "sklearn.hgb",
+  "metrica": "auroc",
+  "hoy": 0.974290780141844,
+  "v2": 0.974290780141844,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "Internet-Advertisements",
+  "motor": "xgboost",
+  "metrica": "auroc",
+  "hoy": 0.9800820999074931,
+  "v2": 0.9800820999074931,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "Internet-Advertisements",
+  "motor": "catboost",
+  "metrica": "auroc",
+  "hoy": 0.9756205673758865,
+  "v2": 0.9756205673758865,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "kick",
+  "motor": "sklearn.lineal",
+  "metrica": "auroc",
+  "hoy": 0.6221777154857548,
+  "v2": 0.6221777154857548,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "kick",
+  "motor": "lightgbm",
+  "metrica": "auroc",
+  "hoy": 0.7571689320058779,
+  "v2": 0.7571689320058779,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "kick",
+  "motor": "sklearn.hgb",
+  "metrica": "auroc",
+  "hoy": 0.7653924582406624,
+  "v2": 0.7653924582406624,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "kick",
+  "motor": "xgboost",
+  "metrica": "auroc",
+  "hoy": 0.7637820556759254,
+  "v2": 0.7637820556759254,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ },
+ {
+  "dataset": "kick",
+  "motor": "catboost",
+  "metrica": "auroc",
+  "hoy": 0.7656649604542124,
+  "v2": 0.7656649604542124,
+  "igual": true,
+  "estado": "completed",
+  "paro_por_reloj": null
+ }
+]

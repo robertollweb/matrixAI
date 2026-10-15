@@ -1,0 +1,845 @@
+{
+ "corte": "129-C6'",
+ "variante": "binarias",
+ "es_la_pasada_real": true,
+ "lista": {
+  "ruta": "/home/deployer/worktrees/cola-129-c6b-b/matrixAI/benchmarks/fase0/criba_129_c6b_binarias_resultado.json",
+  "sha256": "c1c17ea20dcaf288bc6eacf4e1cb865fef6d420ca97280e5870bf630b8c4f3f4",
+  "a_medir": [
+   "APSFailure",
+   "Internet-Advertisements",
+   "KDDCup09_appetency",
+   "Moneyball",
+   "PhishingWebsites",
+   "house_prices_nominal",
+   "house_sales",
+   "kick",
+   "micro-mass",
+   "optdigits",
+   "pc4",
+   "yeast"
+  ],
+  "no_difieren": [
+   "Allstate_Claims_Severity",
+   "Amazon_employee_access",
+   "SAT11-HAND-runtime-regression",
+   "Satellite",
+   "balance-scale",
+   "banknote-authentication",
+   "climate-model-simulation-crashes",
+   "connect-4",
+   "diabetes",
+   "diamonds",
+   "dresses-sales",
+   "house_16H",
+   "jm1",
+   "kc2",
+   "kr-vs-kp",
+   "letter",
+   "mfeat-factors",
+   "okcupid-stem",
+   "ozone-level-8hr",
+   "pc1",
+   "pc3",
+   "pendigits",
+   "pol",
+   "sick",
+   "splice",
+   "us_crime",
+   "wilt",
+   "wine_quality"
+  ]
+ },
+ "medidos_ahora": [
+  "APSFailure",
+  "Internet-Advertisements",
+  "KDDCup09_appetency",
+  "Moneyball",
+  "PhishingWebsites",
+  "house_prices_nominal",
+  "house_sales",
+  "kick",
+  "micro-mass",
+  "optdigits",
+  "pc4",
+  "yeast"
+ ],
+ "que_es_el_crudo": "el fichero de intentos es un resultado del 119-C3 de tipo «solo»: es el tipo con el que ese guion admite una lista de conjuntos; aquí SÍ mide el corte (es_la_pasada_real)",
+ "los_demas_motores": {
+  "por_motor": {
+   "baseline": {
+    "hoy": "14668a59e959a0d3",
+    "v2_113": [
+     "14668a59e959a0d3"
+    ],
+    "c3_119": "14668a59e959a0d3",
+    "igual": true
+   },
+   "catboost": {
+    "hoy": "563c9af1a604a4a1",
+    "v2_113": [
+     "b99acc7790b4a281"
+    ],
+    "c3_119": "b99acc7790b4a281",
+    "igual": false
+   },
+   "lightgbm": {
+    "hoy": "8046a3142562d6a7",
+    "v2_113": [
+     "6caece85fc42d0bc"
+    ],
+    "c3_119": "6caece85fc42d0bc",
+    "igual": false
+   },
+   "sklearn.hgb": {
+    "hoy": "0fb43fe20a5a7bed",
+    "v2_113": [
+     "4611651549e23c54"
+    ],
+    "c3_119": "4611651549e23c54",
+    "igual": false
+   },
+   "sklearn.lineal": {
+    "hoy": "53b55d9b8fe3b19a",
+    "v2_113": [
+     "53b55d9b8fe3b19a"
+    ],
+    "c3_119": "53b55d9b8fe3b19a",
+    "igual": true
+   },
+   "xgboost": {
+    "hoy": "f4a0965964799104",
+    "v2_113": [
+     "64dad84f4a08830d"
+    ],
+    "c3_119": "64dad84f4a08830d",
+    "igual": false
+   }
+  },
+  "motores_cambiados": [
+   "catboost",
+   "lightgbm",
+   "sklearn.hgb",
+   "xgboost"
+  ],
+  "versiones": {
+   "lightgbm": {
+    "v2_113": "4.7.0",
+    "hoy": "4.7.0",
+    "igual": true
+   },
+   "xgboost": {
+    "v2_113": "3.4.1",
+    "hoy": "3.4.1",
+    "igual": true
+   },
+   "catboost": {
+    "v2_113": "1.2.10",
+    "hoy": "1.2.10",
+    "igual": true
+   },
+   "scikit-learn": {
+    "v2_113": "1.8.0",
+    "hoy": "1.8.0",
+    "igual": true
+   },
+   "numpy": {
+    "v2_113": "2.4.4",
+    "hoy": "2.4.4",
+    "igual": true
+   },
+   "python": {
+    "v2_113": "3.12.3",
+    "hoy": "3.12.3",
+    "igual": true
+   },
+   "threadpoolctl": {
+    "v2_113": "3.6.0",
+    "hoy": "3.6.0",
+    "igual": true
+   }
+  },
+  "bibliotecas_cambiadas": [],
+  "hay_que_medir_tambien_los_demas": true
+ },
+ "paridad_de_los_demas": {
+  "hace_falta": true,
+  "motores": [
+   "catboost",
+   "lightgbm",
+   "sklearn.hgb",
+   "xgboost"
+  ],
+  "filas": 65,
+  "todas_iguales": true,
+  "conjuntos": [
+   "Moneyball",
+   "PhishingWebsites",
+   "balance-scale",
+   "house_prices_nominal",
+   "house_sales",
+   "jm1",
+   "micro-mass",
+   "optdigits",
+   "pc1",
+   "pc4",
+   "sick",
+   "us_crime",
+   "yeast"
+  ],
+  "aviso": "NO se han medido los demás motores en los conjuntos de la lista: se admite su paridad con la v2"
+ },
+ "hijos": {
+  "hijo": {
+   "matrixai": "/home/deployer/worktrees/cola-129-c6b-b/matrixAI/matrixai/__init__.py",
+   "matrixai_engines": "/home/deployer/worktrees/cola-129-c6b-b/matrixai-engines/src/matrixai_engines/__init__.py",
+   "densa_tabm": "/home/deployer/worktrees/cola-129-c6b-b/matrixai-engines/src/matrixai_engines/motores/densa_tabm.py",
+   "variante_que_lee": "binarias",
+   "variable": "binarias",
+   "pid": 2345033
+  },
+  "raices_esperadas": {
+   "nucleo": "/home/deployer/worktrees/cola-129-c6b-b/matrixAI",
+   "motores": "/home/deployer/worktrees/cola-129-c6b-b/matrixai-engines/src"
+  },
+  "padre": {
+   "matrixai": "/home/deployer/worktrees/cola-129-c6b-b/matrixAI/matrixai/__init__.py"
+  }
+ },
+ "procedencia_de_los_intentos": {
+  "medido": "2026-10-13T02:16:53Z",
+  "repositorios": {
+   "matrixAI": {
+    "commit": "3cc009bc962e8c336233226cf65800e3f178d51e",
+    "arbol_sucio": false,
+    "ficheros_modificados": [],
+    "ficheros_sin_seguimiento": [],
+    "motivo": null
+   },
+   "matrixai-engines": {
+    "commit": "dcfb1bb9248bac66968b332ce20ab7890a9ad029",
+    "arbol_sucio": false,
+    "ficheros_modificados": [],
+    "ficheros_sin_seguimiento": [],
+    "motivo": null
+   }
+  },
+  "versiones_de_bibliotecas": {
+   "python": "3.12.3",
+   "numpy": "2.4.4",
+   "threadpoolctl": "3.6.0",
+   "matrixai_core": "1.15.0",
+   "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.39",
+   "scikit-learn": "1.8.0",
+   "lightgbm": "4.7.0",
+   "torch": "2.11.0+cpu",
+   "onnx": "1.21.0",
+   "onnxmltools": "1.16.0",
+   "onnxruntime": "1.26.0",
+   "scipy": "1.17.1",
+   "xgboost": "3.4.1",
+   "catboost": "1.2.10",
+   "tokenizers": "0.23.2"
+  },
+  "digests_de_codigo": {
+   "entorno": "d777530b613f5d43",
+   "motor_nuevo": "bdb94f1485d55683"
+  },
+  "datos_de_entrada": {
+   "APSFailure": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/41138.arff",
+    "sha256": "e95128fc82ef5d5bc5a732b0bc63dea0f6e285cc60f31290c81f82ea13429c4f",
+    "bytes": 78399357,
+    "motivo": null
+   },
+   "Internet-Advertisements": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/40978.arff",
+    "sha256": "853b895fb12183ee665de29559d8aab1dc77abcf24602e4c3132b23b035b9a09",
+    "bytes": 20513635,
+    "motivo": null
+   },
+   "KDDCup09_appetency": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/1111.arff",
+    "sha256": "201abbcfec1177badbc60bd67433186edde5d01374977183a2f49ffa9d863eca",
+    "bytes": 34906025,
+    "motivo": null
+   },
+   "Moneyball": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/41021.arff",
+    "sha256": "1ef7013b57ff2ce89a0b8b25dc643ce7eca4b24d6b93785c2945983b2e8364e2",
+    "bytes": 87591,
+    "motivo": null
+   },
+   "PhishingWebsites": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/4534.arff",
+    "sha256": "3bcf93b1612306537ee2737751f1bac185b2a77886ab376644c3bf0c7f7cb3e6",
+    "bytes": 800920,
+    "motivo": null
+   },
+   "house_prices_nominal": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/42563.arff",
+    "sha256": "1e83c38ec2f33615fc3308a641e6f3a1fe4a7b4fbb8dd54913c6082799602bdc",
+    "bytes": 469596,
+    "motivo": null
+   },
+   "house_sales": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/42731.arff",
+    "sha256": "86508fd41de8e54786c8bb61527ddd8163a740390dbc9028fc104ca2e52f9928",
+    "bytes": 2382041,
+    "motivo": null
+   },
+   "kick": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/41162.arff",
+    "sha256": "918b922249d410f9274557850e0f494d51a450a97c4755ce0c6889b82811d0ff",
+    "bytes": 16142099,
+    "motivo": null
+   },
+   "micro-mass": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/1515.arff",
+    "sha256": "b4109c3ac28c6d248993fb1936df6137414c9d90efb46179880948e4cb46aa9f",
+    "bytes": 2098230,
+    "motivo": null
+   },
+   "optdigits": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/28.arff",
+    "sha256": "e86f102c957f41c7022b187766b0f9949a54ae8cedc492de1cc29765f060358a",
+    "bytes": 832899,
+    "motivo": null
+   },
+   "pasada_v2_113_resultado": {
+    "ruta": "/home/deployer/worktrees/cola-129-c6b-b/matrixAI/benchmarks/fase0/pasada_v2_113_resultado.json",
+    "sha256": "3ab8bd3589855e074f1bf21e0f82993f12c08553d8b1950396eaa8a565eecfb1",
+    "bytes": 5298336,
+    "motivo": null
+   },
+   "pc4": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/1049.arff",
+    "sha256": "a257bbf9d05df9b6a12675e5a74da2b138c59591f24bc3866c68f8abc67624c1",
+    "bytes": 184294,
+    "motivo": null
+   },
+   "protocolo_119_v4": {
+    "ruta": "/home/deployer/worktrees/cola-129-c6b-b/matrixAI/benchmarks/fase0/protocolo_119_v4.json",
+    "sha256": "8ec2e05bed0db6f8e38c99c6b5da4dc9f1097579bc55065a998b2813c3582cd3",
+    "bytes": 50469,
+    "motivo": null
+   },
+   "protocolo_119_v4_enmienda_1": {
+    "ruta": "/home/deployer/worktrees/cola-129-c6b-b/matrixAI/benchmarks/fase0/protocolo_119_v4_enmienda_1.json",
+    "sha256": "665c1c83b7b80ca8d49bcbd0f314a470902c8d76c9985e3527e3fae93d088d3b",
+    "bytes": 1915,
+    "motivo": null
+   },
+   "protocolo_119_v4_enmienda_2": {
+    "ruta": "/home/deployer/worktrees/cola-129-c6b-b/matrixAI/benchmarks/fase0/protocolo_119_v4_enmienda_2.json",
+    "sha256": "fcb154c67e2d7f0e06ec62d9ba843de4766b76d50fa1f622cb94032eace4d118",
+    "bytes": 3520,
+    "motivo": null
+   },
+   "protocolo_exploratorio_v2": {
+    "ruta": "/home/deployer/worktrees/cola-129-c6b-b/matrixAI/benchmarks/fase0/protocolo_exploratorio_v2.json",
+    "sha256": "40ef7614d12bc5f727779d878ad430db9eb340b79d40894e4f174125d1f85b22",
+    "bytes": 28580,
+    "motivo": null
+   },
+   "yeast": {
+    "ruta": "/home/deployer/fase0_openml_datos/arff/181.arff",
+    "sha256": "ae97eccd3ad5f9a998efec8acb2026f1748df6c8a392a5b2b0f321c2ef053933",
+    "bytes": 65603,
+    "motivo": null
+   }
+  },
+  "anclable": true,
+  "avisos": [],
+  "suciedad": {
+   "ficheros": [],
+   "n_sucios": 0,
+   "n_demostrablemente_en_el_grafo": 0,
+   "rutas_demostrablemente_en_el_grafo": [],
+   "como_se_midio": "`sys.modules` del proceso que sella, resuelto a rutas absolutas. Medido, no declarado.",
+   "por_que_un_False_aqui_NO_absuelve": "`importado_al_sellar: false` es una COTA INFERIOR, no un alta: cada intento corre en un hijo de multiprocessing.spawn que re-importa desde disco y puede cargar mas modulos por el camino. Que este demuestra que corre; que no este, no demuestra nada. `anclable` sigue siendo `false` con cualquier fichero sucio."
+  },
+  "procedencia_id": "a7e5df78efc52bec01c67e81969524a87990e710ab0fd07818effb0f85f8d760"
+ },
+ "digest_de_la_cache": "d777530b613f5d43",
+ "intentos": {
+  "ruta": "/home/deployer/cola-nocturna/resultados/129-c6b/pasada_129_c6b_binarias_resultado.intentos.json",
+  "n": 137,
+  "reusados": 42
+ },
+ "veredicto": {
+  "control_reproduce_el_119": {
+   "c3": "31/32",
+   "c4": "7/8",
+   "ok": true
+  },
+  "medidos": [
+   "APSFailure",
+   "Internet-Advertisements",
+   "KDDCup09_appetency",
+   "Moneyball",
+   "PhishingWebsites",
+   "house_prices_nominal",
+   "house_sales",
+   "kick",
+   "micro-mass",
+   "optdigits",
+   "pc4",
+   "yeast"
+  ],
+  "n_medidos": 12,
+  "por_conjunto_medido": [
+   {
+    "dataset": "APSFailure",
+    "cumplia": true,
+    "cumple": true,
+    "mejor_antes": "catboost",
+    "mejor_ahora": "catboost",
+    "distancia_antes": 0.08923892188213989,
+    "distancia_ahora": 0.16356936196131322,
+    "margen_antes_en_puntos": 1.9107610781178601,
+    "margen_ahora_en_puntos": 1.8364306380386868,
+    "perdido_por_fallo": false
+   },
+   {
+    "dataset": "Internet-Advertisements",
+    "cumplia": true,
+    "cumple": true,
+    "mejor_antes": "sklearn.lineal",
+    "mejor_ahora": "sklearn.lineal",
+    "distancia_antes": 1.7712508993730003,
+    "distancia_ahora": 0.7011255010792472,
+    "margen_antes_en_puntos": 0.2287491006269997,
+    "margen_ahora_en_puntos": 1.2988744989207528,
+    "perdido_por_fallo": false
+   },
+   {
+    "dataset": "KDDCup09_appetency",
+    "cumplia": true,
+    "cumple": true,
+    "mejor_antes": "catboost",
+    "mejor_ahora": "catboost",
+    "distancia_antes": 0.542058758256514,
+    "distancia_ahora": 1.1901223806222716,
+    "margen_antes_en_puntos": 1.457941241743486,
+    "margen_ahora_en_puntos": 0.8098776193777284,
+    "perdido_por_fallo": false
+   },
+   {
+    "dataset": "Moneyball",
+    "cumplia": true,
+    "cumple": true,
+    "mejor_antes": "matrixai.dense.tabm_cpu",
+    "mejor_ahora": "matrixai.dense.tabm_cpu",
+    "distancia_antes": 0.0,
+    "distancia_ahora": 0.0,
+    "margen_antes_en_puntos": 2.589360671682837,
+    "margen_ahora_en_puntos": 2.3655550830584553,
+    "perdido_por_fallo": false
+   },
+   {
+    "dataset": "PhishingWebsites",
+    "cumplia": true,
+    "cumple": true,
+    "mejor_antes": "matrixai.dense.tabm_cpu",
+    "mejor_ahora": "matrixai.dense.tabm_cpu",
+    "distancia_antes": 0.0,
+    "distancia_ahora": 0.0,
+    "margen_antes_en_puntos": 2.216692363379156,
+    "margen_ahora_en_puntos": 2.220066093049731,
+    "perdido_por_fallo": false
+   },
+   {
+    "dataset": "house_prices_nominal",
+    "cumplia": true,
+    "cumple": true,
+    "mejor_antes": "matrixai.dense.tabm_cpu",
+    "mejor_ahora": "matrixai.dense.tabm_cpu",
+    "distancia_antes": 0.0,
+    "distancia_ahora": 0.0,
+    "margen_antes_en_puntos": 3.2758077839685633,
+    "margen_ahora_en_puntos": 3.3044207058955926,
+    "perdido_por_fallo": false
+   },
+   {
+    "dataset": "house_sales",
+    "cumplia": true,
+    "cumple": true,
+    "mejor_antes": "matrixai.dense.tabm_cpu",
+    "mejor_ahora": "matrixai.dense.tabm_cpu",
+    "distancia_antes": 0.0,
+    "distancia_ahora": 0.0,
+    "margen_antes_en_puntos": 6.092413737783984,
+    "margen_ahora_en_puntos": 5.540722546484487,
+    "perdido_por_fallo": false
+   },
+   {
+    "dataset": "kick",
+    "cumplia": true,
+    "cumple": true,
+    "mejor_antes": "sklearn.hgb",
+    "mejor_ahora": "sklearn.hgb",
+    "distancia_antes": 0.4138926298193568,
+    "distancia_ahora": 0.4315118139055607,
+    "margen_antes_en_puntos": 1.5861073701806432,
+    "margen_ahora_en_puntos": 1.5684881860944393,
+    "perdido_por_fallo": false
+   },
+   {
+    "dataset": "micro-mass",
+    "cumplia": true,
+    "cumple": true,
+    "mejor_antes": "matrixai.dense.tabm_cpu",
+    "mejor_ahora": "matrixai.dense.tabm_cpu",
+    "distancia_antes": 0.0,
+    "distancia_ahora": 0.0,
+    "margen_antes_en_puntos": 4.064896755162248,
+    "margen_ahora_en_puntos": 4.53687315634219,
+    "perdido_por_fallo": false
+   },
+   {
+    "dataset": "optdigits",
+    "cumplia": true,
+    "cumple": true,
+    "mejor_antes": "matrixai.dense.tabm_cpu",
+    "mejor_ahora": "matrixai.dense.tabm_cpu",
+    "distancia_antes": 0.0,
+    "distancia_ahora": 0.0,
+    "margen_antes_en_puntos": 2.2431791221826685,
+    "margen_ahora_en_puntos": 2.166073546856449,
+    "perdido_por_fallo": false
+   },
+   {
+    "dataset": "pc4",
+    "cumplia": true,
+    "cumple": true,
+    "mejor_antes": "matrixai.dense.tabm_cpu",
+    "mejor_ahora": "matrixai.dense.tabm_cpu",
+    "distancia_antes": 0.0,
+    "distancia_ahora": 0.0,
+    "margen_antes_en_puntos": 2.524450231481488,
+    "margen_ahora_en_puntos": 2.802228009259265,
+    "perdido_por_fallo": false
+   },
+   {
+    "dataset": "yeast",
+    "cumplia": true,
+    "cumple": false,
+    "mejor_antes": "catboost",
+    "mejor_ahora": "catboost",
+    "distancia_antes": 1.593959731543626,
+    "distancia_ahora": 2.0413870246084986,
+    "margen_antes_en_puntos": 0.406040268456374,
+    "margen_ahora_en_puntos": -0.041387024608498635,
+    "perdido_por_fallo": false
+   }
+  ],
+  "caidas_nuevas": [
+   "yeast"
+  ],
+  "subidas_nuevas": [],
+  "no_sellados": {
+   "cumplidos": 30,
+   "de": 32,
+   "umbral": 31,
+   "margen_en_conjuntos": -1,
+   "cumple_la_condicion": false
+  },
+  "sellados": {
+   "cumplidos": 7,
+   "de": 8,
+   "umbral": 7,
+   "margen_en_conjuntos": 0,
+   "cumple_la_condicion": true,
+   "se_miden_de_nuevo": false,
+   "por_que": "ninguno de los 8 cambia de entrada (la criba lo comprueba): conservan el veredicto del 119-C4"
+  },
+  "entra_segun_la_medida_2": false,
+  "total": "37/40",
+  "margen_de_cada_conjunto_en_puntos": {
+   "dresses-sales": 1.3171866447728702,
+   "kc2": 2.611971696309044,
+   "climate-model-simulation-crashes": -1.022820800598569,
+   "micro-mass": 4.53687315634219,
+   "balance-scale": 8.507936507936506,
+   "diabetes": 1.808641975308643,
+   "pc1": 0.6407766990291313,
+   "Moneyball": 2.3655550830584553,
+   "pc4": 2.802228009259265,
+   "house_prices_nominal": 3.3044207058955926,
+   "yeast": -0.041387024608498635,
+   "us_crime": 1.3528185618411164,
+   "mfeat-factors": 2.3000000000000003,
+   "ozone-level-8hr": 1.571052631578949,
+   "Internet-Advertisements": 1.2988744989207528,
+   "sick": 2.351674445263239,
+   "SAT11-HAND-runtime-regression": 7.25931193348308,
+   "wilt": 2.1345034150710966,
+   "optdigits": 2.166073546856449,
+   "wine_quality": 8.481374042302384,
+   "jm1": 0.8202872359804307,
+   "pendigits": 2.2819463392451094,
+   "PhishingWebsites": 2.220066093049731,
+   "house_sales": 5.540722546484487,
+   "house_16H": 8.035127948406327,
+   "Amazon_employee_access": 2.423599518963269,
+   "KDDCup09_appetency": 0.8098776193777284,
+   "okcupid-stem": 2.0413507925568712,
+   "connect-4": 6.086737714624045,
+   "kick": 1.5684881860944393,
+   "APSFailure": 1.8364306380386868,
+   "Allstate_Claims_Severity": 2.812155874959586,
+   "banknote-authentication": 2.0158182341098767,
+   "pc3": -0.6360468564650019,
+   "splice": 1.3834900731452309,
+   "kr-vs-kp": 1.9920159680638743,
+   "Satellite": 1.8151464897733653,
+   "pol": 3.3926979226847713,
+   "letter": 4.327169748459101,
+   "diamonds": 1.9566780779228004
+  },
+  "detalle_no_sellados": [
+   {
+    "dataset": "APSFailure",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "catboost",
+    "distancia_en_puntos": 0.16356936196131322
+   },
+   {
+    "dataset": "Allstate_Claims_Severity",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "Amazon_employee_access",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "Internet-Advertisements",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "sklearn.lineal",
+    "distancia_en_puntos": 0.7011255010792472
+   },
+   {
+    "dataset": "KDDCup09_appetency",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "catboost",
+    "distancia_en_puntos": 1.1901223806222716
+   },
+   {
+    "dataset": "Moneyball",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "PhishingWebsites",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "SAT11-HAND-runtime-regression",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "balance-scale",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "climate-model-simulation-crashes",
+    "cumple": false,
+    "perdido_por_fallo": false,
+    "mejor": "catboost",
+    "distancia_en_puntos": 3.022820800598569
+   },
+   {
+    "dataset": "connect-4",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "diabetes",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "catboost",
+    "distancia_en_puntos": 0.1913580246913571
+   },
+   {
+    "dataset": "dresses-sales",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "lightgbm",
+    "distancia_en_puntos": 0.6828133552271298
+   },
+   {
+    "dataset": "house_16H",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "house_prices_nominal",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "house_sales",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "jm1",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "sklearn.hgb",
+    "distancia_en_puntos": 1.1797127640195693
+   },
+   {
+    "dataset": "kc2",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "kick",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "sklearn.hgb",
+    "distancia_en_puntos": 0.4315118139055607
+   },
+   {
+    "dataset": "mfeat-factors",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "micro-mass",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "okcupid-stem",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "optdigits",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "ozone-level-8hr",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "xgboost",
+    "distancia_en_puntos": 0.42894736842105097
+   },
+   {
+    "dataset": "pc1",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "catboost",
+    "distancia_en_puntos": 1.3592233009708687
+   },
+   {
+    "dataset": "pc4",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "pendigits",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "sick",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "us_crime",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "catboost",
+    "distancia_en_puntos": 0.6471814381588836
+   },
+   {
+    "dataset": "wilt",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "wine_quality",
+    "cumple": true,
+    "perdido_por_fallo": false,
+    "mejor": "matrixai.dense.tabm_cpu",
+    "distancia_en_puntos": 0.0
+   },
+   {
+    "dataset": "yeast",
+    "cumple": false,
+    "perdido_por_fallo": false,
+    "mejor": "catboost",
+    "distancia_en_puntos": 2.0413870246084986
+   }
+  ],
+  "liston_en_puntos": 2.0,
+  "listones": ">= 31/32 y >= 7/8"
+ },
+ "sensibilidad_con_la_1_2_0": {
+  "conjuntos_con_la_1_2_0": [
+   "Allstate_Claims_Severity",
+   "Amazon_employee_access",
+   "connect-4",
+   "dresses-sales",
+   "okcupid-stem",
+   "sick"
+  ],
+  "cumplidos": "30/32",
+  "no_cumplen": [
+   "climate-model-simulation-crashes",
+   "yeast"
+  ]
+ }
+}

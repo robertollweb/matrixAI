@@ -1,0 +1,213 @@
+{
+ "cumple_la_regla_2": true,
+ "puntos": {
+  "estudio_completed": true,
+  "hay_campeon": true,
+  "hay_cifra_de_test": true,
+  "lightgbm_5_de_5": true,
+  "hgb_5_de_5": true,
+  "declara_grande_con_clases": true
+ },
+ "campeon": "sklearn.hgb",
+ "test": {
+  "accuracy": 0.5920040799592005,
+  "log_loss": 3.6476079368380705,
+  "macro_f1": 0.175477
+ },
+ "pared_s": 2493.6,
+ "segundos_reales": 2479.707665205002,
+ "presupuesto_total_segundos": 3540.0,
+ "pliegues_completos_de_los_arboles": {
+  "lightgbm": 5,
+  "sklearn.hgb": 5
+ },
+ "intentos_por_motor": {
+  "lightgbm": [
+   {
+    "candidate": "lightgbm-csv-p0-r0",
+    "estado": "completed",
+    "wall_seconds": 18.074325788998976,
+    "valor": 0.613456827158642,
+    "motivo": null
+   },
+   {
+    "candidate": "lightgbm-csv-p1-r0",
+    "estado": "completed",
+    "wall_seconds": 19.241085657151416,
+    "valor": 0.5534361640958976,
+    "motivo": null
+   },
+   {
+    "candidate": "lightgbm-csv-p2-r0",
+    "estado": "completed",
+    "wall_seconds": 19.55881485901773,
+    "valor": 0.6176779419485487,
+    "motivo": null
+   },
+   {
+    "candidate": "lightgbm-csv-p3-r0",
+    "estado": "completed",
+    "wall_seconds": 19.533552621956915,
+    "valor": 0.5867896697417435,
+    "motivo": null
+   },
+   {
+    "candidate": "lightgbm-csv-p4-r0",
+    "estado": "completed",
+    "wall_seconds": 18.014847178943455,
+    "valor": 0.6042726602247585,
+    "motivo": null
+   }
+  ],
+  "sklearn.hgb": [
+   {
+    "candidate": "sklearn.hgb-csv-p0-r0",
+    "estado": "completed",
+    "wall_seconds": 65.03724036598578,
+    "valor": 0.5949202539873006,
+    "motivo": null
+   },
+   {
+    "candidate": "sklearn.hgb-csv-p1-r0",
+    "estado": "completed",
+    "wall_seconds": 65.25178559590131,
+    "valor": 0.618209544761381,
+    "motivo": null
+   },
+   {
+    "candidate": "sklearn.hgb-csv-p2-r0",
+    "estado": "completed",
+    "wall_seconds": 63.01467294804752,
+    "valor": 0.5742268556713918,
+    "motivo": null
+   },
+   {
+    "candidate": "sklearn.hgb-csv-p3-r0",
+    "estado": "completed",
+    "wall_seconds": 64.9546864819713,
+    "valor": 0.5782769569239231,
+    "motivo": null
+   },
+   {
+    "candidate": "sklearn.hgb-csv-p4-r0",
+    "estado": "completed",
+    "wall_seconds": 67.98029386508279,
+    "valor": 0.6130854907059015,
+    "motivo": null
+   }
+  ],
+  "baseline": [
+   {
+    "candidate": "baseline-csv-p0-r0",
+    "estado": "completed",
+    "wall_seconds": 0.020870882086455822,
+    "valor": 0.5011374431278436,
+    "motivo": null
+   },
+   {
+    "candidate": "baseline-csv-p1-r0",
+    "estado": "completed",
+    "wall_seconds": 0.016160371946170926,
+    "valor": 0.5011499712507187,
+    "motivo": null
+   },
+   {
+    "candidate": "baseline-csv-p2-r0",
+    "estado": "completed",
+    "wall_seconds": 0.031527174869552255,
+    "valor": 0.5011750293757344,
+    "motivo": null
+   },
+   {
+    "candidate": "baseline-csv-p3-r0",
+    "estado": "completed",
+    "wall_seconds": 0.01750268298201263,
+    "valor": 0.5011750293757344,
+    "motivo": null
+   },
+   {
+    "candidate": "baseline-csv-p4-r0",
+    "estado": "completed",
+    "wall_seconds": 0.018821682082489133,
+    "valor": 0.5011812942985362,
+    "motivo": null
+   }
+  ],
+  "matrixai.dense.torch_cpu": [
+   {
+    "candidate": "matrixai.dense.torch_cpu-csv-p0-r0",
+    "estado": "completed",
+    "wall_seconds": 131.9965239071753,
+    "valor": 0.5629968501574921,
+    "motivo": null
+   },
+   {
+    "candidate": "matrixai.dense.torch_cpu-csv-p1-r0",
+    "estado": "completed",
+    "wall_seconds": 131.91669792798348,
+    "valor": 0.5731606709832254,
+    "motivo": null
+   },
+   {
+    "candidate": "matrixai.dense.torch_cpu-csv-p2-r0",
+    "estado": "completed",
+    "wall_seconds": 132.17357232794166,
+    "valor": 0.572076801920048,
+    "motivo": null
+   },
+   {
+    "candidate": "matrixai.dense.torch_cpu-csv-p3-r0",
+    "estado": "completed",
+    "wall_seconds": 131.93078890093602,
+    "valor": 0.5688517212930323,
+    "motivo": null
+   },
+   {
+    "candidate": "matrixai.dense.torch_cpu-csv-p4-r0",
+    "estado": "completed",
+    "wall_seconds": 132.02414015005343,
+    "valor": 0.5679962998612448,
+    "motivo": null
+   }
+  ]
+ },
+ "presupuesto_segun_el_tamano": {
+  "segundos_por_intento": 175.0,
+  "celdas": 5000000,
+  "filas": 500000,
+  "columnas_de_entrada": 10,
+  "factor_de_clases": 10,
+  "coste_de_los_arboles": 50000000,
+  "umbral_de_celdas": 20000000,
+  "segundos_por_celda": 3.5e-06,
+  "margen_segundos": 30.0,
+  "motivo": {
+   "es": "Conjunto grande por el coste de los árboles (500.000 filas × 10 entradas × 10 clases = 50.000.000 de coste, más de 20.000.000; sin contar las clases, 5.000.000 celdas): cada intento de la búsqueda tiene 175 s (3,5 µs por unidad de coste) en vez del reparto de siempre. Los árboles entrenan uno por clase en cada iteración: con 10 clases cada una cuesta unas 10 veces más que en una binaria.",
+   "en": "Large dataset by tree cost (500,000 rows × 10 inputs × 10 classes = 50,000,000 cost, over 20,000,000; without the classes, 5,000,000 cells): each search attempt gets 175 s (3.5 µs per cost unit) instead of the usual split. The trees train one per class at every iteration: with 10 classes each one costs about 10 times more than in a binary study."
+  }
+ },
+ "motores_fuera_por_plazo": {
+  "matrixai.dense.tabm_cpu": {
+   "es": "TabM no compitió en este estudio: en CPU no le da el tiempo. Necesitaría unos 4.923 s por intento (estimados, con 271.995 filas de entrenamiento × 20 columnas de entrada) y el máximo es 800 s. Con una GPU sí podría competir.",
+   "en": "TabM did not compete in this study: on the CPU it does not have the time. It would need about 4,923 s per attempt (estimated, with 271,995 training rows × 20 input columns) and the maximum is 800 s. With a GPU it could compete.",
+   "recurso": "tiempo",
+   "estimado_s": 2461.6,
+   "presupuesto_s": 4923.1,
+   "techo_s": 800.0,
+   "filas_train": 271995,
+   "columnas_de_entrada": 20,
+   "dispositivo": "cpu",
+   "coeficiente_por_epoca_y_celda_s": 1e-05
+  }
+ },
+ "motores_fuera_por_memoria": {},
+ "motores_que_no_puntuaron": [],
+ "estado": "completed",
+ "error": null,
+ "error_motivo": null,
+ "loadavg_final": [
+  "6.36",
+  "4.70",
+  "4.30"
+ ]
+}

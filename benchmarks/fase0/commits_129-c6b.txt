@@ -1,0 +1,3 @@
+matrixAI 1e7551e
+matrixai-engines dcfb1bb
+matrixaistudio 9550001

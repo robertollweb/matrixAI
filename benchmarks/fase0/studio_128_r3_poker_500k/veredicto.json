@@ -1,0 +1,121 @@
+{
+ "cumple_la_regla_2": true,
+ "puntos": {
+  "a_completed": true,
+  "a_hay_campeon": true,
+  "a_hay_cifra_de_test": true,
+  "b_grande_con_techo": true,
+  "b_techo_de_la_busqueda_de_la_densa_es_el_declarado": true,
+  "b_sobre_la_densa_se_reajusto_con_ese_techo": true,
+  "b_sobre_plazo_de_la_densa": true,
+  "b_hijo_la_densa_recibio_ese_techo": true,
+  "c_si_el_campeon_es_una_red_tiene_una_epoca": true,
+  "c_entregado_sin_plazo_antes_de_la_primera_epoca": true,
+  "c_el_reajuste_del_entregado_sin_plazo_antes_de_la_primera_epoca": true,
+  "c2_densa_no_por_debajo_de_la_referencia": true,
+  "c2_densa_cerca_de_su_p0": true,
+  "d_test_cerca_de_su_media": true,
+  "d_test_no_por_debajo_de_la_referencia": true,
+  "camino_hijos_dentro_de_la_cola": true
+ },
+ "informacion": {
+  "c_redes_reajustadas_sin_una_epoca_que_no_se_entregan": []
+ },
+ "metrica": "accuracy",
+ "campeon": "sklearn.hgb",
+ "candidato": "sklearn.hgb-seleccion",
+ "test": 0.5920040799592005,
+ "referencia_en_test": 0.5011549884501155,
+ "techo_por_intento": 175.0,
+ "densa_reajuste": {
+  "entrenamiento": {
+   "cayo_a_cpu": false,
+   "dispositivo": null,
+   "epocas_completas": 1,
+   "epocas_ejecutadas": 2,
+   "mejor_epoca": 2,
+   "parado_por_plazo": true,
+   "plazo_antes_de_la_primera_epoca_completa": false,
+   "plazo_de_entrenamiento_segundos": 131.25,
+   "por_que_cayo": null,
+   "ultima_epoca_parcial": true
+  },
+  "motor": "matrixai.dense.torch_cpu",
+  "techo_del_reajuste_segundos": 175.0
+ },
+ "densa_en_el_hijo": [
+  {
+   "pid": 4182596,
+   "proceso": "reajuste-final",
+   "modulos": {
+    "matrixai": "/home/deployer/worktrees/cola-128-r3-poker-500k/matrixAI/matrixai/__init__.py",
+    "matrixai_engines": "/home/deployer/worktrees/cola-128-r3-poker-500k/matrixai-engines/src/matrixai_engines/__init__.py",
+    "matrixai_studio": "/home/deployer/worktrees/cola-128-r3-poker-500k/matrixaistudio/studio-backend/matrixai_studio/__init__.py"
+   },
+   "que": "fit",
+   "candidato": "matrixai.dense.torch_cpu-seleccion",
+   "clase": "matrixai_engines.motores.densa.MotorDensaPropia",
+   "wall_seconds": 175.0,
+   "train_n": 271995,
+   "validation_n": 48000,
+   "t0": 1791990157.3673468,
+   "estado": "completed",
+   "segundos": 132.41559648513794,
+   "entrenamiento_efectivo": {
+    "epocas_ejecutadas": 2,
+    "epocas_completas": 1,
+    "mejor_epoca": 2,
+    "parado_por_plazo": true,
+    "ultima_epoca_parcial": true,
+    "plazo_antes_de_la_primera_epoca_completa": false,
+    "plazo_de_entrenamiento_segundos": 131.25
+   }
+  }
+ ],
+ "p0_de_la_densa": 0.5733338333083345,
+ "seleccion_p0": {
+  "lightgbm-seleccion": 0.6137943102844857,
+  "sklearn.hgb-seleccion": 0.595545222738863,
+  "baseline-seleccion": 0.49782510874456276,
+  "matrixai.dense.torch_cpu-seleccion": 0.5726963651817409
+ },
+ "medias": {
+  "lightgbm": 0.5951266526339181,
+  "sklearn.hgb": 0.5957438204099796,
+  "baseline": 0.5011637534857135,
+  "matrixai.dense.torch_cpu": 0.578314101825405
+ },
+ "motores_que_no_puntuaron": [],
+ "entrenamiento_del_entregado": null,
+ "presupuesto_total_segundos": 4220.0,
+ "estado": "completed",
+ "error": null,
+ "error_motivo": null,
+ "pared_s": 2463.3,
+ "segundos_reales": 2449.150719165802,
+ "humo": null,
+ "loadavg_final": [
+  "1.06",
+  "1.10",
+  "1.20"
+ ],
+ "codigo_de_la_medida": {
+  "guion": {
+   "ruta": "/home/deployer/.agentes/128-r3/fijado/5170be42d4f51ec45f46fe040f20f44eb2ab1d79f940cce4cf83bd4b5383c616-98dd3d9667e78dd22d2ec524593a287c0d9be1ea34eae3801c859e9ede880404/poker_cola_r3.py",
+   "sha256": "5170be42d4f51ec45f46fe040f20f44eb2ab1d79f940cce4cf83bd4b5383c616",
+   "sha256_fijado": "5170be42d4f51ec45f46fe040f20f44eb2ab1d79f940cce4cf83bd4b5383c616"
+  },
+  "espia": {
+   "ruta": "/home/deployer/.agentes/128-r3/fijado/5170be42d4f51ec45f46fe040f20f44eb2ab1d79f940cce4cf83bd4b5383c616-98dd3d9667e78dd22d2ec524593a287c0d9be1ea34eae3801c859e9ede880404/espia_cola/sitecustomize.py",
+   "sha256": "98dd3d9667e78dd22d2ec524593a287c0d9be1ea34eae3801c859e9ede880404",
+   "sha256_fijado": "98dd3d9667e78dd22d2ec524593a287c0d9be1ea34eae3801c859e9ede880404"
+  },
+  "motivos": [],
+  "fijado": true,
+  "commits": {
+   "matrixaistudio": "fdac7324c32f707c4707322215717315c5c099ea",
+   "matrixAI": "3cc009bc962e8c336233226cf65800e3f178d51e",
+   "matrixai-engines": "ac34d44139ff705801479397b54aa19c2d8fd587"
+  }
+ }
+}

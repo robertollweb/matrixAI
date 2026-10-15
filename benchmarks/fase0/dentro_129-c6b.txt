@@ -1,0 +1,4 @@
+version 1.15.0 2.6.0+cpu
+matrixai_studio.estudio_job f97041b917ce19333a78b3d92b5551f9408eeee8284f78fff76e4b6daca2f744
+matrixai_engines.motores.densa_tabm 331ca981fdf0a96d6a17080f80b18475ecdd4aff963089017f3e734d58749c40
+matrixai_engines.redes.preparacion_tabm 6e94766833e1fe16163afa8a861f6214c20427bd2bd443b677c85d92517a44f0

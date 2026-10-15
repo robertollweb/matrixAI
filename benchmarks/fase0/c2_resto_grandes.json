@@ -1,0 +1,1721 @@
+{
+ "procedencia": {
+  "imagen": "matrixai-studio-cpu-local:129-c2",
+  "imagen_id": "sha256:1dd7e3edbfe7b73892d362cc68236f727c8a24fd692233f6d4ca2e2d615269a2",
+  "sha256_guion": "e29c2a5ca5f605b22ddb1af30b54ab0768f5f503827d14f2093dc9b7fff6fed0",
+  "sha256_generador_de_csv": "607c99db9cece62189920ffd2548abd76b536ed9f561ec77a2fc2ed1b044f00a",
+  "sha256_borrador_protocolo": "d79db2d50413a76fe93910b0a11f60c899fc7741fa0fee7d52793e9231b8d5eb",
+  "inicio": "2026-10-10 20:20:28",
+  "csv_byte_a_byte": {},
+  "instrumento": "estudio del Studio por HTTP; folds/repeats por omisión; cifra = seleccion.media_de_la_seleccion",
+  "nota_multiclase": "clase_positiva solo se envía en binarias",
+  "memoria_del_contenedor": "6g",
+  "politica": null,
+  "modo": "pcpu",
+  "entorno_extra": {
+   "MATRIXAI_ESTUDIO_SIN_DENSA": "1"
+  },
+  "sha256_veredicto_c3p": "c8bd010ed322f842d71b61fd392a9693686309ea1d340736acc02403e861f40b",
+  "sha256_enmienda_7": "dcb54ee39d938b51d78a7c499b4f8ff59723d52ce73b8be237e1362f083d853c",
+  "sha256_enmienda_8": "1e8f293edd3062264266a54bd49e2b1a55abc3b2ade33618420798a4588b18a9",
+  "sha256_enmienda_9": "82cd5d190fe57cfe4e8c68ae98f4ff03755aed3dcec13574f13648b476daa598",
+  "contra": null,
+  "sha256_contra": null,
+  "sha256_veredicto": "2ae07f0c237a3ee08c5b8336c437dbf72b0e65604bc4c1b067d3ee04293033e5",
+  "banco": null,
+  "sha256_banco": null,
+  "parcial": [
+   "KDDCup09_appetency",
+   "APSFailure",
+   "Allstate_Claims_Severity"
+  ],
+  "contenedor": "r0-120-3214417-1791656428",
+  "dentro": "matrixai 1.15.0 /usr/local/lib/python3.12/site-packages/matrixai_studio/estudio_job.py",
+  "status": {
+   "ok": true,
+   "llm_mode": {
+    "active": false,
+    "model": "",
+    "provider": ""
+   },
+   "capabilities": {
+    "guided_cases": true,
+    "prompt_generation": true,
+    "human_forms": true,
+    "simulate_only": true,
+    "expert_mode_path": null,
+    "profile": "completo",
+    "settings": true,
+    "change_locale": true,
+    "templates": true,
+    "create_from_prompt": true,
+    "create_from_csv": true,
+    "train": true,
+    "test": true,
+    "audit": true,
+    "edit_model": true,
+    "export": true,
+    "publish_hf": true,
+    "attest": true,
+    "attest_metricas": [
+     "accuracy",
+     "macro_f1",
+     "mae",
+     "rmse",
+     "r2"
+    ],
+    "run_pipeline": true,
+    "run_estudio": true,
+    "estudio_en_la_demo": null,
+    "guardar_estudio": true,
+    "max_attest_model_bytes": null,
+    "max_pipeline_nodes": null,
+    "max_pipeline_timeout_seconds": null,
+    "max_models_per_session": null,
+    "max_csv_bytes": null,
+    "max_csv_rows": null,
+    "max_train_epochs": null,
+    "max_train_seconds": null
+   },
+   "degradation_messages": [
+    "Proveedor LLM externo no configurado: Studio usa fallback deterministico supervisado."
+   ],
+   "optional_unavailable": [
+    "probabilidad_calibrada_sin_evaluacion",
+    "acciones_reales",
+    "permisos_de_produccion"
+   ],
+   "production_steps": [
+    "Revisar decision y explicacion.",
+    "Abrir Modo experto.",
+    "Revisar modelo, datos, metricas y seguridad.",
+    "Entrenar o evaluar si aplica.",
+    "Servir API o exportar bundle si aplica.",
+    "Definir permisos reales en un contrato posterior."
+   ]
+  },
+  "fin": "2026-10-10 21:07:45"
+ },
+ "conjuntos": {
+  "KDDCup09_appetency": {
+   "nombre": "KDDCup09_appetency",
+   "data_id": 1111,
+   "tarea": "binary_classification",
+   "objetivo": "APPETENCY",
+   "clase_positiva_enviada": "1",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.7421602673809254
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.7813983768862123
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": null,
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 17.64260615198873,
+     "metrica": "auroc",
+     "valor": 0.741270310244604,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 28.55348717304878,
+     "metrica": "auroc",
+     "valor": 0.8070141871363556,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009817394195124507,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 18.096565578132868,
+     "metrica": "auroc",
+     "valor": 0.7579421087947431,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 27.81845652591437,
+     "metrica": "auroc",
+     "valor": 0.7628313402047177,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009888111846521497,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 17.60654925601557,
+     "metrica": "auroc",
+     "valor": 0.7430554310848547,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 28.481360603123903,
+     "metrica": "auroc",
+     "valor": 0.7664244566405816,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010535683948546648,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 16.317958489991724,
+     "metrica": "auroc",
+     "valor": 0.7462413529157637,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 29.594123581191525,
+     "metrica": "auroc",
+     "valor": 0.7864351694998808,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010929609881713986,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 17.680491790175438,
+     "metrica": "auroc",
+     "valor": 0.7222921338646618,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 28.9304253810551,
+     "metrica": "auroc",
+     "valor": 0.7842867309495256,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.010381316998973489,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 940.3,
+   "loadavg_al_empezar": [
+    "3.58",
+    "4.73",
+    "4.90"
+   ],
+   "inicio": "2026-10-10 20:20:36",
+   "fin": "2026-10-10 20:36:16",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 27199,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 27199,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 27199,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 27199,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 27200,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 27200,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 27200,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 27200,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 27200,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 27200,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "sklearn.hgb",
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 27199,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "grande",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 5,
+     "sklearn.hgb": 5
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": false,
+      "filas_de_train": 27199,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "grande",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": false,
+      "filas_de_train": 27199,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "grande",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "auroc": 0.7727344484635501,
+     "accuracy": 0.9822,
+     "specificity": 1.0
+    }
+   },
+   "motores_fuera_por_memoria": {
+    "matrixai.dense.tabm_cpu": {
+     "es": "TabM no compitió en este estudio: la memoria estimada del estudio (7,8 GB, con 50.000 filas × 230 columnas de entrada) supera la disponible (6,0 GB), y el límite de memoria de TabM es el 100 % de la disponible: con TabM compitiendo el estudio podía quedarse sin memoria. Es el límite del perfil equilibrado; para quitar esta guarda, elige el perfil ilimitado en Ajustes → Límites.",
+     "en": "TabM did not compete in this study: its estimated memory (7.8 GB, with 50,000 rows × 230 input columns) exceeds the memory available (6.0 GB), and the memory limit for TabM is 100% of the memory available: with TabM competing the study could run out of memory. It is the limit of the balanced profile; to remove this guard, choose the unlimited profile in Settings → Limits.",
+     "estimada_gb": 7.76,
+     "disponible_gb": 6.0,
+     "limite_pct": 100,
+     "perfil": "equilibrado"
+    }
+   },
+   "motores_fuera_por_plazo": {},
+   "job_id": "2ab20026e9834cec8c0c26179e7e98a3",
+   "csv": {
+    "filas": 50000,
+    "columnas": 231,
+    "bytes": 26295632,
+    "excluidas_por_string": []
+   },
+   "memoria_pico_mb": 2581.5,
+   "memoria_muestras": 311,
+   "memoria_techo": "6g"
+  },
+  "APSFailure": {
+   "nombre": "APSFailure",
+   "data_id": 41138,
+   "tarea": "binary_classification",
+   "objetivo": "class",
+   "clase_positiva_enviada": "pos",
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "auroc",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9878245774326176
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.9860652885640324
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.5
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": null,
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 15.08607545378618,
+     "metrica": "auroc",
+     "valor": 0.9875247449368052,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 23.11661355989054,
+     "metrica": "auroc",
+     "valor": 0.9903142606974266,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011406128061935306,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 14.908212573966011,
+     "metrica": "auroc",
+     "valor": 0.9938773412517131,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 22.896367721026763,
+     "metrica": "auroc",
+     "valor": 0.9795728643216081,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.015534828882664442,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 15.863243277184665,
+     "metrica": "auroc",
+     "valor": 0.9933405664687072,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 24.049421295057982,
+     "metrica": "auroc",
+     "valor": 0.9920911375057103,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.013622196856886148,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 16.467002894030884,
+     "metrica": "auroc",
+     "valor": 0.9810215851987208,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 23.32356857112609,
+     "metrica": "auroc",
+     "valor": 0.9832547205725598,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.013999155024066567,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 15.417516608024016,
+     "metrica": "auroc",
+     "valor": 0.9833586493071418,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 24.86630453891121,
+     "metrica": "auroc",
+     "valor": 0.9850934597228567,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.018061832059174776,
+     "metrica": "auroc",
+     "valor": 0.5,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 683.5,
+   "loadavg_al_empezar": [
+    "3.13",
+    "3.93",
+    "4.25"
+   ],
+   "inicio": "2026-10-10 20:36:24",
+   "fin": "2026-10-10 20:47:48",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 41344,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 41344,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 41344,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 41344,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 41344,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 41344,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 41344,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 41344,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 41344,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 41344,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "lightgbm",
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 41344,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "grande",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 5,
+     "sklearn.hgb": 5
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": false,
+      "filas_de_train": 41344,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "grande",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": false,
+      "filas_de_train": 41344,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "grande",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "auroc": 0.9882028323435359,
+     "accuracy": 0.9905263157894737,
+     "specificity": 0.9933668341708543
+    }
+   },
+   "motores_fuera_por_memoria": {
+    "matrixai.dense.tabm_cpu": {
+     "es": "TabM no compitió en este estudio: la memoria estimada del estudio (8,6 GB, con 76.000 filas × 170 columnas de entrada) supera la disponible (6,0 GB), y el límite de memoria de TabM es el 100 % de la disponible: con TabM compitiendo el estudio podía quedarse sin memoria. Es el límite del perfil equilibrado; para quitar esta guarda, elige el perfil ilimitado en Ajustes → Límites.",
+     "en": "TabM did not compete in this study: its estimated memory (8.6 GB, with 76,000 rows × 170 input columns) exceeds the memory available (6.0 GB), and the memory limit for TabM is 100% of the memory available: with TabM competing the study could run out of memory. It is the limit of the balanced profile; to remove this guard, choose the unlimited profile in Settings → Limits.",
+     "estimada_gb": 8.58,
+     "disponible_gb": 6.0,
+     "limite_pct": 100,
+     "perfil": "equilibrado"
+    }
+   },
+   "motores_fuera_por_plazo": {},
+   "job_id": "5eb2400876994a118b7fbd232b59aee5",
+   "csv": {
+    "filas": 76000,
+    "columnas": 171,
+    "bytes": 77240985,
+    "excluidas_por_string": []
+   },
+   "memoria_pico_mb": 3758.1,
+   "memoria_muestras": 228,
+   "memoria_techo": "6g"
+  },
+  "Allstate_Claims_Severity": {
+   "nombre": "Allstate_Claims_Severity",
+   "data_id": 42571,
+   "tarea": "regression",
+   "objetivo": "loss",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 1944.4533298576978
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 1942.9955484817583
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 2910.9888684741395
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": null,
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 48.31461464497261,
+     "metrica": "rmse",
+     "valor": 2000.8117236871149,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 72.54982277215458,
+     "metrica": "rmse",
+     "valor": 1997.943045245742,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.013365712948143482,
+     "metrica": "rmse",
+     "valor": 2977.551503495542,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 48.66744731320068,
+     "metrica": "rmse",
+     "valor": 1892.5440226393384,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 63.9766345389653,
+     "metrica": "rmse",
+     "valor": 1892.0467370534984,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.014405736001208425,
+     "metrica": "rmse",
+     "valor": 2866.253141402836,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 45.59880985808559,
+     "metrica": "rmse",
+     "valor": 1957.5287063969208,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 63.74681513104588,
+     "metrica": "rmse",
+     "valor": 1972.3895198065077,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.015381631907075644,
+     "metrica": "rmse",
+     "valor": 2954.925041666765,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 48.988245067885146,
+     "metrica": "rmse",
+     "valor": 1953.2802475062977,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 69.20995714096352,
+     "metrica": "rmse",
+     "valor": 1950.7792971785004,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012519656913354993,
+     "metrica": "rmse",
+     "valor": 2877.3064188184903,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 47.42057611304335,
+     "metrica": "rmse",
+     "valor": 1918.1019490588171,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 64.10261625493877,
+     "metrica": "rmse",
+     "valor": 1901.8191431245432,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.01215822296217084,
+     "metrica": "rmse",
+     "valor": 2878.9082369870657,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 1187.0,
+   "loadavg_al_empezar": [
+    "4.30",
+    "3.76",
+    "3.87"
+   ],
+   "inicio": "2026-10-10 20:47:57",
+   "fin": "2026-10-10 21:07:44",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 102444,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 102444,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 102444,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 102444,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 102444,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 102444,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 102444,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 102444,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 102445,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "grande",
+     "l2": 1.0,
+     "filas_de_train": 102445,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "sklearn.hgb",
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 102444,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "grande",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "grande"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 5,
+     "sklearn.hgb": 5
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": false,
+      "filas_de_train": 102444,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "grande",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": false,
+      "filas_de_train": 102444,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "grande",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "rmse": 1902.2764984025152,
+     "r2": 0.5621904026661535,
+     "mae": 1215.8645517315113
+    }
+   },
+   "motores_fuera_por_memoria": {
+    "matrixai.dense.tabm_cpu": {
+     "es": "TabM no compitió en este estudio: la memoria estimada del estudio (15,3 GB, con 188.318 filas × 131 columnas de entrada) supera la disponible (6,0 GB), y el límite de memoria de TabM es el 100 % de la disponible: con TabM compitiendo el estudio podía quedarse sin memoria. Es el límite del perfil equilibrado; para quitar esta guarda, elige el perfil ilimitado en Ajustes → Límites.",
+     "en": "TabM did not compete in this study: its estimated memory (15.3 GB, with 188,318 rows × 131 input columns) exceeds the memory available (6.0 GB), and the memory limit for TabM is 100% of the memory available: with TabM competing the study could run out of memory. It is the limit of the balanced profile; to remove this guard, choose the unlimited profile in Settings → Limits.",
+     "estimada_gb": 15.34,
+     "disponible_gb": 6.0,
+     "limite_pct": 100,
+     "perfil": "equilibrado"
+    }
+   },
+   "motores_fuera_por_plazo": {},
+   "job_id": "5d3a57ef0af1465a809d1eae5b751d27",
+   "csv": {
+    "filas": 188318,
+    "columnas": 132,
+    "bytes": 78081124,
+    "excluidas_por_string": []
+   },
+   "memoria_pico_mb": 2568.2,
+   "memoria_muestras": 394,
+   "memoria_techo": "6g"
+  }
+ },
+ "control": null,
+ "corte": null,
+ "comparaciones": {}
+}

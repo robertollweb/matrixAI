@@ -1,0 +1,2624 @@
+{
+ "procedencia": {
+  "imagen": "matrixai-studio-cpu-local:128-final",
+  "imagen_id": "sha256:4c09086bc8538f131f209b6bd0ef1f3d427886ea53f0fbb56d38e5ed94bc3c65",
+  "sha256_guion": "a7ab59c6db76dcb5d8a3d919fc821f23600b3f2e3abe1b8be4c972369cba1167",
+  "sha256_generador_de_csv": "607c99db9cece62189920ffd2548abd76b536ed9f561ec77a2fc2ed1b044f00a",
+  "sha256_borrador_protocolo": "d79db2d50413a76fe93910b0a11f60c899fc7741fa0fee7d52793e9231b8d5eb",
+  "inicio": "2026-10-10 16:22:34",
+  "csv_byte_a_byte": {
+   "us_crime": {
+    "byte_a_byte": true,
+    "sha256": "af18ea10ee3364d69c4956643538ba61bdea29dcca7600d1b623b22ed3da82c8",
+    "bytes": 1069334
+   }
+  },
+  "instrumento": "estudio del Studio por HTTP; folds/repeats por omisión; cifra = seleccion.media_de_la_seleccion",
+  "nota_multiclase": "clase_positiva solo se envía en binarias",
+  "memoria_del_contenedor": "6g",
+  "politica": null,
+  "modo": "pcpu",
+  "entorno_extra": {
+   "MATRIXAI_ESTUDIO_SIN_DENSA": "1"
+  },
+  "sha256_veredicto_c3p": "4e9b77e12b5f76b8a3323b14c736b17c0190df16cd6abea9c17dff7a55f08019",
+  "sha256_enmienda_7": "dcb54ee39d938b51d78a7c499b4f8ff59723d52ce73b8be237e1362f083d853c",
+  "sha256_enmienda_8": "1e8f293edd3062264266a54bd49e2b1a55abc3b2ade33618420798a4588b18a9",
+  "sha256_enmienda_9": "82cd5d190fe57cfe4e8c68ae98f4ff03755aed3dcec13574f13648b476daa598",
+  "contra": null,
+  "sha256_contra": null,
+  "sha256_veredicto": "2ae07f0c237a3ee08c5b8336c437dbf72b0e65604bc4c1b067d3ee04293033e5",
+  "banco": null,
+  "sha256_banco": null,
+  "parcial": [
+   "us_crime",
+   "mfeat-factors",
+   "pendigits",
+   "house_16H"
+  ],
+  "contenedor": "r0-120-2881532-1791642154",
+  "dentro": "matrixai 1.15.0 /usr/local/lib/python3.12/site-packages/matrixai_studio/estudio_job.py",
+  "status": {
+   "ok": true,
+   "llm_mode": {
+    "active": false,
+    "model": "",
+    "provider": ""
+   },
+   "capabilities": {
+    "guided_cases": true,
+    "prompt_generation": true,
+    "human_forms": true,
+    "simulate_only": true,
+    "expert_mode_path": null,
+    "profile": "completo",
+    "settings": true,
+    "change_locale": true,
+    "templates": true,
+    "create_from_prompt": true,
+    "create_from_csv": true,
+    "train": true,
+    "test": true,
+    "audit": true,
+    "edit_model": true,
+    "export": true,
+    "publish_hf": true,
+    "attest": true,
+    "attest_metricas": [
+     "accuracy",
+     "macro_f1",
+     "mae",
+     "rmse",
+     "r2"
+    ],
+    "run_pipeline": true,
+    "run_estudio": true,
+    "estudio_en_la_demo": null,
+    "guardar_estudio": true,
+    "max_attest_model_bytes": null,
+    "max_pipeline_nodes": null,
+    "max_pipeline_timeout_seconds": null,
+    "max_models_per_session": null,
+    "max_csv_bytes": null,
+    "max_csv_rows": null,
+    "max_train_epochs": null,
+    "max_train_seconds": null
+   },
+   "degradation_messages": [
+    "Proveedor LLM externo no configurado: Studio usa fallback deterministico supervisado."
+   ],
+   "optional_unavailable": [
+    "probabilidad_calibrada_sin_evaluacion",
+    "acciones_reales",
+    "permisos_de_produccion"
+   ],
+   "production_steps": [
+    "Revisar decision y explicacion.",
+    "Abrir Modo experto.",
+    "Revisar modelo, datos, metricas y seguridad.",
+    "Entrenar o evaluar si aplica.",
+    "Servir API o exportar bundle si aplica.",
+    "Definir permisos reales en un contrato posterior."
+   ]
+  },
+  "fin": "2026-10-10 16:51:16"
+ },
+ "conjuntos": {
+  "us_crime": {
+   "nombre": "us_crime",
+   "data_id": 42730,
+   "tarea": "regression",
+   "objetivo": "ViolentCrimesPerPop",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "matrixai.dense.tabm_cpu",
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.13963166320214226
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.14023195573759334
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.2313232277454691
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "matrixai.dense.tabm_cpu",
+      "n_partes": 5,
+      "valor": 0.13591168025023087
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": null,
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4376639809925109,
+     "metrica": "rmse",
+     "valor": 0.14750364040813663,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.3177197019103914,
+     "metrica": "rmse",
+     "valor": 0.14986346681735024,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009464509086683393,
+     "metrica": "rmse",
+     "valor": 0.2468383367236631,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 42.3390581831336,
+     "metrica": "rmse",
+     "valor": 0.14400211789549083,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.43451734399423003,
+     "metrica": "rmse",
+     "valor": 0.13436152283648664,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.142452433006838,
+     "metrica": "rmse",
+     "valor": 0.13224954545446468,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012793370988219976,
+     "metrica": "rmse",
+     "valor": 0.21455925549266888,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 42.586401213891804,
+     "metrica": "rmse",
+     "valor": 0.12893981059302043,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.43112071603536606,
+     "metrica": "rmse",
+     "valor": 0.14828150445767288,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.1778115869965404,
+     "metrica": "rmse",
+     "valor": 0.14780333930032435,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009578411933034658,
+     "metrica": "rmse",
+     "valor": 0.2478674154798131,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 43.51344711496495,
+     "metrica": "rmse",
+     "valor": 0.14140690730636138,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.5409674569964409,
+     "metrica": "rmse",
+     "valor": 0.1348348070354004,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.1803336010780185,
+     "metrica": "rmse",
+     "valor": 0.13555992679587459,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008513631066307425,
+     "metrica": "rmse",
+     "valor": 0.22531862057448315,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.22892125113867,
+     "metrica": "rmse",
+     "valor": 0.13688343619868915,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.4663379390258342,
+     "metrica": "rmse",
+     "valor": 0.13317684127301477,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.1344967689365149,
+     "metrica": "rmse",
+     "valor": 0.13568350031995283,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008568605175241828,
+     "metrica": "rmse",
+     "valor": 0.22203251045671732,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.48627584101632,
+     "metrica": "rmse",
+     "valor": 0.12832612925759254,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 371.1,
+   "loadavg_al_empezar": [
+    "2.99",
+    "3.02",
+    "2.93"
+   ],
+   "inicio": "2026-10-10 16:22:37",
+   "fin": "2026-10-10 16:28:49",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1084,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "matrixai.dense.tabm_cpu",
+     "politica_por_tamano": null
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 5,
+     "sklearn.hgb": 5
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": false,
+      "filas_de_train": 1084,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": false,
+      "filas_de_train": 1084,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "rmse": 0.1273916814187011,
+     "r2": 0.7135886885789829,
+     "mae": 0.08619711878039826
+    }
+   },
+   "motores_fuera_por_memoria": {},
+   "job_id": "cbef5a83ad514906b8f185a8d872b3ca",
+   "csv": {
+    "filas": 1994,
+    "columnas": 127,
+    "bytes": 1069334,
+    "excluidas_por_string": [
+     "communityname"
+    ]
+   },
+   "memoria_pico_mb": 914.3,
+   "memoria_muestras": 123,
+   "memoria_techo": "6g"
+  },
+  "mfeat-factors": {
+   "nombre": "mfeat-factors",
+   "data_id": 12,
+   "tarea": "multiclass_classification",
+   "objetivo": "class",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "lightgbm",
+   "media_de_la_seleccion": {
+    "metrica": "accuracy",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9637499999999999
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.9625
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.1
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "matrixai.dense.tabm_cpu",
+      "n_partes": 5,
+      "valor": 0.959375
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": null,
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.762263637036085,
+     "metrica": "accuracy",
+     "valor": 0.965625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 11.056982496054843,
+     "metrica": "accuracy",
+     "valor": 0.971875,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.008860463043674827,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 43.69433578499593,
+     "metrica": "accuracy",
+     "valor": 0.965625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.97525073797442,
+     "metrica": "accuracy",
+     "valor": 0.953125,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 10.299299278995022,
+     "metrica": "accuracy",
+     "valor": 0.9375,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.01124816806986928,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 43.84764925483614,
+     "metrica": "accuracy",
+     "valor": 0.940625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.826152151916176,
+     "metrica": "accuracy",
+     "valor": 0.959375,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 10.383838247973472,
+     "metrica": "accuracy",
+     "valor": 0.95625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009003211045637727,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 45.46124726603739,
+     "metrica": "accuracy",
+     "valor": 0.94375,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.5549877900630236,
+     "metrica": "accuracy",
+     "valor": 0.975,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 10.253014826914296,
+     "metrica": "accuracy",
+     "valor": 0.971875,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011473931837826967,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.99109471705742,
+     "metrica": "accuracy",
+     "valor": 0.98125,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 4.2901051349472255,
+     "metrica": "accuracy",
+     "valor": 0.965625,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 10.890546698821709,
+     "metrica": "accuracy",
+     "valor": 0.975,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012678223894909024,
+     "metrica": "accuracy",
+     "valor": 0.1,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 42.715052786050364,
+     "metrica": "accuracy",
+     "valor": 0.965625,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 471.7,
+   "loadavg_al_empezar": [
+    "2.76",
+    "3.27",
+    "3.12"
+   ],
+   "inicio": "2026-10-10 16:28:49",
+   "fin": "2026-10-10 16:36:41",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "pequeno",
+     "l2": 1.0,
+     "filas_de_train": 1088,
+     "aplicada": false,
+     "arboles_efectivos": null,
+     "paro": null
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "lightgbm",
+     "politica_por_tamano": {
+      "aplicada": false,
+      "filas_de_train": 1088,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      },
+      {
+       "aplicada": false,
+       "arboles_efectivos": null,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": null,
+       "tamano": "pequeno"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 5,
+     "sklearn.hgb": 5
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": false,
+      "filas_de_train": 1088,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     },
+     "sklearn.hgb": {
+      "aplicada": false,
+      "filas_de_train": 1088,
+      "l2": 1.0,
+      "motivo": "fuera_de_los_tamanos_de_la_politica",
+      "tamano": "pequeno",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ]
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "accuracy": 0.975,
+     "log_loss": 0.08462634888317934,
+     "macro_f1": 0.974888
+    }
+   },
+   "motores_fuera_por_memoria": {},
+   "job_id": "03a88f6abde64ce5a869f4db0b60d949",
+   "csv": {
+    "filas": 2000,
+    "columnas": 217,
+    "bytes": 1468383,
+    "excluidas_por_string": []
+   },
+   "memoria_pico_mb": 1141.8,
+   "memoria_muestras": 156,
+   "memoria_techo": "6g"
+  },
+  "pendigits": {
+   "nombre": "pendigits",
+   "data_id": 32,
+   "tarea": "multiclass_classification",
+   "objetivo": "class",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "matrixai.dense.tabm_cpu",
+   "media_de_la_seleccion": {
+    "metrica": "accuracy",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 0.9901050147798578
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 0.9872622906186796
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 0.1040603121920863
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "matrixai.dense.tabm_cpu",
+      "n_partes": 5,
+      "valor": 0.9939740963543017
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": null,
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.896269300021231,
+     "metrica": "accuracy",
+     "valor": 0.9920454545454546,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.373253711033612,
+     "metrica": "accuracy",
+     "valor": 0.9869318181818182,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.013692568987607956,
+     "metrica": "accuracy",
+     "valor": 0.10397727272727272,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 43.73449174803682,
+     "metrica": "accuracy",
+     "valor": 0.9931818181818182,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 9.241833713138476,
+     "metrica": "accuracy",
+     "valor": 0.990909090909091,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.090646914904937,
+     "metrica": "accuracy",
+     "valor": 0.9897727272727272,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012662936002016068,
+     "metrica": "accuracy",
+     "valor": 0.10397727272727272,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 43.82399864913896,
+     "metrica": "accuracy",
+     "valor": 0.9948863636363636,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.687401439063251,
+     "metrica": "accuracy",
+     "valor": 0.9897727272727272,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.768764242064208,
+     "metrica": "accuracy",
+     "valor": 0.9863636363636363,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.021992831025272608,
+     "metrica": "accuracy",
+     "valor": 0.10397727272727272,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.501032636035234,
+     "metrica": "accuracy",
+     "valor": 0.99375,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 9.339563271962106,
+     "metrica": "accuracy",
+     "valor": 0.9886363636363636,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.537205921020359,
+     "metrica": "accuracy",
+     "valor": 0.9863636363636363,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.012867890996858478,
+     "metrica": "accuracy",
+     "valor": 0.10397727272727272,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 43.157327364897355,
+     "metrica": "accuracy",
+     "valor": 0.9920454545454546,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 9.315304905874655,
+     "metrica": "accuracy",
+     "valor": 0.9891614375356532,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 8.44417471298948,
+     "metrica": "accuracy",
+     "valor": 0.9868796349115802,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009854871081188321,
+     "metrica": "accuracy",
+     "valor": 0.10439247005134056,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.97415674687363,
+     "metrica": "accuracy",
+     "valor": 0.9960068454078722,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 506.6,
+   "loadavg_al_empezar": [
+    "3.45",
+    "3.14",
+    "3.10"
+   ],
+   "inicio": "2026-10-10 16:36:42",
+   "fin": "2026-10-10 16:45:08",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5978,
+     "aplicada": true,
+     "arboles_efectivos": 799,
+     "paro": "tope"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5978,
+     "aplicada": true,
+     "arboles_efectivos": 129,
+     "paro": "reloj"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5978,
+     "aplicada": true,
+     "arboles_efectivos": 780,
+     "paro": "reloj"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5978,
+     "aplicada": true,
+     "arboles_efectivos": 139,
+     "paro": "reloj"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5978,
+     "aplicada": true,
+     "arboles_efectivos": 738,
+     "paro": "reloj"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5978,
+     "aplicada": true,
+     "arboles_efectivos": 138,
+     "paro": "reloj"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5978,
+     "aplicada": true,
+     "arboles_efectivos": 738,
+     "paro": "reloj"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5978,
+     "aplicada": true,
+     "arboles_efectivos": 131,
+     "paro": "reloj"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5984,
+     "aplicada": true,
+     "arboles_efectivos": 796,
+     "paro": "tope"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 5984,
+     "aplicada": true,
+     "arboles_efectivos": 126,
+     "paro": "reloj"
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "matrixai.dense.tabm_cpu",
+     "politica_por_tamano": null
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 799,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": "tope",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 780,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 738,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 738,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 796,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": "tope",
+       "tamano": "mediano"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 129,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 139,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 138,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 131,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 126,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": "reloj",
+       "tamano": "mediano"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 0,
+     "sklearn.hgb": 0
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": true,
+      "arboles_efectivos": 780,
+      "arboles_entrenados": 780,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 780,
+       "arboles_efectivos_de_la_busqueda": [
+        799,
+        780,
+        738,
+        738,
+        796
+       ],
+       "arboles_pedidos": 780,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 5978,
+      "hojas": 31,
+      "hojas_minimas": 20,
+      "l2": 1.0,
+      "medida_en": "contrato_120",
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ],
+      "tasa": 0.05
+     },
+     "sklearn.hgb": {
+      "aplicada": true,
+      "arboles_efectivos": 131,
+      "arboles_entrenados": 131,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 131,
+       "arboles_efectivos_de_la_busqueda": [
+        129,
+        139,
+        138,
+        131,
+        126
+       ],
+       "arboles_pedidos": 131,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 5978,
+      "hojas": 31,
+      "hojas_minimas": 20,
+      "l2": 1.0,
+      "medida_en": "contrato_120",
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ],
+      "tasa": 0.05
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "accuracy": 0.9895407003183265,
+     "log_loss": 0.055768147803592856,
+     "macro_f1": 0.989654
+    }
+   },
+   "motores_fuera_por_memoria": {},
+   "job_id": "a87416119fe44da2841e4b6a3b3ec4ee",
+   "csv": {
+    "filas": 10992,
+    "columnas": 17,
+    "bytes": 539748,
+    "excluidas_por_string": []
+   },
+   "memoria_pico_mb": 762.6,
+   "memoria_muestras": 167,
+   "memoria_techo": "6g"
+  },
+  "house_16H": {
+   "nombre": "house_16H",
+   "data_id": 574,
+   "tarea": "regression",
+   "objetivo": "price",
+   "clase_positiva_enviada": null,
+   "http": 200,
+   "rechazo": null,
+   "estado": "completed",
+   "campeon": "sklearn.hgb",
+   "media_de_la_seleccion": {
+    "metrica": "rmse",
+    "modo": "todos",
+    "motores": [
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "lightgbm",
+      "n_partes": 5,
+      "valor": 31942.68372232339
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "sklearn.hgb",
+      "n_partes": 5,
+      "valor": 31827.045513697172
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "baseline",
+      "n_partes": 5,
+      "valor": 53356.451309943535
+     },
+     {
+      "compite": true,
+      "de": 5,
+      "motor": "matrixai.dense.tabm_cpu",
+      "n_partes": 5,
+      "valor": 32485.002519632235
+     }
+    ],
+    "n_esperados": 5
+   },
+   "motores_que_no_puntuaron": null,
+   "intentos": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0246523891109973,
+     "metrica": "rmse",
+     "valor": 34131.19801352813,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.071907355915755,
+     "metrica": "rmse",
+     "valor": 34014.846394377186,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.00936600286513567,
+     "metrica": "rmse",
+     "valor": 57846.654179607634,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p0-r0",
+     "pliegue": 0,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 44.079854944953695,
+     "metrica": "rmse",
+     "valor": 34100.64917798078,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.9498768120538443,
+     "metrica": "rmse",
+     "valor": 32283.174317608118,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 3.2908338541164994,
+     "metrica": "rmse",
+     "valor": 31998.81637102402,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.011235493933781981,
+     "metrica": "rmse",
+     "valor": 54559.52794957142,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p1-r0",
+     "pliegue": 1,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 42.977677234914154,
+     "metrica": "rmse",
+     "valor": 34493.77660463082,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.724951881216839,
+     "metrica": "rmse",
+     "valor": 30710.726757928507,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.9994721189141273,
+     "metrica": "rmse",
+     "valor": 30475.050029856277,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009149156045168638,
+     "metrica": "rmse",
+     "valor": 50855.5378159914,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p2-r0",
+     "pliegue": 2,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 41.56200280901976,
+     "metrica": "rmse",
+     "valor": 31039.62188756713,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.695706375874579,
+     "metrica": "rmse",
+     "valor": 30672.994225981663,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.873380562989041,
+     "metrica": "rmse",
+     "valor": 30546.735721812944,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.009105122881010175,
+     "metrica": "rmse",
+     "valor": 50740.54195181217,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p3-r0",
+     "pliegue": 3,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 43.85255212080665,
+     "metrica": "rmse",
+     "valor": 30312.264879696657,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 1.0439172871410847,
+     "metrica": "rmse",
+     "valor": 31915.325296570514,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 2.9729955771472305,
+     "metrica": "rmse",
+     "valor": 32099.779051415444,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "baseline",
+     "candidato": "baseline-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 0.013119874056428671,
+     "metrica": "rmse",
+     "valor": 52779.99465273503,
+     "valor_indefinido": null
+    },
+    {
+     "motor": "matrixai.dense.tabm_cpu",
+     "candidato": "matrixai.dense.tabm_cpu-csv-p4-r0",
+     "pliegue": 4,
+     "repeticion": 0,
+     "fase": "seleccion",
+     "estado": "completed",
+     "motivo": null,
+     "wall_seconds": 42.16629025293514,
+     "metrica": "rmse",
+     "valor": 32478.700048285795,
+     "valor_indefinido": null
+    }
+   ],
+   "intentos_ruta_en_el_estado": ".leaderboard",
+   "pared_estudio_s": 367.3,
+   "loadavg_al_empezar": [
+    "4.00",
+    "4.05",
+    "3.61"
+   ],
+   "inicio": "2026-10-10 16:45:09",
+   "fin": "2026-10-10 16:51:16",
+   "perfiles_declarados": [
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12393,
+     "aplicada": true,
+     "arboles_efectivos": 213,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p0-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12393,
+     "aplicada": true,
+     "arboles_efectivos": 215,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12393,
+     "aplicada": true,
+     "arboles_efectivos": 115,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p1-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12393,
+     "aplicada": true,
+     "arboles_efectivos": 154,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 101,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p2-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 159,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 133,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p3-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 179,
+     "paro": "temprana"
+    },
+    {
+     "motor": "lightgbm",
+     "candidato": "lightgbm-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 272,
+     "paro": "temprana"
+    },
+    {
+     "motor": "sklearn.hgb",
+     "candidato": "sklearn.hgb-csv-p4-r0",
+     "estado": "completed",
+     "declara": true,
+     "tamano": "mediano",
+     "l2": 1.0,
+     "filas_de_train": 12394,
+     "aplicada": true,
+     "arboles_efectivos": 211,
+     "paro": "temprana"
+    }
+   ],
+   "politica_de_arboles": {
+    "activada_por": "produccion_densa_fuera",
+    "campeon": {
+     "motor": "sklearn.hgb",
+     "politica_por_tamano": {
+      "aplicada": true,
+      "arboles_efectivos": 179,
+      "arboles_entrenados": 179,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 179,
+       "arboles_efectivos_de_la_busqueda": [
+        215,
+        154,
+        159,
+        179,
+        211
+       ],
+       "arboles_pedidos": 179,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 12393,
+      "hojas": 31,
+      "hojas_minimas": 20,
+      "l2": 1.0,
+      "medida_en": "contrato_120",
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ],
+      "tasa": 0.05
+     }
+    },
+    "densa_fuera": true,
+    "intentos": {
+     "lightgbm": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 213,
+       "candidato": "lightgbm-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 115,
+       "candidato": "lightgbm-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 101,
+       "candidato": "lightgbm-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 133,
+       "candidato": "lightgbm-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 272,
+       "candidato": "lightgbm-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ],
+     "sklearn.hgb": [
+      {
+       "aplicada": true,
+       "arboles_efectivos": 215,
+       "candidato": "sklearn.hgb-csv-p0-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 154,
+       "candidato": "sklearn.hgb-csv-p1-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 159,
+       "candidato": "sklearn.hgb-csv-p2-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 179,
+       "candidato": "sklearn.hgb-csv-p3-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      },
+      {
+       "aplicada": true,
+       "arboles_efectivos": 211,
+       "candidato": "sklearn.hgb-csv-p4-r0",
+       "con_politica": true,
+       "paro": "temprana",
+       "tamano": "mediano"
+      }
+     ]
+    },
+    "intentos_fuera_de_los_tamanos": {
+     "lightgbm": 0,
+     "sklearn.hgb": 0
+    },
+    "l2": 1.0,
+    "motores": [
+     "lightgbm",
+     "sklearn.hgb"
+    ],
+    "motores_sin_politica": [],
+    "reajustes": {
+     "lightgbm": {
+      "aplicada": true,
+      "arboles_efectivos": 133,
+      "arboles_entrenados": 133,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 133,
+       "arboles_efectivos_de_la_busqueda": [
+        213,
+        115,
+        101,
+        133,
+        272
+       ],
+       "arboles_pedidos": 133,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 12393,
+      "hojas": 31,
+      "hojas_minimas": 20,
+      "l2": 1.0,
+      "medida_en": "contrato_120",
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ],
+      "tasa": 0.05
+     },
+     "sklearn.hgb": {
+      "aplicada": true,
+      "arboles_efectivos": 179,
+      "arboles_entrenados": 179,
+      "arboles_fijados": {
+       "acotados_al_maximo_del_perfil": false,
+       "arboles": 179,
+       "arboles_efectivos_de_la_busqueda": [
+        215,
+        154,
+        159,
+        179,
+        211
+       ],
+       "arboles_pedidos": 179,
+       "de_donde": "mediana_de_arboles_efectivos_de_la_busqueda",
+       "perfiles_de_la_busqueda": [
+        "mediano"
+       ]
+      },
+      "arboles_max": 800,
+      "filas_de_train": 12393,
+      "hojas": 31,
+      "hojas_minimas": 20,
+      "l2": 1.0,
+      "medida_en": "contrato_120",
+      "paciencia": 30,
+      "parada_temprana": "no_aplica_arboles_fijados",
+      "paro": "fijado",
+      "tamano": "mediano",
+      "tamanos_de_la_politica": [
+       "mediano"
+      ],
+      "tasa": 0.05
+     }
+    },
+    "reajustes_sin_politica": [],
+    "tamanos": [
+     "mediano"
+    ],
+    "valor": "produccion",
+    "variable": "MATRIXAI_POLITICA_DE_ARBOLES"
+   },
+   "test": {
+    "rol": "test",
+    "evidencia": "independent_test",
+    "metricas": {
+     "rmse": 28867.03760671215,
+     "r2": 0.6727455508467909,
+     "mae": 15282.842432040801
+    }
+   },
+   "motores_fuera_por_memoria": {},
+   "job_id": "0697181b0d5f45208a4420c81e8599b4",
+   "csv": {
+    "filas": 22784,
+    "columnas": 17,
+    "bytes": 4027503,
+    "excluidas_por_string": []
+   },
+   "memoria_pico_mb": 811.0,
+   "memoria_muestras": 121,
+   "memoria_techo": "6g"
+  }
+ },
+ "control": null,
+ "corte": null,
+ "comparaciones": {}
+}
