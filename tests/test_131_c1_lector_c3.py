@@ -236,3 +236,47 @@ def test_el_lector_por_la_linea_de_ordenes_el_caso_fabricado_sale_1_y_dice_empeo
 def test_el_lector_por_la_linea_de_ordenes_sin_datos_sale_2(tmp_path):
     r = _cli(tmp_path)
     assert r.returncode == 2 and "C3: INCOMPLETO" in r.stdout
+
+
+# ------------------------------------------------------------------ bit a bit = lo MEDIDO (lista blanca), no el diccionario entero
+_HOY = _FASE0.parents[0] / "fase0" / "c5_129_diez.json"
+_REAL = Path(__file__).parent / "fixtures_131_c1" / "control_131_c1_s0.json"
+
+
+def _real():
+    return json.loads(_REAL.read_text())["conjuntos"]
+
+
+@pytest.mark.parametrize("n", ["dresses-sales", "climate-model-simulation-crashes", "pc1"])
+def test_la_medida_real_de_hoy_es_bit_a_bit_el_c5_aunque_declare_fuera_de_la_decision(n):
+    rec = _real()[n]
+    assert "fuera_de_la_decision" in rec["media_de_la_seleccion"]["motores"][0]        # la declaración nueva SÍ está
+    assert rec["media_de_la_seleccion"] != C5[n]["media_de_la_seleccion"]              # y el diccionario entero difiere
+    assert L.bit_a_bit(rec, C5[n]) == (True, [])
+
+
+def test_una_clave_desempate_inyectada_no_rompe_el_bit_a_bit():
+    for n, rec in _real().items():
+        rec = copy.deepcopy(rec)
+        rec["media_de_la_seleccion"]["desempate"] = {"aplicado": True}
+        rec["media_de_la_seleccion"]["motores"][0]["desempate"] = {"x": 1}
+        rec["test"]["desempate"] = "algo"
+        rec["desempate"] = {"campeon": "x"}
+        assert L.bit_a_bit(rec, C5[n]) == (True, []), n
+
+
+@pytest.mark.parametrize("donde", ["media", "test", "campeon", "de"])
+def test_un_cambio_en_lo_medido_no_es_bit_a_bit(donde):
+    rec = copy.deepcopy(_real()["pc1"])
+    if donde == "media":
+        rec["media_de_la_seleccion"]["motores"][0]["valor"] += 1e-16 + 2 ** -52         # el último decimal
+        esperado = ["media_de_la_seleccion"]
+    elif donde == "test":
+        rec["test"]["metricas"]["auroc"] = rec["test"]["metricas"]["auroc"] + 2 ** -53 * 4
+        esperado = ["test"]
+    elif donde == "campeon":
+        rec["campeon"] = "otro"; esperado = ["campeon"]
+    else:
+        rec["media_de_la_seleccion"]["motores"][1]["de"] = 4; esperado = ["media_de_la_seleccion"]
+    ok, dif = L.bit_a_bit(rec, C5["pc1"])
+    assert not ok and dif == esperado

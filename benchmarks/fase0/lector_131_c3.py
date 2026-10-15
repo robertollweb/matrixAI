@@ -116,9 +116,29 @@ def cambios_de_campeon(por_semilla):
     return sum(1 for s, c in por_semilla.items() if s != 0 and c != por_semilla[0])
 
 
+# LO QUE SE COMPARA «BIT A BIT» (lista BLANCA, no negra): solo lo MEDIDO. Las claves de DECLARACIÓN que añada el código nuevo
+# (`fuera_de_la_decision` del 128-R3, `desempate` del 131, las que vengan) no cuentan: un brazo que declara más no mide otra cosa.
+CAMPOS_DE_LA_MEDIA = ("metrica", "modo", "n_esperados")
+CAMPOS_POR_MOTOR = ("motor", "valor", "compite", "de", "n_partes")
+CAMPOS_DEL_TEST = ("rol", "evidencia", "metricas")
+
+
+def medido(rec):
+    """Los números medidos de un registro: campeón, media de la selección (campos explícitos, motor a motor y en su orden) y test."""
+    m = rec.get("media_de_la_seleccion")
+    if isinstance(m, dict):
+        m = {**{k: m.get(k) for k in CAMPOS_DE_LA_MEDIA},
+             "motores": [{k: x.get(k) for k in CAMPOS_POR_MOTOR} for x in m.get("motores") or []]}
+    t = rec.get("test")
+    if isinstance(t, dict):
+        t = {k: t.get(k) for k in CAMPOS_DEL_TEST}
+    return {"campeon": rec.get("campeon"), "media_de_la_seleccion": m, "test": t}
+
+
 def bit_a_bit(rec, ref):
-    """(¿idénticos?, qué difiere): campeón, `media_de_la_seleccion` entera y el test entero."""
-    dif = [k for k in ("campeon", "media_de_la_seleccion", "test") if rec.get(k) != ref.get(k)]
+    """(¿idénticos?, qué difiere): campeón, media de la selección y test, solo en los campos de la lista blanca."""
+    a, b = medido(rec), medido(ref)
+    dif = [k for k in a if a[k] != b[k]]
     return not dif, dif
 
 
