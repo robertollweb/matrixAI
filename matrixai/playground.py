@@ -2084,7 +2084,10 @@ def _dense_torch_train_result(
 
         def _torch_cb(e: dict[str, Any]) -> None:
             entry = {"epoch": e["epoch"], "train_loss": round(e["loss"], 6),
-                     "validation_loss": round(e["val_loss"], 6), "accuracy": None}
+                     "validation_loss": round(e["val_loss"], 6), "accuracy": None,
+                     # 131-C5: se REENVÍA (siempre, True o False) para que quien declare las
+                     # épocas completas lea la marca en vez de deducirla; su AUSENCIA = núcleo viejo.
+                     "parcial": bool(e.get("parcial"))}
             epoch_trace.append(entry)
             if epoch_callback is not None:
                 epoch_callback(entry)  # may raise _TrainingCancelled
@@ -2493,7 +2496,10 @@ def _run_playground_composite_training(
 
             def _torch_cb(e: dict[str, Any]) -> None:
                 entry = {"epoch": e["epoch"], "train_loss": round(e["loss"], 6),
-                         "validation_loss": round(e["val_loss"], 6), "accuracy": None}
+                         "validation_loss": round(e["val_loss"], 6), "accuracy": None,
+                         # 131-C5: se REENVÍA (siempre, True o False) para que quien declare las
+                         # épocas completas lea la marca en vez de deducirla; su AUSENCIA = núcleo viejo.
+                         "parcial": bool(e.get("parcial"))}
                 epoch_trace.append(entry)
                 if epoch_callback is not None:
                     epoch_callback(entry)  # may raise _TrainingCancelled

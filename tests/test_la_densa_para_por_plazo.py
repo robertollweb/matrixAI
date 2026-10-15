@@ -240,3 +240,108 @@ def test_la_compuesta_con_un_plazo_lejano_da_los_MISMOS_pesos_y_dice_que_no_paro
     assert [e["validation_loss"] for e in sin["epochs"]] == [e["validation_loss"] for e in con["epochs"]]
     # La clave VA siempre por el camino torch: su ausencia es la que dice «no se aplicó».
     assert sin["parado_por_plazo"] is False and con["parado_por_plazo"] is False
+
+
+# --- 131-C5: `parcial` SOLO SI QUEDABAN TANDAS, Y SE REENVÍA EN `epochs` -----------------
+#
+# Hasta el 131-C5 el entrenador marcaba `parcial` en TODA época en la que saltaba el plazo,
+# también si saltaba en su ÚLTIMA tanda (época completa), y `run_playground_training` no lo
+# reenviaba: quien declaraba las épocas completas tenía que DEDUCIRLO (y se equivocaba en el
+# borde). El borde se provoca SIN depender del reloj real: un reloj inyectado en el módulo del
+# entrenador que vence en la llamada N-ésima (una llamada por tanda).
+
+class _RelojQueVenceEnLaLlamada:
+    """Sustituye al módulo `time` del entrenador: `monotonic()` devuelve 0.0 (plazo=1.0 sin vencer) y
+    2.0 (vencido) desde la llamada `vence_en` (1-based; `None` = nunca). Cuenta las llamadas = tandas."""
+    def __init__(self, vence_en=None):
+        self.vence_en = vence_en
+        self.llamadas = 0
+
+    def monotonic(self):
+        self.llamadas += 1
+        return 2.0 if (self.vence_en is not None and self.llamadas >= self.vence_en) else 0.0
+
+
+def _con_reloj(monkeypatch, modulo, vence_en):
+    import importlib
+    reloj = _RelojQueVenceEnLaLlamada(vence_en)
+    monkeypatch.setattr(importlib.import_module(modulo), "time", reloj)
+    return reloj
+
+
+def _marcas(epochs):
+    return [bool(e.get("parcial")) for e in epochs]
+
+
+def test_131_c5_densa_el_plazo_en_la_ULTIMA_tanda_de_la_epoca_no_la_marca_parcial(monkeypatch):
+    reloj = _con_reloj(monkeypatch, "matrixai.training.dense_torch_trainer", None)
+    libre = _entrenar(plazo=1.0, epochs=3)
+    tandas = reloj.llamadas // len(libre["epochs"])
+    assert tandas > 2 and reloj.llamadas == tandas * len(libre["epochs"])  # 160 filas / lote 8 = 20
+    assert libre["parado_por_plazo"] is False and _marcas(libre["epochs"]) == [False] * len(libre["epochs"])
+
+    # vence en la última tanda de la época 1: se PARA (parado_por_plazo) pero la época está COMPLETA
+    _con_reloj(monkeypatch, "matrixai.training.dense_torch_trainer", tandas)
+    borde = _entrenar(plazo=1.0, epochs=3)
+    assert borde["parado_por_plazo"] is True and len(borde["epochs"]) == 1
+    assert _marcas(borde["epochs"]) == [False], borde["epochs"]
+
+    # vence una tanda ANTES de la última: quedaba una tanda, la época está a medias
+    _con_reloj(monkeypatch, "matrixai.training.dense_torch_trainer", tandas - 1)
+    medias = _entrenar(plazo=1.0, epochs=3)
+    assert medias["parado_por_plazo"] is True and len(medias["epochs"]) == 1
+    assert _marcas(medias["epochs"]) == [True], medias["epochs"]
+
+    # vence en la última tanda de la época 2: las dos completas; a mitad de la 2: la 1 completa y la 2 a medias
+    _con_reloj(monkeypatch, "matrixai.training.dense_torch_trainer", 2 * tandas)
+    assert _marcas(_entrenar(plazo=1.0, epochs=3)["epochs"]) == [False, False]
+    _con_reloj(monkeypatch, "matrixai.training.dense_torch_trainer", tandas + 5)
+    assert _marcas(_entrenar(plazo=1.0, epochs=3)["epochs"]) == [False, True]
+
+
+def _entrenar_compuesta_torch(monkeypatch, gen, vence_en):
+    from matrixai.playground import MODO_TORCH_EN_CPU
+    monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", MODO_TORCH_EN_CPU)
+    reloj = _con_reloj(monkeypatch, "matrixai.training.composite_torch_trainer", vence_en)
+    res = _entrenar_compuesta(gen, plazo=1.0)
+    assert res["ok"] and res["network_kind"] == "composite_network" and res.get("backend") == "torch"
+    return res, reloj
+
+
+def test_131_c5_compuesta_el_plazo_en_la_ULTIMA_tanda_de_la_epoca_no_la_marca_parcial(monkeypatch):
+    gen = _proyecto_compuesto()
+    libre, reloj = _entrenar_compuesta_torch(monkeypatch, gen, None)
+    tandas = reloj.llamadas // len(libre["epochs"])
+    assert tandas > 2 and reloj.llamadas == tandas * len(libre["epochs"])
+    assert libre["parado_por_plazo"] is False and not any(_marcas(libre["epochs"]))
+
+    borde, _ = _entrenar_compuesta_torch(monkeypatch, gen, tandas)
+    assert borde["parado_por_plazo"] is True and len(borde["epochs"]) == 1
+    assert _marcas(borde["epochs"]) == [False], borde["epochs"]
+
+    medias, _ = _entrenar_compuesta_torch(monkeypatch, gen, tandas - 1)
+    assert medias["parado_por_plazo"] is True and len(medias["epochs"]) == 1
+    assert _marcas(medias["epochs"]) == [True], medias["epochs"]
+
+
+def test_131_c5_run_playground_training_REENVIA_parcial_en_cada_entrada_de_epochs(monkeypatch):
+    """`parcial` viaja SIEMPRE (True o False) en las dos redes: su AUSENCIA es lo que le dice a quien declara
+    que el núcleo es anterior. Si solo viajara cuando es True, un núcleo nuevo en el borde parecería viejo."""
+    from matrixai.playground import MODO_TORCH_EN_CPU
+    monkeypatch.setenv("MATRIXAI_TRAIN_BACKEND", MODO_TORCH_EN_CPU)
+    libre = _entrenar_compuesta(_proyecto_compuesto())
+    assert libre["epochs"] and all("parcial" in e and e["parcial"] is False for e in libre["epochs"])
+    lineas = ["a,b,y"] + [f"{random.Random(i).random():.4f},{random.Random(i + 9).random():.4f},"
+                          f"{'si' if i % 2 else 'no'}" for i in range(120)]
+    from matrixai import limits
+    from matrixai.playground_api import generate_project_from_dataset, run_playground_training
+    gen = generate_project_from_dataset("\n".join(lineas) + "\n", "y", locale="es",
+                                        column_type_overrides={"y": "categorical"})
+    with limits.sin_topes():
+        densa = run_playground_training(gen["mxai"], gen["training_text"], gen["csv_text"], epochs_override=3,
+                                        field_ranges=gen.get("field_ranges"), seed=1)
+        vencida = run_playground_training(gen["mxai"], gen["training_text"], gen["csv_text"], epochs_override=3,
+                                          field_ranges=gen.get("field_ranges"), seed=1,
+                                          plazo=time.monotonic() - 1.0)
+    assert densa["epochs"] and all(e["parcial"] is False for e in densa["epochs"])
+    assert [e["parcial"] for e in vencida["epochs"]] == [True]
