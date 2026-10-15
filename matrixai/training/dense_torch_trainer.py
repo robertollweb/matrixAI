@@ -113,7 +113,8 @@ def train_dense_network_torch(
     que ya tenía; en el producto eso es «el motor falló» donde debía ser «entrené lo que
     cupo». Con un plazo que no se alcanza, el entrenamiento es IDÉNTICO al de sin plazo
     (misma semilla, mismos pesos): solo se compara un reloj. La época a medias lleva
-    `"parcial": True` en su traza.
+    `"parcial": True` en su traza, y SOLO si quedaban tandas de esa época al vencer el plazo
+    (131-C5): si venció en la última, la época está completa y no se marca (se para igual).
 
     PESOS_GRANDES C5: `initial_state_dict` (tensores CPU, mismas claves que
     `dense_module_to_state_dict`/`.mxw`) reanuda el entrenamiento desde esos
@@ -252,6 +253,7 @@ def train_dense_network_torch(
             perm = torch.randperm(train_x.shape[0])
             epoch_loss = 0.0
             n_batches = 0
+            epoca_a_medias = False
             for i in range(0, train_x.shape[0], bs):
                 idx = perm[i:i + bs]
                 xb, yb = train_x[idx], train_y[idx]
@@ -266,6 +268,9 @@ def train_dense_network_torch(
                     cancel_check()
                 if plazo is not None and time.monotonic() >= plazo:
                     parado_por_plazo = True
+                    # 131-C5: a medias SOLO si quedaban tandas. Si el plazo venció en la
+                    # ÚLTIMA, la época está completa aunque se pare aquí.
+                    epoca_a_medias = (i + bs) < train_x.shape[0]
                     break
             train_loss_val = epoch_loss / max(1, n_batches)
             # 118-C3b: un paso por ÉPOCA (no por lote) — al menos un
@@ -289,7 +294,7 @@ def train_dense_network_torch(
                 no_improve += 1
 
             entry = {"epoch": epoch, "loss": train_loss_val, "val_loss": val_loss}
-            if parado_por_plazo:
+            if epoca_a_medias:
                 entry["parcial"] = True
             epoch_trace.append(entry)
             if epoch_callback is not None:

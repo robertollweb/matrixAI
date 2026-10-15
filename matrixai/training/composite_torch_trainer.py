@@ -250,6 +250,7 @@ def train_composite_network_torch(
             perm = torch.randperm(len(train_ex), generator=rng).to(train_targets.device)
             epoch_loss = 0.0
             vistas = 0
+            epoca_a_medias = False
             for start in range(0, len(train_ex), bs):
                 idx = perm[start: start + bs]
                 optim.zero_grad()
@@ -262,6 +263,9 @@ def train_composite_network_torch(
                     cancel_check()
                 if plazo is not None and time.monotonic() >= plazo:
                     parado_por_plazo = True
+                    # 131-C5: a medias SOLO si quedaban tandas (si venció en la última,
+                    # la época está completa aunque se pare aquí).
+                    epoca_a_medias = (start + bs) < len(train_ex)
                     break
             # Dividido por las filas VISTAS: con una época a medias, dividir por todas
             # daría una pérdida de entrenamiento falsamente baja. Sin plazo, son todas.
@@ -292,7 +296,7 @@ def train_composite_network_torch(
                 no_improve += 1
 
             entry = {"epoch": epoch, "loss": train_loss_val, "val_loss": val_loss}
-            if parado_por_plazo:
+            if epoca_a_medias:
                 entry["parcial"] = True
             epoch_trace.append(entry)
             if epoch_callback is not None:
