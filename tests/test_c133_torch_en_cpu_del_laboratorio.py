@@ -7,6 +7,8 @@ ese entrenador (gradientes, pesos por época) lo necesitan. Lo que NO cambia, y 
   - sin la petición, `auto` sigue siendo «CUDA o stdlib» (la clásica, el estudio);
   - un `MATRIXAI_TRAIN_BACKEND=stdlib` EXPLÍCITO del operador manda sobre la petición;
   - sin torch instalado, stdlib (y el `backend` del resultado lo dice).
+Y vale también para tu red COMPUESTA (residual, embedding): la re-auditoría del C1 (18-10, N-2) midió que el Studio decía
+«torch · cpu» y aceptaba adam mientras esa red entrenaba sin torch.
 """
 from __future__ import annotations
 
@@ -113,6 +115,57 @@ def test_trabajo_asincrono_usa_el_entrenador_pedido(sin_cuda, pedir):
     from matrixai.playground import _get_job_status
     from matrixai.playground_api import submit_training_job
     r = submit_training_job(MXAI, TRAIN, _csv(), epochs_override=3, seed=1, preferir_torch_en_cpu=pedir)
+    assert r["ok"], r.get("error")
+    fin = time.monotonic() + 120
+    estado = _get_job_status(r["job_id"])
+    while estado.get("status") not in ("done", "error", "cancelled", "timeout") and time.monotonic() < fin:
+        time.sleep(0.2)
+        estado = _get_job_status(r["job_id"])
+    assert estado.get("status") == "done", estado
+    assert estado["backend"] == ("torch" if pedir else "stdlib")
+
+
+MXAI_COMPUESTA = """PROJECT C
+VECTOR In[2]
+  a: Scalar
+  b: Scalar
+END
+NETWORK Net
+  INPUT In
+  LAYER Dense units=8 activation=relu
+  BLOCK r1
+    LAYER Dense units=8 activation=relu
+    LAYER LayerNorm
+    RESIDUAL FROM PREVIOUS
+  END
+  LAYER Dense units=2 activation=softmax
+  OUTPUT y: ProbabilityMap[A, B]
+END
+GRAPH
+  In -> Net
+END
+"""
+TRAIN_COMPUESTA = TRAIN.replace("MODEL D.mxai", "MODEL C.mxai")
+
+
+@needs_torch
+@pytest.mark.parametrize("pedir", [False, True])
+def test_tu_red_compuesta_tambien_usa_el_entrenador_pedido_sincrono(sin_cuda, pedir):
+    from matrixai.playground_api import run_playground_training
+    r = run_playground_training(MXAI_COMPUESTA, TRAIN_COMPUESTA, _csv(), epochs_override=2, seed=1,
+                                preferir_torch_en_cpu=pedir)
+    assert r["ok"], r.get("error")
+    assert r["network_kind"] == "composite_network"
+    assert r["backend"] == ("torch" if pedir else "stdlib")
+
+
+@needs_torch
+@pytest.mark.parametrize("pedir", [False, True])
+def test_tu_red_compuesta_tambien_usa_el_entrenador_pedido_asincrono(sin_cuda, pedir):
+    from matrixai.playground import _get_job_status
+    from matrixai.playground_api import submit_training_job
+    r = submit_training_job(MXAI_COMPUESTA, TRAIN_COMPUESTA, _csv(), epochs_override=2, seed=1,
+                            preferir_torch_en_cpu=pedir)
     assert r["ok"], r.get("error")
     fin = time.monotonic() + 120
     estado = _get_job_status(r["job_id"])

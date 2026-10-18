@@ -2441,8 +2441,13 @@ def _run_playground_composite_training(
     target_range: tuple[float, float] | None = None,
     plazo: float | None = None,
     objetivo_sin_recorte: frozenset[str] = frozenset(),
+    preferir_torch_en_cpu: bool = False,
 ) -> dict[str, Any]:
     """M2-C2 — Synchronous training for composite (P19) NETWORK models.
+
+    CONTRATO 133 (decisión A de Roberto): `preferir_torch_en_cpu` lo pide el laboratorio también para tu red COMPUESTA
+    (embedding, residual): sin él, en un equipo sin GPU iba por stdlib aunque el Studio dijera «torch · cpu» y aceptara
+    adam (re-auditoría del C1, 18-10, N-2). Ver `_select_train_backend`.
 
     Mirrors the dense path but uses the composite primitives: builds the
     composite parameter set, trains with composite_train_step over epochs
@@ -2536,7 +2541,8 @@ def _run_playground_composite_training(
 
         mhash = program_hash(program)
         epoch_trace: list[dict[str, Any]] = []
-        use_torch, device = _select_train_backend()
+        use_torch, device = (_select_train_backend(preferir_torch=True) if preferir_torch_en_cpu
+                             else _select_train_backend())
         # M15(f): en torch, plantilla sin pesos (init nativo, sembrado por manual_seed);
         # en stdlib, valores reales (composite_train_step los necesita).
         ps = build_composite_network_parameter_set(
@@ -3227,7 +3233,8 @@ def _run_playground_training(
         if _network_is_composite(mxai_text):
             return _sin_laboratorio(_run_playground_composite_training(
                 mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
-                seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte),
+                seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte,
+                preferir_torch_en_cpu=preferir_torch_en_cpu),
                 capturar, lambda: _motivo_sin_lab_compuesta(mxai_text))
         return _run_playground_dense_training(
             mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
@@ -4733,7 +4740,7 @@ def _submit_training_job(
                     result = _sin_laboratorio(_run_playground_composite_training(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check, target_range=target_range,
-                        objetivo_sin_recorte=sin_recorte,
+                        objetivo_sin_recorte=sin_recorte, preferir_torch_en_cpu=preferir_torch_en_cpu,
                     ), capturar, lambda: _motivo_sin_lab_compuesta(mxai_text))
                 else:
                     # PESOS_GRANDES C5: reanudar desde `initial_state_dict` solo
