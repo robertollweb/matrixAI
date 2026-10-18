@@ -2127,6 +2127,9 @@ def _dense_torch_train_result(
             # este llamante, no el entrenador.
             capturar=(capturar.con_nombres(list(vector.fields), labels)
                       if capturar is not None else None),
+            # 133-C2 (I-2): las filas del laboratorio salen de la validación ENTERA y
+            # preparada (`val_ex`), no del subconjunto con el que se elige la época.
+            validacion_completa=val_ex if capturar is not None else None,
         )
         # Visible en Colab: batch del spec (autogenerado = 8) vs el efectivo en GPU.
         _diag(f"entrenamiento OK en {device}: batch spec={batch_size} → efectivo={tr.get('batch_size')} "
@@ -3179,7 +3182,9 @@ def _run_playground_training(
             return {"ok": False, "error": f"Entrenamiento superó el límite de {_P9_TRAIN_TIMEOUT}s"}
         if error_holder:
             return {"ok": False, "error": error_holder[0]}
-        return result_holder.get("run", {"ok": False, "error": "Entrenamiento no produjo resultado"})
+        return _sin_laboratorio(
+            result_holder.get("run", {"ok": False, "error": "Entrenamiento no produjo resultado"}),
+            capturar, _SIN_LAB_POR_CAPAS)
 
     if prediction_kind == "network_call":
         validation = _validate_training_csv(mxai_text, training_text, csv_text)
@@ -3197,13 +3202,13 @@ def _run_playground_training(
             return _sin_laboratorio(_run_playground_transformer_training(
                 mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
                 seed=seed, objetivo_sin_recorte=sin_recorte),
-                capturar, *_SIN_LAB_TRANSFORMER, "torch")
+                capturar, _SIN_LAB_TRANSFORMER)
         # M2-C2: route composite (P19) networks to the composite trainer
         if _network_is_composite(mxai_text):
             return _sin_laboratorio(_run_playground_composite_training(
                 mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
                 seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte),
-                capturar, *_SIN_LAB_COMPUESTA, "torch")
+                capturar, lambda: _motivo_sin_lab_compuesta(mxai_text))
         return _run_playground_dense_training(
             mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
             seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte, capturar=capturar)
@@ -3246,7 +3251,8 @@ def _run_playground_training(
         if "run" not in result_holder:
             return {"ok": False, "error": "Entrenamiento no produjo resultado"}
         run_result, tmp2, spec2 = result_holder["run"]
-        return _collect_training_result(tmp2, run_result, spec2)
+        return _sin_laboratorio(_collect_training_result(tmp2, run_result, spec2),
+                                capturar, _SIN_LAB_FUNCIONES)
 
 
 def _run_playground_generic_training(
@@ -4002,32 +4008,91 @@ def _resumen_del_laboratorio(bloque: Any) -> Any:
     return resumen_del_bloque(bloque)
 
 
-def _sin_laboratorio(result: Any, capturar: Any, motivo_es: str, motivo_en: str,
-                     entrenador: str | None) -> Any:
-    """133-C2: quien NO trae laboratorio (TabM/compuestas, transformer) lo DICE si se
-    le pidió, en vez de callar: `laboratorio` con `disponible: False` y su motivo, sin
-    pesos. Sin petición (`capturar=None`) o con un fallo, devuelve el resultado tal cual."""
+def _sin_laboratorio(result: Any, capturar: Any, motivo: Any) -> Any:
+    """133-C2: quien NO trae laboratorio (una red compuesta, un transformer, un modelo
+    por funciones) lo DICE si se le pidió, en vez de callar: `laboratorio` con
+    `disponible: False` y su motivo, sin pesos. El entrenador declarado se LEE del
+    resultado (`backend`, el motor que entrenó de verdad), nunca se escribe aquí. Sin
+    petición (`capturar=None`) o con un fallo, devuelve el resultado tal cual.
+    `motivo` = `(es, en)`, o una función que lo da (solo se llama si se pidió)."""
     if capturar is None or not isinstance(result, dict) or not result.get("ok"):
         return result
     from matrixai.training.laboratorio import bloque_no_disponible
-    bloque = bloque_no_disponible(motivo_es, motivo_en, entrenador)
+    if callable(motivo):
+        motivo = motivo()
+    bloque = bloque_no_disponible(motivo[0], motivo[1], _maquina_declarada(result)[0])
     result["laboratorio"] = bloque
     result["laboratorio_resumen"] = _resumen_del_laboratorio(bloque)
     return result
 
 
+def _piezas_no_densas(mxai_text: str) -> tuple[list[str], list[str]]:
+    """133-C2: lo que hace COMPUESTA a la red (lo que el laboratorio no dibuja), en es
+    y en, leído de la propia red; vacío si no se pudo leer."""
+    es: list[str] = []
+    en: list[str] = []
+
+    def poner(a: str, b: str) -> None:
+        if a not in es:
+            es.append(a)
+            en.append(b)
+    try:
+        net = parse_text(mxai_text).networks[0]
+    except Exception:  # noqa: BLE001
+        return es, en
+    if getattr(net, "embeddings", None):
+        poner("una capa de embedding (EMBEDDING)", "an embedding layer (EMBEDDING)")
+    if getattr(net, "concats", None):
+        poner("una concatenación (CONCAT)", "a concatenation (CONCAT)")
+    for b in getattr(net, "blocks", None) or []:
+        if getattr(b, "residual_from", ""):
+            poner("un bloque residual (BLOCK … RESIDUAL)", "a residual block (BLOCK … RESIDUAL)")
+        else:
+            poner("un bloque (BLOCK)", "a block (BLOCK)")
+    for capa in getattr(net, "top_layers", None) or []:
+        tipo = getattr(capa, "layer_type", "Dense")
+        if tipo != "Dense":
+            poner(f"una capa {tipo}", f"a {tipo} layer")
+    return es, en
+
+
+def _y(partes: list[str], conj: str) -> str:
+    return partes[0] if len(partes) == 1 else f"{', '.join(partes[:-1])} {conj} {partes[-1]}"
+
+
+def _motivo_sin_lab_compuesta(mxai_text: str) -> tuple[str, str]:
+    """133-C2 (I-1): el motivo VERDADERO de que tu red compuesta no tenga laboratorio:
+    lo que tiene que no es una capa densa. TabM no pasa por aquí (la entrenan los
+    motores), así que no se la nombra."""
+    es, en = _piezas_no_densas(mxai_text)
+    if not es:
+        return _SIN_LAB_COMPUESTA
+    return (f"Tu red tiene {_y(es, 'y')}: el laboratorio, de momento, solo dibuja redes "
+            f"densas, capa a capa (solo capas Dense).",
+            f"Your network has {_y(en, 'and')}: for now, the laboratory only draws dense "
+            f"networks, layer by layer (Dense layers only).")
+
+
 _SIN_LAB_COMPUESTA = (
-    "Esta red compuesta (TabM y similares) no es una red para ver por dentro: es un ensamblado "
-    "de muchas redes pequeñas que comparten pesos, con las columnas transformadas antes de "
-    "entrar. El laboratorio es para tu red densa.",
-    "This composite network (TabM and similar) is not a network to look inside: it is an "
-    "ensemble of many small networks sharing weights, with the columns transformed before "
-    "entering. The laboratory is for your dense network.")
+    "Tu red no es solo de capas densas: el laboratorio, de momento, solo dibuja redes densas, "
+    "capa a capa (solo capas Dense).",
+    "Your network is not made of dense layers only: for now, the laboratory only draws dense "
+    "networks, layer by layer (Dense layers only).")
 _SIN_LAB_TRANSFORMER = (
     "Un transformer no tiene laboratorio: sus pesos no son capas densas que se puedan dibujar "
     "neurona a neurona.",
     "A transformer has no laboratory: its weights are not dense layers that can be drawn "
     "neuron by neuron.")
+_SIN_LAB_POR_CAPAS = (
+    "Este modelo no es una red (NETWORK): es un modelo por funciones que llama a capas (LAYER). "
+    "El laboratorio, de momento, solo dibuja redes densas, capa a capa.",
+    "This model is not a network (NETWORK): it is a function model that calls layers (LAYER). "
+    "For now, the laboratory only draws dense networks, layer by layer.")
+_SIN_LAB_FUNCIONES = (
+    "Este modelo no es una red (NETWORK): es un modelo por funciones (FUNCTION). El laboratorio, "
+    "de momento, solo dibuja redes densas, capa a capa.",
+    "This model is not a network (NETWORK): it is a function model (FUNCTION). For now, the "
+    "laboratory only draws dense networks, layer by layer.")
 
 
 def _public_training_result(result: Any) -> Any:
@@ -4619,9 +4684,9 @@ def _submit_training_job(
             watchdog.start()
         try:
             if prediction_kind == "layer_call":
-                result = _run_playground_generic_training(
+                result = _sin_laboratorio(_run_playground_generic_training(
                     mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
-                )
+                ), capturar, _SIN_LAB_POR_CAPAS)
                 if cancel_event.is_set():
                     job["status"] = "timeout" if job.get("_timed_out") else "cancelled"
                     return
@@ -4637,14 +4702,14 @@ def _submit_training_job(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check, target_range=target_range,
                         objetivo_sin_recorte=sin_recorte,
-                    ), capturar, *_SIN_LAB_TRANSFORMER, "torch")
+                    ), capturar, _SIN_LAB_TRANSFORMER)
                 # M2-C2: composite (P19) networks use the composite trainer
                 elif _network_is_composite(mxai_text):
                     result = _sin_laboratorio(_run_playground_composite_training(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check, target_range=target_range,
                         objetivo_sin_recorte=sin_recorte,
-                    ), capturar, *_SIN_LAB_COMPUESTA, "torch")
+                    ), capturar, lambda: _motivo_sin_lab_compuesta(mxai_text))
                 else:
                     # PESOS_GRANDES C5: reanudar desde `initial_state_dict` solo
                     # aplica al camino dense (no composite).
@@ -4673,7 +4738,8 @@ def _submit_training_job(
                         spec, output_dir=run_dir, base_path=tmp,
                         training_path=training_path, epoch_callback=epoch_cb,
                     )
-                    result = _collect_training_result(tmp, run_result, spec)
+                    result = _sin_laboratorio(_collect_training_result(tmp, run_result, spec),
+                                              capturar, _SIN_LAB_FUNCIONES)
                 # Guard: worker may finish after a cancel/timeout signal
                 if cancel_event.is_set():
                     job["status"] = "timeout" if job.get("_timed_out") else "cancelled"

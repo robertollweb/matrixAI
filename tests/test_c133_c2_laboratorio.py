@@ -4,18 +4,28 @@
 """CONTRATO 133-C2 (núcleo) — el LABORATORIO de la red: lo medido del entrenamiento.
 
 Lo que estas pruebas sostienen, cada una con su nombre (y cada una con su sabotaje en
-rojo, ver el informe del corte):
+rojo, ver el informe del corte y el de su reparación):
 - `test_captura_no_cambia_el_entrenamiento`: pedir el laboratorio NO mueve ni un bit de lo
-  que se entrena; y sin pedirlo, el resultado no trae ni la clave;
-- `test_normas_de_gradiente_son_las_medidas`: la norma por capa y época es la de un cálculo
-  a mano en una red mínima (media de las normas de los lotes, antes del weight_decay);
-- `test_peso_pintado_es_el_medido`: los pesos del bloque SON los de `best_params` (los de
-  «Probar una fila») y los de cada época de la muestra reproducen la pérdida que se midió;
+  que se entrena (ni el generador aleatorio); y sin pedirlo, el resultado no trae la clave;
+- `test_sin_captura_el_resultado_es_el_de_antes_del_laboratorio`: sin pedirlo, el
+  entrenamiento da lo mismo que antes del 133-C2 (huella fijada con `9552615`);
+- `test_normas_de_gradiente_*`: la norma por capa y época es la de un cálculo a mano (una
+  neurona; y dos capas y dos épocas), y la de los `p.grad` que usó el optimizador;
+- `test_peso_pintado_es_el_medido` y `test_la_ultima_epoca_sin_programar_son_sus_pesos`:
+  los pesos del bloque SON los de `best_params` con la mejor época ANTES de la última, y
+  los de cada época reproducen la pérdida que se midió en ella;
+- `test_plazo_vencido_marca_la_epoca_parcial`;
 - `test_la_muestra_incluye_primera_mejor_ultima`;
-- `test_tope_de_tamano_se_declara`: lo que no cabe sale en `omitido` con lo pedido, lo
+- `test_tope_de_tamano_se_declara`, `test_el_tope_declarado_es_el_aplicado`,
+  `test_la_demo_cumple_sus_20000_numeros` y `test_los_gradientes_tienen_su_tope_y_lo_dicen`:
+  `max_numeros` es el TOTAL del bloque; lo que no cabe sale en `omitido` con lo pedido, lo
   aplicado y el motivo (es/en), no recortado en silencio;
-- `test_sin_torch_declara_que_no`;
-- `test_composite_no_trae_laboratorio`.
+- `test_sin_muestra_no_se_clona_la_ultima_epoca`;
+- `test_un_fallo_*`: la captura nunca tumba el entrenamiento ni lo cambia de entrenador;
+- `test_sin_torch_declara_que_no` y `test_filas_de_la_validacion_entera_en_los_dos_entrenadores`;
+- `test_compuesta_de_tu_red_dice_su_motivo_verdadero`, `test_red_residual_*`,
+  `test_transformer_*` y `test_modelo_por_funciones_dice_que_no`: quien no trae laboratorio
+  lo dice, con su motivo verdadero y el entrenador que entrenó.
 """
 from __future__ import annotations
 
@@ -129,9 +139,13 @@ def _entrenar_playground(monkeypatch, backend, gen=None, **kw):
     {"optimizer": "adamw", "weight_decay": 0.01, "schedule": "cosine"},
 ])
 def test_captura_no_cambia_el_entrenamiento(extra):
+    import torch
     from matrixai.training.laboratorio import CapturaSpec
     sin = _entrenar(**extra)
+    rng_sin = torch.get_rng_state().clone()
     con = _entrenar(capturar=CapturaSpec(), **extra)
+    # Ni el generador aleatorio: la captura no consume números al azar.
+    assert torch.equal(rng_sin, torch.get_rng_state())
     # Sin pedirlo, ni la clave: el resultado es el de siempre.
     assert "laboratorio" not in sin
     assert "laboratorio" in con and con["laboratorio"]["disponible"] is True
@@ -285,19 +299,6 @@ def test_lotes_cada_acota_los_lotes_medidos_por_epoca():
         CapturaSpec(max_lotes_grad_por_epoca=0)
 
 
-@needs_torch
-def test_normas_de_gradiente_por_capa_y_epoca_en_una_red_de_dos_capas():
-    from matrixai.training.laboratorio import CapturaSpec
-    r = _entrenar(capturar=CapturaSpec(), epochs=4)
-    g = r["laboratorio"]["grad_norm"]
-    assert g["epocas"] == [1, 2, 3, 4] and g["parciales"] == []
-    assert [c["capa"] for c in g["por_capa"]] == [1, 2]
-    for c in g["por_capa"]:
-        assert len(c["W"]) == 4 and len(c["b"]) == 4
-        assert all(v > 0 and math.isfinite(v) for v in c["W"] + c["b"])
-    assert g["definicion"]["es"] and g["definicion"]["en"]
-
-
 # ---------------------------------------------------------------------------
 def _perdida_con_pesos(capas, filas):
     import torch
@@ -313,33 +314,6 @@ def _perdida_con_pesos(capas, filas):
     y = torch.tensor([t for _, t in filas], dtype=torch.float32)
     with torch.no_grad():
         return float(_loss_on_probabilities(modulo(x), y, "cross_entropy", torch))
-
-
-@needs_torch
-def test_peso_pintado_es_el_medido():
-    from matrixai.training.laboratorio import CapturaSpec
-    n, epochs = 200, 8
-    r = _entrenar(capturar=CapturaSpec(max_epocas_muestra=5), n=n, epochs=epochs)
-    lab = r["laboratorio"]
-    valores = _pesos(r)
-    # 1. Los pesos finales SON best_params (los de «Probar una fila»), valor a valor.
-    assert lab["pesos_finales"]["epoca"] == r["best_epoch"]
-    for i, c in enumerate(lab["pesos_finales"]["capas"], start=1):
-        assert c["W"] == valores[f"Net.W{i}"]
-        assert c["b"] == valores[f"Net.b{i}"]
-    # 2. Los de cada época de la muestra reproducen la pérdida de validación que se midió
-    # en ESA época: no son una ilustración, son los pesos de esa época.
-    val = _ejemplos(n)[160:]
-    por_epoca = {e["epoch"]: e["val_loss"] for e in r["epochs"]}
-    assert lab["pesos_por_epoca"], "tenía que haber muestra"
-    for m in lab["pesos_por_epoca"]:
-        assert _perdida_con_pesos(m["capas"], val) == pytest.approx(por_epoca[m["epoca"]], abs=1e-6)
-    # 3. Y no son todas la misma: la red cambió de verdad entre la primera y la última.
-    primera, ultima = lab["pesos_por_epoca"][0], lab["pesos_por_epoca"][-1]
-    assert primera["capas"][0]["W"] != ultima["capas"][0]["W"]
-    # La mejor de la muestra es la final.
-    mejor = [m for m in lab["pesos_por_epoca"] if "mejor" in m["motivo"]][0]
-    assert mejor["capas"] == lab["pesos_finales"]["capas"]
 
 
 @needs_torch
@@ -400,52 +374,338 @@ def test_la_muestra_incluye_primera_mejor_ultima_sin_torch_de_por_medio():
 
 
 # ---------------------------------------------------------------------------
+# Lo que se pinta es lo medido (B-1 de la auditoría): casos en los que la mejor época
+# NO es la última, la norma calculada A MANO en dos capas y dos épocas, y la última
+# época sin programar comparada por sus pesos.
+# ---------------------------------------------------------------------------
+MXAI_DOS_CAPAS_SIGMOIDE = """PROJECT P
+VECTOR In[2]
+  a: Scalar
+  b: Scalar
+END
+NETWORK Net
+  INPUT In
+  LAYER Dense units=3 activation=relu
+  LAYER Dense units=1 activation=sigmoid
+  OUTPUT y: Probability
+END
+GRAPH
+  In -> Net
+END
+"""
+
+W1 = [[0.5, -0.3], [-0.4, 0.6], [0.2, 0.1]]
+B1 = [0.05, -0.25, 0.0]
+W2 = [[0.7, -0.5, 0.3]]
+B2 = [0.1]
+
+
+def _gradiente_dos_capas_a_mano(filas):
+    """BCE medio de 2 → 3 (relu) → 1 (sigmoide), retropropagado a mano. Devuelve las
+    normas L2 de [dW1, db1, dW2, db2]."""
+    n = len(filas)
+    dW1 = [[0.0, 0.0] for _ in range(3)]
+    db1 = [0.0] * 3
+    dW2 = [0.0] * 3
+    db2 = 0.0
+    for x, ys in filas:
+        z1 = [sum(W1[j][k] * x[k] for k in range(2)) + B1[j] for j in range(3)]
+        h = [max(0.0, z) for z in z1]
+        p = _sigmoide(sum(W2[0][j] * h[j] for j in range(3)) + B2[0])
+        dz2 = (p - ys[0]) / n
+        db2 += dz2
+        for j in range(3):
+            dW2[j] += dz2 * h[j]
+            dz1 = dz2 * W2[0][j] * (1.0 if z1[j] > 0 else 0.0)
+            db1[j] += dz1
+            for k in range(2):
+                dW1[j][k] += dz1 * x[k]
+
+    def norma(v):
+        return math.sqrt(sum(a * a for a in v))
+    return [norma([a for fila in dW1 for a in fila]), norma(db1), norma(dW2), abs(db2)]
+
+
+@needs_torch
+def test_normas_de_gradiente_por_capa_y_epoca_a_mano_en_dos_capas():
+    """La norma de CADA capa y CADA época es la retropropagación hecha a mano: dos capas
+    (las normas de una no son las de la otra) y dos épocas (la segunda no arrastra la
+    primera). lr=0: los pesos no se mueven y el gradiente a mano es exacto; el reparto
+    de los lotes es el que GRABÓ el entrenador (`torch.randperm`), no uno deducido."""
+    from matrixai.training.dense_torch_trainer import train_dense_network_torch
+    from matrixai.training.laboratorio import CapturaSpec
+    filas = FILAS + [([0.6, 0.9], [1.0]), ([0.4, 0.2], [0.0])]
+    net, ps = _setup(MXAI_DOS_CAPAS_SIGMOIDE)
+    ps.parameters["Net.W1"]["values"] = W1
+    ps.parameters["Net.b1"]["values"] = B1
+    ps.parameters["Net.W2"]["values"] = W2
+    ps.parameters["Net.b2"]["values"] = B2
+    r, perms = _con_permutaciones(lambda: train_dense_network_torch(
+        net, ps, filas, "binary_cross_entropy", lr=0.0, epochs=2, device="cpu", seed=7,
+        batch_size=2, materialize=True, weight_decay=0.5, validation_examples=filas[:2],
+        capturar=CapturaSpec(max_filas=0)))
+    g = r["laboratorio"]["grad_norm"]
+    assert g["epocas"] == [1, 2] and g["cada_k_lotes"] == 1 and g["lotes_por_epoca"] == 3
+    assert [c["capa"] for c in g["por_capa"]] == [1, 2]
+    esperado = []                                   # [época][tensor]
+    for perm in perms[:2]:
+        lotes = [[filas[i] for i in perm[j:j + 2]] for j in range(0, 6, 2)]
+        normas = [_gradiente_dos_capas_a_mano(lote) for lote in lotes]
+        esperado.append([sum(nl[t] for nl in normas) / len(normas) for t in range(4)])
+    for e in range(2):
+        for i, capa in enumerate(g["por_capa"]):
+            assert capa["W"][e] == pytest.approx(esperado[e][2 * i], abs=1e-6), (e, i, "W")
+            assert capa["b"][e] == pytest.approx(esperado[e][2 * i + 1], abs=1e-6), (e, i, "b")
+    # El caso tiene dientes: las capas y las épocas dan cifras distintas.
+    assert abs(esperado[0][0] - esperado[0][2]) > 1e-3 and abs(esperado[0][1] - esperado[0][3]) > 1e-3
+    assert abs(esperado[0][0] - esperado[1][0]) > 1e-4
+
+
+@needs_torch
+def test_normas_de_gradiente_son_las_que_uso_el_optimizador():
+    """Con lr > 0 (los pesos se mueven), dos capas, dos épocas y uno de cada k lotes: la
+    norma del bloque es la media de las normas de `p.grad` que vio `optimizer.step` en
+    los lotes medidos. Se GRABA lo que el entrenador usó (envolviendo `step`)."""
+    import torch
+    from matrixai.training.laboratorio import CapturaSpec
+    grabado = []
+    original = torch.optim.SGD.step
+
+    def step(self, *a, **k):
+        grabado.append([float(p.grad.norm()) for g in self.param_groups for p in g["params"]])
+        return original(self, *a, **k)
+    torch.optim.SGD.step = step
+    try:
+        r = _entrenar(capturar=CapturaSpec(max_lotes_grad_por_epoca=3, max_filas=0),
+                      n=200, epochs=2, lr=0.3, batch_size=8, weight_decay=0.2)
+    finally:
+        torch.optim.SGD.step = original
+    g = r["laboratorio"]["grad_norm"]
+    lotes = g["lotes_por_epoca"]
+    k = g["cada_k_lotes"]
+    assert lotes == 20 and k == 7 and len(grabado) == 2 * lotes
+    for e in range(2):
+        medidos = [grabado[e * lotes + j] for j in range(0, lotes, k)]
+        for i, capa in enumerate(g["por_capa"]):
+            for t, clave in ((2 * i, "W"), (2 * i + 1, "b")):
+                esp = sum(m[t] for m in medidos) / len(medidos)
+                assert capa[clave][e] == pytest.approx(esp, rel=1e-5), (e, i, clave)
+
+
+@needs_torch
+def test_peso_pintado_es_el_medido():
+    """Los pesos finales del bloque SON `best_params` (los de «Probar una fila»), en un caso
+    con la mejor época ANTES de la última; y los de cada época de la muestra reproducen la
+    pérdida de validación que se midió en ESA época."""
+    from matrixai.training.laboratorio import CapturaSpec
+    n, epochs = 80, 30
+    r = _entrenar(capturar=CapturaSpec(), n=n, epochs=epochs, lr=1.2)
+    lab = r["laboratorio"]
+    ultima = r["epochs"][-1]["epoch"]
+    assert r["best_epoch"] < ultima, "el caso tenía que tener la mejor ANTES de la última"
+    valores = _pesos(r)
+    # 1. Finales = best_params, valor a valor (y no los de la última época).
+    assert lab["pesos_finales"]["epoca"] == r["best_epoch"]
+    for i, c in enumerate(lab["pesos_finales"]["capas"], start=1):
+        assert c["W"] == valores[f"Net.W{i}"]
+        assert c["b"] == valores[f"Net.b{i}"]
+    # 2. Cada época de la muestra reproduce su val_loss: son los pesos de esa época.
+    val = _ejemplos(n)[int(n * 0.8):]
+    por_epoca = {e["epoch"]: e["val_loss"] for e in r["epochs"]}
+    eps = [m["epoca"] for m in lab["pesos_por_epoca"]]
+    assert ultima in eps and r["best_epoch"] in eps
+    for m in lab["pesos_por_epoca"]:
+        assert _perdida_con_pesos(m["capas"], val) == pytest.approx(por_epoca[m["epoca"]], abs=1e-6)
+    # 3. La última NO es la mejor: el caso distingue «finales = mejor» de «finales = última».
+    ult = [m for m in lab["pesos_por_epoca"] if m["epoca"] == ultima][0]
+    assert ult["capas"] != lab["pesos_finales"]["capas"]
+    mejor = [m for m in lab["pesos_por_epoca"] if "mejor" in m["motivo"]][0]
+    assert mejor["capas"] == lab["pesos_finales"]["capas"]
+
+
+@needs_torch
+def test_la_ultima_epoca_sin_programar_son_sus_pesos():
+    """Con parada temprana la última época no estaba programada en la muestra: se guarda al
+    acabar, y sus pesos son los SUYOS (reproducen su val_loss), no los de la mejor."""
+    from matrixai.training.laboratorio import CapturaSpec, epocas_programadas
+    n = 80
+    r = _entrenar(capturar=CapturaSpec(), n=n, epochs=50, lr=1.2,
+                  early_stop=(3, "validation_loss"))
+    ultima = r["epochs"][-1]["epoch"]
+    assert ultima < 50 and ultima not in epocas_programadas(50, 12), "el caso tenía que parar antes"
+    assert r["best_epoch"] < ultima
+    lab = r["laboratorio"]
+    m = [x for x in lab["pesos_por_epoca"] if x["epoca"] == ultima]
+    assert m and "ultima" in m[0]["motivo"]
+    val = _ejemplos(n)[int(n * 0.8):]
+    vl = {e["epoch"]: e["val_loss"] for e in r["epochs"]}
+    assert _perdida_con_pesos(m[0]["capas"], val) == pytest.approx(vl[ultima], abs=1e-6)
+    assert abs(vl[ultima] - vl[r["best_epoch"]]) > 1e-4
+
+
+@needs_torch
+def test_plazo_vencido_marca_la_epoca_parcial():
+    """Un plazo ya vencido es determinista: la época 1 para tras su primer lote, a medias.
+    El gradiente, la muestra y los pesos finales lo dicen (`parcial`)."""
+    import time
+    from matrixai.training.laboratorio import CapturaSpec
+    r = _entrenar(capturar=CapturaSpec(max_epocas_muestra=50, max_numeros=10**7), n=400,
+                  epochs=6, batch_size=8, plazo=time.monotonic() - 1.0)
+    assert r["parado_por_plazo"] is True
+    assert [(e["epoch"], e.get("parcial")) for e in r["epochs"]] == [(1, True)]
+    lab = r["laboratorio"]
+    assert lab["grad_norm"]["epocas"] == [1] and lab["grad_norm"]["parciales"] == [1]
+    assert [(m["epoca"], m["parcial"]) for m in lab["pesos_por_epoca"]] == [(1, True)]
+    assert lab["pesos_finales"]["epoca"] == 1 and lab["pesos_finales"]["parcial"] is True
+    # Y sin plazo, nada parcial.
+    r2 = _entrenar(capturar=CapturaSpec(), epochs=2)
+    assert r2["laboratorio"]["grad_norm"]["parciales"] == []
+    assert r2["laboratorio"]["pesos_finales"]["parcial"] is False
+    assert all(m["parcial"] is False for m in r2["laboratorio"]["pesos_por_epoca"])
+
+
+# ---------------------------------------------------------------------------
+# Topes: el que se declara es el que se aplica (I-4, M-3, M-4, M-5)
+# ---------------------------------------------------------------------------
+def _cuenta_partes(lab):
+    """Los números de cada parte, CONTADOS en el bloque (no leídos de lo que declara)."""
+    def capas(cs):
+        return sum(len(c["W"]) * len(c["W"][0]) + len(c["b"]) for c in cs)
+    return {
+        "pesos_finales": capas(lab["pesos_finales"]["capas"]) if lab["pesos_finales"] else 0,
+        "pesos_por_epoca": sum(capas(m["capas"]) for m in lab["pesos_por_epoca"] or []),
+        "grad_norm": (sum(len(c["W"]) + len(c["b"]) for c in lab["grad_norm"]["por_capa"])
+                      if lab["grad_norm"] else 0),
+        "filas": (sum(len(x) for x in lab["filas"]["x"]) + sum(len(y) for y in lab["filas"]["y"])
+                  if lab["filas"] else 0),
+    }
+
+
+def _omitidos(lab):
+    return {o["que"]: o for o in lab["omitido"]}
+
+
 @needs_torch
 def test_tope_de_tamano_se_declara():
-    from matrixai.training.laboratorio import CapturaSpec, captura_de_demo
+    from matrixai.training.laboratorio import CapturaSpec, TOPES_POR_PARTE
 
-    def omitidos(res):
-        return {o["que"]: o for o in res["laboratorio"]["omitido"]}
-
-    # Sin recortar: nada omitido.
+    # Sin recortar: nada omitido, y lo declarado cuadra con lo contado.
     limpio = _entrenar(capturar=CapturaSpec(), epochs=4)
-    assert limpio["laboratorio"]["omitido"] == []
-    n_params = limpio["laboratorio"]["parametros"]
+    lab = limpio["laboratorio"]
+    assert lab["omitido"] == []
+    n_params = lab["parametros"]
     assert n_params == 2 * 8 + 8 + 8 * 2 + 2
+    assert lab["numeros_por_parte"] == _cuenta_partes(lab)
+    assert lab["numeros"] == sum(lab["numeros_por_parte"].values())
+    assert lab["tope_por_parte"] == {k: list(v) for k, v in TOPES_POR_PARTE.items()}
+    assert lab["definicion_numeros"]["es"] and lab["definicion_numeros"]["en"]
 
     # (a) Por encima del tope de la MUESTRA: solo pesos finales, y lo dice.
     r = _entrenar(capturar=CapturaSpec(max_params_muestra=n_params - 1), epochs=4)
-    o = omitidos(r)["pesos_por_epoca"]
+    o = _omitidos(r["laboratorio"])["pesos_por_epoca"]
     assert r["laboratorio"]["pesos_por_epoca"] is None
     assert r["laboratorio"]["pesos_finales"] is not None and r["laboratorio"]["grad_norm"] is not None
-    assert o["aplicado"] == 0 and o["pedido"] and o["motivo"]["es"] and o["motivo"]["en"]
+    assert o["aplicado"] == 0 and o["pedido"] == "4 épocas" and o["motivo"]["es"] and o["motivo"]["en"]
     assert str(n_params) in o["motivo"]["es"]
 
-    # (b) Por encima del tope de los FINALES: solo gradientes.
+    # (b) Por encima del tope de los FINALES: solo gradientes, y los dos huecos dichos (M-5).
     r = _entrenar(capturar=CapturaSpec(max_params_finales=n_params - 1), epochs=4)
     assert r["laboratorio"]["pesos_finales"] is None and r["laboratorio"]["pesos_por_epoca"] is None
     assert r["laboratorio"]["grad_norm"] is not None
-    assert "pesos_finales" in omitidos(r)
+    assert {"pesos_finales", "pesos_por_epoca"} <= set(_omitidos(r["laboratorio"]))
 
-    # (c) El tope de NÚMEROS recorta la muestra y dice a cuántas épocas: lo aplicado es lo real.
-    r = _entrenar(capturar=CapturaSpec(max_numeros=n_params * 4), epochs=20)  # finales + 3 épocas
-    o = omitidos(r)["pesos_por_epoca"]
-    assert o["aplicado"] == 3 and len(r["laboratorio"]["pesos_por_epoca"]) == 3
-    assert r["laboratorio"]["numeros"] >= n_params * 4
-    for m in r["laboratorio"]["pesos_por_epoca"]:
-        assert len(m["capas"]) == 2
+    # (c) El tope de NÚMEROS es el TOTAL: con 20 épocas, gradientes 20×4 = 80, finales 42 y
+    # filas 20×4 = 80; un tope que deje sitio justo para 3 épocas de muestra.
+    tope = 80 + n_params + 80 + 3 * n_params
+    r = _entrenar(capturar=CapturaSpec(max_numeros=tope), epochs=20)
+    lab = r["laboratorio"]
+    o = _omitidos(lab)["pesos_por_epoca"]
+    assert o["aplicado"] == 3 and len(lab["pesos_por_epoca"]) == 3
+    assert lab["numeros"] == tope and lab["numeros_por_parte"] == _cuenta_partes(lab)
+    assert lab["tope"]["max_numeros"] == tope
 
-    # (d) Los topes viajan en el propio bloque, y la demo tiene los suyos.
-    assert r["laboratorio"]["tope"]["max_numeros"] == n_params * 4
-    d = captura_de_demo()
-    assert (d.max_epocas_muestra, d.max_numeros, d.max_params_muestra) == (8, 20_000, 20_000)
-    rd = _entrenar(capturar=d, epochs=30)
-    assert len(rd["laboratorio"]["pesos_por_epoca"]) <= 8
-    assert rd["laboratorio"]["numeros"] <= 20_000
-
-    # (e) Una petición mal formada se rechaza, no se interpreta.
+    # (d) Una petición mal formada se rechaza, no se interpreta.
     with pytest.raises(ValueError):
         CapturaSpec(max_numeros=-1)
+    with pytest.raises(ValueError):
+        CapturaSpec(max_epocas_grad=-1)
+
+
+@needs_torch
+def test_el_tope_declarado_es_el_aplicado():
+    """`max_numeros` es el TOTAL del bloque (pesos finales + muestra + gradientes + filas)
+    y nunca se pasa: lo que no cabe se recorta y se DECLARA. Antes, los pesos finales y
+    las filas quedaban fuera de la cuenta (I-4, M-4)."""
+    from matrixai.training.laboratorio import CapturaSpec
+    # Los finales (42) no caben: gradientes 20 épocas × 4 = 80 de un tope de 100.
+    r = _entrenar(capturar=CapturaSpec(max_numeros=100), epochs=20)
+    lab = r["laboratorio"]
+    om = _omitidos(lab)
+    assert lab["pesos_finales"] is None and lab["pesos_por_epoca"] is None
+    assert "100" in om["pesos_finales"]["motivo"]["es"] and "100" in om["pesos_finales"]["motivo"]["en"]
+    assert "pesos_por_epoca" in om
+    # Con lo que sobra (20), 5 filas de 4 números, y se dice.
+    assert len(lab["filas"]["x"]) == 5 and om["filas"]["aplicado"] == 5
+    assert lab["numeros"] == 100 and lab["numeros_por_parte"] == _cuenta_partes(lab)
+    assert lab["numeros"] <= lab["tope"]["max_numeros"]
+
+
+@needs_torch
+def test_la_demo_cumple_sus_20000_numeros():
+    """La demo (`captura_de_demo`): ≤ 8 épocas, ≤ 20.000 números EN TOTAL. Una red de
+    18.542 parámetros y 100 columnas: con la cuenta vieja (solo la muestra) el bloque
+    llevaba 20.782 números; ahora caben los finales, se recortan las filas y no hay
+    muestra, y las dos cosas se dicen."""
+    from matrixai.training.dense_torch_trainer import train_dense_network_torch
+    from matrixai.training.laboratorio import captura_de_demo
+    d = captura_de_demo()
+    assert (d.max_epocas_muestra, d.max_numeros, d.max_params_muestra, d.max_params_finales) == (
+        8, 20_000, 20_000, 20_000)
+    campos = "".join(f"  f{i}: Scalar\n" for i in range(100))
+    texto = (f"PROJECT P\nVECTOR In[100]\n{campos}END\nNETWORK Net\n  INPUT In\n"
+             "  LAYER Dense units=180 activation=relu\n  LAYER Dense units=2 activation=softmax\n"
+             "  OUTPUT y: ProbabilityMap[A, B]\nEND\nGRAPH\n  In -> Net\nEND\n")
+    net, ps = _setup(texto)
+    rng = random.Random(4)
+    ex = []
+    for _ in range(150):
+        x = [rng.random() for _ in range(100)]
+        ex.append((x, [1.0, 0.0] if sum(x[:5]) > 2.5 else [0.0, 1.0]))
+    r = train_dense_network_torch(net, ps, ex, "cross_entropy", lr=0.05, epochs=50,
+                                  device="cpu", seed=3, batch_size=32, materialize=True,
+                                  capturar=d)
+    lab = r["laboratorio"]
+    assert lab["parametros"] == 100 * 180 + 180 + 180 * 2 + 2
+    assert lab["numeros"] <= 20_000
+    assert lab["numeros_por_parte"] == _cuenta_partes(lab)
+    assert lab["pesos_finales"] is not None and len(lab["grad_norm"]["epocas"]) == 50
+    om = _omitidos(lab)
+    assert om["filas"]["aplicado"] == len(lab["filas"]["x"]) < 20
+    assert om["pesos_por_epoca"]["aplicado"] == 0 and lab["pesos_por_epoca"] is None
+    # Climate en la demo (lo del vídeo): muestra entera y todo dentro del tope.
+    r = _entrenar(capturar=d, epochs=30)
+    assert len(r["laboratorio"]["pesos_por_epoca"]) == 8
+    assert r["laboratorio"]["numeros"] <= 20_000 and r["laboratorio"]["omitido"] == []
+
+
+@needs_torch
+def test_los_gradientes_tienen_su_tope_y_lo_dicen():
+    """Más épocas que `max_epocas_grad`: una muestra repartida que incluye SIEMPRE la
+    primera, la mejor y la última, con los valores de esas épocas, y declarada (M-3)."""
+    from matrixai.training.laboratorio import CapturaSpec
+    entero = _entrenar(capturar=CapturaSpec(max_filas=0), n=80, epochs=30, lr=1.2)
+    r = _entrenar(capturar=CapturaSpec(max_filas=0, max_epocas_grad=5), n=80, epochs=30, lr=1.2)
+    assert r["best_epoch"] not in (1, 30)
+    g = r["laboratorio"]["grad_norm"]
+    assert len(g["epocas"]) == 5 and {1, r["best_epoch"], 30} <= set(g["epocas"])
+    assert g["epocas_medidas"] == 30 and entero["laboratorio"]["grad_norm"]["epocas_medidas"] == 30
+    o = _omitidos(r["laboratorio"])["grad_norm"]
+    assert o["pedido"] == "30 épocas" and o["aplicado"] == 5 and o["motivo"]["es"] and o["motivo"]["en"]
+    ge = entero["laboratorio"]["grad_norm"]
+    for capa, capa_e in zip(g["por_capa"], ge["por_capa"]):
+        for i, e in enumerate(g["epocas"]):
+            assert capa["W"][i] == capa_e["W"][e - 1] and capa["b"][i] == capa_e["b"][e - 1]
+    assert "grad_norm" not in _omitidos(entero["laboratorio"])
 
 
 def test_el_plan_de_topes_es_puro_y_cuenta_los_numeros():
@@ -453,57 +713,484 @@ def test_el_plan_de_topes_es_puro_y_cuenta_los_numeros():
     p = planear(CapturaSpec(), 60_000, 4, 50, 100, 10)         # > 50.000: sin muestra
     assert p["pesos_finales"] is True and p["n_muestra"] == 0
     assert [o["que"] for o in p["omitido"]] == ["pesos_por_epoca"]
-    p = planear(CapturaSpec(), 600_000, 4, 50, 100, 10)        # > 500.000: sin pesos
+    p = planear(CapturaSpec(), 250_000, 4, 50, 100, 10)        # > 200.000: sin pesos
     assert p["pesos_finales"] is False and p["n_muestra"] == 0
-    p = planear(CapturaSpec(), 50_000, 4, 50, 100, 10)         # 200.000 números = finales + 3
-    assert p["n_muestra"] == 3
+    assert [o["que"] for o in p["omitido"]] == ["pesos_finales", "pesos_por_epoca"]
+    # 200.000 en total: gradientes 50×8 = 400, finales 50.000, filas 20×10 = 200 → 2 épocas.
+    p = planear(CapturaSpec(), 50_000, 4, 50, 100, 10)
+    assert p["n_muestra"] == 2 and p["n_epocas_grad"] == 200
     p = planear(CapturaSpec(max_filas=20), 100, 2, 10, 5, 4)   # validación de 5 filas
     assert p["n_filas"] == 5 and [o["que"] for o in p["omitido"]] == ["filas"]
+    # Sin torch no se reservan números para gradientes que no se miden.
+    p = planear(CapturaSpec(max_numeros=1000), 100, 2, 10, 50, 4, con_gradientes=False)
+    assert p["gradientes"] is False and p["n_epocas_grad"] == 0 and p["n_muestra"] == 8
+
+
+@needs_torch
+def test_pesos_finales_no_pedidos_se_declaran():
+    """M-5: `pesos_finales=False` no deja huecos callados: ni finales ni por época, y los
+    dos se dicen."""
+    from matrixai.training.laboratorio import CapturaSpec
+    r = _entrenar(capturar=CapturaSpec(pesos_finales=False), epochs=4)
+    lab = r["laboratorio"]
+    assert lab["pesos_finales"] is None and lab["pesos_por_epoca"] is None
+    om = _omitidos(lab)
+    assert om["pesos_finales"]["pedido"] == "no pedidos"
+    assert om["pesos_por_epoca"]["aplicado"] == 0 and om["pesos_por_epoca"]["motivo"]["en"]
+
+
+@needs_torch
+def test_sin_muestra_no_se_clona_la_ultima_epoca(monkeypatch):
+    """I-3: sin muestra que guardar (`n_muestra == 0`), la captura no clona la última
+    época: con una red grande, esa copia era la red entera otra vez (+72,6 MB medidos con
+    18,9 M de parámetros). Se cuentan las copias de tensores que hace el entrenador."""
+    import torch
+    from matrixai.training.laboratorio import CapturaSpec
+    original = torch.Tensor.clone
+    cuenta = {"n": 0}
+
+    def contar(self, *a, **k):
+        cuenta["n"] += 1
+        return original(self, *a, **k)
+    monkeypatch.setattr(torch.Tensor, "clone", contar)
+
+    def copias(spec):
+        cuenta["n"] = 0
+        _entrenar(capturar=spec, n=80, epochs=30, lr=1.2, early_stop=(3, "validation_loss"))
+        return cuenta["n"]
+    sin = copias(None)
+    assert copias(CapturaSpec(max_epocas_muestra=0)) == sin
+    assert copias(CapturaSpec(max_params_muestra=1)) == sin
+    assert copias(CapturaSpec(pesos_finales=False)) == sin
+    # Control: con muestra sí se clona (el contador ve las copias de la captura).
+    assert copias(CapturaSpec()) > sin
 
 
 # ---------------------------------------------------------------------------
-def test_sin_torch_declara_que_no(monkeypatch):
+# La captura nunca tumba el entrenamiento, ni lo cambia de entrenador (I-5, S9, M-8)
+# ---------------------------------------------------------------------------
+@needs_torch
+def test_un_fallo_en_la_medida_por_lote_no_cambia_de_entrenador(monkeypatch):
+    """I-5: si la medida del gradiente falla en un lote, se apaga ESA parte, se declara
+    (texto fijo y el tipo de la excepción aparte) y el entrenamiento sigue en torch con
+    los mismos pesos que sin captura. Antes caía al entrenador sin torch."""
+    import torch
+    from matrixai.training.laboratorio import CapturaSpec, FALLO_GRADIENTE
+    sin = _entrenar_playground(monkeypatch, "torch")
+
+    def falla(*a, **k):
+        raise TypeError("detalle interno que no se pinta")
+    monkeypatch.setattr(torch, "_foreach_norm", falla)
+    con = _entrenar_playground(monkeypatch, "torch", capturar=CapturaSpec())
+    assert con["ok"] and con["backend"] == "torch"
+    assert con["params_best"] == sin["params_best"] and con["epochs"] == sin["epochs"]
+    lab = con["laboratorio"]
+    assert lab["disponible"] is True and lab["entrenador"] == "torch"
+    assert lab["grad_norm"] is None and lab["pesos_finales"] is not None
+    o = _omitidos(lab)["grad_norm"]
+    assert o["error"] == "TypeError" and o["epoca"] == 1
+    assert (o["motivo"]["es"], o["motivo"]["en"]) == FALLO_GRADIENTE
+    assert "detalle" not in str(lab)
+
+
+@needs_torch
+def test_un_fallo_al_armar_el_bloque_no_tumba_el_entrenamiento(monkeypatch):
+    """S9: un fallo al armar el bloque deja `disponible: False` con un texto FIJO (M-8: el
+    de la excepción no se pinta) y el entrenamiento intacto; con torch y sin torch."""
+    import matrixai.training.dense_torch_trainer as m
+    import matrixai.training.laboratorio as lab_mod
+    from matrixai.training.laboratorio import CapturaSpec, FALLO_BLOQUE
+
+    def falla(*a, **k):
+        raise RuntimeError("detalle interno que no se pinta")
+    sin = _entrenar()
+    monkeypatch.setattr(m, "_bloque_laboratorio", falla)
+    con = _entrenar(capturar=CapturaSpec())
+    assert _pesos(con) == _pesos(sin) and con["epochs"] == sin["epochs"]
+    lab = con["laboratorio"]
+    assert lab["disponible"] is False and lab["entrenador"] == "torch"
+    assert lab["error"] == "RuntimeError"
+    assert (lab["motivo"]["es"], lab["motivo"]["en"]) == FALLO_BLOQUE
+
+    sin = _entrenar_playground(monkeypatch, "stdlib", epochs=2)
+    monkeypatch.setattr(lab_mod, "bloque_sin_torch", falla)
+    con = _entrenar_playground(monkeypatch, "stdlib", epochs=2, capturar=CapturaSpec())
+    assert con["ok"] and con["params_best"] == sin["params_best"]
+    assert con["laboratorio"]["disponible"] is False and con["laboratorio"]["error"] == "RuntimeError"
+    assert con["laboratorio"]["entrenador"] == "stdlib"
+    assert (con["laboratorio"]["motivo"]["es"], con["laboratorio"]["motivo"]["en"]) == FALLO_BLOQUE
+
+
+# ---------------------------------------------------------------------------
+# Sin captura, el resultado es el de antes: una huella FIJADA (S12)
+# ---------------------------------------------------------------------------
+#: Calculadas con el código de `9552615` (release 1.17.0, ANTES del 133-C2), en un
+#: worktree desacoplado, torch 2.11.0+cpu, con `_huella_*` de aquí. Ver la prueba.
+HUELLAS_9552615 = {
+    "sgd": "77b39cf1a9eaf65e59ad635fcc46374d0e37d032f045ea9879ea4c94067e1898",
+    "adamw_wd_coseno": "ac01f4b2f2785b068980ba4ef327ce1de617b6b9d7b78e0ae4929cc1e5861899",
+    "parada_temprana": "f276c260fb8047eeacd7ade15a25088418b85e801e2ea5584a4abd964281f989",
+    "superficie_torch": "7ee84bbd6337fbd38f9114e665a6fca1c61b9e581dffabb73f0568bfcf202cd1",
+    "superficie_stdlib": "c1b1ac8e17e1e29395765d824eb3d62dbee1719b3e6f8305dc18e05970649c29",
+}
+TORCH_DE_LAS_HUELLAS = "2.11.0+cpu"
+
+
+def _huella(pesos, epochs, rng=True, **extra):
+    """sha256 de los pesos (floats exactos), la traza de épocas y, con `rng`, el estado del
+    generador de torch al terminar (la captura no puede consumir números al azar)."""
+    import hashlib
+    import json
+    import torch
+    datos = {"pesos": pesos, "epochs": epochs, **extra}
+    if rng:
+        datos["rng_torch"] = hashlib.sha256(torch.get_rng_state().numpy().tobytes()).hexdigest()
+    return hashlib.sha256(json.dumps(datos, sort_keys=True).encode()).hexdigest()
+
+
+@needs_torch
+def test_sin_captura_el_resultado_es_el_de_antes_del_laboratorio(monkeypatch):
+    """«Con `capturar=None` el entrenamiento es byte a byte el de antes» lo sostiene ESTA
+    prueba: pesos, curvas, mejor época y estado del generador de torch al terminar de cinco
+    entrenamientos pequeños y deterministas en CPU, contra una huella calculada con el
+    código de antes del 133-C2. (El de sin torch, sin el estado de torch: no es suyo.)"""
+    import torch
+    directos = {
+        "sgd": {},
+        "adamw_wd_coseno": {"optimizer": "adamw", "weight_decay": 0.01, "schedule": "cosine"},
+        "parada_temprana": {"n": 60, "epochs": 50, "lr": 2.0, "early_stop": (2, "validation_loss")},
+    }
+    medidas = {}
+    for nombre, kw in directos.items():
+        r = _entrenar(**kw)
+        medidas[nombre] = _huella(_pesos(r), r["epochs"], best_epoch=r["best_epoch"],
+                                  best_val_loss=r["best_val_loss"], train_loss=r["train_loss"])
+    for backend in ("torch", "stdlib"):
+        r = _entrenar_playground(monkeypatch, backend)
+        assert r["ok"] and r["backend"] == backend
+        medidas[f"superficie_{backend}"] = _huella(
+            {k: v["values"] for k, v in r["params_best"]["parameters"].items()}, r["epochs"],
+            rng=backend == "torch")
+    distintas = {k for k in HUELLAS_9552615 if medidas[k] != HUELLAS_9552615[k]}
+    assert not distintas, (
+        f"Sin captura, estos entrenamientos ya no dan lo que daban antes del laboratorio: "
+        f"{sorted(distintas)} (torch {torch.__version__}; las huellas son de "
+        f"{TORCH_DE_LAS_HUELLAS}). Si el entrenador cambió A PROPÓSITO, o cambió torch: "
+        f"recalcula las huellas con el código de ANTES de tu cambio en un worktree "
+        f"desacoplado (con PYTHONPATH a él), comprueba que la diferencia es la que buscabas "
+        f"y, solo entonces, fija las nuevas aquí diciendo de qué commit salen. Si no cambiaste "
+        f"el entrenador, la captura (o algo a su lado) está tocando el entrenamiento.")
+
+
+# ---------------------------------------------------------------------------
+# Quien no trae laboratorio lo dice, con su motivo VERDADERO (I-1, M-2, M-6, S7)
+# ---------------------------------------------------------------------------
+_RESIDUAL_MXAI = """PROJECT ResProject
+
+VECTOR Patient[4]
+  x1: Scalar
+  x2: Scalar
+  x3: Scalar
+  x4: Scalar
+END
+
+NETWORK ResNet
+  INPUT Patient
+  LAYER Dense units=8 activation=relu
+  BLOCK res1
+    LAYER Dense units=8 activation=relu
+    RESIDUAL FROM PREVIOUS
+  END
+  LAYER Dense units=2 activation=softmax
+  OUTPUT predicted_class: ProbabilityMap[BAJO, ALTO]
+END
+
+GRAPH
+  Patient -> ResNet
+END
+"""
+
+_RESIDUAL_MXTRAIN = """MODEL ResProject.mxai
+
+DATASET D
+  SOURCE csv("d.train.csv")
+  INPUT Patient FROM COLUMNS [x1, x2, x3, x4]
+  TARGET predicted_class: Label[BAJO, ALTO]
+  SPLIT train=0.8 validation=0.2 seed=42
+  BATCH size=8
+END
+
+LOSS L
+  TYPE cross_entropy
+  PREDICTION ResNet
+  TARGET predicted_class
+END
+
+OPTIMIZER O
+  TYPE sgd
+  LEARNING_RATE 0.05
+  UPDATE ResNet.*
+END
+
+RUN
+  EPOCHS 2
+END
+"""
+
+
+def _residual_csv():
+    filas = ["x1,x2,x3,x4,predicted_class"]
+    for i in range(30):
+        s = (i % 10) / 10.0
+        filas.append(f"{s},{(i % 7) / 7.0:.3f},{(i % 5) / 5.0:.3f},{(i % 3) / 3.0:.3f},"
+                     f"{'BAJO' if s < 0.5 else 'ALTO'}")
+    return "\n".join(filas) + "\n"
+
+
+def _sin_tabm(motivo):
+    return "TabM" not in motivo["es"] and "TabM" not in motivo["en"]
+
+
+@needs_torch
+@pytest.mark.parametrize("backend", ["torch", "stdlib"])
+def test_compuesta_de_tu_red_dice_su_motivo_verdadero(monkeypatch, backend):
+    """I-1: tu red compuesta (aquí, con EMBEDDING y CONCAT, como la construye el núcleo
+    desde un CSV con una categórica de muchos valores) no tiene laboratorio, y el motivo
+    dice lo que TIENE, sin hablar de TabM (que no pasa por aquí). M-2: el entrenador
+    declarado es el que entrenó (`backend`), también si fue el de sin torch."""
     from matrixai.training.laboratorio import CapturaSpec
-    r = _entrenar_playground(monkeypatch, "stdlib", capturar=CapturaSpec())
-    assert r["ok"] and r["backend"] != "torch"
+    gen = _csv_proyecto(compuesto=True)
+    r = _entrenar_playground(monkeypatch, backend, gen=gen, capturar=CapturaSpec(), epochs=2)
+    assert r["ok"] and r["network_kind"] == "composite_network" and r["backend"] == backend
+    lab = r["laboratorio"]
+    assert lab["disponible"] is False and lab["entrenador"] == backend
+    assert "embedding" in lab["motivo"]["es"] and "embedding" in lab["motivo"]["en"]
+    assert "CONCAT" in lab["motivo"]["es"] and "CONCAT" in lab["motivo"]["en"]
+    assert "densas" in lab["motivo"]["es"] and "dense" in lab["motivo"]["en"]
+    assert _sin_tabm(lab["motivo"])
+    assert lab["pesos_finales"] is None and lab["pesos_por_epoca"] is None
+    assert lab["grad_norm"] is None and lab["filas"] is None
+    assert r["laboratorio_resumen"]["disponible"] is False
+    assert r["laboratorio_resumen"]["entrenador"] == backend
+    # Sin pedirlo, no dice nada.
+    sin = _entrenar_playground(monkeypatch, backend, gen=gen, epochs=2)
+    assert "laboratorio" not in sin and "laboratorio_resumen" not in sin
+
+
+@needs_torch
+def test_red_residual_dice_su_motivo_verdadero():
+    from matrixai.playground import _run_playground_training
+    from matrixai.training.laboratorio import CapturaSpec
+    r = _run_playground_training(_RESIDUAL_MXAI, _RESIDUAL_MXTRAIN, _residual_csv(),
+                                 epochs_override=2, capturar=CapturaSpec())
+    assert r["ok"], r.get("error")
+    lab = r["laboratorio"]
+    assert lab["disponible"] is False and lab["entrenador"] == r["backend"]
+    assert "residual" in lab["motivo"]["es"] and "residual" in lab["motivo"]["en"]
+    assert "embedding" not in lab["motivo"]["es"] and _sin_tabm(lab["motivo"])
+
+
+def _texto_transformer():
+    import csv
+    import io
+    from matrixai.training.synthetic_text import generate_text_examples
+    from matrixai.training.transformer_generator import TransformerNetworkGenerator
+    gen = TransformerNetworkGenerator().generate(
+        "resenas: Text[16]\nOUTPUT clase: ProbabilityMap[NEG, POS]")
+    filas, _ = generate_text_examples("coherent", "clasificar", 20, ["neg", "pos"], seed=1,
+                                      seq_length=16, use_llm=False)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["resenas", "predicted_class"])
+    for texto, etiqueta in filas:
+        w.writerow([texto, etiqueta])
+    return gen.mxai_text, gen.training_text, buf.getvalue()
+
+
+@needs_torch
+def test_transformer_dice_que_no_por_las_dos_superficies():
+    """S7: un transformer no tiene laboratorio y lo DICE, por la superficie síncrona y por
+    el job; y sin pedirlo, calla."""
+    import time
+    from matrixai import limits, playground
+    from matrixai.training.laboratorio import CapturaSpec
+    mxai, train, csv_text = _texto_transformer()
+    assert playground._network_is_transformer(mxai)
+    with limits.sin_topes():
+        r = playground._run_playground_training(mxai, train, csv_text, epochs_override=2,
+                                                capturar=CapturaSpec())
+        sin = playground._run_playground_training(mxai, train, csv_text, epochs_override=2)
+        job = playground._submit_training_job(mxai, train, csv_text, epochs_override=2,
+                                              capturar=CapturaSpec())
+        assert job["ok"], job
+        estado = None
+        for _ in range(1200):
+            estado = playground._get_job_status(job["job_id"])
+            if estado["status"] in ("done", "error", "cancelled", "timeout"):
+                break
+            time.sleep(0.1)
+    assert r["ok"], r.get("error")
+    for lab, backend in ((r["laboratorio"], r["backend"]),
+                         (playground._training_jobs[job["job_id"]]["result"]["laboratorio"],
+                          playground._training_jobs[job["job_id"]]["result"]["backend"])):
+        assert lab["disponible"] is False and lab["entrenador"] == backend == "torch"
+        assert "transformer" in lab["motivo"]["es"] and "transformer" in lab["motivo"]["en"]
+    assert estado["status"] == "done", estado
+    assert "laboratorio" not in estado and estado["laboratorio_resumen"]["disponible"] is False
+    assert "laboratorio" not in sin and "laboratorio_resumen" not in sin
+
+
+def test_modelo_por_funciones_dice_que_no():
+    """M-6: un modelo por funciones (FUNCTION) o que llama a capas (layer_call) tampoco
+    tiene laboratorio, y lo dice en vez de callar, por la superficie síncrona y por el
+    job; el entrenador, el del resultado. (El de capas entrena por diferencias finitas:
+    se recorta su CSV a 8 filas para que la prueba no cueste.)"""
+    import time
+    from pathlib import Path
+    from matrixai import limits, playground
+    from matrixai.playground import _generate_training_from_mxai, _run_playground_training
+    from matrixai.training.laboratorio import CapturaSpec
+    ej = Path(__file__).parent.parent / "examples"
+    casos = {}
+    mx = (ej / "fall-risk.typed.mxai").read_text(encoding="utf-8")
+    casos["FUNCTION"] = (mx, _generate_training_from_mxai(mx)["training_text"],
+                         (ej / "fall-risk.train.csv").read_text(encoding="utf-8"))
+    csv_capas = (ej / "transformer-classifier-vector.train.csv").read_text(encoding="utf-8")
+    casos["LAYER"] = (
+        (ej / "transformer-classifier-vector.mxai").read_text(encoding="utf-8"),
+        (ej / "transformer-classifier-vector.mxtrain").read_text(encoding="utf-8")
+        .replace("examples/", ""),
+        "\n".join(csv_capas.splitlines()[:9]) + "\n")
+    for clave, (mx, tt, cs) in casos.items():
+        with limits.sin_topes():
+            r = _run_playground_training(mx, tt, cs, epochs_override=1, capturar=CapturaSpec())
+            job = playground._submit_training_job(mx, tt, cs, epochs_override=1,
+                                                  capturar=CapturaSpec())
+            assert job["ok"], (clave, job)
+            for _ in range(1200):
+                estado = playground._get_job_status(job["job_id"])
+                if estado["status"] in ("done", "error", "cancelled", "timeout"):
+                    break
+                time.sleep(0.05)
+        assert r["ok"], (clave, r.get("error"))
+        assert estado["status"] == "done", (clave, estado)
+        rj = playground._training_jobs[job["job_id"]]["result"]
+        for res in (r, rj):
+            lab = res["laboratorio"]
+            assert lab["disponible"] is False and lab["entrenador"] == res["backend"], clave
+            assert clave in lab["motivo"]["es"] and clave in lab["motivo"]["en"]
+        assert estado["laboratorio_resumen"]["disponible"] is False and "laboratorio" not in estado
+    with limits.sin_topes():
+        sin = _run_playground_training(*casos["FUNCTION"], epochs_override=1)
+    assert "laboratorio" not in sin
+
+
+# ---------------------------------------------------------------------------
+# Lo demás que se declara (I-2, M-7, M-9, M-11)
+# ---------------------------------------------------------------------------
+@needs_torch
+def test_filas_de_la_validacion_entera_en_los_dos_entrenadores(monkeypatch):
+    """I-2: las filas salen de la validación ENTERA y preparada, igual con torch que sin
+    él, y su `de` es verdadero. En regresión con el objetivo sin recortar, torch elige la
+    época con las filas alcanzables: antes enseñaba solo esas (21 de 40) y callaba."""
+    from matrixai.playground_api import generate_project_from_dataset
+    from matrixai.training.laboratorio import CapturaSpec
+    rng = random.Random(1)
+    lineas = ["a,y"] + [f"{i / 20.0:.4f},{3 * (i / 20.0) + rng.random():.4f}" for i in range(200)]
+    gen = generate_project_from_dataset("\n".join(lineas) + "\n", "y", locale="es")
+    filas = {}
+    for backend, ep in (("torch", 3), ("stdlib", 1)):
+        r = _entrenar_playground(monkeypatch, backend, gen=gen, epochs=ep,
+                                 target_range=gen.get("target_range"),
+                                 recortar_objetivo=False, capturar=CapturaSpec())
+        assert r["ok"] and r["backend"] == backend, r.get("error")
+        filas[backend] = r["laboratorio"]["filas"]
+    assert filas["torch"] == filas["stdlib"]
+    assert filas["torch"]["de"] == 40 and len(filas["torch"]["x"]) == 20
+    # Las filas que el modelo no alcanza (objetivo > 1) están: son las de la validación.
+    assert max(y[0] for y in filas["torch"]["y"]) > 1.0
+
+
+@needs_torch
+def test_arranque_en_caliente_sin_mejora_lo_dice():
+    """M-7: si ninguna época mejora los pesos de partida, los finales son esos (época 0) y
+    el bloque lo dice: `de_partida` y su motivo, y la época 0 de la muestra es «partida»."""
+    from matrixai.forward.dense_torch import (
+        dense_module_to_state_dict, dense_network_to_torch_module)
+    from matrixai.training.dense_torch_trainer import train_dense_network_torch
+    from matrixai.training.laboratorio import CapturaSpec
+    net, _ps = _setup()
+    r0 = _entrenar(epochs=30, lr=0.3)
+    sd = dense_module_to_state_dict(net, dense_network_to_torch_module(net, r0["best_params"]))
+    net, ps = _setup()
+    r = train_dense_network_torch(net, ps, _ejemplos(200), "cross_entropy", lr=5.0, epochs=3,
+                                  device="cpu", seed=3, batch_size=8, materialize=True,
+                                  initial_state_dict=sd, capturar=CapturaSpec())
+    assert r["best_epoch"] == 0, "el caso tenía que no mejorar los pesos de partida"
+    lab = r["laboratorio"]
+    pf = lab["pesos_finales"]
+    assert pf["epoca"] == 0 and pf["de_partida"] is True
+    assert pf["motivo"]["es"] and pf["motivo"]["en"]
+    motivos = {m["epoca"]: m["motivo"] for m in lab["pesos_por_epoca"]}
+    assert "partida" in motivos[0] and "mejor" in motivos[0]
+    # Y sin arranque en caliente, nada de «partida».
+    r = _entrenar(capturar=CapturaSpec(), epochs=3)
+    assert "de_partida" not in r["laboratorio"]["pesos_finales"]
+
+
+def test_sin_torch_declara_que_no(monkeypatch):
+    """Sin torch: solo los pesos finales —los de la MEJOR época, en un caso con la mejor
+    ANTES de la última— y las filas; lo que falta, declarado, con lo pedido de verdad."""
+    from matrixai.playground_api import generate_project_from_dataset
+    from matrixai.training.laboratorio import CapturaSpec
+    rng = random.Random(0)
+    lineas = ["a,b,y"] + [f"{rng.random():.4f},{rng.random():.4f},{'si' if rng.random() > 0.5 else 'no'}"
+                          for _ in range(40)]
+    gen = generate_project_from_dataset("\n".join(lineas) + "\n", "y", locale="es",
+                                        column_type_overrides={"y": "categorical"})
+    tt = gen["training_text"].replace("LEARNING_RATE 0.01", "LEARNING_RATE 0.3")
+    assert tt != gen["training_text"]
+    gen = {**gen, "training_text": tt}
+    r = _entrenar_playground(monkeypatch, "stdlib", gen=gen, epochs=15, capturar=CapturaSpec())
+    assert r["ok"] and r["backend"] == "stdlib"
+    assert r["best_epoch"] < len(r["epochs"]), "el caso tenía que tener la mejor ANTES de la última"
     lab = r["laboratorio"]
     assert lab["entrenador"] == "stdlib" and lab["disponible"] is True
-    # Solo los pesos finales y las filas…
     valores = r["params_best"]["parameters"]
-    for i, c in enumerate(lab["pesos_finales"]["capas"], start=1):
-        assert c["W"] == valores[f"{lab['capas'][0]['clave_W'].split('.')[0]}.W{i}"]["values"]
-        assert c["b"] == valores[f"{lab['capas'][0]['clave_W'].split('.')[0]}.b{i}"]["values"]
+    for c, f in zip(lab["pesos_finales"]["capas"], lab["capas"]):
+        assert c["W"] == valores[f["clave_W"]]["values"]
+        assert c["b"] == valores[f["clave_b"]]["values"]
     assert lab["pesos_finales"]["epoca"] == r["best_epoch"]
     assert lab["filas"] and lab["filas"]["columnas"] == ["a", "b"] and len(lab["filas"]["x"]) <= 20
-    # …y lo que falta, DECLARADO y con su porqué.
+    assert lab["numeros_por_parte"] == _cuenta_partes(lab)
     assert lab["pesos_por_epoca"] is None and lab["grad_norm"] is None
-    om = {o["que"]: o for o in lab["omitido"]}
+    om = _omitidos(lab)
     assert {"pesos_por_epoca", "grad_norm"} <= set(om)
-    for o in om.values():
+    for o in (om["pesos_por_epoca"], om["grad_norm"]):
         assert "sin torch" in o["motivo"]["es"] and "without torch" in o["motivo"]["en"]
+    assert om["pesos_por_epoca"]["pedido"] == "12 épocas"
+    # La validación es pequeña (8 filas): también se dice, y `de` es verdadero.
+    assert om["filas"]["aplicado"] == len(lab["filas"]["x"]) == lab["filas"]["de"] == 8
     assert r["laboratorio_resumen"]["entrenador"] == "stdlib"
     assert r["laboratorio_resumen"]["gradientes"] is False
+    # M-9: lo pedido es lo que se pidió (aquí, 3 épocas: menos que el tope de 12).
+    r3 = _entrenar_playground(monkeypatch, "stdlib", gen=gen, epochs=3, capturar=CapturaSpec())
+    assert _omitidos(r3["laboratorio"])["pesos_por_epoca"]["pedido"] == "3 épocas"
     # Y sin pedirlo, nada.
-    sin = _entrenar_playground(monkeypatch, "stdlib")
+    sin = _entrenar_playground(monkeypatch, "stdlib", gen=gen, epochs=15)
     assert "laboratorio" not in sin and "laboratorio_resumen" not in sin
     assert sin["params_best"] == r["params_best"]
 
 
-@needs_torch
-def test_composite_no_trae_laboratorio(monkeypatch):
+def test_la_peticion_congela_sus_listas_y_respeta_los_nombres():
+    """M-11: una lista que llega de JSON se congela (la petición sigue siendo hashable) y
+    `con_nombres` no pisa los nombres que el llamante ya fijó."""
     from matrixai.training.laboratorio import CapturaSpec
-    gen = _csv_proyecto(compuesto=True)
-    r = _entrenar_playground(monkeypatch, "torch", gen=gen, capturar=CapturaSpec())
-    assert r["ok"] and r["network_kind"] == "composite_network"
-    lab = r["laboratorio"]
-    assert lab["disponible"] is False
-    assert lab["motivo"]["es"] and lab["motivo"]["en"]
-    assert lab["pesos_finales"] is None and lab["pesos_por_epoca"] is None
-    assert lab["grad_norm"] is None and lab["filas"] is None
-    assert r["laboratorio_resumen"]["disponible"] is False
-    # Sin pedirlo, no dice nada.
-    sin = _entrenar_playground(monkeypatch, "torch", gen=gen)
-    assert "laboratorio" not in sin and "laboratorio_resumen" not in sin
+    s = CapturaSpec(columnas=["a", "b"])
+    assert s.columnas == ("a", "b") and hash(s) == hash(CapturaSpec(columnas=("a", "b")))
+    n = s.con_nombres(["x", "y"], ["P", "Q"])
+    assert n.columnas == ("a", "b") and n.etiquetas == ("P", "Q")
+    assert CapturaSpec().con_nombres([], None).columnas is None
 
 
 # ---------------------------------------------------------------------------

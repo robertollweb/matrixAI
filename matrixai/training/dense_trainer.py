@@ -288,9 +288,7 @@ class DenseSupervisedTrainer:
                     net, best_ps.parameters, best_epoch, val_ex, loss_fn,
                     capturar, epochs)
             except Exception as exc:  # noqa: BLE001 — la captura nunca tumba el entrenamiento
-                self.laboratorio = _lab.bloque_no_disponible(
-                    f"No se pudo capturar el laboratorio: {exc}",
-                    f"The laboratory could not be captured: {exc}", "stdlib")
+                self.laboratorio = _lab.bloque_por_fallo(exc, "stdlib")
 
         accuracy = 0.0
         validation_metrics: dict[str, Any] | None = None
