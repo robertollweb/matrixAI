@@ -23,6 +23,8 @@ rojo, ver el informe del corte y el de su reparación):
 - `test_sin_muestra_no_se_clona_la_ultima_epoca`;
 - `test_un_fallo_*`: la captura nunca tumba el entrenamiento ni lo cambia de entrenador;
 - `test_sin_torch_declara_que_no` y `test_filas_de_la_validacion_entera_en_los_dos_entrenadores`;
+- `test_un_fallo_de_cada_guarda_*` (N-1), `test_aplicado_*` (N-4), `test_pedido_y_aplicado_*` (N-5),
+  `test_lo_no_pedido_*` (N-6) y las de fronteras (N-7): la re-auditoría del corte;
 - `test_compuesta_de_tu_red_dice_su_motivo_verdadero`, `test_red_residual_*`,
   `test_transformer_*` y `test_modelo_por_funciones_dice_que_no`: quien no trae laboratorio
   lo dice, con su motivo verdadero y el entrenador que entrenó.
@@ -605,7 +607,7 @@ def test_tope_de_tamano_se_declara():
     o = _omitidos(r["laboratorio"])["pesos_por_epoca"]
     assert r["laboratorio"]["pesos_por_epoca"] is None
     assert r["laboratorio"]["pesos_finales"] is not None and r["laboratorio"]["grad_norm"] is not None
-    assert o["aplicado"] == 0 and o["pedido"] == "4 épocas" and o["motivo"]["es"] and o["motivo"]["en"]
+    assert o["aplicado"] == 0 and (o["pedido"], o["unidad"]) == (4, "epocas") and o["motivo"]["es"] and o["motivo"]["en"]
     assert str(n_params) in o["motivo"]["es"]
 
     # (b) Por encima del tope de los FINALES: solo gradientes, y los dos huecos dichos (M-5).
@@ -682,6 +684,8 @@ def test_la_demo_cumple_sus_20000_numeros():
     om = _omitidos(lab)
     assert om["filas"]["aplicado"] == len(lab["filas"]["x"]) < 20
     assert om["pesos_por_epoca"]["aplicado"] == 0 and lab["pesos_por_epoca"] is None
+    # Las 50 épocas caben en el tope de 50: ningún recorte de gradientes que declarar (N-7).
+    assert "grad_norm" not in om and lab["grad_norm"]["epocas_medidas"] == 50
     # Climate en la demo (lo del vídeo): muestra entera y todo dentro del tope.
     r = _entrenar(capturar=d, epochs=30)
     assert len(r["laboratorio"]["pesos_por_epoca"]) == 8
@@ -700,7 +704,7 @@ def test_los_gradientes_tienen_su_tope_y_lo_dicen():
     assert len(g["epocas"]) == 5 and {1, r["best_epoch"], 30} <= set(g["epocas"])
     assert g["epocas_medidas"] == 30 and entero["laboratorio"]["grad_norm"]["epocas_medidas"] == 30
     o = _omitidos(r["laboratorio"])["grad_norm"]
-    assert o["pedido"] == "30 épocas" and o["aplicado"] == 5 and o["motivo"]["es"] and o["motivo"]["en"]
+    assert (o["pedido"], o["unidad"]) == (30, "epocas") and o["aplicado"] == 5 and o["motivo"]["es"] and o["motivo"]["en"]
     ge = entero["laboratorio"]["grad_norm"]
     for capa, capa_e in zip(g["por_capa"], ge["por_capa"]):
         for i, e in enumerate(g["epocas"]):
@@ -735,7 +739,7 @@ def test_pesos_finales_no_pedidos_se_declaran():
     lab = r["laboratorio"]
     assert lab["pesos_finales"] is None and lab["pesos_por_epoca"] is None
     om = _omitidos(lab)
-    assert om["pesos_finales"]["pedido"] == "no pedidos"
+    assert (om["pesos_finales"]["pedido"], om["pesos_finales"]["aplicado"]) == (0, 0)
     assert om["pesos_por_epoca"]["aplicado"] == 0 and om["pesos_por_epoca"]["motivo"]["en"]
 
 
@@ -1168,14 +1172,14 @@ def test_sin_torch_declara_que_no(monkeypatch):
     assert {"pesos_por_epoca", "grad_norm"} <= set(om)
     for o in (om["pesos_por_epoca"], om["grad_norm"]):
         assert "sin torch" in o["motivo"]["es"] and "without torch" in o["motivo"]["en"]
-    assert om["pesos_por_epoca"]["pedido"] == "12 épocas"
+    assert (om["pesos_por_epoca"]["pedido"], om["pesos_por_epoca"]["unidad"]) == (12, "epocas")
     # La validación es pequeña (8 filas): también se dice, y `de` es verdadero.
     assert om["filas"]["aplicado"] == len(lab["filas"]["x"]) == lab["filas"]["de"] == 8
     assert r["laboratorio_resumen"]["entrenador"] == "stdlib"
     assert r["laboratorio_resumen"]["gradientes"] is False
     # M-9: lo pedido es lo que se pidió (aquí, 3 épocas: menos que el tope de 12).
     r3 = _entrenar_playground(monkeypatch, "stdlib", gen=gen, epochs=3, capturar=CapturaSpec())
-    assert _omitidos(r3["laboratorio"])["pesos_por_epoca"]["pedido"] == "3 épocas"
+    assert _omitidos(r3["laboratorio"])["pesos_por_epoca"]["pedido"] == 3
     # Y sin pedirlo, nada.
     sin = _entrenar_playground(monkeypatch, "stdlib", gen=gen, epochs=15)
     assert "laboratorio" not in sin and "laboratorio_resumen" not in sin
@@ -1225,3 +1229,374 @@ def test_el_estado_publico_solo_lleva_el_resumen(monkeypatch):
     assert entero["pesos_finales"] is not None and len(json.dumps(entero)) > 5 * len(json.dumps(resumen))
     # El saneado público es la regla única.
     assert "laboratorio" not in playground._public_training_result({"laboratorio": {}, "ok": True})
+
+
+# ===========================================================================
+# Re-auditoría del 133-C2: los menores (N-1 … N-7)
+# ===========================================================================
+def _sin_silencios(lab):
+    """Nada que se dé por guardado falta, y nada se guarda ni se omite en silencio: cada
+    parte que está a `None` (o sin filas) tiene su entrada en `omitido`, lo contado en el
+    bloque es lo declarado, y el resumen público dice lo mismo que el bloque."""
+    om = _omitidos(lab)
+    for parte in ("grad_norm", "pesos_por_epoca", "pesos_finales", "filas"):
+        if lab[parte] is None:
+            assert parte in om, f"{parte} falta y no se declara"
+    assert lab["numeros_por_parte"] == _cuenta_partes(lab)
+    assert lab["numeros"] == sum(lab["numeros_por_parte"].values())
+    assert lab["numeros"] <= lab["tope"]["max_numeros"]
+    from matrixai.training.laboratorio import resumen_del_bloque
+    res = resumen_del_bloque(lab)
+    assert res["gradientes"] is (lab["grad_norm"] is not None)
+    assert res["pesos_finales"] is (lab["pesos_finales"] is not None)
+    assert res["epocas_con_pesos"] == [m["epoca"] for m in lab["pesos_por_epoca"] or []]
+    assert res["omitido"] == [o["que"] for o in lab["omitido"]]
+
+
+def _linea_del_entrenador(patron):
+    """El número de línea (de `dense_torch_trainer.py`) de la ÚNICA línea que lleva `patron`."""
+    import matrixai.training.dense_torch_trainer as m
+    with open(m.__file__, encoding="utf-8") as f:
+        hits = [i + 1 for i, l in enumerate(f) if patron in l]
+    assert len(hits) == 1, (patron, hits)
+    return hits[0]
+
+
+def _epoca_si_llama_la_linea(lineas):
+    """(¿lo llama el entrenador de torch desde una de esas líneas?, época en curso)."""
+    import sys
+    f = sys._getframe(2)
+    while f is not None:
+        if f.f_code.co_name == "train_dense_network_torch":
+            return f.f_lineno in lineas, f.f_locals.get("epoch")
+        f = f.f_back
+    return False, None
+
+
+def _fallo_en_clone(monkeypatch, patron, desde_epoca, golpes):
+    import torch
+    original = torch.Tensor.clone
+    lineas = {_linea_del_entrenador(patron)}
+
+    def clone(self, *a, **k):
+        dentro, ep = _epoca_si_llama_la_linea(lineas)
+        if dentro and (ep or 0) >= desde_epoca:
+            golpes.append(ep)
+            raise RuntimeError("CUDA out of memory (simulado)")
+        return original(self, *a, **k)
+    monkeypatch.setattr(torch.Tensor, "clone", clone)
+
+
+def _fallo_en_division(monkeypatch, patron, epoca, golpes):
+    import torch
+    original = torch.Tensor.__truediv__
+    lineas = {_linea_del_entrenador(patron)}
+
+    def div(self, otro):
+        dentro, ep = _epoca_si_llama_la_linea(lineas)
+        if dentro and ep == epoca:
+            golpes.append(ep)
+            raise RuntimeError("fallo simulado al cerrar la época")
+        return original(self, otro)
+    monkeypatch.setattr(torch.Tensor, "__truediv__", div)
+
+
+def _fallo_en_norma_por_lote(monkeypatch, desde_epoca, golpes):
+    import torch
+    original = torch._foreach_norm
+
+    def norma(*a, **k):
+        _dentro, ep = _epoca_si_llama_la_linea(set(range(1, 100_000)))
+        if (ep or 0) >= desde_epoca:
+            golpes.append(ep)
+            raise TypeError("fallo simulado en la medida")
+        return original(*a, **k)
+    monkeypatch.setattr(torch, "_foreach_norm", norma)
+
+
+#: nombre → (cómo se inyecta, qué parte se apaga, la época del fallo, cómo se entrena)
+_CORTO = {}
+_LARGO = {"n": 100, "epochs": 50, "lr": 1.5, "early_stop": (2, "validation_loss")}
+_FALLOS_DE_LA_CAPTURA = {
+    "medida_por_lote_desde_la_epoca_3": ("grad_norm", 3, _CORTO),
+    "cierre_de_epoca_en_la_2": ("grad_norm", 2, _CORTO),
+    "copia_de_pesos_de_una_epoca_programada_en_la_3": ("pesos_por_epoca", 3, _CORTO),
+    "copia_de_la_ultima_epoca_sin_programar": ("pesos_por_epoca", None, _LARGO),
+}
+
+
+@needs_torch
+@pytest.mark.parametrize("nombre", list(_FALLOS_DE_LA_CAPTURA))
+def test_un_fallo_de_cada_guarda_apaga_su_parte_y_el_entrenamiento_sigue(monkeypatch, nombre):
+    """N-1: las cuatro guardas `try` del entrenador de torch (la medida por lote, el cierre
+    de época de las normas, la copia de pesos de una época programada y la de la última
+    época). Con un fallo inyectado EN esa línea: el entrenamiento sigue en torch con los
+    mismos pesos, curvas, mejor época y generador que sin captura; solo se apaga la parte
+    afectada y se declara en `omitido` (texto fijo, tipo de la excepción y época); las
+    demás partes siguen; y nada falta ni se recorta en silencio. Quitar una guarda tumba el
+    entrenamiento; quitar su declaración deja el hueco callado; no vaciar lo ya medido deja
+    gradientes que el `omitido` dice que no hay."""
+    import torch
+    from matrixai.training.laboratorio import CapturaSpec, FALLO_GRADIENTE, FALLO_PESOS_POR_EPOCA
+    parte, epoca, kw = _FALLOS_DE_LA_CAPTURA[nombre]
+    sin = _entrenar(**kw)
+    rng_sin = torch.get_rng_state().clone()
+    golpes: list = []
+    if nombre.startswith("medida_por_lote"):
+        _fallo_en_norma_por_lote(monkeypatch, 3, golpes)
+    elif nombre.startswith("cierre_de_epoca"):
+        _fallo_en_division(monkeypatch, "cap_hist.append((epoch, cap_acc / max(1, cap_n)))", 2, golpes)
+    elif nombre.startswith("copia_de_pesos"):
+        _fallo_en_clone(monkeypatch, "cap_estados[epoch] = _snapshot()", 3, golpes)
+    else:
+        _fallo_en_clone(monkeypatch, "cap_estados[cap_ultima] = _snapshot()", 1, golpes)
+    con = _entrenar(capturar=CapturaSpec(), **kw)
+    rng_con = torch.get_rng_state().clone()
+    assert golpes, "el fallo inyectado no se produjo: la prueba no mide nada"
+    # El entrenamiento, igual que sin captura, y en torch.
+    assert con["backend"] == "torch"
+    assert _pesos(con) == _pesos(sin) and con["epochs"] == sin["epochs"]
+    assert con["best_epoch"] == sin["best_epoch"] and torch.equal(rng_con, rng_sin)
+    if epoca is None:
+        epoca = sin["epochs"][-1]["epoch"]
+        assert epoca < kw["epochs"], "el caso tenía que parar antes de tiempo (última sin programar)"
+    # La parte afectada, apagada y declarada; las demás, intactas.
+    lab = con["laboratorio"]
+    assert lab["disponible"] is True and lab["entrenador"] == "torch"
+    assert lab[parte] is None
+    otras = {"grad_norm", "pesos_por_epoca"} - {parte}
+    for otra in otras:
+        assert lab[otra], f"{otra} no tenía por qué apagarse"
+    assert lab["pesos_finales"] is not None and lab["filas"] is not None
+    om = _omitidos(lab)
+    assert set(om) == {parte}
+    o = om[parte]
+    assert o["error"] in ("RuntimeError", "TypeError") and o["epoca"] == epoca
+    assert o["aplicado"] == 0 and o["pedido"] > 0 and o["unidad"] == "epocas"
+    textos = FALLO_GRADIENTE if parte == "grad_norm" else FALLO_PESOS_POR_EPOCA
+    assert (o["motivo"]["es"], o["motivo"]["en"]) == textos
+    assert "simulado" not in str(lab) and "CUDA" not in str(lab)
+    _sin_silencios(lab)
+
+
+@needs_torch
+def test_un_fallo_de_la_copia_de_pesos_por_la_superficie_publica_sigue_en_torch(monkeypatch):
+    """N-1 por la superficie pública: una copia de pesos que falla no hace caer el
+    entrenamiento a stdlib ni da `ok: false` (con adam/adamw lo daba)."""
+    from matrixai.playground import MODO_TORCH_EN_CPU
+    sin = _entrenar_playground(monkeypatch, "torch", epochs=6)
+    golpes: list = []
+    _fallo_en_clone(monkeypatch, "cap_estados[epoch] = _snapshot()", 2, golpes)
+    from matrixai.training.laboratorio import CapturaSpec
+    con = _entrenar_playground(monkeypatch, "torch", epochs=6, capturar=CapturaSpec())
+    assert golpes
+    assert con["ok"] and con["backend"] == "torch" and MODO_TORCH_EN_CPU
+    assert con["params_best"] == sin["params_best"] and con["epochs"] == sin["epochs"]
+    lab = con["laboratorio"]
+    assert lab["entrenador"] == "torch" and lab["pesos_por_epoca"] is None
+    assert [o["que"] for o in lab["omitido"]] == ["pesos_por_epoca"]
+    _sin_silencios(lab)
+
+
+# ---------------------------------------------------------------------------
+# N-2: el motivo de «no hay pesos» es verdadero para cada entrenador
+# ---------------------------------------------------------------------------
+@needs_torch
+def test_el_motivo_de_no_guardar_pesos_es_verdadero_con_y_sin_gradientes(monkeypatch):
+    """N-2: «solo se guardan las normas de gradiente» era falso sin torch (no hay ninguna).
+    El texto de los pesos finales no habla de lo que sí hay: dice lo que NO hay, y la
+    verdad de lo demás la dicen sus propias entradas."""
+    from matrixai.training.laboratorio import CapturaSpec
+    spec = CapturaSpec(max_params_finales=1)
+    con_torch = _entrenar(capturar=spec, epochs=4)["laboratorio"]
+    sin_torch = _entrenar_playground(monkeypatch, "stdlib", epochs=3, capturar=spec)["laboratorio"]
+    assert con_torch["grad_norm"] is not None and sin_torch["grad_norm"] is None
+    for lab in (con_torch, sin_torch):
+        o = _omitidos(lab)["pesos_finales"]
+        assert lab["pesos_finales"] is None
+        assert "ninguno de los pesos" in o["motivo"]["es"] and "none of" in o["motivo"]["en"]
+        assert "gradiente" not in o["motivo"]["es"] and "gradient" not in o["motivo"]["en"]
+        assert "gradiente" not in _omitidos(lab)["pesos_por_epoca"]["motivo"]["es"].split(
+            "Sin pesos finales")[0]
+    # Sin torch, lo que falta de los gradientes lo dice SU entrada.
+    assert "sin torch" in _omitidos(sin_torch)["grad_norm"]["motivo"]["es"]
+
+
+# ---------------------------------------------------------------------------
+# N-3: el texto de la muestra de gradientes dice lo que PASA, y las fronteras
+# ---------------------------------------------------------------------------
+def _hist(n):
+    return [(e, e) for e in range(1, n + 1)]
+
+
+def test_la_muestra_de_gradientes_dice_cuales_de_primera_mejor_ultima_entraron():
+    from matrixai.training.laboratorio import muestrear_gradientes
+    for n, esperado_es, esperado_en, no_es in (
+            (3, "la primera, la mejor y la última", "the first, the best and the last", ()),
+            (2, "la mejor y la última", "the best and the last", ("primera",)),
+            (1, "la mejor", "the best", ("primera", "última"))):
+        guardadas, om = muestrear_gradientes(_hist(30), 17, n)
+        assert len(guardadas) == n and om["aplicado"] == n == len(guardadas)
+        assert esperado_es in om["motivo"]["es"] and esperado_en in om["motivo"]["en"]
+        for palabra in no_es:
+            assert palabra not in om["motivo"]["es"]
+        assert 17 in [e for e, _v in guardadas]
+    # Arranque en caliente sin mejora (mejor = 0): la «mejor» no tiene gradiente, y no se promete.
+    guardadas, om = muestrear_gradientes(_hist(30), 0, 5)
+    assert {1, 30} <= {e for e, _v in guardadas}
+    assert "la primera y la última" in om["motivo"]["es"] and "mejor" not in om["motivo"]["es"]
+    assert "the first and the last" in om["motivo"]["en"] and "best" not in om["motivo"]["en"]
+
+
+def test_la_frontera_de_la_muestra_de_gradientes_no_declara_de_mas():
+    """N-7 (R2): con tantas épocas como cupo NO hay muestra ni `omitido`; con una más, sí."""
+    from matrixai.training.laboratorio import muestrear_gradientes
+    guardadas, om = muestrear_gradientes(_hist(50), 10, 50)
+    assert om is None and [e for e, _v in guardadas] == list(range(1, 51))
+    guardadas, om = muestrear_gradientes(_hist(51), 10, 50)
+    assert om is not None and len(guardadas) == 50 == om["aplicado"] and om["pedido"] == 51
+
+
+# ---------------------------------------------------------------------------
+# N-4: `aplicado` es lo GUARDADO
+# ---------------------------------------------------------------------------
+@needs_torch
+@pytest.mark.parametrize("n_muestra", [1, 2, 3, 12])
+def test_aplicado_de_los_pesos_por_epoca_es_lo_guardado(n_muestra):
+    """N-4: con `n_muestra` de 1 o 2 no se programa ninguna época y la muestra es {mejor,
+    última}; si son la misma época se guarda UNA, y `aplicado` lo dice (antes decía 2)."""
+    from matrixai.training.laboratorio import CapturaSpec
+    # Pérdida que baja siempre (lr bajo): la mejor ES la última.
+    r = _entrenar(capturar=CapturaSpec(max_epocas_muestra=n_muestra), epochs=6, lr=0.05)
+    lab = r["laboratorio"]
+    assert r["best_epoch"] == r["epochs"][-1]["epoch"], "el caso tenía que tener mejor == última"
+    guardadas = len(lab["pesos_por_epoca"] or [])
+    om = _omitidos(lab).get("pesos_por_epoca")
+    if n_muestra == 1:
+        assert guardadas == 1 and om is None        # pidió 1 y tiene 1: no falta nada
+    elif n_muestra == 2:
+        assert guardadas == 1
+        assert om is not None and om["aplicado"] == guardadas and om["pedido"] == n_muestra
+        assert om["unidad"] == "epocas" and om["motivo"]["es"] and om["motivo"]["en"]
+    else:
+        assert om is None and guardadas > 1
+    _sin_silencios(lab)
+    # Y cuando es el TOPE de números el que da 2 huecos, el `aplicado` del recorte también
+    # es lo guardado, no los 2 que cabían.
+    tope = 6 * 4 + 42 + 2 * 42
+    r = _entrenar(capturar=CapturaSpec(max_filas=0, max_numeros=tope), epochs=6, lr=0.05)
+    lab = r["laboratorio"]
+    om = _omitidos(lab)["pesos_por_epoca"]
+    assert om["aplicado"] == len(lab["pesos_por_epoca"]) == 1 and om["pedido"] == 6
+    _sin_silencios(lab)
+
+
+# ---------------------------------------------------------------------------
+# N-5: `pedido` y `aplicado` son DATOS; el texto, solo en `motivo`
+# ---------------------------------------------------------------------------
+def _todos_los_omitidos(monkeypatch):
+    """Entradas de `omitido` de muchas configuraciones, con torch y sin torch."""
+    from matrixai.training.laboratorio import CapturaSpec, planear
+    pinchos = []
+    for spec in (CapturaSpec(), CapturaSpec(gradientes=False), CapturaSpec(pesos_finales=False),
+                 CapturaSpec(max_filas=0), CapturaSpec(max_epocas_muestra=0),
+                 CapturaSpec(max_params_muestra=1), CapturaSpec(max_params_finales=1),
+                 CapturaSpec(max_numeros=100), CapturaSpec(max_numeros=3),
+                 CapturaSpec(max_epocas_grad=2, max_numeros=150)):
+        pinchos.append(planear(spec, 42, 2, 20, 5, 4)["omitido"])
+        if _HAS_TORCH:
+            pinchos.append(_entrenar(capturar=spec, epochs=20)["laboratorio"]["omitido"])
+        pinchos.append(_entrenar_playground(monkeypatch, "stdlib", epochs=3,
+                                            capturar=spec)["laboratorio"]["omitido"])
+    return [o for lista in pinchos for o in lista]
+
+
+def test_pedido_y_aplicado_son_numeros_con_su_unidad_y_el_texto_va_en_motivo(monkeypatch):
+    from matrixai.training.laboratorio import UNIDADES_OMITIDO
+    todos = _todos_los_omitidos(monkeypatch)
+    assert len(todos) > 20
+    for o in todos:
+        assert type(o["pedido"]) is int and type(o["aplicado"]) is int, o
+        assert o["pedido"] >= 0 and o["aplicado"] >= 0
+        assert o["unidad"] in UNIDADES_OMITIDO
+        assert set(o["motivo"]) == {"es", "en"} and o["motivo"]["es"] and o["motivo"]["en"]
+        assert o["aplicado"] <= o["pedido"] or o["pedido"] == 0 or o["que"] == "filas", o
+    assert {o["unidad"] for o in todos} == set(UNIDADES_OMITIDO)
+
+
+# ---------------------------------------------------------------------------
+# N-6: lo no pedido se declara siempre igual
+# ---------------------------------------------------------------------------
+@needs_torch
+def test_lo_no_pedido_se_declara_como_no_pedido_en_todas_las_partes(monkeypatch):
+    from matrixai.training.laboratorio import CapturaSpec
+    for entrenar in (lambda s: _entrenar(capturar=s, epochs=4)["laboratorio"],
+                     lambda s: _entrenar_playground(monkeypatch, "stdlib", epochs=3,
+                                                    capturar=s)["laboratorio"]):
+        lab = entrenar(CapturaSpec(gradientes=False, max_filas=0, pesos_finales=False,
+                                   max_epocas_muestra=0))
+        om = _omitidos(lab)
+        assert set(om) == {"grad_norm", "filas", "pesos_finales", "pesos_por_epoca"}
+        assert [lista for lista in om.values()
+                if (lista["pedido"], lista["aplicado"]) != (0, 0)] == []
+        assert lab["grad_norm"] is None and lab["filas"] is None
+        assert "No se pidieron" in om["grad_norm"]["motivo"]["es"]
+        assert "not requested" in om["grad_norm"]["motivo"]["en"]
+        assert "No se pidieron" in om["filas"]["motivo"]["es"]
+        assert "were requested" in om["filas"]["motivo"]["en"]
+        _sin_silencios(lab)
+    # Pidiéndolo todo, sin torch: los gradientes no se declaran DOS veces.
+    sin = _entrenar_playground(monkeypatch, "stdlib", epochs=3, capturar=CapturaSpec())
+    assert [o["que"] for o in sin["laboratorio"]["omitido"]].count("grad_norm") == 1
+
+
+# ---------------------------------------------------------------------------
+# N-7: las fronteras de los topes
+# ---------------------------------------------------------------------------
+def test_los_gradientes_no_pasan_del_total_aunque_el_tope_de_epocas_sea_mayor():
+    """N-7 (R11): el total de números manda sobre `max_epocas_grad`."""
+    from matrixai.training.laboratorio import CapturaSpec, planear
+    p = planear(CapturaSpec(max_numeros=100, max_epocas_grad=200), 10, 2, 200, 20, 4)
+    assert p["gradientes"] is True and p["n_epocas_grad"] == 25      # 25 épocas × 4 = 100
+    assert [o["que"] for o in p["omitido"]] == ["pesos_finales", "filas", "pesos_por_epoca"]
+    # Y ni una época cabe: se apaga y se dice.
+    p = planear(CapturaSpec(max_numeros=3), 10, 2, 200, 20, 4)
+    assert p["gradientes"] is False and p["n_epocas_grad"] == 0
+    assert _omitidos(p)["grad_norm"]["aplicado"] == 0
+
+
+@needs_torch
+def test_el_bloque_con_gradientes_no_pasa_del_total():
+    """N-7 (R11), de punta a punta: 60 épocas medidas, un total de 100 números."""
+    from matrixai.training.laboratorio import CapturaSpec
+    lab = _entrenar(capturar=CapturaSpec(max_numeros=100, max_filas=0), epochs=60)["laboratorio"]
+    assert len(lab["grad_norm"]["epocas"]) == 25 and lab["grad_norm"]["epocas_medidas"] == 60
+    assert lab["numeros"] <= 100 and lab["numeros_por_parte"]["grad_norm"] == 100
+    _sin_silencios(lab)
+
+
+def test_sin_torch_las_filas_se_cuentan_por_su_ancho_real(monkeypatch):
+    """N-7 (R12): sin torch, el tope de números recorta las filas con su ancho real."""
+    from matrixai.training.laboratorio import CapturaSpec
+    base = _entrenar_playground(monkeypatch, "stdlib", epochs=3, capturar=CapturaSpec())["laboratorio"]
+    n_params = base["parametros"]
+    ancho = len(base["filas"]["x"][0]) + len(base["filas"]["y"][0])
+    assert ancho > 2 and base["filas"]["de"] >= 8
+    tope = n_params + 3 * ancho + 1
+    lab = _entrenar_playground(monkeypatch, "stdlib", epochs=3,
+                               capturar=CapturaSpec(max_numeros=tope))["laboratorio"]
+    assert len(lab["filas"]["x"]) == 3 and _omitidos(lab)["filas"]["aplicado"] == 3
+    assert lab["numeros"] <= tope and lab["numeros_por_parte"] == _cuenta_partes(lab)
+    _sin_silencios(lab)
+
+
+def test_un_entrenamiento_fallido_no_lleva_bloque_de_laboratorio():
+    """N-7 (R13): sin `ok`, el resultado se devuelve tal cual; con `ok`, lleva el bloque."""
+    from matrixai import playground
+    from matrixai.training.laboratorio import CapturaSpec
+    motivo = ("no hay", "there is none")
+    fallido = {"ok": False, "error": "x", "backend": "torch"}
+    assert playground._sin_laboratorio(dict(fallido), CapturaSpec(), motivo) == fallido
+    bueno = playground._sin_laboratorio({"ok": True, "backend": "torch"}, CapturaSpec(), motivo)
+    assert bueno["laboratorio"]["disponible"] is False and "laboratorio_resumen" in bueno
+    assert "laboratorio" not in playground._sin_laboratorio({"ok": True}, None, motivo)

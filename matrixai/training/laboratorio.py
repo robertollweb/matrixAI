@@ -11,7 +11,9 @@ UNA vez.
 
 Regla: nada de lo que está aquí se inventa. Cada número del bloque sale del
 entrenamiento que ocurrió; lo que se pidió y no se guardó va en `omitido`, con lo
-pedido, lo aplicado y el motivo (en es y en).
+pedido, lo aplicado y el motivo (en es y en). `pedido` y `aplicado` son DATOS (números
+en la `unidad` que dice la misma entrada: `epocas`, `parametros`, `filas`); el texto para
+personas va solo en `motivo`.
 
 Sin `CapturaSpec` (el valor por omisión de todos los llamantes) no se construye
 nada de esto y el entrenamiento es byte a byte el de antes.
@@ -70,7 +72,8 @@ class CapturaSpec:
 
     - `gradientes`: norma del gradiente por capa y por época.
     - `pesos_finales`: los de la MEJOR época (los mismos de «Probar una fila»).
-    - `max_epocas_muestra`: épocas con pesos (siempre la primera, la mejor y la última).
+    - `max_epocas_muestra`: épocas con pesos (con 3 o más huecos, siempre la primera, la
+      mejor y la última; con menos, la mejor y la última).
     - `max_filas`: filas de validación YA preparadas que acompañan al bloque.
     - `max_numeros`: tope del TOTAL de números del bloque (ver `DEFINICION_NUMEROS`):
       pesos finales + pesos por época + normas de gradiente + filas. Se reparte en
@@ -78,8 +81,8 @@ class CapturaSpec:
     - `max_params_muestra`: por encima de esta red, no hay pesos por época.
     - `max_params_finales`: por encima de esta red, ni siquiera pesos finales.
     - `max_epocas_grad`: épocas con norma de gradiente guardada. Con más épocas, una
-      muestra repartida que incluye siempre la primera, la mejor y la última, y se
-      declara.
+      muestra repartida que incluye la primera, la mejor y la última (las que caben si
+      el tope es menor de 3), y se declara.
     - `max_lotes_grad_por_epoca`: lotes de cada época en los que se mide la norma del
       gradiente, repartidos: uno de cada k, k = ⌈lotes / tope⌉ (`lotes_cada`). Medido en
       el 133-C2: medirla en TODOS los lotes cuesta casi lo mismo por lote en cualquier red
@@ -156,9 +159,16 @@ def captura_de_demo() -> CapturaSpec:
 # Textos (es / en) — lo que redacta el core se traduce en el core.
 # ---------------------------------------------------------------------------
 
-def _omitido(que: str, pedido: Any, aplicado: Any, es: str, en: str,
-             **datos: Any) -> dict[str, Any]:
-    o = {"que": que, "pedido": pedido, "aplicado": aplicado,
+#: Unidades de `pedido` y `aplicado` en `omitido` (claves estables, no texto).
+UNIDADES_OMITIDO = ("epocas", "parametros", "filas")
+
+
+def _omitido(que: str, pedido: int, aplicado: int, es: str, en: str, *,
+             unidad: str, **datos: Any) -> dict[str, Any]:
+    """Una entrada de `omitido`. `pedido` y `aplicado` son NÚMEROS en la `unidad` dada
+    (`UNIDADES_OMITIDO`); `pedido` 0 = no se pidió. El texto va solo en `motivo` (es/en)."""
+    assert unidad in UNIDADES_OMITIDO, unidad
+    o = {"que": que, "pedido": int(pedido), "aplicado": int(aplicado), "unidad": unidad,
          "motivo": {"es": es, "en": en}}
     o.update(datos)
     return o
@@ -186,12 +196,12 @@ DE_PARTIDA = (
     "already had): the final weights are those starting weights (epoch 0).")
 
 
-def omitido_por_fallo(que: str, pedido: Any, textos: tuple[str, str], exc: BaseException,
-                      epoca: int | None = None) -> dict[str, Any]:
+def omitido_por_fallo(que: str, pedido: int, textos: tuple[str, str], exc: BaseException,
+                      epoca: int | None = None, *, unidad: str = "epocas") -> dict[str, Any]:
     datos: dict[str, Any] = {"error": type(exc).__name__}
     if epoca is not None:
         datos["epoca"] = epoca
-    return _omitido(que, pedido, 0, textos[0], textos[1], **datos)
+    return _omitido(que, pedido, 0, textos[0], textos[1], unidad=unidad, **datos)
 
 
 def _numeros_de_capas(capas: list[dict[str, Any]]) -> int:
@@ -217,7 +227,8 @@ def planear(spec: CapturaSpec, n_params: int, n_capas: int, epocas_pedidas: int,
     fila) → pesos por época (`n_params` cada una). Con las épocas PEDIDAS: las que
     corran de verdad son las mismas o menos, así que el bloque nunca pasa del tope.
 
-    Devuelve `{pesos_finales, n_muestra, gradientes, n_epocas_grad, n_filas, omitido}`;
+    Devuelve `{pesos_finales, n_muestra, pedido_muestra, gradientes, n_epocas_grad, n_filas,
+    omitido}`;
     `n_muestra` es el número MÁXIMO de épocas con pesos (primera + mejor + última
     incluidas) y `n_epocas_grad` el de épocas con gradiente. Función pura: lo mismo
     para los dos entrenadores (`con_gradientes=False` en el de sin torch, que no los
@@ -229,6 +240,10 @@ def planear(spec: CapturaSpec, n_params: int, n_capas: int, epocas_pedidas: int,
     # 1. Gradientes: pocos números, y lo primero.
     gradientes = bool(spec.gradientes and con_gradientes)
     n_epocas_grad = 0
+    if not spec.gradientes:
+        omitido.append(_omitido(
+            "grad_norm", 0, 0, "No se pidieron gradientes.", "Gradients were not requested.",
+            unidad="epocas"))
     if gradientes:
         por_epoca = 2 * max(1, int(n_capas))
         n_epocas_grad = min(spec.max_epocas_grad, restante // por_epoca)
@@ -236,11 +251,11 @@ def planear(spec: CapturaSpec, n_params: int, n_capas: int, epocas_pedidas: int,
             gradientes = False
             n_epocas_grad = 0
             omitido.append(_omitido(
-                "grad_norm", "gradientes por capa y época", 0,
+                "grad_norm", pedidas, 0,
                 f"Los topes ({spec.max_epocas_grad} épocas, {spec.max_numeros} números en "
                 f"total) no dejan guardar ninguna época de gradientes.",
                 f"The caps ({spec.max_epocas_grad} epochs, {spec.max_numeros} numbers in "
-                f"total) leave room for no epoch of gradients."))
+                f"total) leave room for no epoch of gradients.", unidad="epocas"))
         else:
             restante -= min(pedidas, n_epocas_grad) * por_epoca
 
@@ -250,15 +265,16 @@ def planear(spec: CapturaSpec, n_params: int, n_capas: int, epocas_pedidas: int,
     if not spec.pesos_finales:
         motivo_sin_finales = ("No se pidieron los pesos finales.",
                               "Final weights were not requested.")
-        omitido.append(_omitido("pesos_finales", "no pedidos", 0, *motivo_sin_finales))
+        omitido.append(_omitido("pesos_finales", 0, 0, *motivo_sin_finales, unidad="parametros"))
     elif n_params > spec.max_params_finales:
         pesos_finales = False
         motivo_sin_finales = (
             f"La red tiene {n_params} parámetros, más que el tope de {spec.max_params_finales} "
-            f"para guardar pesos: solo se guardan las normas de gradiente.",
+            f"para guardar pesos: no se guarda ninguno de los pesos de esta red.",
             f"The network has {n_params} parameters, above the {spec.max_params_finales} cap for "
-            f"storing weights: only gradient norms are stored.")
-        omitido.append(_omitido("pesos_finales", f"{n_params} parámetros", 0, *motivo_sin_finales))
+            f"storing weights: none of this network's weights are stored.")
+        omitido.append(_omitido("pesos_finales", n_params, 0, *motivo_sin_finales,
+                                unidad="parametros"))
     elif n_params > restante:
         pesos_finales = False
         motivo_sin_finales = (
@@ -266,27 +282,32 @@ def planear(spec: CapturaSpec, n_params: int, n_capas: int, epocas_pedidas: int,
             f"números del bloque.",
             f"The final weights ({n_params} numbers) do not fit the block's "
             f"{spec.max_numeros}-number cap.")
-        omitido.append(_omitido("pesos_finales", f"{n_params} parámetros", 0, *motivo_sin_finales))
+        omitido.append(_omitido("pesos_finales", n_params, 0, *motivo_sin_finales,
+                                unidad="parametros"))
     else:
         restante -= n_params
 
     # 3. Filas de validación.
     ancho = max(1, int(ancho_fila))
     n_filas = min(spec.max_filas, n_filas_validacion)
-    if n_filas * ancho > restante:
+    if spec.max_filas == 0:
+        omitido.append(_omitido(
+            "filas", 0, 0, "No se pidieron filas de validación.",
+            "No validation rows were requested.", unidad="filas"))
+    elif n_filas * ancho > restante:
         cabe = max(0, restante // ancho)
         omitido.append(_omitido(
-            "filas", f"{n_filas} filas", cabe,
+            "filas", n_filas, cabe,
             f"Las filas ({ancho} números cada una) no caben en el tope de {spec.max_numeros} "
             f"números del bloque: se guardan {cabe}.",
             f"The rows ({ancho} numbers each) do not fit the block's {spec.max_numeros}-number "
-            f"cap: {cabe} are stored."))
+            f"cap: {cabe} are stored.", unidad="filas"))
         n_filas = cabe
     elif n_filas < spec.max_filas:
         omitido.append(_omitido(
-            "filas", f"{spec.max_filas} filas", n_filas,
+            "filas", spec.max_filas, n_filas,
             f"La validación solo tiene {n_filas_validacion} filas.",
-            f"The validation set only has {n_filas_validacion} rows."))
+            f"The validation set only has {n_filas_validacion} rows.", unidad="filas"))
     restante -= n_filas * ancho
 
     # 4. Pesos por época: con lo que sobra.
@@ -294,33 +315,36 @@ def planear(spec: CapturaSpec, n_params: int, n_capas: int, epocas_pedidas: int,
     pedido = min(spec.max_epocas_muestra, pedidas)
     if spec.max_epocas_muestra == 0:
         omitido.append(_omitido(
-            "pesos_por_epoca", "0 épocas", 0,
-            "No se pidieron pesos por época.", "Per-epoch weights were not requested."))
+            "pesos_por_epoca", 0, 0,
+            "No se pidieron pesos por época.", "Per-epoch weights were not requested.",
+            unidad="epocas"))
     elif not pesos_finales:
         es, en = motivo_sin_finales or ("", "")
         omitido.append(_omitido(
-            "pesos_por_epoca", f"{pedido} épocas", 0,
+            "pesos_por_epoca", pedido, 0,
             f"Sin pesos finales no se guardan los de cada época. {es}",
-            f"Without final weights, no per-epoch weights are stored. {en}"))
+            f"Without final weights, no per-epoch weights are stored. {en}", unidad="epocas"))
     elif n_params > spec.max_params_muestra:
         omitido.append(_omitido(
-            "pesos_por_epoca", f"{pedido} épocas", 0,
+            "pesos_por_epoca", pedido, 0,
             f"La red tiene {n_params} parámetros, más que el tope de {spec.max_params_muestra} "
             f"para guardar pesos por época: solo se guardan los finales (los de la mejor época).",
             f"The network has {n_params} parameters, above the {spec.max_params_muestra} cap for "
-            f"per-epoch weights: only the final ones (the best epoch's) are stored."))
+            f"per-epoch weights: only the final ones (the best epoch's) are stored.",
+            unidad="epocas"))
     else:
         cabe = restante // n_params if n_params > 0 and restante > 0 else 0
         n_muestra = max(0, min(pedido, cabe))
         if n_muestra < pedido:
             omitido.append(_omitido(
-                "pesos_por_epoca", f"{pedido} épocas", n_muestra,
+                "pesos_por_epoca", pedido, n_muestra,
                 f"El tope de {spec.max_numeros} números del bloque solo da para "
                 f"{n_muestra} épocas con {n_params} parámetros cada una.",
                 f"The block's {spec.max_numeros}-number cap only fits {n_muestra} epochs "
-                f"of {n_params} parameters each."))
+                f"of {n_params} parameters each.", unidad="epocas"))
 
     return {"pesos_finales": pesos_finales, "n_muestra": n_muestra,
+            "pedido_muestra": pedido,
             "gradientes": gradientes, "n_epocas_grad": n_epocas_grad,
             "n_filas": n_filas, "omitido": omitido}
 
@@ -375,18 +399,31 @@ def elegir_muestra(disponibles: dict[int, Any], primera: int, mejor: int, ultima
 def muestrear_gradientes(hist: list[tuple[int, Any]], mejor: int, n: int
                          ) -> tuple[list[tuple[int, Any]], dict[str, Any] | None]:
     """Las épocas de gradiente que se guardan: todas si caben en `n`; si no, `n`
-    repartidas que incluyen SIEMPRE la primera, la mejor y la última (`elegir_muestra`),
-    y el `omitido` que lo declara. `hist` = `[(época, valores)]` en orden."""
+    repartidas (`elegir_muestra`) y el `omitido` que lo declara, cuyo texto dice cuáles
+    de la primera, la mejor y la última entraron DE VERDAD (con `n` < 3 no caben las
+    tres). `hist` = `[(época, valores)]` en orden."""
     if len(hist) <= n:
         return hist, None
     por_epoca = dict(hist)
-    elegidas = [e for e, _m in elegir_muestra(por_epoca, hist[0][0], mejor, hist[-1][0], n)]
+    elegidas_m = elegir_muestra(por_epoca, hist[0][0], mejor, hist[-1][0], n)
+    elegidas = [e for e, _m in elegidas_m]
+    es_n = {"primera": "la primera", "mejor": "la mejor", "ultima": "la última"}
+    en_n = {"primera": "the first", "mejor": "the best", "ultima": "the last"}
+    orden = [k for k in ("primera", "mejor", "ultima")
+             if any(k in m for _e, m in elegidas_m)]
+    if not orden:
+        ent_es, ent_en = "", ""
+    else:
+        def _y(nombres: list[str], y: str) -> str:
+            return nombres[0] if len(nombres) == 1 else ", ".join(nombres[:-1]) + f" {y} " + nombres[-1]
+        ent_es = f" (entre ellas, {_y([es_n[k] for k in orden], 'y')})"
+        ent_en = f" (among them, {_y([en_n[k] for k in orden], 'and')})"
     return [(e, por_epoca[e]) for e in elegidas], _omitido(
-        "grad_norm", f"{len(hist)} épocas", len(elegidas),
-        f"Se midió el gradiente en {len(hist)} épocas; los topes dejan guardar {n}, repartidas "
-        f"(siempre la primera, la mejor y la última).",
-        f"The gradient was measured in {len(hist)} epochs; the caps allow storing {n}, spread "
-        f"out (always the first, the best and the last).")
+        "grad_norm", len(hist), len(elegidas),
+        f"Se midió el gradiente en {len(hist)} épocas; los topes dejan guardar {n}, "
+        f"repartidas{ent_es}.",
+        f"The gradient was measured in {len(hist)} epochs; the caps allow storing {n}, "
+        f"spread out{ent_en}.", unidad="epocas")
 
 
 # ---------------------------------------------------------------------------
@@ -453,18 +490,49 @@ def capas_de(network: Any, formas: list[tuple[int, int]]) -> list[dict[str, Any]
     return out
 
 
+def _reconciliar_muestra(omitido: list[dict[str, Any]], plan: dict[str, Any],
+                         muestra: list[Any] | None, epocas_corridas: int | None) -> None:
+    """`aplicado` = las épocas con pesos que SE GUARDARON (N-4): el plan solo sabe el máximo.
+    Si ya hay un `omitido` de los pesos por época, se corrige su `aplicado`; si no hay y
+    la muestra de {mejor, última} (menos de 3 huecos) se quedó corta porque son la misma
+    época, se declara."""
+    if plan.get("n_muestra", 0) <= 0 or muestra is None:
+        return
+    guardadas = len(muestra)
+    existente = [o for o in omitido if o["que"] == "pesos_por_epoca"]
+    if existente:
+        for o in existente:
+            if o["aplicado"] != 0 and o["aplicado"] != guardadas and not o.get("error"):
+                o["aplicado"] = guardadas
+        return
+    n = plan["n_muestra"]
+    if n < 3 and epocas_corridas is not None and guardadas < min(n, epocas_corridas):
+        omitido.append(_omitido(
+            "pesos_por_epoca", plan.get("pedido_muestra", n), guardadas,
+            f"Con menos de 3 huecos para épocas solo se guardan la mejor y la última, y aquí "
+            f"son la misma época: se guardó {guardadas}.",
+            f"With fewer than 3 slots for epochs only the best and the last are stored, and "
+            f"here they are the same epoch: {guardadas} stored.", unidad="epocas"))
+
+
 def armar_bloque(*, entrenador: str, network: Any, plan: dict[str, Any],
                  finales: list[dict[str, Any]] | None, epoca_final: int | None,
                  muestra: list[tuple[int, list[str], list[dict[str, Any]]]] | None,
                  grad: dict[str, Any] | None, filas: dict[str, Any] | None,
                  spec: CapturaSpec, n_params: int, forma: list[dict[str, Any]],
                  extra_omitido: list[dict[str, Any]] | None = None,
-                 parciales: list[int] | None = None) -> dict[str, Any]:
+                 parciales: list[int] | None = None,
+                 epocas_corridas: int | None = None) -> dict[str, Any]:
     """Ensambla el bloque `laboratorio`. `forma` ya trae la geometría de las capas.
+
+    `epocas_corridas`: las épocas que corrieron de verdad (solo el entrenador de torch).
+    El `aplicado` de los pesos por época es lo GUARDADO de verdad: con menos de 3 huecos
+    no se programa ninguna época y la muestra es {mejor, última}, que puede ser una sola.
 
     `parciales`: épocas que acabaron A MEDIAS (por `plazo`); sus pesos llevan
     `parcial: True` (en la muestra y en los finales), igual que su gradiente."""
     omitido = list(plan["omitido"]) + list(extra_omitido or [])
+    _reconciliar_muestra(omitido, plan, muestra, epocas_corridas)
     a_medias = set(parciales or [])
     pesos_finales = None
     if finales is not None:
@@ -582,18 +650,18 @@ def bloque_sin_torch(network: Any, parametros: dict[str, dict[str, Any]], epoca:
         # no los guarda nunca.
         plan["omitido"] = [o for o in plan["omitido"] if o["que"] != "pesos_por_epoca"]
         plan["omitido"].append(_omitido(
-            "pesos_por_epoca", f"{min(spec.max_epocas_muestra, max(1, epocas_pedidas))} épocas", 0,
+            "pesos_por_epoca", min(spec.max_epocas_muestra, max(1, epocas_pedidas)), 0,
             "Esta ejecución se entrenó sin torch: ese entrenador no guarda los pesos de cada "
             "época, solo los finales.",
             "This run was trained without torch: that trainer does not keep each epoch's "
-            "weights, only the final ones."))
+            "weights, only the final ones.", unidad="epocas"))
     if spec.gradientes:
         plan["omitido"].append(_omitido(
-            "grad_norm", "gradientes por capa y época", 0,
+            "grad_norm", max(1, epocas_pedidas), 0,
             "Esta ejecución se entrenó sin torch: los gradientes por capa solo se miden con el "
             "entrenador de torch.",
             "This run was trained without torch: per-layer gradients are only measured by the "
-            "torch trainer."))
+            "torch trainer.", unidad="epocas"))
     finales = capas if plan["pesos_finales"] else None
     forma = capas_de(network, [(len(c["W"]), len(c["W"][0])) for c in capas])
     return armar_bloque(

@@ -131,7 +131,7 @@ def _bloque_laboratorio(network, module, capturar, plan, best_state, best_epoch,
         entrenador="torch", network=network, plan=plan, finales=finales,
         epoca_final=best_epoch, muestra=muestra, grad=grad, filas=filas,
         spec=capturar, n_params=param_count, forma=forma, extra_omitido=extra,
-        parciales=list(parciales))
+        parciales=list(parciales), epocas_corridas=ultima or 0)
 
 
 def train_dense_network_torch(
@@ -218,7 +218,8 @@ def train_dense_network_torch(
     omisión) pide guardar lo MEDIDO de este entrenamiento, para poder enseñarlo:
     las normas del gradiente por capa y por época, los pesos y sesgos finales (los
     de la MEJOR época: los mismos `best_params` de «Probar una fila»), los pesos de
-    una muestra de épocas (siempre la primera, la mejor y la última) y ~20 filas de
+    una muestra de épocas (con 3 o más huecos, siempre la primera, la mejor y la última; con
+    menos, la mejor y la última) y ~20 filas de
     validación ya preparadas. Va en `resultado["laboratorio"]`; lo que no cupo en
     los topes, en `laboratorio["omitido"]`. Con `capturar=None` NO se crea ningún
     acumulador ni se clona nada, no se toca el generador aleatorio y el resultado
@@ -389,8 +390,7 @@ def train_dense_network_torch(
                         cap_acc = None
                         cap_hist = []
                         cap_fallos.append(_lab.omitido_por_fallo(
-                            "grad_norm", "gradientes por capa y época", _lab.FALLO_GRADIENTE,
-                            _exc, epoca=epoch))
+                            "grad_norm", epochs, _lab.FALLO_GRADIENTE, _exc, epoca=epoch))
                 optimizer.step()
                 epoch_loss += float(loss.detach())
                 n_batches += 1
@@ -433,8 +433,7 @@ def train_dense_network_torch(
                         cap_acc = None
                         cap_hist = []
                         cap_fallos.append(_lab.omitido_por_fallo(
-                            "grad_norm", "gradientes por capa y época", _lab.FALLO_GRADIENTE,
-                            _exc, epoca=epoch))
+                            "grad_norm", epochs, _lab.FALLO_GRADIENTE, _exc, epoca=epoch))
                 if epoca_a_medias:
                     cap_parciales.append(epoch)
                 if epoch in cap_programadas and cap_estados is not None:
@@ -443,7 +442,7 @@ def train_dense_network_torch(
                     except Exception as _exc:  # noqa: BLE001
                         cap_estados = None
                         cap_fallos.append(_lab.omitido_por_fallo(
-                            "pesos_por_epoca", f"{cap_plan['n_muestra']} épocas",
+                            "pesos_por_epoca", cap_plan["n_muestra"],
                             _lab.FALLO_PESOS_POR_EPOCA, _exc, epoca=epoch))
 
             entry = {"epoch": epoch, "loss": train_loss_val, "val_loss": val_loss}
@@ -468,7 +467,7 @@ def train_dense_network_torch(
             except Exception as _exc:  # noqa: BLE001
                 cap_estados = None
                 cap_fallos.append(_lab.omitido_por_fallo(
-                    "pesos_por_epoca", f"{cap_plan['n_muestra']} épocas",
+                    "pesos_por_epoca", cap_plan["n_muestra"],
                     _lab.FALLO_PESOS_POR_EPOCA, _exc, epoca=cap_ultima))
 
         # Restaurar el mejor estado (clon barato en device, sin conversión).
