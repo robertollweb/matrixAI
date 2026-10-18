@@ -1987,6 +1987,7 @@ def _dense_torch_train_result(
     target_range: tuple[float, float] | None = None,
     plazo: float | None = None,
     objetivo_sin_recorte: frozenset[str] = frozenset(),
+    capturar: Any = None,
 ) -> dict[str, Any]:
     """GPU-C3 — train a dense_network with the torch trainer and build the SAME
     result shape as the stdlib path (so snapshot/infer/export/M3 metrics are
@@ -1996,7 +1997,10 @@ def _dense_torch_train_result(
     reanuda el entrenamiento desde esos pesos — ver `train_dense_network_torch`.
 
     CONTRATO 59 C1: `target_range` reescala MAE/RMSE a la unidad real del
-    target — ver `result_from_predictions`."""
+    target — ver `result_from_predictions`.
+
+    CONTRATO 133-C2: `capturar` (`CapturaSpec | None`) pide el laboratorio; ver
+    `train_dense_network_torch`. Sin él, el resultado es idéntico al de siempre."""
     target_scale = (
         (target_range[1] - target_range[0]) if target_range is not None else None
     )
@@ -2119,6 +2123,10 @@ def _dense_torch_train_result(
             initial_state_dict=initial_state_dict,
             # Parar a tiempo y quedarse con la mejor época (ver el trainer).
             plazo=plazo,
+            # 133-C2: el laboratorio. Los nombres de columna y de clase los conoce
+            # este llamante, no el entrenador.
+            capturar=(capturar.con_nombres(list(vector.fields), labels)
+                      if capturar is not None else None),
         )
         # Visible en Colab: batch del spec (autogenerado = 8) vs el efectivo en GPU.
         _diag(f"entrenamiento OK en {device}: batch spec={batch_size} → efectivo={tr.get('batch_size')} "
@@ -2231,6 +2239,11 @@ def _dense_torch_train_result(
         },
         "evaluation_report": evaluation_report,
     }
+    if tr.get("laboratorio") is not None:
+        # El bloque entero (grande) queda en el job; al estado público solo sube el
+        # resumen (`_NON_PUBLIC_TRAINING_KEYS`).
+        result["laboratorio"] = tr["laboratorio"]
+        result["laboratorio_resumen"] = _resumen_del_laboratorio(tr["laboratorio"])
     if _collapse is not None:
         result["model_collapsed"] = bool(_collapse["collapsed"])
         if _collapse["collapsed"]:
@@ -2256,8 +2269,14 @@ def _run_playground_dense_training(
     target_range: tuple[float, float] | None = None,
     plazo: float | None = None,
     objetivo_sin_recorte: frozenset[str] = frozenset(),
+    capturar: Any = None,
 ) -> dict[str, Any]:
     """Synchronous training for NETWORK (dense) models using DenseSupervisedTrainer.
+
+    CONTRATO 133-C2: `capturar` (`CapturaSpec | None`, apagado por omisión) pide el
+    bloque `laboratorio`: con torch lo trae el entrenador de torch completo; si se
+    cae al camino stdlib trae solo los pesos finales y las filas, y DECLARA lo que
+    falta. Sin él, nada cambia.
 
     PESOS_GRANDES C5: `initial_state_dict` solo se honra en el camino torch
     (reanudar entrenamiento desde tensores guardados); el fallback stdlib lo
@@ -2304,7 +2323,8 @@ def _run_playground_dense_training(
                                              device, seed, epoch_callback, cancel_check,
                                              initial_state_dict=initial_state_dict,
                                              target_range=target_range, plazo=plazo,
-                                             objetivo_sin_recorte=objetivo_sin_recorte)
+                                             objetivo_sin_recorte=objetivo_sin_recorte,
+                                             capturar=capturar)
         except _TrainingCancelled:
             raise
         except Exception as exc:  # noqa: BLE001  — never let GPU break training: fall back
@@ -2330,6 +2350,18 @@ def _run_playground_dense_training(
     # trainer la aplica y la declara en su traza.
     _rango_eleccion = _rango_para_elegir(training, objetivo_sin_recorte)
 
+    _entrenador_stdlib = DenseSupervisedTrainer()
+    _captura_stdlib = None
+    if capturar is not None:
+        try:
+            from matrixai.training.dense_trainer import _labels_from_spec
+            _prog = parse_text(mxai_text)
+            _vec = {v.name: v for v in _prog.vectors}.get(_prog.networks[0].input)
+            _captura_stdlib = capturar.con_nombres(
+                list(_vec.fields) if _vec is not None else None, _labels_from_spec(training))
+        except Exception:  # noqa: BLE001 — sin nombres, la captura sigue valiendo
+            _captura_stdlib = capturar
+
     def _do_train(tmp: Path) -> None:
         try:
             (tmp / Path(training.model).name).write_text(mxai_text, encoding="utf-8")
@@ -2337,10 +2369,11 @@ def _run_playground_dense_training(
             training_path = tmp / "training.mxtrain"
             training_path.write_text(training_text, encoding="utf-8")
             run_dir = tmp / "run"
-            run_result = DenseSupervisedTrainer().train(
+            run_result = _entrenador_stdlib.train(
                 spec, output_dir=run_dir, base_path=tmp, training_path=training_path,
                 epoch_callback=_internal_cb, seed=seed,
                 rango_objetivo_eleccion=_rango_eleccion,
+                capturar=_captura_stdlib,
             )
             result_holder["run"] = (run_result, tmp, spec)
         except Exception as exc:  # noqa: BLE001
@@ -2361,6 +2394,10 @@ def _run_playground_dense_training(
         result = _collect_training_result(tmp2, run_result, spec2, target_range=target_range)
         # DenseSupervisedTrainer doesn't write metrics.json; patch epochs from local callback.
         result["epochs"] = epoch_trace
+        if getattr(_entrenador_stdlib, "laboratorio", None) is not None:
+            result["laboratorio"] = _entrenador_stdlib.laboratorio
+            result["laboratorio_resumen"] = _resumen_del_laboratorio(
+                _entrenador_stdlib.laboratorio)
         return result
 
 
@@ -3044,8 +3081,18 @@ def _run_playground_training(
     seed: int = 42,
     plazo: float | None = None,
     recortar_objetivo: bool = True,
+    capturar: Any = None,
 ) -> dict[str, Any]:
     """Synchronous training — used by tests and /api/train endpoint.
+
+    CONTRATO 133-C2 — `capturar` (`matrixai.training.laboratorio.CapturaSpec | None`,
+    `None` por omisión = apagado, resultado idéntico al de antes) pide el LABORATORIO
+    de la red: lo medido del entrenamiento (normas de gradiente, pesos finales y de
+    una muestra de épocas, filas de validación). El bloque entero va en
+    `result["laboratorio"]` —que el estado público quita— y su resumen en
+    `result["laboratorio_resumen"]`. Una red compuesta o un transformer no lo traen y
+    lo dicen (`laboratorio.disponible = False` con su motivo). Los topes viajan en la
+    propia `CapturaSpec` (la demo usa `captura_de_demo()`).
 
     CONTRATO 61 C4: paridad de normalización con `_submit_training_job` /
     `/api/train-start`. Sin `field_ranges`, un CSV en escala de dominio (p.ej.
@@ -3147,17 +3194,19 @@ def _run_playground_training(
         # target de regresión normalizado a [0,1] dejaría MAE/RMSE en espacio
         # normalizado y no se desnormalizaría a la unidad real por la ruta REST.
         if _network_is_transformer(mxai_text):
-            return _run_playground_transformer_training(
+            return _sin_laboratorio(_run_playground_transformer_training(
                 mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
-                seed=seed, objetivo_sin_recorte=sin_recorte)
+                seed=seed, objetivo_sin_recorte=sin_recorte),
+                capturar, *_SIN_LAB_TRANSFORMER, "torch")
         # M2-C2: route composite (P19) networks to the composite trainer
         if _network_is_composite(mxai_text):
-            return _run_playground_composite_training(
+            return _sin_laboratorio(_run_playground_composite_training(
                 mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
-                seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte)
+                seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte),
+                capturar, *_SIN_LAB_COMPUESTA, "torch")
         return _run_playground_dense_training(
             mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
-            seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte)
+            seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte, capturar=capturar)
 
     validation = _validate_training_csv(mxai_text, training_text, csv_text)
     if not validation.get("ok"):
@@ -3944,7 +3993,41 @@ def _attach_collapse_check(result: Any, mxai_text: str) -> Any:
 # C3: campos internos de un resultado de entrenamiento que NUNCA deben salir por
 # HTTP — `best_state_dict` son tensores torch (no JSON-serializables; los pesos del
 # modelo grande viven en la memoria del job y los lee save/export directamente).
-_NON_PUBLIC_TRAINING_KEYS = ("best_state_dict",)
+_NON_PUBLIC_TRAINING_KEYS = ("best_state_dict", "laboratorio")
+
+
+def _resumen_del_laboratorio(bloque: Any) -> Any:
+    """133-C2: lo único del bloque `laboratorio` que viaja en el estado público."""
+    from matrixai.training.laboratorio import resumen_del_bloque
+    return resumen_del_bloque(bloque)
+
+
+def _sin_laboratorio(result: Any, capturar: Any, motivo_es: str, motivo_en: str,
+                     entrenador: str | None) -> Any:
+    """133-C2: quien NO trae laboratorio (TabM/compuestas, transformer) lo DICE si se
+    le pidió, en vez de callar: `laboratorio` con `disponible: False` y su motivo, sin
+    pesos. Sin petición (`capturar=None`) o con un fallo, devuelve el resultado tal cual."""
+    if capturar is None or not isinstance(result, dict) or not result.get("ok"):
+        return result
+    from matrixai.training.laboratorio import bloque_no_disponible
+    bloque = bloque_no_disponible(motivo_es, motivo_en, entrenador)
+    result["laboratorio"] = bloque
+    result["laboratorio_resumen"] = _resumen_del_laboratorio(bloque)
+    return result
+
+
+_SIN_LAB_COMPUESTA = (
+    "Esta red compuesta (TabM y similares) no es una red para ver por dentro: es un ensamblado "
+    "de muchas redes pequeñas que comparten pesos, con las columnas transformadas antes de "
+    "entrar. El laboratorio es para tu red densa.",
+    "This composite network (TabM and similar) is not a network to look inside: it is an "
+    "ensemble of many small networks sharing weights, with the columns transformed before "
+    "entering. The laboratory is for your dense network.")
+_SIN_LAB_TRANSFORMER = (
+    "Un transformer no tiene laboratorio: sus pesos no son capas densas que se puedan dibujar "
+    "neurona a neurona.",
+    "A transformer has no laboratory: its weights are not dense layers that can be drawn "
+    "neuron by neuron.")
 
 
 def _public_training_result(result: Any) -> Any:
@@ -4134,8 +4217,13 @@ def _submit_training_job(
     csv_serialization_version: str | None = None,
     dataset_mode: str | None = None,
     recortar_objetivo: bool = True,
+    capturar: Any = None,
 ) -> dict[str, Any]:
     """Start async training job. Returns {ok, job_id} immediately.
+
+    CONTRATO 133-C2: `capturar` (`CapturaSpec | None`, apagado por omisión) pide el
+    laboratorio de la red densa; ver `_run_playground_training`. Queda en
+    `job["result"]["laboratorio"]`; el estado público solo lleva su resumen.
 
     M8-A3: `seed` drives parameter initialization; a different seed is the
     actionable retry for a collapsed (dying-ReLU) model.
@@ -4545,18 +4633,18 @@ def _submit_training_job(
                 # SECUENCIAS_PRODUCTO C4: checked FIRST — ver
                 # _network_is_transformer.
                 if _network_is_transformer(mxai_text):
-                    result = _run_playground_transformer_training(
+                    result = _sin_laboratorio(_run_playground_transformer_training(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check, target_range=target_range,
                         objetivo_sin_recorte=sin_recorte,
-                    )
+                    ), capturar, *_SIN_LAB_TRANSFORMER, "torch")
                 # M2-C2: composite (P19) networks use the composite trainer
                 elif _network_is_composite(mxai_text):
-                    result = _run_playground_composite_training(
+                    result = _sin_laboratorio(_run_playground_composite_training(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check, target_range=target_range,
                         objetivo_sin_recorte=sin_recorte,
-                    )
+                    ), capturar, *_SIN_LAB_COMPUESTA, "torch")
                 else:
                     # PESOS_GRANDES C5: reanudar desde `initial_state_dict` solo
                     # aplica al camino dense (no composite).
@@ -4564,6 +4652,7 @@ def _submit_training_job(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check, initial_state_dict=initial_state_dict,
                         target_range=target_range, objetivo_sin_recorte=sin_recorte,
+                        capturar=capturar,
                     )
                 if cancel_event.is_set():
                     job["status"] = "timeout" if job.get("_timed_out") else "cancelled"
