@@ -1877,8 +1877,17 @@ def _collect_training_result(
 MODO_TORCH_EN_CPU = "torch_cpu"
 
 
-def _select_train_backend() -> tuple[bool, str]:
+def _select_train_backend(preferir_torch: bool = False) -> tuple[bool, str]:
     """GPU-C3 — (use_torch, device) for Studio training.
+
+    CONTRATO 133 (decisión de Roberto del 18-10, la A): `preferir_torch=True` lo pide
+    el LABORATORIO (tu red en el modo experto) en cada entrenamiento: con torch
+    instalado y en 'auto', entrena con torch también sin CUDA (en CPU), porque el
+    laboratorio necesita sus controles (adam, adamw, weight_decay, schedule) y lo que
+    solo mide ese entrenador (gradientes, pesos por época). La regla global no cambia:
+    sin `preferir_torch`, 'auto' sigue siendo «CUDA o stdlib», y un `stdlib` EXPLÍCITO
+    del operador sigue mandando sobre la petición. Sin torch instalado, stdlib, y lo
+    dice el `backend` del resultado.
 
     Policy via MATRIXAI_TRAIN_BACKEND: 'auto' (default) → torch on CUDA when
     available, else stdlib; 'torch' → force the torch path (cuda if present, else
@@ -1900,7 +1909,7 @@ def _select_train_backend() -> tuple[bool, str]:
         cuda = bool(torch.cuda.is_available())
     except Exception:  # noqa: BLE001
         return (False, "cpu")
-    if mode == "torch":
+    if mode == "torch" or preferir_torch:
         return (True, "cuda" if cuda else "cpu")
     return (cuda, "cuda" if cuda else "cpu")  # auto
 
@@ -2273,8 +2282,12 @@ def _run_playground_dense_training(
     plazo: float | None = None,
     objetivo_sin_recorte: frozenset[str] = frozenset(),
     capturar: Any = None,
+    preferir_torch_en_cpu: bool = False,
 ) -> dict[str, Any]:
     """Synchronous training for NETWORK (dense) models using DenseSupervisedTrainer.
+
+    CONTRATO 133: `preferir_torch_en_cpu` (lo pide el laboratorio) entrena con torch
+    también sin CUDA si torch está instalado; ver `_select_train_backend`.
 
     CONTRATO 133-C2: `capturar` (`CapturaSpec | None`, apagado por omisión) pide el
     bloque `laboratorio`: con torch lo trae el entrenador de torch completo; si se
@@ -2305,7 +2318,10 @@ def _run_playground_dense_training(
 
     # GPU-C3: when a GPU/torch backend is selected, train with the torch trainer
     # (batched — this is where GPU helps); otherwise fall through to stdlib.
-    use_torch, device = _select_train_backend()
+    # 133: el argumento solo viaja si se pide (hay pruebas que sustituyen la política por
+    # una función sin parámetros).
+    use_torch, device = (_select_train_backend(preferir_torch=True) if preferir_torch_en_cpu
+                         else _select_train_backend())
     # Diagnóstico clave: por qué se usa (o no) la GPU. Si use_torch=False con una GPU
     # presente, el entrenamiento va por stdlib/CPU (lento, GPU ociosa). Reporta el motivo.
     _ta = _tcuda = "?"
@@ -3085,8 +3101,12 @@ def _run_playground_training(
     plazo: float | None = None,
     recortar_objetivo: bool = True,
     capturar: Any = None,
+    preferir_torch_en_cpu: bool = False,
 ) -> dict[str, Any]:
     """Synchronous training — used by tests and /api/train endpoint.
+
+    CONTRATO 133: `preferir_torch_en_cpu` (lo pide el laboratorio, apagado por omisión)
+    solo afecta a la red DENSA: ver `_select_train_backend`.
 
     CONTRATO 133-C2 — `capturar` (`matrixai.training.laboratorio.CapturaSpec | None`,
     `None` por omisión = apagado, resultado idéntico al de antes) pide el LABORATORIO
@@ -3211,7 +3231,8 @@ def _run_playground_training(
                 capturar, lambda: _motivo_sin_lab_compuesta(mxai_text))
         return _run_playground_dense_training(
             mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
-            seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte, capturar=capturar)
+            seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte, capturar=capturar,
+            preferir_torch_en_cpu=preferir_torch_en_cpu)
 
     validation = _validate_training_csv(mxai_text, training_text, csv_text)
     if not validation.get("ok"):
@@ -4283,8 +4304,12 @@ def _submit_training_job(
     dataset_mode: str | None = None,
     recortar_objetivo: bool = True,
     capturar: Any = None,
+    preferir_torch_en_cpu: bool = False,
 ) -> dict[str, Any]:
     """Start async training job. Returns {ok, job_id} immediately.
+
+    CONTRATO 133: `preferir_torch_en_cpu` (lo pide el laboratorio, apagado por omisión)
+    solo afecta a la red DENSA: ver `_select_train_backend`.
 
     CONTRATO 133-C2: `capturar` (`CapturaSpec | None`, apagado por omisión) pide el
     laboratorio de la red densa; ver `_run_playground_training`. Queda en
@@ -4717,7 +4742,7 @@ def _submit_training_job(
                         mxai_text, training_text, csv_text, epochs_override, epoch_callback=epoch_cb,
                         seed=seed, cancel_check=cancel_check, initial_state_dict=initial_state_dict,
                         target_range=target_range, objetivo_sin_recorte=sin_recorte,
-                        capturar=capturar,
+                        capturar=capturar, preferir_torch_en_cpu=preferir_torch_en_cpu,
                     )
                 if cancel_event.is_set():
                     job["status"] = "timeout" if job.get("_timed_out") else "cancelled"
