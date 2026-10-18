@@ -15,6 +15,7 @@ velocidad cuando hay GPU. La selección de backend y el fallback viven en el Stu
 """
 from __future__ import annotations
 
+import math
 import time
 from typing import Any, Callable
 
@@ -84,21 +85,24 @@ def _capas_a_listas(estado: list[Any]) -> list[dict[str, Any]]:
 def _bloque_laboratorio(network, module, capturar, plan, best_state, best_epoch,
                         estados, ultima, hist, parciales, val_ex, loss_fn,
                         param_count, torch, cada_k=1, n_lotes=0,
-                        fallos=None) -> dict[str, Any]:
+                        fallos=None, sin_mejora=False) -> dict[str, Any]:
     """133-C2 — arma el bloque `laboratorio` con lo que el bucle fue guardando.
 
     `val_ex` es la validación ENTERA y preparada (de ella salen las filas); `fallos`,
     los `omitido` de una captura que se apagó a medias (ver el bucle)."""
     from matrixai.training import laboratorio as lab
 
+    # N-3 (re-auditoría del C2 del Studio): si NINGUNA época mejoró la pérdida de validación (divergió: no finita), el
+    # mejor estado es el de ANTES de entrenar. Es la época 0 —los pesos de partida—, no «la 1, la mejor».
+    epoca_de_los_finales = 0 if sin_mejora else best_epoch
     finales = _capas_a_listas(best_state) if plan["pesos_finales"] else None
     muestra = None
     if plan["n_muestra"] > 0 and finales is not None and estados is not None:
         disp = dict(estados)
-        disp[best_epoch] = best_state
+        disp[epoca_de_los_finales] = best_state
         elegidas = lab.elegir_muestra(
-            disp, 1 if 1 in disp else min(disp), best_epoch,
-            ultima if ultima is not None else best_epoch, plan["n_muestra"])
+            disp, 1 if 1 in disp else min(disp), epoca_de_los_finales,
+            ultima if ultima is not None else epoca_de_los_finales, plan["n_muestra"])
         # Época 0 = los pesos de PARTIDA (arranque en caliente sin mejora): se dice.
         muestra = [(e, (m + ["partida"]) if e == 0 else m, _capas_a_listas(disp[e]))
                    for e, m in elegidas]
@@ -129,9 +133,10 @@ def _bloque_laboratorio(network, module, capturar, plan, best_state, best_epoch,
         network, [(lin.out_features, lin.in_features) for lin in module.linears])
     return lab.armar_bloque(
         entrenador="torch", network=network, plan=plan, finales=finales,
-        epoca_final=best_epoch, muestra=muestra, grad=grad, filas=filas,
+        epoca_final=epoca_de_los_finales, muestra=muestra, grad=grad, filas=filas,
         spec=capturar, n_params=param_count, forma=forma, extra_omitido=extra,
-        parciales=list(parciales), epocas_corridas=ultima or 0)
+        parciales=list(parciales), epocas_corridas=ultima or 0,
+        **({"motivo_de_partida": lab.DE_PARTIDA_SIN_MEJORA} if sin_mejora else {}))
 
 
 def train_dense_network_torch(
@@ -503,7 +508,8 @@ def train_dense_network_torch(
                     network, module, capturar, cap_plan, best_state, best_epoch,
                     cap_estados, cap_ultima, cap_hist, cap_parciales, cap_val, loss_fn,
                     param_count, torch, cada_k=cap_cada, n_lotes=cap_n_lotes,
-                    fallos=cap_fallos)
+                    fallos=cap_fallos,
+                    sin_mejora=(initial_state_dict is None and not math.isfinite(best_val_loss)))
             except Exception as exc:  # noqa: BLE001 — la captura nunca tumba el entrenamiento
                 laboratorio = _lab.bloque_por_fallo(exc, "torch")
 

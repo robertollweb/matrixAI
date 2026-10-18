@@ -1600,3 +1600,42 @@ def test_un_entrenamiento_fallido_no_lleva_bloque_de_laboratorio():
     bueno = playground._sin_laboratorio({"ok": True, "backend": "torch"}, CapturaSpec(), motivo)
     assert bueno["laboratorio"]["disponible"] is False and "laboratorio_resumen" in bueno
     assert "laboratorio" not in playground._sin_laboratorio({"ok": True}, None, motivo)
+
+
+
+@needs_torch
+def test_un_entrenamiento_que_diverge_declara_sus_pesos_finales_como_los_de_partida():
+    """Re-auditoría del C2 del Studio (18-10, N-3): con la pérdida de validación no finita en TODAS las épocas, ninguna
+    mejora la de partida y el entrenador se queda con los pesos de antes de entrenar. El bloque los daba como «época 1 ·
+    la mejor»; son la época 0, y lo dice con su motivo (no el del arranque en caliente)."""
+    import math as _m
+    from matrixai.training import laboratorio as lab
+    from matrixai.training.dense_torch_trainer import train_dense_network_torch
+    net, ps = _setup(MXAI_UNA_CAPA)
+    ps.parameters["Net.W1"]["values"] = [[0.3, -0.2]]
+    ps.parameters["Net.b1"]["values"] = [-0.1]
+    # Una validación con un NaN: la pérdida de validación es no finita en TODAS las épocas (lo que pasa cuando la red
+    # diverge), mientras el entrenamiento corre sobre filas finitas. Es determinista, a diferencia de un ritmo enorme.
+    # Con `mse`, como la regresión de la re-auditoría (la entropía cruzada de torch rechaza el NaN en vez de darlo).
+    r = train_dense_network_torch(
+        net, ps, FILAS, "mse", lr=0.1, epochs=4, device="cpu", seed=5, batch_size=1,
+        materialize=True, validation_examples=[([float("nan"), 0.1], [1.0])] + FILAS[:1],
+        capturar=lab.CapturaSpec(max_filas=0))
+    assert all(not _m.isfinite(e["val_loss"]) for e in r["epochs"]), r["epochs"]
+    f = r["laboratorio"]["pesos_finales"]
+    assert f["epoca"] == 0 and f.get("de_partida") is True, f
+    assert f["motivo"]["es"] == lab.DE_PARTIDA_SIN_MEJORA[0] and f["motivo"]["en"] == lab.DE_PARTIDA_SIN_MEJORA[1]
+    # Son de verdad los de antes de entrenar.
+    assert f["capas"][0]["W"][0] == pytest.approx([0.3, -0.2], abs=1e-6)     # float32
+    assert f["capas"][0]["b"] == pytest.approx([-0.1], abs=1e-6)
+    # Y en la muestra, la «mejor» es la 0, marcada como de partida; ninguna época entrenada se llama «mejor».
+    for m in r["laboratorio"].get("pesos_por_epoca") or []:
+        if "mejor" in m["motivo"]:
+            assert m["epoca"] == 0 and "partida" in m["motivo"], m["motivo"]
+
+
+@needs_torch
+def test_un_entrenamiento_normal_no_se_declara_de_partida():
+    r = _una_neurona(FILAS, batch=1, lr=0.1, epochs=4, seed=5)
+    f = r["laboratorio"]["pesos_finales"]
+    assert f["epoca"] >= 1 and not f.get("de_partida"), f

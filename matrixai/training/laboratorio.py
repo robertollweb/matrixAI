@@ -194,6 +194,14 @@ DE_PARTIDA = (
     "tenía el modelo): los pesos finales son esos, los de partida (época 0).",
     "No epoch improved on the weights this training started from (the ones the model "
     "already had): the final weights are those starting weights (epoch 0).")
+#: Re-auditoría del C2 del Studio (18-10, N-3): un entrenamiento que DIVERGE (pérdida de validación no finita en todas las
+#: épocas) nunca mejora la de partida, y el entrenador se queda con los pesos de ANTES de entrenar; el bloque los daba como
+#: «época 1 · la mejor». Son la época 0, y se dice por qué.
+DE_PARTIDA_SIN_MEJORA = (
+    "Ninguna época dio una pérdida de validación finita (el entrenamiento divergió): los pesos «finales» son los de "
+    "antes de entrenar (época 0), no los de ninguna época entrenada.",
+    "No epoch produced a finite validation loss (training diverged): the \"final\" weights are the ones from before "
+    "training (epoch 0), not those of any trained epoch.")
 
 
 def omitido_por_fallo(que: str, pedido: int, textos: tuple[str, str], exc: BaseException,
@@ -522,7 +530,8 @@ def armar_bloque(*, entrenador: str, network: Any, plan: dict[str, Any],
                  spec: CapturaSpec, n_params: int, forma: list[dict[str, Any]],
                  extra_omitido: list[dict[str, Any]] | None = None,
                  parciales: list[int] | None = None,
-                 epocas_corridas: int | None = None) -> dict[str, Any]:
+                 epocas_corridas: int | None = None,
+                 motivo_de_partida: tuple[str, str] = DE_PARTIDA) -> dict[str, Any]:
     """Ensambla el bloque `laboratorio`. `forma` ya trae la geometría de las capas.
 
     `epocas_corridas`: las épocas que corrieron de verdad (solo el entrenador de torch).
@@ -540,7 +549,7 @@ def armar_bloque(*, entrenador: str, network: Any, plan: dict[str, Any],
                          "capas": finales}
         if epoca_final == 0:
             pesos_finales["de_partida"] = True
-            pesos_finales["motivo"] = {"es": DE_PARTIDA[0], "en": DE_PARTIDA[1]}
+            pesos_finales["motivo"] = {"es": motivo_de_partida[0], "en": motivo_de_partida[1]}
     bloque: dict[str, Any] = {
         "version": VERSION,
         "disponible": True,
