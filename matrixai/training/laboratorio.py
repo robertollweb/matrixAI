@@ -27,15 +27,17 @@ VERSION = 1
 
 #: Definición de la norma de gradiente que se mide, dicha en el propio bloque para
 #: que quien lo pinte no la tenga que adivinar.
+#: Se lee en pantalla: sin nombres internos. Cuántos lotes de cada cuántos ya lo dicen
+#: `cada_k_lotes` y `lotes_por_epoca`, con sus números, y la interfaz los escribe al lado.
 DEFINICION_GRADIENTE = {
     "es": ("Norma L2 del gradiente del lote (de la matriz de pesos W y del sesgo b de cada "
-           "capa), promediada sobre los lotes medidos de la época —hasta 8, repartidos: uno "
-           "de cada `cada_k_lotes`, empezando por el primero—, medida tras la "
-           "retropropagación y antes del decaimiento de pesos (weight_decay)."),
+           "capa), promediada sobre los lotes medidos de la época —hasta 8, repartidos a lo "
+           "largo de la época y empezando por el primero—, medida tras la retropropagación "
+           "y antes del decaimiento de pesos."),
     "en": ("L2 norm of the batch gradient (of each layer's weight matrix W and bias b), "
-           "averaged over the epoch's measured batches —up to 8, spread out: one in every "
-           "`cada_k_lotes`, starting with the first—, measured after backpropagation and "
-           "before weight decay."),
+           "averaged over the epoch's measured batches —up to 8, spread across the epoch "
+           "and starting with the first—, measured after backpropagation and before weight "
+           "decay."),
 }
 
 #: Qué topes rigen cada parte del bloque. `max_numeros` es el TOTAL del bloque y se

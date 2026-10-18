@@ -280,7 +280,8 @@ def test_el_gradiente_se_mide_en_hasta_n_lotes_por_epoca_y_lo_dice():
     assert b == pytest.approx((medidos[0][1] + medidos[1][1]) / 2, abs=1e-6)
     # y NO es la media de los cuatro (si lo fuera, «uno de cada 2» mentiría)
     assert abs(w - sum(t[0] for t in todos) / 4) > 1e-4
-    assert "cada_k_lotes" in g["definicion"]["es"] and "cada_k_lotes" in g["definicion"]["en"]
+    # La definición dice que se muestrea («hasta 8», repartidos); el «uno de cada k» va en sus campos.
+    assert "hasta 8" in g["definicion"]["es"] and "up to 8" in g["definicion"]["en"]
     # Por debajo del tope (8 por omisión), todos los lotes.
     r1 = _una_neurona(FILAS, batch=1, seed=5)
     g1 = r1["laboratorio"]["grad_norm"]
@@ -1639,3 +1640,15 @@ def test_un_entrenamiento_normal_no_se_declara_de_partida():
     r = _una_neurona(FILAS, batch=1, lr=0.1, epochs=4, seed=5)
     f = r["laboratorio"]["pesos_finales"]
     assert f["epoca"] >= 1 and not f.get("de_partida"), f
+
+
+def test_la_definicion_del_gradiente_no_lleva_nombres_internos():
+    """133-C3, punto 19: la definición se lee en pantalla, en los dos idiomas. Sin
+    identificadores (`cada_k_lotes`, `weight_decay`) ni comillas de código: la pasada «con
+    ojos de alumno» del 18-10 los encontró en la pantalla inglesa y en la castellana."""
+    import re
+    from matrixai.training import laboratorio as lab
+    for idioma in ("es", "en"):
+        texto = lab.DEFINICION_GRADIENTE[idioma]
+        assert "`" not in texto, (idioma, texto)
+        assert not re.search(r"\b[a-z]+_[a-z_]+\b", texto), (idioma, texto)
