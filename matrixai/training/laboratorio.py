@@ -27,11 +27,13 @@ VERSION = 1
 #: que quien lo pinte no la tenga que adivinar.
 DEFINICION_GRADIENTE = {
     "es": ("Norma L2 del gradiente del lote (de la matriz de pesos W y del sesgo b de cada "
-           "capa), promediada sobre los lotes de la época, medida tras la retropropagación "
-           "y antes del decaimiento de pesos (weight_decay)."),
+           "capa), promediada sobre los lotes medidos de la época —hasta 8, repartidos: uno "
+           "de cada `cada_k_lotes`, empezando por el primero—, medida tras la "
+           "retropropagación y antes del decaimiento de pesos (weight_decay)."),
     "en": ("L2 norm of the batch gradient (of each layer's weight matrix W and bias b), "
-           "averaged over the epoch's batches, measured after backpropagation and before "
-           "weight decay."),
+           "averaged over the epoch's measured batches —up to 8, spread out: one in every "
+           "`cada_k_lotes`, starting with the first—, measured after backpropagation and "
+           "before weight decay."),
 }
 
 
@@ -49,6 +51,11 @@ class CapturaSpec:
     - `max_numeros`: tope de números de pesos (finales + muestra) por ejecución.
     - `max_params_muestra`: por encima de esta red, no hay pesos por época.
     - `max_params_finales`: por encima de esta red, ni siquiera pesos finales.
+    - `max_lotes_grad_por_epoca`: lotes de cada época en los que se mide la norma del
+      gradiente, repartidos: uno de cada k, k = ⌈lotes / tope⌉ (`lotes_cada`). Medido en
+      el 133-C2: medirla en TODOS los lotes cuesta casi lo mismo por lote en cualquier red
+      (35–90 µs, según la carga) y subía el entrenamiento un 10–11 % en redes de 50.000 y
+      198.146 parámetros; así el coste por época queda acotado.
     - `columnas` / `etiquetas`: nombres para las filas; los pone quien conoce el
       modelo (el entrenador solo ve vectores).
     """
@@ -60,6 +67,7 @@ class CapturaSpec:
     max_numeros: int = 200_000
     max_params_muestra: int = 50_000
     max_params_finales: int = 500_000
+    max_lotes_grad_por_epoca: int = 8
     columnas: tuple[str, ...] | None = None
     etiquetas: tuple[str, ...] | None = None
 
@@ -69,6 +77,10 @@ class CapturaSpec:
             v = getattr(self, nombre)
             if isinstance(v, bool) or not isinstance(v, int) or v < 0:
                 raise ValueError(f"CapturaSpec.{nombre} debe ser un entero >= 0 (recibido {v!r})")
+        v = self.max_lotes_grad_por_epoca
+        if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+            raise ValueError(
+                f"CapturaSpec.max_lotes_grad_por_epoca debe ser un entero >= 1 (recibido {v!r})")
         for nombre in ("gradientes", "pesos_finales"):
             if not isinstance(getattr(self, nombre), bool):
                 raise ValueError(f"CapturaSpec.{nombre} debe ser booleano")
@@ -96,6 +108,7 @@ class CapturaSpec:
             "max_numeros": self.max_numeros,
             "max_params_muestra": self.max_params_muestra,
             "max_params_finales": self.max_params_finales,
+            "max_lotes_grad_por_epoca": self.max_lotes_grad_por_epoca,
         }
 
 
@@ -183,6 +196,12 @@ def planear(spec: CapturaSpec, n_params: int, n_capas: int, epocas_pedidas: int,
 
     return {"pesos_finales": pesos_finales, "n_muestra": n_muestra,
             "gradientes": spec.gradientes, "n_filas": n_filas, "omitido": omitido}
+
+
+def lotes_cada(n_lotes: int, spec: CapturaSpec) -> int:
+    """Cada cuántos lotes se mide la norma del gradiente: k = ⌈lotes / tope⌉, así que en
+    una época se miden como mucho `max_lotes_grad_por_epoca` lotes (el 0, el k, el 2k…)."""
+    return max(1, -(-int(n_lotes) // spec.max_lotes_grad_por_epoca))
 
 
 def epocas_programadas(epocas_pedidas: int, n_muestra: int) -> frozenset[int]:

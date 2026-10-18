@@ -83,7 +83,7 @@ def _capas_a_listas(estado: list[Any]) -> list[dict[str, Any]]:
 
 def _bloque_laboratorio(network, module, capturar, plan, best_state, best_epoch,
                         estados, ultima, hist, parciales, val_ex, loss_fn,
-                        param_count, torch) -> dict[str, Any]:
+                        param_count, torch, cada_k=1, n_lotes=0) -> dict[str, Any]:
     """133-C2 — arma el bloque `laboratorio` con lo que el bucle fue guardando."""
     from matrixai.training import laboratorio as lab
 
@@ -103,6 +103,8 @@ def _bloque_laboratorio(network, module, capturar, plan, best_state, best_epoch,
         grad = {
             "definicion": lab.DEFINICION_GRADIENTE,
             "epocas": [e for e, _h in hist],
+            "cada_k_lotes": cada_k,
+            "lotes_por_epoca": n_lotes,
             "parciales": list(parciales),
             "por_capa": [
                 {"capa": network.layers[i].index,
@@ -294,6 +296,9 @@ def train_dense_network_torch(
     cap_parciales: list[int] = []
     cap_estados: dict[int, list[Any]] = {}
     cap_programadas: frozenset[int] = frozenset()
+    cap_cada = 1
+    cap_n = 0
+    cap_n_lotes = 0
     if capturar is not None:
         from matrixai.training import laboratorio as _lab
         cap_params = list(module.parameters())
@@ -304,6 +309,8 @@ def train_dense_network_torch(
         if capturar.gradientes:
             cap_acc = torch.zeros(len(cap_params), device=device)
         cap_programadas = _lab.epocas_programadas(epochs, cap_plan["n_muestra"])
+        cap_n_lotes = -(-train_x.shape[0] // bs)
+        cap_cada = _lab.lotes_cada(cap_n_lotes, capturar)
         _norma_lote = getattr(torch, "_foreach_norm", None)
     # PESOS_GRANDES C5 audit (MEDIA): al REANUDAR, los pesos de partida son un
     # candidato real a "mejor estado" (a diferencia del init aleatorio, que
@@ -341,13 +348,15 @@ def train_dense_network_torch(
                 out = module(xb)
                 loss = _loss_on_probabilities(out, yb, loss_fn, torch)
                 loss.backward()
-                if cap_acc is not None:
+                if cap_acc is not None and n_batches % cap_cada == 0:
                     # 133-C2: norma L2 del gradiente de cada tensor, ANTES de optimizer.step
                     # (así es previa al weight_decay, que torch suma dentro del paso). Se
-                    # acumula en el dispositivo, sin `.item()` por lote.
+                    # acumula en el dispositivo, sin `.item()` por lote. Uno de cada
+                    # `cap_cada` lotes (el primero siempre): ver `laboratorio.lotes_cada`.
                     _g = [p.grad for p in cap_params]
                     cap_acc += torch.stack(
                         _norma_lote(_g) if _norma_lote is not None else [x.norm() for x in _g])
+                    cap_n += 1
                 optimizer.step()
                 epoch_loss += float(loss.detach())
                 n_batches += 1
@@ -382,8 +391,9 @@ def train_dense_network_torch(
 
             if capturar is not None:
                 if cap_acc is not None:
-                    cap_hist.append((epoch, cap_acc / max(1, n_batches)))
+                    cap_hist.append((epoch, cap_acc / max(1, cap_n)))
                     cap_acc.zero_()
+                    cap_n = 0
                 if epoca_a_medias:
                     cap_parciales.append(epoch)
                 if epoch in cap_programadas:
@@ -438,7 +448,7 @@ def train_dense_network_torch(
                 laboratorio = _bloque_laboratorio(
                     network, module, capturar, cap_plan, best_state, best_epoch,
                     cap_estados, cap_ultima, cap_hist, cap_parciales, val_ex, loss_fn,
-                    param_count, torch)
+                    param_count, torch, cada_k=cap_cada, n_lotes=cap_n_lotes)
             except Exception as exc:  # noqa: BLE001 — la captura nunca tumba el entrenamiento
                 laboratorio = _lab.bloque_no_disponible(
                     f"No se pudo capturar el laboratorio: {exc}",

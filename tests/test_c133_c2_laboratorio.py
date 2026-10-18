@@ -178,7 +178,7 @@ def _gradiente_a_mano(w, b, filas):
     return math.sqrt(sum(g * g for g in gw)), abs(gb)
 
 
-def _una_neurona(filas, batch, lr=0.0, weight_decay=0.0, epochs=1, seed=5):
+def _una_neurona(filas, batch, lr=0.0, weight_decay=0.0, epochs=1, seed=5, spec=None):
     from matrixai.training.dense_torch_trainer import train_dense_network_torch
     from matrixai.training.laboratorio import CapturaSpec
     net, ps = _setup(MXAI_UNA_CAPA)
@@ -187,10 +187,32 @@ def _una_neurona(filas, batch, lr=0.0, weight_decay=0.0, epochs=1, seed=5):
     return train_dense_network_torch(
         net, ps, filas, "binary_cross_entropy", lr=lr, epochs=epochs, device="cpu", seed=seed,
         batch_size=batch, materialize=True, weight_decay=weight_decay,
-        validation_examples=filas[:2], capturar=CapturaSpec(max_filas=0))
+        validation_examples=filas[:2],
+        capturar=spec if spec is not None else CapturaSpec(max_filas=0))
 
 
 FILAS = [([0.9, 0.1], [1.0]), ([0.2, 0.8], [0.0]), ([0.7, 0.6], [1.0]), ([0.1, 0.3], [0.0])]
+
+
+def _con_permutaciones(fn):
+    """Corre `fn()` grabando las permutaciones que pide el entrenador (`torch.randperm`),
+    para saber QUÉ filas fueron a cada lote. No se deducen de la semilla: entre
+    `manual_seed` y el primer `randperm` hay otras llamadas al generador (medido el 18-10:
+    la permutación de la época 1 NO es la primera tras sembrar)."""
+    import torch
+    original = torch.randperm
+    grabadas = []
+
+    def grabar(*a, **k):
+        out = original(*a, **k)
+        grabadas.append(out.tolist())
+        return out
+
+    torch.randperm = grabar
+    try:
+        return fn(), grabadas
+    finally:
+        torch.randperm = original
 
 
 @needs_torch
@@ -206,13 +228,11 @@ def test_normas_de_gradiente_son_las_medidas():
     assert nw > 1e-3 and nb > 1e-3          # la medida no es un cero que cuadre por casualidad
 
     # (b) DOS lotes de 2 filas, con lr=0 (los pesos no se mueven entre lotes): la cifra de la
-    # época es la MEDIA de las normas de los dos lotes. El reparto lo da el mismo
-    # `randperm` sembrado que usa el entrenador (primera llamada tras manual_seed).
-    import torch
-    torch.manual_seed(5)
-    perm = torch.randperm(4).tolist()
+    # época es la MEDIA de las normas de los dos lotes. El reparto, el que grabó el
+    # entrenador (`_con_permutaciones`).
+    r2, perms = _con_permutaciones(lambda: _una_neurona(FILAS, batch=2, seed=5))
+    perm = perms[0]
     lotes = [[FILAS[i] for i in perm[0:2]], [FILAS[i] for i in perm[2:4]]]
-    r2 = _una_neurona(FILAS, batch=2, seed=5)
     esp = [_gradiente_a_mano([0.3, -0.2], -0.1, lote) for lote in lotes]
     g2 = r2["laboratorio"]["grad_norm"]["por_capa"][0]
     assert g2["W"][0] == pytest.approx((esp[0][0] + esp[1][0]) / 2, abs=1e-6)
@@ -220,6 +240,49 @@ def test_normas_de_gradiente_son_las_medidas():
     # y es distinta de la norma del gradiente de las 4 filas juntas (la media de normas
     # no es la norma de la media): lo medido es lo que dice su definición.
     assert abs(g2["W"][0] - nw) > 1e-4 or abs(g2["b"][0] - nb) > 1e-4
+
+
+@needs_torch
+def test_el_gradiente_se_mide_en_hasta_n_lotes_por_epoca_y_lo_dice():
+    # Punto 13: medir la norma en CADA lote costaba casi lo mismo por lote en cualquier red y
+    # subía el entrenamiento un 10-11 % (redes de 50.000 y 198.146 parámetros). Se mide en hasta
+    # `max_lotes_grad_por_epoca` lotes por época, repartidos (uno de cada k, el primero siempre),
+    # la cifra de la época es la media de ESOS lotes y el bloque dice k y los lotes que había.
+    # Aquí: 4 lotes de 1 fila con tope 2 => k = 2, se miden el 0 y el 2. lr=0: los pesos no se
+    # mueven entre lotes.
+    from matrixai.training.laboratorio import CapturaSpec
+    r, perms = _con_permutaciones(lambda: _una_neurona(
+        FILAS, batch=1, seed=5, spec=CapturaSpec(max_filas=0, max_lotes_grad_por_epoca=2)))
+    perm = perms[0]
+    g = r["laboratorio"]["grad_norm"]
+    assert g["cada_k_lotes"] == 2 and g["lotes_por_epoca"] == 4
+    medidos = [_gradiente_a_mano([0.3, -0.2], -0.1, [FILAS[perm[i]]]) for i in (0, 2)]
+    todos = [_gradiente_a_mano([0.3, -0.2], -0.1, [FILAS[perm[i]]]) for i in range(4)]
+    w = g["por_capa"][0]["W"][0]
+    b = g["por_capa"][0]["b"][0]
+    assert w == pytest.approx((medidos[0][0] + medidos[1][0]) / 2, abs=1e-6)
+    assert b == pytest.approx((medidos[0][1] + medidos[1][1]) / 2, abs=1e-6)
+    # y NO es la media de los cuatro (si lo fuera, «uno de cada 2» mentiría)
+    assert abs(w - sum(t[0] for t in todos) / 4) > 1e-4
+    assert "cada_k_lotes" in g["definicion"]["es"] and "cada_k_lotes" in g["definicion"]["en"]
+    # Por debajo del tope (8 por omisión), todos los lotes.
+    r1 = _una_neurona(FILAS, batch=1, seed=5)
+    g1 = r1["laboratorio"]["grad_norm"]
+    assert g1["cada_k_lotes"] == 1 and g1["lotes_por_epoca"] == 4
+    assert g1["por_capa"][0]["W"][0] == pytest.approx(sum(t[0] for t in todos) / 4, abs=1e-6)
+
+
+def test_lotes_cada_acota_los_lotes_medidos_por_epoca():
+    from matrixai.training.laboratorio import CapturaSpec, lotes_cada
+    spec = CapturaSpec()
+    for n in (1, 7, 8, 9, 54, 75, 183, 10_000):
+        k = lotes_cada(n, spec)
+        medidos = len(range(0, n, k))
+        assert 1 <= medidos <= 8, (n, k, medidos)
+        assert k == 1 or len(range(0, n, k - 1)) > 8   # el k más pequeño que cabe
+    assert lotes_cada(8, spec) == 1 and lotes_cada(9, spec) == 2
+    with pytest.raises(ValueError):
+        CapturaSpec(max_lotes_grad_por_epoca=0)
 
 
 @needs_torch
