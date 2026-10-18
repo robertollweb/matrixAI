@@ -7,6 +7,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.17.0] — 2026-10-18
+
+A network stopped by its deadline right at the end of an epoch now says that epoch is complete. Its weights and
+predictions do not change; what changes is what it declares, and the guard that sets aside a champion that completed no
+epoch no longer sets this one aside. The rest of what ships with MatrixAI Studio v2.14 — the champion between ties —
+lives in the Studio.
+
+### Changed
+- **An epoch is marked `parcial` only if batches of it were left** (`matrixai.training.dense_torch_trainer`,
+  `composite_torch_trainer`). Before, every epoch in which the deadline ran out was marked partial, also when it ran out
+  in the last batch, so a network that had completed exactly one epoch was declared with zero. Same weights, same
+  predictions, same loss trace and same `best_epoch` as before (45 fits compared, dense and composite, binary and
+  regression, rows a multiple of the batch size and not).
+
+### Added
+- **`epochs[*].parcial`, one more key in each entry of `epochs`** (`/api/train`, `/api/train-status` and the
+  playground's `metrics.json`): `true` if that epoch was cut by the deadline with batches left, `false` otherwise. It
+  is always sent, so a reader can tell a core that does not declare it (no key) from an epoch that was complete.
+
 ## [1.16.0] — 2026-10-15
 
 Each installation can now decide how much of its memory a study with the TabM network may ask for, and opening a study on a
