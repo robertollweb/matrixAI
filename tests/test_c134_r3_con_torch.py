@@ -271,6 +271,180 @@ class SinTorchEsINCOMPARABLEnuncaFAILTest(unittest.TestCase):
         self.assertEqual(out["stages"]["R3"]["status"], "PASS", out["stages"]["R3"])
 
 
+#: El caso REAL de la auditoría (H3): torch NO INSTALADO, no escondido. `python3 -s -E`
+#: deja fuera el `site-packages` del usuario —donde vive torch en esta máquina— y las
+#: variables de entorno; el árbol entra por `sys.path`. Así torch tampoco está en la
+#: huella del entorno, y salta antes la guarda de «otro entorno» (lo que no veía la
+#: prueba con `sys.meta_path`, que deja sus metadatos).
+_SIN_TORCH_DE_VERDAD = textwrap.dedent("""
+    import json, sys
+    sys.path.insert(0, sys.argv[1])
+    try:
+        import torch
+        print(json.dumps({"sin_torch": False})); sys.exit(0)
+    except ImportError:
+        pass
+    import matrixai
+    assert matrixai.__file__.startswith(sys.argv[1]), matrixai.__file__
+    if sys.argv[4] == "cli":
+        from matrixai.cli import main
+        sys.argv = ["matrixai", "verify", sys.argv[2], "--retrain", "--locale", sys.argv[3]]
+        main()
+        sys.exit(0)
+    from matrixai.export.verify import verify_package
+    inf = verify_package(sys.argv[2], run_training=True, locale=sys.argv[3])
+    print(json.dumps({"sin_torch": True, "stages": inf["stages"]}, default=str))
+""")
+
+_ARBOL = str(Path(__file__).resolve().parents[1])
+
+
+class SinTorchDeVerdadElMotivoLlegaALaPersonaTest(unittest.TestCase):
+    """AUDITORÍA DEL 134, H3: medido con `python3 -s -E`, R3 salía INCOMPARABLE por «otro
+    entorno» y «se entrenó con torch y aquí no hay» solo estaba en `--json`."""
+
+    def _correr(self, paquete: Path, locale: str, modo: str) -> str:
+        p = subprocess.run([sys.executable, "-s", "-E", "-c", _SIN_TORCH_DE_VERDAD, _ARBOL,
+                            str(paquete), locale, modo],
+                           capture_output=True, text=True, timeout=600, cwd="/", env={})
+        self.assertEqual(p.returncode, 0, p.stderr[-2000:])
+        if '"sin_torch": false' in p.stdout:
+            self.skipTest("aquí torch está instalado fuera del site del usuario: no se puede medir")
+        return p.stdout
+
+    def test_R3_da_el_porque_del_backend_aunque_salte_antes_la_guarda_del_entorno(self):
+        paquete = _paquete("torch", alterar="accuracy")
+        for locale, frase in (("es", "no está instalado"), ("en", "not installed here")):
+            with self.subTest(locale=locale):
+                out = json.loads(self._correr(paquete, locale, "json").strip().splitlines()[-1])
+                t, r3 = out["stages"]["training"], out["stages"]["R3"]
+                self.assertEqual(t["not_applied_from_capture"], ["backend"], t)
+                # Con una cifra ALTERADA, y aun así nunca FAIL.
+                self.assertEqual(r3["status"], "INCOMPARABLE", r3)
+                self.assertIn(frase, r3["reason"])
+                self.assertEqual(r3.get("not_applied"), ["backend"], r3)
+
+    def test_la_salida_humana_de_la_CLI_ensena_el_motivo_del_backend(self):
+        texto = self._correr(_paquete("torch"), "es", "cli")
+        lineas = texto.splitlines()
+        self.assertTrue(any(l.startswith("training") and "PASS" in l for l in lineas), texto)
+        # La línea propia del porqué, debajo de `training` (no basta con que lo diga R3).
+        self.assertTrue(any(l.strip().startswith("· backend:") and "no está instalado" in l
+                            for l in lineas), texto)
+
+
+class LasGuardasDelCaminoDeTorchTienenPruebaTest(unittest.TestCase):
+    """AUDITORÍA DEL 134, H4: dos sabotajes de la auditoría salían VERDES."""
+
+    def test_un_dataset_partido_en_train_y_eval_da_NOT_RUN_con_su_motivo(self):
+        """El camino de torch lee UN csv; el nombre `-synthetic-train.csv` es la
+        convención de `generate-dataset` (CLI), y ahí no se entrena con la mitad."""
+        global _MXTRAIN
+        original = _MXTRAIN
+        try:
+            _MXTRAIN = original.replace("loan.train.csv", "loan-synthetic-train.csv")
+            self.assertIn("loan-synthetic-train.csv", _MXTRAIN)
+            paquete = _paquete("torch")
+        finally:
+            _MXTRAIN = original
+        for locale, frase in (("es", "se parte en train y eval"), ("en", "split into train and eval")):
+            with self.subTest(locale=locale):
+                inf = verify_package(paquete, run_training=True, locale=locale)
+                t, r3 = inf["stages"]["training"], inf["stages"]["R3"]
+                self.assertEqual(t["status"], "INCOMPARABLE", t)
+                self.assertIn(frase, t["reason"])
+                self.assertEqual(r3["status"], "NOT_RUN", r3)
+                self.assertIn(frase, r3["reason"])
+
+    def test_torch_declarado_en_una_red_compuesta_dice_que_no_hay_camino_de_torch(self):
+        """Una red compuesta (aquí, con `LayerNorm`) entrenada con torch: el
+        reentrenamiento no tiene un camino de torch que repetir, y el motivo llega
+        aunque el entrenador estándar no pueda con ella."""
+        global _MXAI
+        original = _MXAI
+        from matrixai.playground import _network_is_composite, _run_playground_composite_training
+        try:
+            _MXAI = original.replace("  LAYER Dense units=3 activation=softmax\n",
+                                     "  LAYER LayerNorm\n  LAYER Dense units=3 activation=softmax\n")
+            self.assertTrue(_network_is_composite(_MXAI))
+            with mock.patch.dict(os.environ, {"MATRIXAI_TRAIN_BACKEND": "torch"}):
+                res = _run_playground_composite_training(_MXAI, _MXTRAIN, _csv(), 4, seed=_SEMILLA_INIT)
+            self.assertTrue(res.get("ok"), res)
+            self.assertEqual(res.get("backend"), "torch")
+            with mock.patch(f"{__name__}._entrenar_como_el_producto", lambda motor: res):
+                paquete = _paquete("torch")
+        finally:
+            _MXAI = original
+        for locale, frase in (("es", "no tiene un reentrenamiento de torch"),
+                              ("en", "no torch retraining that can be repeated")):
+            with self.subTest(locale=locale):
+                inf = verify_package(paquete, run_training=True, locale=locale)
+                t, r3 = inf["stages"]["training"], inf["stages"]["R3"]
+                self.assertIn(frase, t["not_applied_reasons"]["backend"], t)
+                self.assertIn(frase, t["reason"])
+                self.assertNotEqual(r3["status"], "FAIL", r3)
+                self.assertIn(frase, r3["reason"])
+
+
+class CUDASinMedirNoSeComparaTest(unittest.TestCase):
+    def test_reentrenar_en_CUDA_deja_device_sin_aplicar_con_su_motivo(self):
+        """AUDITORÍA DEL 134, H2: la tolerancia 0,0 de torch se midió en CPU, no en CUDA.
+        Aquí no hay GPU: se finge que CUDA existe y el entrenamiento corre en CPU (lo que
+        se prueba es la DECISIÓN, no CUDA). Con una cifra alterada, nunca FAIL."""
+        from matrixai.export import verify as v
+        import matrixai.playground as pg
+        real = pg._dense_torch_train_result
+        dispositivos = []
+
+        def en_cpu(mxai, training, spec, csv, dispositivo, *a, **k):
+            dispositivos.append(dispositivo)
+            return real(mxai, training, spec, csv, "cpu", *a, **k)
+
+        paquete = _paquete("torch", alterar="accuracy", dispositivo="cuda")
+        with mock.patch.object(v, "_dispositivo_de_torch", lambda declarado: "cuda"), \
+             mock.patch.object(pg, "_dense_torch_train_result", en_cpu):
+            inf = verify_package(paquete, run_training=True)
+        self.assertEqual(dispositivos, ["cuda"], "no reentrenó en la máquina de la captura")
+        t, r3 = inf["stages"]["training"], inf["stages"]["R3"]
+        self.assertEqual(t["status"], "PASS", t)
+        self.assertIn("device", t["not_applied_from_capture"])
+        self.assertNotIn("device", t["applied_from_capture"])
+        self.assertIn("CUDA", t["not_applied_reasons"]["device"])
+        self.assertEqual(r3["status"], "INCOMPARABLE", r3)
+        self.assertIn("no está medida", r3["reason"])
+
+
+class LasCifrasDeUnaSolaFilaNoSonDeValidacionTest(unittest.TestCase):
+    def test_con_una_fila_la_validacion_es_la_de_entrenamiento_y_no_se_declara(self):
+        """AUDITORÍA DEL 134, H6: con una sola fila `val_ex` es la propia fila de
+        entrenamiento; esas cifras no se declaran `validation`."""
+        from matrixai.playground import _run_playground_dense_training
+        una = "\n".join(_csv().splitlines()[:2]) + "\n"
+        with mock.patch.dict(os.environ, {"MATRIXAI_TRAIN_BACKEND": "torch"}):
+            r = _run_playground_dense_training(_MXAI, _MXTRAIN, una, 2, seed=_SEMILLA_INIT)
+        self.assertTrue(r.get("ok"), r)
+        self.assertEqual(r["backend"], "torch")
+        self.assertEqual(r["metric_splits"], {
+            "accuracy": None, "macro_f1": None, "mae": None, "rmse": None, "r2": None,
+            "final_train_loss": "train", "best_validation_loss": None})
+
+
+class LasMetricasDelReentrenamientoSonLasDelCatalogoTest(unittest.TestCase):
+    def test_lo_que_recoge_el_reentrenamiento_de_torch_es_el_catalogo(self):
+        """AUDITORÍA DEL 134, H7: una sola lista. El catálogo (`metric_identity.DIRECCION`)
+        da la tolerancia y sin ella R3 no compara, así que lo que el reentrenamiento
+        recoge es el catálogo, no una copia: una métrica nueva en él entra sola."""
+        from matrixai.training import metric_identity
+        paquete = _paquete("torch")
+        con_una_mas = {**metric_identity.DIRECCION, "best_epoch": "higher_is_better"}
+        with mock.patch.object(metric_identity, "DIRECCION", con_una_mas):
+            inf = verify_package(paquete, run_training=True)
+        medidas = inf["stages"]["training"]["metrics"]
+        self.assertIn("best_epoch", medidas)
+        self.assertEqual(set(medidas), {"accuracy", "macro_f1", "final_train_loss",
+                                        "best_validation_loss", "best_epoch"})
+
+
 class LaToleranciaDeTorchEstaMedidaTest(unittest.TestCase):
     def test_torch_en_CPU_con_semilla_repite_BIT_A_BIT(self):
         """MEDIDO el 19-10 (contrato 134 §2.4): el mismo paquete reentrenado en 12

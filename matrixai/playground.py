@@ -2211,11 +2211,15 @@ def _dense_torch_train_result(
         # de `val_ex` (la validación entera: ver arriba), y por eso `mae`/`rmse`/`r2`
         # son `validation` y NO `full` como en stdlib. Lo que la tarea no mide es `None`,
         # no una partición inventada.
+        # Y CON UNA SOLA FILA (auditoría del 134, H6) la validación es la propia fila de
+        # entrenamiento (`val_ex = … or examples[-1:]`, arriba): esas cifras no son de
+        # `validation` y no se declaran como si lo fueran. `None`: sin partición, R3 no
+        # las compara.
         "metric_splits": {
-            **{nombre: ("validation" if er.get(nombre) is not None else None)
+            **{nombre: ("validation" if er.get(nombre) is not None and _val_declarada else None)
                for nombre in ("accuracy", "macro_f1", "mae", "rmse", "r2")},
             "final_train_loss": "train",
-            "best_validation_loss": "validation",
+            "best_validation_loss": "validation" if _val_declarada else None,
         },
         **motor_y_maquina("torch", device),
         "evaluation_backend": evaluation_backend,
@@ -3186,15 +3190,12 @@ def _run_playground_training(
     # CONTRATO 61 C4: frontera única de normalización ANTES de validar/despachar
     # (misma semántica que `_submit_training_job`) — booleanos/one-hot en 0/1 e
     # índices de embedding quedan intactos porque no llevan rango.
-    normalize_ranges = _compose_normalize_ranges(mxai_text, field_ranges, target_range)
     # Las columnas normalizadas SIN recortar (A8). Las mismas llegan a los
     # trainers de red, que eligen la época solo con las filas de validación
-    # alcanzables (I1, `_rango_para_elegir`).
-    sin_recorte = (_columnas_sin_recorte(mxai_text, target_range, recortar_objetivo)
-                   if normalize_ranges else frozenset())
-    if normalize_ranges:
-        csv_text = _normalize_csv_with_ranges(
-            csv_text, normalize_ranges, sin_recorte=sin_recorte)
+    # alcanzables (I1, `_rango_para_elegir`). 134: la MISMA función que usa la
+    # verificación al reentrenar (`_preparar_csv_con_rangos`).
+    csv_text, sin_recorte = _preparar_csv_con_rangos(
+        mxai_text, csv_text, field_ranges, target_range, recortar_objetivo)
     prediction_kind = _get_prediction_kind(mxai_text, training_text)
 
     if prediction_kind == "layer_call":
@@ -3629,6 +3630,33 @@ def _compose_normalize_ranges(
         if salida is not None:
             normalize_ranges[salida] = target_range
     return normalize_ranges
+
+
+def _preparar_csv_con_rangos(
+    mxai_text: str,
+    csv_text: str,
+    field_ranges: dict[str, tuple[float, float]] | None,
+    target_range: tuple[float, float] | None,
+    recortar_objetivo: bool = True,
+) -> tuple[str, frozenset[str]]:
+    """EL CSV CON EL QUE ENTRENA LA RED, a partir del que llega (ya sin BOM ni `;`).
+
+    Devuelve `(csv_preparado, columnas_sin_recorte)`. Es UNA función, y no tres copias, porque la llaman los dos
+    entrenamientos (`_submit_training_job` y `_run_playground_training`) y la verificación al reentrenar
+    (`export/verify.py`, contrato 134): medido el 19-10, verificar reentrenaba con el CSV regenerado TAL CUAL, en
+    escala de dominio (`credit_score` 300–850), mientras el producto lo había entrenado normalizado, y R3 daba FAIL
+    a un paquete honesto (pérdida 0,98 publicada, 17,7 reentrenada). Si la regla de preparar cambia aquí, cambia
+    para los tres a la vez.
+
+    `recortar_objetivo=False` (A8): el objetivo de regresión se normaliza sin recortar a [0, 1], y las columnas
+    que salen así se devuelven para que el entrenador elija la época solo con las filas alcanzables
+    (`_rango_para_elegir`)."""
+    normalize_ranges = _compose_normalize_ranges(mxai_text, field_ranges, target_range)
+    sin_recorte = (_columnas_sin_recorte(mxai_text, target_range, recortar_objetivo)
+                   if normalize_ranges else frozenset())
+    if normalize_ranges:
+        csv_text = _normalize_csv_with_ranges(csv_text, normalize_ranges, sin_recorte=sin_recorte)
+    return csv_text, sin_recorte
 
 
 #: AUDITORÍA DEL RANGO, I1 (06-10) — CUÁNDO EL OBJETIVO NO ESTÁ EN LA ESCALA DE SU RANGO. Con al menos este tanto por
@@ -4402,18 +4430,15 @@ def _submit_training_job(
     # debe bloquear el target_range (el chequeo real de validez llega justo
     # después, en `_validate_training_csv`) — best-effort, igual que el
     # resto de este bloque.
-    normalize_ranges = _compose_normalize_ranges(mxai_text, field_ranges, target_range)
-
     # M5: domain-scale CSV → normalized BEFORE validation, so the validator and
     # the three trainer paths only ever see slider-space [0,1] values.
     # Las columnas normalizadas SIN recortar (A8); los trainers de red eligen
     # la época solo con las filas de validación alcanzables (I1,
-    # `_rango_para_elegir`).
-    sin_recorte = (_columnas_sin_recorte(mxai_text, target_range, recortar_objetivo)
-                   if normalize_ranges else frozenset())
-    if normalize_ranges:
-        csv_text = _normalize_csv_with_ranges(
-            csv_text, normalize_ranges, sin_recorte=sin_recorte)
+    # `_rango_para_elegir`). 134: la MISMA función que usa la verificación al
+    # reentrenar (`_preparar_csv_con_rangos`), y su resultado es el que firma
+    # `dataset_sha256_prepared` unas líneas más abajo.
+    csv_text, sin_recorte = _preparar_csv_con_rangos(
+        mxai_text, csv_text, field_ranges, target_range, recortar_objetivo)
 
     validation = _validate_training_csv(mxai_text, training_text, csv_text)
     if not validation.get("ok"):

@@ -1802,6 +1802,13 @@ def _cmd_verify(args) -> int:
         print(linea)
         for roto in etapa.get("artifacts", []) or []:
             print(f"{' ' * (ancho + 2)}  · {roto.get('artifact')}: {roto.get('problem')}")
+        # LO QUE NO SE APLICÓ, CON SU PORQUÉ (auditoría del 134, H3): sin esto la etapa
+        # `training` salía «PASS» a secas y «se entrenó con torch y aquí no hay» solo
+        # estaba en `--json`. El motivo ya viene redactado en el idioma pedido.
+        razones = etapa.get("not_applied_reasons")
+        if isinstance(razones, dict):
+            for clave, porque in razones.items():
+                print(f"{' ' * (ancho + 2)}  · {clave}: {porque}")
     return int(informe["exit_code"])
 
 

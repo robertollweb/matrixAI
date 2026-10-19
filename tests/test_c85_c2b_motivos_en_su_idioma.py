@@ -83,6 +83,10 @@ _INTRUSAS = {"es": _FUNCIONALES_INGLESAS, "en": _FUNCIONALES_ESPANOLAS}
 #: Las claves de una etapa que llevan PROSA. Son las que traduce el core.
 _CLAVES_DE_PROSA = ("reason", "note", "problem")
 
+#: Prosa POR CLAVE (134): `not_applied_reasons` es `{clave_de_la_captura: motivo}`; la clave
+#: es un dato y el motivo, prosa redactada en el idioma pedido.
+_CLAVES_DE_PROSA_POR_CLAVE = ("not_applied_reasons",)
+
 #: Y las que llevan DATOS: huellas, rutas, números, nombres de artefacto y
 #: de campo. Se declaran para que una clave nueva rompa esta prueba en vez
 #: de colarse sin que nadie decida de cuál de los dos montones es —un
@@ -94,6 +98,8 @@ _CLAVES_DE_DATO = (
     "sha256", "csv_text", "best_epoch", "metrics", "metric", "published",
     "obtained", "difference", "tolerance", "applied_from_capture",
     "not_applied_from_capture", "not_applied",
+    # 134: con qué variante del rango del objetivo regeneró R1 (un booleano).
+    "target_range_applied",
 )
 
 
@@ -122,6 +128,10 @@ def _prosa(nodo, ruta: str = ""):
         for clave, valor in nodo.items():
             if clave in _CLAVES_DE_PROSA and isinstance(valor, str):
                 yield f"{ruta}.{clave}", valor
+            elif clave in _CLAVES_DE_PROSA_POR_CLAVE and isinstance(valor, dict):
+                for subclave, texto in valor.items():
+                    if isinstance(texto, str):
+                        yield f"{ruta}.{clave}.{subclave}", texto
             else:
                 yield from _prosa(valor, f"{ruta}.{clave}")
     elif isinstance(nodo, list):
@@ -339,7 +349,8 @@ class ElInformeEnteroHablaUnSoloIdiomaTest(unittest.TestCase):
                 for ficha in etapa.get("artifacts") or []:
                     claves.update(ficha)
         self.assertEqual(
-            set(), claves - set(_CLAVES_DE_PROSA) - set(_CLAVES_DE_DATO),
+            set(), claves - set(_CLAVES_DE_PROSA) - set(_CLAVES_DE_PROSA_POR_CLAVE)
+            - set(_CLAVES_DE_DATO),
             "clave del informe sin clasificar como prosa o como dato")
 
 

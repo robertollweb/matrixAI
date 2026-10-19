@@ -493,37 +493,57 @@ def _verificar_r1(
     categorias = generacion.get("field_categories") if isinstance(generacion, dict) else None
     excluidos = generacion.get("excluded_identifiers") if isinstance(generacion, dict) else None
 
-    try:
-        # Esto NO ejecuta nada que venga en el paquete: corre el generador
-        # DEL CORE tomando la receta como DATO. La receta es un lenguaje
-        # acotado que el core interpreta, no un programa que se lanza.
-        from matrixai.playground import _generate_synthetic_dataset
-        generado = _generate_synthetic_dataset(
-            mxai_text, training_text, filas, int(semilla), str(modo),
-            recipe_text=recipe_text,
-            field_ranges_override={k: (float(v[0]), float(v[1]))
-                                   for k, v in (rangos or {}).items()
-                                   if isinstance(v, (list, tuple)) and len(v) == 2} or None,
-            field_types=tipos or None,
-            field_categories=categorias or None,
-            field_identifiers=list(excluidos) if excluidos else None,
-        )
-    except Exception as exc:  # noqa: BLE001 — el generador puede negarse por mil motivos
-        # No poder regenerar NO es una manipulación del paquete: se dice
-        # qué pasó y se deja en INCOMPARABLE.
-        return _etapa("INCOMPARABLE",
-                      motivo("r1_no_regenerable", locale, error=exc))
-
-    # `csv_text`, no `csv`: es la clave que el generador devuelve de
-    # verdad (medida, después de suponer la otra y comerme un KeyError).
-    csv = generado.get("csv_text") if isinstance(generado, dict) else None
-    if not isinstance(csv, str) or csv == "":
-        return _etapa("INCOMPARABLE", motivo("r1_sin_csv", locale))
+    # EL RANGO DEL OBJETIVO TAMBIÉN DECIDE EL CSV (auditoría del 134, medido el 19-10):
+    # en una regresión cuya receta no es una fórmula, el generador saca el objetivo
+    # DENTRO de `target_range` (05-10) en vez de en [-1, 1], y regenerar sin él daba
+    # otro dataset: R1 FAIL a un paquete honesto. Pero el paquete no dice si se generó
+    # con él: `generation.target_range` es el rango con el que se ENTRENÓ, y la clásica
+    # genera sin él y entrena con él (su código no se toca). Se prueba primero tal como
+    # lo declara el paquete y después sin él; lo que decide es el sha256 completo, no
+    # una suposición, y la etapa dice con cuál cuadró (`target_range_applied`).
+    rango_objetivo = _par_de_numeros(
+        generacion.get("target_range") if isinstance(generacion, dict) else None)
+    variantes = ([rango_objetivo, None] if rango_objetivo is not None else [None])
 
     import hashlib
-    obtenido = hashlib.sha256(csv.encode("utf-8")).hexdigest()
-    if obtenido == esperado:
-        return _etapa("PASS", rows=filas, sha256=obtenido, csv_text=csv)
+    obtenido = None
+    for variante in variantes:
+        try:
+            # Esto NO ejecuta nada que venga en el paquete: corre el generador
+            # DEL CORE tomando la receta como DATO. La receta es un lenguaje
+            # acotado que el core interpreta, no un programa que se lanza.
+            from matrixai.playground import _generate_synthetic_dataset
+            generado = _generate_synthetic_dataset(
+                mxai_text, training_text, filas, int(semilla), str(modo),
+                recipe_text=recipe_text,
+                field_ranges_override={k: (float(v[0]), float(v[1]))
+                                       for k, v in (rangos or {}).items()
+                                       if isinstance(v, (list, tuple)) and len(v) == 2} or None,
+                field_types=tipos or None,
+                field_categories=categorias or None,
+                field_identifiers=list(excluidos) if excluidos else None,
+                **({"target_range": variante} if variante is not None else {}),
+            )
+        except Exception as exc:  # noqa: BLE001 — el generador puede negarse por mil motivos
+            # No poder regenerar NO es una manipulación del paquete: se dice
+            # qué pasó y se deja en INCOMPARABLE.
+            return _etapa("INCOMPARABLE",
+                          motivo("r1_no_regenerable", locale, error=exc))
+
+        # `csv_text`, no `csv`: es la clave que el generador devuelve de
+        # verdad (medida, después de suponer la otra y comerme un KeyError).
+        csv = generado.get("csv_text") if isinstance(generado, dict) else None
+        if not isinstance(csv, str) or csv == "":
+            return _etapa("INCOMPARABLE", motivo("r1_sin_csv", locale))
+
+        hecho = hashlib.sha256(csv.encode("utf-8")).hexdigest()
+        if obtenido is None:
+            # El digest que se ENSEÑA si nada cuadra es el de lo que declara el paquete.
+            obtenido = hecho
+        if hecho == esperado:
+            return _etapa("PASS", rows=filas, sha256=hecho, csv_text=csv,
+                          **({"target_range_applied": variante is not None}
+                             if rango_objetivo is not None else {}))
     # AQUÍ sí es FAIL: el paquete dijo qué debía salir y ha salido otra
     # cosa. Se enseñan los DOS digests: «no coincide» a secas no deja
     # comprobar nada a quien lo lea.
@@ -584,6 +604,82 @@ def _reparto_del_dataset(fuente: str, csv: str) -> dict[str, str]:
             ruta_eval: cabecera + "".join(filas[corte:])}
 
 
+def _par_de_numeros(valor: Any) -> tuple[float, float] | None:
+    """`[lo, hi]` del manifiesto como par de floats, o `None` si no es un par numérico."""
+    if (isinstance(valor, (list, tuple)) and len(valor) == 2
+            and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in valor)):
+        return (float(valor[0]), float(valor[1]))
+    return None
+
+
+def _datos_como_los_preparo_el_producto(
+    manifiesto: dict[str, Any], mxai_text: str, csv: str, *, locale: str,
+) -> tuple[str, frozenset[str], dict[str, Any], str | None]:
+    """El CSV con el que se reentrena: el regenerado, PREPARADO como lo preparó el producto.
+
+    AUDITORÍA DEL 134, H1 (BLOQUEANTE, medido el 19-10 por el camino real del Studio):
+    esto entrenaba con el CSV de R1 tal cual, en escala de dominio, mientras el producto
+    lo había normalizado con `field_ranges` y `target_range` antes de entrenar. Con
+    rangos que no son la identidad (`credit_score` [300, 850]) las cifras no tenían nada
+    que ver —pérdida 0,98 publicada, 17,7 reentrenada— y R3 daba FAIL a un paquete
+    honesto, con stdlib y con torch.
+
+    Se prepara con LA MISMA función que el producto (`playground._preparar_csv_con_rangos`,
+    después de `normalize_csv_text`, que es lo que hace `_normalize_external_csv`), y el
+    resultado SE COMPRUEBA contra `artifacts.dataset.sha256_prepared`, el digest del
+    fichero con el que la red entrenó de verdad. Que se haya preparado igual no se
+    supone: se mide.
+
+    Devuelve `(csv_para_entrenar, columnas_sin_recorte, aplicado, motivo_si_no)`:
+
+    * cuadra → ese CSV, y `aplicado` lo dice;
+    * no cuadra, o el paquete prepara con rangos y no declara el digest → el CSV
+      preparado (para que `training` diga si el entrenamiento termina) y el MOTIVO, que
+      deja `dataset_sha256_prepared` sin aplicar y R3 en INCOMPARABLE, nunca FAIL;
+    * sin digest y sin rangos → el CSV tal cual, como siempre: no hay nada que preparar
+      (los paquetes del CLI, que entrena el fichero sin normalizar y no declara digest
+      del preparado).
+
+    El objetivo SIN recortar (A8): `generation.target_clipped: false` lo declara la
+    captura cuando el Studio entrena con `recortar_objetivo=False`; su ausencia es
+    «recortado», lo que hacían todas las capturas anteriores. Leerlo mal no puede dar un
+    FAIL: con algún objetivo fuera de su rango, recortar o no cambia el CSV preparado, y
+    el digest lo caza; con todos dentro, los dos CSV y la elección de época son los
+    mismos.
+    """
+    import hashlib  # noqa: PLC0415
+
+    generacion = manifiesto.get("generation") if isinstance(manifiesto.get("generation"), dict) else {}
+    rangos: dict[str, tuple[float, float]] = {}
+    if isinstance(generacion.get("field_ranges"), dict):
+        for columna, crudo in generacion["field_ranges"].items():
+            par = _par_de_numeros(crudo)
+            if par is not None:
+                rangos[str(columna)] = par
+    rango_objetivo = _par_de_numeros(generacion.get("target_range"))
+    recortar = generacion.get("target_clipped") is not False
+    artefactos = manifiesto.get("artifacts") if isinstance(manifiesto.get("artifacts"), dict) else {}
+    dataset = artefactos.get("dataset") if isinstance(artefactos.get("dataset"), dict) else {}
+    esperado = dataset.get("sha256_prepared")
+    esperado = esperado if isinstance(esperado, str) and esperado else None
+    hay_que_preparar = bool(rangos) or rango_objetivo is not None
+
+    if esperado is None and not hay_que_preparar:
+        return csv, frozenset(), {}, None
+
+    from matrixai.playground import _preparar_csv_con_rangos  # noqa: PLC0415
+    from matrixai.training.data import normalize_csv_text  # noqa: PLC0415
+    preparado, sin_recorte = _preparar_csv_con_rangos(
+        mxai_text, normalize_csv_text(csv), rangos or None, rango_objetivo, recortar)
+    if esperado is None:
+        return preparado, sin_recorte, {}, motivo("t_preparado_sin_digest", locale)
+    obtenido = hashlib.sha256(preparado.encode("utf-8")).hexdigest()
+    if obtenido == esperado:
+        return preparado, sin_recorte, {"dataset_sha256_prepared": obtenido}, None
+    return preparado, sin_recorte, {}, motivo(
+        "t_preparado_no_cuadra", locale, declarado=esperado, actual=obtenido)
+
+
 def _verificar_training(
     bundle: Path, manifiesto: dict[str, Any], r1: dict[str, Any],
     *, locale: str = IDIOMA_POR_DEFECTO,
@@ -615,6 +711,11 @@ def _verificar_training(
     import tempfile
 
     taller = Path(tempfile.mkdtemp(prefix="matrixai-verify-"))
+    # Lo que no se pudo aplicar, con su porqué. Se declara ANTES del `try` porque
+    # también lo necesita el `except`: un reentrenamiento que no arranca puede no
+    # arrancar justo por eso (134, H4: una red compuesta que declara torch revienta
+    # en `dense_forward` y el motivo «no tiene un reentrenamiento de torch» se perdía).
+    motivos_sin_aplicar: dict[str, str] = {}
     try:
         # Se trabaja sobre una COPIA, en un directorio aparte: verificar no
         # escribe en el paquete de nadie.
@@ -655,6 +756,10 @@ def _verificar_training(
         fuente = getattr(getattr(spec, "dataset", None), "source", None)
         destino = taller / _ruta_del_dataset(fuente)
         destino.parent.mkdir(parents=True, exist_ok=True)
+        # 134, H1: lo que se escribe es el CSV PREPARADO como lo preparó el producto,
+        # comprobado contra su digest (`_datos_como_los_preparo_el_producto`).
+        csv, sin_recorte, preparado_aplicado, motivo_preparado = _datos_como_los_preparo_el_producto(
+            manifiesto, destino_modelo.read_text(encoding="utf-8"), csv, locale=locale)
         for relativa, texto in _reparto_del_dataset(str(fuente or ""), csv).items():
             escrito = taller / _ruta_del_dataset(relativa)
             escrito.parent.mkdir(parents=True, exist_ok=True)
@@ -678,7 +783,8 @@ def _verificar_training(
                      and getattr(redes[0], "kind", "dense_network") == "dense_network"
                      and not getattr(redes[0], "transformer_blocks", []))
         torch_aqui = _torch_instalado() if por_torch else False
-        motivos_sin_aplicar: dict[str, str] = {}
+        if motivo_preparado is not None:
+            motivos_sin_aplicar["dataset_sha256_prepared"] = motivo_preparado
         if por_torch and not torch_aqui:
             motivos_sin_aplicar["backend"] = motivo("t_backend_sin_torch", locale)
         elif (backend_declarado == "torch" and not por_torch
@@ -731,6 +837,29 @@ def _verificar_training(
         aplicadas, sin_aplicar, del_run, spec = _configuracion_del_run(
             manifiesto, spec, admite_semilla=admite_semilla, maquina=_maquina,
             inicializacion_determinista=_determinista)
+        aplicadas.update(preparado_aplicado)
+        if por_torch and torch_aqui and _maquina == "cuda":
+            # AUDITORÍA DEL 134, H2: la tolerancia 0,0 de torch se MIDIÓ en CPU (12
+            # configuraciones, bit a bit); en CUDA no. Comparar con ella en CUDA sería
+            # fijar una tolerancia sin medirla (§2.4), y si CUDA no repite bit a bit, un
+            # FAIL falso en la GPU. Se reentrena en CUDA —para que `training` diga si
+            # termina— y `device` queda sin aplicar CON SU MOTIVO hasta medirlo en una GPU.
+            aplicadas.pop("device", None)
+            motivos_sin_aplicar["device"] = motivo("t_device_cuda_sin_medir", locale)
+        # LA REGLA DEL OBJETIVO SIN RECORTAR (A8 + I1): el producto elige la época solo
+        # con las filas de validación alcanzables cuando el objetivo se normalizó sin
+        # recortar, y eso cambia la época elegida (medido por la auditoría del 134: 3
+        # frente a 19 en la misma regresión). El reentrenamiento hace lo mismo; si su
+        # entrenador no sabe, se dice.
+        from matrixai.playground import _rango_para_elegir  # noqa: PLC0415
+        _rango_eleccion = _rango_para_elegir(spec, sin_recorte)
+        _sin_recorte_extra: dict[str, Any] = {}
+        if not (por_torch and torch_aqui) and _rango_eleccion is not None:
+            if "rango_objetivo_eleccion" in inspect.signature(entrenador.train).parameters:
+                _sin_recorte_extra["rango_objetivo_eleccion"] = _rango_eleccion
+            else:
+                motivos_sin_aplicar["target_clipped"] = motivo(
+                    "t_objetivo_sin_recorte_sin_aplicar", locale)
         if por_torch and torch_aqui:
             if len(_reparto_del_dataset(str(fuente or ""), csv)) > 1:
                 # El camino de torch lee UN csv; un dataset partido en train/eval
@@ -740,11 +869,12 @@ def _verificar_training(
             resultado, _del_disco = _reentrenar_con_torch(
                 spec, destino_modelo, ruta_train, destino,
                 semilla=del_run.get("seed"), dispositivo=_maquina,
-                rango=(manifiesto.get("generation") or {}).get("target_range"))
+                rango=(manifiesto.get("generation") or {}).get("target_range"),
+                sin_recorte=sin_recorte)
         else:
             resultado = entrenador.train(
                 spec, output_dir=str(taller / "out"), base_path=taller,
-                training_path=ruta_train, **del_run)
+                training_path=ruta_train, **del_run, **_sin_recorte_extra)
         # LAS MÉTRICAS QUE EL ENTRENADOR DEJA EN DISCO, leídas ANTES de borrar
         # el taller. El camino FUNCTION no las devuelve en su `TrainingRunResult`
         # —ahí van `accuracy` y las pérdidas— pero escribe un `metrics.json` con
@@ -756,7 +886,12 @@ def _verificar_training(
     except Exception as exc:  # noqa: BLE001 — el entrenador se niega por mil motivos
         # Que no se pueda entrenar AQUÍ no prueba que el paquete mienta:
         # otro entorno, otro backend, una dependencia que falta.
-        return _etapa("INCOMPARABLE", motivo("t_no_arranca", locale, error=exc))
+        return _etapa("INCOMPARABLE",
+                      motivo("t_no_arranca", locale, error=exc)
+                      + ("" if not motivos_sin_aplicar
+                         else " — " + "; ".join(motivos_sin_aplicar.values())),
+                      **({"not_applied_reasons": dict(motivos_sin_aplicar)}
+                         if motivos_sin_aplicar else {}))
     finally:
         shutil.rmtree(taller, ignore_errors=True)
 
@@ -772,7 +907,8 @@ def _verificar_training(
     # lo mira antes de comparar. Callarlo dejaría a R3 comparando peras
     # con manzanas y llamándolo veredicto.
     if motivos_sin_aplicar:
-        sin_aplicar = list(sin_aplicar) + sorted(motivos_sin_aplicar)
+        sin_aplicar = list(sin_aplicar) + [k for k in sorted(motivos_sin_aplicar)
+                                           if k not in sin_aplicar]
     epocas = getattr(resultado, "best_epoch", None)
     # LOS NOMBRES SON LOS DEL RESULTADO, medidos: `TrainingRunResult` no
     # tiene un `metrics` —lo supuse y salía siempre vacío—, tiene
@@ -821,14 +957,10 @@ def _dispositivo_de_torch(declarado: Any) -> str:
     return "cpu"
 
 
-#: Lo que el camino de torch mide y R3 puede comparar (los nombres del catálogo).
-_METRICAS_DE_TORCH = ("accuracy", "macro_f1", "mae", "rmse", "r2",
-                      "final_train_loss", "best_validation_loss")
-
-
 def _reentrenar_con_torch(
     spec: Any, ruta_modelo: Path, ruta_train: Path, ruta_csv: Path, *,
     semilla: Any, dispositivo: str, rango: Any,
+    sin_recorte: frozenset[str] = frozenset(),
 ) -> tuple[Any, dict[str, Any]]:
     """Reentrena por el MISMO camino de torch que el producto (contrato 134).
 
@@ -844,20 +976,25 @@ def _reentrenar_con_torch(
     from types import SimpleNamespace  # noqa: PLC0415
 
     from matrixai.playground import _dense_torch_train_result  # noqa: PLC0415
+    # AUDITORÍA DEL 134, H7: QUÉ MÉTRICAS se recogen lo decide UN sitio, el catálogo
+    # (`metric_identity.DIRECCION`): es el que da a cada métrica su tolerancia, y sin
+    # tolerancia R3 no compara. Una lista propia aquí repetía la del export del Studio
+    # (`_METRICAS_DEL_RESULTADO`), y una métrica que se añadiera al catálogo y al export
+    # se habría quedado fuera de este reentrenamiento: R3 se la saltaría en silencio
+    # (PASS con menos `checked`).
+    from matrixai.training.metric_identity import DIRECCION  # noqa: PLC0415
 
-    rango_objetivo = None
-    if (isinstance(rango, (list, tuple)) and len(rango) == 2
-            and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in rango)):
-        rango_objetivo = (float(rango[0]), float(rango[1]))
     r = _dense_torch_train_result(
         ruta_modelo.read_text(encoding="utf-8"), spec, spec,
         ruta_csv.read_text(encoding="utf-8"), dispositivo,
         int(semilla) if isinstance(semilla, int) else 42,
-        None, target_range=rango_objetivo)
+        None, target_range=_par_de_numeros(rango),
+        # El objetivo sin recortar, como lo entrenó el producto (A8 + I1).
+        objetivo_sin_recorte=frozenset(sin_recorte))
     if not r.get("ok"):
         raise RuntimeError(str(r.get("error") or "el entrenamiento de torch no dio resultado"))
     # Lo que no se midió es `None` y no entra: un valor ausente no es un cero.
-    medidas = {k: r[k] for k in _METRICAS_DE_TORCH
+    medidas = {k: r[k] for k in DIRECCION
                if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool)}
     return SimpleNamespace(best_epoch=r.get("best_epoch"), validation_metrics=None), medidas
 
@@ -952,21 +1089,28 @@ def _verificar_r3(
     # se midió para esta máquina: comparar contra ella daría `FAIL` a un
     # paquete honesto por estar verificándolo en otro sitio. Un fallo por
     # falta de acceso no es una manipulación, y esto es lo mismo.
+    # El PORQUÉ de lo que no se aplicó, ya redactado en este idioma por la etapa
+    # `training` (134: «el paquete se entrenó con torch y aquí no hay»).
+    sin_aplicar = training.get("not_applied_from_capture") or []
+    razones = training.get("not_applied_reasons")
+    porque = ("" if not isinstance(razones, dict) or not razones
+              else " — " + "; ".join(str(v) for v in razones.values()))
+
     fuera_de_alcance = _fuera_del_alcance_de_la_tolerancia(
         manifiesto, comparables, locale=locale)
     if fuera_de_alcance:
-        return _etapa("INCOMPARABLE", fuera_de_alcance)
+        # AUDITORÍA DEL 134, H3: en una máquina SIN torch la huella del entorno es
+        # siempre otra (torch forma parte de ella), así que esta guarda salta antes
+        # que la de abajo, y el motivo que llegaba a la persona era solo «otro
+        # entorno»: «se entrenó con torch y aquí no hay» no salía por ningún lado
+        # (medido con `python3 -s -E`). Los dos son INCOMPARABLE; se dicen los dos.
+        return _etapa("INCOMPARABLE", fuera_de_alcance + porque,
+                      **({"not_applied": sin_aplicar} if sin_aplicar else {}))
 
     # Y si el reentrenamiento NO pudo aplicar parte de la configuración
     # capturada, las métricas de ahora no describen el mismo run: comparar
     # daría un FAIL que acusa al paquete de algo que hizo el verificador.
-    sin_aplicar = training.get("not_applied_from_capture") or []
     if sin_aplicar:
-        # El PORQUÉ de lo que no se aplicó, ya redactado en este idioma por la
-        # etapa `training` (134: «el paquete se entrenó con torch y aquí no hay»).
-        razones = training.get("not_applied_reasons")
-        porque = ("" if not isinstance(razones, dict) or not razones
-                  else " — " + "; ".join(str(v) for v in razones.values()))
         return _etapa("INCOMPARABLE",
                       motivo("r3_configuracion_sin_aplicar", locale,
                              claves=", ".join(sin_aplicar)) + porque,

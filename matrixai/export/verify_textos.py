@@ -130,6 +130,21 @@ _MOTIVOS: dict[str, dict[str, str]] = {
                                        "repetir aquí"),
         "t_backend_dataset_partido": ("el dataset se parte en train y eval por convención "
                                       "y el reentrenamiento de torch lee un solo CSV"),
+        "t_preparado_no_cuadra": (
+            "el dataset regenerado, preparado como lo prepara el producto (con sus "
+            "field_ranges y su target_range), no cuadra con el sha256 del CSV con el que "
+            "el paquete dice que entrenó (esperado {declarado}, obtenido {actual}): no "
+            "se entrena con los mismos datos"),
+        "t_preparado_sin_digest": (
+            "el paquete prepara sus datos con rangos antes de entrenar y no declara el "
+            "sha256 del CSV preparado: no hay con qué comprobar que se reentrena con los "
+            "mismos datos"),
+        "t_device_cuda_sin_medir": (
+            "el paquete se entrenó en CUDA y la tolerancia de torch en CUDA no está "
+            "medida (solo en CPU): comparar con ella sería suponerla"),
+        "t_objetivo_sin_recorte_sin_aplicar": (
+            "el objetivo se normalizó sin recortar y este entrenador no elige la época "
+            "como el producto en ese caso (solo con las filas de validación alcanzables)"),
         # -- etapa `R3` ----------------------------------------------------------
         "r3_sin_reentrenamiento": ("las métricas solo se contrastan contra un "
                                    "entrenamiento nuevo (usa --retrain)"),
@@ -244,6 +259,22 @@ _MOTIVOS: dict[str, dict[str, str]] = {
                                        "has no torch retraining that can be repeated here"),
         "t_backend_dataset_partido": ("the dataset is split into train and eval by "
                                       "convention and the torch retraining reads a single CSV"),
+        "t_preparado_no_cuadra": (
+            "the regenerated dataset, prepared as the product prepares it (with its "
+            "field_ranges and target_range), does not match the sha256 of the CSV the "
+            "package says it trained on (expected {declarado}, got {actual}): it is not "
+            "retrained on the same data"),
+        "t_preparado_sin_digest": (
+            "the package prepares its data with ranges before training and does not "
+            "declare the sha256 of the prepared CSV: there is nothing to check that it is "
+            "retrained on the same data"),
+        "t_device_cuda_sin_medir": (
+            "the package was trained on CUDA and torch's tolerance on CUDA has not been "
+            "measured (only on CPU): comparing against it would be assuming it"),
+        "t_objetivo_sin_recorte_sin_aplicar": (
+            "the target was normalized without clipping and this trainer does not choose "
+            "the epoch as the product does in that case (only with the reachable "
+            "validation rows)"),
         "r3_sin_reentrenamiento": ("metrics can only be contrasted against a fresh "
                                    "training run (use --retrain)"),
         "r3_training_no_paso": "training did not pass",
