@@ -169,6 +169,14 @@ _MOTIVOS: dict[str, dict[str, str]] = {
             "el paquete declara un margen que no es el medido por el núcleo ({claves}): "
             "R3 no lo usa, así que esas métricas no se comparan y no se puede decir que el "
             "paquete reproduce lo que publica"),
+        "r3_no_comparadas": (
+            "el paquete publica cifras que no se pueden comparar ({claves}): les falta lo "
+            "que hace falta para contrastarlas, así que no se puede decir que el paquete "
+            "reproduce lo que publica"),
+        "r3_otro_dataset": (
+            "el paquete publica cifras medidas sobre otro dataset que el suyo ({claves}): "
+            "un reentrenamiento sobre este no puede contrastarlas, así que no se puede decir "
+            "que el paquete reproduce lo que publica"),
         "r3_publicada_sin_valor": (
             "el paquete publica métricas como comparables sin un valor numérico "
             "({claves}): no hay con qué contrastarlas"),
@@ -306,6 +314,14 @@ _MOTIVOS: dict[str, dict[str, str]] = {
             "the package declares a margin that is not the one measured by the core "
             "({claves}): R3 does not use it, so those metrics are not compared and it "
             "cannot be said that the package reproduces what it publishes"),
+        "r3_no_comparadas": (
+            "the package publishes figures that cannot be compared ({claves}): they lack "
+            "what a comparison needs, so it cannot be said that the package reproduces "
+            "what it publishes"),
+        "r3_otro_dataset": (
+            "the package publishes figures measured on a dataset other than its own "
+            "({claves}): a retraining on this one cannot contrast them, so it cannot be said "
+            "that the package reproduces what it publishes"),
         "r3_publicada_sin_valor": (
             "the package publishes metrics as comparable without a numeric value "
             "({claves}): there is nothing to contrast them with"),

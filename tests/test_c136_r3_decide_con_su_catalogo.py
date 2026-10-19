@@ -307,3 +307,208 @@ def test_FUNCTION_si_no_se_pudo_medir_como_el_producto_es_INCOMPARABLE_nunca_FAI
     r3 = inf["stages"]["R3"]
     assert r3["status"] == "INCOMPARABLE", r3
     assert {"mae", "rmse", "r2"} <= set(r3["not_reported"]), r3
+
+
+# ── 5. AUDITORÍA DEL 136: con UNA clave tocada en la cifra alterada, R3 ya no da PASS ───────────
+#
+# Medido por la auditoría (`~/.agentes/136/auditoria.md`, H1-H3): con `split: null`,
+# `dataset_sha256: null`, `direction: null` o `tolerance_abs: null` en las cifras alteradas, el
+# paquete re-sellado salía R3 PASS, `fully_checked: true` y código 0, comparando solo las dos
+# pérdidas (el 134 daba FAIL). La regla repone lo que el catálogo sabe (H2, H3) y R3 NOMBRA toda
+# cifra publicada que no compara, y entonces no dice PASS (H1).
+
+def _con_en(m, nombres, **kw):
+    """Como `_con`, pero solo en las cifras `nombres`: las que mienten."""
+    m = json.loads(json.dumps(m))
+    for x in m["metrics"]:
+        if x["name"] in nombres:
+            x.update(kw)
+    return m
+
+
+def _tres():
+    """mae y rmse (las que mienten) y una pérdida que cuadra, como en la regresión del Studio."""
+    return _manifiesto([_entrada(value=316.7), _entrada(name="rmse", value=400.0, direction=None),
+                        _entrada(name="final_train_loss", value=0.4, split="train", direction=None)])
+
+
+_LA_MENTIRA = {"mae": 31.67, "rmse": 40.0, "final_train_loss": 0.4}
+
+
+@pytest.mark.parametrize("clave", ["split", "dataset_sha256"])
+@pytest.mark.parametrize("locale,frase", [
+    ("es", "el paquete publica cifras que no se pueden comparar"),
+    ("en", "the package publishes figures that cannot be compared"),
+])
+def test_una_cifra_que_la_regla_no_compara_se_NOMBRA_y_R3_no_da_PASS(clave, locale, frase):
+    m = _con_en(_tres(), ("mae", "rmse"), **{clave: None})
+    r3 = base_r3(m, dict(_LA_MENTIRA), locale=locale)
+    assert r3["status"] == "INCOMPARABLE", r3
+    assert r3["checked"] == ["final_train_loss"], r3
+    assert r3["not_compared"] == [{"name": "mae", "missing": [clave]},
+                                  {"name": "rmse", "missing": [clave]}], r3
+    assert frase in r3["reason"] and f"mae ({clave})" in r3["reason"], r3["reason"]
+
+
+def test_con_cifras_sin_comparar_un_FAIL_sigue_mandando_y_las_cita():
+    m = _con_en(_tres(), ("mae", "rmse"), split=None)
+    r3 = base_r3(m, dict(_LA_MENTIRA, final_train_loss=0.9))
+    assert r3["status"] == "FAIL", r3
+    assert [x["metric"] for x in r3["metrics"]] == ["final_train_loss"], r3
+    assert [x["name"] for x in r3["not_compared"]] == ["mae", "rmse"], r3
+
+
+def test_tambien_se_nombran_un_nombre_fuera_del_catalogo_sin_direccion_y_lo_que_no_es_una_metrica():
+    """La fila «nombre desconocido + `direction: null`» de la auditoría daba PASS."""
+    m = _tres()
+    for x in m["metrics"]:
+        if x["name"] in ("mae", "rmse"):
+            x["name"] += "_ajustada"
+            x["direction"] = None
+    m["metrics"].append("mae: 31.67")
+    r3 = base_r3(m, dict(_LA_MENTIRA))
+    assert r3["status"] == "INCOMPARABLE", r3
+    assert r3["checked"] == ["final_train_loss"], r3
+    assert r3["not_compared"] == [{"name": "mae_ajustada", "missing": ["direction"]},
+                                  {"name": "rmse_ajustada", "missing": ["direction"]},
+                                  {"name": "metrics[3]", "missing": ["object"]}], r3
+
+
+def test_direction_null_en_una_cifra_del_catalogo_se_repone_y_se_compara():
+    """H2: la dirección es del NOMBRE; la regla la repone como el export, y la cifra se compara."""
+    m = _con(_manifiesto([_entrada(value=316.7)]), direction=None)
+    d = comparabilidad_de_metrica(m["metrics"][0])
+    assert d["comparable"] and d["entry"]["direction"] == "lower_is_better", d
+    assert base_r3(m, {"mae": 31.67})["status"] == "FAIL"
+    assert base_r3(m, {"mae": 316.7})["status"] == "PASS"
+
+
+def test_sin_tolerancia_y_con_el_alcance_del_catalogo_manda_el_margen_del_catalogo():
+    """H3: lo natural es quitar SOLO `tolerance_abs`; el alcance que trae todo paquete honesto se
+    queda. Antes la cifra se quedaba sin margen y desaparecía en silencio."""
+    m = _con(_manifiesto([_entrada(value=316.7)]), tolerance_abs=None)
+    assert m["metrics"][0]["tolerance_scope"] == "same_environment_same_seed"
+    d = comparabilidad_de_metrica(m["metrics"][0])
+    assert d["comparable"] and d["entry"]["tolerance_abs"] == 0.0, d
+    assert base_r3(m, {"mae": 31.67})["status"] == "FAIL"
+    assert base_r3(m, {"mae": 316.7})["status"] == "PASS"
+
+
+@pytest.mark.parametrize("locale,frase", [
+    ("es", "declara un margen que no es el medido por el núcleo (mae)"),
+    ("en", "declares a margin that is not the one measured by the core (mae)"),
+])
+def test_sin_tolerancia_y_con_un_alcance_ajeno_es_margen_ajeno_y_el_motivo_lo_dice(locale, frase):
+    """H3, el otro lado: un alcance que el catálogo no mide, SIN tolerancia, es un margen ajeno (con
+    `tolerance_abs: 0.0` ya lo era). Y en un INCOMPARABLE MIXTO -otra cifra sí cuadra- el motivo
+    lo dice en la prosa, no solo en `margin_not_catalog` (M3, A4)."""
+    m = _manifiesto([_entrada(value=316.7), _entrada(name="r2", value=0.5, direction=None)])
+    m = _con_en(m, ("mae",), tolerance_abs=None, tolerance_scope="any_environment")
+    assert comparabilidad_de_metrica(m["metrics"][0])["margen_ajeno"] is not None
+    r3 = base_r3(m, {"mae": 31.67, "r2": 0.5}, locale=locale)
+    assert r3["status"] == "INCOMPARABLE", r3
+    assert r3["checked"] == ["r2"] and r3["margin_not_catalog"] == ["mae"], r3
+    assert frase in r3["reason"], r3["reason"]
+
+
+@pytest.mark.parametrize("raw", [
+    _entrada(direction=None),
+    _entrada(name="accuracy", value=0.8, direction=None, tolerance_scope="same_environment_same_seed"),
+    _entrada(tolerance_scope="any_environment"),
+    _entrada(tolerance_abs=0.0, tolerance_scope="any_environment"),
+    _entrada(split=None),
+    _entrada(dataset_sha256=None),
+    _entrada(name="kappa", direction=None, tolerance_abs=0.05),
+    _entrada(name="kappa", tolerance_abs=0.05),
+], ids=["sin_direction", "sin_tolerancia_con_su_alcance", "alcance_ajeno", "alcance_ajeno_con_0",
+        "sin_split", "sin_digest", "kappa_sin_direction", "kappa_completa"])
+def test_el_export_y_R3_deciden_LO_MISMO_de_cada_cifra(raw):
+    """«La MISMA regla» (§2.1): lo que el export escribe en `comparable` es lo que R3 decide, tanto
+    sobre lo que el llamante mandó como sobre lo ya escrito. Antes el export reponía la dirección
+    ANTES de llamar a la regla y R3 no (H2): `sin_direction` salía comparable al exportar y no al
+    verificar."""
+    from matrixai.export.reproduce import _normalize_metrics
+    escrita = _normalize_metrics([raw])[0]
+    assert comparabilidad_de_metrica(raw)["comparable"] is escrita["comparable"], escrita
+    assert comparabilidad_de_metrica(escrita)["comparable"] is escrita["comparable"], escrita
+
+
+@pytest.mark.parametrize("tolerancia", [{"tolerance_abs": 0.0}, {}], ids=["con_0", "sin_tolerancia"])
+def test_el_export_no_pisa_el_alcance_que_declaro_el_llamante(tolerancia):
+    """M3, A5: el alcance del llamante tiene que llegar a la regla. Si no, uno ajeno con
+    `tolerance_abs: 0.0` saldría comparable y con el alcance del catálogo, pisando el suyo."""
+    from matrixai.export.reproduce import _normalize_metrics
+    escrita = _normalize_metrics([_entrada(tolerance_scope="matriz de entornos v1", **tolerancia)])[0]
+    assert escrita["tolerance_scope"] == "matriz de entornos v1", escrita
+    assert escrita["comparable"] is False, escrita
+
+
+@pytest.mark.parametrize("locale,frase", [
+    ("es", "publica cifras medidas sobre otro dataset que el suyo (mae, rmse)"),
+    ("en", "publishes figures measured on a dataset other than its own (mae, rmse)"),
+])
+def test_una_cifra_medida_sobre_OTRO_dataset_no_se_compara_y_se_nombra(locale, frase):
+    """M6 (deuda anterior al 136): la cifra dice sobre qué datos se midió, y R3 no lo miraba. Si no
+    es ninguno de los dos digests del paquete (el crudo o el preparado: el producto declara uno u
+    otro), no se compara: ni PASS con un valor honesto re-etiquetado, ni FAIL contra un
+    reentrenamiento sobre otros datos. Con el crudo o el preparado, se compara como siempre."""
+    m = _tres()
+    m["artifacts"] = {"dataset": {"sha256": "c" * 64, "sha256_prepared": _SHA}}
+    honestas = {"mae": 316.7, "rmse": 400.0, "final_train_loss": 0.4}
+    crudo = _con_en(m, ("rmse",), dataset_sha256="c" * 64)
+    assert base_r3(crudo, dict(honestas))["status"] == "PASS"
+    assert base_r3(crudo, dict(_LA_MENTIRA))["status"] == "FAIL"
+    ajeno = _con_en(m, ("mae", "rmse"), dataset_sha256="d" * 64)
+    for obtenidas in (honestas, _LA_MENTIRA):
+        r3 = base_r3(ajeno, dict(obtenidas), locale=locale)
+        assert r3["status"] == "INCOMPARABLE", r3
+        assert r3["other_dataset"] == ["mae", "rmse"] and r3["checked"] == ["final_train_loss"], r3
+        assert frase in r3["reason"], r3["reason"]
+
+
+# Por el camino del producto: el paquete del Studio (su captura, sus cifras y particiones, con
+# rangos de dominio), la mentira gorda en las cifras de la tarea y UNA clave tocada, re-sellado.
+_UNA_CLAVE = [
+    ({"split": None}, "INCOMPARABLE"),
+    ({"dataset_sha256": None}, "INCOMPARABLE"),
+    ({"direction": None}, "FAIL"),
+    ({"tolerance_abs": None}, "FAIL"),
+    ({"tolerance_abs": None, "tolerance_scope": "any_environment"}, "INCOMPARABLE"),
+    ({"dataset_sha256": "c" * 64}, "INCOMPARABLE"),                       # M6
+]
+_MIENTEN = {"reg": ("mae", "rmse", "r2"), "clasif": ("accuracy", "macro_f1")}
+
+
+def _mentira_de(tarea, **kw):
+    def tocar(m):
+        for x in m["metrics"]:
+            if x["name"] not in _MIENTEN[tarea]:
+                continue
+            if x["name"] in ("mae", "rmse"):
+                x["value"] = x["value"] / 10
+            else:
+                x["value"] = 0.9999 if x["name"] == "r2" else 0.99
+            x.update(kw)
+    return tocar
+
+
+@pytest.mark.parametrize("tarea,motor", [("reg", "stdlib"), ("reg", "torch"), ("clasif", "torch")])
+def test_por_el_camino_del_producto_UNA_clave_en_la_cifra_alterada_no_da_PASS(tarea, motor):
+    if tarea == "reg":
+        job, textos = base._job_regresion(motor), (base._MXAI_REG, base._MXTRAIN_REG, base._RECETA_REG)
+    else:
+        job, textos = base._job_clasificacion(motor), (base._MXAI, base._MXTRAIN, base._RECETA)
+    for kw, esperado in _UNA_CLAVE:
+        inf = verify_package(base._paquete(job, *textos, tocar=_mentira_de(tarea, **kw)),
+                             run_training=True)
+        r3 = inf["stages"]["R3"]
+        assert r3["status"] == esperado, (kw, r3)
+        assert inf["fully_checked"] is False, (kw, inf)
+        assert inf["exit_code"] == (2 if esperado == "FAIL" else 3), (kw, inf["exit_code"])
+        if esperado == "FAIL":
+            assert sorted(x["metric"] for x in r3["metrics"]) == sorted(_MIENTEN[tarea]), (kw, r3)
+        else:
+            nombradas = ({x["name"] for x in r3.get("not_compared") or []}
+                         | set(r3.get("margin_not_catalog") or []) | set(r3.get("other_dataset") or []))
+            assert nombradas == set(_MIENTEN[tarea]), (kw, r3)
+            assert not set(r3["checked"]) & set(_MIENTEN[tarea]), (kw, r3)

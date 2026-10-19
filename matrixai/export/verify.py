@@ -1068,7 +1068,12 @@ def _metricas_de_function_como_el_producto(
     spec)` —SIN `target_range`—; la partición de cada cifra la declara ella misma en
     `metric_splits`. Se llama a ESA función con esos argumentos: otra que se le parezca
     mediría otras filas y la tolerancia es 0 (N4 del 134). Devuelve `{partición: {métrica:
-    valor}}` con las del catálogo y solo números; lo que el producto no midió no entra."""
+    valor}}` con las del catálogo y solo números; lo que el producto no midió no entra.
+
+    Lo del `target_range`, dicho como es (auditoría del 136, M3): HOY pasárselo no cambiaría
+    nada, porque el evaluador de FUNCTION lo descarta (`trainer.py`, `del target_range`), y
+    por eso ninguna prueba puede sostener esta línea. Se llama sin él porque así llama el
+    producto: si el evaluador empezara a usarlo, esto seguiría midiendo como se publicó."""
     from matrixai.playground import _collect_training_result  # noqa: PLC0415
     from matrixai.training.metric_identity import DIRECCION  # noqa: PLC0415
 
@@ -1135,13 +1140,20 @@ def _verificar_r3(
       nada que comparar con el publicado, y decir otra cosa sería
       inventarse una comparación.
     * **`INCOMPARABLE`** si el paquete no publica ninguna métrica que se
-      pueda contrastar. El manifiesto ya dice por métrica qué le falta
-      (`comparable`, `incomplete`), así que **se cita en vez de repetir el
-      análisis**. Que al producto todavía le falte capturar el evaluador o
-      la tolerancia es una carencia del PRODUCTO, no una mentira del
-      paquete: `INCOMPARABLE`, no `FAIL`. Y también si ALGUNA comparable no se
-      ha podido contrastar (`not_reported`, re-auditoría del 134): un PASS con
-      menos de lo publicado afirmaría por omisión sobre lo que no se miró.
+      pueda contrastar. QUÉ se compara lo decide ESTE verificador, repitiendo
+      el análisis a propósito con la misma regla que el export
+      (`comparabilidad_de_metrica`, contrato 136): el `comparable` y el
+      `incomplete` que trae el paquete NO se leen, porque un inventario se
+      puede volver a sellar sin firma. Que al producto todavía le falte
+      capturar el evaluador o la tolerancia es una carencia del PRODUCTO, no
+      una mentira del paquete: `INCOMPARABLE`, no `FAIL`. Y también si ALGUNA
+      cifra publicada no se ha podido contrastar: una comparable que el
+      reentrenamiento no reporta (`not_reported`, re-auditoría del 134), una
+      con un margen que no es el del catálogo (`margin_not_catalog`), una que
+      la regla no puede comparar (`not_compared`, auditoría del 136, H1) o una
+      que dice haberse medido sobre otro dataset (`other_dataset`, M6). Un
+      PASS con menos de lo publicado afirmaría por omisión sobre lo que no se
+      miró.
     * **`PASS`/`FAIL`** solo cuando de verdad hay con qué comparar. Una que se
       sale de su tolerancia es `FAIL` aunque otras no se hayan contrastado.
     """
@@ -1176,18 +1188,31 @@ def _verificar_r3(
     # las cifras alteradas, R3 daba PASS (3.ª pasada del 134, N5). La regla es la MISMA que
     # usa el export (`comparabilidad_de_metrica`), aplicada a lo que el paquete publica.
     from matrixai.export.reproduce import comparabilidad_de_metrica  # noqa: PLC0415
+    #
+    # Y LO QUE LA REGLA NO COMPARA SE NOMBRA (auditoría del 136, H1). Aquí se acumulaba en
+    # `falta` y solo se usaba si no quedaba NINGUNA comparable: con `split: null` o
+    # `dataset_sha256: null` en las cifras alteradas, R3 daba PASS con las dos pérdidas,
+    # `fully_checked: true` y código 0, sin nombrar la mae ni la r2 (el 134 daba FAIL). Cada
+    # cifra que no se compara va a `not_compared` con lo que le falta, y entonces R3 no
+    # puede decir PASS.
     comparables: list[dict[str, Any]] = []
     margen_ajeno: list[str] = []
+    no_comparadas: list[dict[str, Any]] = []
     falta: list[str] = []
-    for m in metricas:
+    for i, m in enumerate(metricas):
         if not isinstance(m, dict):
+            # Ni siquiera es una métrica: tampoco se compara, y se dice.
+            no_comparadas.append({"name": f"metrics[{i}]", "missing": ["object"]})
             continue
         decision = comparabilidad_de_metrica(m)
         if decision["comparable"]:
             comparables.append(decision["entry"])
             continue
+        nombre = str(m.get("name") or f"metrics[{i}]")
         if decision["margen_ajeno"] is not None:
-            margen_ajeno.append(str(m.get("name") or ""))
+            margen_ajeno.append(nombre)
+        else:
+            no_comparadas.append({"name": nombre, "missing": list(decision["faltan"])})
         falta.extend(decision["faltan"])
     if not comparables:
         # Lo que falta lo dice la regla, métrica a métrica. Se reproduce esa lista para
@@ -1249,11 +1274,25 @@ def _verificar_r3(
     # alguna, R3 no puede decir PASS: INCOMPARABLE con su motivo (FAIL sigue mandando).
     sin_reportar: list[str] = []
     sin_valor_publicado: list[str] = []
+    # SOBRE QUÉ DATOS dice la cifra que se midió (auditoría del 136, M6). Si no es ninguno de
+    # los dos digests del paquete, la cifra es de otra medición: contrastarla con un
+    # reentrenamiento sobre ESTE dataset no probaría nada, ni que reproduce ni que miente.
+    # No se compara y se nombra. La pregunta es la MISMA que hace el export al declararla
+    # conflicto (`cifra_de_otro_dataset`). Medido sobre los paquetes del disco: ninguno
+    # honesto la dispara.
+    from matrixai.export.reproduce import cifra_de_otro_dataset  # noqa: PLC0415
+    _ds = (manifiesto.get("artifacts") or {}) if isinstance(manifiesto.get("artifacts"), dict) else {}
+    _ds = _ds.get("dataset") if isinstance(_ds.get("dataset"), dict) else {}
+    digests_del_paquete = {d for d in (_ds.get("sha256"), _ds.get("sha256_prepared"))
+                           if isinstance(d, str) and d}
+    de_otro_dataset: list[str] = []
     for m in comparables:
         nombre = str(m.get("name") or "")
         publicado = m.get("value")
         ahora = _obtenida_en_su_particion(training, obtenidas, nombre, m.get("split"))
-        if not _es_numero(publicado):
+        if cifra_de_otro_dataset(m, digests_del_paquete):
+            de_otro_dataset.append(nombre)
+        elif not _es_numero(publicado):
             # Solo con un paquete tocado a mano: el export rechaza una métrica sin valor.
             sin_valor_publicado.append(nombre)
         elif not _es_numero(ahora):
@@ -1278,6 +1317,10 @@ def _verificar_r3(
     lo_que_falta: dict[str, Any] = {}
     if margen_ajeno:
         lo_que_falta["margin_not_catalog"] = margen_ajeno
+    if no_comparadas:
+        lo_que_falta["not_compared"] = no_comparadas
+    if de_otro_dataset:
+        lo_que_falta["other_dataset"] = de_otro_dataset
     if sin_reportar:
         lo_que_falta["not_reported"] = sin_reportar
     if sin_valor_publicado:
@@ -1294,6 +1337,11 @@ def _verificar_r3(
         porques = []
         if margen_ajeno:
             porques.append(motivo("r3_margen_ajeno", locale, claves=", ".join(margen_ajeno)))
+        if no_comparadas:
+            porques.append(motivo("r3_no_comparadas", locale, claves="; ".join(
+                f"{x['name']} ({', '.join(x['missing'])})" for x in no_comparadas)))
+        if de_otro_dataset:
+            porques.append(motivo("r3_otro_dataset", locale, claves=", ".join(de_otro_dataset)))
         if sin_reportar:
             porques.append(motivo("r3_sin_reportar", locale, claves=", ".join(sin_reportar)))
         if sin_valor_publicado:
@@ -1301,7 +1349,7 @@ def _verificar_r3(
                                   claves=", ".join(sin_valor_publicado)))
         return _etapa("INCOMPARABLE", "; ".join(porques),
                       **({"checked": dentro} if dentro else {}), **lo_que_falta)
-    # Aquí `dentro` no está vacía: cada comparable ha caído en una de las cuatro listas.
+    # Aquí `dentro` no está vacía: cada comparable ha caído en una de las cinco listas.
     return _etapa("PASS", checked=dentro)
 
 

@@ -192,29 +192,40 @@ def comparabilidad_de_metrica(entrada: dict[str, Any]) -> dict[str, Any]:
     puede volver a sellar sin firma (medido en la 3.ª pasada del 134: `comparable: false` o
     `tolerance_abs: 1e9` en las cifras alteradas daban R3 PASS).
 
-    * Para una métrica del CATÁLOGO (`metric_identity`) el margen es el del catálogo, con su
-      alcance. Si la entrada no declara ninguno ni alcance, se rellena. Si declara otro
-      -cualquier otra tolerancia, o un alcance que el catálogo no mide- `margen_ajeno` lo
-      dice y la métrica NO es comparable: ni se usa el margen del paquete ni se ignora en
-      silencio.
+    * Para una métrica del CATÁLOGO (`metric_identity`) lo que el catálogo SABE de ella se
+      repone aquí, y no antes en quien llama (auditoría del 136, H2 y H3): sin esto el
+      export la reponía y R3 no, así que un paquete con `direction: null` o sin
+      `tolerance_abs` en la cifra alterada salía no comparable EN SILENCIO y R3 daba PASS
+      con lo que quedaba (el 134 daba FAIL).
+      - `direction` y `aggregation`, si la entrada no las trae. Lo que declare MANDA: esto
+        rellena, no pisa.
+      - El margen es el del catálogo, con su alcance. Si la entrada no declara ninguno y su
+        alcance es vacío o el del catálogo, se rellena. Si declara otro -cualquier otra
+        tolerancia, o un alcance que el catálogo no mide, CON tolerancia o SIN ella-
+        `margen_ajeno` lo dice y la métrica NO es comparable: ni se usa el margen del
+        paquete ni se ignora en silencio.
     * Una métrica que el catálogo no conoce sigue como estaba: lo que declare, y sin
       dirección no es comparable.
 
-    Devuelve `{"entry", "comparable", "faltan", "margen_ajeno"}`: `entry` es una COPIA con el
-    margen efectivo; `faltan`, lo que le falta para compararse; `margen_ajeno`, `None` o un
-    texto con lo declarado.
+    Devuelve `{"entry", "comparable", "faltan", "margen_ajeno"}`: `entry` es una COPIA con la
+    identidad y el margen efectivos; `faltan`, lo que le falta para compararse; `margen_ajeno`,
+    `None` o un texto con lo declarado.
     """
     efectiva = dict(entrada)
     nombre = efectiva.get("name")
+    identidad = identidad_de_metrica(nombre) if isinstance(nombre, str) else None
+    if identidad:
+        for campo in ("direction", "aggregation"):
+            if efectiva.get(campo) is None and identidad.get(campo) is not None:
+                efectiva[campo] = identidad[campo]
     abs_, rel = efectiva.get("tolerance_abs"), efectiva.get("tolerance_rel")
     alcance = efectiva.get("tolerance_scope")
     medida = tolerancia_medida(nombre) if isinstance(nombre, str) else None
     margen_ajeno: str | None = None
-    if abs_ is None and rel is None:
-        if medida and not alcance:
-            efectiva["tolerance_abs"] = medida["tolerance_abs"]
-            efectiva["tolerance_scope"] = medida["tolerance_scope"]
-    elif medida:
+    if medida:
+        # Sin tolerancia declarada, solo decide el alcance: vacío o el del catálogo → el
+        # margen del catálogo; otro → ajeno. Antes, con un alcance cualquiera puesto, la
+        # métrica se quedaba sin margen y se perdía sin decirlo.
         coincide = (
             (abs_ is None or (_es_numero_real(abs_) and abs_ == medida["tolerance_abs"]))
             and (rel is None or (_es_numero_real(rel) and rel == 0))
@@ -231,6 +242,18 @@ def comparabilidad_de_metrica(entrada: dict[str, Any]) -> dict[str, Any]:
         faltan.append("tolerance_abs|tolerance_rel")
     return {"entry": efectiva, "comparable": not faltan and margen_ajeno is None,
             "faltan": faltan, "margen_ajeno": margen_ajeno}
+
+
+def cifra_de_otro_dataset(metrica: dict[str, Any], esperados: set[str]) -> bool:
+    """¿La cifra dice haberse medido sobre OTRO dataset que el del paquete?
+
+    `esperados` son los dos digests del run (el CRUDO y el PREPARADO: el producto declara uno u
+    otro según el camino, medido). La usan el export (un conflicto: la cifra es de otra
+    medición) y R3 (no se compara: contrastarla con un reentrenamiento sobre ESTE dataset no
+    probaría nada, ni en un sentido ni en otro; auditoría del 136, M6). Sin digests esperados
+    no se puede decidir y no se afirma nada; una cifra sin digest ya la para la regla."""
+    medida_en = metrica.get("dataset_sha256")
+    return bool(esperados) and medida_en is not None and medida_en not in esperados
 
 
 #: Versiones del bloque `run_provenance` que ESTE módulo sabe interpretar.
@@ -1111,25 +1134,26 @@ def _normalize_metrics(metrics: list[dict[str, Any]] | None) -> list[dict[str, A
         # métrica, y el core las sabe. Que las pusiera quien exporta sería
         # un segundo sitio declarando lo mismo — y sin `direction` R3 no
         # puede comparar, porque «se ha movido 0,03» no dice si mejoró o
-        # empeoró. Lo que declare el llamante MANDA: esto rellena, no pisa.
+        # empeoró. Lo que declare el llamante MANDA: se rellena, no se pisa.
         # Y una métrica que el catálogo no conoce se queda sin ellas y lo
         # dice en `incomplete`, en vez de deducirlas por el sufijo.
-        identidad = identidad_de_metrica(nombre)
-        if identidad:
-            for campo in ("direction", "aggregation"):
-                if entry.get(campo) is None and identidad.get(campo) is not None:
-                    entry[campo] = identidad[campo]
-
-        # LA TOLERANCIA, medida y CON SU ALCANCE (decisión de Roberto, 2026-08-20) y
-        # QUÉ SE COMPARA: las dos las decide `comparabilidad_de_metrica`, la MISMA
-        # función que usa el verificador (contrato 136). Las dos cosas juntas o
-        # ninguna: una tolerancia sin alcance haría que un `PASS` de R3 se leyera
-        # como «reproduce igual en cualquier sitio» cuando lo medido es «reproduce
-        # igual AQUÍ». El margen del catálogo se rellena si el llamante no declaró
-        # NINGUNO; si declaró otro, la métrica sale no comparable.
+        #
+        # LA TOLERANCIA, medida y CON SU ALCANCE (decisión de Roberto, 2026-08-20).
+        # Las dos cosas juntas o ninguna: una tolerancia sin alcance haría que un
+        # `PASS` de R3 se leyera como «reproduce igual en cualquier sitio» cuando lo
+        # medido es «reproduce igual AQUÍ». El margen del catálogo se rellena si el
+        # llamante no declaró NINGUNO; si declaró otro, la métrica sale no comparable.
+        #
+        # Las tres cosas -identidad, margen y QUÉ SE COMPARA- las decide
+        # `comparabilidad_de_metrica`, la MISMA función que usa el verificador sobre
+        # el paquete ya escrito (contrato 136; auditoría, H2: antes la identidad se
+        # reponía AQUÍ y R3 no la reponía). El alcance del llamante va DENTRO: si no,
+        # la regla no lo vería y uno ajeno con `tolerance_abs: 0.0` saldría comparable
+        # con el del catálogo, pisando el suyo en silencio.
         veredicto = comparabilidad_de_metrica(
             {**entry, "tolerance_scope": raw.get("tolerance_scope")})
-        entry["tolerance_abs"] = veredicto["entry"].get("tolerance_abs")
+        for campo in ("direction", "aggregation", "tolerance_abs"):
+            entry[campo] = veredicto["entry"].get(campo)
         if veredicto["entry"].get("tolerance_scope") is not None:
             entry["tolerance_scope"] = veredicto["entry"]["tolerance_scope"]
         for key, value in raw.items():
@@ -1732,13 +1756,12 @@ def build_reproduce_manifest(
         # Una métrica dice sobre QUÉ datos se midió. Si ese digest no es el del
         # run, la cifra es de otra medición y compararla con esta no significa
         # nada — R3 estaría contrastando dos cosas distintas.
-        if esperados_ds:
-            for i, metrica in enumerate(metrics_block):
-                medida_en = metrica.get("dataset_sha256")
-                if medida_en is not None and medida_en not in esperados_ds:
-                    conflicts.append(
-                        _conflict(f"metrics[{i}].dataset_sha256", "export_payload",
-                                  capture.get("dataset_sha256_raw"), medida_en))
+        # La MISMA pregunta que se hace R3 (`cifra_de_otro_dataset`).
+        for i, metrica in enumerate(metrics_block):
+            if cifra_de_otro_dataset(metrica, esperados_ds):
+                conflicts.append(
+                    _conflict(f"metrics[{i}].dataset_sha256", "export_payload",
+                              capture.get("dataset_sha256_raw"), metrica.get("dataset_sha256")))
 
     # ── ¿SON ESTOS PESOS EL RESULTADO DE ESE ENTRENAMIENTO? ───────────────
     #

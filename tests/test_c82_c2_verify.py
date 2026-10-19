@@ -403,16 +403,30 @@ class R3ComparaLasMetricasTest(unittest.TestCase):
         self.assertTrue(etapa["missing"], "no dice qué le falta a la métrica")
 
     def test_dentro_de_tolerancia_es_PASS(self):
+        """La tolerancia SE APLICA: una diferencia dentro del margen declarado es PASS.
+
+        CONTRATO 136: el margen de una métrica del CATÁLOGO es el del catálogo (0,0), así que
+        la intención de esta prueba vive en la que el contrato deja como estaba: una métrica
+        que el catálogo NO conoce, con su dirección y su margen declarados (auditoría del 136,
+        M1: reescrita con la obtenida IGUAL a la publicada, ya no sostenía que la tolerancia
+        se aplicara, y un R3 que la ignorase seguía verde). Las dos formas: la absoluta
+        (0,05 → 0,93 cabe) y la relativa (5 % de 0,90 = 0,045 → 0,93 cabe)."""
         from matrixai.export.verify import _verificar_r3
         sha = hashlib.sha256(_CSV.encode()).hexdigest()
-        completa = {"name": "accuracy", "value": 0.90, "split": "validation",
-                    "dataset_sha256": sha, "direction": "higher_is_better",
-                    }  # CONTRATO 136: el margen es el del catálogo (0,0); el paquete no lo declara
-        d = self._con_metricas([completa])
-        manifiesto = json.loads((d / "reproduce.json").read_text())
-        etapa = _verificar_r3(manifiesto, {"status": "PASS", "metrics": {"accuracy": 0.90}})
-        self.assertEqual(etapa["status"], "PASS", etapa.get("reason"))
-        self.assertIn("accuracy", etapa["checked"])
+        for margen in ({"tolerance_abs": 0.05}, {"tolerance_rel": 0.05}):
+            with self.subTest(margen=margen):
+                completa = {"name": "kappa", "value": 0.90, "split": "validation",
+                            "dataset_sha256": sha, "direction": "higher_is_better", **margen}
+                d = self._con_metricas([completa])
+                manifiesto = json.loads((d / "reproduce.json").read_text())
+                self.assertTrue(manifiesto["metrics"][0]["comparable"])
+                etapa = _verificar_r3(manifiesto, {"status": "PASS", "metrics": {"kappa": 0.93}})
+                self.assertEqual(etapa["status"], "PASS", etapa.get("reason"))
+                self.assertIn("kappa", etapa["checked"])
+                # Y el otro lado: fuera del margen, FAIL con el margen que se aplicó.
+                fuera = _verificar_r3(manifiesto, {"status": "PASS", "metrics": {"kappa": 0.96}})
+                self.assertEqual(fuera["status"], "FAIL", fuera)
+                self.assertGreater(fuera["metrics"][0]["tolerance"], 0.0)
 
     def test_fuera_de_tolerancia_es_FAIL_y_enseña_los_dos_valores(self):
         from matrixai.export.verify import _verificar_r3
