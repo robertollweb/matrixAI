@@ -122,6 +122,14 @@ _MOTIVOS: dict[str, dict[str, str]] = {
         "t_no_arranca": "el reentrenamiento no ha podido correr: «{error}»",
         "t_nota": ("el entrenamiento llegó a término; cuadrar con las métricas "
                    "publicadas es R3"),
+        "t_backend_sin_torch": ("el paquete se entrenó con torch y aquí torch no está "
+                                "instalado: se reentrenó sin él, y las cifras de un "
+                                "entrenador no son las del otro"),
+        "t_backend_sin_camino_torch": ("el paquete declara torch, pero este tipo de modelo "
+                                       "no tiene un reentrenamiento de torch que se pueda "
+                                       "repetir aquí"),
+        "t_backend_dataset_partido": ("el dataset se parte en train y eval por convención "
+                                      "y el reentrenamiento de torch lee un solo CSV"),
         # -- etapa `R3` ----------------------------------------------------------
         "r3_sin_reentrenamiento": ("las métricas solo se contrastan contra un "
                                    "entrenamiento nuevo (usa --retrain)"),
@@ -229,6 +237,13 @@ _MOTIVOS: dict[str, dict[str, str]] = {
         "t_sin_mxtrain": "the package carries no .mxtrain to retrain from",
         "t_no_arranca": "retraining could not run: \"{error}\"",
         "t_nota": "training completed; matching the published metrics is R3",
+        "t_backend_sin_torch": ("the package was trained with torch and torch is not "
+                                "installed here: it was retrained without it, and one "
+                                "trainer's figures are not the other's"),
+        "t_backend_sin_camino_torch": ("the package declares torch, but this kind of model "
+                                       "has no torch retraining that can be repeated here"),
+        "t_backend_dataset_partido": ("the dataset is split into train and eval by "
+                                      "convention and the torch retraining reads a single CSV"),
         "r3_sin_reentrenamiento": ("metrics can only be contrasted against a fresh "
                                    "training run (use --retrain)"),
         "r3_training_no_paso": "training did not pass",

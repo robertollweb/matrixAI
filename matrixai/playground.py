@@ -2206,6 +2206,17 @@ def _dense_torch_train_result(
         "mae": er.get("mae"),
         "rmse": er.get("rmse"),
         "r2": er.get("r2"),
+        # CONTRATO 134: SOBRE QUÉ FILAS se midió cada cifra, declarado aquí como en el
+        # camino stdlib (:1845) y no deducido al exportar. Todas las de evaluación salen
+        # de `val_ex` (la validación entera: ver arriba), y por eso `mae`/`rmse`/`r2`
+        # son `validation` y NO `full` como en stdlib. Lo que la tarea no mide es `None`,
+        # no una partición inventada.
+        "metric_splits": {
+            **{nombre: ("validation" if er.get(nombre) is not None else None)
+               for nombre in ("accuracy", "macro_f1", "mae", "rmse", "r2")},
+            "final_train_loss": "train",
+            "best_validation_loss": "validation",
+        },
         **motor_y_maquina("torch", device),
         "evaluation_backend": evaluation_backend,
         "evaluation_warning": evaluation_warning,

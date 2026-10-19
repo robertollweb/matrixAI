@@ -668,6 +668,25 @@ def _verificar_training(
         # acabarían discrepando.
         from matrixai.parser.parser import parse_file as _parse_mxai
         redes = getattr(_parse_mxai(str(destino_modelo)), "networks", []) or []
+        # CONTRATO 134: EL ENTRENADOR QUE DECLARA EL PAQUETE. Un paquete entrenado
+        # con torch (`generation.backend == "torch"`) se reentrena por el MISMO
+        # camino de torch que el producto, no con `DenseSupervisedTrainer`: medido
+        # el 19-10, el mismo paquete daba exactitud 0,333 publicada y 0,917
+        # reentrenada sin torch, y comparar esas dos acusaba a un paquete honesto.
+        backend_declarado = (manifiesto.get("generation") or {}).get("backend")
+        por_torch = (backend_declarado == "torch" and bool(redes)
+                     and getattr(redes[0], "kind", "dense_network") == "dense_network"
+                     and not getattr(redes[0], "transformer_blocks", []))
+        torch_aqui = _torch_instalado() if por_torch else False
+        motivos_sin_aplicar: dict[str, str] = {}
+        if por_torch and not torch_aqui:
+            motivos_sin_aplicar["backend"] = motivo("t_backend_sin_torch", locale)
+        elif (backend_declarado == "torch" and not por_torch
+              and not (redes and getattr(redes[0], "transformer_blocks", []))):
+            # Declara torch pero esta clase de modelo no tiene un reentrenamiento
+            # de torch que se sepa repetir aquí (red compuesta, FUNCTION): no se
+            # finge que se aplicó.
+            motivos_sin_aplicar["backend"] = motivo("t_backend_sin_camino_torch", locale)
         if redes and getattr(redes[0], "transformer_blocks", []):
             from matrixai.training.transformer_trainer import TransformerSupervisedTrainer
             entrenador: Any = TransformerSupervisedTrainer()
@@ -688,6 +707,11 @@ def _verificar_training(
         # llamarlo con `seed=` reventaría—.
         import inspect  # noqa: PLC0415
         admite_semilla = "seed" in inspect.signature(entrenador.train).parameters
+        if por_torch and torch_aqui:
+            # El camino de torch recibe SIEMPRE la semilla (`seed=` de
+            # `_dense_torch_train_result`): no depende de la firma del entrenador
+            # estándar que se eligió arriba solo para decidir esto.
+            admite_semilla = True
         # EN QUÉ MÁQUINA CORRE ESTE REENTRENAMIENTO, cuando se puede saber.
         # Los dos entrenadores de la biblioteca estándar son CPU por
         # construcción —no hay torch por medio—, así que ahí es un HECHO. Con
@@ -695,6 +719,10 @@ def _verificar_training(
         # y deja `device` sin aplicar, como estaba.
         _maquina = "cpu" if entrenador.__class__.__name__ in (
             "SupervisedTrainer", "DenseSupervisedTrainer") else None
+        if por_torch and torch_aqui:
+            # Con torch, la máquina es la de la captura SI existe aquí: pedir CUDA
+            # sin tenerla no se disfraza de CPU, y `device` queda sin aplicar.
+            _maquina = _dispositivo_de_torch((manifiesto.get("generation") or {}).get("device"))
         # ¿NO ADMITE SEMILLA ES UNA LIMITACIÓN, O ES QUE NO APLICA? Lo declara
         # el entrenador: los FUNCTION arrancan siempre de los mismos valores
         # (medido: `W1 = [0.05]`, `b1 = 0.0`, dos veces seguidas). Suponerlo
@@ -703,16 +731,28 @@ def _verificar_training(
         aplicadas, sin_aplicar, del_run, spec = _configuracion_del_run(
             manifiesto, spec, admite_semilla=admite_semilla, maquina=_maquina,
             inicializacion_determinista=_determinista)
-        resultado = entrenador.train(
-            spec, output_dir=str(taller / "out"), base_path=taller,
-            training_path=ruta_train, **del_run)
+        if por_torch and torch_aqui:
+            if len(_reparto_del_dataset(str(fuente or ""), csv)) > 1:
+                # El camino de torch lee UN csv; un dataset partido en train/eval
+                # por convención solo lo entiende el entrenador de la biblioteca
+                # estándar. Se dice, no se entrena con la mitad.
+                raise RuntimeError(motivo("t_backend_dataset_partido", locale))
+            resultado, _del_disco = _reentrenar_con_torch(
+                spec, destino_modelo, ruta_train, destino,
+                semilla=del_run.get("seed"), dispositivo=_maquina,
+                rango=(manifiesto.get("generation") or {}).get("target_range"))
+        else:
+            resultado = entrenador.train(
+                spec, output_dir=str(taller / "out"), base_path=taller,
+                training_path=ruta_train, **del_run)
         # LAS MÉTRICAS QUE EL ENTRENADOR DEJA EN DISCO, leídas ANTES de borrar
         # el taller. El camino FUNCTION no las devuelve en su `TrainingRunResult`
         # —ahí van `accuracy` y las pérdidas— pero escribe un `metrics.json` con
         # `r2` y `mae`, que son justo las que ese tipo de paquete publica. Sin
         # esto, R3 decía «ninguna de las métricas comparables la reportó el
         # reentrenamiento» sobre un fichero que las tenía delante.
-        _del_disco = _metricas_del_taller(taller / "out")
+        if not (por_torch and torch_aqui):
+            _del_disco = _metricas_del_taller(taller / "out")
     except Exception as exc:  # noqa: BLE001 — el entrenador se niega por mil motivos
         # Que no se pueda entrenar AQUÍ no prueba que el paquete mienta:
         # otro entorno, otro backend, una dependencia que falta.
@@ -731,6 +771,8 @@ def _verificar_training(
     # Lo que se puede aplicar, se aplica; lo que no, **se declara**, y R3
     # lo mira antes de comparar. Callarlo dejaría a R3 comparando peras
     # con manzanas y llamándolo veredicto.
+    if motivos_sin_aplicar:
+        sin_aplicar = list(sin_aplicar) + sorted(motivos_sin_aplicar)
     epocas = getattr(resultado, "best_epoch", None)
     # LOS NOMBRES SON LOS DEL RESULTADO, medidos: `TrainingRunResult` no
     # tiene un `metrics` —lo supuse y salía siempre vacío—, tiene
@@ -748,7 +790,76 @@ def _verificar_training(
     return _etapa("PASS", best_epoch=epocas, metrics=medidas,
                   note=motivo("t_nota", locale),
                   applied_from_capture=aplicadas,
-                  not_applied_from_capture=sin_aplicar)
+                  not_applied_from_capture=sin_aplicar,
+                  **({"not_applied_reasons": motivos_sin_aplicar}
+                     if motivos_sin_aplicar else {}))
+
+
+def _torch_instalado() -> bool:
+    """¿Se puede importar torch AQUÍ? Se intenta de verdad: `find_spec` miente
+    con un torch oculto o roto (134), y entonces el reentrenamiento diría «torch»
+    sin tenerlo."""
+    try:
+        import torch  # noqa: F401, PLC0415
+    except Exception:  # noqa: BLE001 — ausente, oculto o roto: no hay torch
+        return False
+    return True
+
+
+def _dispositivo_de_torch(declarado: Any) -> str:
+    """La máquina en la que se reentrena: la de la captura si existe aquí.
+
+    Pedir `cuda` sin CUDA devuelve `cpu`, y quien llama deja `device` sin
+    aplicar al compararlo con lo declarado."""
+    if str(declarado or "").strip().lower().startswith("cuda"):
+        try:
+            import torch  # noqa: PLC0415
+            if torch.cuda.is_available():
+                return "cuda"
+        except Exception:  # noqa: BLE001
+            pass
+    return "cpu"
+
+
+#: Lo que el camino de torch mide y R3 puede comparar (los nombres del catálogo).
+_METRICAS_DE_TORCH = ("accuracy", "macro_f1", "mae", "rmse", "r2",
+                      "final_train_loss", "best_validation_loss")
+
+
+def _reentrenar_con_torch(
+    spec: Any, ruta_modelo: Path, ruta_train: Path, ruta_csv: Path, *,
+    semilla: Any, dispositivo: str, rango: Any,
+) -> tuple[Any, dict[str, Any]]:
+    """Reentrena por el MISMO camino de torch que el producto (contrato 134).
+
+    Llama a `playground._dense_torch_train_result` DIRECTAMENTE, no a
+    `_run_playground_dense_training`: éste elige el motor por el entorno
+    (`MATRIXAI_TRAIN_BACKEND`) y, si torch falla, CAE EN SILENCIO a stdlib —y un
+    reentrenamiento que cae a stdlib daría las cifras de stdlib contra las de
+    torch: el FAIL falso de este contrato—. Aquí un fallo es una excepción, y
+    el llamante lo declara `INCOMPARABLE`.
+
+    Devuelve (resultado con la forma que lee `_verificar_training`, métricas).
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from matrixai.playground import _dense_torch_train_result  # noqa: PLC0415
+
+    rango_objetivo = None
+    if (isinstance(rango, (list, tuple)) and len(rango) == 2
+            and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in rango)):
+        rango_objetivo = (float(rango[0]), float(rango[1]))
+    r = _dense_torch_train_result(
+        ruta_modelo.read_text(encoding="utf-8"), spec, spec,
+        ruta_csv.read_text(encoding="utf-8"), dispositivo,
+        int(semilla) if isinstance(semilla, int) else 42,
+        None, target_range=rango_objetivo)
+    if not r.get("ok"):
+        raise RuntimeError(str(r.get("error") or "el entrenamiento de torch no dio resultado"))
+    # Lo que no se midió es `None` y no entra: un valor ausente no es un cero.
+    medidas = {k: r[k] for k in _METRICAS_DE_TORCH
+               if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool)}
+    return SimpleNamespace(best_epoch=r.get("best_epoch"), validation_metrics=None), medidas
 
 
 def _metricas_del_taller(salida: Path) -> dict[str, Any]:
@@ -851,9 +962,14 @@ def _verificar_r3(
     # daría un FAIL que acusa al paquete de algo que hizo el verificador.
     sin_aplicar = training.get("not_applied_from_capture") or []
     if sin_aplicar:
+        # El PORQUÉ de lo que no se aplicó, ya redactado en este idioma por la
+        # etapa `training` (134: «el paquete se entrenó con torch y aquí no hay»).
+        razones = training.get("not_applied_reasons")
+        porque = ("" if not isinstance(razones, dict) or not razones
+                  else " — " + "; ".join(str(v) for v in razones.values()))
         return _etapa("INCOMPARABLE",
                       motivo("r3_configuracion_sin_aplicar", locale,
-                             claves=", ".join(sin_aplicar)),
+                             claves=", ".join(sin_aplicar)) + porque,
                       not_applied=sin_aplicar)
 
     fuera: list[dict[str, Any]] = []
