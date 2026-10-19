@@ -165,6 +165,10 @@ _MOTIVOS: dict[str, dict[str, str]] = {
             "hay métricas comparables que el reentrenamiento no ha reportado ({claves}): "
             "sin un valor nuevo no se pueden contrastar, y sin contrastarlas no se puede "
             "decir que el paquete reproduce lo que publica"),
+        "r3_margen_ajeno": (
+            "el paquete declara un margen que no es el medido por el núcleo ({claves}): "
+            "R3 no lo usa, así que esas métricas no se comparan y no se puede decir que el "
+            "paquete reproduce lo que publica"),
         "r3_publicada_sin_valor": (
             "el paquete publica métricas como comparables sin un valor numérico "
             "({claves}): no hay con qué contrastarlas"),
@@ -298,6 +302,10 @@ _MOTIVOS: dict[str, dict[str, str]] = {
             "some comparable metrics were not reported by the retraining ({claves}): "
             "without a fresh value they cannot be contrasted, and without contrasting "
             "them it cannot be said that the package reproduces what it publishes"),
+        "r3_margen_ajeno": (
+            "the package declares a margin that is not the one measured by the core "
+            "({claves}): R3 does not use it, so those metrics are not compared and it "
+            "cannot be said that the package reproduces what it publishes"),
         "r3_publicada_sin_valor": (
             "the package publishes metrics as comparable without a numeric value "
             "({claves}): there is nothing to contrast them with"),

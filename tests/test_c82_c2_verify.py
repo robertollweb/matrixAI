@@ -407,10 +407,10 @@ class R3ComparaLasMetricasTest(unittest.TestCase):
         sha = hashlib.sha256(_CSV.encode()).hexdigest()
         completa = {"name": "accuracy", "value": 0.90, "split": "validation",
                     "dataset_sha256": sha, "direction": "higher_is_better",
-                    "tolerance_abs": 0.05}
+                    }  # CONTRATO 136: el margen es el del catálogo (0,0); el paquete no lo declara
         d = self._con_metricas([completa])
         manifiesto = json.loads((d / "reproduce.json").read_text())
-        etapa = _verificar_r3(manifiesto, {"status": "PASS", "metrics": {"accuracy": 0.93}})
+        etapa = _verificar_r3(manifiesto, {"status": "PASS", "metrics": {"accuracy": 0.90}})
         self.assertEqual(etapa["status"], "PASS", etapa.get("reason"))
         self.assertIn("accuracy", etapa["checked"])
 
@@ -419,7 +419,7 @@ class R3ComparaLasMetricasTest(unittest.TestCase):
         sha = hashlib.sha256(_CSV.encode()).hexdigest()
         completa = {"name": "accuracy", "value": 0.90, "split": "validation",
                     "dataset_sha256": sha, "direction": "higher_is_better",
-                    "tolerance_abs": 0.01}
+                    }  # CONTRATO 136: sin margen propio; manda el del catálogo
         d = self._con_metricas([completa])
         manifiesto = json.loads((d / "reproduce.json").read_text())
         etapa = _verificar_r3(manifiesto, {"status": "PASS", "metrics": {"accuracy": 0.40}})

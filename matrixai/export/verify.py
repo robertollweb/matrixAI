@@ -881,6 +881,7 @@ def _verificar_training(
         # `r2` y `mae`, que son justo las que ese tipo de paquete publica. Sin
         # esto, R3 decía «ninguna de las métricas comparables la reportó el
         # reentrenamiento» sobre un fichero que las tenía delante.
+        _por_particion: dict[str, dict[str, Any]] = {}
         if not (por_torch and torch_aqui):
             _del_disco = _metricas_del_taller(taller / "out")
             from matrixai.training.dense_trainer import DenseSupervisedTrainer as _Densa  # noqa: PLC0415
@@ -895,6 +896,20 @@ def _verificar_training(
                 _del_disco.update(_metricas_como_las_mide_el_producto(
                     taller, resultado, spec,
                     (manifiesto.get("generation") or {}).get("target_range")))
+            elif not redes:
+                # CONTRATO 136 (N4 de la 3.ª pasada del 134): un modelo FUNCTION. El Studio
+                # publica sus cifras con `_collect_training_result(tmp, run_result, spec)`,
+                # SIN `target_range`: el evaluador sobre el dataset ENTERO (`split: full`).
+                # La CLI publica el `metrics.json` del entrenador (`split: validation`). Las
+                # dos particiones se miden, con la MISMA función que el producto, y R3
+                # compara cada métrica con la de SU partición. Si no se pudo medir como el
+                # producto, esa partición queda sin cifra: «no reportada» → INCOMPARABLE,
+                # nunca un FAIL contra otras filas.
+                _del_producto = _metricas_de_function_como_el_producto(taller, resultado, spec)
+                _por_particion = {particion: dict(medidas)
+                                  for particion, medidas in _del_producto.items()}
+                if _del_disco:
+                    _por_particion.setdefault("validation", {}).update(_del_disco)
     except Exception as exc:  # noqa: BLE001 — el entrenador se niega por mil motivos
         # Que no se pueda entrenar AQUÍ no prueba que el paquete mienta:
         # otro entorno, otro backend, una dependencia que falta.
@@ -935,7 +950,16 @@ def _verificar_training(
         valor = getattr(resultado, campo, None)
         if isinstance(valor, (int, float)):
             medidas.setdefault(campo, valor)
+    if _por_particion:
+        # Las pérdidas y la exactitud salen del resultado del entrenador, no de una partición
+        # propia del evaluador: van con las particiones que el producto les da.
+        for campo, particion in (("accuracy", "validation"), ("best_validation_loss", "validation"),
+                                 ("final_validation_loss", "validation"),
+                                 ("final_train_loss", "train")):
+            if campo in medidas:
+                _por_particion.setdefault(particion, {}).setdefault(campo, medidas[campo])
     return _etapa("PASS", best_epoch=epocas, metrics=medidas,
+                  **({"metrics_by_split": _por_particion} if _por_particion else {}),
                   note=motivo("t_nota", locale),
                   applied_from_capture=aplicadas,
                   not_applied_from_capture=sin_aplicar,
@@ -1034,6 +1058,31 @@ def _metricas_como_las_mide_el_producto(
             if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool)}
 
 
+def _metricas_de_function_como_el_producto(
+    taller: Path, resultado: Any, spec: Any,
+) -> dict[str, dict[str, Any]]:
+    """Las métricas de un modelo FUNCTION, medidas como las publica el Studio, por partición.
+
+    El producto (`playground`, rama FUNCTION de `_run_training_job`) entrena con
+    `SupervisedTrainer` y compone el resultado con `_collect_training_result(tmp, run_result,
+    spec)` —SIN `target_range`—; la partición de cada cifra la declara ella misma en
+    `metric_splits`. Se llama a ESA función con esos argumentos: otra que se le parezca
+    mediría otras filas y la tolerancia es 0 (N4 del 134). Devuelve `{partición: {métrica:
+    valor}}` con las del catálogo y solo números; lo que el producto no midió no entra."""
+    from matrixai.playground import _collect_training_result  # noqa: PLC0415
+    from matrixai.training.metric_identity import DIRECCION  # noqa: PLC0415
+
+    r = _collect_training_result(taller, resultado, spec)
+    particiones = r.get("metric_splits") if isinstance(r.get("metric_splits"), dict) else {}
+    out: dict[str, dict[str, Any]] = {}
+    for nombre in DIRECCION:
+        valor = r.get(nombre)
+        particion = particiones.get(nombre)
+        if isinstance(valor, (int, float)) and not isinstance(valor, bool) and particion:
+            out.setdefault(str(particion), {})[nombre] = valor
+    return out
+
+
 def _metricas_del_taller(salida: Path) -> dict[str, Any]:
     """Las métricas que el entrenador dejó EN DISCO al reentrenar.
 
@@ -1056,6 +1105,22 @@ def _metricas_del_taller(salida: Path) -> dict[str, Any]:
     if not isinstance(crudo, dict):
         return {}
     return {str(k): v for k, v in crudo.items() if isinstance(v, (int, float))}
+
+
+def _obtenida_en_su_particion(
+    training: dict[str, Any], obtenidas: dict[str, Any], nombre: str, particion: Any,
+) -> Any:
+    """La cifra del reentrenamiento para `nombre`, medida sobre la partición que el paquete declara.
+
+    Un modelo FUNCTION se publica con cifras de dos particiones según quién exporte (el Studio,
+    `full`; la CLI, `validation`: contrato 136). Si el reentrenamiento las trae por partición
+    (`metrics_by_split`), se compara con la de la métrica; una partición que no se midió es
+    «no reportada», no un FAIL. Sin ese desglose, las cifras planas de siempre."""
+    por_particion = training.get("metrics_by_split")
+    if isinstance(por_particion, dict) and por_particion:
+        medidas = por_particion.get(str(particion))
+        return medidas.get(nombre) if isinstance(medidas, dict) else None
+    return obtenidas.get(nombre)
 
 
 def _verificar_r3(
@@ -1105,15 +1170,32 @@ def _verificar_r3(
     if not isinstance(metricas, list) or not metricas:
         return _etapa("INCOMPARABLE", motivo("r3_sin_metricas", locale))
 
-    comparables = [m for m in metricas if isinstance(m, dict) and m.get("comparable")]
+    # CONTRATO 136: QUÉ SE COMPARA Y CON QUÉ MARGEN LO DECIDE ESTE VERIFICADOR, no el
+    # paquete. El `comparable` y las tolerancias que trae son del paquete, y un inventario
+    # se puede volver a sellar sin firma: con `comparable: false` o `tolerance_abs: 1e9` en
+    # las cifras alteradas, R3 daba PASS (3.ª pasada del 134, N5). La regla es la MISMA que
+    # usa el export (`comparabilidad_de_metrica`), aplicada a lo que el paquete publica.
+    from matrixai.export.reproduce import comparabilidad_de_metrica  # noqa: PLC0415
+    comparables: list[dict[str, Any]] = []
+    margen_ajeno: list[str] = []
+    falta: list[str] = []
+    for m in metricas:
+        if not isinstance(m, dict):
+            continue
+        decision = comparabilidad_de_metrica(m)
+        if decision["comparable"]:
+            comparables.append(decision["entry"])
+            continue
+        if decision["margen_ajeno"] is not None:
+            margen_ajeno.append(str(m.get("name") or ""))
+        falta.extend(decision["faltan"])
     if not comparables:
-        # Lo que falta lo dice el manifiesto, métrica a métrica. Se
-        # reproduce esa lista para que quien lo lea sepa QUÉ pedirle al
-        # productor del paquete, en vez de «no se puede».
-        falta: list[str] = []
-        for m in metricas:
-            if isinstance(m, dict):
-                falta.extend(str(x) for x in (m.get("incomplete") or []))
+        # Lo que falta lo dice la regla, métrica a métrica. Se reproduce esa lista para
+        # que quien lo lea sepa QUÉ pedirle al productor del paquete, en vez de «no se puede».
+        if margen_ajeno:
+            return _etapa("INCOMPARABLE",
+                          motivo("r3_margen_ajeno", locale, claves=", ".join(margen_ajeno)),
+                          margin_not_catalog=margen_ajeno, missing=sorted(set(falta)))
         return _etapa("INCOMPARABLE", motivo("r3_metricas_incompletas", locale),
                       missing=sorted(set(falta)))
 
@@ -1169,13 +1251,17 @@ def _verificar_r3(
     sin_valor_publicado: list[str] = []
     for m in comparables:
         nombre = str(m.get("name") or "")
-        publicado, ahora = m.get("value"), obtenidas.get(nombre)
+        publicado = m.get("value")
+        ahora = _obtenida_en_su_particion(training, obtenidas, nombre, m.get("split"))
         if not _es_numero(publicado):
             # Solo con un paquete tocado a mano: el export rechaza una métrica sin valor.
             sin_valor_publicado.append(nombre)
         elif not _es_numero(ahora):
             sin_reportar.append(nombre)
         else:
+            # La tolerancia de `m` es la EFECTIVA de la regla (la del catálogo), no la que
+            # trajera el paquete: `comparabilidad_de_metrica` ya ha descartado como no
+            # comparable cualquier métrica del catálogo con otro margen.
             abs_ = m.get("tolerance_abs")
             rel = m.get("tolerance_rel")
             diferencia = abs(float(ahora) - float(publicado))
@@ -1190,6 +1276,8 @@ def _verificar_r3(
                               "tolerance": limite})
 
     lo_que_falta: dict[str, Any] = {}
+    if margen_ajeno:
+        lo_que_falta["margin_not_catalog"] = margen_ajeno
     if sin_reportar:
         lo_que_falta["not_reported"] = sin_reportar
     if sin_valor_publicado:
@@ -1204,6 +1292,8 @@ def _verificar_r3(
         # Lo que SÍ cuadró se dice (`checked`), pero no basta para un PASS: el paquete
         # publica más de lo que aquí se ha podido contrastar.
         porques = []
+        if margen_ajeno:
+            porques.append(motivo("r3_margen_ajeno", locale, claves=", ".join(margen_ajeno)))
         if sin_reportar:
             porques.append(motivo("r3_sin_reportar", locale, claves=", ".join(sin_reportar)))
         if sin_valor_publicado:

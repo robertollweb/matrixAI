@@ -1037,9 +1037,10 @@ class ElManifiestoNoPuedeMentirTest(unittest.TestCase):
         repuesta = self._build(metrics=[sin_tolerancia])["metrics"][0]
         self.assertTrue(repuesta["comparable"])
         self.assertEqual(repuesta["tolerance_scope"], "same_environment_same_seed")
-        # Y con la relativa en vez de la absoluta, también.
+        # CONTRATO 136: y con una relativa PROPIA, no. El margen de una métrica del catálogo
+        # es el del catálogo; otro declarado por el paquete la deja no comparable.
         sin_tolerancia["tolerance_rel"] = 0.001
-        self.assertTrue(self._build(metrics=[sin_tolerancia])["metrics"][0]["comparable"])
+        self.assertFalse(self._build(metrics=[sin_tolerancia])["metrics"][0]["comparable"])
 
     def test_una_metrica_DESCONOCIDA_sigue_sin_tolerancia_que_reponer(self):
         """El catálogo no inventa: declarar una tolerancia para una métrica

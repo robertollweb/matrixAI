@@ -180,6 +180,59 @@ _METRIC_R3_FIELDS = ("split", "dataset_sha256", "direction")
 _CORE_OWNED_METRIC_KEYS = ("comparable", "incomplete")
 
 
+def _es_numero_real(valor: Any) -> bool:
+    return isinstance(valor, (int, float)) and not isinstance(valor, bool)
+
+
+def comparabilidad_de_metrica(entrada: dict[str, Any]) -> dict[str, Any]:
+    """QUÉ SE COMPARA y CON QUÉ MARGEN: UNA regla, para el export y para R3 (contrato 136).
+
+    La usan `_normalize_metrics` al exportar y `verify._verificar_r3` al verificar. Lo que el
+    paquete diga en `comparable` NO la sustituye: es una clave del core, y un inventario se
+    puede volver a sellar sin firma (medido en la 3.ª pasada del 134: `comparable: false` o
+    `tolerance_abs: 1e9` en las cifras alteradas daban R3 PASS).
+
+    * Para una métrica del CATÁLOGO (`metric_identity`) el margen es el del catálogo, con su
+      alcance. Si la entrada no declara ninguno ni alcance, se rellena. Si declara otro
+      -cualquier otra tolerancia, o un alcance que el catálogo no mide- `margen_ajeno` lo
+      dice y la métrica NO es comparable: ni se usa el margen del paquete ni se ignora en
+      silencio.
+    * Una métrica que el catálogo no conoce sigue como estaba: lo que declare, y sin
+      dirección no es comparable.
+
+    Devuelve `{"entry", "comparable", "faltan", "margen_ajeno"}`: `entry` es una COPIA con el
+    margen efectivo; `faltan`, lo que le falta para compararse; `margen_ajeno`, `None` o un
+    texto con lo declarado.
+    """
+    efectiva = dict(entrada)
+    nombre = efectiva.get("name")
+    abs_, rel = efectiva.get("tolerance_abs"), efectiva.get("tolerance_rel")
+    alcance = efectiva.get("tolerance_scope")
+    medida = tolerancia_medida(nombre) if isinstance(nombre, str) else None
+    margen_ajeno: str | None = None
+    if abs_ is None and rel is None:
+        if medida and not alcance:
+            efectiva["tolerance_abs"] = medida["tolerance_abs"]
+            efectiva["tolerance_scope"] = medida["tolerance_scope"]
+    elif medida:
+        coincide = (
+            (abs_ is None or (_es_numero_real(abs_) and abs_ == medida["tolerance_abs"]))
+            and (rel is None or (_es_numero_real(rel) and rel == 0))
+            and alcance in (None, "", medida["tolerance_scope"])
+        )
+        if coincide:
+            efectiva["tolerance_abs"] = medida["tolerance_abs"]
+            efectiva["tolerance_scope"] = medida["tolerance_scope"]
+        else:
+            margen_ajeno = (f"tolerance_abs={abs_!r}, tolerance_rel={rel!r}, "
+                            f"tolerance_scope={alcance!r}")
+    faltan = [c for c in _METRIC_R3_FIELDS if efectiva.get(c) is None]
+    if efectiva.get("tolerance_abs") is None and efectiva.get("tolerance_rel") is None:
+        faltan.append("tolerance_abs|tolerance_rel")
+    return {"entry": efectiva, "comparable": not faltan and margen_ajeno is None,
+            "faltan": faltan, "margen_ajeno": margen_ajeno}
+
+
 #: Versiones del bloque `run_provenance` que ESTE módulo sabe interpretar.
 #: La escribe el core al entrenar (`playground.py::RUN_PROVENANCE_SCHEMA_VERSION`,
 #: hoy "1.0"). No se importa de allí a propósito: `playground` importa `export`,
@@ -1067,31 +1120,25 @@ def _normalize_metrics(metrics: list[dict[str, Any]] | None) -> list[dict[str, A
                 if entry.get(campo) is None and identidad.get(campo) is not None:
                     entry[campo] = identidad[campo]
 
-        # LA TOLERANCIA, medida y CON SU ALCANCE (decisión de Roberto,
-        # 2026-08-20). Las dos cosas juntas o ninguna: una tolerancia sin
-        # alcance haría que un `PASS` de R3 se leyera como «reproduce igual
-        # en cualquier sitio» cuando lo medido es «reproduce igual AQUÍ».
-        #
-        # Solo si el llamante no declaró NINGUNA: quien mide su propia
-        # repetibilidad sabe más que este catálogo, y pisarle la suya sería
-        # decidir por él.
-        if entry.get("tolerance_abs") is None and entry.get("tolerance_rel") is None:
-            medida = tolerancia_medida(nombre)
-            if medida and not entry.get("tolerance_scope"):
-                entry["tolerance_abs"] = medida["tolerance_abs"]
-                entry["tolerance_scope"] = medida["tolerance_scope"]
+        # LA TOLERANCIA, medida y CON SU ALCANCE (decisión de Roberto, 2026-08-20) y
+        # QUÉ SE COMPARA: las dos las decide `comparabilidad_de_metrica`, la MISMA
+        # función que usa el verificador (contrato 136). Las dos cosas juntas o
+        # ninguna: una tolerancia sin alcance haría que un `PASS` de R3 se leyera
+        # como «reproduce igual en cualquier sitio» cuando lo medido es «reproduce
+        # igual AQUÍ». El margen del catálogo se rellena si el llamante no declaró
+        # NINGUNO; si declaró otro, la métrica sale no comparable.
+        veredicto = comparabilidad_de_metrica(
+            {**entry, "tolerance_scope": raw.get("tolerance_scope")})
+        entry["tolerance_abs"] = veredicto["entry"].get("tolerance_abs")
+        if veredicto["entry"].get("tolerance_scope") is not None:
+            entry["tolerance_scope"] = veredicto["entry"]["tolerance_scope"]
         for key, value in raw.items():
             if key not in entry and key not in _CORE_OWNED_METRIC_KEYS:
                 entry[str(key)] = value
 
         faltan = [c for c in _METRIC_FIELDS if entry.get(c) is None]
-        if entry["tolerance_abs"] is None and entry["tolerance_rel"] is None:
-            faltan_r3 = [c for c in _METRIC_R3_FIELDS if entry.get(c) is None]
-            faltan_r3.append("tolerance_abs|tolerance_rel")
-        else:
-            faltan_r3 = [c for c in _METRIC_R3_FIELDS if entry.get(c) is None]
         entry["incomplete"] = faltan
-        entry["comparable"] = not faltan_r3
+        entry["comparable"] = veredicto["comparable"]
         out.append(entry)
     return out
 
