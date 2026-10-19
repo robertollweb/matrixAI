@@ -440,7 +440,7 @@ TABM_POR_FASES = r'''
 # la validación (`perdida_del_ensamblado_por_lotes`, envuelta) y la primera llamada a `_ahora` tras una marca (el bucle la
 # llama al empezar cada época y justo después del checkpoint). entrenar = (entrada a la validación) - (primer `_ahora` tras la
 # marca anterior); checkpoint = (primer `_ahora` tras la validación) - (salida de la validación).
-import contextlib, dataclasses, functools, gc, json, math, os, sys, time
+import contextlib, dataclasses, functools, gc, json, math, os, sys, threading, time
 
 
 def leer_memoria():
@@ -604,10 +604,18 @@ def instalar(traza, densa, prep, plr):
     return desinstalar
 
 
+# EL VOLCADO Y EL HILO PRINCIPAL, CON EL MISMO CANDADO (19-10): `escribir` corre en el hilo del estudio y recorre `R` mientras
+# el principal le añade `R["iniciar_estudio"]`; con la máquina cargada salía `RuntimeError: dictionary changed size during
+# iteration` (cazado por la reparación del 134, reproducido abriendo la ventana). Se serializa con el candado y se escribe fuera.
+CANDADO = threading.Lock()
+
+
 def escribir(R, salida):
+    with CANDADO:
+        texto = json.dumps(R, indent=1, default=str)
     tmp = salida + ".tmp"
     with open(tmp, "w") as f:
-        json.dump(R, f, indent=1, default=str)
+        f.write(texto)
     os.replace(tmp, salida)
 
 
@@ -759,8 +767,10 @@ def main():
     t0 = time.perf_counter()
     r0 = leer_memoria()
     r = ej.iniciar_estudio(cuerpo)
-    R["iniciar_estudio"] = {"wall_s": round(time.perf_counter() - t0, 2), "rss_ini_mb": r0[0], "rss_fin_mb": leer_memoria()[0],
-                            "hwm_fin_mb": leer_memoria()[1]}
+    iniciar = {"wall_s": round(time.perf_counter() - t0, 2), "rss_ini_mb": r0[0], "rss_fin_mb": leer_memoria()[0],
+               "hwm_fin_mb": leer_memoria()[1]}
+    with CANDADO:              # el hilo del estudio ya puede estar volcando `R` (ver `escribir`)
+        R["iniciar_estudio"] = iniciar
     job = ej._jobs.get((r.get("estudio") or {}).get("job_id"))
     if job is None:
         R["respuesta"] = r

@@ -1473,3 +1473,24 @@ def test_R4gpu_las_opciones_nuevas_solo_valen_para_tabm_por_fases(monkeypatch, t
 def test_R4gpu_el_guion_nuevo_sigue_compilando_y_sin_cambiar_el_producto():
     compile(S.TABM_POR_FASES, "tabm_por_fases", "exec")
     assert "def declaracion_de_dispositivo" in S.TABM_POR_FASES and "reset_peak_memory_stats" in S.TABM_POR_FASES
+
+
+# 19-10 (cazado por la reparación del 134, confirmado por su re-auditor): en `TABM_POR_FASES`, `escribir` corre en el hilo
+# del estudio y recorre `R` con `json.dump` mientras el principal le añade `R["iniciar_estudio"]`. Con la máquina cargada,
+# `RuntimeError: dictionary changed size during iteration` y `test_R4gpu_main…` en rojo. Los dos van con el mismo candado.
+def test_R4_el_volcado_de_R_y_el_hilo_principal_comparten_el_candado(tmp_path):
+    ns = _guion()
+    R = {"corridas": []}
+    salida = str(tmp_path / "r4.json")
+    hecho = threading.Event()
+    hilo = threading.Thread(target=lambda: (ns["escribir"](R, salida), hecho.set()))
+    with ns["CANDADO"]:
+        hilo.start()
+        assert not hecho.wait(0.3), "escribir recorrió R sin esperar al candado"
+        R["iniciar_estudio"] = {"wall_s": 1.0}
+    assert hecho.wait(10)
+    hilo.join()
+    assert json.load(open(salida)) == R
+    # Y el principal añade `R["iniciar_estudio"]` CON el candado: sin él, la ventana vuelve aunque `escribir` lo coja.
+    import re
+    assert re.search(r'with CANDADO:[^\n]*\n\s+R\["iniciar_estudio"\] = ', S.TABM_POR_FASES)
