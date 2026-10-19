@@ -204,8 +204,10 @@ def comparabilidad_de_metrica(entrada: dict[str, Any]) -> dict[str, Any]:
         tolerancia, o un alcance que el catálogo no mide, CON tolerancia o SIN ella-
         `margen_ajeno` lo dice y la métrica NO es comparable: ni se usa el margen del
         paquete ni se ignora en silencio.
-    * Una métrica que el catálogo no conoce sigue como estaba: lo que declare, y sin
-      dirección no es comparable.
+    * Una métrica que el catálogo NO conoce no es comparable (re-auditoría del 136, RA1): el
+      catálogo no sabe su dirección ni su margen medido, y lo que declare el paquete no basta
+      (una cifra inventada con su dirección y `tolerance_abs: 1e9` daba R3 PASS). R3 la nombra
+      en `not_compared` («catalogo»). Es la decisión de Roberto (19-10, la A): decide el catálogo.
 
     Devuelve `{"entry", "comparable", "faltan", "margen_ajeno"}`: `entry` es una COPIA con la
     identidad y el margen efectivos; `faltan`, lo que le falta para compararse; `margen_ajeno`,
@@ -240,6 +242,8 @@ def comparabilidad_de_metrica(entrada: dict[str, Any]) -> dict[str, Any]:
     faltan = [c for c in _METRIC_R3_FIELDS if efectiva.get(c) is None]
     if efectiva.get("tolerance_abs") is None and efectiva.get("tolerance_rel") is None:
         faltan.append("tolerance_abs|tolerance_rel")
+    if not identidad:
+        faltan.append("catalogo")
     return {"entry": efectiva, "comparable": not faltan and margen_ajeno is None,
             "faltan": faltan, "margen_ajeno": margen_ajeno}
 
@@ -253,7 +257,9 @@ def cifra_de_otro_dataset(metrica: dict[str, Any], esperados: set[str]) -> bool:
     probaría nada, ni en un sentido ni en otro; auditoría del 136, M6). Sin digests esperados
     no se puede decidir y no se afirma nada; una cifra sin digest ya la para la regla."""
     medida_en = metrica.get("dataset_sha256")
-    return bool(esperados) and medida_en is not None and medida_en not in esperados
+    # Un digest que no es un texto (`[]`, `{}`) no es de ESTE dataset, y compararlo con `in` sobre un
+    # `set` lanzaba `TypeError` (re-auditoría del 136, RA2): se cuenta como de otro dataset.
+    return bool(esperados) and medida_en is not None and (not isinstance(medida_en, str) or medida_en not in esperados)
 
 
 #: Versiones del bloque `run_provenance` que ESTE módulo sabe interpretar.

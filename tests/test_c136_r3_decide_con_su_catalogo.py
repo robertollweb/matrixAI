@@ -63,12 +63,13 @@ def test_otro_margen_declarado_deja_la_metrica_no_comparable_y_lo_dice(otro):
     assert d["margen_ajeno"] is not None and "tolerance_abs" in d["margen_ajeno"]
 
 
-def test_una_metrica_que_el_catalogo_no_conoce_sigue_como_hoy():
-    # Sin dirección no se compara; con la dirección y su margen declarados, como antes.
+def test_una_metrica_que_el_catalogo_no_conoce_no_se_compara_aunque_declare_direccion_y_margen():
+    # Re-auditoría del 136, RA1: decide el CATÁLOGO (Roberto, 19-10, la A). Antes, con la dirección y su margen declarados por el
+    # paquete, se comparaba; una cifra inventada con `tolerance_abs: 1e9` daba R3 PASS.
     sin = comparabilidad_de_metrica(_entrada(name="kappa", direction=None))
-    assert sin["comparable"] is False and "direction" in sin["faltan"]
+    assert sin["comparable"] is False and "direction" in sin["faltan"] and "catalogo" in sin["faltan"]
     con = comparabilidad_de_metrica(_entrada(name="kappa", tolerance_abs=0.01))
-    assert con["comparable"] is True and con["margen_ajeno"] is None
+    assert con["comparable"] is False and con["faltan"] == ["catalogo"], con
 
 
 def test_el_export_y_el_verificador_usan_la_MISMA_funcion():
@@ -369,8 +370,8 @@ def test_tambien_se_nombran_un_nombre_fuera_del_catalogo_sin_direccion_y_lo_que_
     r3 = base_r3(m, dict(_LA_MENTIRA))
     assert r3["status"] == "INCOMPARABLE", r3
     assert r3["checked"] == ["final_train_loss"], r3
-    assert r3["not_compared"] == [{"name": "mae_ajustada", "missing": ["direction"]},
-                                  {"name": "rmse_ajustada", "missing": ["direction"]},
+    assert r3["not_compared"] == [{"name": "mae_ajustada", "missing": ["direction", "catalogo"]},
+                                  {"name": "rmse_ajustada", "missing": ["direction", "catalogo"]},
                                   {"name": "metrics[3]", "missing": ["object"]}], r3
 
 
@@ -512,3 +513,29 @@ def test_por_el_camino_del_producto_UNA_clave_en_la_cifra_alterada_no_da_PASS(ta
                          | set(r3.get("margin_not_catalog") or []) | set(r3.get("other_dataset") or []))
             assert nombradas == set(_MIENTEN[tarea]), (kw, r3)
             assert not set(r3["checked"]) & set(_MIENTEN[tarea]), (kw, r3)
+
+
+# ── re-auditoría del 136: RA1 y RA2 ──────────────────────────────────────────────────────────────
+
+def test_RA1_una_cifra_inventada_fuera_del_catalogo_con_su_direccion_y_margen_enorme_no_da_PASS():
+    """Una cifra que el catálogo no conoce, que el reentrenamiento SÍ reporta, con su dirección y `tolerance_abs: 1e9`:
+    antes daba R3 PASS, código 0. Ahora no se compara y se nombra, y R3 queda INCOMPARABLE."""
+    m = _tres()
+    m["metrics"].append({"name": "final_validation_loss", "value": 0.0001, "split": "validation",
+                         "dataset_sha256": _SHA, "direction": "lower_is_better", "tolerance_abs": 1e9})
+    obtenidas = {"mae": 316.7, "rmse": 400.0, "final_train_loss": 0.4, "final_validation_loss": 0.5}
+    r3 = base_r3(m, obtenidas)
+    assert r3["status"] == "INCOMPARABLE", r3
+    assert any(x["name"] == "final_validation_loss" and "catalogo" in x["missing"] for x in r3["not_compared"]), r3
+
+
+@pytest.mark.parametrize("digest", [[], {}, 7, ["a" * 64]])
+def test_RA2_un_dataset_sha256_que_no_es_un_texto_no_tumba_la_verificacion(digest):
+    """`dataset_sha256: []` (o `{}`, un número…) lanzaba `TypeError` desde `cifra_de_otro_dataset` y la CLI salía con una
+    traza. Ahora esa cifra cuenta como de otro dataset: no se compara, y nunca da PASS."""
+    m = _tres()
+    m["artifacts"] = {"dataset": {"sha256": "c" * 64, "sha256_prepared": _SHA}}
+    alterado = _con_en(m, ("mae",), dataset_sha256=digest)
+    r3 = base_r3(alterado, {"mae": 316.7, "rmse": 400.0, "final_train_loss": 0.4})
+    assert r3["status"] != "PASS", r3
+    assert "mae" in (r3.get("other_dataset") or []), r3
