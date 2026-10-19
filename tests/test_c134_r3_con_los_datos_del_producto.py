@@ -252,9 +252,9 @@ def test_una_regresion_con_el_objetivo_sin_recortar_se_reentrena_como_el_product
     assert t["status"] == "PASS", t
     assert t["not_applied_from_capture"] == [], t
     assert r3["status"] == "PASS", r3
-    assert {"final_train_loss", "best_validation_loss"} <= set(r3["checked"]), r3
-    if motor == "torch":
-        assert {"mae", "rmse", "r2"} <= set(r3["checked"]), r3
+    # Re-auditoría N1: también con stdlib se contrastan mae, rmse y r2 (antes, solo las pérdidas).
+    assert sorted(r3["checked"]) == sorted(["mae", "rmse", "r2", "final_train_loss",
+                                            "best_validation_loss"]), r3
 
 
 def test_leer_mal_si_el_objetivo_se_recorto_no_da_FAIL_lo_caza_el_digest():
@@ -297,3 +297,147 @@ def test_R1_regenera_una_regresion_con_o_sin_el_rango_del_objetivo(con_rango_al_
     r1 = inf["stages"]["R1"]
     assert r1["status"] == "PASS", r1
     assert r1["target_range_applied"] is con_rango_al_generar, r1
+
+
+# ── 5. RE-AUDITORÍA N1: una regresión contrasta sus cifras, también con stdlib ────────────────────
+#
+# Medido el 19-10 por el camino real: una regresión del Studio entrenada con stdlib (lo que hace
+# toda máquina sin GPU) salía `R3 PASS` y `fully_checked: true` contrastando SOLO las dos pérdidas:
+# el reentrenamiento de stdlib no devolvía mae, rmse ni r2, y R3 se saltaba en silencio lo que no
+# venía. Un paquete con la mae y la rmse ÷ 10 y r2 = 0,9999 salía PASS, código 0.
+
+_JOBS_REG_STUDIO: dict[str, dict] = {}
+
+
+def _job_regresion(motor: str) -> dict:
+    """La regresión del prompt, como la entrena el Studio: el rango de la salida y sin recortar."""
+    if motor not in _JOBS_REG_STUDIO:
+        csv = _generar(_MXAI_REG, _MXTRAIN_REG, _RANGOS_REG, _RECETA_REG, filas=80,
+                       target_range=_RANGO_SALIDA)
+        _JOBS_REG_STUDIO[motor] = _entrenar_por_el_producto(
+            _MXAI_REG, _MXTRAIN_REG, csv, _RECETA_REG, motor=motor, rangos=_RANGOS_REG,
+            target_range=_RANGO_SALIDA, recortar=False)
+    return _JOBS_REG_STUDIO[motor]
+
+
+_LAS_CINCO = ["mae", "rmse", "r2", "final_train_loss", "best_validation_loss"]
+
+
+def _mentira_gorda(m):
+    for x in m["metrics"]:
+        if x["name"] in ("mae", "rmse"):
+            x["value"] = x["value"] / 10
+        if x["name"] == "r2":
+            x["value"] = 0.9999
+
+
+@pytest.mark.parametrize("motor", ["stdlib", "torch"])
+def test_una_regresion_contrasta_mae_rmse_y_r2_y_una_alterada_da_FAIL(motor):
+    job = _job_regresion(motor)
+    res = job["result"]
+    # Lo que publica el producto: las cinco, con mae, rmse y r2 en la escala del dominio.
+    assert all(isinstance(res.get(n), float) for n in _LAS_CINCO), res
+    assert res["mae"] > 1000, res["mae"]
+    honesto = verify_package(_paquete(job, _MXAI_REG, _MXTRAIN_REG, _RECETA_REG),
+                             run_training=True)
+    r3 = honesto["stages"]["R3"]
+    assert r3["status"] == "PASS", r3
+    assert sorted(r3["checked"]) == sorted(_LAS_CINCO), r3
+    assert honesto["fully_checked"] is True and honesto["exit_code"] == 0
+    # Y medidas IGUAL que el producto, hasta el último dígito (la tolerancia es 0).
+    obtenidas = honesto["stages"]["training"]["metrics"]
+    assert {n: obtenidas[n] for n in _LAS_CINCO} == {n: res[n] for n in _LAS_CINCO}
+    for nombre in ("mae", "rmse", "r2"):
+        inf = verify_package(_paquete(job, _MXAI_REG, _MXTRAIN_REG, _RECETA_REG, alterar=nombre),
+                             run_training=True)
+        r3 = inf["stages"]["R3"]
+        assert r3["status"] == "FAIL", (nombre, r3)
+        assert [m["metric"] for m in r3["metrics"]] == [nombre], r3
+        assert inf["exit_code"] == 2
+
+
+@pytest.mark.parametrize("motor", ["stdlib", "torch"])
+def test_la_mentira_gorda_de_la_reauditoria_da_FAIL(motor):
+    """mae y rmse ÷ 10 y r2 = 0,9999, re-sellado: con stdlib era `R3 PASS`, código 0."""
+    inf = verify_package(_paquete(_job_regresion(motor), _MXAI_REG, _MXTRAIN_REG, _RECETA_REG,
+                                  tocar=_mentira_gorda), run_training=True)
+    r3 = inf["stages"]["R3"]
+    assert r3["status"] == "FAIL", r3
+    assert sorted(m["metric"] for m in r3["metrics"]) == ["mae", "r2", "rmse"], r3
+    assert inf["fully_checked"] is False and inf["exit_code"] == 2
+
+
+def _quitar_la_mae(funcion):
+    """Un DOBLE del entrenador: el mismo reentrenamiento, pero sin reportar la mae."""
+    def sin_mae(*args, **kwargs):
+        salida = funcion(*args, **kwargs)
+        if isinstance(salida, tuple):  # `_reentrenar_con_torch` → (resultado, métricas)
+            resultado, metricas = salida
+            return resultado, {k: v for k, v in metricas.items() if k != "mae"}
+        return {k: v for k, v in salida.items() if k != "mae"}
+    return sin_mae
+
+
+_DOBLES = {"stdlib": "_metricas_como_las_mide_el_producto", "torch": "_reentrenar_con_torch"}
+
+
+@pytest.mark.parametrize("motor", ["stdlib", "torch"])
+def test_una_metrica_comparable_que_el_reentrenamiento_no_reporta_deja_R3_en_INCOMPARABLE(motor):
+    """La red de seguridad, para CUALQUIER entrenador: lo que no se contrasta se nombra, y R3 no
+    dice PASS. Con la rmse alterada además, FAIL sigue mandando."""
+    from matrixai.export import verify as v
+    job = _job_regresion(motor)
+    real = getattr(v, _DOBLES[motor])
+    with mock.patch.object(v, _DOBLES[motor], _quitar_la_mae(real)):
+        honesto = _paquete(job, _MXAI_REG, _MXTRAIN_REG, _RECETA_REG)
+        for locale, frase in (("es", "métricas comparables que el reentrenamiento no ha reportado (mae)"),
+                              ("en", "comparable metrics were not reported by the retraining (mae)")):
+            inf = verify_package(honesto, run_training=True, locale=locale)
+            assert "mae" not in inf["stages"]["training"]["metrics"], "el doble no quitó nada"
+            r3 = inf["stages"]["R3"]
+            assert r3["status"] == "INCOMPARABLE", r3
+            assert r3["not_reported"] == ["mae"], r3
+            assert frase in r3["reason"], r3["reason"]
+            # Lo que sí cuadró se dice, pero no basta.
+            assert sorted(r3["checked"]) == sorted(n for n in _LAS_CINCO if n != "mae"), r3
+            assert inf["fully_checked"] is False and inf["exit_code"] == 3
+            assert inf["unchecked_stages"] == ["R3"]
+        inf = verify_package(_paquete(job, _MXAI_REG, _MXTRAIN_REG, _RECETA_REG, alterar="rmse"),
+                             run_training=True)
+    r3 = inf["stages"]["R3"]
+    assert r3["status"] == "FAIL", r3
+    assert [m["metric"] for m in r3["metrics"]] == ["rmse"], r3
+    assert r3["not_reported"] == ["mae"], r3
+
+
+def test_una_metrica_comparable_publicada_sin_numero_tampoco_se_salta():
+    """Solo con un paquete tocado a mano (el export la rechaza): tampoco se calla."""
+    def r2_sin_numero(m):
+        for x in m["metrics"]:
+            if x["name"] == "r2":
+                x["value"] = "0.9999"
+    inf = verify_package(_paquete(_job_regresion("stdlib"), _MXAI_REG, _MXTRAIN_REG, _RECETA_REG,
+                                  tocar=r2_sin_numero), run_training=True, locale="en")
+    r3 = inf["stages"]["R3"]
+    assert r3["status"] == "INCOMPARABLE", r3
+    assert r3["published_without_value"] == ["r2"], r3
+    assert "publishes metrics as comparable without a numeric value (r2)" in r3["reason"]
+    assert inf["exit_code"] == 3
+
+
+# ── 6. RE-AUDITORÍA N2: el orden de las variantes de R1 ──────────────────────────────────────────
+
+def test_R1_con_una_receta_de_formula_cuadran_las_dos_variantes_y_dice_que_uso_el_rango():
+    """Con `y = …` el objetivo sale de la fórmula: con y sin el rango sale el MISMO CSV, así que
+    cuadran las dos variantes y gana la primera, la que declara el paquete. Al revés diría «se
+    regeneró sin el rango: con él no salía el mismo dataset», y con él también sale."""
+    con = _generar(_MXAI_REG, _MXTRAIN_REG, _RANGOS_REG, _RECETA_REG, filas=80,
+                   target_range=_RANGO_SALIDA)
+    sin = _generar(_MXAI_REG, _MXTRAIN_REG, _RANGOS_REG, _RECETA_REG, filas=80)
+    assert con == sin, "con una fórmula el rango cambia el CSV: la prueba no mide el orden"
+    job = _job_regresion("stdlib")
+    assert job["run_provenance"]["dataset_sha256_raw"] == hashlib.sha256(con.encode()).hexdigest()
+    inf = verify_package(_paquete(job, _MXAI_REG, _MXTRAIN_REG, _RECETA_REG), run_training=False)
+    r1 = inf["stages"]["R1"]
+    assert r1["status"] == "PASS", r1
+    assert r1["target_range_applied"] is True, r1

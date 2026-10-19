@@ -161,8 +161,13 @@ _MOTIVOS: dict[str, dict[str, str]] = {
             "el reentrenamiento no ha podido aplicar parte de la configuración "
             "capturada ({claves}), así que sus métricas no describen la misma "
             "ejecución y una diferencia tampoco probaría que el paquete miente"),
-        "r3_ninguna_comparable": ("el reentrenamiento no ha informado de ninguna de "
-                                  "las métricas comparables"),
+        "r3_sin_reportar": (
+            "hay métricas comparables que el reentrenamiento no ha reportado ({claves}): "
+            "sin un valor nuevo no se pueden contrastar, y sin contrastarlas no se puede "
+            "decir que el paquete reproduce lo que publica"),
+        "r3_publicada_sin_valor": (
+            "el paquete publica métricas como comparables sin un valor numérico "
+            "({claves}): no hay con qué contrastarlas"),
         "r3_fuera_de_tolerancia": "al menos una métrica se sale de su tolerancia",
         # -- alcance de la tolerancia ---------------------------------------------
         "tol_alcance_desconocido": (
@@ -289,8 +294,13 @@ _MOTIVOS: dict[str, dict[str, str]] = {
             "the retraining could not apply part of the captured configuration "
             "({claves}), so its metrics do not describe the same run and a "
             "difference would not prove the package wrong"),
-        "r3_ninguna_comparable": ("none of the comparable metrics was reported by the "
-                                  "retraining"),
+        "r3_sin_reportar": (
+            "some comparable metrics were not reported by the retraining ({claves}): "
+            "without a fresh value they cannot be contrasted, and without contrasting "
+            "them it cannot be said that the package reproduces what it publishes"),
+        "r3_publicada_sin_valor": (
+            "the package publishes metrics as comparable without a numeric value "
+            "({claves}): there is nothing to contrast them with"),
         "r3_fuera_de_tolerancia": "at least one metric falls outside its tolerance",
         "tol_alcance_desconocido": (
             "the package declares tolerance scopes this verifier does not know "

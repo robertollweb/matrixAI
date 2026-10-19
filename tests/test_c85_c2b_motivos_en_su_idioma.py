@@ -100,6 +100,8 @@ _CLAVES_DE_DATO = (
     "not_applied_from_capture", "not_applied",
     # 134: con qué variante del rango del objetivo regeneró R1 (un booleano).
     "target_range_applied",
+    # 134, re-auditoría N1: los NOMBRES de las métricas comparables que R3 no pudo contrastar.
+    "not_reported", "published_without_value",
 )
 
 

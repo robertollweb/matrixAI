@@ -883,6 +883,18 @@ def _verificar_training(
         # reentrenamiento» sobre un fichero que las tenía delante.
         if not (por_torch and torch_aqui):
             _del_disco = _metricas_del_taller(taller / "out")
+            from matrixai.training.dense_trainer import DenseSupervisedTrainer as _Densa  # noqa: PLC0415
+            if (isinstance(entrenador, _Densa) and redes
+                    and getattr(redes[0], "kind", "dense_network") == "dense_network"):
+                # RE-AUDITORÍA DEL 134, N1 (BLOQUEANTE): en una regresión, stdlib no
+                # devolvía mae, rmse ni r2 —el producto los mide DESPUÉS de entrenar, con
+                # el evaluador sobre el dataset entero (`split: full`) y reescalados con
+                # el rango del objetivo—, y R3 aprobaba el paquete contrastando solo las
+                # dos pérdidas: un paquete con la mae ÷ 10 y r2 = 0,9999 salía PASS.
+                # Ahora se miden con LA MISMA función que el producto.
+                _del_disco.update(_metricas_como_las_mide_el_producto(
+                    taller, resultado, spec,
+                    (manifiesto.get("generation") or {}).get("target_range")))
     except Exception as exc:  # noqa: BLE001 — el entrenador se niega por mil motivos
         # Que no se pueda entrenar AQUÍ no prueba que el paquete mienta:
         # otro entorno, otro backend, una dependencia que falta.
@@ -999,6 +1011,29 @@ def _reentrenar_con_torch(
     return SimpleNamespace(best_epoch=r.get("best_epoch"), validation_metrics=None), medidas
 
 
+def _metricas_como_las_mide_el_producto(
+    taller: Path, resultado: Any, spec: Any, rango: Any,
+) -> dict[str, Any]:
+    """Las métricas de un reentrenamiento denso SIN torch, medidas como el producto.
+
+    El producto (`playground._run_playground_dense_training`, la entrada del Studio sin
+    GPU) entrena con `DenseSupervisedTrainer` y compone su resultado con
+    `_collect_training_result`: evalúa los pesos elegidos con el evaluador sobre el
+    dataset ENTERO y reescala mae y rmse con el `target_range`. De ahí salen las cifras
+    que publica (`metric_splits`: `full`). Se llama a ESA función, no a una parecida: dos
+    sitios midiendo lo mismo acaban midiendo distinto, y la tolerancia es 0.
+
+    Se recogen las del catálogo (`metric_identity.DIRECCION`), como en el camino de torch,
+    y solo los números: lo que el producto no midió es `None` y no entra.
+    """
+    from matrixai.playground import _collect_training_result  # noqa: PLC0415
+    from matrixai.training.metric_identity import DIRECCION  # noqa: PLC0415
+
+    r = _collect_training_result(taller, resultado, spec, target_range=_par_de_numeros(rango))
+    return {k: r[k] for k in DIRECCION
+            if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool)}
+
+
 def _metricas_del_taller(salida: Path) -> dict[str, Any]:
     """Las métricas que el entrenador dejó EN DISCO al reentrenar.
 
@@ -1039,8 +1074,11 @@ def _verificar_r3(
       (`comparable`, `incomplete`), así que **se cita en vez de repetir el
       análisis**. Que al producto todavía le falte capturar el evaluador o
       la tolerancia es una carencia del PRODUCTO, no una mentira del
-      paquete: `INCOMPARABLE`, no `FAIL`.
-    * **`PASS`/`FAIL`** solo cuando de verdad hay con qué comparar.
+      paquete: `INCOMPARABLE`, no `FAIL`. Y también si ALGUNA comparable no se
+      ha podido contrastar (`not_reported`, re-auditoría del 134): un PASS con
+      menos de lo publicado afirmaría por omisión sobre lo que no se miró.
+    * **`PASS`/`FAIL`** solo cuando de verdad hay con qué comparar. Una que se
+      sale de su tolerancia es `FAIL` aunque otras no se hayan contrastado.
     """
     if training.get("status") != "PASS":
         # EL MOTIVO DE VERDAD, no siempre el mismo.
@@ -1116,33 +1154,64 @@ def _verificar_r3(
                              claves=", ".join(sin_aplicar)) + porque,
                       not_applied=sin_aplicar)
 
+    def _es_numero(valor: Any) -> bool:
+        return isinstance(valor, (int, float)) and not isinstance(valor, bool)
+
     fuera: list[dict[str, Any]] = []
     dentro: list[str] = []
+    # RE-AUDITORÍA DEL 134, N1 (BLOQUEANTE): aquí había un `continue` MUDO. Una métrica
+    # publicada como comparable que el reentrenamiento no reportaba se saltaba sin dejar
+    # rastro, y R3 salía PASS con lo poco que quedaba —en una regresión con stdlib, las
+    # dos pérdidas— y `fully_checked: true`: medido, un paquete con la mae y la rmse ÷ 10 y
+    # r2 = 0,9999 salía `R3 PASS`, código 0. Lo que no se contrasta SE NOMBRA, y si falta
+    # alguna, R3 no puede decir PASS: INCOMPARABLE con su motivo (FAIL sigue mandando).
+    sin_reportar: list[str] = []
+    sin_valor_publicado: list[str] = []
     for m in comparables:
         nombre = str(m.get("name") or "")
         publicado, ahora = m.get("value"), obtenidas.get(nombre)
-        if not isinstance(publicado, (int, float)) or not isinstance(ahora, (int, float)):
-            continue
-        abs_ = m.get("tolerance_abs")
-        rel = m.get("tolerance_rel")
-        diferencia = abs(float(ahora) - float(publicado))
-        limite = float(abs_) if isinstance(abs_, (int, float)) else 0.0
-        if isinstance(rel, (int, float)):
-            limite = max(limite, abs(float(publicado)) * float(rel))
-        if diferencia <= limite:
-            dentro.append(nombre)
+        if not _es_numero(publicado):
+            # Solo con un paquete tocado a mano: el export rechaza una métrica sin valor.
+            sin_valor_publicado.append(nombre)
+        elif not _es_numero(ahora):
+            sin_reportar.append(nombre)
         else:
-            fuera.append({"metric": nombre, "published": publicado,
-                          "obtained": ahora, "difference": diferencia,
-                          "tolerance": limite})
+            abs_ = m.get("tolerance_abs")
+            rel = m.get("tolerance_rel")
+            diferencia = abs(float(ahora) - float(publicado))
+            limite = float(abs_) if isinstance(abs_, (int, float)) else 0.0
+            if isinstance(rel, (int, float)):
+                limite = max(limite, abs(float(publicado)) * float(rel))
+            if diferencia <= limite:
+                dentro.append(nombre)
+            else:
+                fuera.append({"metric": nombre, "published": publicado,
+                              "obtained": ahora, "difference": diferencia,
+                              "tolerance": limite})
 
-    if not dentro and not fuera:
-        return _etapa("INCOMPARABLE", motivo("r3_ninguna_comparable", locale))
+    lo_que_falta: dict[str, Any] = {}
+    if sin_reportar:
+        lo_que_falta["not_reported"] = sin_reportar
+    if sin_valor_publicado:
+        lo_que_falta["published_without_value"] = sin_valor_publicado
     if fuera:
         # Con los DOS valores y la tolerancia: «fuera de rango» a secas no
-        # deja ver si se pasó por poco o por un orden de magnitud.
+        # deja ver si se pasó por poco o por un orden de magnitud. Una que se
+        # sale basta para el FAIL, aunque otras no se hayan podido contrastar.
         return _etapa("FAIL", motivo("r3_fuera_de_tolerancia", locale),
-                      metrics=fuera)
+                      metrics=fuera, **lo_que_falta)
+    if lo_que_falta:
+        # Lo que SÍ cuadró se dice (`checked`), pero no basta para un PASS: el paquete
+        # publica más de lo que aquí se ha podido contrastar.
+        porques = []
+        if sin_reportar:
+            porques.append(motivo("r3_sin_reportar", locale, claves=", ".join(sin_reportar)))
+        if sin_valor_publicado:
+            porques.append(motivo("r3_publicada_sin_valor", locale,
+                                  claves=", ".join(sin_valor_publicado)))
+        return _etapa("INCOMPARABLE", "; ".join(porques),
+                      **({"checked": dentro} if dentro else {}), **lo_que_falta)
+    # Aquí `dentro` no está vacía: cada comparable ha caído en una de las cuatro listas.
     return _etapa("PASS", checked=dentro)
 
 
