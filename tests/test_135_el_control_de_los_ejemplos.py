@@ -111,6 +111,29 @@ def test_otro_fin_de_linea_no_es_el_mismo():
     assert r["es_el_mismo"] is False and "otros bytes" in r["motivo"]
 
 
+# R-3 (re-auditoría del 20-10): dos detalles del «byte a byte» que ninguna prueba fijaba. Sin nada que descontar se comparan los bytes
+# TAL CUAL (un CRLF o un salto de línea de más o de menos NO es el mismo CSV), y al descontar también (el salto final cuenta).
+_FINES = {"CRLF": lambda b: b.replace(b"\n", b"\r\n"), "salto_final_de_mas": lambda b: b + b"\n",
+          "sin_salto_final": lambda b: b[:-1]}
+
+
+@pytest.mark.parametrize("fin", sorted(_FINES))
+def test_R3_sin_nada_que_descontar_un_fin_de_linea_distinto_no_es_el_mismo_CSV(fin):
+    for ficha in (None, _ficha(quitadas=[])):
+        otro = _FINES[fin](FASE0)
+        assert otro != FASE0
+        r = R0.comparar_con_el_ejemplo(FASE0, otro, ficha)
+        assert r["es_el_mismo"] is False and r["motivo"], (fin, r)
+
+
+@pytest.mark.parametrize("fin", sorted(_FINES))
+def test_R3_al_descontar_el_salto_de_linea_del_final_cuenta(fin):
+    otro = _FINES[fin](STUDIO)
+    assert otro != STUDIO
+    r = R0.comparar_con_el_ejemplo(FASE0, otro, _ficha())
+    assert r["es_el_mismo"] is False and r["motivo"] and r["columnas_descontadas"] == [], (fin, r)
+
+
 SABOTAJES_DE_LA_FICHA = {
     "una_declarada_con_en_fase0_falso": [{"columna": "Study", "en_fase0": False}, {"columna": "Run", "en_fase0": True}],
     "una_sin_declarar": [{"columna": "Study", "en_fase0": True}],
@@ -190,6 +213,19 @@ def test_la_guarda_PARA_si_el_catalogo_no_dice_exactamente_lo_quitado(monkeypatc
     monkeypatch.setattr(R0, "EJEMPLOS", _studio_doble(tmp_path, STUDIO, ficha))
     with pytest.raises(SystemExit, match=r"^PARO: el CSV de x del Studio NO es"):
         R0.comprobar_bytes(_gen_doble(FILAS), [{"nombre": "x", "data_id": 1}])
+
+
+def test_R4_la_guarda_PARA_si_falta_el_CSV_de_un_ejemplo_del_control(monkeypatch, tmp_path):
+    """Un ejemplo de `CONTROL` que el Studio no trae NO se salta en silencio: el kit habría escrito «control: [los 4]» sin comparar uno."""
+    monkeypatch.setattr(R0, "EJEMPLOS", tmp_path)                       # ni CSV ni catálogo
+    monkeypatch.setattr(R0, "CONTROL", {**R0.CONTROL, "x": {}})
+    with pytest.raises(SystemExit, match=r"^PARO: .*falta el CSV del ejemplo del control x"):
+        R0.comprobar_bytes(_gen_doble(FILAS), [{"nombre": "x", "data_id": 1}])
+
+
+def test_R4_un_conjunto_que_no_es_del_control_y_no_esta_en_el_Studio_se_sigue_saltando(monkeypatch, tmp_path):
+    monkeypatch.setattr(R0, "EJEMPLOS", tmp_path)
+    assert R0.comprobar_bytes(_gen_doble(FILAS), [{"nombre": "x", "data_id": 1}]) == {}
 
 
 def test_la_guarda_sin_catalogo_exige_el_mismo_CSV(monkeypatch, tmp_path):
@@ -331,3 +367,10 @@ def test_la_guarda_real_PARA_con_una_copia_saboteada_del_Studio(monkeypatch, tmp
     SABOTAJES_REALES[sabotaje](copia)
     with pytest.raises(SystemExit, match=r"^PARO: el CSV de (climate-model-simulation-crashes|us_crime) del Studio NO es"):
         R0.comprobar_bytes(gen, _control_del_banco())
+
+
+def test_R5_el_generador_del_kit_dice_que_regenerarlo_con_un_Studio_que_quita_columnas_cambia_su_identidad():
+    """R-5: la identidad del kit (su manifiesto, que entra en la huella del brazo) depende del Studio con que se genera; dicho donde se genera."""
+    doc = GK.__doc__
+    assert "CAMBIA SU IDENTIDAD" in doc and "control_contra_los_del_studio" in doc
+    assert "huella" in doc and "INCOMPARABLES (PARO 6)" in doc

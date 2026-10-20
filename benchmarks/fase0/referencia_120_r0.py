@@ -247,12 +247,17 @@ def comprobar_bytes(gen, conjuntos):
 
     En el resultado, por conjunto: `sha256` y `bytes` del CSV de la Fase 0 (lo medido); `byte_a_byte` (verdadero: el
     del Studio es ese CSV, byte a byte, una vez descontadas `columnas_descontadas`; [] = el mismo CSV); y lo que se
-    comparó del Studio (`csv_del_studio`, `sha256_del_studio`, `bytes_del_studio`). Un ejemplo que el Studio no trae
-    no se compara ni sale en el resultado."""
+    comparó del Studio (`csv_del_studio`, `sha256_del_studio`, `bytes_del_studio`). Un ejemplo del CONTROL que el Studio no trae PARA; uno que no es
+    del control y no está, no se compara ni sale en el resultado."""
     res = {}
     for c in conjuntos:
         f = EJEMPLOS / f"{c['nombre']}.csv"
         if not f.is_file():
+            # R-4 (re-auditoría del 135): un ejemplo del CONTROL que el Studio no trae PARA; saltárselo en silencio dejaba que el
+            # kit 128 escribiera «control: [los 4]» (y «byte a byte») sin haber comparado uno.
+            if c["nombre"] in CONTROL:
+                raise SystemExit(f"PARO: falta el CSV del ejemplo del control {c['nombre']} en el Studio ({f}); "
+                                 "no se puede comprobar que sea el de la Fase 0")
             continue
         mio = csv_de(gen, c["data_id"])[0]
         r = comparar_con_el_ejemplo(mio, f.read_bytes(), ficha_del_ejemplo(EJEMPLOS, c["nombre"]))

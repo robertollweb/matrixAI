@@ -8,6 +8,12 @@ Los 4 ejemplos del control se comprueban con la guarda del instrumento del 120 (
 tiene que ser, byte a byte, el CSV de control sin las columnas que su catálogo declara quitadas y que la Fase 0 tenía
 (135 §2.3). El manifiesto dice lo que se descontó.
 
+REGENERAR EL KIT CON UN STUDIO QUE QUITA COLUMNAS CAMBIA SU IDENTIDAD sin cambiar un solo CSV (135, R-5 de la re-auditoría): con un
+Studio de antes del 135 el manifiesto sale igual, byte a byte, que el de git; con uno que quita columnas lleva otra clave
+(`control_contra_los_del_studio`, con lo descontado) y por tanto otro sha256. Ese sha256 entra en la `huella` de cada brazo
+del kit, así que un brazo medido con el kit viejo y otro con el regenerado salen INCOMPARABLES (PARO 6) aunque sus 13 CSV sean
+idénticos. Regenerar el kit solo si se va a re-medir con él entero (los dos brazos), y no mezclar brazos de kits distintos.
+
     python3 generar_kit_128_c5.py [--destino kit_128_c5/datos]
 """
 import argparse
