@@ -151,12 +151,19 @@ class DenseSupervisedTrainer:
         epoch_callback: Any | None = None,
         seed: int = 42,
         rango_objetivo_eleccion: tuple[float, float] | None = None,
+        capturar: Any | None = None,
     ) -> TrainingRunResult:
-        """`rango_objetivo_eleccion` (corte «rangos de train», I1): si se da, la
+        """`capturar` (contrato 133-C2, `CapturaSpec | None`): si se da, deja en
+        `self.laboratorio` el bloque del laboratorio de ESTE entrenador —solo los pesos
+        finales y las filas; lo que falta (pesos por época, gradientes) va declarado en
+        `omitido`—. `None`: no se construye nada y `self.laboratorio` queda en `None`.
+
+        `rango_objetivo_eleccion` (corte «rangos de train», I1): si se da, la
         pérdida de validación con la que se ELIGE la época (la mejor y la parada
         temprana) se mide solo con las filas alcanzables (`ejemplos_para_elegir`);
         la evaluación de validación, con todas. Por omisión `None`: igual que
         siempre."""
+        self.laboratorio = None
         base_path = base_path or Path(".")
         output_dir = output_dir or "output"
         out = Path(output_dir)
@@ -273,6 +280,15 @@ class DenseSupervisedTrainer:
 
             if patience is not None and (epoch - best_epoch) >= patience:
                 break
+
+        if capturar is not None:
+            from matrixai.training import laboratorio as _lab
+            try:
+                self.laboratorio = _lab.bloque_sin_torch(
+                    net, best_ps.parameters, best_epoch, val_ex, loss_fn,
+                    capturar, epochs)
+            except Exception as exc:  # noqa: BLE001 — la captura nunca tumba el entrenamiento
+                self.laboratorio = _lab.bloque_por_fallo(exc, "stdlib")
 
         accuracy = 0.0
         validation_metrics: dict[str, Any] | None = None

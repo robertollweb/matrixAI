@@ -15,6 +15,7 @@ velocidad cuando hay GPU. La selección de backend y el fallback viven en el Stu
 """
 from __future__ import annotations
 
+import math
 import time
 from typing import Any, Callable
 
@@ -27,6 +28,7 @@ from matrixai.forward.dense_torch import (
     torch_module_to_parameter_set,
 )
 from matrixai.resources import torch_native_min_params
+from matrixai.training.laboratorio import CapturaSpec
 
 _EPS = 1e-9
 
@@ -73,6 +75,70 @@ def _loss_on_probabilities(out: Any, target: Any, loss_fn: str, torch: Any) -> A
     raise DenseTorchTrainError(f"Unknown loss function {loss_fn!r}")
 
 
+def _capas_a_listas(estado: list[Any]) -> list[dict[str, Any]]:
+    """[W1, b1, W2, b2, …] (tensores) → [{"W": [[…]], "b": […]}, …], una sola vez
+    y solo de las épocas que van al bloque. float32 → float de Python es exacto."""
+    return [{"W": estado[i].detach().cpu().tolist(), "b": estado[i + 1].detach().cpu().tolist()}
+            for i in range(0, len(estado), 2)]
+
+
+def _bloque_laboratorio(network, module, capturar, plan, best_state, best_epoch,
+                        estados, ultima, hist, parciales, val_ex, loss_fn,
+                        param_count, torch, cada_k=1, n_lotes=0,
+                        fallos=None, sin_mejora=False) -> dict[str, Any]:
+    """133-C2 — arma el bloque `laboratorio` con lo que el bucle fue guardando.
+
+    `val_ex` es la validación ENTERA y preparada (de ella salen las filas); `fallos`,
+    los `omitido` de una captura que se apagó a medias (ver el bucle)."""
+    from matrixai.training import laboratorio as lab
+
+    # N-3 (re-auditoría del C2 del Studio): si NINGUNA época mejoró la pérdida de validación (divergió: no finita), el
+    # mejor estado es el de ANTES de entrenar. Es la época 0 —los pesos de partida—, no «la 1, la mejor».
+    epoca_de_los_finales = 0 if sin_mejora else best_epoch
+    finales = _capas_a_listas(best_state) if plan["pesos_finales"] else None
+    muestra = None
+    if plan["n_muestra"] > 0 and finales is not None and estados is not None:
+        disp = dict(estados)
+        disp[epoca_de_los_finales] = best_state
+        elegidas = lab.elegir_muestra(
+            disp, 1 if 1 in disp else min(disp), epoca_de_los_finales,
+            ultima if ultima is not None else epoca_de_los_finales, plan["n_muestra"])
+        # Época 0 = los pesos de PARTIDA (arranque en caliente sin mejora): se dice.
+        muestra = [(e, (m + ["partida"]) if e == 0 else m, _capas_a_listas(disp[e]))
+                   for e, m in elegidas]
+    extra = list(fallos or [])
+    grad = None
+    if plan["gradientes"] and hist:
+        guardadas, om = lab.muestrear_gradientes(hist, best_epoch, plan["n_epocas_grad"])
+        if om is not None:
+            extra.append(om)
+        valores = torch.stack([h for _e, h in guardadas]).cpu().tolist()  # [épocas][tensores]
+        epocas = [e for e, _h in guardadas]
+        n_capas = len(module.linears)
+        grad = {
+            "definicion": lab.DEFINICION_GRADIENTE,
+            "epocas": epocas,
+            "epocas_medidas": len(hist),
+            "cada_k_lotes": cada_k,
+            "lotes_por_epoca": n_lotes,
+            "parciales": [e for e in parciales if e in set(epocas)],
+            "por_capa": [
+                {"capa": network.layers[i].index,
+                 "W": [fila[2 * i] for fila in valores],
+                 "b": [fila[2 * i + 1] for fila in valores]}
+                for i in range(n_capas)],
+        }
+    filas = lab.filas_de_validacion(val_ex, plan["n_filas"], loss_fn, capturar)
+    forma = lab.capas_de(
+        network, [(lin.out_features, lin.in_features) for lin in module.linears])
+    return lab.armar_bloque(
+        entrenador="torch", network=network, plan=plan, finales=finales,
+        epoca_final=epoca_de_los_finales, muestra=muestra, grad=grad, filas=filas,
+        spec=capturar, n_params=param_count, forma=forma, extra_omitido=extra,
+        parciales=list(parciales), epocas_corridas=ultima or 0,
+        **({"motivo_de_partida": lab.DE_PARTIDA_SIN_MEJORA} if sin_mejora else {}))
+
+
 def train_dense_network_torch(
     network: Any,
     parameter_set: ParameterSet,
@@ -94,6 +160,8 @@ def train_dense_network_torch(
     plazo: float | None = None,
     weight_decay: float = 0.0,
     schedule: str | None = None,
+    capturar: CapturaSpec | None = None,
+    validacion_completa: list[tuple[list[float], list[float]]] | None = None,
 ) -> dict[str, Any]:
     """Train a dense_network via torch autograd.
 
@@ -150,6 +218,27 @@ def train_dense_network_torch(
     ejecuten si la parada temprana corta antes) y avanza UN PASO POR ÉPOCA,
     incluida la última si es parcial por `plazo`. `None` (por omisión) no
     crea ningún scheduler — comportamiento previo intacto.
+
+    CONTRATO 133-C2 (el laboratorio): `capturar` (un `CapturaSpec`, `None` por
+    omisión) pide guardar lo MEDIDO de este entrenamiento, para poder enseñarlo:
+    las normas del gradiente por capa y por época, los pesos y sesgos finales (los
+    de la MEJOR época: los mismos `best_params` de «Probar una fila»), los pesos de
+    una muestra de épocas (con 3 o más huecos, siempre la primera, la mejor y la última; con
+    menos, la mejor y la última) y ~20 filas de
+    validación ya preparadas. Va en `resultado["laboratorio"]`; lo que no cupo en
+    los topes, en `laboratorio["omitido"]`. Con `capturar=None` NO se crea ningún
+    acumulador ni se clona nada, no se toca el generador aleatorio y el resultado
+    no lleva la clave: el entrenamiento es byte a byte el de antes. Con captura
+    tampoco cambia: solo se LEE el gradiente (`p.grad`, sin modificarlo) y se
+    clonan pesos. La excepción son los topes de RELOJ (`plazo`, o un vigilante de
+    fuera): la captura añade tiempo y puede mover el lote en el que corta el reloj.
+    La captura nunca tumba el entrenamiento: si la medida del gradiente o una copia
+    de pesos falla a mitad, esa parte se apaga, se declara en `omitido` (texto fijo y
+    el tipo de la excepción en `error`) y el entrenamiento sigue igual.
+    `validacion_completa` (solo con `capturar`): la validación ENTERA y preparada de la
+    que salen las filas del bloque, cuando `validation_examples` es solo el
+    subconjunto con el que se ELIGE la época (regresión con el objetivo sin recortar:
+    las filas alcanzables). Sin ella, las filas salen de la validación del bucle.
     """
     if not torch_available():
         raise DenseTorchTrainError("PyTorch is not installed — GPU/torch training requires torch")
@@ -225,6 +314,35 @@ def train_dense_network_torch(
     best_val_loss = float("inf")
     best_epoch = 1
     best_state = _snapshot()
+
+    # 133-C2: la captura. Todo lo de este bloque cuelga de `capturar`; con None estas
+    # variables se quedan vacías y el bucle no ejecuta ninguna rama nueva.
+    cap_plan = None
+    cap_params: list[Any] = []
+    cap_acc = None
+    cap_hist: list[Any] = []
+    cap_parciales: list[int] = []
+    cap_estados: dict[int, list[Any]] = {}
+    cap_programadas: frozenset[int] = frozenset()
+    cap_cada = 1
+    cap_n = 0
+    cap_n_lotes = 0
+    cap_fallos: list[dict[str, Any]] = []
+    cap_val = val_ex
+    if capturar is not None:
+        from matrixai.training import laboratorio as _lab
+        cap_params = list(module.parameters())
+        _n_params = sum(p.numel() for p in cap_params)
+        cap_val = validacion_completa if validacion_completa else val_ex
+        cap_plan = _lab.planear(
+            capturar, _n_params, len(module.linears), epochs,
+            len(cap_val), len(train_ex[0][0]) + len(train_ex[0][1]))
+        if cap_plan["gradientes"]:
+            cap_acc = torch.zeros(len(cap_params), device=device)
+        cap_programadas = _lab.epocas_programadas(epochs, cap_plan["n_muestra"])
+        cap_n_lotes = -(-train_x.shape[0] // bs)
+        cap_cada = _lab.lotes_cada(cap_n_lotes, capturar)
+        _norma_lote = getattr(torch, "_foreach_norm", None)
     # PESOS_GRANDES C5 audit (MEDIA): al REANUDAR, los pesos de partida son un
     # candidato real a "mejor estado" (a diferencia del init aleatorio, que
     # nunca vale la pena conservar) — se evalúan como línea base "época 0".
@@ -261,6 +379,23 @@ def train_dense_network_torch(
                 out = module(xb)
                 loss = _loss_on_probabilities(out, yb, loss_fn, torch)
                 loss.backward()
+                if cap_acc is not None and n_batches % cap_cada == 0:
+                    # 133-C2: norma L2 del gradiente de cada tensor, ANTES de optimizer.step
+                    # (así es previa al weight_decay, que torch suma dentro del paso). Se
+                    # acumula en el dispositivo, sin `.item()` por lote. Uno de cada
+                    # `cap_cada` lotes (el primero siempre): ver `laboratorio.lotes_cada`.
+                    # En su propio `try`: si falla, se apaga la captura de gradientes, se
+                    # declara y el entrenamiento sigue (los pesos no se tocan aquí).
+                    try:
+                        _g = [p.grad for p in cap_params]
+                        cap_acc += torch.stack(
+                            _norma_lote(_g) if _norma_lote is not None else [x.norm() for x in _g])
+                        cap_n += 1
+                    except Exception as _exc:  # noqa: BLE001
+                        cap_acc = None
+                        cap_hist = []
+                        cap_fallos.append(_lab.omitido_por_fallo(
+                            "grad_norm", epochs, _lab.FALLO_GRADIENTE, _exc, epoca=epoch))
                 optimizer.step()
                 epoch_loss += float(loss.detach())
                 n_batches += 1
@@ -293,6 +428,28 @@ def train_dense_network_torch(
             else:
                 no_improve += 1
 
+            if capturar is not None:
+                if cap_acc is not None:
+                    try:
+                        cap_hist.append((epoch, cap_acc / max(1, cap_n)))
+                        cap_acc.zero_()
+                        cap_n = 0
+                    except Exception as _exc:  # noqa: BLE001
+                        cap_acc = None
+                        cap_hist = []
+                        cap_fallos.append(_lab.omitido_por_fallo(
+                            "grad_norm", epochs, _lab.FALLO_GRADIENTE, _exc, epoca=epoch))
+                if epoca_a_medias:
+                    cap_parciales.append(epoch)
+                if epoch in cap_programadas and cap_estados is not None:
+                    try:
+                        cap_estados[epoch] = _snapshot()
+                    except Exception as _exc:  # noqa: BLE001
+                        cap_estados = None
+                        cap_fallos.append(_lab.omitido_por_fallo(
+                            "pesos_por_epoca", cap_plan["n_muestra"],
+                            _lab.FALLO_PESOS_POR_EPOCA, _exc, epoca=epoch))
+
             entry = {"epoch": epoch, "loss": train_loss_val, "val_loss": val_loss}
             if epoca_a_medias:
                 entry["parcial"] = True
@@ -304,6 +461,19 @@ def train_dense_network_torch(
                 break
             if patience is not None and no_improve >= patience:
                 break
+
+        # 133-C2: el estado de la ÚLTIMA época, antes de restaurar el mejor. Solo si
+        # hay muestra que guardar: sin ella, esa copia entera de la red no la usa nadie.
+        cap_ultima = epoch_trace[-1]["epoch"] if epoch_trace else None
+        if (capturar is not None and cap_plan["n_muestra"] > 0 and cap_estados is not None
+                and cap_ultima is not None and cap_ultima not in cap_estados):
+            try:
+                cap_estados[cap_ultima] = _snapshot()
+            except Exception as _exc:  # noqa: BLE001
+                cap_estados = None
+                cap_fallos.append(_lab.omitido_por_fallo(
+                    "pesos_por_epoca", cap_plan["n_muestra"],
+                    _lab.FALLO_PESOS_POR_EPOCA, _exc, epoca=cap_ultima))
 
         # Restaurar el mejor estado (clon barato en device, sin conversión).
         with torch.no_grad():
@@ -331,7 +501,19 @@ def train_dense_network_torch(
             except Exception:  # noqa: BLE001
                 pass
 
-        return {
+        laboratorio = None
+        if capturar is not None:
+            try:
+                laboratorio = _bloque_laboratorio(
+                    network, module, capturar, cap_plan, best_state, best_epoch,
+                    cap_estados, cap_ultima, cap_hist, cap_parciales, cap_val, loss_fn,
+                    param_count, torch, cada_k=cap_cada, n_lotes=cap_n_lotes,
+                    fallos=cap_fallos,
+                    sin_mejora=(initial_state_dict is None and not math.isfinite(best_val_loss)))
+            except Exception as exc:  # noqa: BLE001 — la captura nunca tumba el entrenamiento
+                laboratorio = _lab.bloque_por_fallo(exc, "torch")
+
+        resultado = {
             "best_params": best_params,
             "best_state_dict": best_state_dict,
             "materialized": should_materialize,
@@ -352,6 +534,9 @@ def train_dense_network_torch(
             # mejor época vista hasta ahí, no un entrenamiento terminado.
             "parado_por_plazo": parado_por_plazo,
         }
+        if laboratorio is not None:
+            resultado["laboratorio"] = laboratorio
+        return resultado
     finally:
         # Liberar la VRAM en el sitio donde se reservó, tanto en retorno normal como en
         # CANCELACIÓN. Clave: al cancelar, la traza de la excepción mantiene vivas estas
@@ -361,6 +546,8 @@ def train_dense_network_torch(
         # saca de la traza y permite recuperar la VRAM de inmediato.
         try:
             del module, optimizer, train_x, train_y, val_x, val_y, best_state
+            if cap_estados is not None:
+                cap_estados.clear()
         except Exception:  # noqa: BLE001
             pass
         if str(device).startswith("cuda"):
