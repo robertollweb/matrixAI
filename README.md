@@ -50,6 +50,10 @@ matrixai --help
   proposal, the synthetic data and the export metadata. A regression output with a range
   (`SALIDA: precio_eur: Scalar en [60000, 900000]`) is generated and trained in those units,
   and training with a target that is not on that range's scale is refused with its reason
+- **Watch your network learn**: a training run can record what it measured — the gradient of
+  each layer per epoch, the weights of a sample of epochs and a few prepared validation rows —
+  for the MatrixAI Studio laboratory; on a machine without CUDA it can ask for torch on the CPU.
+  A run that diverges says its weights are the starting ones
 - **Model generation from real data**: point at your own CSV instead of writing a prompt —
   schema inference (types, ranges, one-hot categoricals, temporal columns), target-column
   detection (classification or regression) and a trained model in one pass, with target
@@ -322,7 +326,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 9645 passed, 29 skipped
+# 9713 passed, 29 skipped
 ```
 
 ---

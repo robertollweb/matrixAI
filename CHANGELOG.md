@@ -7,6 +7,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.18.0] — 2026-10-21
+
+The training of your own network can now be watched from the inside. A training run can record what it measured —
+the gradient of each layer, the weights of a sample of epochs and a few prepared validation rows — and the Studio's new
+laboratory (MatrixAI Studio v2.15, expert mode) shows it. Without the request, training behaves exactly as before.
+
+### Added
+- **The laboratory capture** (`matrixai.training.laboratorio`, `train_dense_network_torch(capturar=CapturaSpec)`): the L2
+  norm of the gradient of each tensor before `optimizer.step`, averaged per epoch and measured in up to 8 batches per
+  epoch (`max_lotes_grad_por_epoca`; measuring every batch added ~10 % to the training time); the final weights (those of
+  the best epoch, the same ones "Try a row" uses); the weights of a sample of epochs that always includes the first, the
+  best and the last; and about 20 prepared validation rows. It travels in `result["laboratorio"]`, and whatever did not
+  fit within its limits is declared in `omitido`.
+- **`preferir_torch_en_cpu`, a per-request option** of the playground training paths (dense and composite): with it, a
+  machine without CUDA trains with torch on the CPU instead of the stdlib trainer. Without it, `auto` stays "CUDA or
+  stdlib".
+
+### Changed
+- **A training run that diverges declares its weights as the starting ones.** When the validation loss is not finite in
+  any epoch, no epoch improves on the start and the trainer keeps the weights from before training; the capture now says
+  so (`de_partida: true`, with its reason, in Spanish and English) instead of calling them "epoch 1, the best".
+- **The definition of the gradient carries no internal names** (no code quotes or snake_case, in Spanish and English).
+
 ## [1.17.0] — 2026-10-18
 
 A network stopped by its deadline right at the end of an epoch now says that epoch is complete. Its weights and
