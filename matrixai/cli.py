@@ -1032,6 +1032,56 @@ def main() -> int:
     attest_p.add_argument("--key-id", default="attest", help="Key identifier for the signature")
     attest_p.add_argument("-o", "--output", help="Write the receipt to this file")
 
+    # ── evaluate-score: ¿funciona aquí? — evaluar una puntuación YA REGISTRADA (137-C1) ──
+    es_p = subparsers.add_parser(
+        "evaluate-score",
+        help="Evaluate one or two risk scores already recorded in a CSV against an "
+             "observed binary outcome (nothing is trained; data never leaves the machine)")
+    es_p.add_argument("data", help="CSV with one row per case")
+    es_p.add_argument("--outcome", required=True, help="Column with the observed outcome")
+    es_p.add_argument("--event", required=True,
+                      help="Which outcome value IS the event (e.g. 'Sí', '1', 'fallecido'). "
+                           "Never guessed; case and accents are merged and reported")
+    es_p.add_argument("--represents-population", required=True, choices=["yes", "no"],
+                      help="Does this sample represent the population where the score is "
+                           "used? Only with 'yes' are PPV and NPV published")
+    es_p.add_argument("--score", required=True, help="Column with the score (first one)")
+    es_p.add_argument("--score-type", required=True,
+                      choices=["probability", "probability-pct", "score"],
+                      help="probability (0-1), probability-pct (0-100) or score (any scale "
+                           "that ranks). Never deduced from the values")
+    es_p.add_argument("--direction", required=True, choices=["higher", "lower"],
+                      help="higher = a higher value means more risk; lower = the opposite. "
+                           "It is never inverted silently")
+    es_p.add_argument("--threshold", help="Threshold used today, in the unit of the column")
+    es_p.add_argument("--origin", help="Where the score comes from (provider, paper, version)")
+    es_p.add_argument("--promised-auroc",
+                      help="The AUROC its origin promises; compared with the measured interval")
+    es_p.add_argument("--score2", help="Column with a second score (optional)")
+    es_p.add_argument("--score2-type", choices=["probability", "probability-pct", "score"])
+    es_p.add_argument("--score2-direction", choices=["higher", "lower"])
+    es_p.add_argument("--score2-threshold")
+    es_p.add_argument("--score2-origin")
+    es_p.add_argument("--score2-promised-auroc")
+    es_p.add_argument("--subgroup", action="append", default=[],
+                      help="Column to break results down by (repeatable)")
+    es_p.add_argument("--patient-id",
+                      help="Column identifying the patient: intervals resample patients, "
+                           "not rows")
+    es_p.add_argument("--decision-thresholds", nargs="+", metavar="PT",
+                      help="Probabilities (0-1, also for a %% score) for the decision curve")
+    es_p.add_argument("--resamples", type=int, default=1000,
+                      help="Bootstrap resamples per interval (default: 1000)")
+    es_p.add_argument("--seed", type=int, default=137, help="Resampling seed (default: 137)")
+    es_p.add_argument("--actor", default="", help="Who is running it")
+    es_p.add_argument("--key", help="Hex key to sign the receipt (HMAC, assurance never above "
+                                    "A1). Without it the receipt is UNSIGNED (A0)")
+    es_p.add_argument("--key-id", default="evaluate-score", help="Key identifier")
+    es_p.add_argument("--locale", choices=["es", "en"], default="es",
+                      help="Language of the summary on stderr (the JSON carries both)")
+    es_p.add_argument("-o", "--output",
+                      help="Write the report here, and the receipt next to it (*.receipt.json)")
+
     # ── bom: el ML-BOM del paquete, en CycloneDX (86-C3) ────────────────────────
     bom_p = subparsers.add_parser(
         "bom", help="Write the ML-BOM (CycloneDX) of an exported package")
@@ -1247,6 +1297,9 @@ def main() -> int:
 
     if args.command == "attest":
         return _cmd_attest(args)
+
+    if args.command == "evaluate-score":
+        return _cmd_evaluate_score(args)
 
     if args.command == "permissions":
         return _cmd_permissions(args)
@@ -3579,6 +3632,97 @@ def _cmd_attest(args) -> int:
     # Y lo que NO demuestra, siempre — firmado o no.
     print(f"  attests: {recibo['evidence']['attests']}", file=sys.stderr)
     print(f"  does NOT attest: {recibo['evidence']['does_not_attest']}", file=sys.stderr)
+    return 0
+
+
+def _cmd_evaluate_score(args) -> int:
+    """¿Funciona aquí? Evaluar una puntuación ya registrada (137-C1). Sin entrenar nada."""
+    import datetime as _dt
+
+    from matrixai.estudio.errores import ErrorDeEstudio  # noqa: PLC0415
+    from matrixai.estudio.evaluacion_de_puntuacion import (  # noqa: PLC0415
+        DeclaracionDePuntuacion, EvaluacionRechazada, evaluar_puntuacion,
+        resumen_de_la_evaluacion)
+
+    idioma = args.locale
+
+    def numero(texto, nombre):
+        # Quien escribe en castellano escribe «0,5»: se admite la coma decimal.
+        if texto is None:
+            return None
+        try:
+            return float(str(texto).strip().replace(",", "."))
+        except ValueError:
+            raise ValueError(f"{nombre} must be a number, got {texto!r}") from None
+
+    tipos = {"probability": "probabilidad", "probability-pct": "probabilidad_pct",
+             "score": "puntuacion"}
+    direcciones = {"higher": "mas_alto_mas_riesgo", "lower": "mas_bajo_mas_riesgo"}
+    try:
+        declaraciones = [DeclaracionDePuntuacion(
+            columna=args.score, tipo=tipos[args.score_type],
+            direccion=direcciones[args.direction], umbral=numero(args.threshold, "--threshold"),
+            origen=args.origin, cifra_prometida=numero(args.promised_auroc, "--promised-auroc"))]
+        if args.score2:
+            if not (args.score2_type and args.score2_direction):
+                print("Error: --score2 needs --score2-type and --score2-direction",
+                      file=sys.stderr)
+                return 2
+            declaraciones.append(DeclaracionDePuntuacion(
+                columna=args.score2, tipo=tipos[args.score2_type],
+                direccion=direcciones[args.score2_direction],
+                umbral=numero(args.score2_threshold, "--score2-threshold"),
+                origen=args.score2_origin,
+                cifra_prometida=numero(args.score2_promised_auroc, "--score2-promised-auroc")))
+        umbrales = ([numero(u, "--decision-thresholds") for u in args.decision_thresholds]
+                    if args.decision_thresholds else None)
+        clave = None
+        if args.key:
+            try:
+                clave = bytes.fromhex(args.key)
+            except ValueError:
+                print("Error: --key must be hex", file=sys.stderr)
+                return 2
+        ruta = Path(args.data)
+        crudo = ruta.read_bytes()
+        creado = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        resultado = evaluar_puntuacion(
+            crudo, columna_desenlace=args.outcome, valor_del_evento=args.event,
+            puntuaciones=declaraciones,
+            muestra_representativa=args.represents_population == "yes",
+            columnas_de_subgrupo=args.subgroup, columna_de_paciente=args.patient_id,
+            umbrales_de_decision=umbrales, remuestras=args.resamples, semilla=args.seed,
+            nombre_del_fichero=ruta.name, actor=args.actor or "matrixai evaluate-score",
+            clave=clave, id_de_clave=args.key_id, creado_en=creado)
+    except EvaluacionRechazada as exc:
+        print(f"Error: {exc.motivo(idioma)}", file=sys.stderr)
+        return 1
+    except ErrorDeEstudio as exc:
+        print(f"Error: {exc.motivo(idioma)}", file=sys.stderr)
+        return 2
+    except (OSError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+
+    informe = json.dumps(resultado.informe, indent=2, ensure_ascii=False, sort_keys=True)
+    recibo = json.dumps(resultado.sobre or resultado.recibo, indent=2, ensure_ascii=False,
+                        sort_keys=True)
+    if args.output:
+        destino = Path(args.output)
+        destino.write_text(informe + "\n", encoding="utf-8")
+        recibo_destino = destino.with_suffix(".receipt.json")
+        recibo_destino.write_text(recibo + "\n", encoding="utf-8")
+        print(f"Report written to {destino}")
+        print(f"Receipt written to {recibo_destino}")
+    else:
+        print(json.dumps({"report": resultado.informe,
+                          "receipt": resultado.sobre or resultado.recibo},
+                         indent=2, ensure_ascii=False, sort_keys=True))
+    print("\n" + resumen_de_la_evaluacion(resultado.informe, idioma), file=sys.stderr)
+    print(f"\nassurance: {resultado.nivel_de_garantia}", file=sys.stderr)
+    if resultado.nivel_de_garantia == "A0":
+        print("  UNSIGNED: this receipt proves nothing about who issued it. "
+              "Pass --key to sign it.", file=sys.stderr)
     return 0
 
 

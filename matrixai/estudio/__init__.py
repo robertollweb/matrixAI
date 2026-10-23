@@ -115,6 +115,13 @@ from matrixai.estudio.metricas import (
     metricas_aplicables,
     ordenar_por,
 )
+from matrixai.estudio.evaluacion_de_puntuacion import (
+    DeclaracionDePuntuacion,
+    EvaluacionRechazada,
+    ResultadoDeEvaluacion,
+    evaluar_puntuacion,
+    resumen_de_la_evaluacion,
+)
 from matrixai.estudio.informe_final import InformeDeEvaluacion
 from matrixai.estudio.incertidumbre import (
     DISENOS_SOPORTADOS,
@@ -191,6 +198,8 @@ __all__ = [
     "RESULTADOS_DE_VALIDACION_FINAL", "ValidacionFinal", "evaluar_en_test",
     "promover_candidato",
     "InformeDeEvaluacion",
+    "DeclaracionDePuntuacion", "EvaluacionRechazada", "ResultadoDeEvaluacion",
+    "evaluar_puntuacion", "resumen_de_la_evaluacion",
     "EvaluationResult", "FASES", "FitResult", "FittedPipelineSpec", "FugaDeTest",
     "Horizonte", "IDIOMAS", "Intervalo", "LectorDeParticiones", "MIGRACIONES",
     "METODOS_DE_REMUESTREO", "MOTIVOS",
