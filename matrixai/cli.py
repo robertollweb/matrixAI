@@ -1081,6 +1081,9 @@ def main() -> int:
                       help="Language of the summary on stderr (the JSON carries both)")
     es_p.add_argument("-o", "--output",
                       help="Write the report here, and the receipt next to it (*.receipt.json)")
+    es_p.add_argument("--html", metavar="FILE",
+                      help="Also write the self-contained one-page HTML report here, in the "
+                           "language of --locale (works offline, aggregates only)")
 
     # ── bom: el ML-BOM del paquete, en CycloneDX (86-C3) ────────────────────────
     bom_p = subparsers.add_parser(
@@ -3718,6 +3721,15 @@ def _cmd_evaluate_score(args) -> int:
         print(json.dumps({"report": resultado.informe,
                           "receipt": resultado.sobre or resultado.recibo},
                          indent=2, ensure_ascii=False, sort_keys=True))
+    if args.html:
+        from matrixai.export.informe_de_puntuacion import informe_html  # noqa: PLC0415
+
+        try:
+            Path(args.html).write_text(informe_html(resultado, idioma=idioma), encoding="utf-8")
+        except OSError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+        print(f"HTML report written to {args.html}")
     print("\n" + resumen_de_la_evaluacion(resultado.informe, idioma), file=sys.stderr)
     print(f"\nassurance: {resultado.nivel_de_garantia}", file=sys.stderr)
     if resultado.nivel_de_garantia == "A0":

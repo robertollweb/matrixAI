@@ -98,6 +98,10 @@ _NO_DISPONIBLE: tuple[tuple[str | None, dict[str, tuple[str, str]]], ...] = (
                "it")}),
 )
 
+#: Público (137-C2): el informe de «¿Funciona aquí?» toma de aquí los rótulos de lo que solo
+#: declara el autor (financiación, conflictos, ética) en vez de repetirlos.
+NO_DISPONIBLE = _NO_DISPONIBLE
+
 _T = {
     "es": {
         "titulo": "Ficha TRIPOD+AI",

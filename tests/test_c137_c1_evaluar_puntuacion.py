@@ -751,6 +751,65 @@ class ContraScikitLearnTest(DatosBase):
 
 
 # ---------------------------------------------------------------------------
+# La curva ROC (137-C2): vértices REALES, adelgazados, solo agregados
+# ---------------------------------------------------------------------------
+
+def _trapecio(curva):
+    return sum((b["fpr"] - a["fpr"]) * (a["tpr"] + b["tpr"]) / 2 for a, b in zip(curva, curva[1:]))
+
+
+class CurvaRocTest(DatosBase):
+    def _curva(self, columna="p", tipo="probabilidad", direccion=ALTO):
+        r = _evaluar(_csv(self.filas, [columna, "y"]),
+                     puntuaciones=[Decl(columna, tipo, direccion)]).informe["puntuaciones"][0]
+        return r["discriminacion"]["curva_roc"], _auc({"puntuaciones": [r]})
+
+    def test_la_curva_roc_tiene_los_extremos_y_no_pasa_de_40_puntos(self):
+        curva, _ = self._curva()
+        self.assertEqual(curva[0], {"fpr": 0.0, "tpr": 0.0})
+        self.assertEqual(curva[-1], {"fpr": 1.0, "tpr": 1.0})
+        self.assertLessEqual(len(curva), 40)
+        self.assertGreaterEqual(len(curva), 30)              # 1.500 valores distintos: se adelgaza
+        for a, b in zip(curva, curva[1:]):                    # y es una curva: no baja
+            self.assertLessEqual(a["fpr"], b["fpr"])
+            self.assertLessEqual(a["tpr"], b["tpr"])
+        self.assertEqual({tuple(sorted(p)) for p in curva}, {("fpr", "tpr")})   # dos números
+
+    def test_el_auroc_trapezoidal_de_los_puntos_esta_a_menos_de_0_01_del_del_nucleo(self):
+        for columna, tipo in (("p", "probabilidad"), ("pts", "puntuacion")):
+            curva, auc = self._curva(columna, tipo)
+            self.assertAlmostEqual(_trapecio(curva), auc, delta=0.01, msg=columna)
+
+    def test_con_pocos_valores_distintos_la_curva_es_exacta_sin_adelgazar(self):
+        curva, auc = self._curva("pts", "puntuacion")        # una escala de 0 a 10 con empates
+        self.assertLessEqual(len(curva), 12)
+        self.assertAlmostEqual(_trapecio(curva), auc, delta=1e-9)
+
+    def test_una_direccion_inversa_dibuja_la_curva_de_la_puntuacion_orientada(self):
+        curva, auc = self._curva("pts", "puntuacion", BAJO)
+        self.assertAlmostEqual(_trapecio(curva), auc, delta=1e-9)
+        self.assertLess(auc, 0.5)                             # la escala va a favor: al revés, baja
+
+    @unittest.skipUnless(_HAY_SKLEARN, "scikit-learn solo vive en las pruebas")
+    def test_cada_punto_es_un_vertice_de_la_curva_de_sklearn_nada_se_inventa(self):
+        from sklearn.metrics import roc_curve
+        p = [round(f["p"], 6) for f in self.filas]
+        y = [f["y"] for f in self.filas]
+        fpr, tpr, _ = roc_curve(y, p, drop_intermediate=False)
+        de_sklearn = {(round(a, 9), round(b, 9)) for a, b in zip(fpr, tpr)}
+        curva, _ = self._curva()
+        for punto in curva:
+            self.assertIn((round(punto["fpr"], 9), round(punto["tpr"], 9)), de_sklearn)
+
+    def test_la_curva_no_lleva_filas(self):
+        filas = [dict(f, id=f"PACIENTE-{i:05d}") for i, f in enumerate(self.filas)]
+        r = _evaluar(_csv(filas, ["id", "p", "y"]), columna_de_paciente="id")
+        volcado = json.dumps(r.informe["puntuaciones"][0]["discriminacion"]["curva_roc"])
+        self.assertNotIn("PACIENTE-", volcado)
+        self.assertNotIn(repr(round(filas[0]["p"], 6)), volcado)
+
+
+# ---------------------------------------------------------------------------
 # El recibo: HMAC con el mecanismo de `attest`, nunca por encima de A1
 # ---------------------------------------------------------------------------
 

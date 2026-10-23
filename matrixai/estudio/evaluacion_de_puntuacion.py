@@ -429,6 +429,51 @@ def _json_seguro(valor: Any) -> Any:
     return valor
 
 
+#: Cuántos puntos de la curva ROC viajan en el informe: los extremos y, como mucho, 38 vértices
+#: reales más. Los puntos no se inventan ni se interpolan: son VÉRTICES de la curva exacta.
+PUNTOS_DE_LA_CURVA_ROC = 40
+
+
+def _curva_roc(muestra: Muestra) -> list[dict[str, float]] | None:
+    """La curva ROC de la muestra, adelgazada a `PUNTOS_DE_LA_CURVA_ROC` vértices REALES.
+
+    Se recorren los valores distintos de la puntuación de mayor a menor (los empates se
+    cierran juntos: un vértice por valor, no por fila), con (fpr, tpr) acumulados. Los
+    extremos (0,0) y (1,1) siempre están. Si hay más vértices que el tope, se eligen los más
+    cercanos a repartos iguales de la LONGITUD de la curva: un subconjunto de la curva exacta,
+    nunca un punto interpolado. Solo agregados: dos números por punto, ninguna fila.
+    `None` si falta algún desenlace (no hay curva), que es lo que dice también el AUROC."""
+    puntuacion = muestra.puntuacion_del_positivo
+    if puntuacion is None:
+        return None
+    ys = [y == _POSITIVA for y in muestra.y_true]
+    positivos = sum(ys)
+    negativos = len(ys) - positivos
+    if not positivos or not negativos:
+        return None
+    cuenta: dict[float, list[int]] = {}
+    for sc, y in zip(puntuacion, ys):
+        c = cuenta.setdefault(sc, [0, 0])
+        c[0 if y else 1] += 1
+    vertices = [(0.0, 0.0)]
+    tp = fp = 0
+    for sc in sorted(cuenta, reverse=True):
+        tp += cuenta[sc][0]
+        fp += cuenta[sc][1]
+        vertices.append((fp / negativos, tp / positivos))
+    if len(vertices) > PUNTOS_DE_LA_CURVA_ROC:
+        acumulada = [0.0]
+        for (x0, y0), (x1, y1) in zip(vertices, vertices[1:]):
+            acumulada.append(acumulada[-1] + abs(x1 - x0) + abs(y1 - y0))
+        total = acumulada[-1]
+        elegidos = {0, len(vertices) - 1}
+        for j in range(1, PUNTOS_DE_LA_CURVA_ROC - 1):
+            objetivo = total * j / (PUNTOS_DE_LA_CURVA_ROC - 1)
+            elegidos.add(min(range(len(vertices)), key=lambda i: abs(acumulada[i] - objetivo)))
+        vertices = [vertices[i] for i in sorted(elegidos)]
+    return [{"fpr": x, "tpr": y} for x, y in vertices]
+
+
 def _p_de_fisher(a: int, b: int, c: int, d: int) -> float:
     """Test exacto de Fisher de dos colas sobre [[a, b], [c, d]], con `lgamma` para que
     aguante decenas de miles de filas sin factoriales enormes."""
@@ -903,7 +948,8 @@ def evaluar_puntuacion(
             "discriminacion": {
                 "auroc": _metrica(auroc),
                 "average_precision": _metrica(medir("average_precision", muestra, **kw)),
-                "average_precision_del_azar": prevalencia},
+                "average_precision_del_azar": prevalencia,
+                "curva_roc": _curva_roc(muestra)},
             "cifra_prometida": promesa,
             "calibracion": _calibracion(d, muestra, ctx),
             "al_umbral": _al_umbral(d, muestra, ctx, prevalencia),
