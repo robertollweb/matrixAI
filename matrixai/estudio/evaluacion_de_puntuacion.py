@@ -37,10 +37,24 @@ LO QUE SE DECIDIÓ AL COMPONER (para que no se «simplifique» sin saberlo):
   puntos el motivo lo da el propio registro métrico (`brier_score` rechaza `scores`).
 * **VPP y VPN solo si «la muestra representa a la población» es sí**, con la prevalencia
   de la muestra declarada como la local (la regla del 109-C2: nunca supuesta).
+* **La representatividad afecta a más que VPP y VPN (R3).** Con «no», la calibración, el
+  beneficio neto y la curva de decisión llevan el rótulo «describen la muestra aportada, no
+  la población de uso» (`rotulo_de_alcance`); con «sí», el informe dice que lo declara quien
+  ejecuta y MatrixAI no lo comprueba. Sin ajustes por muestreo.
+* **Qué se predice y en qué plazo (R2)**: `horizonte_del_desenlace`, `momento_de_la_puntuacion`
+  y, por puntuación, `casos_en_su_desarrollo` son OBLIGATORIAS y sin valor por omisión. Con
+  `si` o `no_se_sabe` el informe dice que NO es una validación externa de esa puntuación.
+* **Dónde se calcula (`donde_se_calcula`, obligatorio)**: `local` o `servidor_de_la_demo`. El
+  informe lo escribe tal cual; «todo en local» sería falso en la demo.
+* **La cifra prometida es una REFERENCIA PUBLICADA frente a una ESTIMACIÓN LOCAL (R4)**:
+  se dan las dos cifras y dónde cae la una respecto al intervalo de la otra, SIEMPRE con la
+  advertencia de que pueden no ser comparables. «Fuera» no es un veredicto.
 * **Subgrupos por debajo de 30 filas o 10 eventos: «evidencia insuficiente», SIN número**
   (tampoco el de «el resto»: con dos grupos, el resto ES el otro grupo y lo revelaría).
   Una columna con más de `MAXIMO_DE_VALORES_POR_SUBGRUPO` valores se rechaza: parece un
-  identificador, y un informe con un grupo por persona las identificaría.
+  identificador, y un informe con un grupo por persona publicaría una cifra por persona.
+  **Suprimir grupos pequeños ayuda, pero NO garantiza anonimización** (137, revisión R5): el
+  informe lo dice así y no promete privacidad.
 * **El informe no lleva filas**, solo agregados. Por la misma razón, un tramo de la curva
   de fiabilidad con menos de 30 filas no publica su cifra.
 * **El intercepto y la pendiente de calibración comparten UN remuestreo**: la fórmula
@@ -60,7 +74,7 @@ import platform
 import re
 import unicodedata
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 from matrixai.estudio.calibracion import ajustar_recalibracion_logistica, curva_de_fiabilidad
@@ -68,7 +82,7 @@ from matrixai.estudio.comparaciones import comparar_candidatos
 from matrixai.estudio.errores import ErrorDeEstudio
 from matrixai.estudio.esquemas import ValorDeMetrica
 from matrixai.estudio.evaluacion_de_puntuacion_textos import cifra, motivo
-from matrixai.estudio.incertidumbre import Intervalo, _percentil, intervalo, medir
+from matrixai.estudio.incertidumbre import Intervalo, _percentil, _recortar, intervalo, medir
 from matrixai.estudio.metricas import (
     Indefinida,
     Muestra,
@@ -92,18 +106,26 @@ from matrixai.pipelines.canonical import jcs_bytes
 from matrixai.pipelines.receipt import firmar_recibo, nivel_del_recibo
 
 __all__ = [
-    "AUSENTES", "DIRECCIONES", "MAXIMO_DE_VALORES_POR_SUBGRUPO", "MINIMO_DE_REMUESTRAS",
+    "AUSENTES", "CASOS_EN_SU_DESARROLLO", "DIRECCIONES", "DONDE_SE_CALCULA",
+    "MAXIMO_DE_VALORES_POR_SUBGRUPO", "MINIMO_DE_REMUESTRAS",
     "TIPOS_DE_PUNTUACION", "VERSION_DEL_INFORME", "DeclaracionDePuntuacion",
     "EvaluacionRechazada", "ResultadoDeEvaluacion", "evaluar_puntuacion",
     "resumen_de_la_evaluacion",
 ]
 
-VERSION_DEL_INFORME = "1.0.0"
+VERSION_DEL_INFORME = "2.0.0"
 ESQUEMA_DEL_INFORME = "matrixai.estudio.score_evaluation_report"
 
 #: Lo que declara quien evalúa. Cerrado, como todo vocabulario de esta casa.
 TIPOS_DE_PUNTUACION = ("probabilidad", "probabilidad_pct", "puntuacion")
 DIRECCIONES = ("mas_alto_mas_riesgo", "mas_bajo_mas_riesgo")
+#: R2: ¿estos casos participaron en el desarrollo de la puntuación? Sin valor por omisión.
+CASOS_EN_SU_DESARROLLO = ("si", "no", "no_se_sabe")
+#: Dónde corrió el cálculo. Sin valor por omisión: «todo en local» no es verdad en la demo,
+#: donde lo calcula el servidor con el CSV que la persona envió.
+DONDE_SE_CALCULA = ("local", "servidor_de_la_demo")
+#: Un horizonte o un momento son una frase corta («durante el ingreso», «al ingreso»).
+MAXIMO_DE_CARACTERES_DE_UN_TEXTO_DECLARADO = 200
 
 #: Las marcas de «aquí no hay dato», comparadas sin mayúsculas. NO está `none`: puede ser
 #: un desenlace legítimo («ninguno»), y confundirlo con un vacío descartaría filas.
@@ -145,6 +167,15 @@ class EvaluacionRechazada(ErrorDeEstudio):
 # Las declaraciones
 # ---------------------------------------------------------------------------
 
+def _texto_obligatorio(valor: Any, campo: str, ejemplo: str) -> str:
+    """R2: una declaración en texto, obligatoria: ni vacía ni de relleno ni kilométrica."""
+    if (not isinstance(valor, str) or not valor.strip()
+            or len(valor.strip()) > MAXIMO_DE_CARACTERES_DE_UN_TEXTO_DECLARADO):
+        raise EvaluacionRechazada("texto_obligatorio_vacio", campo=campo, opciones=ejemplo,
+                                  valor=repr(valor if not isinstance(valor, str) else valor[:60]))
+    return " ".join(valor.split())
+
+
 def _numero(valor: Any, campo: str) -> float:
     if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not math.isfinite(valor):
         raise EvaluacionRechazada("declaracion_no_numerica", campo=campo, valor=repr(valor))
@@ -164,6 +195,9 @@ class DeclaracionDePuntuacion:
       (`>=` con «más alto», `<=` con «más bajo»).
     * `origen`: texto libre (proveedor, artículo, versión).
     * `cifra_prometida`: el AUROC que promete su origen, si se conoce.
+    * `casos_en_su_desarrollo` (R2, OBLIGATORIO, solo por nombre y sin valor por omisión):
+      `si`, `no` o `no_se_sabe`. Con `si` o `no_se_sabe` el informe dice que esto NO es una
+      validación externa de esa puntuación. Lo declara quien ejecuta; MatrixAI no lo comprueba.
     """
 
     columna: str
@@ -172,8 +206,14 @@ class DeclaracionDePuntuacion:
     umbral: float | None = None
     origen: str | None = None
     cifra_prometida: float | None = None
+    casos_en_su_desarrollo: str = field(kw_only=True)
 
     def __post_init__(self) -> None:
+        if self.casos_en_su_desarrollo not in CASOS_EN_SU_DESARROLLO:
+            raise EvaluacionRechazada("declaracion_fuera_del_vocabulario",
+                                      campo="casos_en_su_desarrollo",
+                                      opciones=list(CASOS_EN_SU_DESARROLLO),
+                                      valor=repr(self.casos_en_su_desarrollo))
         if not isinstance(self.columna, str) or not self.columna.strip():
             raise EvaluacionRechazada("declaracion_fuera_del_vocabulario", campo="columna",
                                       opciones="un nombre de columna", valor=repr(self.columna))
@@ -218,7 +258,8 @@ class DeclaracionDePuntuacion:
     def a_json(self) -> dict[str, Any]:
         return {"columna": self.columna, "tipo": self.tipo, "direccion": self.direccion,
                 "umbral": self.umbral, "origen": self.origen,
-                "cifra_prometida_auroc": self.cifra_prometida}
+                "cifra_prometida_auroc": self.cifra_prometida,
+                "casos_en_su_desarrollo": self.casos_en_su_desarrollo}
 
 
 @dataclass(frozen=True)
@@ -512,6 +553,17 @@ def _simple(vm: ValorDeMetrica) -> dict[str, Any]:
     return {"valor": vm.value, "no_definido": vm.undefined_reason}
 
 
+def _rotulo_de_alcance(ctx: "_Contexto") -> dict[str, Any] | None:
+    """R3: con «la muestra NO representa a la población de uso», lo que depende de la
+    prevalencia (calibración, beneficio neto, curva de decisión) se rotula como descripción de
+    LA MUESTRA, con su porqué. Con «sí» no hay rótulo: la nota de representatividad dice que
+    lo declara quien ejecuta."""
+    if ctx.representa:
+        return None
+    return {"rotulo": motivo("rotulo_muestra_aportada"),
+            "porque": motivo("porque_muestra_aportada")}
+
+
 def _aviso(clave: str, **campos: Any) -> dict[str, Any]:
     textos = motivo(clave, **campos)
     datos = {k: (dict(v) if isinstance(v, dict) else v) for k, v in campos.items()}
@@ -579,7 +631,8 @@ def _calibracion(decl: DeclaracionDePuntuacion, muestra: Muestra, ctx: _Contexto
                 "motivo": motivo("probabilidad_con_direccion_inversa", campo=decl.columna)}
 
     salida: dict[str, Any] = {"aplica": True, "motivo": None,
-                              "metodo_de_recalibracion": "logistico_completo"}
+                              "metodo_de_recalibracion": "logistico_completo",
+                              "rotulo_de_alcance": _rotulo_de_alcance(ctx)}
     salida["en_grande"] = _metrica(medir("calibration_in_the_large", muestra, **ctx.comun))
     salida["brier"] = _simple(calcular("brier_score", muestra))
 
@@ -684,12 +737,13 @@ def _al_umbral(decl: DeclaracionDePuntuacion, muestra: Muestra, ctx: _Contexto,
                                          umbral_de_probabilidad=u),
                 "tratar_a_todos": beneficio_neto(tp=positivos, fp=muestra.n - positivos,
                                                  n=muestra.n, umbral_de_probabilidad=u),
-                "tratar_a_nadie": BENEFICIO_NETO_NO_TRATAR}
+                "tratar_a_nadie": BENEFICIO_NETO_NO_TRATAR,
+                "rotulo_de_alcance": _rotulo_de_alcance(ctx)}
     return salida
 
 
 def _curva_de_decision(decl: DeclaracionDePuntuacion, muestra: Muestra,
-                       umbrales: Sequence[float] | None) -> dict[str, Any]:
+                       umbrales: Sequence[float] | None, ctx: _Contexto) -> dict[str, Any]:
     if not decl.es_probabilidad or not decl.mas_alto:
         razon = (motivo("probabilidad_con_direccion_inversa", campo=decl.columna)
                  if decl.es_probabilidad else
@@ -700,6 +754,7 @@ def _curva_de_decision(decl: DeclaracionDePuntuacion, muestra: Muestra,
                 "motivo": motivo("umbrales_de_decision_no_declarados")}
     curva = curva_de_decision(muestra, umbrales_de_probabilidad=list(umbrales))
     return {"aplica": True, "declarada": True, "motivo": None,
+            "rotulo_de_alcance": _rotulo_de_alcance(ctx),
             "prevalencia": curva.prevalencia_observada,
             "puntos": [{"umbral": p.umbral_de_probabilidad, "tp": p.tp, "fp": p.fp,
                         "beneficio_neto": p.beneficio_neto,
@@ -711,8 +766,8 @@ def _curva_de_decision(decl: DeclaracionDePuntuacion, muestra: Muestra,
 
 
 def _subgrupos(decl: DeclaracionDePuntuacion, muestra: Muestra, columnas: Sequence[str],
-               celdas_por_columna: dict[str, list[str]], filas_usadas: list[int]
-               ) -> list[dict[str, Any]]:
+               celdas_por_columna: dict[str, list[str]], filas_usadas: list[int],
+               ctx: _Contexto) -> list[dict[str, Any]]:
     salida = []
     for col in columnas:
         celdas = [celdas_por_columna[col][i] for i in filas_usadas]
@@ -736,7 +791,12 @@ def _subgrupos(decl: DeclaracionDePuntuacion, muestra: Muestra, columnas: Sequen
                 entrada["motivo"] = analisis.motivo_de_cautela
             else:
                 entrada["eventos"] = analisis.eventos
-                entrada["auroc"] = _simple(analisis.metrica_segmento)
+                # R5: el AUROC del grupo lleva su intervalo (bootstrap del propio grupo, con
+                # el mismo diseño, semilla y remuestras que el global). Medido: ~0,6 s por
+                # grupo de ~1.250 filas con 500 remuestras; el coste crece con filas × columnas
+                # × puntuaciones, no con el número de grupos.
+                entrada["auroc"] = _metrica(medir("auroc", _recortar(muestra, posiciones),
+                                                  **ctx.comun))
                 if decl.es_probabilidad and decl.mas_alto:
                     cal = analizar_segmento("calibration_in_the_large", muestra, posiciones,
                                             segmento_id=segmento, predefinido=True)
@@ -754,6 +814,7 @@ def _subgrupos(decl: DeclaracionDePuntuacion, muestra: Muestra, columnas: Sequen
 def evaluar_puntuacion(
         csv_contenido: bytes | str, *, columna_desenlace: str, valor_del_evento: str,
         puntuaciones: Sequence[DeclaracionDePuntuacion], muestra_representativa: bool,
+        horizonte_del_desenlace: str, momento_de_la_puntuacion: str, donde_se_calcula: str,
         columnas_de_subgrupo: Sequence[str] = (), columna_de_paciente: str | None = None,
         umbrales_de_decision: Sequence[float] | None = None, remuestras: int = 1000,
         semilla: int = 137, nombre_del_fichero: str | None = None, actor: str | None = None,
@@ -766,6 +827,13 @@ def evaluar_puntuacion(
     * `valor_del_evento`: qué valor del desenlace es el evento. Lo declara quien evalúa.
     * `muestra_representativa`: «¿esta muestra representa a la población donde se usa?».
       Sin valor por omisión: solo con `True` se publican VPP y VPN.
+    * `horizonte_del_desenlace` (R2, obligatorio): en qué plazo se observó el desenlace
+      («durante el ingreso», «a 30 días»). `momento_de_la_puntuacion` (R2, obligatorio):
+      cuándo se calculó la puntuación respecto al caso («al ingreso», «día 3»). Los dos
+      van al informe y al recibo; sin ellos no se sabe QUÉ se predice ni CUÁNDO.
+    * `donde_se_calcula`: `local` o `servidor_de_la_demo`, obligatorio. Lo dice el LLAMANTE
+      (esta función no lo puede saber) y el informe lo escribe tal cual: «todo en local» sería
+      falso en la demo, donde el servidor calcula con el CSV que la persona envió.
     * `columna_de_paciente`: si un paciente tiene varias filas, los intervalos se calculan
       remuestreando PACIENTES (`groups`), no filas.
     * `umbrales_de_decision`: probabilidades entre 0 y 1 (también para una columna en %)
@@ -783,6 +851,13 @@ def evaluar_puntuacion(
     if not all(isinstance(d, DeclaracionDePuntuacion) for d in declaraciones):
         raise EvaluacionRechazada("declaracion_fuera_del_vocabulario", campo="puntuaciones",
                                   opciones="DeclaracionDePuntuacion", valor="otra cosa")
+    horizonte_del_desenlace = _texto_obligatorio(
+        horizonte_del_desenlace, "horizonte_del_desenlace", "durante el ingreso")
+    momento_de_la_puntuacion = _texto_obligatorio(
+        momento_de_la_puntuacion, "momento_de_la_puntuacion", "al ingreso")
+    if donde_se_calcula not in DONDE_SE_CALCULA:
+        raise EvaluacionRechazada("declaracion_fuera_del_vocabulario", campo="donde_se_calcula",
+                                  opciones=list(DONDE_SE_CALCULA), valor=repr(donde_se_calcula))
     if not isinstance(muestra_representativa, bool):
         raise EvaluacionRechazada("declaracion_no_booleana", campo="muestra_representativa",
                                   valor=repr(muestra_representativa))
@@ -926,15 +1001,23 @@ def evaluar_puntuacion(
             m = _metrica(auroc)
             if m["ic"] is not None:
                 dentro = m["ic"]["bajo"] <= d.cifra_prometida <= m["ic"]["alto"]
+                # R4: referencia publicada FRENTE A estimación local. `resultado` dice solo
+                # dónde cae la referencia respecto al intervalo local; no es un veredicto.
                 promesa = {"metrica": "auroc", "prometida": d.cifra_prometida,
+                           "referencia_publicada": d.cifra_prometida,
+                           "estimacion_local": auroc.value,
                            "intervalo": [m["ic"]["bajo"], m["ic"]["alto"]],
-                           "resultado": "dentro" if dentro else "fuera", "motivo": None}
+                           "resultado": "dentro" if dentro else "fuera", "motivo": None,
+                           "advertencia": motivo("referencia_publicada_advertencia")}
             else:
                 promesa = {"metrica": "auroc", "prometida": d.cifra_prometida,
+                           "referencia_publicada": d.cifra_prometida,
+                           "estimacion_local": auroc.value,
                            "intervalo": None, "resultado": None,
-                           "motivo": motivo("cifra_prometida_sin_intervalo", campo=d.columna)}
+                           "motivo": motivo("cifra_prometida_sin_intervalo", campo=d.columna),
+                           "advertencia": motivo("referencia_publicada_advertencia")}
 
-        subgrupos = _subgrupos(d, muestra, sub_columnas, celdas_sub, idx) if sub_columnas else []
+        subgrupos = _subgrupos(d, muestra, sub_columnas, celdas_sub, idx, ctx) if sub_columnas else []
         informes.append({
             "indice": k + 1, "columna": d.columna, "declaracion": d.a_json(),
             "lectura": {"decimal": estilo, "marcas_de_ausencia": ausentes},
@@ -951,9 +1034,17 @@ def evaluar_puntuacion(
                 "average_precision_del_azar": prevalencia,
                 "curva_roc": _curva_roc(muestra)},
             "cifra_prometida": promesa,
+            "validacion_externa": {
+                "casos_en_su_desarrollo": d.casos_en_su_desarrollo,
+                "es_validacion_externa": d.casos_en_su_desarrollo == "no",
+                "comprobada_por_matrixai": False,
+                "nota": motivo({"si": "validacion_externa_si",
+                                "no_se_sabe": "validacion_externa_no_se_sabe",
+                                "no": "validacion_externa_no"}[d.casos_en_su_desarrollo],
+                               campo=d.columna)},
             "calibracion": _calibracion(d, muestra, ctx),
             "al_umbral": _al_umbral(d, muestra, ctx, prevalencia),
-            "curva_de_decision": _curva_de_decision(d, muestra, umbrales_de_decision),
+            "curva_de_decision": _curva_de_decision(d, muestra, umbrales_de_decision, ctx),
             "subgrupos": subgrupos,
             "avisos": avisos_k,
         })
@@ -997,8 +1088,13 @@ def evaluar_puntuacion(
 
     # -- lo que NO es (reglas 17, 18 y 19) ---------------------------------------------
     no_es = [{"id": c, **motivo(c)} for c in ("no_es_validacion_clinica",)]
+    no_externas = [d.columna for d in declaraciones if d.casos_en_su_desarrollo != "no"]
+    if no_externas:
+        no_es.append({"id": "no_es_validacion_externa",
+                      **motivo("no_es_validacion_externa", campo=", ".join(no_externas))})
     if any(d.umbral is not None for d in declaraciones):
         no_es.append({"id": "paradoja_del_tratamiento", **motivo("paradoja_del_tratamiento")})
+    no_es.append({"id": "no_es_anonimizacion", **motivo("no_es_anonimizacion")})
     no_es.append({"id": "depende_del_registro", **motivo("depende_del_registro")})
 
     import matrixai  # noqa: PLC0415
@@ -1022,6 +1118,12 @@ def evaluar_puntuacion(
                        "as an unnamed row index (as R's write.csv writes it) and is not used."}
                 if tabla.indice_sin_nombre else None),
             "columnas": list(tabla.cabecera)},
+        "alcance": {"horizonte_del_desenlace": horizonte_del_desenlace,
+                    "momento_de_la_puntuacion": momento_de_la_puntuacion},
+        "donde_se_calcula": {
+            "valor": donde_se_calcula,
+            "texto": motivo("calculado_en_local" if donde_se_calcula == "local"
+                            else "calculado_en_el_servidor_de_la_demo")},
         "desenlace": {
             "columna": columna_desenlace, "evento": etiqueta_evento,
             "valor_declarado": valor_del_evento, "eventos": eventos_total,
@@ -1032,6 +1134,13 @@ def evaluar_puntuacion(
                        "estimando": ESTIMANDO, "semilla": semilla, "remuestras": remuestras,
                        "nivel": NIVEL},
         "la_muestra_representa_a_la_poblacion": muestra_representativa,
+        "representatividad": {
+            "declarada": muestra_representativa, "comprobada_por_matrixai": False,
+            "nota": motivo("representatividad_no_comprobada_si" if muestra_representativa
+                           else "representatividad_no_comprobada_no"),
+            **({"rotulo": _rotulo_de_alcance(ctx)["rotulo"],
+                "porque": _rotulo_de_alcance(ctx)["porque"]}
+               if not muestra_representativa else {"rotulo": None, "porque": None})},
         "puntuaciones": informes, "comparacion": comparacion,
         "avisos": avisos, "lo_que_no_es": no_es,
         "versiones": {"nucleo": matrixai.__version__,
@@ -1097,6 +1206,8 @@ def _recibo(informe: dict[str, Any], declaraciones: Sequence[DeclaracionDePuntua
     declaraciones_json = {
         "outcome_column": columna_desenlace, "event_value": valor_del_evento,
         "scores": [d.a_json() for d in declaraciones],
+        "outcome_horizon": informe["alcance"]["horizonte_del_desenlace"],
+        "score_timing": informe["alcance"]["momento_de_la_puntuacion"],
         "sample_represents_population": representa, "subgroup_columns": list(subgrupos),
         "patient_column": paciente, "decision_thresholds": (
             list(umbrales_de_decision) if umbrales_de_decision else None)}
@@ -1132,6 +1243,7 @@ def _recibo(informe: dict[str, Any], declaraciones: Sequence[DeclaracionDePuntua
         "environment": {"matrixai_core": informe["versiones"]["nucleo"],
                         "metric_catalog_digest": informe["versiones"]["catalogo_de_metricas"],
                         "report_version": VERSION_DEL_INFORME,
+                        "computed_where": informe["donde_se_calcula"]["valor"],
                         "python": platform.python_version(), "platform": platform.platform()},
         # Techo declarado Y deducido: `nivel_del_recibo` mira solo `evidence` (sin ninguna
         # clave reproducible) y la firma, así que A1 es lo más que este recibo sostiene.
@@ -1170,6 +1282,11 @@ def resumen_de_la_evaluacion(informe: dict[str, Any], locale: str = "es") -> str
                    "Rows read: {} · with outcome: {} · encoding {} · separator {!r}"
                    ).format(e["filas_leidas"], e["filas_con_desenlace"], e["codificacion"],
                             e["separador"]))
+    al = informe["alcance"]
+    lineas.append(("Desenlace: {} · puntuación calculada: {}" if i == "es" else
+                   "Outcome: {} · score calculated: {}").format(
+                       al["horizonte_del_desenlace"], al["momento_de_la_puntuacion"]))
+    lineas.append(informe["donde_se_calcula"]["texto"][i])
     if e["indice_sin_nombre_texto"]:
         lineas.append(e["indice_sin_nombre_texto"][i])
     for u in informe["desenlace"]["variantes_unidas"]:
@@ -1183,6 +1300,7 @@ def resumen_de_la_evaluacion(informe: dict[str, Any], locale: str = "es") -> str
                        "\n[{}] {} — {} rows, {} events, {} without a score").format(
                            r["indice"], r["columna"], f["usadas"], r["eventos"],
                            f["sin_puntuacion"]))
+        lineas.append("  " + r["validacion_externa"]["nota"][i])
         lineas.append("  AUROC: " + con_ic(r["discriminacion"]["auroc"]))
         lineas.append("  AP: " + con_ic(r["discriminacion"]["average_precision"]))
         cal = r["calibracion"]

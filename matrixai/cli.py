@@ -1045,7 +1045,18 @@ def main() -> int:
     es_p.add_argument("--represents-population", required=True, choices=["yes", "no"],
                       help="Does this sample represent the population where the score is "
                            "used? Only with 'yes' are PPV and NPV published")
+    es_p.add_argument("--outcome-horizon", required=True, metavar="TEXT",
+                      help="Over what period the outcome was observed (e.g. 'during the "
+                           "admission', 'at 30 days'). Mandatory, no default")
+    es_p.add_argument("--score-timing", required=True, metavar="TEXT",
+                      help="When the score was calculated relative to the case (e.g. 'at "
+                           "admission', 'day 3'). Mandatory, no default")
     es_p.add_argument("--score", required=True, help="Column with the score (first one)")
+    es_p.add_argument("--score-development-cases", required=True,
+                      choices=["yes", "no", "unknown"],
+                      help="Did these cases take part in the development of the score? With "
+                           "'yes' or 'unknown' the report says this is NOT an external "
+                           "validation")
     es_p.add_argument("--score-type", required=True,
                       choices=["probability", "probability-pct", "score"],
                       help="probability (0-1), probability-pct (0-100) or score (any scale "
@@ -1058,6 +1069,9 @@ def main() -> int:
     es_p.add_argument("--promised-auroc",
                       help="The AUROC its origin promises; compared with the measured interval")
     es_p.add_argument("--score2", help="Column with a second score (optional)")
+    es_p.add_argument("--score2-development-cases", choices=["yes", "no", "unknown"],
+                      help="Same as --score-development-cases, for the second score "
+                           "(mandatory with --score2)")
     es_p.add_argument("--score2-type", choices=["probability", "probability-pct", "score"])
     es_p.add_argument("--score2-direction", choices=["higher", "lower"])
     es_p.add_argument("--score2-threshold")
@@ -3661,22 +3675,26 @@ def _cmd_evaluate_score(args) -> int:
     tipos = {"probability": "probabilidad", "probability-pct": "probabilidad_pct",
              "score": "puntuacion"}
     direcciones = {"higher": "mas_alto_mas_riesgo", "lower": "mas_bajo_mas_riesgo"}
+    desarrollo = {"yes": "si", "no": "no", "unknown": "no_se_sabe"}
     try:
         declaraciones = [DeclaracionDePuntuacion(
             columna=args.score, tipo=tipos[args.score_type],
             direccion=direcciones[args.direction], umbral=numero(args.threshold, "--threshold"),
-            origen=args.origin, cifra_prometida=numero(args.promised_auroc, "--promised-auroc"))]
+            origen=args.origin, cifra_prometida=numero(args.promised_auroc, "--promised-auroc"),
+            casos_en_su_desarrollo=desarrollo[args.score_development_cases])]
         if args.score2:
-            if not (args.score2_type and args.score2_direction):
-                print("Error: --score2 needs --score2-type and --score2-direction",
-                      file=sys.stderr)
+            if not (args.score2_type and args.score2_direction
+                    and args.score2_development_cases):
+                print("Error: --score2 needs --score2-type, --score2-direction and "
+                      "--score2-development-cases", file=sys.stderr)
                 return 2
             declaraciones.append(DeclaracionDePuntuacion(
                 columna=args.score2, tipo=tipos[args.score2_type],
                 direccion=direcciones[args.score2_direction],
                 umbral=numero(args.score2_threshold, "--score2-threshold"),
                 origen=args.score2_origin,
-                cifra_prometida=numero(args.score2_promised_auroc, "--score2-promised-auroc")))
+                cifra_prometida=numero(args.score2_promised_auroc, "--score2-promised-auroc"),
+                casos_en_su_desarrollo=desarrollo[args.score2_development_cases]))
         umbrales = ([numero(u, "--decision-thresholds") for u in args.decision_thresholds]
                     if args.decision_thresholds else None)
         clave = None
@@ -3693,6 +3711,9 @@ def _cmd_evaluate_score(args) -> int:
             crudo, columna_desenlace=args.outcome, valor_del_evento=args.event,
             puntuaciones=declaraciones,
             muestra_representativa=args.represents_population == "yes",
+            horizonte_del_desenlace=args.outcome_horizon,
+            momento_de_la_puntuacion=args.score_timing,
+            donde_se_calcula="local",     # la CLI corre en el equipo de quien la ejecuta
             columnas_de_subgrupo=args.subgroup, columna_de_paciente=args.patient_id,
             umbrales_de_decision=umbrales, remuestras=args.resamples, semilla=args.seed,
             nombre_del_fichero=ruta.name, actor=args.actor or "matrixai evaluate-score",

@@ -84,6 +84,8 @@ for _k in CLAVES_DEL_INVENTARIO_USADAS:
     if _k not in POR_CLAVE:  # pragma: no cover - guarda de import
         raise ImportError(f"el inventario de expediente_clinico ya no tiene {_k!r}")
 
+#: R2: el rótulo de cada valor de `casos_en_su_desarrollo` (un mapa a la vista, no una clave compuesta).
+_DEV = {"si": "dev_si", "no": "dev_no", "no_se_sabe": "dev_no_se_sabe"}
 _ETIQUETA_DE_ESTADO = {MEDIDO: "tp_medido", DECLARADO: "tp_declarado", FALTA: "tp_falta"}
 assert set(_ETIQUETA_DE_ESTADO) == set(ESTADOS), "los tres estados son cerrados"
 
@@ -426,6 +428,26 @@ def _umbral_texto(p: dict[str, Any], f: _F, idioma: str) -> str | None:
     return s + " %" if p["declaracion"]["tipo"] == "probabilidad_pct" else s
 
 
+def _referencia_linea(pr: dict[str, Any], auroc: dict[str, Any], f: _F, idioma: str) -> str:
+    """R4: la cifra prometida es una REFERENCIA PUBLICADA frente a una ESTIMACIÓN LOCAL. Se
+    dan las dos y dónde cae la primera respecto al intervalo de la segunda; no se dice que la
+    cifra «se cumpla» o «falle». Sin intervalo, el motivo del núcleo."""
+    if pr.get("resultado") in ("dentro", "fuera"):
+        return t("ref_linea", idioma, r=f.n(pr["prometida"]), e=f.n(auroc["valor"]),
+                 pos=t("ref_dentro" if pr["resultado"] == "dentro" else "ref_fuera", idioma))
+    return _bi(pr.get("motivo"), idioma)
+
+
+def _rotulo_de_alcance(seccion: dict[str, Any] | None, idioma: str) -> str:
+    """R3: «describen la muestra aportada, no la población de uso» + por qué, si la sección
+    lo lleva (solo con «la muestra NO representa»). Vacío si no."""
+    r = (seccion or {}).get("rotulo_de_alcance")
+    if not r:
+        return ""
+    return (_bi(r.get("rotulo"), idioma)[:1].upper() + _bi(r.get("rotulo"), idioma)[1:] + ". "
+            + _bi(r.get("porque"), idioma))
+
+
 def _tarjetas(p: dict[str, Any], f: _F, idioma: str) -> str:
     out = []
     # --- ¿ordena? ---
@@ -450,11 +472,8 @@ def _tarjetas(p: dict[str, Any], f: _F, idioma: str) -> str:
                              z=f.n(p["discriminacion"]["average_precision_del_azar"]))))
         pr = p.get("cifra_prometida")
         if pr:
-            if pr.get("resultado") in ("dentro", "fuera"):
-                nota.append(_e(t("prometia", idioma, v=f.n(pr["prometida"]),
-                                 r=t("prom_dentro" if pr["resultado"] == "dentro" else "prom_fuera", idioma))))
-            else:
-                nota.append(_e(_bi(pr.get("motivo"), idioma)))
+            nota.append(_e(_referencia_linea(pr, a, f, idioma)))
+            nota.append(_e(_bi(pr.get("advertencia"), idioma)))
         ic_txt = _e(t("auroc_rotulo", idioma) + " · " + (_ic(a, f.n, idioma)))
         out.append(_tarjeta(t("q_ordena", idioma), pill, _e(f.n(a["valor"])), ic_txt,
                             "<br>".join(nota)))
@@ -487,9 +506,11 @@ def _tarjetas(p: dict[str, Any], f: _F, idioma: str) -> str:
                      br=num(cal["brier"], 3),
                      ece=f.n(cal["fiabilidad"]["ece"], 3)
                      if cal.get("fiabilidad", {}).get("ece") is not None else "—")
+            rotulo = _rotulo_de_alcance(cal, idioma)
             out.append(_tarjeta(
                 t("q_riesgo", idioma), pill, _e(f.signed(g["valor"])), ic_txt,
-                _e(nota) + "<br>" + _e(t("citl_pp", idioma, v=f.signed(g["valor"] * 100, 1)))))
+                _e(nota) + "<br>" + _e(t("citl_pp", idioma, v=f.signed(g["valor"] * 100, 1)))
+                + (f'<br><b>{_e(rotulo)}</b>' if rotulo else "")))
     # --- al umbral de hoy ---
     u = p["al_umbral"]
     if not u.get("declarado"):
@@ -560,10 +581,12 @@ def _tabla_umbral(p: dict[str, Any], f: _F, idioma: str) -> str:
     filas.append(fila("m_vpn", u["vpn"], t("d_vpn", idioma)))
     bn = u.get("beneficio_neto")
     if bn:
+        rotulo_bn = _rotulo_de_alcance(bn, idioma)
         filas.append(f'<tr><td>{_e(t("m_bn", idioma))}</td><td class="n">{_e(f.n(bn["modelo"]))}'
                      f'</td><td class="n">—</td><td>'
                      f'{_e(t("d_bn", idioma, todos=f.n(bn["tratar_a_todos"]), nadie=f.n(bn["tratar_a_nadie"])))}'
-                     f'</td></tr>')
+                     + (f' <b>{_e(rotulo_bn)}</b>' if rotulo_bn else "")
+                     + '</td></tr>')
     m = u["matriz"]
     regla = t("regla_mayor" if u["regla_de_aviso"] == "mayor_o_igual" else "regla_menor", idioma)
     pie = [t("matriz", idioma, tp=f.miles(m["tp"]), fp=f.miles(m["fp"]), fn=f.miles(m["fn"]),
@@ -604,7 +627,10 @@ def _tabla_subgrupos(p: dict[str, Any], f: _F, idioma: str) -> str:
                 continue
             celdas = [f'<td class="n">{_e(f.miles(g["n"]))}</td>',
                       f'<td class="n">{_e(f.miles(g["eventos"]))}</td>',
-                      f'<td class="n">{_celda_valor(g.get("auroc"), f.n, idioma)}</td>']
+                      f'<td class="n">{_celda_valor(g.get("auroc"), f.n, idioma)}'
+                      + (f' ({_e(_ic_corto(g["auroc"], f.n, idioma))})'
+                         if (g.get("auroc") or {}).get("valor") is not None else "")
+                      + '</td>']
             if con_cal:
                 celdas.append(f'<td class="n">'
                               f'{_celda_valor(g.get("calibracion_en_grande"), f.signed, idioma)}</td>')
@@ -634,7 +660,8 @@ def _comparacion(inf: dict[str, Any], f: _F, idioma: str) -> str:
         ic_txt = _e(t("frente_dif_linea", idioma, ic=_ic(
             {"valor": c["diferencia"], "ic": c.get("ic"), "ic_no_disponible": c.get("ic_no_disponible")},
             lambda x: f.signed(x), idioma)))
-    nota = [t("frente_filas", idioma, n=f.miles(c["filas_comunes"]), e=f.miles(c["eventos_comunes"]))]
+    nota = [t("frente_filas", idioma, n=f.miles(c["filas_comunes"]), e=f.miles(c["eventos_comunes"])),
+            t("frente_directa", idioma)]
     if (c.get("auroc_a") or {}).get("valor") is not None and (c.get("auroc_b") or {}).get("valor") is not None:
         nota.append(t("frente_valores", idioma, a=a, b=b, va=f.n(c["auroc_a"]["valor"]),
                       vb=f.n(c["auroc_b"]["valor"])))
@@ -668,6 +695,14 @@ def _avisos(inf: dict[str, Any], idioma: str) -> str:
     return f'<section class="blk"><h3>{_e(t("s_avisos", idioma))}</h3>{"".join(notas)}</section>'
 
 
+def _rotulos_unicos(rotulos: Sequence[str]) -> str:
+    vistos: list[str] = []
+    for r in rotulos:
+        if r and r not in vistos:
+            vistos.append(r)
+    return " ".join(vistos)
+
+
 def _graficas(inf: dict[str, Any], f: _F, idioma: str) -> str:
     ps = inf["puntuaciones"]
     leyenda = "".join(
@@ -686,14 +721,18 @@ def _graficas(inf: dict[str, Any], f: _F, idioma: str) -> str:
     if fia:
         svg, sin_cifra = fia
         pie = (t("g_fiab_pie", idioma, k=sin_cifra) if sin_cifra else t("g_fiab_pie_sin", idioma))
+        rot = _rotulos_unicos([_rotulo_de_alcance(p.get("calibracion"), idioma) for p in ps])
         cajas.append(f'<div class="chart"><h4>{_e(t("g_fiab", idioma))}</h4>{svg}'
-                     f'<div class="leg">{leyenda}</div><p class="small muted">{_e(pie)}</p></div>')
+                     f'<div class="leg">{leyenda}</div><p class="small muted">{_e(pie)}</p>'
+                     + (f'<p class="small"><b>{_e(rot)}</b></p>' if rot else "") + '</div>')
     dca = _svg_decision(ps, idioma, f)
     if dca:
+        rot = _rotulos_unicos([_rotulo_de_alcance(p.get("curva_de_decision"), idioma) for p in ps])
         cajas.append(f'<div class="chart"><h4>{_e(t("g_dca", idioma))}</h4>{dca}'
                      f'<div class="leg">{leyenda}<span><i class="sw all"></i>'
                      f'{_e(t("g_dca_todos", idioma))}</span><span>{_e(t("g_dca_nadie", idioma))}'
-                     f'</span></div><p class="small muted">{_e(t("g_dca_pie", idioma))}</p></div>')
+                     f'</span></div><p class="small muted">{_e(t("g_dca_pie", idioma))}</p>'
+                     + (f'<p class="small"><b>{_e(rot)}</b></p>' if rot else "") + '</div>')
     # lo que NO se dibuja, dicho: calibración/decisión que no aplican (con el motivo del núcleo)
     no_aplica = []
     if not fia:
@@ -716,6 +755,9 @@ def _declaracion(p: dict[str, Any], f: _F, idioma: str) -> str:
     partes.append(t("decl_umbral", idioma, u=ut) if ut is not None else t("decl_sin_umbral", idioma))
     partes.append(t("decl_origen", idioma, o=d["origen"]) if d.get("origen")
                   else t("decl_sin_origen", idioma))
+    if d.get("casos_en_su_desarrollo"):
+        partes.append(t("decl_desarrollo", idioma,
+                        v=t(_DEV[d["casos_en_su_desarrollo"]], idioma)))
     if d.get("cifra_prometida_auroc") is not None:
         partes.append(t("decl_prometida", idioma, v=f.n(d["cifra_prometida_auroc"])))
     fl = p["filas"]
@@ -744,6 +786,13 @@ def _entrada(inf: dict[str, Any], resultado: Any, f: _F, idioma: str) -> str:
     if en["filas_sin_desenlace"] or en["filas_malformadas_fuera"]:
         kv.append(("", _e(t("kv_fuera", idioma, a=f.miles(en["filas_sin_desenlace"]),
                             b=f.miles(en["filas_malformadas_fuera"])))))
+    al = inf.get("alcance")
+    if al:
+        kv.append((t("kv_horizonte", idioma), _e(al["horizonte_del_desenlace"])))
+        kv.append((t("kv_momento", idioma), _e(al["momento_de_la_puntuacion"])))
+    donde = inf.get("donde_se_calcula")
+    if donde:
+        kv.append((t("kv_donde", idioma), _e(_bi(donde["texto"], idioma))))
     for p in inf["puntuaciones"]:
         kv.append((f'{t("th_puntuacion", idioma)} · {p["columna"]}',
                    _e(_declaracion(p, f, idioma))))
@@ -857,6 +906,12 @@ def items_tripod(resultado: Any, idioma: str) -> list[_Item]:
         add("fuente_de_los_datos", "participantes", DECLARADO,
             t("vi_fuente_sin_nombre", idioma, n=f.miles(en["filas_leidas"])),
             "informe#entrada.filas_leidas")
+    add("vx_desarrollo", "participantes", DECLARADO,
+        "; ".join(t("vi_desarrollo", idioma, c=p["columna"],
+                    v=t(_DEV[p["validacion_externa"]["casos_en_su_desarrollo"]], idioma),
+                    ext=t("vi_desarrollo_declarado" if p["validacion_externa"]["es_validacion_externa"]
+                          else "vi_desarrollo_no_externa", idioma)) for p in ps),
+        "informe#puntuaciones[0].validacion_externa")
     falta("poblacion", "participantes", t("mo_no_recoge", idioma), "informe#entrada")
     falta("criterios_de_inclusion", "participantes", t("mo_no_recoge", idioma), "informe#entrada")
     add("vx_representatividad", "participantes", DECLARADO,
@@ -880,7 +935,10 @@ def items_tripod(resultado: Any, idioma: str) -> list[_Item]:
     add("vx_desenlace", "desenlace", DECLARADO,
         t("vi_desenlace", idioma, c=de["columna"], e=de["evento"]), "informe#desenlace.evento")
     falta("definicion_del_desenlace", "desenlace", t("mo_no_recoge", idioma), "informe#desenlace")
-    falta("momento_del_desenlace", "desenlace", t("mo_no_recoge", idioma), "informe#desenlace")
+    al = inf["alcance"]
+    add("momento_del_desenlace", "desenlace", DECLARADO,
+        t("vi_horizonte", idioma, h=al["horizonte_del_desenlace"], m=al["momento_de_la_puntuacion"]),
+        "informe#alcance.horizonte_del_desenlace")
     add("prevalencia_observada", "desenlace", MEDIDO,
         "; ".join(t("vi_prev_obs", idioma, c=p["columna"], p=f.pct(p["prevalencia"])) for p in ps),
         "informe#puntuaciones[0].prevalencia")
@@ -974,7 +1032,10 @@ def items_tripod(resultado: Any, idioma: str) -> list[_Item]:
           nivel=f.pct(rm["nivel"], 0)), "informe#remuestreo.remuestras")
     falta("proceso_actual", "analisis", t("mo_proceso", idioma), "informe#puntuaciones[0].al_umbral")
     lne = (inf.get("lo_que_no_es") or [{}])[0]
-    add("alcance_de_validacion", "analisis", MEDIDO, _bi(lne, idioma), "informe#lo_que_no_es[0]")
+    externa = next((x for x in inf.get("lo_que_no_es") or [] if x.get("id") == "no_es_validacion_externa"), None)
+    add("alcance_de_validacion", "analisis", MEDIDO,
+        _bi(lne, idioma) + (" " + _bi(externa, idioma) if externa else ""),
+        "informe#lo_que_no_es[0]")
     add("vx_reproducibilidad", "analisis", MEDIDO,
         t("vi_versiones", idioma, n=inf["versiones"]["nucleo"],
           c=inf["versiones"]["catalogo_de_metricas"][:12], s=rm["semilla"]),
@@ -1076,6 +1137,15 @@ tr.dom th{background:var(--accent-soft);color:var(--accent);font-size:12px}
 .leg .sw{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:3px;background:var(--muted)}
 .leg .sw.s1{background:var(--accent)}.leg .sw.s2{background:var(--s2)}
 section.not{border-left:3px solid var(--warn);padding:6px 0 6px 14px;display:flex;flex-direction:column;gap:6px}
+section.conclusiones{display:flex;flex-direction:column;gap:12px;font-size:15px}
+section.conclusiones ul{margin:4px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.cs{border-left:4px solid var(--accent);padding-left:12px;display:flex;flex-direction:column;gap:4px}
+.cs.c2{border-left-color:var(--s2)}
+.adv,.alc{color:var(--muted);font-size:13px}
+details.anexo{border:1px solid var(--line);border-radius:8px}
+details.anexo>summary{cursor:pointer;padding:8px 12px;font-weight:600;background:var(--raised);border-radius:8px}
+details.anexo[open]>summary{border-bottom:1px solid var(--line);border-radius:8px 8px 0 0}
+.anexo-cuerpo{padding:12px;display:flex;flex-direction:column;gap:14px}
 footer{font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
 @page{size:A4;margin:12mm}
 @media print{
@@ -1083,14 +1153,177 @@ html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 body{font-size:10.5px}.page{max-width:none;padding:0;gap:12px}
 h1{font-size:20px}h2{font-size:15px}h3{font-size:13px}
 .tile .v{font-size:16px}table{font-size:9.5px}th,td{padding:3px 6px}
-section.score,.blk,.not{break-inside:avoid}.tripod{break-before:page}.tripod tr{break-inside:avoid}
+section.score,.blk,.not{break-inside:avoid}.tripod tr{break-inside:avoid}
+section.conclusiones{font-size:11px;break-after:page}
+details.anexo{break-inside:auto}details.anexo>summary{break-after:avoid}
 .tw{overflow:visible}
 }
+@media print{details.anexo::details-content{content-visibility:visible;display:block;height:auto}}
 """
 
 
+def _lista(items: Sequence[str]) -> str:
+    return "<ul>" + "".join(f"<li>{x}</li>" for x in items if x) + "</ul>"
+
+
+def _conclusiones_de(p: dict[str, Any], f: _F, idioma: str) -> str:
+    """Las cinco preguntas de UNA puntuación, en lenguaje llano y con las cifras del informe."""
+    hechos: list[str] = []
+    a = p["discriminacion"]["auroc"]
+    if a.get("valor") is None:
+        hechos.append(f'<b>{_e(t("q_ordena", idioma))}</b> '
+                      f'{_e(t("c_ordena_na", idioma, motivo=_bi(a.get("no_definido"), idioma)))}')
+    else:
+        ic = a.get("ic")
+        if ic is None:
+            pill = t("ic_sin", idioma)
+        elif ic["alto"] < 0.5:
+            pill = t("pill_ic_bajo_azar", idioma)
+        elif ic["bajo"] > 0.5:
+            pill = t("pill_ic_sobre_azar", idioma)
+        else:
+            pill = t("pill_ic_con_azar", idioma)
+        pill = pill[:1].upper() + pill[1:]
+        hechos.append(f'<b>{_e(t("q_ordena", idioma))}</b> ' + _e(t(
+            "c_ordena", idioma, v=f.n(a["valor"]), ic=_ic(a, f.n, idioma),
+            pp=f.pct(a["valor"], 0), pill=pill)))
+        pr = p.get("cifra_prometida")
+        if pr:
+            hechos.append(f'<b>{_e(t("ref_etiqueta", idioma))}.</b> '
+                          + _e(_referencia_linea(pr, a, f, idioma)) + " "
+                          + f'<span class="adv">{_e(_bi(pr.get("advertencia"), idioma))}</span>')
+    cal = p["calibracion"]
+    if not cal.get("aplica"):
+        hechos.append(f'<b>{_e(t("q_riesgo", idioma))}</b> '
+                      f'{_e(t("c_riesgo_na", idioma, motivo=_bi(cal.get("motivo"), idioma)))}')
+    elif cal["en_grande"].get("valor") is None:
+        hechos.append(f'<b>{_e(t("q_riesgo", idioma))}</b> '
+                      f'{_e(_bi(cal["en_grande"].get("no_definido"), idioma))}')
+    else:
+        g, ia, ib = cal["en_grande"], cal["intercepto"], cal["pendiente"]
+
+        def num(m: dict[str, Any]) -> str:
+            return f.n(m["valor"], 2) if m.get("valor") is not None else "—"
+
+        def par(m: dict[str, Any]) -> str:
+            return _ic(m, lambda x: f.n(x, 2), idioma) or "—"
+
+        hechos.append(
+            f'<b>{_e(t("q_riesgo", idioma))}</b> ' + _e(t(
+                "c_riesgo", idioma, v=f.signed(g["valor"] * 100, 1),
+                ic=_ic(g, lambda x: f.signed(x * 100, 1), idioma), a=num(ia), ia=par(ia),
+                b=num(ib), ib=par(ib))))
+    u = p["al_umbral"]
+    if not u.get("declarado"):
+        hechos.append(f'<b>{_e(t("q_umbral", idioma))}</b> '
+                      f'{_e(t("c_umbral_sin", idioma, motivo=_bi(u.get("motivo"), idioma)))}')
+    else:
+        s_, e_ = u["sensibilidad"], u["especificidad"]
+        if s_.get("valor") is None or e_.get("valor") is None:
+            hechos.append(f'<b>{_e(t("q_umbral", idioma))}</b> '
+                          f'{_e(_bi((s_ if s_.get("valor") is None else e_).get("no_definido"), idioma))}')
+        else:
+            txt = t("c_umbral", idioma, u=_umbral_texto(p, f, idioma), k=f.miles(u["avisos"]),
+                    s=f.pct(s_["valor"]), ics=_ic(s_, f.pct, idioma), s100=f.n(s_["valor"] * 100, 0),
+                    e=f.pct(e_["valor"]), ice=_ic(e_, f.pct, idioma), e100=f.n(e_["valor"] * 100, 0))
+            vpp, vpn = u["vpp"], u["vpn"]
+            if vpp.get("valor") is not None and vpn.get("valor") is not None:
+                txt += " " + t("c_umbral_vp", idioma, vpp=f.pct(vpp["valor"]),
+                               icp=_ic(vpp, f.pct, idioma), p100=f.n(vpp["valor"] * 100, 0),
+                               vpn=f.pct(vpn["valor"]), icn=_ic(vpn, f.pct, idioma),
+                               n100=f.n(vpn["valor"] * 100, 0))
+            else:
+                txt += " " + t("c_umbral_sin_vp", idioma,
+                               motivo=_bi(vpp.get("no_definido"), idioma) or "—")
+            hechos.append(f'<b>{_e(t("q_umbral", idioma))}</b> {_e(txt)}')
+    medidos, insuf, total = _grupos_de(p)
+    if not total:
+        grupos = t("grupos_ninguno", idioma)
+    else:
+        partes = [t("grupos_medidos", idioma, k=len(medidos)) + "."]
+        if len(medidos) >= 2:
+            lo, hi = min(medidos, key=lambda x: x[1]), max(medidos, key=lambda x: x[1])
+            partes.append(t("grupos_extremos", idioma, a=lo[0], va=f.n(lo[1]), b=hi[0],
+                            vb=f.n(hi[1])))
+        partes.append((t("grupos_insuf", idioma, k=insuf) if insuf else t("grupos_todos", idioma)) + ".")
+        grupos = " ".join(partes)
+    hechos.append(f'<b>{_e(t("q_grupos", idioma))}</b> {_e(grupos)}')
+    rot = _rotulos_unicos([_rotulo_de_alcance(cal if cal.get("aplica") else None, idioma),
+                           _rotulo_de_alcance((u or {}).get("beneficio_neto"), idioma),
+                           _rotulo_de_alcance(p.get("curva_de_decision"), idioma)])
+    if rot:
+        r = ((cal if cal.get("aplica") else None) or (u or {}).get("beneficio_neto")
+             or p.get("curva_de_decision") or {}).get("rotulo_de_alcance") or {}
+        hechos.append(f'<span class="alc">{_e(t("c_rotulo", idioma, rotulo=_bi(r.get("rotulo"), idioma), porque=_bi(r.get("porque"), idioma)))}</span>')
+    return _lista(hechos)
+
+
+def _frente_en_llano(inf: dict[str, Any], f: _F, idioma: str) -> str:
+    c = inf.get("comparacion")
+    if not c:
+        return ""
+    if not c.get("posible") or c.get("diferencia") is None:
+        return (f'<p><b>{_e(t("q_frente", idioma))}</b> '
+                f'{_e(_bi(c.get("motivo"), idioma) or "—")}</p>')
+    a, b = c["columna_a"], c["columna_b"]
+    est = {"a_mayor_que_b": "frente_a_mayor", "a_menor_que_b": "frente_b_mayor",
+           "el_intervalo_incluye_el_cero": "frente_sin_dif"}.get(c.get("resultado"))
+    txt = " ".join(x for x in (
+        t(est, idioma, a=a, b=b) + "." if est else "",
+        t("frente_dif_linea", idioma, ic=_ic(
+            {"valor": c["diferencia"], "ic": c.get("ic"), "ic_no_disponible": c.get("ic_no_disponible")},
+            f.signed, idioma)) + ": " + f.signed(c["diferencia"]) + ".",
+        t("frente_filas", idioma, n=f.miles(c["filas_comunes"]), e=f.miles(c["eventos_comunes"])),
+        t("frente_directa", idioma)) if x)
+    return f'<p><b>{_e(t("q_frente", idioma))}</b> {_e(txt)}</p>'
+
+
+def _conclusiones(resultado: Any, f: _F, idioma: str) -> str:
+    """R6: la página que se lee primero. Lenguaje llano, las cifras del informe y los límites
+    (R2, R3, R4) a la vista; los detalles técnicos van en los anexos."""
+    inf = resultado.informe
+    de, rm = inf["desenlace"], inf["remuestreo"]
+    total = inf["entrada"]["filas_con_desenlace"]
+    al = inf.get("alcance") or {}
+    donde = inf.get("donde_se_calcula")
+    partes = [f'<h2>{_e(t("s_conclusiones", idioma))}</h2>',
+              f'<p>{_e(t("c_intro", idioma, col=de["columna"], ev=de["evento"], n=f.miles(total), e=f.miles(de["eventos"]), p=f.pct(de["eventos"] / total) if total else "—", hor=al.get("horizonte_del_desenlace", "—"), mom=al.get("momento_de_la_puntuacion", "—")))}</p>',
+              (f'<p>{_e(t("c_donde", idioma, texto=_bi(donde["texto"], idioma)))}</p>'
+               if donde else ""),
+              _avisos(inf, idioma)]
+    for k, p in enumerate(inf["puntuaciones"]):
+        partes.append(f'<div class="cs c{k + 1}"><h3>{_e(p["columna"])}</h3>'
+                      f'<p class="small muted">{_e(_declaracion(p, f, idioma))}</p>'
+                      f'{_conclusiones_de(p, f, idioma)}</div>')
+    partes.append(_frente_en_llano(inf, f, idioma))
+    limites: list[str] = []
+    rep_ = inf.get("representatividad")
+    if rep_:
+        limites.append(_e(_bi(rep_.get("nota"), idioma)))
+    for p in inf["puntuaciones"]:                      # R2: validación externa, puntuación a puntuación
+        if p.get("validacion_externa"):
+            limites.append(_e(_bi(p["validacion_externa"]["nota"], idioma)))
+    no_es = [_e(_bi(x, idioma)) for x in inf.get("lo_que_no_es") or []]
+    partes.append(f'<section class="not"><h3>{_e(t("c_lim", idioma))}</h3>{_lista(limites)}'
+                  f'<h4>{_e(t("s_no_es", idioma))}</h4>{_lista(no_es)}'
+                  f'<p><b>{_e(t("c_lim_firma", idioma))}</b></p>'
+                  + ("" if resultado.nivel_de_garantia == "A1"
+                     else f'<p>{_e(t("c_lim_sin_firma", idioma))}</p>')
+                  + '</section>')
+    partes.append(f'<p class="small muted">{_e(t("c_anexos", idioma))}</p>')
+    return f'<section class="conclusiones">{"".join(x for x in partes if x)}</section>'
+
+
+def _anexo(clave: str, letra: str, cuerpo: str, idioma: str, **campos: Any) -> str:
+    """Un anexo desplegable: `<details>` nativo, sin JavaScript. Cerrado en pantalla; al
+    imprimir el CSS pide que se imprima abierto (`::details-content`)."""
+    return (f'<details class="anexo"><summary>{_e(t(clave, idioma, l=letra, **campos))}'
+            f'</summary><div class="anexo-cuerpo">{cuerpo}</div></details>')
+
+
 def informe_html(resultado: Any, *, idioma: str) -> str:
-    """El informe de una página (HTML autocontenido) de un `ResultadoDeEvaluacion`.
+    """El informe HTML (autocontenido) de un `ResultadoDeEvaluacion`: una página de
+    conclusiones en lenguaje llano y, debajo, los detalles técnicos en anexos desplegables.
 
     Pura: no lee disco ni reloj. `idioma` es `"es"` o `"en"`; cualquier otro revienta (un
     informe en un idioma que no se pidió es peor que ningún informe)."""
@@ -1114,21 +1347,27 @@ def informe_html(resultado: Any, *, idioma: str) -> str:
     cab = (f'<header class="top"><span class="k">{_e(t("etiqueta", idioma))}</span>'
            f'<h1>{_e(h1)}</h1><p class="muted">{_e(resumen)}</p>'
            f'<div class="lang-chip"><span class="pill">{_e(garantia)}</span>'
-           f'<span class="small muted">{_e(t("solo_agregados", idioma))}</span></div></header>')
-    secciones = [cab, _avisos(inf, idioma)]
+           f'<span class="small muted">{_e(t("solo_agregados", idioma))}'
+           + (f' {_e(_bi(inf["donde_se_calcula"]["texto"], idioma))}'
+              if inf.get("donde_se_calcula") else "")
+           + '</span></div></header>')
+    letras = iter("ABCDEFGH")
+    anexos = []
     for k, p in enumerate(ps):
-        secciones.append(
-            f'<section class="score c{k + 1}"><h2>{_e(p["columna"])}</h2>'
-            f'<p class="small muted">{_e(_declaracion(p, f, idioma))}</p>'
-            f'{_tarjetas(p, f, idioma)}{_tabla_umbral(p, f, idioma)}'
-            f'{_tabla_subgrupos(p, f, idioma)}</section>')
-    secciones.append(_graficas(inf, f, idioma))
-    secciones.append(_comparacion(inf, f, idioma))
-    secciones.append(_no_es(inf, idioma))
-    secciones.append(_entrada(inf, resultado, f, idioma))
-    secciones.append(_recibo(resultado, f, idioma))
-    secciones.append(_tripod(resultado, idioma))
+        cuerpo = (f'<section class="score c{k + 1}"><h2>{_e(p["columna"])}</h2>'
+                  f'<p class="small muted">{_e(_declaracion(p, f, idioma))}</p>'
+                  f'{_tarjetas(p, f, idioma)}{_tabla_umbral(p, f, idioma)}'
+                  f'{_tabla_subgrupos(p, f, idioma)}</section>')
+        anexos.append(_anexo("a_puntuacion", next(letras), cuerpo, idioma, c=p["columna"]))
+    anexos.append(_anexo("a_graficas", next(letras), _graficas(inf, f, idioma), idioma))
+    comp = _comparacion(inf, f, idioma)
+    if comp:
+        anexos.append(_anexo("a_comparacion", next(letras), comp, idioma))
+    anexos.append(_anexo("a_como", next(letras),
+                         _entrada(inf, resultado, f, idioma) + _recibo(resultado, f, idioma), idioma))
+    anexos.append(_anexo("a_tripod", next(letras), _tripod(resultado, idioma), idioma))
+    secciones = [cab, _conclusiones(resultado, f, idioma), *anexos]
     return (f'<!doctype html>\n<html lang="{idioma}"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width, initial-scale=1">'
             f'<title>{_e(t("doc_titulo", idioma))}</title><style>{_CSS}</style></head>'
-            f'<body><div class="page">{"".join(s for s in secciones if s)}</div></body></html>\n')
+            f'<body><div class="page">{"".join(x for x in secciones if x)}</div></body></html>\n')

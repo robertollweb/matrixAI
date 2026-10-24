@@ -1056,6 +1056,41 @@ dinámico dice `"no declarada"` en vez de callar, porque callar ahí se lee como
 «comprobado». A un modelo de enteros **no** se le da un decimal: ONNX Runtime lo
 truncaría en silencio y el número que saliera acabaría en un recibo firmado.
 
+### matrixai evaluate-score
+
+«¿Funciona aquí?»: evalúa una o dos puntuaciones de riesgo **ya registradas** en un CSV
+frente a un desenlace binario observado. No se entrena nada ni se ejecuta ningún modelo; se
+miden la discriminación (AUROC, AP), la calibración (solo con probabilidades), qué pasa al
+umbral con el que se usa hoy, con quién falla (subgrupos, cada AUROC con su intervalo) y, con
+dos puntuaciones, una comparación emparejada sobre las mismas filas. El informe no lleva filas
+de datos.
+
+```
+matrixai evaluate-score <datos.csv> --outcome <col> --event <valor>
+    --represents-population {yes,no} --outcome-horizon <texto> --score-timing <texto>
+    --score <col> --score-type {probability,probability-pct,score}
+    --direction {higher,lower} --score-development-cases {yes,no,unknown}
+    [--threshold <u>] [--origin <texto>] [--promised-auroc <x>]
+    [--score2 <col> --score2-type ... --score2-direction ... --score2-development-cases ...]
+    [--subgroup <col> ...] [--patient-id <col>] [--decision-thresholds <p> ...]
+    [--resamples 1000] [--seed 137] [--key <hex>] [--locale es|en] [-o <fichero>] [--html <fichero>]
+```
+
+| Opción | Descripción |
+|------|-------------|
+| `--outcome` / `--event` | Columna del desenlace y qué valor ES el evento. Nunca se adivina; mayúsculas y tildes se unen y se cuentan |
+| `--represents-population` | **Obligatoria.** ¿La muestra representa a la población de uso? Lo declara quien ejecuta; MatrixAI no lo comprueba. Con `no`, no se publican VPP ni VPN y la calibración, el beneficio neto y la curva de decisión se rotulan como descripción de la muestra aportada |
+| `--outcome-horizon` | **Obligatoria, sin valor por omisión.** En qué plazo se observó el desenlace (`durante el ingreso`, `a 30 días`) |
+| `--score-timing` | **Obligatoria, sin valor por omisión.** Cuándo se calculó la puntuación respecto al caso (`al ingreso`, `día 3`) |
+| `--score-development-cases` / `--score2-development-cases` | **Obligatoria, sin valor por omisión.** ¿Participaron estos casos en el desarrollo de la puntuación? Con `yes` o `unknown` el informe dice que **no es una validación externa** |
+| `--score-type` / `--direction` | Nunca se deducen de los valores; la dirección nunca se invierte en silencio |
+| `--promised-auroc` | El AUROC que promete su origen. Se presenta como **referencia publicada frente a estimación local**, con la advertencia de que pueden no ser comparables; caer fuera del intervalo no demuestra que la cifra original esté mal |
+| `--key` | Clave hex para firmar el recibo (HMAC, garantía nunca por encima de A1). Sin ella el recibo es **A0 / SIN FIRMAR** |
+| `-o` / `--html` | Informe JSON (+ `*.receipt.json`) y el informe HTML autocontenido: una página de conclusiones en lenguaje llano y anexos técnicos desplegables (funcionan sin JavaScript; se imprimen abiertos donde el navegador lo admite) |
+
+La CLI registra siempre `donde_se_calcula = local`: corre en el equipo de quien la ejecuta.
+(La demo del Studio registra `servidor_de_la_demo` y el informe lo dice.)
+
 ### matrixai bom
 
 Emite el paquete como **ML-BOM de CycloneDX 1.6** — el formato de inventario

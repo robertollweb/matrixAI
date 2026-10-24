@@ -1054,6 +1054,40 @@ staying quiet there reads as "checked". A model declaring integer inputs is
 **not** fed a decimal: ONNX Runtime would truncate it silently and the number
 that came out would end up in a signed receipt.
 
+### matrixai evaluate-score
+
+"Does it work here?": evaluate one or two risk scores **already recorded** in a CSV against
+an observed binary outcome. Nothing is trained and no model runs; the figures are
+discrimination (AUROC, AP), calibration (only for probabilities), what happens at the
+threshold in use, who it fails for (subgroups, each AUROC with its interval) and, with two
+scores, a paired comparison over the same rows. The report carries no data rows.
+
+```
+matrixai evaluate-score <data.csv> --outcome <col> --event <value>
+    --represents-population {yes,no} --outcome-horizon <text> --score-timing <text>
+    --score <col> --score-type {probability,probability-pct,score}
+    --direction {higher,lower} --score-development-cases {yes,no,unknown}
+    [--threshold <t>] [--origin <text>] [--promised-auroc <x>]
+    [--score2 <col> --score2-type ... --score2-direction ... --score2-development-cases ...]
+    [--subgroup <col> ...] [--patient-id <col>] [--decision-thresholds <p> ...]
+    [--resamples 1000] [--seed 137] [--key <hex>] [--locale es|en] [-o <file>] [--html <file>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--outcome` / `--event` | Outcome column and which value IS the event. Never guessed; case and accents are merged and reported |
+| `--represents-population` | **Mandatory.** Does the sample represent the population of use? Declared by whoever runs it; MatrixAI does not check it. With `no`, PPV/NPV are not published and calibration, net benefit and the decision curve are labelled as describing the supplied sample |
+| `--outcome-horizon` | **Mandatory, no default.** Over what period the outcome was observed (`during the admission`, `at 30 days`) |
+| `--score-timing` | **Mandatory, no default.** When the score was calculated relative to the case (`at admission`, `day 3`) |
+| `--score-development-cases` / `--score2-development-cases` | **Mandatory, no default.** Did these cases take part in the development of the score? With `yes` or `unknown` the report says it is **not an external validation** |
+| `--score-type` / `--direction` | Never deduced from the values; the direction is never inverted silently |
+| `--promised-auroc` | The AUROC its origin promises. It is shown as a **published reference against the local estimate**, with a warning that both may not be comparable; falling outside the interval does not show the original figure is wrong |
+| `--key` | Hex key to sign the receipt (HMAC, assurance never above A1). Without it the receipt is **A0 / UNSIGNED** |
+| `-o` / `--html` | JSON report (+ `*.receipt.json`) and the self-contained HTML report: a plain-language conclusions page plus collapsible technical annexes (work without JavaScript; they print open where the browser supports it) |
+
+The CLI always records `donde_se_calcula = local`: it runs on the machine of whoever runs
+it. (The Studio demo records `servidor_de_la_demo` and the report says so.)
+
 ### matrixai bom
 
 Emit the package as a **CycloneDX 1.6 ML-BOM** — the inventory format that

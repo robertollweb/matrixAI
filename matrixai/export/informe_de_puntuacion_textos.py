@@ -37,10 +37,10 @@ TEXTOS: dict[str, dict[str, str]] = {
     "diseno_paciente": {"es": "por paciente (columna «{col}»)",
                         "en": "by patient (column “{col}”)"},
     "solo_agregados": {
-        "es": "Este informe no lleva filas de datos, solo agregados. Se ha generado en local y "
-              "se puede abrir sin conexión, imprimir o adjuntar tal cual.",
-        "en": "This report carries no data rows, only aggregates. It was generated locally and "
-              "can be opened offline, printed or attached as it is."},
+        "es": "Este informe no lleva filas de datos, solo agregados. Se puede abrir sin "
+              "conexión, imprimir o adjuntar tal cual.",
+        "en": "This report carries no data rows, only aggregates. It can be opened offline, "
+              "printed or attached as it is."},
     "garantia_a0": {"es": "Garantía A0 · sin firmar", "en": "Assurance A0 · unsigned"},
     "garantia_a1": {"es": "Garantía A1 · firmado", "en": "Assurance A1 · signed"},
     "garantia_a0_sentido": {
@@ -80,9 +80,15 @@ TEXTOS: dict[str, dict[str, str]] = {
     "ic_linea": {"es": "IC {nivel}: {a} a {b}", "en": "{nivel} CI: {a} to {b}"},
     "ic_sin": {"es": "sin intervalo", "en": "no interval"},
     "ap_linea": {"es": "AP {v} (el azar daría {z})", "en": "AP {v} (chance would give {z})"},
-    "prometia": {"es": "Prometía {v}: {r} del intervalo", "en": "Promised {v}: {r} the interval"},
-    "prom_dentro": {"es": "dentro", "en": "inside"},
-    "prom_fuera": {"es": "fuera", "en": "outside"},
+    "ref_linea": {
+        "es": "Referencia publicada {r} · estimación local {e}: la referencia cae {pos} del "
+              "intervalo local",
+        "en": "Published reference {r} · local estimate {e}: the reference falls {pos} the "
+              "local interval"},
+    "ref_dentro": {"es": "dentro", "en": "inside"},
+    "ref_fuera": {"es": "fuera", "en": "outside"},
+    "ref_etiqueta": {"es": "Referencia publicada frente a estimación local",
+                     "en": "Published reference against local estimate"},
     "citl_linea": {
         "es": "riesgo medio prometido − observado · {ic}",
         "en": "mean risk promised − observed · {ic}"},
@@ -99,8 +105,10 @@ TEXTOS: dict[str, dict[str, str]] = {
     "grupos_todos": {"es": "Todos los grupos con evidencia suficiente",
                      "en": "Every group has sufficient evidence"},
     "grupos_extremos": {
-        "es": "AUROC más bajo: {a} ({va}) · más alto: {b} ({vb}). Sin intervalo por grupo.",
-        "en": "Lowest AUROC: {a} ({va}) · highest: {b} ({vb}). No interval per group."},
+        "es": "AUROC más bajo: {a} ({va}) · más alto: {b} ({vb}). Cada grupo lleva su "
+              "intervalo en el anexo: los intervalos de grupos pequeños son anchos.",
+        "en": "Lowest AUROC: {a} ({va}) · highest: {b} ({vb}). Each group carries its "
+              "interval in the annex: intervals of small groups are wide."},
     "grupos_ninguno": {"es": "No se declaró ninguna columna de subgrupos.",
                        "en": "No subgroup column was declared."},
     "frente_titulo": {"es": "«{a}» frente a «{b}»", "en": "“{a}” against “{b}”"},
@@ -113,8 +121,88 @@ TEXTOS: dict[str, dict[str, str]] = {
     "frente_dif_linea": {"es": "diferencia de AUROC · {ic}", "en": "AUROC difference · {ic}"},
     "frente_filas": {"es": "Sobre las {n} filas que tienen las dos ({e} eventos).",
                      "en": "Over the {n} rows that have both ({e} events)."},
+    "frente_directa": {
+        "es": "Es la comparación más directamente interpretable: las dos puntuaciones se "
+              "miden sobre los mismos casos.",
+        "en": "This is the most directly interpretable comparison: both scores are measured "
+              "over the same cases."},
     "frente_valores": {"es": "AUROC «{a}» {va} · AUROC «{b}» {vb}",
                        "en": "AUROC “{a}” {va} · AUROC “{b}” {vb}"},
+    # ---- R6: la página de conclusiones y los anexos --------------------------------
+    "s_conclusiones": {"es": "Conclusiones", "en": "Conclusions"},
+    "c_intro": {
+        "es": "Qué se evaluó: el desenlace «{col}» (evento = «{ev}») en {n} casos con "
+              "desenlace, {e} eventos ({p}). Horizonte del desenlace: {hor}. Momento en que "
+              "se calculó la puntuación: {mom}. Este informe no lleva filas de datos.",
+        "en": "What was evaluated: the outcome “{col}” (event = “{ev}”) in {n} cases with an "
+              "outcome, {e} events ({p}). Outcome horizon: {hor}. When the score was "
+              "calculated: {mom}. This report carries no data rows."},
+    "c_donde": {"es": "{texto}", "en": "{texto}"},
+    "c_score": {"es": "«{c}»: {decl}.", "en": "“{c}”: {decl}."},
+    "c_ordena": {
+        "es": "AUROC {v} ({ic}). Dicho en llano: si se toman al azar un caso con evento y uno "
+              "sin evento, la puntuación señala más riesgo en el caso con evento en el {pp} "
+              "de las parejas. {pill}.",
+        "en": "AUROC {v} ({ic}). In plain terms: if one case with the event and one without "
+              "are picked at random, the score points to more risk in the case with the event "
+              "in {pp} of the pairs. {pill}."},
+    "c_ordena_na": {"es": "{motivo}", "en": "{motivo}"},
+    "c_ref": {
+        "es": "Referencia publicada: {r}. Estimación local: {e} ({ic}). La referencia cae "
+              "{pos} del intervalo local.",
+        "en": "Published reference: {r}. Local estimate: {e} ({ic}). The reference falls "
+              "{pos} the local interval."},
+    "c_riesgo": {
+        "es": "Riesgo medio que dice la puntuación menos riesgo observado: {v} puntos "
+              "porcentuales ({ic}); un valor positivo es que la puntuación dice más riesgo "
+              "del que hubo. Intercepto {a} ({ia}), pendiente {b} ({ib}).",
+        "en": "Mean risk the score states minus observed risk: {v} percentage points ({ic}); "
+              "a positive value means the score states more risk than there was. Intercept "
+              "{a} ({ia}), slope {b} ({ib})."},
+    "c_riesgo_na": {"es": "No aplica. {motivo}", "en": "Not applicable. {motivo}"},
+    "c_umbral": {
+        "es": "Con el umbral de uso ({u}) hubo {k} casos con aviso. Sensibilidad {s} ({ics}): "
+              "de cada 100 eventos, {s100} tenían aviso. Especificidad {e} ({ice}): de cada "
+              "100 casos sin evento, {e100} no tenían aviso.",
+        "en": "At the threshold of use ({u}) there were {k} cases with an alert. Sensitivity "
+              "{s} ({ics}): out of every 100 events, {s100} had an alert. Specificity {e} "
+              "({ice}): out of every 100 cases without an event, {e100} had no alert."},
+    "c_umbral_vp": {
+        "es": "VPP {vpp} ({icp}): de cada 100 avisos, {p100} acabaron en evento. VPN {vpn} "
+              "({icn}): de cada 100 casos sin aviso, {n100} no tuvieron evento.",
+        "en": "PPV {vpp} ({icp}): out of every 100 alerts, {p100} ended in an event. NPV {vpn} "
+              "({icn}): out of every 100 cases with no alert, {n100} had no event."},
+    "c_umbral_sin_vp": {"es": "VPP y VPN: {motivo}", "en": "PPV and NPV: {motivo}"},
+    "c_umbral_sin": {"es": "{motivo}", "en": "{motivo}"},
+    "c_grupos": {"es": "{medidos} {insuf}", "en": "{medidos} {insuf}"},
+    "c_rotulo": {
+        "es": "Calibración, beneficio neto y curva de decisión {rotulo}. {porque}",
+        "en": "Calibration, net benefit and the decision curve {rotulo}. {porque}"},
+    "c_lim": {"es": "Límites de este informe", "en": "Limits of this report"},
+    "c_lim_firma": {
+        "es": "La firma acredita integridad comprobable con la clave: que ni las entradas "
+              "declaradas ni las cifras cambiaron desde que se firmó. El valor científico "
+              "del informe depende del diseño del estudio y de los datos aportados.",
+        "en": "The signature certifies integrity that can be checked with the key: that "
+              "neither the declared inputs nor the figures changed since it was signed. The "
+              "scientific value of the report depends on the study design and on the data "
+              "supplied."},
+    "c_lim_sin_firma": {
+        "es": "Este informe no está firmado (garantía A0): nada impide que alguien lo "
+              "reescriba sin que se note.",
+        "en": "This report is not signed (assurance A0): nothing prevents someone from "
+              "rewriting it unnoticed."},
+    "c_anexos": {
+        "es": "Los detalles técnicos están debajo, en anexos desplegables. Al imprimir se "
+              "imprimen abiertos si el navegador lo admite.",
+        "en": "The technical details are below, in collapsible annexes. When printing they "
+              "print open if the browser supports it."},
+    "a_puntuacion": {"es": "Anexo {l} · Detalle de «{c}»", "en": "Annex {l} · Detail of “{c}”"},
+    "a_graficas": {"es": "Anexo {l} · Gráficas", "en": "Annex {l} · Charts"},
+    "a_comparacion": {"es": "Anexo {l} · Una frente a otra", "en": "Annex {l} · One against the other"},
+    "a_como": {"es": "Anexo {l} · Cómo se hizo y recibo", "en": "Annex {l} · How it was done and receipt"},
+    "a_tripod": {"es": "Anexo {l} · Ficha TRIPOD+AI de validación externa",
+                 "en": "Annex {l} · TRIPOD+AI external-validation record"},
     # ---- secciones -----------------------------------------------------------------
     "s_avisos": {"es": "Avisos", "en": "Warnings"},
     "s_graficas": {"es": "Gráficas", "en": "Charts"},
@@ -162,7 +250,7 @@ TEXTOS: dict[str, dict[str, str]] = {
     "th_grupo": {"es": "Grupo", "en": "Group"},
     "th_casos": {"es": "Casos", "en": "Cases"},
     "th_eventos": {"es": "Eventos", "en": "Events"},
-    "th_auroc": {"es": "AUROC", "en": "AUROC"},
+    "th_auroc": {"es": "AUROC (IC 95 %)", "en": "AUROC (95 % CI)"},
     "th_citl": {"es": "Riesgo prometido − observado", "en": "Risk promised − observed"},
     "evidencia_insuficiente": {
         "es": "Evidencia insuficiente (menos de {f} filas o de {e} casos en alguno de los dos "
@@ -171,10 +259,10 @@ TEXTOS: dict[str, dict[str, str]] = {
               "outcome): no number."},
     "sin_dato_grupo": {"es": "(sin dato)", "en": "(no data)"},
     "subgrupos_pie": {
-        "es": "Un grupo sin evidencia suficiente no publica ni su tamaño: con pocas personas, "
-              "el número ya las acerca a una identificación.",
-        "en": "A group without sufficient evidence does not even publish its size: with few "
-              "people, the number alone gets close to identifying them."},
+        "es": "Un grupo sin evidencia suficiente no publica ni su tamaño. Suprimir grupos "
+              "pequeños ayuda, pero no garantiza anonimización.",
+        "en": "A group without sufficient evidence does not even publish its size. Suppressing "
+              "small groups helps, but does not guarantee anonymisation."},
     # ---- gráficas ------------------------------------------------------------------
     "g_auroc": {"es": "Cómo ordena: AUROC con su intervalo",
                 "en": "How it ranks: AUROC with its interval"},
@@ -236,6 +324,14 @@ TEXTOS: dict[str, dict[str, str]] = {
     "decl_sin_umbral": {"es": "sin umbral de uso", "en": "no threshold of use"},
     "decl_origen": {"es": "origen: {o}", "en": "source: {o}"},
     "decl_sin_origen": {"es": "origen: no consta", "en": "source: not reported"},
+    "decl_desarrollo": {"es": "casos en su desarrollo: {v}",
+                        "en": "cases in its development: {v}"},
+    "dev_si": {"es": "sí", "en": "yes"},
+    "dev_no": {"es": "no", "en": "no"},
+    "dev_no_se_sabe": {"es": "no se sabe", "en": "unknown"},
+    "kv_horizonte": {"es": "Horizonte del desenlace", "en": "Outcome horizon"},
+    "kv_momento": {"es": "Momento de la puntuación", "en": "Score timing"},
+    "kv_donde": {"es": "Dónde se calculó", "en": "Where it was calculated"},
     "decl_prometida": {"es": "cifra prometida (AUROC) {v}", "en": "promised figure (AUROC) {v}"},
     "decl_filas": {
         "es": "{u} filas usadas · {f} sin puntuación (quedan fuera)",
@@ -344,6 +440,15 @@ TEXTOS: dict[str, dict[str, str]] = {
         "en": "{n} rows with an outcome, {e} events; {s} rows without an outcome and {m} with "
               "a different number of columns are left out"},
     "vi_puntuacion": {"es": "«{c}»: {tipo}, {dir}; {orig}", "en": "“{c}”: {tipo}, {dir}; {orig}"},
+    "vx_desarrollo": {"es": "¿Participaron estos casos en el desarrollo de la puntuación?",
+                      "en": "Did these cases take part in the development of the score?"},
+    "vi_desarrollo": {"es": "«{c}»: {v}; {ext}", "en": "“{c}”: {v}; {ext}"},
+    "vi_desarrollo_no_externa": {"es": "no es una validación externa",
+                                 "en": "this is not an external validation"},
+    "vi_desarrollo_declarado": {"es": "declarado, MatrixAI no lo comprueba",
+                                "en": "declared, MatrixAI does not check it"},
+    "vi_horizonte": {"es": "horizonte del desenlace: {h}; puntuación calculada: {m}",
+                     "en": "outcome horizon: {h}; score calculated: {m}"},
     "vi_desenlace": {"es": "columna «{c}», evento = «{e}»", "en": "column “{c}”, event = “{e}”"},
     "vi_prev_obs": {"es": "«{c}»: {p}", "en": "“{c}”: {p}"},
     "vi_prev_decl": {

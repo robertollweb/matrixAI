@@ -111,10 +111,10 @@ MOTIVOS: dict[str, dict[str, str]] = {
     "subgrupo_con_demasiados_valores": {
         "es": "la columna de subgrupo {campo} tiene {valor} valores distintos (el máximo es "
               "{opciones}): parece un identificador, y un informe con un grupo por persona "
-              "las identificaría",
+              "publicaría una cifra por persona",
         "en": "subgroup column {campo} has {valor} distinct values (the maximum is "
               "{opciones}): it looks like an identifier, and a report with one group per "
-              "person would identify them",
+              "person would publish one figure per person",
     },
     # ---- rechazos: las declaraciones --------------------------------------
     "declaracion_fuera_del_vocabulario": {
@@ -203,10 +203,11 @@ MOTIVOS: dict[str, dict[str, str]] = {
     },
     "fiabilidad_pocas_filas": {
         "es": "tramo con {valor} filas: con menos de {opciones} no se publica su cifra "
-              "(evidencia insuficiente, y un tramo así casi identifica a cada persona)",
+              "(evidencia insuficiente; suprimir tramos pequeños ayuda, pero no garantiza "
+              "anonimización)",
         "en": "bin with {valor} rows: with fewer than {opciones} its figure is not "
-              "published (insufficient evidence, and a bin that small nearly identifies "
-              "each person)",
+              "published (insufficient evidence; suppressing small bins helps, but does not "
+              "guarantee anonymisation)",
     },
     "multiplicidad_en_subgrupos": {
         "es": "se miran {valor} grupos y no se corrige por multiplicidad: con tantas "
@@ -227,6 +228,99 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "whoever runs the evaluation as the population of use's; their interval does "
               "not include the uncertainty of that prevalence",
     },
+    # ---- R2: qué se predice, en qué plazo, y si estos casos participaron en el desarrollo ----
+    "texto_obligatorio_vacio": {
+        "es": "{campo} hay que declararlo con un texto (por ejemplo «{opciones}»); llegó {valor}. "
+              "No tiene valor por omisión: sin él no se sabe qué se predice ni cuándo",
+        "en": "{campo} must be declared as text (for example “{opciones}”); got {valor}. "
+              "There is no default: without it nobody knows what is predicted or when",
+    },
+    "validacion_externa_si": {
+        "es": "Los casos de esta muestra participaron en el desarrollo de «{campo}»: esto NO es "
+              "una validación externa de esa puntuación.",
+        "en": "The cases in this sample took part in the development of “{campo}”: this is NOT "
+              "an external validation of that score.",
+    },
+    "validacion_externa_no_se_sabe": {
+        "es": "No se sabe si los casos de esta muestra participaron en el desarrollo de "
+              "«{campo}»: mientras no se sepa, esto NO es una validación externa de esa "
+              "puntuación.",
+        "en": "It is not known whether the cases in this sample took part in the development of "
+              "“{campo}”: until that is known, this is NOT an external validation of that score.",
+    },
+    "validacion_externa_no": {
+        "es": "Quien ejecuta la evaluación declaró que los casos de esta muestra NO participaron "
+              "en el desarrollo de «{campo}» (MatrixAI no lo comprueba). Aun así, esto no es una "
+              "validación para uso clínico.",
+        "en": "Whoever runs the evaluation declared that the cases in this sample did NOT take "
+              "part in the development of “{campo}” (MatrixAI does not check it). Even so, this "
+              "is not a validation for clinical use.",
+    },
+    "no_es_validacion_externa": {
+        "es": "No es una validación externa de: {campo}. Los casos participaron en su "
+              "desarrollo, o no se sabe si lo hicieron.",
+        "en": "It is not an external validation of: {campo}. The cases took part in its "
+              "development, or it is not known whether they did.",
+    },
+    # ---- dónde se calculó (defecto del 24-10: «todo en local» no es verdad en la demo) ----
+    "calculado_en_local": {
+        "es": "Se calculó en local, en el equipo de quien ejecutó la evaluación: el CSV no salió "
+              "de él.",
+        "en": "It was calculated locally, on the machine of whoever ran the evaluation: the CSV "
+              "did not leave it.",
+    },
+    "calculado_en_el_servidor_de_la_demo": {
+        "es": "Se calculó en el servidor de la demo con el CSV que enviaste; el CSV no se "
+              "guardó.",
+        "en": "It was calculated on the demo server with the CSV you sent; the CSV was not "
+              "stored.",
+    },
+    # ---- R3 (revisión del 24-10): la representatividad afecta a más que VPP y VPN ----
+    "rotulo_muestra_aportada": {
+        "es": "describen la muestra aportada, no la población de uso",
+        "en": "describe the supplied sample, not the population of use",
+    },
+    "porque_muestra_aportada": {
+        "es": "Un muestreo con más eventos de los habituales (por ejemplo, todos los casos y "
+              "solo parte de los controles) distorsiona la calibración, el beneficio neto y "
+              "la curva de decisión. No se aplica ningún ajuste por muestreo.",
+        "en": "Sampling with more events than usual (for example, every case and only some of "
+              "the controls) distorts calibration, net benefit and the decision curve. No "
+              "sampling adjustment is applied.",
+    },
+    "representatividad_no_comprobada_si": {
+        "es": "Que la muestra representa a la población de uso lo declara quien ejecuta la "
+              "evaluación, y MatrixAI no lo comprueba. Si no fuera así, la calibración, el "
+              "beneficio neto, la curva de decisión, el VPP y el VPN describirían solo la "
+              "muestra aportada.",
+        "en": "That the sample represents the population of use is declared by whoever runs "
+              "the evaluation, and MatrixAI does not check it. If it did not, calibration, "
+              "net benefit, the decision curve, PPV and NPV would describe only the supplied "
+              "sample.",
+    },
+    "representatividad_no_comprobada_no": {
+        "es": "Quien ejecuta la evaluación declaró que la muestra NO representa a la población "
+              "de uso (MatrixAI no lo comprueba): el VPP y el VPN no se publican, y la "
+              "calibración, el beneficio neto y la curva de decisión describen la muestra "
+              "aportada.",
+        "en": "Whoever runs the evaluation declared that the sample does NOT represent the "
+              "population of use (MatrixAI does not check it): PPV and NPV are not published, "
+              "and calibration, net benefit and the decision curve describe the supplied "
+              "sample.",
+    },
+    # ---- R4: la cifra prometida es una referencia publicada frente a una estimación local ----
+    "referencia_publicada_advertencia": {
+        "es": "La referencia publicada y la estimación local pueden no ser comparables: la "
+              "población, el desenlace, el seguimiento y la incertidumbre de la cifra original "
+              "pueden ser distintos. Que la referencia caiga fuera del intervalo local no "
+              "demuestra que la cifra original esté mal. La comparación más directamente "
+              "interpretable es la emparejada de dos puntuaciones sobre los mismos casos.",
+        "en": "The published reference and the local estimate may not be comparable: the "
+              "population, the outcome, the follow-up and the uncertainty of the original "
+              "figure may differ. A reference falling outside the local interval does not "
+              "show that the original figure is wrong. The most directly interpretable "
+              "comparison is the paired one, between two scores over the same cases.",
+    },
     # ---- lo que el informe dice que NO es (reglas 17, 18 y 19) --------------
     "no_es_validacion_clinica": {
         "es": "Esto no es una validación para uso clínico ni una evaluación regulatoria. Es "
@@ -239,6 +333,14 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "tratamiento evitó el desenlace), la puntuación parecerá peor de lo que es.",
         "en": "If the score was already used to decide (a high risk led to treatment and the "
               "treatment prevented the outcome), the score will look worse than it is.",
+    },
+    "no_es_anonimizacion": {
+        "es": "La supresión de grupos pequeños ayuda, pero no garantiza anonimización: un "
+              "informe sin filas puede seguir permitiendo identificar a alguien combinado con "
+              "otra información. Quien lo comparta decide si puede hacerlo.",
+        "en": "Suppressing small groups helps, but does not guarantee anonymisation: a report "
+              "without rows can still allow someone to be identified when combined with other "
+              "information. Whoever shares it decides whether it can be shared.",
     },
     "depende_del_registro": {
         "es": "Depende del registro: un desenlace mal o tarde registrado mueve todas las cifras.",

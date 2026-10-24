@@ -28,7 +28,7 @@ from pathlib import Path
 
 from matrixai.estudio.evaluacion_de_puntuacion import (
     MAXIMO_DE_VALORES_POR_SUBGRUPO,
-    DeclaracionDePuntuacion as Decl,
+    DeclaracionDePuntuacion as _Decl,
     EvaluacionRechazada,
     evaluar_puntuacion,
 )
@@ -46,6 +46,14 @@ except Exception:  # pragma: no cover
 _RAIZ = Path(__file__).resolve().parent.parent
 REM = 40  # remuestras de las pruebas: el intervalo no es lo que se prueba casi nunca
 ALTO, BAJO = "mas_alto_mas_riesgo", "mas_bajo_mas_riesgo"
+R2 = dict(horizonte_del_desenlace="durante el ingreso", momento_de_la_puntuacion="al ingreso",
+          donde_se_calcula="local")
+
+
+def Decl(columna, tipo, direccion, **kw):
+    """Las pruebas que no hablan de la R2 declaran «no participaron»; las que sí, lo pasan."""
+    kw.setdefault("casos_en_su_desarrollo", "no")
+    return _Decl(columna, tipo, direccion, **kw)
 
 
 def _sig(x: float) -> float:
@@ -93,6 +101,8 @@ def _csv(filas: list[dict], columnas: list[str], *, sep: str = ",", coma: bool =
 
 def _evaluar(texto, *, puntuaciones=None, evento="1", representa=True, **kw):
     kw.setdefault("remuestras", REM)
+    for k, v in R2.items():
+        kw.setdefault(k, v)
     return evaluar_puntuacion(
         texto, columna_desenlace="y", valor_del_evento=evento,
         puntuaciones=puntuaciones or [Decl("p", "probabilidad", ALTO)],
@@ -607,7 +617,7 @@ class DisenoYParametrosTest(DatosBase):
     def test_la_representatividad_no_tiene_valor_por_omision(self):
         with self.assertRaises(TypeError):
             evaluar_puntuacion(_csv(self.filas, ["p", "y"]), columna_desenlace="y",
-                               valor_del_evento="1",
+                               valor_del_evento="1", **R2,
                                puntuaciones=[Decl("p", "probabilidad", ALTO)])
         with self.assertRaises(EvaluacionRechazada):
             _evaluar(_csv(self.filas, ["p", "y"]), representa="si")
@@ -672,10 +682,11 @@ class TextosBilingueTest(unittest.TestCase):
         sin = _evaluar(csv).informe
         con = _evaluar(csv, puntuaciones=[Decl("p", "probabilidad", ALTO, umbral=0.3)]).informe
         self.assertEqual([t["id"] for t in sin["lo_que_no_es"]],
-                         ["no_es_validacion_clinica", "depende_del_registro"])
+                         ["no_es_validacion_clinica", "no_es_anonimizacion",
+                          "depende_del_registro"])
         self.assertEqual([t["id"] for t in con["lo_que_no_es"]],
                          ["no_es_validacion_clinica", "paradoja_del_tratamiento",
-                          "depende_del_registro"])
+                          "no_es_anonimizacion", "depende_del_registro"])
         self.assertIn("validación para uso clínico", con["lo_que_no_es"][0]["es"])
 
     @staticmethod
@@ -847,7 +858,7 @@ class ReciboTest(DatosBase):
         con = evaluar_puntuacion(
             crudo, columna_desenlace="y", valor_del_evento="1",
             puntuaciones=[Decl("p", "probabilidad", ALTO, umbral=0.3, origen="Proveedor X v2")],
-            muestra_representativa=False, remuestras=REM, semilla=77,
+            muestra_representativa=False, remuestras=REM, semilla=77, **R2,
             clave=self.CLAVE, creado_en="2026-10-23T12:00:00Z", nombre_del_fichero="datos.csv")
         r = con.recibo
         self.assertEqual(r["dataset"]["digest"], "sha256:" + hashlib.sha256(crudo).hexdigest())
@@ -881,6 +892,200 @@ class ReciboTest(DatosBase):
 
 
 # ---------------------------------------------------------------------------
+# Ronda de rigor del 24-10: R2 (qué se predice y en qué plazo), dónde se calcula, R3, R4, R5
+# ---------------------------------------------------------------------------
+
+class R2DeclaracionesTest(DatosBase):
+    def _csv(self):
+        return _csv(self.filas, ["p", "pts", "y"])
+
+    def _llamar(self, **cambios):
+        kw = dict(columna_desenlace="y", valor_del_evento="1",
+                  puntuaciones=[Decl("p", "probabilidad", ALTO)], muestra_representativa=True,
+                  remuestras=REM, **R2)
+        kw.update(cambios)
+        for borrar in [k for k, v in kw.items() if v is _FALTA]:
+            del kw[borrar]
+        return evaluar_puntuacion(self._csv(), **kw)
+
+    def test_R2_sin_horizonte_momento_o_dondese_calcula_no_hay_evaluacion(self):
+        for campo in ("horizonte_del_desenlace", "momento_de_la_puntuacion", "donde_se_calcula"):
+            with self.assertRaises(TypeError, msg=campo):
+                self._llamar(**{campo: _FALTA})
+
+    def test_R2_un_horizonte_o_un_momento_vacio_o_que_no_es_texto_se_rechaza(self):
+        for campo in ("horizonte_del_desenlace", "momento_de_la_puntuacion"):
+            for malo in ("", "   ", None, 30, "x" * 201):
+                with self.assertRaises(EvaluacionRechazada, msg=f"{campo}={malo!r}") as cm:
+                    self._llamar(**{campo: malo})
+                self.assertEqual(cm.exception.clave, "texto_obligatorio_vacio")
+                self.assertIn(campo, cm.exception.es)
+                self.assertIn(campo, cm.exception.en)
+
+    def test_R2_casos_en_su_desarrollo_es_obligatorio_y_de_vocabulario_cerrado(self):
+        with self.assertRaises(TypeError):
+            _Decl("p", "probabilidad", ALTO)
+        for malo in ("", "tal vez", "yes", None, True):
+            with self.assertRaises(EvaluacionRechazada, msg=repr(malo)) as cm:
+                _Decl("p", "probabilidad", ALTO, casos_en_su_desarrollo=malo)
+            self.assertEqual(cm.exception.clave, "declaracion_fuera_del_vocabulario")
+        for bueno in ("si", "no", "no_se_sabe"):
+            self.assertEqual(Decl("p", "probabilidad", ALTO,
+                                  casos_en_su_desarrollo=bueno).casos_en_su_desarrollo, bueno)
+
+    def test_R2_las_tres_declaraciones_van_al_informe_y_al_recibo_y_el_recibo_las_compromete(self):
+        clave = b"k" * 32
+        a = self._llamar(horizonte_del_desenlace="a 30 días", momento_de_la_puntuacion="día 3",
+                         puntuaciones=[Decl("p", "probabilidad", ALTO, casos_en_su_desarrollo="si")],
+                         clave=clave, creado_en="2026-10-24T10:00:00Z")
+        self.assertEqual(a.informe["alcance"], {"horizonte_del_desenlace": "a 30 días",
+                                                "momento_de_la_puntuacion": "día 3"})
+        self.assertEqual(a.informe["puntuaciones"][0]["declaracion"]["casos_en_su_desarrollo"], "si")
+        d = a.recibo["declarations"]
+        self.assertEqual((d["outcome_horizon"], d["score_timing"]), ("a 30 días", "día 3"))
+        self.assertEqual(d["scores"][0]["casos_en_su_desarrollo"], "si")
+        self.assertTrue(verificar_recibo(a.sobre, clave=clave)["ok"])
+        # cambiar CUALQUIERA de las tres cambia el identificador del recibo
+        base = self._llamar(horizonte_del_desenlace="a 30 días", momento_de_la_puntuacion="día 3",
+                            puntuaciones=[Decl("p", "probabilidad", ALTO, casos_en_su_desarrollo="si")])
+        for cambio in (dict(horizonte_del_desenlace="a 6 meses"),
+                       dict(momento_de_la_puntuacion="al ingreso"),
+                       dict(puntuaciones=[Decl("p", "probabilidad", ALTO,
+                                               casos_en_su_desarrollo="no_se_sabe")])):
+            kw = dict(horizonte_del_desenlace="a 30 días", momento_de_la_puntuacion="día 3",
+                      puntuaciones=[Decl("p", "probabilidad", ALTO, casos_en_su_desarrollo="si")])
+            kw.update(cambio)
+            otro = self._llamar(**kw)
+            self.assertNotEqual(otro.recibo["receipt_id"], base.recibo["receipt_id"], cambio)
+
+    def test_R2_con_si_o_no_se_sabe_el_informe_dice_que_no_es_una_validacion_externa(self):
+        for valor, frase in (("si", "took part in the development"),
+                             ("no_se_sabe", "not known whether")):
+            r = self._llamar(puntuaciones=[Decl("p", "probabilidad", ALTO,
+                                                casos_en_su_desarrollo=valor)])
+            v = r.informe["puntuaciones"][0]["validacion_externa"]
+            self.assertFalse(v["es_validacion_externa"])
+            self.assertFalse(v["comprobada_por_matrixai"])
+            self.assertIn("NO es una validación externa", v["nota"]["es"])
+            self.assertIn("NOT an external validation", v["nota"]["en"])
+            self.assertIn(frase, v["nota"]["en"])
+            ids = [x["id"] for x in r.informe["lo_que_no_es"]]
+            self.assertIn("no_es_validacion_externa", ids)
+            self.assertIn("No es una validación externa de: p", r.informe["lo_que_no_es"][1]["es"])
+
+    def test_R2_con_no_no_se_afirma_validacion_externa_solo_que_esta_declarado_sin_comprobar(self):
+        r = self._llamar(puntuaciones=[Decl("p", "probabilidad", ALTO, casos_en_su_desarrollo="no")])
+        v = r.informe["puntuaciones"][0]["validacion_externa"]
+        self.assertTrue(v["es_validacion_externa"])
+        self.assertIn("MatrixAI no lo comprueba", v["nota"]["es"])
+        self.assertIn("no es una validación para uso clínico", v["nota"]["es"])
+        self.assertNotIn("no_es_validacion_externa", [x["id"] for x in r.informe["lo_que_no_es"]])
+
+    def test_R2_con_dos_puntuaciones_solo_se_nombra_la_que_no_es_externa(self):
+        r = self._llamar(puntuaciones=[
+            Decl("p", "probabilidad", ALTO, casos_en_su_desarrollo="no"),
+            Decl("pts", "puntuacion", ALTO, casos_en_su_desarrollo="si")])
+        texto = next(x for x in r.informe["lo_que_no_es"] if x["id"] == "no_es_validacion_externa")
+        self.assertIn("pts", texto["es"])
+        self.assertNotIn(" p.", texto["es"])
+        self.assertNotIn("p, pts", texto["es"])
+        self.assertTrue(r.informe["puntuaciones"][0]["validacion_externa"]["es_validacion_externa"])
+        self.assertFalse(r.informe["puntuaciones"][1]["validacion_externa"]["es_validacion_externa"])
+
+
+class DondeSeCalculaTest(DatosBase):
+    def _llamar(self, donde):
+        return _evaluar(_csv(self.filas, ["p", "y"]), donde_se_calcula=donde,
+                        clave=b"k" * 32, creado_en="2026-10-24T10:00:00Z")
+
+    def test_donde_se_calcula_es_obligatorio_y_de_vocabulario_cerrado(self):
+        with self.assertRaises(TypeError):
+            evaluar_puntuacion(_csv(self.filas, ["p", "y"]), columna_desenlace="y",
+                               valor_del_evento="1", puntuaciones=[Decl("p", "probabilidad", ALTO)],
+                               muestra_representativa=True, horizonte_del_desenlace="h",
+                               momento_de_la_puntuacion="m")
+        for malo in ("", "nube", None, "Local", True):
+            with self.assertRaises(EvaluacionRechazada, msg=repr(malo)) as cm:
+                self._llamar(malo)
+            self.assertEqual(cm.exception.clave, "declaracion_fuera_del_vocabulario")
+            self.assertIn("donde_se_calcula", cm.exception.es)
+
+    def test_en_local_el_informe_dice_que_el_csv_no_salio_del_equipo(self):
+        d = self._llamar("local").informe["donde_se_calcula"]
+        self.assertEqual(d["valor"], "local")
+        self.assertIn("Se calculó en local", d["texto"]["es"])
+        self.assertIn("el CSV no salió de él", d["texto"]["es"])
+        self.assertIn("calculated locally", d["texto"]["en"])
+        self.assertNotIn("servidor", d["texto"]["es"])
+
+    def test_en_el_servidor_de_la_demo_el_informe_dice_la_verdad_y_no_dice_local(self):
+        r = self._llamar("servidor_de_la_demo")
+        d = r.informe["donde_se_calcula"]
+        self.assertEqual(d["valor"], "servidor_de_la_demo")
+        self.assertEqual(d["texto"]["es"], "Se calculó en el servidor de la demo con el CSV que "
+                                           "enviaste; el CSV no se guardó.")
+        self.assertEqual(d["texto"]["en"], "It was calculated on the demo server with the CSV "
+                                           "you sent; the CSV was not stored.")
+        self.assertNotIn("en local", d["texto"]["es"])
+        self.assertNotIn("locally", d["texto"]["en"])
+
+    def test_donde_se_calcula_va_al_recibo_y_lo_cambia_todo(self):
+        a, b = self._llamar("local"), self._llamar("servidor_de_la_demo")
+        self.assertEqual(a.recibo["environment"]["computed_where"], "local")
+        self.assertEqual(b.recibo["environment"]["computed_where"], "servidor_de_la_demo")
+        self.assertNotEqual(a.recibo["output"]["output_digests"]["report"],
+                            b.recibo["output"]["output_digests"]["report"])
+        self.assertTrue(verificar_recibo(b.sobre, clave=b"k" * 32)["ok"])
+
+
+class RondaDeRigorNucleoTest(DatosBase):
+    def test_R3_el_rotulo_de_alcance_depende_de_la_representatividad_en_cada_seccion(self):
+        csv = _csv(self.filas, ["p", "y"])
+        for representa in (True, False):
+            p = _evaluar(csv, representa=representa, umbrales_de_decision=[0.2, 0.4],
+                         puntuaciones=[Decl("p", "probabilidad", ALTO, umbral=0.3)]
+                         ).informe["puntuaciones"][0]
+            for seccion in (p["calibracion"], p["al_umbral"]["beneficio_neto"], p["curva_de_decision"]):
+                self.assertEqual(seccion["rotulo_de_alcance"] is not None, not representa)
+                if not representa:
+                    self.assertEqual(seccion["rotulo_de_alcance"]["rotulo"]["en"],
+                                     "describe the supplied sample, not the population of use")
+
+    def test_R4_la_cifra_prometida_lleva_las_dos_cifras_y_la_advertencia_nunca_un_veredicto(self):
+        p = _evaluar(_csv(self.filas, ["p", "y"]),
+                     puntuaciones=[Decl("p", "probabilidad", ALTO, cifra_prometida=0.9)]
+                     ).informe["puntuaciones"][0]
+        c = p["cifra_prometida"]
+        self.assertEqual(c["referencia_publicada"], 0.9)
+        self.assertEqual(c["estimacion_local"], p["discriminacion"]["auroc"]["valor"])
+        self.assertIn("no demuestra que la cifra original esté mal", c["advertencia"]["es"])
+        self.assertIn("does not show that the original figure is wrong", c["advertencia"]["en"])
+        self.assertIn(c["resultado"], ("dentro", "fuera"))
+
+    def test_R5_el_auroc_de_un_grupo_con_evidencia_lleva_intervalo_y_el_pobre_ni_numero(self):
+        filas = _filas(1200, semilla=4)
+        for i, f in enumerate(filas):
+            f["sala"] = "chica" if i < 12 else ("A" if i % 2 else "B")
+        csv = _csv(filas, ["p", "y", "sala"])
+        grupos = {g["valor"]: g for g in _evaluar(csv, columnas_de_subgrupo=["sala"]).informe[
+            "puntuaciones"][0]["subgrupos"][0]["grupos"]}
+        a = grupos["A"]["auroc"]
+        self.assertLess(a["ic"]["bajo"], a["valor"])
+        self.assertLess(a["valor"], a["ic"]["alto"])
+        self.assertEqual(a["ic"]["remuestras"], REM)
+        self.assertNotIn("auroc", grupos["chica"])
+        self.assertNotIn("eventos", grupos["chica"])
+
+    def test_la_version_del_informe_sube_con_el_esquema(self):
+        r = _evaluar(_csv(self.filas, ["p", "y"]))
+        self.assertEqual(r.informe["version_del_informe"], "2.0.0")
+        self.assertEqual(r.recibo["environment"]["report_version"], "2.0.0")
+
+
+_FALTA = object()      # «este argumento no se pasa»
+
+
+# ---------------------------------------------------------------------------
 # La orden de la terminal, de punta a punta
 # ---------------------------------------------------------------------------
 
@@ -890,7 +1095,9 @@ class CliTest(DatosBase):
         return subprocess.run(
             [sys.executable, "-m", "matrixai", "evaluate-score", str(d / "datos.csv"),
              "--outcome", "y", "--event", "Sí", "--represents-population", "yes",
+             "--outcome-horizon", "durante el ingreso", "--score-timing", "al ingreso",
              "--score", "p", "--score-type", "probability", "--direction", "higher",
+             "--score-development-cases", "no",
              "--threshold", "0,3", "--resamples", "30", *extra],
             capture_output=True, text=True, cwd=str(_RAIZ))
 
@@ -902,7 +1109,7 @@ class CliTest(DatosBase):
             r = self._correr(d, texto.encode("cp1252"), "--key", "aa" * 16, "-o",
                              str(d / "informe.json"), "--score2", "pts", "--score2-type",
                              "score", "--score2-direction", "higher", "--score2-threshold",
-                             "5", "--patient-id", "id")
+                             "5", "--score2-development-cases", "unknown", "--patient-id", "id")
             self.assertEqual(r.returncode, 0, r.stderr)
             informe = json.loads((d / "informe.json").read_text(encoding="utf-8"))
             recibo = json.loads((d / "informe.receipt.json").read_text(encoding="utf-8"))
@@ -914,6 +1121,14 @@ class CliTest(DatosBase):
             self.assertEqual(informe["puntuaciones"][1]["filas"]["sin_puntuacion"], 3)
             self.assertTrue(informe["comparacion"]["posible"])
             self.assertEqual(informe["remuestreo"]["diseno"], "groups")
+            # R2 y «dónde se calculó»: lo que se escribió en la línea de órdenes llega al informe
+            self.assertEqual(informe["alcance"], {"horizonte_del_desenlace": "durante el ingreso",
+                                                  "momento_de_la_puntuacion": "al ingreso"})
+            self.assertEqual([p["declaracion"]["casos_en_su_desarrollo"]
+                              for p in informe["puntuaciones"]], ["no", "no_se_sabe"])
+            self.assertEqual(informe["donde_se_calcula"]["valor"], "local")   # la CLI corre aquí
+            self.assertIn("NO es una validación externa", r.stderr)
+            self.assertIn("Se calculó en local", r.stderr)
             self.assertEqual(nivel_del_recibo(recibo), "A1")
             self.assertTrue(verificar_recibo(recibo, clave=bytes.fromhex("aa" * 16))["ok"])
             self.assertIn("AUROC", r.stderr)
@@ -952,7 +1167,9 @@ class CliTest(DatosBase):
             r = subprocess.run(
                 [sys.executable, "-m", "matrixai", "evaluate-score", str(d / "d.csv"),
                  "--outcome", "y", "--event", "Sí", "--represents-population", "no",
-                 "--score", "p", "--score-type", "probability", "--direction", "higher"],
+                 "--outcome-horizon", "durante el ingreso", "--score-timing", "al ingreso",
+                 "--score", "p", "--score-type", "probability", "--direction", "higher",
+                 "--score-development-cases", "no"],
                 capture_output=True, text=True, cwd=str(_RAIZ))
             self.assertEqual(r.returncode, 1)
             self.assertIn("nunca se adivina", r.stderr)
@@ -962,7 +1179,8 @@ class CliTest(DatosBase):
                             "--outcome", "y", "--event", "1", "--score", "p"],
                            capture_output=True, text=True, cwd=str(_RAIZ))
         self.assertEqual(r.returncode, 2)
-        for opcion in ("--represents-population", "--score-type", "--direction"):
+        for opcion in ("--represents-population", "--score-type", "--direction",
+                       "--outcome-horizon", "--score-timing", "--score-development-cases"):
             self.assertIn(opcion, r.stderr)
 
 

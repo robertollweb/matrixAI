@@ -27,7 +27,7 @@ from html.parser import HTMLParser
 from types import SimpleNamespace
 
 from matrixai.estudio.evaluacion_de_puntuacion import (
-    DeclaracionDePuntuacion as Decl,
+    DeclaracionDePuntuacion as _Decl,
     evaluar_puntuacion,
 )
 from matrixai.export import informe_de_puntuacion as modulo
@@ -42,6 +42,14 @@ from matrixai.export.informe_de_puntuacion_textos import IDIOMAS, TEXTOS, huecos
 
 REM = 30
 ALTO = "mas_alto_mas_riesgo"
+R2 = dict(horizonte_del_desenlace="hospital stay", momento_de_la_puntuacion="admission day",
+          donde_se_calcula="local")
+
+
+def Decl(columna, tipo, direccion, **kw):
+    """Las pruebas que no hablan de la R2 declaran «no participaron»; las que sí, lo pasan."""
+    kw.setdefault("casos_en_su_desarrollo", "no")
+    return _Decl(columna, tipo, direccion, **kw)
 RARO = "ZX9-RARO-4471"           # un identificador que NO puede aparecer en el informe
 
 
@@ -81,6 +89,8 @@ def _evaluar(*, puntuaciones=None, representa=True, columnas=_COLS, filas=None, 
              **kw):
     kw.setdefault("remuestras", REM)
     kw.setdefault("semilla", 137)
+    for k, v in R2.items():
+        kw.setdefault(k, v)
     texto = _csv(filas if filas is not None else _FILAS, columnas)
     return evaluar_puntuacion(
         texto, columna_desenlace="outcome", valor_del_evento="Yes",
@@ -272,15 +282,24 @@ class CifrasTest(Base):
         self.assertIn("1.000 casos con desenlace", _texto(self.es))
         self.assertIn("1,000 cases with an outcome", _texto(self.en))
 
-    def test_la_cifra_prometida_dice_dentro_o_fuera_sin_adjetivos(self):
-        pr = self.r.informe["puntuaciones"][0]["cifra_prometida"]
+    def test_la_referencia_publicada_dice_donde_cae_sin_adjetivos_y_sin_el_viejo_veredicto(self):
+        # R4. Antes: «Prometía 0,820: fuera del intervalo» (un veredicto). Ahora: las DOS cifras
+        # y dónde cae la referencia respecto al intervalo local; la intención de la prueba
+        # (dentro/fuera dicho sin adjetivos) se conserva.
+        a = self.r.informe["puntuaciones"][0]
+        pr = a["cifra_prometida"]
         self.assertIn(pr["resultado"], ("dentro", "fuera"))
-        palabra = {"dentro": ("dentro del intervalo", "inside the interval"),
-                   "fuera": ("fuera del intervalo", "outside the interval")}[pr["resultado"]]
-        self.assertIn(f"Prometía 0,820: {palabra[0]}", _texto(self.es))
-        self.assertIn(f"Promised 0.820: {palabra[1]}", _texto(self.en))
+        palabra = {"dentro": ("dentro", "inside"), "fuera": ("fuera", "outside")}[pr["resultado"]]
+        local = f'{a["discriminacion"]["auroc"]["valor"]:.3f}'
+        self.assertIn(f"Referencia publicada 0,820 · estimación local {local.replace('.', ',')}: "
+                      f"la referencia cae {palabra[0]} del intervalo local", _texto(self.es))
+        self.assertIn(f"Published reference 0.820 · local estimate {local}: the reference falls "
+                      f"{palabra[1]} the local interval", _texto(self.en))
         otra = "dentro" if pr["resultado"] == "fuera" else "fuera"
-        self.assertNotIn(f"0,820: {otra} del intervalo", _texto(self.es))
+        self.assertNotIn(f"la referencia cae {otra} del intervalo", _texto(self.es))
+        for doc in (self.es, self.en):
+            self.assertNotIn("Prometía", doc)
+            self.assertNotIn("Promised 0.", doc)
 
     def test_el_informe_no_califica_con_adjetivos_en_sus_propios_rotulos(self):
         prohibidas = ("bueno", "buena", "malo", "mala", "aceptable", "excelente", "pobre",
@@ -374,7 +393,8 @@ class SubgruposTest(Base):
                      for g in s["grupos"] if g["valor"] == "Ward A")
         self.assertEqual(celdas[1], f"{grupo['n']:,}")
         self.assertEqual(celdas[2], f"{grupo['eventos']:,}")
-        self.assertEqual(celdas[3], f"{grupo['auroc']['valor']:.3f}")
+        ic = grupo["auroc"]["ic"]                     # R5: el AUROC del grupo lleva su intervalo
+        self.assertEqual(celdas[3], f"{grupo['auroc']['valor']:.3f} ({ic['bajo']:.3f} – {ic['alto']:.3f})")
 
     def test_la_tarjeta_de_con_quien_falla_cuenta_los_insuficientes_sin_decir_cuales_son_sus_n(self):
         self.assertIn("Grupos con evidencia insuficiente: 1", _texto(self.es))
@@ -453,7 +473,9 @@ class HtmlPorLaOrdenTest(unittest.TestCase):
         r = subprocess.run(
             [sys.executable, "-m", "matrixai", "evaluate-score", str(d / "datos.csv"),
              "--outcome", "outcome", "--event", "Yes", "--represents-population", "yes",
+             "--outcome-horizon", "hospital stay", "--score-timing", "admission day",
              "--score", "score_a", "--score-type", "probability", "--direction", "higher",
+             "--score-development-cases", "no", "--score2-development-cases", "yes",
              "--threshold", "0.3", "--score2", "score_b", "--score2-type", "score",
              "--score2-direction", "higher", "--score2-threshold", "6", "--subgroup", "sex",
              "--resamples", "30", "--locale", locale, "--html", str(d / f"informe_{locale}.html"),
@@ -615,7 +637,7 @@ class EscapadoTest(unittest.TestCase):
             _csv(filas, cols).replace("score_a", "sa"), columna_desenlace="outcome",
             valor_del_evento="Yes",
             puntuaciones=[Decl("sa", "probabilidad", ALTO, umbral=0.3, origen=sucio + "<i>o</i>")],
-            muestra_representativa=True, columnas_de_subgrupo=("sex",), remuestras=REM,
+            muestra_representativa=True, columnas_de_subgrupo=("sex",), remuestras=REM, **R2,
             nombre_del_fichero="a<img src=x onerror=1>.csv", actor="<u>quien</u>",
             clave=_CLAVE, creado_en="2026-10-23T12:00:00Z")
         for idioma in IDIOMAS:
@@ -669,7 +691,7 @@ class TripodTest(Base):
         for idioma, no_consta in (("es", "No consta"), ("en", "Not reported")):
             doc = informe_html(self.r, idioma=idioma)
             for clave in ("poblacion", "criterios_de_inclusion", "predictores",
-                          "definicion_del_desenlace", "momento_del_desenlace", "proceso_actual",
+                          "definicion_del_desenlace", "proceso_actual",
                           "uso_previsto"):
                 fila = _fila(doc, f"<td>{POR_CLAVE[clave].rotulo[idioma]}</td>")
                 self.assertIn(no_consta, fila, clave)
@@ -766,3 +788,354 @@ class CatalogoTest(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+# ---------------------------------------------------------------------------------------------
+# Ronda de rigor del 24-10 (R3, R4, R5, R6)
+# ---------------------------------------------------------------------------------------------
+
+def _trozo_de_grafica(doc: str, tipo: str) -> str:
+    for caja in doc.split('<div class="chart">'):
+        if f'data-chart="{tipo}"' in caja:
+            return caja
+    raise AssertionError(f"no hay gráfica {tipo}")
+
+
+ROTULO_ES = "describen la muestra aportada, no la población de uso"
+ROTULO_EN = "describe the supplied sample, not the population of use"
+
+
+class R3RepresentatividadTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.no = _dos(representa=False)
+        cls.si = _dos(representa=True)
+        cls.no_es, cls.no_en = (informe_html(cls.no, idioma=i) for i in ("es", "en"))
+        cls.si_es, cls.si_en = (informe_html(cls.si, idioma=i) for i in ("es", "en"))
+
+    def test_R3_sin_representatividad_la_calibracion_lleva_el_rotulo_y_su_porque(self):
+        tarjeta = next(c for c in self.no_es.split('<div class="tile') if "intercepto" in c.lower()
+                       and "Acierta en el riesgo" in c)
+        self.assertIn(ROTULO_ES, tarjeta.lower())
+        self.assertIn("más eventos de los habituales", tarjeta)
+        tarjeta_en = next(c for c in self.no_en.split('<div class="tile') if "Is the risk right" in c
+                          and "Intercept" in c)
+        self.assertIn(ROTULO_EN, tarjeta_en.lower())
+        self.assertIn("more events than usual", tarjeta_en)
+
+    def test_R3_sin_representatividad_el_beneficio_neto_y_la_curva_de_decision_lo_llevan(self):
+        for doc, rot in ((self.no_es, ROTULO_ES), (self.no_en, ROTULO_EN)):
+            self.assertIn(rot, _fila(doc, "Beneficio neto" if rot == ROTULO_ES else "Net benefit").lower())
+            self.assertIn(rot, _trozo_de_grafica(doc, "decision").lower())
+            self.assertIn(rot, _trozo_de_grafica(doc, "reliability").lower())
+
+    def test_R3_el_rotulo_tambien_esta_en_la_pagina_de_conclusiones(self):
+        for doc, rot in ((self.no_es, ROTULO_ES), (self.no_en, ROTULO_EN)):
+            conclusiones = doc[:doc.index("<details")]
+            self.assertIn(rot, _texto(conclusiones).lower())
+
+    def test_R3_con_representatividad_no_hay_rotulo_y_se_dice_que_lo_declara_quien_ejecuta(self):
+        for doc in (self.si_es, self.si_en):
+            self.assertNotIn(ROTULO_ES, doc.lower())
+            self.assertNotIn(ROTULO_EN, doc.lower())
+        c_es, c_en = (_texto(d[:d.index("<details")]) for d in (self.si_es, self.si_en))
+        self.assertIn("lo declara quien ejecuta la evaluación, y MatrixAI no lo comprueba", c_es)
+        self.assertIn("is declared by whoever runs the evaluation, and MatrixAI does not check it", c_en)
+
+    def test_R3_el_informe_del_nucleo_lleva_la_misma_declaracion_en_el_dato(self):
+        rep_no, rep_si = self.no.informe["representatividad"], self.si.informe["representatividad"]
+        self.assertIs(rep_no["declarada"], False)
+        self.assertIs(rep_no["comprobada_por_matrixai"], False)
+        self.assertEqual(rep_no["rotulo"]["es"], ROTULO_ES)
+        self.assertIsNone(rep_si["rotulo"])
+        for p in self.si.informe["puntuaciones"]:
+            self.assertIsNone((p["calibracion"] if p["calibracion"]["aplica"] else {}).get("rotulo_de_alcance"))
+
+    def test_R3_una_escala_de_puntos_no_lleva_rotulo_de_calibracion_que_no_tiene(self):
+        # score_b no tiene calibración ni curva de decisión: el rótulo no se cuela donde no
+        # hay nada que rotular (sería afirmar que existe una calibración).
+        b = self.no.informe["puntuaciones"][1]
+        self.assertFalse(b["calibracion"]["aplica"])
+        self.assertNotIn("rotulo_de_alcance", b["calibracion"])
+        self.assertNotIn("rotulo_de_alcance", b["curva_de_decision"])
+
+
+class R4ReferenciaTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.r = _dos()
+        cls.es = informe_html(cls.r, idioma="es")
+        cls.en = informe_html(cls.r, idioma="en")
+
+    def test_R4_se_dan_las_dos_cifras_y_la_advertencia_siempre(self):
+        adv_es = "no demuestra que la cifra original esté mal"
+        adv_en = "does not show that the original figure is wrong"
+        self.assertIn(adv_es, _texto(self.es))
+        self.assertIn(adv_en, _texto(self.en))
+        for doc, pop in ((self.es, "población, el desenlace, el seguimiento y la incertidumbre"),
+                         (self.en, "population, the outcome, the follow-up and the uncertainty")):
+            conclusiones = _texto(doc[:doc.index("<details")])
+            self.assertIn(pop, conclusiones)
+            self.assertIn("0,820" if doc is self.es else "0.820", conclusiones)
+
+    def test_R4_la_advertencia_sale_tanto_si_cae_dentro_como_si_cae_fuera(self):
+        a = self.r.informe["puntuaciones"][0]
+        bajo, alto = a["cifra_prometida"]["intervalo"]
+        dentro = _evaluar(puntuaciones=[Decl("score_a", "probabilidad", ALTO, umbral=0.3,
+                                             cifra_prometida=round((bajo + alto) / 2, 3))])
+        fuera = _evaluar(puntuaciones=[Decl("score_a", "probabilidad", ALTO, umbral=0.3,
+                                            cifra_prometida=0.5)])
+        self.assertEqual(dentro.informe["puntuaciones"][0]["cifra_prometida"]["resultado"], "dentro")
+        self.assertEqual(fuera.informe["puntuaciones"][0]["cifra_prometida"]["resultado"], "fuera")
+        for r, pos in ((dentro, "dentro"), (fuera, "fuera")):
+            doc = informe_html(r, idioma="es")
+            self.assertIn(f"la referencia cae {pos} del intervalo local", _texto(doc))
+            self.assertIn("no demuestra que la cifra original esté mal", _texto(doc))
+            self.assertIn("estimacion_local", r.informe["puntuaciones"][0]["cifra_prometida"])
+
+    def test_R4_sin_cifra_prometida_no_hay_referencia_ni_advertencia(self):
+        r = _evaluar(puntuaciones=[Decl("score_a", "probabilidad", ALTO, umbral=0.3)])
+        doc = informe_html(r, idioma="es")
+        self.assertNotIn("Referencia publicada", doc)
+        self.assertNotIn("no demuestra que la cifra original", doc)
+        self.assertIsNone(r.informe["puntuaciones"][0]["cifra_prometida"])
+
+    def test_R4_la_comparacion_emparejada_se_senala_como_la_mas_directamente_interpretable(self):
+        self.assertIn("la comparación más directamente interpretable", _texto(self.es))
+        self.assertIn("most directly interpretable comparison", _texto(self.en))
+        conclusiones = _texto(self.es[:self.es.index("<details")])
+        self.assertIn("Es la comparación más directamente interpretable: las dos puntuaciones se "
+                      "miden sobre los mismos casos", conclusiones)
+
+
+class R5PrivacidadTest(unittest.TestCase):
+    PROMESAS = re.compile(r"protege|protect|garantiza la privacidad|guarantees? privacy|"
+                          r"casi identifica|nearly identif|acerca a una identificaci|"
+                          r"identificar[ií]a|would identify|privacidad", re.I)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.r = _dos()
+        cls.es = informe_html(cls.r, idioma="es")
+        cls.en = informe_html(cls.r, idioma="en")
+
+    def test_R5_ningun_texto_promete_privacidad_ni_dice_que_el_minimo_protege(self):
+        from matrixai.estudio.evaluacion_de_puntuacion_textos import MOTIVOS
+        for nombre, catalogo in (("informe", TEXTOS), ("nucleo", MOTIVOS)):
+            for clave, textos in catalogo.items():
+                for idioma, frase in textos.items():
+                    self.assertIsNone(self.PROMESAS.search(frase), f"{nombre}/{clave}/{idioma}")
+        for doc in (self.es, self.en):
+            self.assertIsNone(self.PROMESAS.search(_texto(doc)))
+        from matrixai.estudio import evaluacion_de_puntuacion as nucleo
+        self.assertNotIn("también protege la privacidad", nucleo.__doc__)
+
+    def test_R5_dice_que_suprimir_grupos_pequenos_ayuda_pero_no_garantiza_anonimizacion(self):
+        self.assertIn("Suprimir grupos pequeños ayuda, pero no garantiza anonimización",
+                      _texto(self.es))
+        self.assertIn("Suppressing small groups helps, but does not guarantee anonymisation",
+                      _texto(self.en))
+        self.assertIn("no garantiza anonimización", _texto(self.es[:self.es.index("<details")]))
+        self.assertIn("does not guarantee anonymisation", _texto(self.en[:self.en.index("<details")]))
+        self.assertIn("no_es_anonimizacion", [x["id"] for x in self.r.informe["lo_que_no_es"]])
+
+    def test_R5_el_auroc_de_cada_grupo_con_evidencia_lleva_su_intervalo_en_el_html(self):
+        sub = self.r.informe["puntuaciones"][0]["subgrupos"]
+        medido = next(g for s in sub for g in s["grupos"] if g["soporte_suficiente"])
+        ic = medido["auroc"]["ic"]
+        self.assertLess(ic["bajo"], medido["auroc"]["valor"])
+        self.assertLess(medido["auroc"]["valor"], ic["alto"])
+        celda = f'{medido["auroc"]["valor"]:.3f}'.replace(".", ",")
+        fila = _fila(self.es, f'<b>{medido["valor"]}</b>')
+        self.assertIn(f'{celda} ({ic["bajo"]:.3f}'.replace(".", ","), fila)
+
+    def test_R5_un_grupo_sin_evidencia_sigue_sin_numero_ni_intervalo(self):
+        sub = self.r.informe["puntuaciones"][0]["subgrupos"]
+        pobre = next(g for s in sub for g in s["grupos"] if not g["soporte_suficiente"])
+        self.assertNotIn("auroc", pobre)
+        self.assertNotIn("eventos", pobre)
+        self.assertIn("Evidencia insuficiente", _fila(self.es, f'<b>{pobre["valor"]}</b>'))
+
+
+class R6ConclusionesTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.r = _dos()
+        cls.es = informe_html(cls.r, idioma="es")
+        cls.en = informe_html(cls.r, idioma="en")
+
+    def test_R6_las_conclusiones_van_antes_que_cualquier_anexo(self):
+        for doc, titulo, anexo, ficha in ((self.es, "Conclusiones", "Anexo A", "Ficha TRIPOD+AI"),
+                                          (self.en, "Conclusions", "Annex A", "TRIPOD+AI")):
+            self.assertIn('<section class="conclusiones">', doc)
+            self.assertLess(doc.index('<section class="conclusiones">'), doc.index("<details"))
+            self.assertLess(doc.index(titulo), doc.index(anexo))
+            # los detalles técnicos SOLO aparecen dentro de los anexos
+            primer = doc.index("<details")
+            for tecnico in ("Matriz de confusión" if doc is self.es else "Confusion matrix",
+                            "Huella del CSV" if doc is self.es else "CSV digest", ficha):
+                self.assertGreater(doc.index(tecnico), primer, tecnico)
+
+    def test_R6_los_anexos_son_details_nativos_sin_javascript(self):
+        for doc in (self.es, self.en):
+            self.assertEqual(doc.count('<details class="anexo">'), 6)   # 2 puntuaciones + 4
+            self.assertEqual(doc.count("</details>"), 6)
+            self.assertEqual(doc.count("<summary>"), 6)
+            self.assertNotIn("<script", doc.lower())
+            self.assertNotIn("http", doc.lower())
+            self.assertNotIn("onclick", doc.lower())
+
+    def test_R6_al_imprimir_los_anexos_se_piden_abiertos_y_las_conclusiones_hacen_hoja(self):
+        css = self.es[self.es.index("<style>"):self.es.index("</style>")]
+        self.assertRegex(css, r"@media print\{details\.anexo::details-content\{[^}]*content-visibility:visible")
+        self.assertIn("section.conclusiones{font-size:11px;break-after:page}", css)
+
+    def test_R6_las_conclusiones_dicen_las_cinco_preguntas_y_los_limites_en_llano(self):
+        c = _texto(self.es[:self.es.index("<details")])
+        for frase in ("Qué se evaluó", "¿Ordena bien?", "¿Acierta en el riesgo?", "Con el umbral de uso",
+                      "¿Con quién falla?", "Frente a la otra", "Límites de este informe",
+                      "Lo que este informe no es", "Dicho en llano", "de cada 100 eventos"):
+            self.assertIn(frase, c)
+        ce = _texto(self.en[:self.en.index("<details")])
+        for frase in ("What was evaluated", "Does it rank well?", "Is the risk right?",
+                      "At the threshold of use", "Who does it fail for?", "Against the other score",
+                      "Limits of this report", "What this report is not", "In plain terms",
+                      "out of every 100 events"):
+            self.assertIn(frase, ce)
+
+    def test_R6_la_frase_de_la_firma_esta_en_las_conclusiones(self):
+        self.assertIn("La firma acredita integridad comprobable con la clave",
+                      _texto(self.es[:self.es.index("<details")]))
+        self.assertIn("El valor científico del informe depende del diseño del estudio y de los datos",
+                      _texto(self.es[:self.es.index("<details")]))
+        self.assertIn("The signature certifies integrity that can be checked with the key",
+                      _texto(self.en[:self.en.index("<details")]))
+        self.assertIn("depends on the study design and on the data supplied",
+                      _texto(self.en[:self.en.index("<details")]))
+
+    def test_R6_sin_firma_las_conclusiones_lo_dicen(self):
+        r = _dos(firmar=False)
+        doc = informe_html(r, idioma="es")
+        self.assertIn("Este informe no está firmado (garantía A0)", _texto(doc[:doc.index("<details")]))
+        self.assertNotIn("Este informe no está firmado", _texto(self.es))
+
+    def test_R6_las_cifras_de_las_conclusiones_son_las_del_informe(self):
+        a = self.r.informe["puntuaciones"][0]
+        c = _texto(self.es[:self.es.index("<details")])
+        self.assertIn(f'AUROC {a["discriminacion"]["auroc"]["valor"]:.3f}'.replace(".", ","), c)
+        sens = a["al_umbral"]["sensibilidad"]["valor"]
+        self.assertIn(f"Sensibilidad {sens * 100:.1f}".replace(".", ","), c)
+
+    def test_R6_las_conclusiones_caben_en_una_hoja_o_dos_estimado(self):
+        # Estimación sin navegador: ~130 caracteres por línea y ~65 líneas por hoja A4 a 11 px
+        # (ver informe de la ronda). Es un guardia de presupuesto, no una medida de impresión.
+        c = _texto(self.es[:self.es.index("<details")])
+        lineas = len(c) / 130 + 25      # los saltos de párrafo y títulos
+        self.assertLess(lineas / 65, 3.0, f"{len(c)} caracteres")
+
+
+# ---------------------------------------------------------------------------------------------
+# R2 y «dónde se calculó» en el HTML
+# ---------------------------------------------------------------------------------------------
+
+def _conclusiones(doc: str) -> str:
+    return _texto(doc[:doc.index("<details")])
+
+
+class R2HtmlTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.dos = _dos(horizonte_del_desenlace="30 days", momento_de_la_puntuacion="day 3")
+        cls.es = informe_html(cls.dos, idioma="es")
+        cls.en = informe_html(cls.dos, idioma="en")
+        # score_a: casos en su desarrollo = «no» (por la envoltura); score_b: «no se sabe»
+        cls.mixto = _evaluar(puntuaciones=[
+            Decl("score_a", "probabilidad", ALTO, umbral=0.3, casos_en_su_desarrollo="si"),
+            Decl("score_b", "puntuacion", ALTO, umbral=6, casos_en_su_desarrollo="no_se_sabe")])
+        cls.todo_no = _evaluar(puntuaciones=[
+            Decl("score_a", "probabilidad", ALTO, umbral=0.3, casos_en_su_desarrollo="no")])
+
+    def test_R2_el_horizonte_y_el_momento_estan_en_las_conclusiones_en_los_dos_idiomas(self):
+        self.assertIn("Horizonte del desenlace: 30 days. Momento en que se calculó la puntuación: day 3",
+                      _conclusiones(self.es))
+        self.assertIn("Outcome horizon: 30 days. When the score was calculated: day 3",
+                      _conclusiones(self.en))
+        self.assertIn("30 days", _fila(self.es, "Horizonte del desenlace"))
+        self.assertIn("day 3", _fila(self.en, "Score timing"))
+
+    def test_R2_con_si_o_no_se_sabe_el_html_dice_no_es_una_validacion_externa(self):
+        es, en = (informe_html(self.mixto, idioma=i) for i in ("es", "en"))
+        c_es, c_en = _conclusiones(es), _conclusiones(en)
+        self.assertIn("esto NO es una validación externa de esa puntuación", c_es)
+        self.assertIn("mientras no se sepa, esto NO es una validación externa", c_es)
+        self.assertIn("this is NOT an external validation of that score", c_en)
+        self.assertIn("No es una validación externa de: score_a, score_b", c_es)
+        self.assertIn("It is not an external validation of: score_a, score_b", c_en)
+
+    def test_R2_la_ficha_tripod_lo_refleja(self):
+        for idioma, doc, rotulo, frase in (
+                ("es", informe_html(self.mixto, idioma="es"),
+                 "¿Participaron estos casos en el desarrollo de la puntuación?",
+                 "no es una validación externa"),
+                ("en", informe_html(self.mixto, idioma="en"),
+                 "Did these cases take part in the development of the score?",
+                 "this is not an external validation")):
+            fila = _fila(doc, f"<td>{rotulo}</td>")
+            self.assertIn(frase, fila)
+            self.assertIn("«score_a»" if idioma == "es" else "“score_a”", fila)
+            alcance = _fila(doc, "Alcance de la validación" if idioma == "es" else "Validation scope")
+            self.assertIn("score_a, score_b", alcance)
+        items = {i.clave: i for i in items_tripod(self.mixto, "es")}
+        self.assertEqual(items["vx_desarrollo"].estado, DECLARADO)
+        self.assertEqual(items["momento_del_desenlace"].estado, DECLARADO)
+        self.assertIn("hospital stay", items["momento_del_desenlace"].dato)
+        self.assertEqual(resolver_ruta(self.mixto.informe, items["vx_desarrollo"].ruta)["casos_en_su_desarrollo"], "si")
+
+    def test_R2_con_no_el_html_no_dice_que_no_es_validacion_externa_pero_si_que_no_se_comprueba(self):
+        es = informe_html(self.todo_no, idioma="es")
+        self.assertNotIn("no es una validación externa", _texto(es).lower())
+        self.assertNotIn("NO es una validación externa", _texto(es))
+        self.assertIn("MatrixAI no lo comprueba", _conclusiones(es))
+        fila = _fila(es, "<td>¿Participaron estos casos en el desarrollo de la puntuación?</td>")
+        self.assertIn("declarado, MatrixAI no lo comprueba", fila)
+
+    def test_R2_la_declaracion_de_cada_puntuacion_enseña_sus_casos_en_su_desarrollo(self):
+        self.assertIn("casos en su desarrollo: sí", _texto(informe_html(self.mixto, idioma="es")))
+        self.assertIn("cases in its development: unknown", _texto(informe_html(self.mixto, idioma="en")))
+
+
+class DondeSeCalculaHtmlTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.local = _dos(donde_se_calcula="local")
+        cls.demo = _dos(donde_se_calcula="servidor_de_la_demo")
+
+    def test_la_demo_dice_que_el_servidor_calculo_con_el_csv_enviado_y_que_no_se_guardo(self):
+        es, en = (informe_html(self.demo, idioma=i) for i in ("es", "en"))
+        self.assertIn("Se calculó en el servidor de la demo con el CSV que enviaste; el CSV no se guardó.",
+                      _conclusiones(es))
+        self.assertIn("It was calculated on the demo server with the CSV you sent; the CSV was not stored.",
+                      _conclusiones(en))
+        for doc in (es, en):                       # cabecera y anexo «Cómo se hizo» también
+            self.assertGreaterEqual(_texto(doc).count("servidor de la demo" if doc is es else "demo server"), 3)
+        self.assertNotIn("se calculó en local", _texto(es).lower())
+        self.assertNotIn("calculated locally", _texto(en).lower())
+
+    def test_en_local_dice_que_no_salio_del_equipo_y_no_menciona_la_demo(self):
+        es, en = (informe_html(self.local, idioma=i) for i in ("es", "en"))
+        self.assertIn("Se calculó en local, en el equipo de quien ejecutó la evaluación: el CSV no salió de él",
+                      _conclusiones(es))
+        self.assertIn("It was calculated locally", _conclusiones(en))
+        self.assertNotIn("servidor de la demo", _texto(es))
+        self.assertNotIn("demo server", _texto(en))
+
+    def test_la_frase_vieja_todo_se_midio_en_local_no_aparece_en_ningun_caso(self):
+        for r in (self.local, self.demo):
+            for idioma in IDIOMAS:
+                doc = informe_html(r, idioma=idioma)
+                for vieja in ("Todo se midió en local", "Se ha generado en local",
+                              "Everything was measured locally", "It was generated locally"):
+                    self.assertNotIn(vieja, doc)
+        for idioma in IDIOMAS:
+            for clave, textos in TEXTOS.items():
+                self.assertNotIn("generado en local", textos[idioma])
