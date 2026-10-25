@@ -74,6 +74,7 @@ from matrixai.estudio.incertidumbre import (
     _longitud_de_bloque_por_omision,
     _percentil,
     _recortar,
+    observador_de_remuestras,
 )
 from matrixai.estudio.metricas import (
     REGISTRO,
@@ -267,6 +268,7 @@ def comparar_candidatos(metric_id: str, candidato: Muestra, baseline: Muestra, *
     registrada = REGISTRO[metric_id]
     diferencias: list[float] = []
     degeneradas = 0
+    observador = observador_de_remuestras()  # 137-C4: contar remuestras desde fuera
     empieza = time.perf_counter()
     for _ in range(remuestras):
         indices = generador()
@@ -278,6 +280,8 @@ def comparar_candidatos(metric_id: str, candidato: Muestra, baseline: Muestra, *
             degeneradas += 1
         else:
             diferencias.append(float(valor_candidato) - float(valor_baseline))
+        if observador is not None:
+            observador()
     transcurrido = time.perf_counter() - empieza
 
     validas = len(diferencias)

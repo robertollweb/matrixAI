@@ -61,6 +61,21 @@ LO QUE SE DECIDIÓ AL COMPONER (para que no se «simplifique» sin saberlo):
   registrada ajusta `a` y `b` a la vez, así que su intervalo se saca de las mismas
   remuestras (dos pasadas harían el ajuste Newton dos veces por nada).
 
+* **El progreso es el que se CUENTA, no uno estimado (137-C4).** `al_progresar(hechas,
+  total, fase)`: `total` son las remuestras que el núcleo VA a hacer —remuestras × intervalos
+  que estas declaraciones piden de verdad (`_Plan`), calculado ANTES de empezar a medir— y
+  `hechas` las que lleva. Ni porcentajes inventados ni tiempos estimados. Un intervalo que no
+  se puede calcular (una sola clase, una fila) se da por hecho de golpe, y el contador nunca
+  retrocede ni pasa de `total`. Si `al_progresar` lanza `EvaluacionCancelada` (o cualquier
+  excepción), la evaluación se detiene sin devolver nada. El contador no cambia ni un número del
+  informe: se engancha en el bucle de remuestreo de `incertidumbre` con un observador
+  opcional, sin copiar ninguna fórmula.
+* **La exploración del umbral (`al_umbral.exploracion`) son recuentos, no un veredicto.** Los
+  VÉRTICES de la curva (un umbral por valor distinto de la columna, en las UNIDADES de la
+  columna, adelgazados a `PUNTOS_DE_LA_EXPLORACION`), con tp/fp/fn/tn en cada uno. VPP y VPN
+  solo con «la muestra representa»; un recuento pequeño NO se oculta (no hay filas) pero se
+  cuenta cuántos hay. Con «más bajo = más riesgo» el umbral se aplica al revés y se dice.
+
 Y sigue siendo stdlib puro.
 """
 
@@ -74,15 +89,23 @@ import platform
 import re
 import unicodedata
 from collections import Counter
+from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from matrixai.estudio.calibracion import ajustar_recalibracion_logistica, curva_de_fiabilidad
 from matrixai.estudio.comparaciones import comparar_candidatos
 from matrixai.estudio.errores import ErrorDeEstudio
 from matrixai.estudio.esquemas import ValorDeMetrica
 from matrixai.estudio.evaluacion_de_puntuacion_textos import cifra, motivo
-from matrixai.estudio.incertidumbre import Intervalo, _percentil, _recortar, intervalo, medir
+from matrixai.estudio.incertidumbre import (
+    Intervalo,
+    _percentil,
+    _recortar,
+    intervalo,
+    medir,
+    observando_remuestras,
+)
 from matrixai.estudio.metricas import (
     Indefinida,
     Muestra,
@@ -109,11 +132,12 @@ __all__ = [
     "AUSENTES", "CASOS_EN_SU_DESARROLLO", "DIRECCIONES", "DONDE_SE_CALCULA",
     "MAXIMO_DE_VALORES_POR_SUBGRUPO", "MINIMO_DE_REMUESTRAS",
     "TIPOS_DE_PUNTUACION", "VERSION_DEL_INFORME", "DeclaracionDePuntuacion",
-    "EvaluacionRechazada", "ResultadoDeEvaluacion", "evaluar_puntuacion",
+    "EvaluacionCancelada", "EvaluacionRechazada", "FASES_DE_PROGRESO",
+    "PUNTOS_DE_LA_EXPLORACION", "ResultadoDeEvaluacion", "evaluar_puntuacion",
     "resumen_de_la_evaluacion",
 ]
 
-VERSION_DEL_INFORME = "2.1.0"
+VERSION_DEL_INFORME = "2.2.0"
 ESQUEMA_DEL_INFORME = "matrixai.estudio.score_evaluation_report"
 
 #: Lo que declara quien evalúa. Cerrado, como todo vocabulario de esta casa.
@@ -161,6 +185,105 @@ class EvaluacionRechazada(ErrorDeEstudio):
         self.campos = dict(campos)
         self.es = textos["es"]
         self.en = textos["en"]
+
+
+class EvaluacionCancelada(Exception):
+    """Quien llamó pidió parar (137-C4). `al_progresar` la LANZA y la evaluación se detiene
+    donde está: no devuelve nada —ni informe, ni recibo, ni nada a medias— y no deja estado.
+
+    No es un `ErrorDeEstudio` a propósito: no es un rechazo de los datos ni de las
+    declaraciones, y quien captura los rechazos del paquete no debe tomar una cancelación por
+    un fallo."""
+
+
+#: Las claves ESTABLES de `fase` en `al_progresar`, en el orden en que aparecen. La pantalla
+#: las traduce; no se renombran sin cambiar la versión del informe.
+FASES_DE_PROGRESO = ("lectura", "intervalos", "subgrupos", "calibracion", "umbral",
+                     "comparacion", "informe")
+
+#: Cuántas veces como mucho se llama a `al_progresar` por una barra completa (sin contar los
+#: cambios de fase): con 500 remuestras × 20 intervalos serían 10.000 llamadas, y una pantalla
+#: no necesita más de un 0,5 % de resolución.
+LLAMADAS_DE_PROGRESO_POR_BARRA = 200
+
+
+class _Avance:
+    """El contador de lo hecho (137-C4). Sin función de progreso no hace NADA.
+
+    `total` es lo que el núcleo planificó (`planificar`); `hechas` sube de a una por remuestra
+    observada y NUNCA retrocede ni pasa de `total`. El trabajo se reparte en TRAMOS (un grupo de
+    intervalos de una misma fase): al salir de uno sin error, lo que no se hizo se da por hecho
+    (un intervalo indefinido no remuestrea nada) y se anota en `acreditadas`; si un tramo hace
+    MÁS de lo previsto, el contador se queda en el tope del tramo y se anota `desbordado`. Las
+    dos anotaciones no salen en ningún informe: las leen las pruebas, que exigen CERO — un
+    plan que no cuadra con lo que el código hace de verdad es justo lo que hay que cazar."""
+
+    def __init__(self, al_progresar: Callable[[int, int, str], None] | None) -> None:
+        self._cb = al_progresar
+        self.total = 0
+        self.hechas = 0
+        self.fase_actual = "lectura"
+        self.acreditadas = 0
+        self.desbordado = False
+        self._tope = 0
+        self._ultima = -1
+        self._intervalo_minimo = 1
+
+    @property
+    def activo(self) -> bool:
+        return self._cb is not None
+
+    def _emitir(self) -> None:
+        if self._cb is None:
+            return
+        self._ultima = self.hechas
+        self._cb(self.hechas, self.total, self.fase_actual)
+
+    def fase(self, nombre: str) -> None:
+        self.fase_actual = nombre
+        self._emitir()
+
+    def planificar(self, total: int) -> None:
+        self.total = total
+        self._intervalo_minimo = max(1, total // LLAMADAS_DE_PROGRESO_POR_BARRA)
+
+    def paso(self) -> None:
+        """Una remuestra hecha. Es lo que se instala como observador del remuestreo."""
+        if self.hechas >= self._tope:
+            self.desbordado = True
+            return
+        self.hechas += 1
+        if self.hechas - self._ultima >= self._intervalo_minimo:
+            self._emitir()
+
+    def tramo(self, fase: str, pasos: int):
+        """El trabajo de `pasos` remuestras de esta fase. Sin pasos no se anuncia la fase."""
+        if self._cb is None:
+            return nullcontext()
+        return _Tramo(self, fase, pasos)
+
+
+class _Tramo:
+    def __init__(self, avance: _Avance, fase: str, pasos: int) -> None:
+        self.avance, self.fase, self.pasos = avance, fase, pasos
+
+    def __enter__(self) -> "_Tramo":
+        a = self.avance
+        self._anterior = a._tope
+        a._tope = a.hechas + self.pasos
+        if self.pasos:
+            a.fase(self.fase)
+        return self
+
+    def __exit__(self, tipo, valor, traza) -> None:
+        a = self.avance
+        if tipo is None:
+            if a.hechas < a._tope:
+                a.acreditadas += a._tope - a.hechas
+                a.hechas = a._tope
+            if self.pasos and a.hechas != a._ultima:
+                a._emitir()
+        a._tope = self._anterior
 
 
 # ---------------------------------------------------------------------------
@@ -503,16 +626,117 @@ def _curva_roc(muestra: Muestra) -> list[dict[str, float]] | None:
         fp += cuenta[sc][1]
         vertices.append((fp / negativos, tp / positivos))
     if len(vertices) > PUNTOS_DE_LA_CURVA_ROC:
-        acumulada = [0.0]
-        for (x0, y0), (x1, y1) in zip(vertices, vertices[1:]):
-            acumulada.append(acumulada[-1] + abs(x1 - x0) + abs(y1 - y0))
-        total = acumulada[-1]
-        elegidos = {0, len(vertices) - 1}
-        for j in range(1, PUNTOS_DE_LA_CURVA_ROC - 1):
-            objetivo = total * j / (PUNTOS_DE_LA_CURVA_ROC - 1)
-            elegidos.add(min(range(len(vertices)), key=lambda i: abs(acumulada[i] - objetivo)))
-        vertices = [vertices[i] for i in sorted(elegidos)]
+        vertices = [vertices[i] for i in _vertices_elegidos(vertices, PUNTOS_DE_LA_CURVA_ROC)]
     return [{"fpr": x, "tpr": y} for x, y in vertices]
+
+
+def _vertices_elegidos(vertices: Sequence[tuple[float, float]], tope: int,
+                       forzados: Sequence[int] = ()) -> list[int]:
+    """Las posiciones (ordenadas) de como mucho `tope` vértices de la curva: los dos extremos,
+    los `forzados` y, entre medias, los más cercanos a repartos iguales de la LONGITUD de la
+    curva. Un subconjunto de los vértices reales, nunca un punto interpolado. Con `forzados`
+    vacío es exactamente lo que `_curva_roc` ya hacía."""
+    acumulada = [0.0]
+    for (x0, y0), (x1, y1) in zip(vertices, vertices[1:]):
+        acumulada.append(acumulada[-1] + abs(x1 - x0) + abs(y1 - y0))
+    total = acumulada[-1]
+    elegidos = {0, len(vertices) - 1, *forzados}
+    interiores = tope - len(elegidos)
+    for j in range(1, interiores + 1):
+        objetivo = total * j / (interiores + 1)
+        elegidos.add(min(range(len(vertices)), key=lambda i: abs(acumulada[i] - objetivo)))
+    return sorted(elegidos)
+
+
+#: Cuántos umbrales como mucho ofrece `al_umbral.exploracion` al deslizador.
+PUNTOS_DE_LA_EXPLORACION = 50
+
+
+def _exploracion(decl: "DeclaracionDePuntuacion", crudos: Sequence[float], ys: Sequence[int],
+                 representa: bool) -> dict[str, Any]:
+    """Los recuentos de la matriz de confusión en cada umbral ofrecido al deslizador (137-C4).
+
+    Se parte de los valores TAL COMO están en la columna, no de la escala de trabajo: el umbral
+    que enseña la pantalla es el que la persona reconoce (`23,5`, no `0,23499999`). Un umbral
+    por valor distinto —los empates se cierran juntos, como en la curva ROC— con la misma regla
+    que la tabla al umbral de uso: se señala el caso cuya puntuación ALCANZA el umbral (`>=`
+    con «más alto», `<=` con «más bajo»). Con «más bajo = más riesgo» no se invierte nada en
+    silencio: se recorre de menor a mayor valor y el informe lo dice.
+
+    Solo agregados: cuatro enteros por umbral. Ordenados por umbral ascendente, en las
+    unidades de la columna. Si hay más vértices que `PUNTOS_DE_LA_EXPLORACION` se eligen los
+    más repartidos a lo largo de la curva (extremos incluidos) y el vértice que corresponde al
+    umbral de uso, para que la pantalla pueda partir de él."""
+    positivos = sum(ys)
+    negativos = len(ys) - positivos
+    if not positivos or not negativos:
+        return {"disponible": False, "motivo": motivo("exploracion_sin_los_dos_desenlaces")}
+    cuenta: dict[float, list[int]] = {}
+    for valor, y in zip(crudos, ys):
+        c = cuenta.setdefault(valor, [0, 0])
+        c[0 if y else 1] += 1
+    # De MÁS a MENOS riesgo: el conjunto de casos señalados crece a cada vértice.
+    por_riesgo = sorted(cuenta, reverse=decl.mas_alto)
+    vertices: list[tuple[float, int, int]] = []
+    tp = fp = 0
+    for valor in por_riesgo:
+        tp += cuenta[valor][0]
+        fp += cuenta[valor][1]
+        vertices.append((valor, tp, fp))
+
+    forzados: list[int] = []
+    if decl.umbral is not None:
+        # Los señalados con el umbral de uso son un prefijo (los de más riesgo); el vértice
+        # que lo cierra es el último de ese prefijo. Sin ninguno, no hay vértice que enseñar.
+        alcanzados = [i for i, (v, _, _) in enumerate(vertices)
+                      if (v >= decl.umbral if decl.mas_alto else v <= decl.umbral)]
+        if alcanzados:
+            forzados.append(alcanzados[-1])
+    if len(vertices) > PUNTOS_DE_LA_EXPLORACION:
+        curva = [(f / negativos, t / positivos) for _, t, f in vertices]
+        elegidos = _vertices_elegidos(curva, PUNTOS_DE_LA_EXPLORACION, forzados)
+    else:
+        elegidos = list(range(len(vertices)))
+    en_uso = forzados[0] if forzados else None
+
+    puntos = []
+    for i in sorted(elegidos, key=lambda j: vertices[j][0]):
+        valor, tp_i, fp_i = vertices[i]
+        fn_i, tn_i = positivos - tp_i, negativos - fp_i
+        punto: dict[str, Any] = {
+            "umbral": valor, "tp": tp_i, "fp": fp_i, "fn": fn_i, "tn": tn_i,
+            "sensibilidad": tp_i / positivos, "especificidad": tn_i / negativos,
+            # Sin señalados no hay valor predictivo positivo: un hueco, no un cero.
+            "vpp": (tp_i / (tp_i + fp_i) if representa and tp_i + fp_i else None),
+            "vpn": (tn_i / (tn_i + fn_i) if representa and tn_i + fn_i else None),
+            "es_el_umbral_de_uso": i == en_uso}
+        puntos.append(punto)
+    indice_en_uso = next((j for j, p in enumerate(puntos) if p["es_el_umbral_de_uso"]), None)
+    pequenos = sum(1 for p in puntos if any(0 < p[c] <= 2 for c in ("tp", "fp", "fn", "tn")))
+    return {
+        "disponible": True, "motivo": None, "unidad": decl.tipo,
+        "regla": "mayor_o_igual" if decl.mas_alto else "menor_o_igual",
+        "regla_texto": motivo("exploracion_regla_mayor_o_igual" if decl.mas_alto
+                              else "exploracion_regla_menor_o_igual"),
+        "direccion_invertida": not decl.mas_alto,
+        "nota_direccion": (None if decl.mas_alto else motivo("exploracion_direccion_invertida")),
+        "orden": "umbral_ascendente", "indice_del_umbral_de_uso": indice_en_uso,
+        "n_puntos": len(puntos), "vertices_de_la_curva": len(vertices),
+        "tope_de_puntos": PUNTOS_DE_LA_EXPLORACION,
+        "nota_de_los_umbrales": (
+            motivo("exploracion_todos_los_umbrales", valor=len(vertices))
+            if len(vertices) <= PUNTOS_DE_LA_EXPLORACION else
+            motivo("exploracion_umbrales_ofrecidos", valor=PUNTOS_DE_LA_EXPLORACION,
+                   opciones=len(vertices))),
+        "casos": {"con_evento": positivos, "sin_evento": negativos},
+        "vpp_vpn": {"publicables": representa,
+                    "nota": motivo("exploracion_vpp_vpn_con_la_prevalencia_de_la_muestra"
+                                   if representa else "exploracion_vpp_vpn_no_publicables")},
+        "recuentos_pequenos": ({"umbrales": pequenos, "nota": motivo(
+            "exploracion_recuentos_pequenos", valor=pequenos, opciones=len(puntos))}
+                               if pequenos else None),
+        "aviso": motivo("exploracion_no_valida_un_umbral"),
+        "puntos": puntos}
 
 
 def _p_de_fisher(a: int, b: int, c: int, d: int) -> float:
@@ -786,6 +1010,20 @@ def _al_umbral(decl: DeclaracionDePuntuacion, muestra: Muestra, ctx: _Contexto,
     return salida
 
 
+def _intervalos_de_calibracion(decl: DeclaracionDePuntuacion) -> int:
+    """Los intervalos que `_calibracion` pide: la calibración en grande y UNO para el
+    intercepto y la pendiente juntos. Solo con probabilidad y «más alto = más riesgo»."""
+    return 2 if decl.es_probabilidad and decl.mas_alto else 0
+
+
+def _intervalos_al_umbral(decl: DeclaracionDePuntuacion, ctx: _Contexto) -> int:
+    """Los que `_al_umbral` pide: sensibilidad y especificidad, y VPP y VPN solo si la muestra
+    representa (sin eso no hay prevalencia con la que transportarlos y no se remuestrean)."""
+    if decl.umbral is None:
+        return 0
+    return 2 + (2 if ctx.representa else 0)
+
+
 def _curva_de_decision(decl: DeclaracionDePuntuacion, muestra: Muestra,
                        umbrales: Sequence[float] | None, ctx: _Contexto) -> dict[str, Any]:
     if not decl.es_probabilidad or not decl.mas_alto:
@@ -809,9 +1047,25 @@ def _curva_de_decision(decl: DeclaracionDePuntuacion, muestra: Muestra,
             "umbrales_sin_ventaja": list(curva.umbrales_sin_ventaja)}
 
 
-def _subgrupos(decl: DeclaracionDePuntuacion, muestra: Muestra, columnas: Sequence[str],
-               celdas_por_columna: dict[str, list[str]], filas_usadas: list[int],
-               ctx: _Contexto) -> list[dict[str, Any]]:
+@dataclass
+class _GruposDeUnaColumna:
+    """Los grupos de UNA columna de subgrupo, ya agrupados y con su soporte medido (cuesta lo
+    de un AUROC por grupo, sin remuestrear). Se hace ANTES de medir para que el plan sepa
+    cuántos intervalos habrá: solo los grupos con soporte suficiente llevan intervalo."""
+
+    columna: str
+    variantes: dict[str, Counter]
+    grupos: list[tuple[str | None, str | None, list[int], Any, str]]
+    # (clave, etiqueta, posiciones, AnalisisDeSegmento, segmento_id)
+
+    @property
+    def con_soporte(self) -> int:
+        return sum(1 for _, _, _, analisis, _ in self.grupos if analisis.soporte_suficiente)
+
+
+def _agrupar_subgrupos(muestra: Muestra, columnas: Sequence[str],
+                       celdas_por_columna: dict[str, list[str]], filas_usadas: list[int]
+                       ) -> list[_GruposDeUnaColumna]:
     salida = []
     for col in columnas:
         celdas = [celdas_por_columna[col][i] for i in filas_usadas]
@@ -827,6 +1081,17 @@ def _subgrupos(decl: DeclaracionDePuntuacion, muestra: Muestra, columnas: Sequen
             segmento = f"{col}={etiqueta if etiqueta is not None else '(sin dato)'}"
             analisis = analizar_segmento("auroc", muestra, posiciones, segmento_id=segmento,
                                          predefinido=True)
+            entradas.append((k, etiqueta, posiciones, analisis, segmento))
+        salida.append(_GruposDeUnaColumna(columna=col, variantes=variantes, grupos=entradas))
+    return salida
+
+
+def _subgrupos(decl: DeclaracionDePuntuacion, muestra: Muestra,
+               agrupados: Sequence[_GruposDeUnaColumna], ctx: _Contexto) -> list[dict[str, Any]]:
+    salida = []
+    for g in agrupados:
+        entradas = []
+        for k, etiqueta, posiciones, analisis, segmento in g.grupos:
             entrada: dict[str, Any] = {"valor": etiqueta, "sin_dato": k is None,
                                        "n": analisis.n,
                                        "soporte_suficiente": analisis.soporte_suficiente}
@@ -846,7 +1111,7 @@ def _subgrupos(decl: DeclaracionDePuntuacion, muestra: Muestra, columnas: Sequen
                                             segmento_id=segmento, predefinido=True)
                     entrada["calibracion_en_grande"] = _simple(cal.metrica_segmento)
             entradas.append(entrada)
-        salida.append({"columna": col, "variantes_unidas": _variantes_unidas(variantes),
+        salida.append({"columna": g.columna, "variantes_unidas": _variantes_unidas(g.variantes),
                        "grupos": entradas})
     return salida
 
@@ -863,7 +1128,8 @@ def evaluar_puntuacion(
         umbrales_de_decision: Sequence[float] | None = None, remuestras: int = 1000,
         semilla: int = 137, nombre_del_fichero: str | None = None, actor: str | None = None,
         clave: bytes | None = None, id_de_clave: str = "evaluate-score",
-        creado_en: str | None = None) -> ResultadoDeEvaluacion:
+        creado_en: str | None = None,
+        al_progresar: Callable[[int, int, str], None] | None = None) -> ResultadoDeEvaluacion:
     """Evalúa una o dos puntuaciones ya registradas contra un desenlace binario observado.
 
     * `csv_contenido`: los bytes del fichero (UTF-8, o Windows-1252 si no lo es: se dice) o
@@ -885,9 +1151,47 @@ def evaluar_puntuacion(
     * `remuestras`: del bootstrap; queda escrito en el informe (la demo pasa 500).
     * `clave` + `creado_en`: firman el recibo (HMAC, mecanismo de `attest`); sin clave el
       recibo sale sin firmar (A0). Con clave no pasa de A1.
+    * `al_progresar(hechas, total, fase)` (137-C4): opcional. `total` son las remuestras que
+      esta evaluación VA a hacer (remuestras × intervalos que sus declaraciones piden de
+      verdad), fijado antes de medir; `hechas` las que lleva, y sube sin retroceder hasta
+      `total` EXACTAMENTE, que es el último valor que se comunica (fase `informe`). `fase` es
+      una de `FASES_DE_PROGRESO`. Durante la `lectura` del CSV el total aún no se sabe y vale 0.
+      Se llama como mucho `LLAMADAS_DE_PROGRESO_POR_BARRA` veces por barra, más los cambios de
+      fase. Si LANZA —`EvaluacionCancelada` para cancelar— la evaluación se detiene y esa
+      excepción sale tal cual: no hay resultado a medias. No cambia ni un número del informe.
 
     Devuelve el informe (sin filas), el recibo y su nivel. Lo que no se puede evaluar tal
     como llega levanta `EvaluacionRechazada`, con su motivo en los dos idiomas."""
+    if al_progresar is not None and not callable(al_progresar):
+        raise EvaluacionRechazada("declaracion_fuera_del_vocabulario", campo="al_progresar",
+                                  opciones="una función (hechas, total, fase) o None",
+                                  valor=repr(al_progresar))
+    avance = _Avance(al_progresar)
+    with observando_remuestras(avance.paso if avance.activo else None):
+        return _evaluar_puntuacion(
+            avance, csv_contenido, columna_desenlace=columna_desenlace,
+            valor_del_evento=valor_del_evento, puntuaciones=puntuaciones,
+            muestra_representativa=muestra_representativa,
+            horizonte_del_desenlace=horizonte_del_desenlace,
+            momento_de_la_puntuacion=momento_de_la_puntuacion,
+            donde_se_calcula=donde_se_calcula, columnas_de_subgrupo=columnas_de_subgrupo,
+            columna_de_paciente=columna_de_paciente, umbrales_de_decision=umbrales_de_decision,
+            remuestras=remuestras, semilla=semilla, nombre_del_fichero=nombre_del_fichero,
+            actor=actor, clave=clave, id_de_clave=id_de_clave, creado_en=creado_en)
+
+
+def _evaluar_puntuacion(
+        avance: _Avance, csv_contenido: bytes | str, *, columna_desenlace: str,
+        valor_del_evento: str, puntuaciones: Sequence[DeclaracionDePuntuacion],
+        muestra_representativa: bool, horizonte_del_desenlace: str,
+        momento_de_la_puntuacion: str, donde_se_calcula: str,
+        columnas_de_subgrupo: Sequence[str], columna_de_paciente: str | None,
+        umbrales_de_decision: Sequence[float] | None, remuestras: int, semilla: int,
+        nombre_del_fichero: str | None, actor: str | None, clave: bytes | None,
+        id_de_clave: str, creado_en: str | None) -> ResultadoDeEvaluacion:
+    """El cuerpo de `evaluar_puntuacion` (su docstring es el de la función pública), con el
+    contador de progreso ya instalado como observador del remuestreo."""
+    avance.fase("lectura")
     # -- las declaraciones ---------------------------------------------------
     declaraciones = list(puntuaciones)
     if not 1 <= len(declaraciones) <= 2:
@@ -1000,17 +1304,39 @@ def evaluar_puntuacion(
     if tabla.malformadas:
         avisos.append(_aviso("filas_malformadas_fuera", valor=tabla.malformadas))
 
+    # -- las muestras, los grupos y EL PLAN de lo que se va a remuestrear -------------------
+    # Todo lo que sigue es barato (sin remuestreo). Se hace antes de medir para fijar el
+    # total del progreso: remuestras × los intervalos que ESTAS declaraciones piden.
+    preparadas: list[tuple[list[int], list[int], Muestra]] = []
+    agrupados: list[list[_GruposDeUnaColumna]] = []
+    for d, (crudas, valores, estilo, ausentes) in zip(declaraciones, leidas):
+        idx = [i for i in con_desenlace if valores[i] is not None]
+        if not idx:
+            raise EvaluacionRechazada("ninguna_fila_utilizable", campo=d.columna)
+        ys_k = [y[i] for i in idx]
+        muestra_k = _muestra(d, [valores[i] for i in idx], ys_k,  # type: ignore[arg-type]
+                             [unidades_todas[i] for i in idx] if unidades_todas else None)
+        preparadas.append((idx, ys_k, muestra_k))  # type: ignore[arg-type]
+        agrupados.append(_agrupar_subgrupos(muestra_k, sub_columnas, celdas_sub, idx)
+                         if sub_columnas else [])
+    comunes = ([i for i in con_desenlace
+                if leidas[0][1][i] is not None and leidas[1][1][i] is not None]
+               if len(declaraciones) == 2 else [])
+    plan = [{"intervalos": 2,
+             "subgrupos": sum(g.con_soporte for g in agrupados[k]),
+             "calibracion": _intervalos_de_calibracion(d),
+             "umbral": _intervalos_al_umbral(d, ctx)}
+            for k, d in enumerate(declaraciones)]
+    intervalos_de_comparacion = 1 if comunes else 0
+    avance.planificar(remuestras * (sum(sum(p.values()) for p in plan)
+                                    + intervalos_de_comparacion))
+
     # -- una por una ---------------------------------------------------------------
     informes: list[dict[str, Any]] = []
     muestras: list[Muestra] = []
     usadas: list[list[int]] = []
     for k, (d, (crudas, valores, estilo, ausentes)) in enumerate(zip(declaraciones, leidas)):
-        idx = [i for i in con_desenlace if valores[i] is not None]
-        if not idx:
-            raise EvaluacionRechazada("ninguna_fila_utilizable", campo=d.columna)
-        ys = [y[i] for i in idx]
-        muestra = _muestra(d, [valores[i] for i in idx], ys,  # type: ignore[arg-type]
-                           [unidades_todas[i] for i in idx] if unidades_todas else None)
+        idx, ys, muestra = preparadas[k]
         muestras.append(muestra)
         usadas.append(idx)
         eventos = sum(ys)  # type: ignore[arg-type]
@@ -1036,7 +1362,9 @@ def evaluar_puntuacion(
                                    minimo=cifra(p_falta, 4)))  # type: ignore[arg-type]
 
         kw = ctx.comun
-        auroc = medir("auroc", muestra, **kw)
+        with avance.tramo("intervalos", remuestras * plan[k]["intervalos"]):
+            auroc = medir("auroc", muestra, **kw)
+            promedio = medir("average_precision", muestra, **kw)
         if auroc.value is not None and auroc.value < 0.5:
             avisos_k.append(_aviso("direccion_posiblemente_mal_declarada", campo=d.columna,
                                    valor=cifra(auroc.value)))
@@ -1061,9 +1389,16 @@ def evaluar_puntuacion(
                            "motivo": motivo("cifra_prometida_sin_intervalo", campo=d.columna),
                            "advertencia": motivo("referencia_publicada_advertencia")}
 
-        subgrupos = _subgrupos(d, muestra, sub_columnas, celdas_sub, idx, ctx) if sub_columnas else []
+        with avance.tramo("subgrupos", remuestras * plan[k]["subgrupos"]):
+            subgrupos = _subgrupos(d, muestra, agrupados[k], ctx) if sub_columnas else []
         auroc_json = _metrica(auroc)
-        calibracion_k = _calibracion(d, muestra, ctx)
+        with avance.tramo("calibracion", remuestras * plan[k]["calibracion"]):
+            calibracion_k = _calibracion(d, muestra, ctx)
+        with avance.tramo("umbral", remuestras * plan[k]["umbral"]):
+            al_umbral_k = _al_umbral(d, muestra, ctx, prevalencia)
+        # La exploración del deslizador: recuentos por umbral, con o sin umbral de uso.
+        al_umbral_k["exploracion"] = _exploracion(d, [valores[i] for i in idx], ys,  # type: ignore[arg-type]
+                                                  ctx.representa)
         informes.append({
             "indice": k + 1, "columna": d.columna, "declaracion": d.a_json(),
             "lectura": {"decimal": estilo, "marcas_de_ausencia": ausentes},
@@ -1076,7 +1411,7 @@ def evaluar_puntuacion(
             "eventos": eventos, "prevalencia": prevalencia,
             "discriminacion": {
                 "auroc": auroc_json,
-                "average_precision": _metrica(medir("average_precision", muestra, **kw)),
+                "average_precision": _metrica(promedio),
                 "average_precision_del_azar": prevalencia,
                 "curva_roc": _curva_roc(muestra)},
             "cifra_prometida": promesa,
@@ -1090,7 +1425,7 @@ def evaluar_puntuacion(
                                campo=d.columna)},
             "veredicto": _veredicto(auroc_json, calibracion_k),
             "calibracion": calibracion_k,
-            "al_umbral": _al_umbral(d, muestra, ctx, prevalencia),
+            "al_umbral": al_umbral_k,
             "curva_de_decision": _curva_de_decision(d, muestra, umbrales_de_decision, ctx),
             "subgrupos": subgrupos,
             "avisos": avisos_k,
@@ -1099,8 +1434,6 @@ def evaluar_puntuacion(
     # -- dos puntuaciones: SOLO sobre las filas que tienen las dos ----------------------
     comparacion = None
     if len(declaraciones) == 2:
-        comunes = [i for i in con_desenlace
-                   if leidas[0][1][i] is not None and leidas[1][1][i] is not None]
         if not comunes:
             comparacion = {"posible": False, "motivo": motivo("comparacion_sin_filas_en_comun")}
         else:
@@ -1108,7 +1441,8 @@ def evaluar_puntuacion(
             unidades_c = [unidades_todas[i] for i in comunes] if unidades_todas else None
             m_a = _muestra(declaraciones[0], [leidas[0][1][i] for i in comunes], ys_c, unidades_c)  # type: ignore[misc]
             m_b = _muestra(declaraciones[1], [leidas[1][1][i] for i in comunes], ys_c, unidades_c)  # type: ignore[misc]
-            cmp = comparar_candidatos("auroc", m_a, m_b, **ctx.comun)
+            with avance.tramo("comparacion", remuestras * intervalos_de_comparacion):
+                cmp = comparar_candidatos("auroc", m_a, m_b, **ctx.comun)
             ic = cmp.intervalo
             neutro = {"mejora": "a_mayor_que_b", "inferioridad": "a_menor_que_b",
                       "inconcluso": "el_intervalo_incluye_el_cero"}.get(cmp.veredicto,
@@ -1132,6 +1466,9 @@ def evaluar_puntuacion(
     if sub_columnas:
         n_grupos = sum(len(s["grupos"]) for r in informes for s in r["subgrupos"])
         avisos.append(_aviso("multiplicidad_en_subgrupos", valor=n_grupos))
+
+    # Todo el remuestreo está hecho: `hechas == total`. Lo que queda es componer el informe.
+    avance.fase("informe")
 
     # -- lo que NO es (reglas 17, 18 y 19) ---------------------------------------------
     no_es = [{"id": c, **motivo(c)} for c in ("no_es_validacion_clinica",)]

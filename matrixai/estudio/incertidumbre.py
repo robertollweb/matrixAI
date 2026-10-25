@@ -115,11 +115,13 @@ de `numpy` aquí; las referencias (si las hay) viven en las pruebas.
 
 from __future__ import annotations
 
+import contextvars
 import math
 import random
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 from matrixai.estudio.errores import EsquemaInvalido
 from matrixai.estudio.metricas import REGISTRO, EntradaNoMedible, Indefinida, Muestra, calcular
@@ -138,7 +140,7 @@ from matrixai.estudio.vocabulario import TAREAS_DE_CLASIFICACION, TIPOS_DE_PARTI
 __all__ = [
     "DISENOS_SOPORTADOS", "ESTIMANDOS_DE_INTERVALO", "METODOS_DE_REMUESTREO",
     "PROPORCION_MINIMA_VALIDA", "UNIDADES_DE_REMUESTREO",
-    "Intervalo", "intervalo", "medir",
+    "Intervalo", "intervalo", "medir", "observador_de_remuestras", "observando_remuestras",
 ]
 
 #: Los diseños del 103-C4/104-C0 que este módulo SABE remuestrear. Es un
@@ -185,6 +187,44 @@ METODOS_DE_REMUESTREO = (
 #: positivo con pocas remuestras) y sigue exigiendo una mayoría clara de
 #: remuestras utilizables antes de confiar en el percentil.
 PROPORCION_MINIMA_VALIDA = 0.75
+
+
+# ---------------------------------------------------------------------------
+# Contar remuestras desde fuera (137-C4): un observador OPCIONAL
+# ---------------------------------------------------------------------------
+
+#: Quien quiera CONTAR las remuestras que se hacen —una pantalla de progreso, una
+#: cancelación— instala aquí una función sin argumentos que se llama UNA vez por remuestra
+#: terminada. Por omisión no hay ninguna y el remuestreo hace exactamente lo de siempre: ni
+#: una llamada más, ni un número distinto. Es una `ContextVar` y no un parámetro de
+#: `intervalo()` porque las remuestras se piden desde muy lejos (`tabla_de_umbrales`,
+#: `comparar_candidatos`, la evaluación de una puntuación) y cablear un parámetro por todas
+#: esas firmas habría tocado módulos que no tienen nada que ver con esto. Lo que el
+#: observador haga NO puede cambiar la medida: si LANZA, la excepción sale tal cual por el
+#: bucle (así se cancela una medición) y el intervalo no se devuelve a medias.
+_OBSERVADOR_DE_REMUESTRAS: "contextvars.ContextVar[Callable[[], None] | None]" = \
+    contextvars.ContextVar("matrixai_observador_de_remuestras", default=None)
+
+
+@contextmanager
+def observando_remuestras(al_remuestrear: Callable[[], None] | None) -> Iterator[None]:
+    """Mientras dure el bloque, `al_remuestrear()` se llama tras CADA remuestra de cualquier
+    intervalo (`intervalo`, `medir`) o comparación emparejada que se pida desde este
+    contexto. `None` no instala nada. Al salir, el observador anterior vuelve a su sitio."""
+    if al_remuestrear is None:
+        yield
+        return
+    token = _OBSERVADOR_DE_REMUESTRAS.set(al_remuestrear)
+    try:
+        yield
+    finally:
+        _OBSERVADOR_DE_REMUESTRAS.reset(token)
+
+
+def observador_de_remuestras() -> Callable[[], None] | None:
+    """El observador instalado en este contexto, o `None`. Lo leen los bucles de remuestreo
+    UNA vez antes de empezar, no en cada vuelta."""
+    return _OBSERVADOR_DE_REMUESTRAS.get()
 
 
 @dataclass(frozen=True)
@@ -467,6 +507,7 @@ def intervalo(metric_id: str, muestra: Muestra, *, diseno: str, estimando: str,
     regla = formula if formula is not None else REGISTRO[metric_id].formula
     valores: list[float] = []
     degeneradas = 0
+    observador = observador_de_remuestras()
     empieza = time.perf_counter()
     for _ in range(remuestras):
         recorte = _recortar(muestra, generador())
@@ -475,6 +516,8 @@ def intervalo(metric_id: str, muestra: Muestra, *, diseno: str, estimando: str,
             degeneradas += 1
         else:
             valores.append(float(resultado))
+        if observador is not None:
+            observador()
     transcurrido = time.perf_counter() - empieza
 
     validas = len(valores)

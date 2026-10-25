@@ -1078,8 +1078,8 @@ class RondaDeRigorNucleoTest(DatosBase):
 
     def test_la_version_del_informe_sube_con_el_esquema(self):
         r = _evaluar(_csv(self.filas, ["p", "y"]))
-        self.assertEqual(r.informe["version_del_informe"], "2.1.0")
-        self.assertEqual(r.recibo["environment"]["report_version"], "2.1.0")
+        self.assertEqual(r.informe["version_del_informe"], "2.2.0")
+        self.assertEqual(r.recibo["environment"]["report_version"], "2.2.0")
 
 
 class VeredictoDelNucleoTest(DatosBase):
@@ -1157,7 +1157,7 @@ class VeredictoDelNucleoTest(DatosBase):
         for p in r.informe["puntuaciones"]:
             self.assertEqual(set(p["veredicto"]), {"ordena", "riesgo", "texto"})
             self.assertEqual(set(p["veredicto"]["texto"]), {"es", "en"})
-        self.assertEqual(r.informe["version_del_informe"], "2.1.0")
+        self.assertEqual(r.informe["version_del_informe"], "2.2.0")
 
 
 _FALTA = object()      # «este argumento no se pasa»

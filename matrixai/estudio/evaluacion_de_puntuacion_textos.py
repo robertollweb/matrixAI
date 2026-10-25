@@ -397,6 +397,72 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "es": "Depende del registro: un desenlace mal o tarde registrado mueve todas las cifras.",
         "en": "It depends on the record: an outcome registered wrongly or late moves every figure.",
     },
+    # ---- la exploración del umbral (137-C4) -----------------------------------
+    "exploracion_no_valida_un_umbral": {
+        "es": "Esta exploración no valida un nuevo umbral: enseña qué pasaría con estos mismos "
+              "casos en cada umbral, y elegir uno mirando los datos que lo miden hace que "
+              "parezca funcionar mejor de lo que lo haría con casos nuevos.",
+        "en": "This exploration does not validate a new threshold: it shows what would happen "
+              "with these same cases at each threshold, and choosing one by looking at the "
+              "data that measure it makes it look better than it would on new cases.",
+    },
+    "exploracion_regla_mayor_o_igual": {
+        "es": "Un caso se señala cuando su puntuación alcanza el umbral (mayor o igual).",
+        "en": "A case is flagged when its score reaches the threshold (greater than or equal).",
+    },
+    "exploracion_regla_menor_o_igual": {
+        "es": "Un caso se señala cuando su puntuación alcanza el umbral por abajo (menor o "
+              "igual).",
+        "en": "A case is flagged when its score reaches the threshold from below (less than "
+              "or equal).",
+    },
+    "exploracion_direccion_invertida": {
+        "es": "«Más bajo = más riesgo»: el umbral se aplica al revés. Con un umbral más alto "
+              "se señalan MÁS casos, no menos.",
+        "en": "\"Lower = higher risk\": the threshold is applied the other way round. A higher "
+              "threshold flags MORE cases, not fewer.",
+    },
+    "exploracion_umbrales_ofrecidos": {
+        "es": "Solo se ofrecen estos umbrales (vértices de la curva, como mucho {valor} de "
+              "{opciones}): el deslizador salta de uno a otro y no interpola entre ellos.",
+        "en": "Only these thresholds are offered (vertices of the curve, at most {valor} of "
+              "{opciones}): the slider jumps from one to the next and does not interpolate.",
+    },
+    "exploracion_todos_los_umbrales": {
+        "es": "Se ofrecen los {valor} umbrales distintos de la muestra (vértices de la curva): "
+              "el deslizador salta de uno a otro y no interpola entre ellos.",
+        "en": "All {valor} distinct thresholds in the sample are offered (vertices of the "
+              "curve): the slider jumps from one to the next and does not interpolate.",
+    },
+    "exploracion_vpp_vpn_con_la_prevalencia_de_la_muestra": {
+        "es": "VPP y VPN se calculan con la prevalencia de la muestra, que se ha declarado "
+              "como la de la población de uso (lo declara quien ejecuta; MatrixAI no lo "
+              "comprueba).",
+        "en": "PPV and NPV are computed with the sample prevalence, which has been declared "
+              "to be that of the population of use (declared by whoever runs it; MatrixAI "
+              "does not check it).",
+    },
+    "exploracion_vpp_vpn_no_publicables": {
+        "es": "VPP y VPN no se enseñan: se declaró que la muestra NO representa a la "
+              "población de uso, y dependen de la prevalencia.",
+        "en": "PPV and NPV are not shown: the sample was declared NOT to represent the "
+              "population of use, and they depend on prevalence.",
+    },
+    "exploracion_sin_los_dos_desenlaces": {
+        "es": "No hay exploración del umbral: en las filas usadas falta alguno de los dos "
+              "desenlaces (con evento y sin evento) y no hay curva que recorrer.",
+        "en": "There is no threshold exploration: the rows used lack one of the two outcomes "
+              "(with and without the event), so there is no curve to walk along.",
+    },
+    "exploracion_recuentos_pequenos": {
+        "es": "En {valor} de los {opciones} umbrales hay un recuento de 1 o 2 casos. Son "
+              "agregados, no filas, y no se ocultan; pero con umbrales extremos un recuento "
+              "así puede describir a una persona concreta, y no garantiza anonimización.",
+        "en": "At {valor} of the {opciones} thresholds a count is 1 or 2 cases. They are "
+              "aggregates, not rows, and are not hidden; but at extreme thresholds a count "
+              "like that can describe one particular person, and does not guarantee "
+              "anonymisation.",
+    },
     # ---- el recibo ---------------------------------------------------------
     "recibo_proposito": {
         "es": "evaluar, sin entrenar nada, una puntuación de riesgo ya registrada frente a un "
