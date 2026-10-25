@@ -493,37 +493,57 @@ def _verificar_r1(
     categorias = generacion.get("field_categories") if isinstance(generacion, dict) else None
     excluidos = generacion.get("excluded_identifiers") if isinstance(generacion, dict) else None
 
-    try:
-        # Esto NO ejecuta nada que venga en el paquete: corre el generador
-        # DEL CORE tomando la receta como DATO. La receta es un lenguaje
-        # acotado que el core interpreta, no un programa que se lanza.
-        from matrixai.playground import _generate_synthetic_dataset
-        generado = _generate_synthetic_dataset(
-            mxai_text, training_text, filas, int(semilla), str(modo),
-            recipe_text=recipe_text,
-            field_ranges_override={k: (float(v[0]), float(v[1]))
-                                   for k, v in (rangos or {}).items()
-                                   if isinstance(v, (list, tuple)) and len(v) == 2} or None,
-            field_types=tipos or None,
-            field_categories=categorias or None,
-            field_identifiers=list(excluidos) if excluidos else None,
-        )
-    except Exception as exc:  # noqa: BLE001 — el generador puede negarse por mil motivos
-        # No poder regenerar NO es una manipulación del paquete: se dice
-        # qué pasó y se deja en INCOMPARABLE.
-        return _etapa("INCOMPARABLE",
-                      motivo("r1_no_regenerable", locale, error=exc))
-
-    # `csv_text`, no `csv`: es la clave que el generador devuelve de
-    # verdad (medida, después de suponer la otra y comerme un KeyError).
-    csv = generado.get("csv_text") if isinstance(generado, dict) else None
-    if not isinstance(csv, str) or csv == "":
-        return _etapa("INCOMPARABLE", motivo("r1_sin_csv", locale))
+    # EL RANGO DEL OBJETIVO TAMBIÉN DECIDE EL CSV (auditoría del 134, medido el 19-10):
+    # en una regresión cuya receta no es una fórmula, el generador saca el objetivo
+    # DENTRO de `target_range` (05-10) en vez de en [-1, 1], y regenerar sin él daba
+    # otro dataset: R1 FAIL a un paquete honesto. Pero el paquete no dice si se generó
+    # con él: `generation.target_range` es el rango con el que se ENTRENÓ, y la clásica
+    # genera sin él y entrena con él (su código no se toca). Se prueba primero tal como
+    # lo declara el paquete y después sin él; lo que decide es el sha256 completo, no
+    # una suposición, y la etapa dice con cuál cuadró (`target_range_applied`).
+    rango_objetivo = _par_de_numeros(
+        generacion.get("target_range") if isinstance(generacion, dict) else None)
+    variantes = ([rango_objetivo, None] if rango_objetivo is not None else [None])
 
     import hashlib
-    obtenido = hashlib.sha256(csv.encode("utf-8")).hexdigest()
-    if obtenido == esperado:
-        return _etapa("PASS", rows=filas, sha256=obtenido, csv_text=csv)
+    obtenido = None
+    for variante in variantes:
+        try:
+            # Esto NO ejecuta nada que venga en el paquete: corre el generador
+            # DEL CORE tomando la receta como DATO. La receta es un lenguaje
+            # acotado que el core interpreta, no un programa que se lanza.
+            from matrixai.playground import _generate_synthetic_dataset
+            generado = _generate_synthetic_dataset(
+                mxai_text, training_text, filas, int(semilla), str(modo),
+                recipe_text=recipe_text,
+                field_ranges_override={k: (float(v[0]), float(v[1]))
+                                       for k, v in (rangos or {}).items()
+                                       if isinstance(v, (list, tuple)) and len(v) == 2} or None,
+                field_types=tipos or None,
+                field_categories=categorias or None,
+                field_identifiers=list(excluidos) if excluidos else None,
+                **({"target_range": variante} if variante is not None else {}),
+            )
+        except Exception as exc:  # noqa: BLE001 — el generador puede negarse por mil motivos
+            # No poder regenerar NO es una manipulación del paquete: se dice
+            # qué pasó y se deja en INCOMPARABLE.
+            return _etapa("INCOMPARABLE",
+                          motivo("r1_no_regenerable", locale, error=exc))
+
+        # `csv_text`, no `csv`: es la clave que el generador devuelve de
+        # verdad (medida, después de suponer la otra y comerme un KeyError).
+        csv = generado.get("csv_text") if isinstance(generado, dict) else None
+        if not isinstance(csv, str) or csv == "":
+            return _etapa("INCOMPARABLE", motivo("r1_sin_csv", locale))
+
+        hecho = hashlib.sha256(csv.encode("utf-8")).hexdigest()
+        if obtenido is None:
+            # El digest que se ENSEÑA si nada cuadra es el de lo que declara el paquete.
+            obtenido = hecho
+        if hecho == esperado:
+            return _etapa("PASS", rows=filas, sha256=hecho, csv_text=csv,
+                          **({"target_range_applied": variante is not None}
+                             if rango_objetivo is not None else {}))
     # AQUÍ sí es FAIL: el paquete dijo qué debía salir y ha salido otra
     # cosa. Se enseñan los DOS digests: «no coincide» a secas no deja
     # comprobar nada a quien lo lea.
@@ -584,6 +604,82 @@ def _reparto_del_dataset(fuente: str, csv: str) -> dict[str, str]:
             ruta_eval: cabecera + "".join(filas[corte:])}
 
 
+def _par_de_numeros(valor: Any) -> tuple[float, float] | None:
+    """`[lo, hi]` del manifiesto como par de floats, o `None` si no es un par numérico."""
+    if (isinstance(valor, (list, tuple)) and len(valor) == 2
+            and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in valor)):
+        return (float(valor[0]), float(valor[1]))
+    return None
+
+
+def _datos_como_los_preparo_el_producto(
+    manifiesto: dict[str, Any], mxai_text: str, csv: str, *, locale: str,
+) -> tuple[str, frozenset[str], dict[str, Any], str | None]:
+    """El CSV con el que se reentrena: el regenerado, PREPARADO como lo preparó el producto.
+
+    AUDITORÍA DEL 134, H1 (BLOQUEANTE, medido el 19-10 por el camino real del Studio):
+    esto entrenaba con el CSV de R1 tal cual, en escala de dominio, mientras el producto
+    lo había normalizado con `field_ranges` y `target_range` antes de entrenar. Con
+    rangos que no son la identidad (`credit_score` [300, 850]) las cifras no tenían nada
+    que ver —pérdida 0,98 publicada, 17,7 reentrenada— y R3 daba FAIL a un paquete
+    honesto, con stdlib y con torch.
+
+    Se prepara con LA MISMA función que el producto (`playground._preparar_csv_con_rangos`,
+    después de `normalize_csv_text`, que es lo que hace `_normalize_external_csv`), y el
+    resultado SE COMPRUEBA contra `artifacts.dataset.sha256_prepared`, el digest del
+    fichero con el que la red entrenó de verdad. Que se haya preparado igual no se
+    supone: se mide.
+
+    Devuelve `(csv_para_entrenar, columnas_sin_recorte, aplicado, motivo_si_no)`:
+
+    * cuadra → ese CSV, y `aplicado` lo dice;
+    * no cuadra, o el paquete prepara con rangos y no declara el digest → el CSV
+      preparado (para que `training` diga si el entrenamiento termina) y el MOTIVO, que
+      deja `dataset_sha256_prepared` sin aplicar y R3 en INCOMPARABLE, nunca FAIL;
+    * sin digest y sin rangos → el CSV tal cual, como siempre: no hay nada que preparar
+      (los paquetes del CLI, que entrena el fichero sin normalizar y no declara digest
+      del preparado).
+
+    El objetivo SIN recortar (A8): `generation.target_clipped: false` lo declara la
+    captura cuando el Studio entrena con `recortar_objetivo=False`; su ausencia es
+    «recortado», lo que hacían todas las capturas anteriores. Leerlo mal no puede dar un
+    FAIL: con algún objetivo fuera de su rango, recortar o no cambia el CSV preparado, y
+    el digest lo caza; con todos dentro, los dos CSV y la elección de época son los
+    mismos.
+    """
+    import hashlib  # noqa: PLC0415
+
+    generacion = manifiesto.get("generation") if isinstance(manifiesto.get("generation"), dict) else {}
+    rangos: dict[str, tuple[float, float]] = {}
+    if isinstance(generacion.get("field_ranges"), dict):
+        for columna, crudo in generacion["field_ranges"].items():
+            par = _par_de_numeros(crudo)
+            if par is not None:
+                rangos[str(columna)] = par
+    rango_objetivo = _par_de_numeros(generacion.get("target_range"))
+    recortar = generacion.get("target_clipped") is not False
+    artefactos = manifiesto.get("artifacts") if isinstance(manifiesto.get("artifacts"), dict) else {}
+    dataset = artefactos.get("dataset") if isinstance(artefactos.get("dataset"), dict) else {}
+    esperado = dataset.get("sha256_prepared")
+    esperado = esperado if isinstance(esperado, str) and esperado else None
+    hay_que_preparar = bool(rangos) or rango_objetivo is not None
+
+    if esperado is None and not hay_que_preparar:
+        return csv, frozenset(), {}, None
+
+    from matrixai.playground import _preparar_csv_con_rangos  # noqa: PLC0415
+    from matrixai.training.data import normalize_csv_text  # noqa: PLC0415
+    preparado, sin_recorte = _preparar_csv_con_rangos(
+        mxai_text, normalize_csv_text(csv), rangos or None, rango_objetivo, recortar)
+    if esperado is None:
+        return preparado, sin_recorte, {}, motivo("t_preparado_sin_digest", locale)
+    obtenido = hashlib.sha256(preparado.encode("utf-8")).hexdigest()
+    if obtenido == esperado:
+        return preparado, sin_recorte, {"dataset_sha256_prepared": obtenido}, None
+    return preparado, sin_recorte, {}, motivo(
+        "t_preparado_no_cuadra", locale, declarado=esperado, actual=obtenido)
+
+
 def _verificar_training(
     bundle: Path, manifiesto: dict[str, Any], r1: dict[str, Any],
     *, locale: str = IDIOMA_POR_DEFECTO,
@@ -615,6 +711,11 @@ def _verificar_training(
     import tempfile
 
     taller = Path(tempfile.mkdtemp(prefix="matrixai-verify-"))
+    # Lo que no se pudo aplicar, con su porqué. Se declara ANTES del `try` porque
+    # también lo necesita el `except`: un reentrenamiento que no arranca puede no
+    # arrancar justo por eso (134, H4: una red compuesta que declara torch revienta
+    # en `dense_forward` y el motivo «no tiene un reentrenamiento de torch» se perdía).
+    motivos_sin_aplicar: dict[str, str] = {}
     try:
         # Se trabaja sobre una COPIA, en un directorio aparte: verificar no
         # escribe en el paquete de nadie.
@@ -655,6 +756,10 @@ def _verificar_training(
         fuente = getattr(getattr(spec, "dataset", None), "source", None)
         destino = taller / _ruta_del_dataset(fuente)
         destino.parent.mkdir(parents=True, exist_ok=True)
+        # 134, H1: lo que se escribe es el CSV PREPARADO como lo preparó el producto,
+        # comprobado contra su digest (`_datos_como_los_preparo_el_producto`).
+        csv, sin_recorte, preparado_aplicado, motivo_preparado = _datos_como_los_preparo_el_producto(
+            manifiesto, destino_modelo.read_text(encoding="utf-8"), csv, locale=locale)
         for relativa, texto in _reparto_del_dataset(str(fuente or ""), csv).items():
             escrito = taller / _ruta_del_dataset(relativa)
             escrito.parent.mkdir(parents=True, exist_ok=True)
@@ -668,6 +773,26 @@ def _verificar_training(
         # acabarían discrepando.
         from matrixai.parser.parser import parse_file as _parse_mxai
         redes = getattr(_parse_mxai(str(destino_modelo)), "networks", []) or []
+        # CONTRATO 134: EL ENTRENADOR QUE DECLARA EL PAQUETE. Un paquete entrenado
+        # con torch (`generation.backend == "torch"`) se reentrena por el MISMO
+        # camino de torch que el producto, no con `DenseSupervisedTrainer`: medido
+        # el 19-10, el mismo paquete daba exactitud 0,333 publicada y 0,917
+        # reentrenada sin torch, y comparar esas dos acusaba a un paquete honesto.
+        backend_declarado = (manifiesto.get("generation") or {}).get("backend")
+        por_torch = (backend_declarado == "torch" and bool(redes)
+                     and getattr(redes[0], "kind", "dense_network") == "dense_network"
+                     and not getattr(redes[0], "transformer_blocks", []))
+        torch_aqui = _torch_instalado() if por_torch else False
+        if motivo_preparado is not None:
+            motivos_sin_aplicar["dataset_sha256_prepared"] = motivo_preparado
+        if por_torch and not torch_aqui:
+            motivos_sin_aplicar["backend"] = motivo("t_backend_sin_torch", locale)
+        elif (backend_declarado == "torch" and not por_torch
+              and not (redes and getattr(redes[0], "transformer_blocks", []))):
+            # Declara torch pero esta clase de modelo no tiene un reentrenamiento
+            # de torch que se sepa repetir aquí (red compuesta, FUNCTION): no se
+            # finge que se aplicó.
+            motivos_sin_aplicar["backend"] = motivo("t_backend_sin_camino_torch", locale)
         if redes and getattr(redes[0], "transformer_blocks", []):
             from matrixai.training.transformer_trainer import TransformerSupervisedTrainer
             entrenador: Any = TransformerSupervisedTrainer()
@@ -688,6 +813,11 @@ def _verificar_training(
         # llamarlo con `seed=` reventaría—.
         import inspect  # noqa: PLC0415
         admite_semilla = "seed" in inspect.signature(entrenador.train).parameters
+        if por_torch and torch_aqui:
+            # El camino de torch recibe SIEMPRE la semilla (`seed=` de
+            # `_dense_torch_train_result`): no depende de la firma del entrenador
+            # estándar que se eligió arriba solo para decidir esto.
+            admite_semilla = True
         # EN QUÉ MÁQUINA CORRE ESTE REENTRENAMIENTO, cuando se puede saber.
         # Los dos entrenadores de la biblioteca estándar son CPU por
         # construcción —no hay torch por medio—, así que ahí es un HECHO. Con
@@ -695,6 +825,10 @@ def _verificar_training(
         # y deja `device` sin aplicar, como estaba.
         _maquina = "cpu" if entrenador.__class__.__name__ in (
             "SupervisedTrainer", "DenseSupervisedTrainer") else None
+        if por_torch and torch_aqui:
+            # Con torch, la máquina es la de la captura SI existe aquí: pedir CUDA
+            # sin tenerla no se disfraza de CPU, y `device` queda sin aplicar.
+            _maquina = _dispositivo_de_torch((manifiesto.get("generation") or {}).get("device"))
         # ¿NO ADMITE SEMILLA ES UNA LIMITACIÓN, O ES QUE NO APLICA? Lo declara
         # el entrenador: los FUNCTION arrancan siempre de los mismos valores
         # (medido: `W1 = [0.05]`, `b1 = 0.0`, dos veces seguidas). Suponerlo
@@ -703,20 +837,88 @@ def _verificar_training(
         aplicadas, sin_aplicar, del_run, spec = _configuracion_del_run(
             manifiesto, spec, admite_semilla=admite_semilla, maquina=_maquina,
             inicializacion_determinista=_determinista)
-        resultado = entrenador.train(
-            spec, output_dir=str(taller / "out"), base_path=taller,
-            training_path=ruta_train, **del_run)
+        aplicadas.update(preparado_aplicado)
+        if por_torch and torch_aqui and _maquina == "cuda":
+            # AUDITORÍA DEL 134, H2: la tolerancia 0,0 de torch se MIDIÓ en CPU (12
+            # configuraciones, bit a bit); en CUDA no. Comparar con ella en CUDA sería
+            # fijar una tolerancia sin medirla (§2.4), y si CUDA no repite bit a bit, un
+            # FAIL falso en la GPU. Se reentrena en CUDA —para que `training` diga si
+            # termina— y `device` queda sin aplicar CON SU MOTIVO hasta medirlo en una GPU.
+            aplicadas.pop("device", None)
+            motivos_sin_aplicar["device"] = motivo("t_device_cuda_sin_medir", locale)
+        # LA REGLA DEL OBJETIVO SIN RECORTAR (A8 + I1): el producto elige la época solo
+        # con las filas de validación alcanzables cuando el objetivo se normalizó sin
+        # recortar, y eso cambia la época elegida (medido por la auditoría del 134: 3
+        # frente a 19 en la misma regresión). El reentrenamiento hace lo mismo; si su
+        # entrenador no sabe, se dice.
+        from matrixai.playground import _rango_para_elegir  # noqa: PLC0415
+        _rango_eleccion = _rango_para_elegir(spec, sin_recorte)
+        _sin_recorte_extra: dict[str, Any] = {}
+        if not (por_torch and torch_aqui) and _rango_eleccion is not None:
+            if "rango_objetivo_eleccion" in inspect.signature(entrenador.train).parameters:
+                _sin_recorte_extra["rango_objetivo_eleccion"] = _rango_eleccion
+            else:
+                motivos_sin_aplicar["target_clipped"] = motivo(
+                    "t_objetivo_sin_recorte_sin_aplicar", locale)
+        if por_torch and torch_aqui:
+            if len(_reparto_del_dataset(str(fuente or ""), csv)) > 1:
+                # El camino de torch lee UN csv; un dataset partido en train/eval
+                # por convención solo lo entiende el entrenador de la biblioteca
+                # estándar. Se dice, no se entrena con la mitad.
+                raise RuntimeError(motivo("t_backend_dataset_partido", locale))
+            resultado, _del_disco = _reentrenar_con_torch(
+                spec, destino_modelo, ruta_train, destino,
+                semilla=del_run.get("seed"), dispositivo=_maquina,
+                rango=(manifiesto.get("generation") or {}).get("target_range"),
+                sin_recorte=sin_recorte)
+        else:
+            resultado = entrenador.train(
+                spec, output_dir=str(taller / "out"), base_path=taller,
+                training_path=ruta_train, **del_run, **_sin_recorte_extra)
         # LAS MÉTRICAS QUE EL ENTRENADOR DEJA EN DISCO, leídas ANTES de borrar
         # el taller. El camino FUNCTION no las devuelve en su `TrainingRunResult`
         # —ahí van `accuracy` y las pérdidas— pero escribe un `metrics.json` con
         # `r2` y `mae`, que son justo las que ese tipo de paquete publica. Sin
         # esto, R3 decía «ninguna de las métricas comparables la reportó el
         # reentrenamiento» sobre un fichero que las tenía delante.
-        _del_disco = _metricas_del_taller(taller / "out")
+        _por_particion: dict[str, dict[str, Any]] = {}
+        if not (por_torch and torch_aqui):
+            _del_disco = _metricas_del_taller(taller / "out")
+            from matrixai.training.dense_trainer import DenseSupervisedTrainer as _Densa  # noqa: PLC0415
+            if (isinstance(entrenador, _Densa) and redes
+                    and getattr(redes[0], "kind", "dense_network") == "dense_network"):
+                # RE-AUDITORÍA DEL 134, N1 (BLOQUEANTE): en una regresión, stdlib no
+                # devolvía mae, rmse ni r2 —el producto los mide DESPUÉS de entrenar, con
+                # el evaluador sobre el dataset entero (`split: full`) y reescalados con
+                # el rango del objetivo—, y R3 aprobaba el paquete contrastando solo las
+                # dos pérdidas: un paquete con la mae ÷ 10 y r2 = 0,9999 salía PASS.
+                # Ahora se miden con LA MISMA función que el producto.
+                _del_disco.update(_metricas_como_las_mide_el_producto(
+                    taller, resultado, spec,
+                    (manifiesto.get("generation") or {}).get("target_range")))
+            elif not redes:
+                # CONTRATO 136 (N4 de la 3.ª pasada del 134): un modelo FUNCTION. El Studio
+                # publica sus cifras con `_collect_training_result(tmp, run_result, spec)`,
+                # SIN `target_range`: el evaluador sobre el dataset ENTERO (`split: full`).
+                # La CLI publica el `metrics.json` del entrenador (`split: validation`). Las
+                # dos particiones se miden, con la MISMA función que el producto, y R3
+                # compara cada métrica con la de SU partición. Si no se pudo medir como el
+                # producto, esa partición queda sin cifra: «no reportada» → INCOMPARABLE,
+                # nunca un FAIL contra otras filas.
+                _del_producto = _metricas_de_function_como_el_producto(taller, resultado, spec)
+                _por_particion = {particion: dict(medidas)
+                                  for particion, medidas in _del_producto.items()}
+                if _del_disco:
+                    _por_particion.setdefault("validation", {}).update(_del_disco)
     except Exception as exc:  # noqa: BLE001 — el entrenador se niega por mil motivos
         # Que no se pueda entrenar AQUÍ no prueba que el paquete mienta:
         # otro entorno, otro backend, una dependencia que falta.
-        return _etapa("INCOMPARABLE", motivo("t_no_arranca", locale, error=exc))
+        return _etapa("INCOMPARABLE",
+                      motivo("t_no_arranca", locale, error=exc)
+                      + ("" if not motivos_sin_aplicar
+                         else " — " + "; ".join(motivos_sin_aplicar.values())),
+                      **({"not_applied_reasons": dict(motivos_sin_aplicar)}
+                         if motivos_sin_aplicar else {}))
     finally:
         shutil.rmtree(taller, ignore_errors=True)
 
@@ -731,6 +933,9 @@ def _verificar_training(
     # Lo que se puede aplicar, se aplica; lo que no, **se declara**, y R3
     # lo mira antes de comparar. Callarlo dejaría a R3 comparando peras
     # con manzanas y llamándolo veredicto.
+    if motivos_sin_aplicar:
+        sin_aplicar = list(sin_aplicar) + [k for k in sorted(motivos_sin_aplicar)
+                                           if k not in sin_aplicar]
     epocas = getattr(resultado, "best_epoch", None)
     # LOS NOMBRES SON LOS DEL RESULTADO, medidos: `TrainingRunResult` no
     # tiene un `metrics` —lo supuse y salía siempre vacío—, tiene
@@ -745,10 +950,142 @@ def _verificar_training(
         valor = getattr(resultado, campo, None)
         if isinstance(valor, (int, float)):
             medidas.setdefault(campo, valor)
+    if _por_particion:
+        # Las pérdidas y la exactitud salen del resultado del entrenador, no de una partición
+        # propia del evaluador: van con las particiones que el producto les da.
+        for campo, particion in (("accuracy", "validation"), ("best_validation_loss", "validation"),
+                                 ("final_validation_loss", "validation"),
+                                 ("final_train_loss", "train")):
+            if campo in medidas:
+                _por_particion.setdefault(particion, {}).setdefault(campo, medidas[campo])
     return _etapa("PASS", best_epoch=epocas, metrics=medidas,
+                  **({"metrics_by_split": _por_particion} if _por_particion else {}),
                   note=motivo("t_nota", locale),
                   applied_from_capture=aplicadas,
-                  not_applied_from_capture=sin_aplicar)
+                  not_applied_from_capture=sin_aplicar,
+                  **({"not_applied_reasons": motivos_sin_aplicar}
+                     if motivos_sin_aplicar else {}))
+
+
+def _torch_instalado() -> bool:
+    """¿Se puede importar torch AQUÍ? Se intenta de verdad: `find_spec` miente
+    con un torch oculto o roto (134), y entonces el reentrenamiento diría «torch»
+    sin tenerlo."""
+    try:
+        import torch  # noqa: F401, PLC0415
+    except Exception:  # noqa: BLE001 — ausente, oculto o roto: no hay torch
+        return False
+    return True
+
+
+def _dispositivo_de_torch(declarado: Any) -> str:
+    """La máquina en la que se reentrena: la de la captura si existe aquí.
+
+    Pedir `cuda` sin CUDA devuelve `cpu`, y quien llama deja `device` sin
+    aplicar al compararlo con lo declarado."""
+    if str(declarado or "").strip().lower().startswith("cuda"):
+        try:
+            import torch  # noqa: PLC0415
+            if torch.cuda.is_available():
+                return "cuda"
+        except Exception:  # noqa: BLE001
+            pass
+    return "cpu"
+
+
+def _reentrenar_con_torch(
+    spec: Any, ruta_modelo: Path, ruta_train: Path, ruta_csv: Path, *,
+    semilla: Any, dispositivo: str, rango: Any,
+    sin_recorte: frozenset[str] = frozenset(),
+) -> tuple[Any, dict[str, Any]]:
+    """Reentrena por el MISMO camino de torch que el producto (contrato 134).
+
+    Llama a `playground._dense_torch_train_result` DIRECTAMENTE, no a
+    `_run_playground_dense_training`: éste elige el motor por el entorno
+    (`MATRIXAI_TRAIN_BACKEND`) y, si torch falla, CAE EN SILENCIO a stdlib —y un
+    reentrenamiento que cae a stdlib daría las cifras de stdlib contra las de
+    torch: el FAIL falso de este contrato—. Aquí un fallo es una excepción, y
+    el llamante lo declara `INCOMPARABLE`.
+
+    Devuelve (resultado con la forma que lee `_verificar_training`, métricas).
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from matrixai.playground import _dense_torch_train_result  # noqa: PLC0415
+    # AUDITORÍA DEL 134, H7: QUÉ MÉTRICAS se recogen lo decide UN sitio, el catálogo
+    # (`metric_identity.DIRECCION`): es el que da a cada métrica su tolerancia, y sin
+    # tolerancia R3 no compara. Una lista propia aquí repetía la del export del Studio
+    # (`_METRICAS_DEL_RESULTADO`), y una métrica que se añadiera al catálogo y al export
+    # se habría quedado fuera de este reentrenamiento: R3 se la saltaría en silencio
+    # (PASS con menos `checked`).
+    from matrixai.training.metric_identity import DIRECCION  # noqa: PLC0415
+
+    r = _dense_torch_train_result(
+        ruta_modelo.read_text(encoding="utf-8"), spec, spec,
+        ruta_csv.read_text(encoding="utf-8"), dispositivo,
+        int(semilla) if isinstance(semilla, int) else 42,
+        None, target_range=_par_de_numeros(rango),
+        # El objetivo sin recortar, como lo entrenó el producto (A8 + I1).
+        objetivo_sin_recorte=frozenset(sin_recorte))
+    if not r.get("ok"):
+        raise RuntimeError(str(r.get("error") or "el entrenamiento de torch no dio resultado"))
+    # Lo que no se midió es `None` y no entra: un valor ausente no es un cero.
+    medidas = {k: r[k] for k in DIRECCION
+               if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool)}
+    return SimpleNamespace(best_epoch=r.get("best_epoch"), validation_metrics=None), medidas
+
+
+def _metricas_como_las_mide_el_producto(
+    taller: Path, resultado: Any, spec: Any, rango: Any,
+) -> dict[str, Any]:
+    """Las métricas de un reentrenamiento denso SIN torch, medidas como el producto.
+
+    El producto (`playground._run_playground_dense_training`, la entrada del Studio sin
+    GPU) entrena con `DenseSupervisedTrainer` y compone su resultado con
+    `_collect_training_result`: evalúa los pesos elegidos con el evaluador sobre el
+    dataset ENTERO y reescala mae y rmse con el `target_range`. De ahí salen las cifras
+    que publica (`metric_splits`: `full`). Se llama a ESA función, no a una parecida: dos
+    sitios midiendo lo mismo acaban midiendo distinto, y la tolerancia es 0.
+
+    Se recogen las del catálogo (`metric_identity.DIRECCION`), como en el camino de torch,
+    y solo los números: lo que el producto no midió es `None` y no entra.
+    """
+    from matrixai.playground import _collect_training_result  # noqa: PLC0415
+    from matrixai.training.metric_identity import DIRECCION  # noqa: PLC0415
+
+    r = _collect_training_result(taller, resultado, spec, target_range=_par_de_numeros(rango))
+    return {k: r[k] for k in DIRECCION
+            if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool)}
+
+
+def _metricas_de_function_como_el_producto(
+    taller: Path, resultado: Any, spec: Any,
+) -> dict[str, dict[str, Any]]:
+    """Las métricas de un modelo FUNCTION, medidas como las publica el Studio, por partición.
+
+    El producto (`playground`, rama FUNCTION de `_run_training_job`) entrena con
+    `SupervisedTrainer` y compone el resultado con `_collect_training_result(tmp, run_result,
+    spec)` —SIN `target_range`—; la partición de cada cifra la declara ella misma en
+    `metric_splits`. Se llama a ESA función con esos argumentos: otra que se le parezca
+    mediría otras filas y la tolerancia es 0 (N4 del 134). Devuelve `{partición: {métrica:
+    valor}}` con las del catálogo y solo números; lo que el producto no midió no entra.
+
+    Lo del `target_range`, dicho como es (auditoría del 136, M3): HOY pasárselo no cambiaría
+    nada, porque el evaluador de FUNCTION lo descarta (`trainer.py`, `del target_range`), y
+    por eso ninguna prueba puede sostener esta línea. Se llama sin él porque así llama el
+    producto: si el evaluador empezara a usarlo, esto seguiría midiendo como se publicó."""
+    from matrixai.playground import _collect_training_result  # noqa: PLC0415
+    from matrixai.training.metric_identity import DIRECCION  # noqa: PLC0415
+
+    r = _collect_training_result(taller, resultado, spec)
+    particiones = r.get("metric_splits") if isinstance(r.get("metric_splits"), dict) else {}
+    out: dict[str, dict[str, Any]] = {}
+    for nombre in DIRECCION:
+        valor = r.get(nombre)
+        particion = particiones.get(nombre)
+        if isinstance(valor, (int, float)) and not isinstance(valor, bool) and particion:
+            out.setdefault(str(particion), {})[nombre] = valor
+    return out
 
 
 def _metricas_del_taller(salida: Path) -> dict[str, Any]:
@@ -775,6 +1112,22 @@ def _metricas_del_taller(salida: Path) -> dict[str, Any]:
     return {str(k): v for k, v in crudo.items() if isinstance(v, (int, float))}
 
 
+def _obtenida_en_su_particion(
+    training: dict[str, Any], obtenidas: dict[str, Any], nombre: str, particion: Any,
+) -> Any:
+    """La cifra del reentrenamiento para `nombre`, medida sobre la partición que el paquete declara.
+
+    Un modelo FUNCTION se publica con cifras de dos particiones según quién exporte (el Studio,
+    `full`; la CLI, `validation`: contrato 136). Si el reentrenamiento las trae por partición
+    (`metrics_by_split`), se compara con la de la métrica; una partición que no se midió es
+    «no reportada», no un FAIL. Sin ese desglose, las cifras planas de siempre."""
+    por_particion = training.get("metrics_by_split")
+    if isinstance(por_particion, dict) and por_particion:
+        medidas = por_particion.get(str(particion))
+        return medidas.get(nombre) if isinstance(medidas, dict) else None
+    return obtenidas.get(nombre)
+
+
 def _verificar_r3(
     manifiesto: dict[str, Any], training: dict[str, Any],
     *, locale: str = IDIOMA_POR_DEFECTO,
@@ -787,12 +1140,22 @@ def _verificar_r3(
       nada que comparar con el publicado, y decir otra cosa sería
       inventarse una comparación.
     * **`INCOMPARABLE`** si el paquete no publica ninguna métrica que se
-      pueda contrastar. El manifiesto ya dice por métrica qué le falta
-      (`comparable`, `incomplete`), así que **se cita en vez de repetir el
-      análisis**. Que al producto todavía le falte capturar el evaluador o
-      la tolerancia es una carencia del PRODUCTO, no una mentira del
-      paquete: `INCOMPARABLE`, no `FAIL`.
-    * **`PASS`/`FAIL`** solo cuando de verdad hay con qué comparar.
+      pueda contrastar. QUÉ se compara lo decide ESTE verificador, repitiendo
+      el análisis a propósito con la misma regla que el export
+      (`comparabilidad_de_metrica`, contrato 136): el `comparable` y el
+      `incomplete` que trae el paquete NO se leen, porque un inventario se
+      puede volver a sellar sin firma. Que al producto todavía le falte
+      capturar el evaluador o la tolerancia es una carencia del PRODUCTO, no
+      una mentira del paquete: `INCOMPARABLE`, no `FAIL`. Y también si ALGUNA
+      cifra publicada no se ha podido contrastar: una comparable que el
+      reentrenamiento no reporta (`not_reported`, re-auditoría del 134), una
+      con un margen que no es el del catálogo (`margin_not_catalog`), una que
+      la regla no puede comparar (`not_compared`, auditoría del 136, H1) o una
+      que dice haberse medido sobre otro dataset (`other_dataset`, M6). Un
+      PASS con menos de lo publicado afirmaría por omisión sobre lo que no se
+      miró.
+    * **`PASS`/`FAIL`** solo cuando de verdad hay con qué comparar. Una que se
+      sale de su tolerancia es `FAIL` aunque otras no se hayan contrastado.
     """
     if training.get("status") != "PASS":
         # EL MOTIVO DE VERDAD, no siempre el mismo.
@@ -819,15 +1182,45 @@ def _verificar_r3(
     if not isinstance(metricas, list) or not metricas:
         return _etapa("INCOMPARABLE", motivo("r3_sin_metricas", locale))
 
-    comparables = [m for m in metricas if isinstance(m, dict) and m.get("comparable")]
+    # CONTRATO 136: QUÉ SE COMPARA Y CON QUÉ MARGEN LO DECIDE ESTE VERIFICADOR, no el
+    # paquete. El `comparable` y las tolerancias que trae son del paquete, y un inventario
+    # se puede volver a sellar sin firma: con `comparable: false` o `tolerance_abs: 1e9` en
+    # las cifras alteradas, R3 daba PASS (3.ª pasada del 134, N5). La regla es la MISMA que
+    # usa el export (`comparabilidad_de_metrica`), aplicada a lo que el paquete publica.
+    from matrixai.export.reproduce import comparabilidad_de_metrica  # noqa: PLC0415
+    #
+    # Y LO QUE LA REGLA NO COMPARA SE NOMBRA (auditoría del 136, H1). Aquí se acumulaba en
+    # `falta` y solo se usaba si no quedaba NINGUNA comparable: con `split: null` o
+    # `dataset_sha256: null` en las cifras alteradas, R3 daba PASS con las dos pérdidas,
+    # `fully_checked: true` y código 0, sin nombrar la mae ni la r2 (el 134 daba FAIL). Cada
+    # cifra que no se compara va a `not_compared` con lo que le falta, y entonces R3 no
+    # puede decir PASS.
+    comparables: list[dict[str, Any]] = []
+    margen_ajeno: list[str] = []
+    no_comparadas: list[dict[str, Any]] = []
+    falta: list[str] = []
+    for i, m in enumerate(metricas):
+        if not isinstance(m, dict):
+            # Ni siquiera es una métrica: tampoco se compara, y se dice.
+            no_comparadas.append({"name": f"metrics[{i}]", "missing": ["object"]})
+            continue
+        decision = comparabilidad_de_metrica(m)
+        if decision["comparable"]:
+            comparables.append(decision["entry"])
+            continue
+        nombre = str(m.get("name") or f"metrics[{i}]")
+        if decision["margen_ajeno"] is not None:
+            margen_ajeno.append(nombre)
+        else:
+            no_comparadas.append({"name": nombre, "missing": list(decision["faltan"])})
+        falta.extend(decision["faltan"])
     if not comparables:
-        # Lo que falta lo dice el manifiesto, métrica a métrica. Se
-        # reproduce esa lista para que quien lo lea sepa QUÉ pedirle al
-        # productor del paquete, en vez de «no se puede».
-        falta: list[str] = []
-        for m in metricas:
-            if isinstance(m, dict):
-                falta.extend(str(x) for x in (m.get("incomplete") or []))
+        # Lo que falta lo dice la regla, métrica a métrica. Se reproduce esa lista para
+        # que quien lo lea sepa QUÉ pedirle al productor del paquete, en vez de «no se puede».
+        if margen_ajeno:
+            return _etapa("INCOMPARABLE",
+                          motivo("r3_margen_ajeno", locale, claves=", ".join(margen_ajeno)),
+                          margin_not_catalog=margen_ajeno, missing=sorted(set(falta)))
         return _etapa("INCOMPARABLE", motivo("r3_metricas_incompletas", locale),
                       missing=sorted(set(falta)))
 
@@ -841,48 +1234,122 @@ def _verificar_r3(
     # se midió para esta máquina: comparar contra ella daría `FAIL` a un
     # paquete honesto por estar verificándolo en otro sitio. Un fallo por
     # falta de acceso no es una manipulación, y esto es lo mismo.
+    # El PORQUÉ de lo que no se aplicó, ya redactado en este idioma por la etapa
+    # `training` (134: «el paquete se entrenó con torch y aquí no hay»).
+    sin_aplicar = training.get("not_applied_from_capture") or []
+    razones = training.get("not_applied_reasons")
+    porque = ("" if not isinstance(razones, dict) or not razones
+              else " — " + "; ".join(str(v) for v in razones.values()))
+
     fuera_de_alcance = _fuera_del_alcance_de_la_tolerancia(
         manifiesto, comparables, locale=locale)
     if fuera_de_alcance:
-        return _etapa("INCOMPARABLE", fuera_de_alcance)
+        # AUDITORÍA DEL 134, H3: en una máquina SIN torch la huella del entorno es
+        # siempre otra (torch forma parte de ella), así que esta guarda salta antes
+        # que la de abajo, y el motivo que llegaba a la persona era solo «otro
+        # entorno»: «se entrenó con torch y aquí no hay» no salía por ningún lado
+        # (medido con `python3 -s -E`). Los dos son INCOMPARABLE; se dicen los dos.
+        return _etapa("INCOMPARABLE", fuera_de_alcance + porque,
+                      **({"not_applied": sin_aplicar} if sin_aplicar else {}))
 
     # Y si el reentrenamiento NO pudo aplicar parte de la configuración
     # capturada, las métricas de ahora no describen el mismo run: comparar
     # daría un FAIL que acusa al paquete de algo que hizo el verificador.
-    sin_aplicar = training.get("not_applied_from_capture") or []
     if sin_aplicar:
         return _etapa("INCOMPARABLE",
                       motivo("r3_configuracion_sin_aplicar", locale,
-                             claves=", ".join(sin_aplicar)),
+                             claves=", ".join(sin_aplicar)) + porque,
                       not_applied=sin_aplicar)
+
+    def _es_numero(valor: Any) -> bool:
+        return isinstance(valor, (int, float)) and not isinstance(valor, bool)
 
     fuera: list[dict[str, Any]] = []
     dentro: list[str] = []
+    # RE-AUDITORÍA DEL 134, N1 (BLOQUEANTE): aquí había un `continue` MUDO. Una métrica
+    # publicada como comparable que el reentrenamiento no reportaba se saltaba sin dejar
+    # rastro, y R3 salía PASS con lo poco que quedaba —en una regresión con stdlib, las
+    # dos pérdidas— y `fully_checked: true`: medido, un paquete con la mae y la rmse ÷ 10 y
+    # r2 = 0,9999 salía `R3 PASS`, código 0. Lo que no se contrasta SE NOMBRA, y si falta
+    # alguna, R3 no puede decir PASS: INCOMPARABLE con su motivo (FAIL sigue mandando).
+    sin_reportar: list[str] = []
+    sin_valor_publicado: list[str] = []
+    # SOBRE QUÉ DATOS dice la cifra que se midió (auditoría del 136, M6). Si no es ninguno de
+    # los dos digests del paquete, la cifra es de otra medición: contrastarla con un
+    # reentrenamiento sobre ESTE dataset no probaría nada, ni que reproduce ni que miente.
+    # No se compara y se nombra. La pregunta es la MISMA que hace el export al declararla
+    # conflicto (`cifra_de_otro_dataset`). Medido sobre los paquetes del disco: ninguno
+    # honesto la dispara.
+    from matrixai.export.reproduce import cifra_de_otro_dataset  # noqa: PLC0415
+    _ds = (manifiesto.get("artifacts") or {}) if isinstance(manifiesto.get("artifacts"), dict) else {}
+    _ds = _ds.get("dataset") if isinstance(_ds.get("dataset"), dict) else {}
+    digests_del_paquete = {d for d in (_ds.get("sha256"), _ds.get("sha256_prepared"))
+                           if isinstance(d, str) and d}
+    de_otro_dataset: list[str] = []
     for m in comparables:
         nombre = str(m.get("name") or "")
-        publicado, ahora = m.get("value"), obtenidas.get(nombre)
-        if not isinstance(publicado, (int, float)) or not isinstance(ahora, (int, float)):
-            continue
-        abs_ = m.get("tolerance_abs")
-        rel = m.get("tolerance_rel")
-        diferencia = abs(float(ahora) - float(publicado))
-        limite = float(abs_) if isinstance(abs_, (int, float)) else 0.0
-        if isinstance(rel, (int, float)):
-            limite = max(limite, abs(float(publicado)) * float(rel))
-        if diferencia <= limite:
-            dentro.append(nombre)
+        publicado = m.get("value")
+        ahora = _obtenida_en_su_particion(training, obtenidas, nombre, m.get("split"))
+        if cifra_de_otro_dataset(m, digests_del_paquete):
+            de_otro_dataset.append(nombre)
+        elif not _es_numero(publicado):
+            # Solo con un paquete tocado a mano: el export rechaza una métrica sin valor.
+            sin_valor_publicado.append(nombre)
+        elif not _es_numero(ahora):
+            sin_reportar.append(nombre)
         else:
-            fuera.append({"metric": nombre, "published": publicado,
-                          "obtained": ahora, "difference": diferencia,
-                          "tolerance": limite})
+            # La tolerancia de `m` es la EFECTIVA de la regla (la del catálogo), no la que
+            # trajera el paquete: `comparabilidad_de_metrica` ya ha descartado como no
+            # comparable cualquier métrica del catálogo con otro margen.
+            abs_ = m.get("tolerance_abs")
+            rel = m.get("tolerance_rel")
+            diferencia = abs(float(ahora) - float(publicado))
+            limite = float(abs_) if isinstance(abs_, (int, float)) else 0.0
+            if isinstance(rel, (int, float)):
+                limite = max(limite, abs(float(publicado)) * float(rel))
+            if diferencia <= limite:
+                dentro.append(nombre)
+            else:
+                fuera.append({"metric": nombre, "published": publicado,
+                              "obtained": ahora, "difference": diferencia,
+                              "tolerance": limite})
 
-    if not dentro and not fuera:
-        return _etapa("INCOMPARABLE", motivo("r3_ninguna_comparable", locale))
+    lo_que_falta: dict[str, Any] = {}
+    if margen_ajeno:
+        lo_que_falta["margin_not_catalog"] = margen_ajeno
+    if no_comparadas:
+        lo_que_falta["not_compared"] = no_comparadas
+    if de_otro_dataset:
+        lo_que_falta["other_dataset"] = de_otro_dataset
+    if sin_reportar:
+        lo_que_falta["not_reported"] = sin_reportar
+    if sin_valor_publicado:
+        lo_que_falta["published_without_value"] = sin_valor_publicado
     if fuera:
         # Con los DOS valores y la tolerancia: «fuera de rango» a secas no
-        # deja ver si se pasó por poco o por un orden de magnitud.
+        # deja ver si se pasó por poco o por un orden de magnitud. Una que se
+        # sale basta para el FAIL, aunque otras no se hayan podido contrastar.
         return _etapa("FAIL", motivo("r3_fuera_de_tolerancia", locale),
-                      metrics=fuera)
+                      metrics=fuera, **lo_que_falta)
+    if lo_que_falta:
+        # Lo que SÍ cuadró se dice (`checked`), pero no basta para un PASS: el paquete
+        # publica más de lo que aquí se ha podido contrastar.
+        porques = []
+        if margen_ajeno:
+            porques.append(motivo("r3_margen_ajeno", locale, claves=", ".join(margen_ajeno)))
+        if no_comparadas:
+            porques.append(motivo("r3_no_comparadas", locale, claves="; ".join(
+                f"{x['name']} ({', '.join(x['missing'])})" for x in no_comparadas)))
+        if de_otro_dataset:
+            porques.append(motivo("r3_otro_dataset", locale, claves=", ".join(de_otro_dataset)))
+        if sin_reportar:
+            porques.append(motivo("r3_sin_reportar", locale, claves=", ".join(sin_reportar)))
+        if sin_valor_publicado:
+            porques.append(motivo("r3_publicada_sin_valor", locale,
+                                  claves=", ".join(sin_valor_publicado)))
+        return _etapa("INCOMPARABLE", "; ".join(porques),
+                      **({"checked": dentro} if dentro else {}), **lo_que_falta)
+    # Aquí `dentro` no está vacía: cada comparable ha caído en una de las cinco listas.
     return _etapa("PASS", checked=dentro)
 
 

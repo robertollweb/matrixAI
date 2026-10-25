@@ -123,7 +123,12 @@ def cargar_generador():
 
 
 def csv_de(gen, data_id):
-    """Idéntico a `_dataset_medido` de generar_ejemplos_medidos.py: leer_arff + csv.writer(lineterminator='\\n')."""
+    """El CSV de la FASE 0 de `data_id`, el que se mide (y el del kit 128, que se genera con esta función):
+    `gen.leer_arff` del generador del Studio, que solo quita los atributos STRING, + csv.writer(lineterminator='\\n').
+    Hasta el 135 era, byte a byte, el ejemplo del Studio (`_dataset_medido` del generador hacía lo mismo). Desde el 135
+    el generador quita además lo que la fuente marca, y el ejemplo es ESTE CSV sin las columnas que su catálogo declara
+    quitadas con `en_fase0` (lo comprueba `comparar_con_el_ejemplo`). Los controles siguen midiendo ESTE (el de la
+    referencia R0, con las columnas con que se midió la Fase 0), para seguir siendo comparables con lo sellado."""
     columnas, excluidas, filas = gen.leer_arff(gen.ARFF_DIR / f"{data_id}.arff")
     buf = io.StringIO(newline="")
     w = csv.writer(buf, lineterminator="\n")
@@ -132,18 +137,136 @@ def csv_de(gen, data_id):
     return buf.getvalue().encode("utf-8"), columnas, excluidas, len(filas)
 
 
+def _csv_escrito(filas):
+    """Las filas, escritas como las escriben `csv_de` y el generador del Studio."""
+    buf = io.StringIO(newline="")
+    csv.writer(buf, lineterminator="\n").writerows(filas)
+    return buf.getvalue().encode("utf-8")
+
+
+def ficha_del_ejemplo(ejemplos, nombre):
+    """La ficha de `nombre` en el `catalogo.json` de los ejemplos del Studio (`ejemplos`), o None si no hay catálogo o no
+    la trae: entonces no hay columnas quitadas que descontar y el CSV tiene que ser el mismo."""
+    ruta = Path(ejemplos) / "catalogo.json"
+    if not ruta.is_file():
+        return None
+    for d in json.loads(ruta.read_text(encoding="utf-8")).get("conjuntos") or []:
+        if isinstance(d, dict) and d.get("nombre") == nombre:
+            return d
+    return None
+
+
+def _primera_diferencia(esperado, del_studio, descontadas):
+    """Dónde difieren, para que el PARO diga qué mirar (no decide nada: ya se sabe que difieren)."""
+    sin = f"sin {descontadas}" if descontadas else "tal cual"
+    try:
+        a = list(csv.reader(io.StringIO(esperado.decode("utf-8"), newline="")))
+        b = list(csv.reader(io.StringIO(del_studio.decode("utf-8"), newline="")))
+    except (UnicodeDecodeError, csv.Error) as e:
+        return f"difieren, y uno de los dos no se lee como CSV: {e}"
+    if not a:
+        return "el CSV de la Fase 0 está vacío"
+    if not b or a[0] != b[0]:
+        cab = b[0] if b else []
+        faltan, sobran = [x for x in a[0] if x not in cab], [x for x in cab if x not in a[0]]
+        if faltan or sobran:
+            return f"la cabecera del Studio no es la de la Fase 0 {sin}: le faltan {faltan} y le sobran {sobran}"
+        return f"la cabecera del Studio trae las columnas de la Fase 0 {sin} en otro orden"
+    if len(a) != len(b):
+        return f"la Fase 0 {sin} tiene {len(a) - 1} filas y el Studio {len(b) - 1}"
+    for i, (fa, fb) in enumerate(zip(a, b)):
+        if fa != fb:
+            j = next((k for k, (x, y) in enumerate(zip(fa, fb)) if x != y), min(len(fa), len(fb)))
+            col = a[0][j] if j < len(a[0]) else f"#{j}"
+            return (f"la fila {i} (contando la cabecera como 0) difiere en {col!r}: Fase 0 {fa[j] if j < len(fa) else None!r}, "
+                    f"Studio {fb[j] if j < len(fb) else None!r}")
+    return f"las mismas filas y valores que la Fase 0 {sin}, pero otros bytes (p. ej. el fin de línea o las comillas)"
+
+
+def comparar_con_el_ejemplo(csv_fase0, csv_del_studio, ficha):
+    """135 §2.3 (punto 11), UNA sola función para la guarda (`comprobar_bytes`) y para su prueba del kit 128: ¿es el CSV
+    del ejemplo del Studio, BYTE A BYTE, el CSV de la Fase 0 (`csv_de`) sin, exactamente, las columnas que la ficha de su
+    catálogo declara quitadas y que la Fase 0 tenía (`columnas_quitadas` con `en_fase0` verdadero)? Las quitadas con
+    `en_fase0` falso (las STRING) no están en el CSV de la Fase 0 y no se descuentan. Cualquier otra diferencia —otra
+    fila, otro valor, otra columna, otro orden, otro fin de línea— es «no es el mismo»; y también lo es una columna que
+    la ficha da por quitada de la Fase 0 y que el CSV de la Fase 0 no trae (o trae dos veces).
+
+    Sin nada que descontar (sin ficha, o una ficha de antes del 135, sin `columnas_quitadas`) se comparan los bytes tal
+    cual, como antes del 135. Para descontar columnas sin tocar ningún otro byte, el CSV de la Fase 0 se lee y se vuelve
+    a escribir como lo escriben `csv_de` y el generador; antes se exige que reescribirlo ENTERO dé sus mismos bytes (si
+    no, no se le pueden quitar columnas sin cambiar otra cosa, y «no es el mismo»).
+
+    Devuelve {"es_el_mismo", "columnas_descontadas" (en el orden de la cabecera de la Fase 0; [] = el mismo CSV),
+    "motivo" (None si es el mismo), "sha256_fase0", "bytes_fase0", "sha256_studio", "bytes_studio"}."""
+    res = {"es_el_mismo": False, "columnas_descontadas": [], "motivo": None,
+           "sha256_fase0": hashlib.sha256(csv_fase0).hexdigest(), "bytes_fase0": len(csv_fase0),
+           "sha256_studio": hashlib.sha256(csv_del_studio).hexdigest(), "bytes_studio": len(csv_del_studio)}
+
+    def no_es(motivo):
+        res["columnas_descontadas"], res["motivo"] = [], motivo
+        return res
+
+    declaradas = [q.get("columna") for q in ((ficha or {}).get("columnas_quitadas") or [])
+                  if isinstance(q, dict) and q.get("en_fase0") is True]
+    if not declaradas:
+        if csv_fase0 == csv_del_studio:
+            res["es_el_mismo"] = True
+            return res
+        return no_es(_primera_diferencia(csv_fase0, csv_del_studio, []))
+    if len(set(declaradas)) != len(declaradas):
+        return no_es(f"la ficha declara quitada más de una vez la misma columna: {declaradas}")
+    try:
+        filas = list(csv.reader(io.StringIO(csv_fase0.decode("utf-8"), newline="")))
+    except (UnicodeDecodeError, csv.Error) as e:
+        return no_es(f"el CSV de la Fase 0 no se lee como CSV: {e}")
+    if not filas:
+        return no_es("el CSV de la Fase 0 está vacío")
+    if _csv_escrito(filas) != csv_fase0:
+        return no_es("el CSV de la Fase 0 no sale igual al reescribirlo: no se le pueden quitar columnas sin cambiar "
+                     "otros bytes")
+    cabecera = filas[0]
+    for n in declaradas:
+        if cabecera.count(n) != 1:
+            return no_es(f"la ficha declara quitada {n!r} con en_fase0 y la cabecera de la Fase 0 la trae "
+                         f"{cabecera.count(n)} veces")
+    if any(len(f) != len(cabecera) for f in filas):
+        return no_es("el CSV de la Fase 0 tiene filas con otro número de campos que su cabecera")
+    fuera = {cabecera.index(n) for n in declaradas}
+    descontadas = [n for i, n in enumerate(cabecera) if i in fuera]
+    esperado = _csv_escrito([[v for i, v in enumerate(f) if i not in fuera] for f in filas])
+    if esperado != csv_del_studio:
+        return no_es(_primera_diferencia(esperado, csv_del_studio, descontadas))
+    res["es_el_mismo"], res["columnas_descontadas"] = True, descontadas
+    return res
+
+
 def comprobar_bytes(gen, conjuntos):
-    """Para los 4 ejemplos: mi CSV == el del Studio, byte a byte. Si no, PARA."""
+    """La guarda de los 4 ejemplos del control (135 §2.3, punto 11). Lo que se MIDE es el CSV de la Fase 0 (`csv_de`, el
+    de lo sellado), y el ejemplo del Studio tiene que ser ESE CSV, byte a byte, sin exactamente las columnas que su
+    catálogo declara quitadas y que la Fase 0 tenía (`comparar_con_el_ejemplo`). Cualquier otra diferencia PARA.
+
+    En el resultado, por conjunto: `sha256` y `bytes` del CSV de la Fase 0 (lo medido); `byte_a_byte` (verdadero: el
+    del Studio es ese CSV, byte a byte, una vez descontadas `columnas_descontadas`; [] = el mismo CSV); y lo que se
+    comparó del Studio (`csv_del_studio`, `sha256_del_studio`, `bytes_del_studio`). Un ejemplo del CONTROL que el Studio no trae PARA; uno que no es
+    del control y no está, no se compara ni sale en el resultado."""
     res = {}
     for c in conjuntos:
         f = EJEMPLOS / f"{c['nombre']}.csv"
         if not f.is_file():
+            # R-4 (re-auditoría del 135): un ejemplo del CONTROL que el Studio no trae PARA; saltárselo en silencio dejaba que el
+            # kit 128 escribiera «control: [los 4]» (y «byte a byte») sin haber comparado uno.
+            if c["nombre"] in CONTROL:
+                raise SystemExit(f"PARO: falta el CSV del ejemplo del control {c['nombre']} en el Studio ({f}); "
+                                 "no se puede comprobar que sea el de la Fase 0")
             continue
         mio = csv_de(gen, c["data_id"])[0]
-        ok = mio == f.read_bytes()
-        res[c["nombre"]] = {"byte_a_byte": ok, "sha256": hashlib.sha256(mio).hexdigest(), "bytes": len(mio)}
-        if not ok:
-            raise SystemExit(f"PARO: el CSV de {c['nombre']} NO es byte a byte el del Studio: {res[c['nombre']]}")
+        r = comparar_con_el_ejemplo(mio, f.read_bytes(), ficha_del_ejemplo(EJEMPLOS, c["nombre"]))
+        res[c["nombre"]] = {"byte_a_byte": r["es_el_mismo"], "sha256": r["sha256_fase0"], "bytes": r["bytes_fase0"],
+                            "columnas_descontadas": r["columnas_descontadas"], "csv_del_studio": str(f),
+                            "sha256_del_studio": r["sha256_studio"], "bytes_del_studio": r["bytes_studio"]}
+        if not r["es_el_mismo"]:
+            raise SystemExit(f"PARO: el CSV de {c['nombre']} del Studio NO es, byte a byte, el de la Fase 0 sin las "
+                             f"columnas que su catálogo declara quitadas: {r['motivo']}. {res[c['nombre']]}")
     return res
 
 
@@ -641,7 +764,8 @@ def main():
     gen = cargar_generador()
     bytes_ok = comprobar_bytes(gen, [b for b in (banco_entero if (a.politica or a.banco) else banco)
                                      if b["nombre"] in CONTROL])
-    print("CSV byte a byte contra los del Studio:", {k: v["byte_a_byte"] for k, v in bytes_ok.items()}, flush=True)
+    print("CSV de la Fase 0 contra los del Studio (byte a byte, sin las columnas descontadas):",
+          {k: (v["byte_a_byte"], v.get("columnas_descontadas")) for k, v in bytes_ok.items()}, flush=True)
 
     imagen = subprocess.run(["docker", "image", "inspect", IMAGEN, "--format", "{{.Id}}"], capture_output=True, text=True).stdout.strip()
     motivo = contra_o_motivo(contra_doc, MODO, imagen)

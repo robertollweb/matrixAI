@@ -403,23 +403,41 @@ class R3ComparaLasMetricasTest(unittest.TestCase):
         self.assertTrue(etapa["missing"], "no dice qué le falta a la métrica")
 
     def test_dentro_de_tolerancia_es_PASS(self):
+        """La tolerancia SE APLICA: una diferencia dentro del margen es PASS, y fuera, FAIL.
+
+        CONTRATO 136 y su re-auditoría (RA1): el margen lo pone el CATÁLOGO del núcleo, y una métrica
+        que el catálogo no conoce no se compara. El catálogo mide 0,0 en todas, así que para que esta
+        prueba siga sosteniendo que el margen SE APLICA (auditoría del 136, M1: con la obtenida igual
+        a la publicada, un R3 que lo ignorase seguía verde) se le da al catálogo un margen de 0,05
+        para `accuracy`, en la exportación y en R3 a la vez. La forma relativa ya no la pone nadie:
+        el catálogo solo declara la absoluta."""
+        from unittest import mock
         from matrixai.export.verify import _verificar_r3
+        from matrixai.training.metric_identity import ALCANCE_DE_LA_TOLERANCIA
         sha = hashlib.sha256(_CSV.encode()).hexdigest()
-        completa = {"name": "accuracy", "value": 0.90, "split": "validation",
-                    "dataset_sha256": sha, "direction": "higher_is_better",
-                    "tolerance_abs": 0.05}
-        d = self._con_metricas([completa])
-        manifiesto = json.loads((d / "reproduce.json").read_text())
-        etapa = _verificar_r3(manifiesto, {"status": "PASS", "metrics": {"accuracy": 0.93}})
-        self.assertEqual(etapa["status"], "PASS", etapa.get("reason"))
-        self.assertIn("accuracy", etapa["checked"])
+        margen = {"tolerance_abs": 0.05, "tolerance_scope": ALCANCE_DE_LA_TOLERANCIA}
+        with mock.patch("matrixai.export.reproduce.tolerancia_medida",
+                        side_effect=lambda n: dict(margen) if n == "accuracy" else None):
+            completa = {"name": "accuracy", "value": 0.90, "split": "validation",
+                        "dataset_sha256": sha, "direction": "higher_is_better"}
+            d = self._con_metricas([completa])
+            manifiesto = json.loads((d / "reproduce.json").read_text())
+            self.assertTrue(manifiesto["metrics"][0]["comparable"])
+            self.assertEqual(manifiesto["metrics"][0]["tolerance_abs"], 0.05)
+            etapa = _verificar_r3(manifiesto, {"status": "PASS", "metrics": {"accuracy": 0.93}})
+            self.assertEqual(etapa["status"], "PASS", etapa)
+            self.assertIn("accuracy", etapa["checked"])
+            # Y el otro lado: fuera del margen, FAIL con el margen que se aplicó.
+            fuera = _verificar_r3(manifiesto, {"status": "PASS", "metrics": {"accuracy": 0.96}})
+            self.assertEqual(fuera["status"], "FAIL", fuera)
+            self.assertGreater(fuera["metrics"][0]["tolerance"], 0.0)
 
     def test_fuera_de_tolerancia_es_FAIL_y_enseña_los_dos_valores(self):
         from matrixai.export.verify import _verificar_r3
         sha = hashlib.sha256(_CSV.encode()).hexdigest()
         completa = {"name": "accuracy", "value": 0.90, "split": "validation",
                     "dataset_sha256": sha, "direction": "higher_is_better",
-                    "tolerance_abs": 0.01}
+                    }  # CONTRATO 136: sin margen propio; manda el del catálogo
         d = self._con_metricas([completa])
         manifiesto = json.loads((d / "reproduce.json").read_text())
         etapa = _verificar_r3(manifiesto, {"status": "PASS", "metrics": {"accuracy": 0.40}})

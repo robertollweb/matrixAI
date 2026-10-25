@@ -37,6 +37,12 @@ __all__ = ["AGREGACION", "ALCANCE_DE_LA_TOLERANCIA", "DIRECCION",
 #: máquina. **Rango 0.000e+00 en las dos**: los valores salieron idénticos
 #: hasta el último dígito, no parecidos.
 #:
+#: **Y TORCH EN CPU (contrato 134, medido el 19-10)**: el mismo paquete reentrenado por
+#: `_dense_torch_train_result` en 12 configuraciones (procesos distintos, 1/2/3/8 hilos,
+#: hilo principal y hilo aparte; clasificación chica y de 6 entradas × 30 épocas, y regresión)
+#: dio las cifras IDÉNTICAS hasta el último dígito. Misma tolerancia, mismo alcance. En CUDA
+#: NO se ha medido: ahí un `PASS` solo vale en la misma GPU, y el alcance ya lo dice.
+#:
 #: Por eso `0.0` aquí NO es el cero inventado que este módulo llevaba
 #: rechazando: es el resultado de medirlo. La diferencia entre los dos
 #: ceros es exactamente el alcance que va escrito al lado.

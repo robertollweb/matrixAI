@@ -4,7 +4,15 @@
 mtime 0) y con un `manifiesto.json` (sha256 del CSV y del .gz, filas, columnas, objetivo, tarea, clase positiva).
 
 SOLO en el servidor (lee los ARFF de `~/fase0_openml_datos/arff`); el PC de Roberto no lo necesita ni lo lleva.
-Los 4 ejemplos del control se comprueban BYTE A BYTE contra los del Studio, como hace el instrumento del 120.
+Los 4 ejemplos del control se comprueban con la guarda del instrumento del 120 (`comprobar_bytes`): el ejemplo del Studio
+tiene que ser, byte a byte, el CSV de control sin las columnas que su catálogo declara quitadas y que la Fase 0 tenía
+(135 §2.3). El manifiesto dice lo que se descontó.
+
+REGENERAR EL KIT CON UN STUDIO QUE QUITA COLUMNAS CAMBIA SU IDENTIDAD sin cambiar un solo CSV (135, R-5 de la re-auditoría): con un
+Studio de antes del 135 el manifiesto sale igual, byte a byte, que el de git; con uno que quita columnas lleva otra clave
+(`control_contra_los_del_studio`, con lo descontado) y por tanto otro sha256. Ese sha256 entra en la `huella` de cada brazo
+del kit, así que un brazo medido con el kit viejo y otro con el regenerado salen INCOMPARABLES (PARO 6) aunque sus 13 CSV sean
+idénticos. Regenerar el kit solo si se va a re-medir con él entero (los dos brazos), y no mezclar brazos de kits distintos.
 
     python3 generar_kit_128_c5.py [--destino kit_128_c5/datos]
 """
@@ -27,6 +35,25 @@ def _cargar_r0():
     return m
 
 
+def control_en_el_manifiesto(control):
+    """Lo que el manifiesto dice del control (`control` = lo que devuelve `comprobar_bytes`). Sin nada descontado, la
+    clave de siempre, para que el manifiesto no cambie: su sha256 entra en la `huella` de los brazos del kit, y uno
+    distinto los hace incomparables. Con algo descontado (un Studio con el 135), «byte a byte con los del Studio» ya no
+    sería verdad: se dice qué se descontó de cada uno."""
+    descontadas = {n: v["columnas_descontadas"] for n, v in sorted(control.items())}
+    if not any(descontadas.values()):
+        return {"control_byte_a_byte_con_los_del_studio": True}
+    return {"control_contra_los_del_studio": {
+        "es": "cada ejemplo del Studio es, byte a byte, su CSV de control sin estas columnas, que su catálogo declara "
+              "quitadas y la Fase 0 tenía (135 §2.3)", "columnas_descontadas": descontadas}}
+
+
+def componer_manifiesto(control, nombres_del_control, filas_manifiesto):
+    return {"generado_con": "benchmarks/fase0/generar_kit_128_c5.py",
+            "mismo_conversor_que": "referencia_120_r0.py (csv_de)", "control": sorted(nombres_del_control),
+            **control_en_el_manifiesto(control), "conjuntos": filas_manifiesto}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--destino", default=str(AQUI / "kit_128_c5" / "datos"))
@@ -44,7 +71,7 @@ def main(argv=None):
         if d.get("sellado"):
             raise SystemExit(f"PARO: {b['nombre']} está sellado")
     gen = r0.cargar_generador()
-    r0.comprobar_bytes(gen, [b for b in banco if b["nombre"] in r0.CONTROL])
+    control = r0.comprobar_bytes(gen, [b for b in banco if b["nombre"] in r0.CONTROL])
     filas_manifiesto = []
     for b in banco:
         contenido, columnas, excluidas, n = r0.csv_de(gen, b["data_id"])
@@ -61,9 +88,7 @@ def main(argv=None):
             "bytes": len(contenido), "sha256": hashlib.sha256(contenido).hexdigest(),
             "bytes_gz": ruta.stat().st_size, "sha256_gz": hashlib.sha256(ruta.read_bytes()).hexdigest()})
         print(f"{b['nombre']:34} {n:>7} x {len(columnas):<5} {len(contenido):>10} B -> {ruta.stat().st_size:>9} B gz", flush=True)
-    manifiesto = {"generado_con": "benchmarks/fase0/generar_kit_128_c5.py",
-                  "mismo_conversor_que": "referencia_120_r0.py (csv_de)", "control": sorted(r0.CONTROL),
-                  "control_byte_a_byte_con_los_del_studio": True, "conjuntos": filas_manifiesto}
+    manifiesto = componer_manifiesto(control, r0.CONTROL, filas_manifiesto)
     (destino / "manifiesto.json").write_text(json.dumps(manifiesto, ensure_ascii=False, indent=1) + "\n")
     print("manifiesto.json escrito;", sum(f["bytes_gz"] for f in filas_manifiesto) / 1e6, "MB comprimidos")
 

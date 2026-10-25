@@ -83,13 +83,25 @@ def test_un_byte_cambiado_en_un_CSV_del_kit_se_detecta(tmp_path):
     assert any("falta" in p for p in M.verificar_datos(datos))
 
 
-def test_los_CSV_de_control_son_los_del_Studio_byte_a_byte():
+def test_los_ejemplos_del_Studio_son_los_CSV_de_control_sin_lo_que_su_catalogo_quita_byte_a_byte():
+    """135 §2.3 (punto 11). El control mide el CSV de la Fase 0 (el del kit, el de lo sellado), y el ejemplo del Studio
+    tiene que ser ESE CSV, byte a byte, sin exactamente las columnas que su catálogo declara quitadas y que la Fase 0
+    tenía (`en_fase0`). La MISMA función que la guarda del instrumento del 120 (`comprobar_bytes`). Con un Studio de
+    antes del 135 no hay nada que descontar: el mismo CSV."""
     ejemplos = _FASE0.parents[1].parent / "matrixaistudio" / "studio-backend" / "matrixai_studio" / "ejemplos_medidos"
     if not ejemplos.is_dir():
         pytest.skip("no está el Studio al lado")
+    vistos = {}
     for c in M.leer_manifiesto(KIT / "datos")["conjuntos"]:
         if c["es_control"]:
-            assert M.csv_de(KIT / "datos", c)[0] == (ejemplos / f"{c['nombre']}.csv").read_bytes(), c["nombre"]
+            ficha = M.R0.ficha_del_ejemplo(ejemplos, c["nombre"])
+            r = M.R0.comparar_con_el_ejemplo(M.csv_de(KIT / "datos", c)[0], (ejemplos / f"{c['nombre']}.csv").read_bytes(),
+                                             ficha)
+            assert r["es_el_mismo"], (c["nombre"], r["motivo"])
+            declaradas = [q["columna"] for q in (ficha or {}).get("columnas_quitadas", []) if q.get("en_fase0") is True]
+            assert sorted(r["columnas_descontadas"]) == sorted(declaradas), c["nombre"]   # dice lo que descontó
+            vistos[c["nombre"]] = r["columnas_descontadas"]
+    assert sorted(vistos) == sorted(CONTROL)
 
 
 # ------------------------------------------------------------------------------------------------ un Studio simulado

@@ -122,6 +122,29 @@ _MOTIVOS: dict[str, dict[str, str]] = {
         "t_no_arranca": "el reentrenamiento no ha podido correr: «{error}»",
         "t_nota": ("el entrenamiento llegó a término; cuadrar con las métricas "
                    "publicadas es R3"),
+        "t_backend_sin_torch": ("el paquete se entrenó con torch y aquí torch no está "
+                                "instalado: se reentrenó sin él, y las cifras de un "
+                                "entrenador no son las del otro"),
+        "t_backend_sin_camino_torch": ("el paquete declara torch, pero este tipo de modelo "
+                                       "no tiene un reentrenamiento de torch que se pueda "
+                                       "repetir aquí"),
+        "t_backend_dataset_partido": ("el dataset se parte en train y eval por convención "
+                                      "y el reentrenamiento de torch lee un solo CSV"),
+        "t_preparado_no_cuadra": (
+            "el dataset regenerado, preparado como lo prepara el producto (con sus "
+            "field_ranges y su target_range), no cuadra con el sha256 del CSV con el que "
+            "el paquete dice que entrenó (esperado {declarado}, obtenido {actual}): no "
+            "se entrena con los mismos datos"),
+        "t_preparado_sin_digest": (
+            "el paquete prepara sus datos con rangos antes de entrenar y no declara el "
+            "sha256 del CSV preparado: no hay con qué comprobar que se reentrena con los "
+            "mismos datos"),
+        "t_device_cuda_sin_medir": (
+            "el paquete se entrenó en CUDA y la tolerancia de torch en CUDA no está "
+            "medida (solo en CPU): comparar con ella sería suponerla"),
+        "t_objetivo_sin_recorte_sin_aplicar": (
+            "el objetivo se normalizó sin recortar y este entrenador no elige la época "
+            "como el producto en ese caso (solo con las filas de validación alcanzables)"),
         # -- etapa `R3` ----------------------------------------------------------
         "r3_sin_reentrenamiento": ("las métricas solo se contrastan contra un "
                                    "entrenamiento nuevo (usa --retrain)"),
@@ -138,8 +161,25 @@ _MOTIVOS: dict[str, dict[str, str]] = {
             "el reentrenamiento no ha podido aplicar parte de la configuración "
             "capturada ({claves}), así que sus métricas no describen la misma "
             "ejecución y una diferencia tampoco probaría que el paquete miente"),
-        "r3_ninguna_comparable": ("el reentrenamiento no ha informado de ninguna de "
-                                  "las métricas comparables"),
+        "r3_sin_reportar": (
+            "hay métricas comparables que el reentrenamiento no ha reportado ({claves}): "
+            "sin un valor nuevo no se pueden contrastar, y sin contrastarlas no se puede "
+            "decir que el paquete reproduce lo que publica"),
+        "r3_margen_ajeno": (
+            "el paquete declara un margen que no es el medido por el núcleo ({claves}): "
+            "R3 no lo usa, así que esas métricas no se comparan y no se puede decir que el "
+            "paquete reproduce lo que publica"),
+        "r3_no_comparadas": (
+            "el paquete publica cifras que no se pueden comparar ({claves}): les falta lo "
+            "que hace falta para contrastarlas, así que no se puede decir que el paquete "
+            "reproduce lo que publica"),
+        "r3_otro_dataset": (
+            "el paquete publica cifras medidas sobre otro dataset que el suyo ({claves}): "
+            "un reentrenamiento sobre este no puede contrastarlas, así que no se puede decir "
+            "que el paquete reproduce lo que publica"),
+        "r3_publicada_sin_valor": (
+            "el paquete publica métricas como comparables sin un valor numérico "
+            "({claves}): no hay con qué contrastarlas"),
         "r3_fuera_de_tolerancia": "al menos una métrica se sale de su tolerancia",
         # -- alcance de la tolerancia ---------------------------------------------
         "tol_alcance_desconocido": (
@@ -229,6 +269,29 @@ _MOTIVOS: dict[str, dict[str, str]] = {
         "t_sin_mxtrain": "the package carries no .mxtrain to retrain from",
         "t_no_arranca": "retraining could not run: \"{error}\"",
         "t_nota": "training completed; matching the published metrics is R3",
+        "t_backend_sin_torch": ("the package was trained with torch and torch is not "
+                                "installed here: it was retrained without it, and one "
+                                "trainer's figures are not the other's"),
+        "t_backend_sin_camino_torch": ("the package declares torch, but this kind of model "
+                                       "has no torch retraining that can be repeated here"),
+        "t_backend_dataset_partido": ("the dataset is split into train and eval by "
+                                      "convention and the torch retraining reads a single CSV"),
+        "t_preparado_no_cuadra": (
+            "the regenerated dataset, prepared as the product prepares it (with its "
+            "field_ranges and target_range), does not match the sha256 of the CSV the "
+            "package says it trained on (expected {declarado}, got {actual}): it is not "
+            "retrained on the same data"),
+        "t_preparado_sin_digest": (
+            "the package prepares its data with ranges before training and does not "
+            "declare the sha256 of the prepared CSV: there is nothing to check that it is "
+            "retrained on the same data"),
+        "t_device_cuda_sin_medir": (
+            "the package was trained on CUDA and torch's tolerance on CUDA has not been "
+            "measured (only on CPU): comparing against it would be assuming it"),
+        "t_objetivo_sin_recorte_sin_aplicar": (
+            "the target was normalized without clipping and this trainer does not choose "
+            "the epoch as the product does in that case (only with the reachable "
+            "validation rows)"),
         "r3_sin_reentrenamiento": ("metrics can only be contrasted against a fresh "
                                    "training run (use --retrain)"),
         "r3_training_no_paso": "training did not pass",
@@ -243,8 +306,25 @@ _MOTIVOS: dict[str, dict[str, str]] = {
             "the retraining could not apply part of the captured configuration "
             "({claves}), so its metrics do not describe the same run and a "
             "difference would not prove the package wrong"),
-        "r3_ninguna_comparable": ("none of the comparable metrics was reported by the "
-                                  "retraining"),
+        "r3_sin_reportar": (
+            "some comparable metrics were not reported by the retraining ({claves}): "
+            "without a fresh value they cannot be contrasted, and without contrasting "
+            "them it cannot be said that the package reproduces what it publishes"),
+        "r3_margen_ajeno": (
+            "the package declares a margin that is not the one measured by the core "
+            "({claves}): R3 does not use it, so those metrics are not compared and it "
+            "cannot be said that the package reproduces what it publishes"),
+        "r3_no_comparadas": (
+            "the package publishes figures that cannot be compared ({claves}): they lack "
+            "what a comparison needs, so it cannot be said that the package reproduces "
+            "what it publishes"),
+        "r3_otro_dataset": (
+            "the package publishes figures measured on a dataset other than its own "
+            "({claves}): a retraining on this one cannot contrast them, so it cannot be said "
+            "that the package reproduces what it publishes"),
+        "r3_publicada_sin_valor": (
+            "the package publishes metrics as comparable without a numeric value "
+            "({claves}): there is nothing to contrast them with"),
         "r3_fuera_de_tolerancia": "at least one metric falls outside its tolerance",
         "tol_alcance_desconocido": (
             "the package declares tolerance scopes this verifier does not know "

@@ -1037,9 +1037,10 @@ class ElManifiestoNoPuedeMentirTest(unittest.TestCase):
         repuesta = self._build(metrics=[sin_tolerancia])["metrics"][0]
         self.assertTrue(repuesta["comparable"])
         self.assertEqual(repuesta["tolerance_scope"], "same_environment_same_seed")
-        # Y con la relativa en vez de la absoluta, también.
+        # CONTRATO 136: y con una relativa PROPIA, no. El margen de una métrica del catálogo
+        # es el del catálogo; otro declarado por el paquete la deja no comparable.
         sin_tolerancia["tolerance_rel"] = 0.001
-        self.assertTrue(self._build(metrics=[sin_tolerancia])["metrics"][0]["comparable"])
+        self.assertFalse(self._build(metrics=[sin_tolerancia])["metrics"][0]["comparable"])
 
     def test_una_metrica_DESCONOCIDA_sigue_sin_tolerancia_que_reponer(self):
         """El catálogo no inventa: declarar una tolerancia para una métrica
@@ -1055,15 +1056,23 @@ class ElManifiestoNoPuedeMentirTest(unittest.TestCase):
         self.assertIn("tolerance_abs", m["incomplete"])
         self.assertIn("tolerance_rel", m["incomplete"])
 
-    def test_la_tolerancia_del_llamante_MANDA_sobre_la_medida(self):
-        """Quien mide su propia repetibilidad sabe más que este catálogo."""
-        m = self._build(metrics=[{
-            "name": "accuracy", "value": 0.6, "split": "validation",
-            "dataset_sha256": _DATASET_SHA, "tolerance_abs": 0.05,
-            "tolerance_scope": "matriz de entornos v1",
-        }])["metrics"][0]
-        self.assertEqual(m["tolerance_abs"], 0.05)
-        self.assertEqual(m["tolerance_scope"], "matriz de entornos v1")
+    def test_la_tolerancia_del_llamante_NO_se_pisa_pero_deja_la_metrica_sin_comparar(self):
+        """Lo que declaró el llamante se publica tal cual: pisarlo con el del catálogo sería
+        decidir por él en silencio. Pero desde el CONTRATO 136 (§2.2) el margen de una métrica
+        del catálogo es el del catálogo: otro declarado la deja NO comparable, y R3 lo dirá
+        como «margen ajeno». Esta prueba decía que la tolerancia del llamante MANDABA sobre la
+        medida, y solo miraba que se conservara (auditoría del 136, M2).
+        Con margen y alcance propios, y con solo el alcance propio y sin tolerancia."""
+        for propio in ({"tolerance_abs": 0.05, "tolerance_scope": "matriz de entornos v1"},
+                       {"tolerance_scope": "matriz de entornos v1"}):
+            with self.subTest(propio=propio):
+                m = self._build(metrics=[{
+                    "name": "accuracy", "value": 0.6, "split": "validation",
+                    "dataset_sha256": _DATASET_SHA, **propio,
+                }])["metrics"][0]
+                self.assertEqual(m["tolerance_abs"], propio.get("tolerance_abs"))
+                self.assertEqual(m["tolerance_scope"], "matriz de entornos v1")
+                self.assertFalse(m["comparable"])
 
     def test_the_caller_cannot_declare_its_own_metric_comparable(self):
         m = self._build(metrics=[{"name": "a", "value": 0.9, "comparable": True,
