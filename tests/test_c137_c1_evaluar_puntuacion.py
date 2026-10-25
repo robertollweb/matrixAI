@@ -1264,3 +1264,32 @@ class CliTest(DatosBase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class ValorPDeLaFaltaConcentradaTest(unittest.TestCase):
+    """Visto en Chromium el 25-10: el aviso de falta concentrada decía «p = 0,0000». Un p más pequeño que lo que
+    cuatro decimales dicen se escribe «p < 0,0001»; nunca un cero que el test exacto de Fisher no da."""
+
+    def test_un_p_minusculo_se_escribe_menor_que_y_nunca_cero(self):
+        from matrixai.estudio.evaluacion_de_puntuacion_textos import valor_p
+        self.assertEqual(dict(valor_p(1e-9)), {"es": "p < 0,0001", "en": "p < 0.0001"})
+        self.assertEqual(dict(valor_p(0.0056)), {"es": "p = 0,0056", "en": "p = 0.0056"})
+
+    def test_el_aviso_real_no_dice_p_igual_a_cero(self):
+        filas = ["evento,p"]
+        for i in range(2000):
+            ev = i % 3 == 0
+            falta = (ev and i % 6 == 0) or (not ev and i % 97 == 0)
+            filas.append(f"{'1' if ev else '0'},{'' if falta else round((i % 100) / 100, 2)}")
+        r = evaluar_puntuacion("\n".join(filas) + "\n", columna_desenlace="evento", valor_del_evento="1",
+                               muestra_representativa=True, horizonte_del_desenlace="a 30 días",
+                               momento_de_la_puntuacion="al ingreso", donde_se_calcula="local",
+                               puntuaciones=[_Decl(columna="p", tipo="probabilidad",
+                                                                     direccion="mas_alto_mas_riesgo",
+                                                                     casos_en_su_desarrollo="no")],
+                               remuestras=20, semilla=137)
+        avisos = [a for a in r.informe["puntuaciones"][0]["avisos"] if a["id"] == "falta_concentrada_en_un_desenlace"]
+        self.assertEqual(len(avisos), 1, "el CSV planta una falta muy concentrada en los eventos")
+        self.assertIn("p < 0,0001", avisos[0]["es"])
+        self.assertIn("p < 0.0001", avisos[0]["en"])
+        self.assertNotIn("0,0000", avisos[0]["es"])

@@ -97,7 +97,7 @@ from matrixai.estudio.calibracion import ajustar_recalibracion_logistica, curva_
 from matrixai.estudio.comparaciones import comparar_candidatos
 from matrixai.estudio.errores import ErrorDeEstudio
 from matrixai.estudio.esquemas import ValorDeMetrica
-from matrixai.estudio.evaluacion_de_puntuacion_textos import cifra, motivo
+from matrixai.estudio.evaluacion_de_puntuacion_textos import cifra, motivo, valor_p
 from matrixai.estudio.incertidumbre import (
     Intervalo,
     _percentil,
@@ -1359,7 +1359,7 @@ def _evaluar_puntuacion(
             avisos_k.append(_aviso("falta_concentrada_en_un_desenlace", campo=d.columna,
                                    valor=cifra(tasa_ev, porcentaje=True),  # type: ignore[arg-type]
                                    opciones=cifra(tasa_no, porcentaje=True),  # type: ignore[arg-type]
-                                   minimo=cifra(p_falta, 4)))  # type: ignore[arg-type]
+                                   minimo=valor_p(p_falta)))  # type: ignore[arg-type]
 
         kw = ctx.comun
         with avance.tramo("intervalos", remuestras * plan[k]["intervalos"]):

@@ -163,11 +163,11 @@ MOTIVOS: dict[str, dict[str, str]] = {
     "falta_concentrada_en_un_desenlace": {
         "es": "{campo}: la puntuación falta en el {valor} de las filas con evento y en el "
               "{opciones} de las filas sin evento (diferencia no atribuible al azar, "
-              "p = {minimo}). Esas filas quedan fuera, y eso puede sesgar todas las cifras "
+              "{minimo}). Esas filas quedan fuera, y eso puede sesgar todas las cifras "
               "del informe en una dirección que desde aquí no se puede saber",
         "en": "{campo}: the score is missing in {valor} of the rows with the event and in "
               "{opciones} of the rows without it (a difference not attributable to chance, "
-              "p = {minimo}). Those rows are left out, and that may bias every figure in "
+              "{minimo}). Those rows are left out, and that may bias every figure in "
               "the report in a direction that cannot be known from here",
     },
     "filas_malformadas_fuera": {
@@ -509,6 +509,15 @@ def motivo(clave: str, **campos: object) -> dict[str, str]:
     return {idioma: MOTIVOS[clave][idioma].format(
         **{k: (v[idioma] if isinstance(v, PorIdioma) else v) for k, v in campos.items()})
         for idioma in IDIOMAS}
+
+
+def valor_p(p: float) -> PorIdioma:
+    """Un valor p como se escribe: «p = 0,0056», y «p < 0,0001» cuando es más pequeño que lo que cuatro decimales
+    pueden decir. Antes salía «p = 0,0000» (visto en Chromium el 25-10), que afirma un cero que el test no da."""
+    if p < 0.0001:
+        return PorIdioma({"es": "p < 0,0001", "en": "p < 0.0001"})
+    texto = f"{p:.4f}"
+    return PorIdioma({"es": "p = " + texto.replace(".", ","), "en": "p = " + texto})
 
 
 def cifra(valor: float, decimales: int = 3, *, porcentaje: bool = False) -> PorIdioma:
