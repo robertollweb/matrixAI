@@ -7,6 +7,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.19.0] — 2026-10-25
+
+"Does it work here?": check, on your own cases, whether a risk score you already use — a published scale, a vendor's
+model, one from your own department — works on your population. Nothing is trained and the model is not needed: only
+the score that was recorded and what happened afterwards. And the verification of an exported study (R3) now retrains
+the way the product does, with torch too, and says what it cannot contrast.
+
+### Added
+- **`evaluar_puntuacion` and `matrixai evaluate-score`** (`matrixai.estudio.evaluacion_de_puntuacion`): from a CSV with a
+  score column and an observed outcome, a report (version 2.2.0) with discrimination (AUROC with its interval), whether
+  the risk is right when the score is a probability (calibration in the large, intercept and slope, a reliability
+  chart), sensitivity, specificity and predictive values at the threshold used today, a threshold exploration with the
+  counts at each vertex, subgroups (with a minimum of cases and events before a figure is published), a second score
+  compared on the same rows with a paired bootstrap, the representativeness of the sample and what the report is not.
+  Everything is declared, nothing is guessed: the event value, the type of score (probability 0–1, percentage, or a
+  points scale), its direction, its threshold, its origin, the promised figure, and whether these cases were used to
+  develop it (if so, it is not an external validation and the report says so). Patient-level resampling when a patient
+  column is declared.
+- **The one-page report** (`matrixai.export.informe_de_puntuacion.informe_html`): Spanish or English, self-contained and
+  offline, with one verdict per score and the details in annexes, plus the signed receipt.
+- **Real progress** (`al_progresar(hechas, total, fase)`): the total is planned before measuring (resamples × the
+  intervals the declarations actually need) and the count never goes back; raising `EvaluacionCancelada` stops it.
+
+### Changed
+- **The R3 verification retrains with the PREPARED data, as the product does**, also with torch (the torch path now
+  declares its partitions), contrasts the figures of a regression, and decides with its own catalogue which figures it
+  compares and with what margin — not with what the package says. It does not report PASS on a figure it did not compare,
+  and it says what it could not contrast. `FUNCTION` columns are measured as the product measures them.
+- **The guard of the measurement controls** discounts the columns the Studio's catalogue removes (climate's `Study` and
+  `Run`, us_crime's non-predictive columns).
+- A p-value too small for four decimals is written `p < 0.0001`, not `p = 0.0000`.
+
 ## [1.18.0] — 2026-10-21
 
 The training of your own network can now be watched from the inside. A training run can record what it measured —

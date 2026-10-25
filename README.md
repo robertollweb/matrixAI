@@ -50,6 +50,11 @@ matrixai --help
   proposal, the synthetic data and the export metadata. A regression output with a range
   (`SALIDA: precio_eur: Scalar en [60000, 900000]`) is generated and trained in those units,
   and training with a target that is not on that range's scale is refused with its reason
+- **Does it work here?**: `matrixai evaluate-score` checks, on your own cases, whether a risk score
+  you already use (a published scale, a vendor's model) works on your population — discrimination,
+  whether the risk is right, the threshold you use today, subgroups and a second score on the same
+  rows, each with its interval — without the model and without training anything. Everything is
+  declared, nothing is guessed, and a one-page offline report says what it is not
 - **Watch your network learn**: a training run can record what it measured — the gradient of
   each layer per epoch, the weights of a sample of epochs and a few prepared validation rows —
   for the MatrixAI Studio laboratory; on a machine without CUDA it can ask for torch on the CPU.
@@ -326,7 +331,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 9713 passed, 29 skipped
+# 10087 passed, 29 skipped
 ```
 
 ---
