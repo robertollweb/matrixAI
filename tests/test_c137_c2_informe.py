@@ -872,10 +872,17 @@ class R4ReferenciaTest(unittest.TestCase):
         adv_en = "does not show that the original figure is wrong"
         self.assertIn(adv_es, _texto(self.es))
         self.assertIn(adv_en, _texto(self.en))
-        for doc, pop in ((self.es, "población, el desenlace, el seguimiento y la incertidumbre"),
-                         (self.en, "population, the outcome, the follow-up and the uncertainty")):
+        # la advertencia COMPLETA está en el anexo; la página de conclusiones lleva la corta, siempre
+        for doc, completa, corta in (
+                (self.es, "población, el desenlace, el seguimiento y la incertidumbre",
+                 "Pueden no ser comparables (población, desenlace, seguimiento e incertidumbre); "
+                 "caer fuera del intervalo no demuestra que la cifra original esté mal"),
+                (self.en, "population, the outcome, the follow-up and the uncertainty",
+                 "They may not be comparable (population, outcome, follow-up and uncertainty); "
+                 "falling outside the interval does not show that the original figure is wrong")):
+            self.assertIn(completa, _texto(doc[doc.index("<details"):]))
             conclusiones = _texto(doc[:doc.index("<details")])
-            self.assertIn(pop, conclusiones)
+            self.assertIn(corta, conclusiones)
             self.assertIn("0,820" if doc is self.es else "0.820", conclusiones)
 
     def test_R4_la_advertencia_sale_tanto_si_cae_dentro_como_si_cae_fuera(self):
@@ -906,6 +913,7 @@ class R4ReferenciaTest(unittest.TestCase):
         conclusiones = _texto(self.es[:self.es.index("<details")])
         self.assertIn("Es la comparación más directamente interpretable: las dos puntuaciones se "
                       "miden sobre los mismos casos", conclusiones)
+        self.assertIn("Frente a la otra: «score_a» frente a «score_b»", conclusiones)
 
 
 class R5PrivacidadTest(unittest.TestCase):
@@ -935,8 +943,11 @@ class R5PrivacidadTest(unittest.TestCase):
                       _texto(self.es))
         self.assertIn("Suppressing small groups helps, but does not guarantee anonymisation",
                       _texto(self.en))
-        self.assertIn("no garantiza anonimización", _texto(self.es[:self.es.index("<details")]))
-        self.assertIn("does not guarantee anonymisation", _texto(self.en[:self.en.index("<details")]))
+        # el límite completo vive en el anexo de límites (la página de conclusiones es corta)
+        for doc, frase in ((self.es, "no garantiza anonimización"),
+                           (self.en, "does not guarantee anonymisation")):
+            anexo = doc[doc.index("Límites completos" if doc is self.es else "Full limits"):]
+            self.assertIn(frase, _texto(anexo))
         self.assertIn("no_es_anonimizacion", [x["id"] for x in self.r.informe["lo_que_no_es"]])
 
     def test_R5_el_auroc_de_cada_grupo_con_evidencia_lleva_su_intervalo_en_el_html(self):
@@ -978,9 +989,9 @@ class R6ConclusionesTest(unittest.TestCase):
 
     def test_R6_los_anexos_son_details_nativos_sin_javascript(self):
         for doc in (self.es, self.en):
-            self.assertEqual(doc.count('<details class="anexo">'), 6)   # 2 puntuaciones + 4
-            self.assertEqual(doc.count("</details>"), 6)
-            self.assertEqual(doc.count("<summary>"), 6)
+            self.assertEqual(doc.count('<details class="anexo">'), 7)   # 2 puntuaciones + 5
+            self.assertEqual(doc.count("</details>"), 7)
+            self.assertEqual(doc.count("<summary>"), 7)
             self.assertNotIn("<script", doc.lower())
             self.assertNotIn("http", doc.lower())
             self.assertNotIn("onclick", doc.lower())
@@ -990,27 +1001,34 @@ class R6ConclusionesTest(unittest.TestCase):
         self.assertRegex(css, r"@media print\{details\.anexo::details-content\{[^}]*content-visibility:visible")
         self.assertIn("section.conclusiones{font-size:11px;break-after:page}", css)
 
-    def test_R6_las_conclusiones_dicen_las_cinco_preguntas_y_los_limites_en_llano(self):
+    def test_R6_las_conclusiones_llevan_veredicto_cifras_y_limites_y_las_cinco_preguntas_van_al_anexo(self):
         c = _texto(self.es[:self.es.index("<details")])
-        for frase in ("Qué se evaluó", "¿Ordena bien?", "¿Acierta en el riesgo?", "Con el umbral de uso",
-                      "¿Con quién falla?", "Frente a la otra", "Límites de este informe",
-                      "Lo que este informe no es", "Dicho en llano", "de cada 100 eventos"):
+        for frase in ("Qué se evaluó", "Cifras clave:", "Frente a la otra:", "Límites de este informe",
+                      "Ordena mejor que el azar"):
             self.assertIn(frase, c)
         ce = _texto(self.en[:self.en.index("<details")])
-        for frase in ("What was evaluated", "Does it rank well?", "Is the risk right?",
-                      "At the threshold of use", "Who does it fail for?", "Against the other score",
-                      "Limits of this report", "What this report is not", "In plain terms",
-                      "out of every 100 events"):
+        for frase in ("What was evaluated", "Key figures:", "Against the other score:",
+                      "Limits of this report", "Ranks better than chance"):
             self.assertIn(frase, ce)
+        # lo que baja a los anexos, y que SIGUE estando en el documento
+        for doc, arriba, abajo in (
+                (self.es, ("Dicho en llano", "¿Acierta en el riesgo?", "de cada 100 eventos"),
+                 ("En lenguaje llano", "Dicho en llano", "¿Acierta en el riesgo?", "de cada 100 eventos",
+                  "Lo que este informe no es")),
+                (self.en, ("In plain terms", "Is the risk right?", "out of every 100 events"),
+                 ("In plain language", "In plain terms", "Is the risk right?", "out of every 100 events",
+                  "What this report is not"))):
+            cabeza, resto = _texto(doc[:doc.index("<details")]), _texto(doc[doc.index("<details"):])
+            for frase in arriba:
+                self.assertNotIn(frase, cabeza)
+            for frase in abajo:
+                self.assertIn(frase, resto)
 
     def test_R6_la_frase_de_la_firma_esta_en_las_conclusiones(self):
-        self.assertIn("La firma acredita integridad comprobable con la clave",
-                      _texto(self.es[:self.es.index("<details")]))
-        self.assertIn("El valor científico del informe depende del diseño del estudio y de los datos",
-                      _texto(self.es[:self.es.index("<details")]))
-        self.assertIn("The signature certifies integrity that can be checked with the key",
-                      _texto(self.en[:self.en.index("<details")]))
-        self.assertIn("depends on the study design and on the data supplied",
+        self.assertIn("La firma acredita integridad comprobable con la clave; el valor científico "
+                      "depende del diseño y de los datos", _texto(self.es[:self.es.index("<details")]))
+        self.assertIn("The signature certifies integrity that can be checked with the key; the "
+                      "scientific value depends on the design and on the data",
                       _texto(self.en[:self.en.index("<details")]))
 
     def test_R6_sin_firma_las_conclusiones_lo_dicen(self):
@@ -1024,14 +1042,8 @@ class R6ConclusionesTest(unittest.TestCase):
         c = _texto(self.es[:self.es.index("<details")])
         self.assertIn(f'AUROC {a["discriminacion"]["auroc"]["valor"]:.3f}'.replace(".", ","), c)
         sens = a["al_umbral"]["sensibilidad"]["valor"]
-        self.assertIn(f"Sensibilidad {sens * 100:.1f}".replace(".", ","), c)
+        self.assertIn(f"sensibilidad {sens * 100:.1f}".replace(".", ","), c)
 
-    def test_R6_las_conclusiones_caben_en_una_hoja_o_dos_estimado(self):
-        # Estimación sin navegador: ~130 caracteres por línea y ~65 líneas por hoja A4 a 11 px
-        # (ver informe de la ronda). Es un guardia de presupuesto, no una medida de impresión.
-        c = _texto(self.es[:self.es.index("<details")])
-        lineas = len(c) / 130 + 25      # los saltos de párrafo y títulos
-        self.assertLess(lineas / 65, 3.0, f"{len(c)} caracteres")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1056,21 +1068,22 @@ class R2HtmlTest(unittest.TestCase):
             Decl("score_a", "probabilidad", ALTO, umbral=0.3, casos_en_su_desarrollo="no")])
 
     def test_R2_el_horizonte_y_el_momento_estan_en_las_conclusiones_en_los_dos_idiomas(self):
-        self.assertIn("Horizonte del desenlace: 30 days. Momento en que se calculó la puntuación: day 3",
+        self.assertIn("Horizonte del desenlace: 30 days. Momento de la puntuación: day 3",
                       _conclusiones(self.es))
-        self.assertIn("Outcome horizon: 30 days. When the score was calculated: day 3",
-                      _conclusiones(self.en))
+        self.assertIn("Outcome horizon: 30 days. Score timing: day 3", _conclusiones(self.en))
         self.assertIn("30 days", _fila(self.es, "Horizonte del desenlace"))
         self.assertIn("day 3", _fila(self.en, "Score timing"))
 
     def test_R2_con_si_o_no_se_sabe_el_html_dice_no_es_una_validacion_externa(self):
         es, en = (informe_html(self.mixto, idioma=i) for i in ("es", "en"))
         c_es, c_en = _conclusiones(es), _conclusiones(en)
-        self.assertIn("esto NO es una validación externa de esa puntuación", c_es)
-        self.assertIn("mientras no se sepa, esto NO es una validación externa", c_es)
-        self.assertIn("this is NOT an external validation of that score", c_en)
         self.assertIn("No es una validación externa de: score_a, score_b", c_es)
         self.assertIn("It is not an external validation of: score_a, score_b", c_en)
+        # las notas por puntuación, completas, están en el anexo de límites
+        a_es, a_en = (_texto(d[d.index("<details"):]) for d in (es, en))
+        self.assertIn("esto NO es una validación externa de esa puntuación", a_es)
+        self.assertIn("mientras no se sepa, esto NO es una validación externa", a_es)
+        self.assertIn("this is NOT an external validation of that score", a_en)
 
     def test_R2_la_ficha_tripod_lo_refleja(self):
         for idioma, doc, rotulo, frase in (
@@ -1095,7 +1108,8 @@ class R2HtmlTest(unittest.TestCase):
         es = informe_html(self.todo_no, idioma="es")
         self.assertNotIn("no es una validación externa", _texto(es).lower())
         self.assertNotIn("NO es una validación externa", _texto(es))
-        self.assertIn("MatrixAI no lo comprueba", _conclusiones(es))
+        self.assertIn("Se declaró que los casos no participaron en el desarrollo de la puntuación "
+                      "(MatrixAI no lo comprueba)", _conclusiones(es))
         fila = _fila(es, "<td>¿Participaron estos casos en el desarrollo de la puntuación?</td>")
         self.assertIn("declarado, MatrixAI no lo comprueba", fila)
 
@@ -1116,8 +1130,8 @@ class DondeSeCalculaHtmlTest(unittest.TestCase):
                       _conclusiones(es))
         self.assertIn("It was calculated on the demo server with the CSV you sent; the CSV was not stored.",
                       _conclusiones(en))
-        for doc in (es, en):                       # cabecera y anexo «Cómo se hizo» también
-            self.assertGreaterEqual(_texto(doc).count("servidor de la demo" if doc is es else "demo server"), 3)
+        for doc in (es, en):                       # la cabecera y el anexo «Cómo se hizo» también
+            self.assertGreaterEqual(_texto(doc).count("servidor de la demo" if doc is es else "demo server"), 2)
         self.assertNotIn("se calculó en local", _texto(es).lower())
         self.assertNotIn("calculated locally", _texto(en).lower())
 
@@ -1139,3 +1153,173 @@ class DondeSeCalculaHtmlTest(unittest.TestCase):
         for idioma in IDIOMAS:
             for clave, textos in TEXTOS.items():
                 self.assertNotIn("generado en local", textos[idioma])
+
+
+# ---------------------------------------------------------------------------------------------
+# Redacción del informe (25-10): una hoja, la frase-veredicto, la puntuación y «VPP y VPN»
+# ---------------------------------------------------------------------------------------------
+
+_BLOQUES = {"p", "li", "h1", "h2", "h3", "h4"}
+_TAMANO = {"h1": 26, "h2": 19, "h3": 16, "h4": 11.5}
+
+
+def _altura_estimada_px(doc: str, *, ancho: int = 1000, fuente: float = 14.0) -> float:
+    """ESTIMACIÓN (sin navegador) de la altura de la cabecera + la página de conclusiones en un
+    ancho de `ancho` px: cada bloque ocupa ceil(caracteres × 0,5 em / ancho útil) líneas de 1,5 em.
+    Calibrada con la versión del 24-10, que Chromium midió en ~1.900 px (header + conclusiones, a
+    1.000 px): este estimador da 1.821 para ella (-4 %). Una hoja A4 a ese ancho son 1.414 px: lo que
+    pasa de ahí ya no cabe en una hoja."""
+    bloques: list[tuple[str, str]] = []
+    pila: list[str] = []
+    actual: list[str] = []
+
+    class _P(HTMLParser):
+        ignorar = 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag in ("style", "script", "title"):
+                self.ignorar += 1
+            if tag in _BLOQUES:
+                pila.append(tag)
+                actual.clear()
+            if tag == "div" and dict(attrs).get("class", "").startswith("note"):
+                pila.append("note")
+                actual.clear()
+
+        def handle_endtag(self, tag):
+            if tag in ("style", "script", "title"):
+                self.ignorar -= 1
+            if pila and (tag == pila[-1] or (tag == "div" and pila[-1] == "note")):
+                bloque = pila.pop()
+                texto = " ".join("".join(actual).split())
+                if texto:
+                    bloques.append((bloque, texto))
+                actual.clear()
+
+        def handle_data(self, data):
+            if not self.ignorar and pila:
+                actual.append(data)
+
+    _P().feed(doc)
+    util = ancho - 32 - 24
+    alto = 0.0
+    for bloque, texto in bloques:
+        tam = _TAMANO.get(bloque, fuente)
+        alto += max(1, math.ceil(len(texto) * tam * 0.5 / util)) * tam * 1.5 + (6 if bloque == "li" else 10)
+    return alto
+
+
+A4_A_1000_PX = 1414
+
+
+class UnaHojaTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.r = _dos()
+        cls.docs = {i: informe_html(cls.r, idioma=i) for i in IDIOMAS}
+
+    def test_las_conclusiones_caben_en_UNA_hoja_A4_en_es_y_en_con_dos_puntuaciones_umbral_y_subgrupos(self):
+        # el caso de las muestras: dos puntuaciones, umbral en las dos, subgrupos, cifra prometida
+        for idioma, doc in self.docs.items():
+            cabeza = doc[doc.index("<header"):doc.index("<details")]
+            alto = _altura_estimada_px(cabeza)
+            self.assertGreater(alto, 400, f"{idioma}: ¿una página en blanco? {alto:.0f} px")
+            self.assertLess(alto, 0.85 * A4_A_1000_PX, f"{idioma}: {alto:.0f} px de {A4_A_1000_PX}")
+
+    def test_la_estimacion_distingue_una_pagina_corta_de_la_larga_de_antes(self):
+        # control del INSTRUMENTO: el mismo informe con el texto largo de antes (definiciones en llano
+        # y advertencias, que hoy están en el anexo) NO cabe: la prueba no pasa por pasar.
+        doc = self.docs["es"]
+        cabeza = doc[doc.index("<header"):doc.index("<details")]
+        en_llano = doc[doc.index("En lenguaje llano"):]
+        largo = cabeza + en_llano[:en_llano.index("</section>")] * 2
+        self.assertGreater(_altura_estimada_px(largo), 0.85 * A4_A_1000_PX)
+
+    def test_la_pagina_tiene_un_veredicto_por_puntuacion_y_los_limites_son_tres_o_cuatro_vinetas(self):
+        for idioma, doc in self.docs.items():
+            cabeza = doc[:doc.index("<details")]
+            self.assertEqual(cabeza.count('class="veredicto"'), 2)
+            limites = cabeza[cabeza.index('<section class="not">'):]
+            vinetas = re.findall(r"<li>(.*?)</li>", limites, flags=re.S)
+            self.assertIn(len(vinetas), (3, 4), idioma)
+            self.assertTrue(all(len(re.sub(r"<[^>]+>", "", v)) <= 260 for v in vinetas), idioma)
+
+    def test_lo_largo_baja_a_los_anexos_y_sigue_en_el_documento(self):
+        cabeza_es = _texto(self.docs["es"][:self.docs["es"].index("<details")])
+        resto_es = _texto(self.docs["es"][self.docs["es"].index("<details"):])
+        for largo in ("Matriz de confusión", "Intercepto", "un número exacto y falso"):
+            self.assertNotIn(largo, cabeza_es)
+        for largo in ("Matriz de confusión", "Intercepto", "Dicho en llano", "de cada 100 eventos"):
+            self.assertIn(largo, resto_es)
+
+
+class VeredictoTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.r = _dos()
+
+    def test_la_frase_del_html_es_la_que_compuso_el_nucleo_y_va_la_primera_de_cada_puntuacion(self):
+        for idioma in IDIOMAS:
+            doc = informe_html(self.r, idioma=idioma)
+            for k, p in enumerate(self.r.informe["puntuaciones"]):
+                frase = p["veredicto"]["texto"][idioma]
+                bloque = doc.split(f'<div class="cs c{k + 1}">')[1]
+                self.assertTrue(bloque.split("</h3>")[1].startswith(
+                    f'<p class="veredicto"><b>{frase}</b></p>'), idioma)
+
+    def test_el_html_no_recompone_la_frase_lo_que_cambia_el_nucleo_cambia_el_documento(self):
+        cambiado = _con_informe(self.r, lambda i: i["puntuaciones"][0]["veredicto"]["texto"].update(
+            es="FRASE DEL NUCLEO", en="CORE SENTENCE"))
+        self.assertIn("<b>FRASE DEL NUCLEO</b>", informe_html(cambiado, idioma="es"))
+        self.assertIn("<b>CORE SENTENCE</b>", informe_html(cambiado, idioma="en"))
+
+
+class PuntuacionTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.r = _dos()
+        cls.una = _evaluar(puntuaciones=[Decl("score_a", "probabilidad", ALTO, umbral=0.3)])
+
+    def test_los_rotulos_llevan_dos_puntos_antes_de_su_texto_en_es_y_en(self):
+        for idioma, esperado in (
+                ("es", ("Al umbral de hoy: Con el umbral de uso", "Frente a la otra: «score_a» frente a «score_b»")),
+                ("en", ("At today's threshold: At the threshold of use", "Against the other score: “score_a” against “score_b”"))):
+            texto = _texto(informe_html(self.r, idioma=idioma))
+            for frase in esperado:
+                self.assertIn(frase, texto)
+
+    def test_ningun_rotulo_en_negrita_queda_pegado_a_su_texto_sin_puntuacion(self):
+        for r in (self.r, self.una):
+            for idioma in IDIOMAS:
+                doc = informe_html(r, idioma=idioma)
+                pegados = [m for m in re.findall(r"<b>([^<]+)</b> ", doc)
+                           if not m.rstrip().endswith(("?", ":", ".", ")"))]
+                self.assertEqual(pegados, [], f"{idioma}: rótulos sin puntuación {pegados}")
+
+    def test_la_diferencia_de_auroc_se_escribe_con_su_valor_y_luego_su_intervalo(self):
+        c = self.r.informe["comparacion"]
+        es = _texto(informe_html(self.r, idioma="es"))
+        self.assertIn("diferencia de AUROC " + f'{c["diferencia"]:+.3f}'.replace(".", ","), es)
+        self.assertNotIn("a +0,069: +0,057", es)
+        self.assertNotRegex(es, r"IC 95 %: [+\-−]?\d,\d+ a [+\-−]?\d,\d+: [+\-−]?\d")
+
+
+class VppVpnTextoTest(unittest.TestCase):
+    def test_el_motivo_compartido_dice_VPP_y_VPN_en_castellano_y_no_lleva_doble_guion(self):
+        from matrixai.estudio.textos import motivo
+        m = motivo("ppv_npv_sin_prevalencia_declarada")
+        self.assertTrue(m["es"].startswith("VPP y VPN no se publican"))
+        self.assertNotIn("PPV", m["es"])
+        self.assertTrue(m["en"].startswith("PPV and NPV are not published"))
+        for idioma in ("es", "en"):
+            self.assertNotIn("--", m[idioma])
+
+    def test_el_informe_sin_representatividad_dice_VPP_y_VPN_sin_doble_guion_en_los_dos_idiomas(self):
+        r = _dos(representa=False)
+        for idioma, esperado, prohibido in (("es", "VPP y VPN no se publican", "PPV y NPV"),
+                                            ("en", "PPV and NPV are not published", "VPP")):
+            doc = informe_html(r, idioma=idioma)
+            self.assertIn(esperado, _texto(doc))
+            self.assertNotIn(prohibido, _texto(doc))
+            self.assertNotIn("--", _texto(doc))     # el CSS lleva `--fg`: se mira el texto visible
+            self.assertIn(esperado, _texto(doc[doc.index("<details"):]))   # el motivo vive en el anexo

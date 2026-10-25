@@ -228,6 +228,57 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "whoever runs the evaluation as the population of use's; their interval does "
               "not include the uncertainty of that prevalence",
     },
+    # ---- la frase-veredicto de cada puntuación (la compone el núcleo con los números) ----
+    "veredicto_ordena_si": {
+        "es": "Ordena mejor que el azar (AUROC {valor})",
+        "en": "Ranks better than chance (AUROC {valor})",
+    },
+    "veredicto_ordena_azar": {
+        "es": "No se distingue del azar al ordenar (AUROC {valor}; el intervalo incluye 0,5)",
+        "en": "Cannot be told apart from chance at ranking (AUROC {valor}; the interval "
+              "includes 0.5)",
+    },
+    "veredicto_ordena_al_reves": {
+        "es": "Ordena peor que el azar (AUROC {valor}): ¿está bien declarada la dirección?",
+        "en": "Ranks worse than chance (AUROC {valor}): is the direction declared correctly?",
+    },
+    "veredicto_ordena_sin_intervalo": {
+        "es": "AUROC {valor} (sin intervalo: no se puede decir si supera al azar)",
+        "en": "AUROC {valor} (no interval: it cannot be said whether it beats chance)",
+    },
+    "veredicto_ordena_no_definido": {
+        "es": "No se pudo calcular el AUROC",
+        "en": "The AUROC could not be calculated",
+    },
+    "veredicto_riesgo_sobrestima": {
+        "es": "sobrestima el riesgo en {valor} puntos porcentuales",
+        "en": "overestimates the risk by {valor} percentage points",
+    },
+    "veredicto_riesgo_infraestima": {
+        "es": "infraestima el riesgo en {valor} puntos porcentuales",
+        "en": "underestimates the risk by {valor} percentage points",
+    },
+    "veredicto_riesgo_sin_diferencia": {
+        "es": "no hay diferencia clara entre el riesgo que dice y el observado "
+              "(diferencia de {valor} puntos porcentuales; el intervalo incluye 0)",
+        "en": "there is no clear difference between the risk it states and the observed one "
+              "(difference of {valor} percentage points; the interval includes 0)",
+    },
+    "veredicto_riesgo_sin_intervalo": {
+        "es": "diferencia de riesgo medio de {valor} puntos porcentuales (sin intervalo: no se "
+              "puede decir si es distinta de 0)",
+        "en": "mean-risk difference of {valor} percentage points (no interval: it cannot be "
+              "said whether it differs from 0)",
+    },
+    "veredicto_riesgo_no_aplica": {
+        "es": "no se mide si acierta en el riesgo (no es una probabilidad del evento)",
+        "en": "whether the risk is right is not measured (it is not a probability of the event)",
+    },
+    "veredicto_riesgo_no_definido": {
+        "es": "no se pudo calcular la diferencia entre el riesgo que dice y el observado",
+        "en": "the difference between the risk it states and the observed one could not be "
+              "calculated",
+    },
     # ---- R2: qué se predice, en qué plazo, y si estos casos participaron en el desarrollo ----
     "texto_obligatorio_vacio": {
         "es": "{campo} hay que declararlo con un texto (por ejemplo «{opciones}»); llegó {valor}. "

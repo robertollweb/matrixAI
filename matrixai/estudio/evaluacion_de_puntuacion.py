@@ -113,7 +113,7 @@ __all__ = [
     "resumen_de_la_evaluacion",
 ]
 
-VERSION_DEL_INFORME = "2.0.0"
+VERSION_DEL_INFORME = "2.1.0"
 ESQUEMA_DEL_INFORME = "matrixai.estudio.score_evaluation_report"
 
 #: Lo que declara quien evalúa. Cerrado, como todo vocabulario de esta casa.
@@ -551,6 +551,50 @@ def _metrica(vm: ValorDeMetrica) -> dict[str, Any]:
 
 def _simple(vm: ValorDeMetrica) -> dict[str, Any]:
     return {"valor": vm.value, "no_definido": vm.undefined_reason}
+
+
+def _veredicto(auroc: dict[str, Any], calibracion: dict[str, Any]) -> dict[str, Any]:
+    """La frase-veredicto de UNA puntuación, compuesta con los números y SIN umbrales
+    inventados: «ordena mejor que el azar» solo si el intervalo del AUROC excluye 0,5;
+    «sobrestima/infraestima el riesgo» solo si el intervalo de la calibración en grande excluye
+    0; si no, dice que no hay diferencia clara. Sin intervalo no afirma ninguna de las dos."""
+    v, ic = auroc.get("valor"), auroc.get("ic")
+    if v is None:
+        ordena, parte1 = "no_definido", motivo("veredicto_ordena_no_definido")
+    else:
+        if ic is None:
+            ordena = "sin_intervalo"
+        elif ic["bajo"] > 0.5:
+            ordena = "si"
+        elif ic["alto"] < 0.5:
+            ordena = "al_reves"
+        else:
+            ordena = "azar"
+        parte1 = motivo({"si": "veredicto_ordena_si", "azar": "veredicto_ordena_azar",
+                         "al_reves": "veredicto_ordena_al_reves",
+                         "sin_intervalo": "veredicto_ordena_sin_intervalo"}[ordena],
+                        valor=cifra(v, 2))
+    if not calibracion.get("aplica"):
+        riesgo, parte2 = "no_aplica", motivo("veredicto_riesgo_no_aplica")
+    else:
+        g = calibracion["en_grande"]
+        if g.get("valor") is None:
+            riesgo, parte2 = "no_definido", motivo("veredicto_riesgo_no_definido")
+        else:
+            pp = g["valor"] * 100.0
+            gic = g.get("ic")
+            if gic is None:
+                riesgo, clave = "sin_intervalo", "veredicto_riesgo_sin_intervalo"
+            elif gic["bajo"] > 0:
+                riesgo, clave = "sobrestima", "veredicto_riesgo_sobrestima"
+            elif gic["alto"] < 0:
+                riesgo, clave = "infraestima", "veredicto_riesgo_infraestima"
+            else:
+                riesgo, clave = "sin_diferencia", "veredicto_riesgo_sin_diferencia"
+            parte2 = motivo(clave, valor=cifra(abs(pp) if riesgo in ("sobrestima", "infraestima")
+                                               else pp, 1))
+    return {"ordena": ordena, "riesgo": riesgo,
+            "texto": {i: f"{parte1[i]}; {parte2[i]}." for i in ("es", "en")}}
 
 
 def _rotulo_de_alcance(ctx: "_Contexto") -> dict[str, Any] | None:
@@ -1018,6 +1062,8 @@ def evaluar_puntuacion(
                            "advertencia": motivo("referencia_publicada_advertencia")}
 
         subgrupos = _subgrupos(d, muestra, sub_columnas, celdas_sub, idx, ctx) if sub_columnas else []
+        auroc_json = _metrica(auroc)
+        calibracion_k = _calibracion(d, muestra, ctx)
         informes.append({
             "indice": k + 1, "columna": d.columna, "declaracion": d.a_json(),
             "lectura": {"decimal": estilo, "marcas_de_ausencia": ausentes},
@@ -1029,7 +1075,7 @@ def evaluar_puntuacion(
                       "unidades": muestra.n_unidades},
             "eventos": eventos, "prevalencia": prevalencia,
             "discriminacion": {
-                "auroc": _metrica(auroc),
+                "auroc": auroc_json,
                 "average_precision": _metrica(medir("average_precision", muestra, **kw)),
                 "average_precision_del_azar": prevalencia,
                 "curva_roc": _curva_roc(muestra)},
@@ -1042,7 +1088,8 @@ def evaluar_puntuacion(
                                 "no_se_sabe": "validacion_externa_no_se_sabe",
                                 "no": "validacion_externa_no"}[d.casos_en_su_desarrollo],
                                campo=d.columna)},
-            "calibracion": _calibracion(d, muestra, ctx),
+            "veredicto": _veredicto(auroc_json, calibracion_k),
+            "calibracion": calibracion_k,
             "al_umbral": _al_umbral(d, muestra, ctx, prevalencia),
             "curva_de_decision": _curva_de_decision(d, muestra, umbrales_de_decision, ctx),
             "subgrupos": subgrupos,

@@ -895,14 +895,14 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "same formula, or nobody knows which number it belongs to",
     },
     "ppv_npv_sin_prevalencia_declarada": {
-        "es": "PPV y NPV no se publican: nadie ha declarado la prevalencia de "
+        "es": "VPP y VPN no se publican: nadie ha declarado la prevalencia de "
               "la población destino, y los de esta muestra describen a esta "
-              "muestra, no a esa población -- calcularlos con la prevalencia "
+              "muestra, no a esa población; calcularlos con la prevalencia "
               "de la muestra y presentarlos como suyos sería un número exacto "
               "y falso",
         "en": "PPV and NPV are not published: nobody declared target "
               "population prevalence, and this sample's values describe this "
-              "sample, not that population -- computing them at sample "
+              "sample, not that population; computing them at sample "
               "prevalence and presenting them as theirs would be an exact, "
               "false number",
     },

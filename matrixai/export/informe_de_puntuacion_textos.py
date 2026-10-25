@@ -37,10 +37,8 @@ TEXTOS: dict[str, dict[str, str]] = {
     "diseno_paciente": {"es": "por paciente (columna «{col}»)",
                         "en": "by patient (column “{col}”)"},
     "solo_agregados": {
-        "es": "Este informe no lleva filas de datos, solo agregados. Se puede abrir sin "
-              "conexión, imprimir o adjuntar tal cual.",
-        "en": "This report carries no data rows, only aggregates. It can be opened offline, "
-              "printed or attached as it is."},
+        "es": "Este informe no lleva filas de datos, solo agregados.",
+        "en": "This report carries no data rows, only aggregates."},
     "garantia_a0": {"es": "Garantía A0 · sin firmar", "en": "Assurance A0 · unsigned"},
     "garantia_a1": {"es": "Garantía A1 · firmado", "en": "Assurance A1 · signed"},
     "garantia_a0_sentido": {
@@ -131,13 +129,64 @@ TEXTOS: dict[str, dict[str, str]] = {
     # ---- R6: la página de conclusiones y los anexos --------------------------------
     "s_conclusiones": {"es": "Conclusiones", "en": "Conclusions"},
     "c_intro": {
-        "es": "Qué se evaluó: el desenlace «{col}» (evento = «{ev}») en {n} casos con "
-              "desenlace, {e} eventos ({p}). Horizonte del desenlace: {hor}. Momento en que "
-              "se calculó la puntuación: {mom}. Este informe no lleva filas de datos.",
-        "en": "What was evaluated: the outcome “{col}” (event = “{ev}”) in {n} cases with an "
-              "outcome, {e} events ({p}). Outcome horizon: {hor}. When the score was "
-              "calculated: {mom}. This report carries no data rows."},
-    "c_donde": {"es": "{texto}", "en": "{texto}"},
+        "es": "Qué se evaluó: desenlace «{col}» (evento = «{ev}»), {n} casos con {e} eventos "
+              "({p}). Horizonte del desenlace: {hor}. Momento de la puntuación: {mom}.",
+        "en": "What was evaluated: outcome “{col}” (event = “{ev}”), {n} cases with {e} events "
+              "({p}). Outcome horizon: {hor}. Score timing: {mom}."},
+    "c_cifras": {"es": "Cifras clave:", "en": "Key figures:"},
+    "c_k_auroc": {"es": "AUROC {v} ({ic})", "en": "AUROC {v} ({ic})"},
+    "c_k_riesgo": {"es": "riesgo que dice − observado: {v} puntos porcentuales ({ic})",
+                   "en": "risk it states − observed: {v} percentage points ({ic})"},
+    "c_k_umbral": {"es": "umbral {u}: sensibilidad {s}, especificidad {e}",
+                   "en": "threshold {u}: sensitivity {s}, specificity {e}"},
+    "c_k_vp": {"es": "VPP {p}, VPN {n}", "en": "PPV {p}, NPV {n}"},
+    "c_k_grupos": {"es": "subgrupos: {k} medidos, {i} sin evidencia suficiente",
+                   "en": "subgroups: {k} measured, {i} without sufficient evidence"},
+    "c_ref_corta": {
+        "es": "Referencia publicada {r} frente a estimación local {e}: la referencia cae {pos} "
+              "del intervalo local. Pueden no ser comparables (población, desenlace, "
+              "seguimiento e incertidumbre); caer fuera del intervalo no demuestra que la "
+              "cifra original esté mal.",
+        "en": "Published reference {r} against local estimate {e}: the reference falls {pos} "
+              "the local interval. They may not be comparable (population, outcome, follow-up "
+              "and uncertainty); falling outside the interval does not show that the "
+              "original figure is wrong."},
+    "c_frente_linea": {
+        "es": "«{a}» frente a «{b}»: diferencia de AUROC {d} ({ic}) sobre {n} casos con "
+              "las dos ({e} eventos). {directa}",
+        "en": "“{a}” against “{b}”: AUROC difference {d} ({ic}) over {n} cases with both "
+              "({e} events). {directa}"},
+    "frente_dif_texto": {"es": "Diferencia de AUROC: {d} ({ic}).",
+                         "en": "AUROC difference: {d} ({ic})."},
+    "l_rep_no": {
+        "es": "La muestra se declaró NO representativa (MatrixAI no lo comprueba): la "
+              "calibración, el beneficio neto y la curva de decisión describen la muestra "
+              "aportada, no la población de uso; VPP y VPN no se publican.",
+        "en": "The sample was declared NOT representative (MatrixAI does not check it): "
+              "calibration, net benefit and the decision curve describe the supplied sample, "
+              "not the population of use; PPV and NPV are not published."},
+    "l_rep_si": {
+        "es": "Que la muestra representa a la población de uso lo declara quien ejecuta la "
+              "evaluación, y MatrixAI no lo comprueba.",
+        "en": "That the sample represents the population of use is declared by whoever runs "
+              "the evaluation, and MatrixAI does not check it."},
+    "l_dev_no": {
+        "es": "Se declaró que los casos no participaron en el desarrollo de la puntuación "
+              "(MatrixAI no lo comprueba).",
+        "en": "It was declared that the cases did not take part in the development of the "
+              "score (MatrixAI does not check it)."},
+    "l_clinica": {
+        "es": "No es una validación para uso clínico ni una evaluación regulatoria: es "
+              "retrospectiva y depende de cómo se registró el desenlace.",
+        "en": "It is not a validation for clinical use nor a regulatory assessment: it is "
+              "retrospective and depends on how the outcome was recorded."},
+    "l_paradoja": {
+        "es": "Si la puntuación ya se usaba para decidir, parecerá peor de lo que es "
+              "(paradoja del tratamiento).",
+        "en": "If the score was already used to decide, it will look worse than it is "
+              "(treatment paradox)."},
+    "a_en_llano": {"es": "En lenguaje llano", "en": "In plain language"},
+    "a_limites": {"es": "Anexo {l} · Límites completos", "en": "Annex {l} · Full limits"},
     "c_score": {"es": "«{c}»: {decl}.", "en": "“{c}”: {decl}."},
     "c_ordena": {
         "es": "AUROC {v} ({ic}). Dicho en llano: si se toman al azar un caso con evento y uno "
@@ -180,23 +229,17 @@ TEXTOS: dict[str, dict[str, str]] = {
         "en": "Calibration, net benefit and the decision curve {rotulo}. {porque}"},
     "c_lim": {"es": "Límites de este informe", "en": "Limits of this report"},
     "c_lim_firma": {
-        "es": "La firma acredita integridad comprobable con la clave: que ni las entradas "
-              "declaradas ni las cifras cambiaron desde que se firmó. El valor científico "
-              "del informe depende del diseño del estudio y de los datos aportados.",
-        "en": "The signature certifies integrity that can be checked with the key: that "
-              "neither the declared inputs nor the figures changed since it was signed. The "
-              "scientific value of the report depends on the study design and on the data "
-              "supplied."},
+        "es": "La firma acredita integridad comprobable con la clave; el valor científico "
+              "depende del diseño y de los datos.",
+        "en": "The signature certifies integrity that can be checked with the key; the "
+              "scientific value depends on the design and on the data."},
     "c_lim_sin_firma": {
-        "es": "Este informe no está firmado (garantía A0): nada impide que alguien lo "
-              "reescriba sin que se note.",
-        "en": "This report is not signed (assurance A0): nothing prevents someone from "
-              "rewriting it unnoticed."},
+        "es": "Este informe no está firmado (garantía A0).",
+        "en": "This report is not signed (assurance A0)."},
     "c_anexos": {
-        "es": "Los detalles técnicos están debajo, en anexos desplegables. Al imprimir se "
-              "imprimen abiertos si el navegador lo admite.",
-        "en": "The technical details are below, in collapsible annexes. When printing they "
-              "print open if the browser supports it."},
+        "es": "Más límites, definiciones en llano y detalles técnicos: en los anexos de abajo.",
+        "en": "More limits, plain-language definitions and technical details: in the annexes "
+              "below."},
     "a_puntuacion": {"es": "Anexo {l} · Detalle de «{c}»", "en": "Annex {l} · Detail of “{c}”"},
     "a_graficas": {"es": "Anexo {l} · Gráficas", "en": "Annex {l} · Charts"},
     "a_comparacion": {"es": "Anexo {l} · Una frente a otra", "en": "Annex {l} · One against the other"},

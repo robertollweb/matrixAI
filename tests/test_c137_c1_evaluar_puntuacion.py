@@ -1078,8 +1078,86 @@ class RondaDeRigorNucleoTest(DatosBase):
 
     def test_la_version_del_informe_sube_con_el_esquema(self):
         r = _evaluar(_csv(self.filas, ["p", "y"]))
-        self.assertEqual(r.informe["version_del_informe"], "2.0.0")
-        self.assertEqual(r.recibo["environment"]["report_version"], "2.0.0")
+        self.assertEqual(r.informe["version_del_informe"], "2.1.0")
+        self.assertEqual(r.recibo["environment"]["report_version"], "2.1.0")
+
+
+class VeredictoDelNucleoTest(DatosBase):
+    """La frase-veredicto de cada puntuación la compone el NÚCLEO con los números y sin umbrales
+    inventados: «ordena» si el IC del AUROC excluye 0,5; «sobrestima/infraestima» si el IC de la
+    calibración en grande excluye 0; si no, dice que no hay diferencia clara."""
+
+    def _v(self, filas, columnas=("p", "y"), tipo="probabilidad", rem=200):
+        r = _evaluar(_csv(filas, list(columnas)), remuestras=rem,
+                     puntuaciones=[Decl(columnas[0], tipo, ALTO)])
+        return r.informe["puntuaciones"][0]
+
+    def test_sobrestima_si_el_ic_de_la_calibracion_en_grande_excluye_0_por_arriba(self):
+        p = self._v(_filas(1500, semilla=1, desplazamiento=0.8))
+        g = p["calibracion"]["en_grande"]
+        self.assertGreater(g["ic"]["bajo"], 0)
+        v = p["veredicto"]
+        self.assertEqual((v["ordena"], v["riesgo"]), ("si", "sobrestima"))
+        auc = p["discriminacion"]["auroc"]["valor"]
+        pp = f'{g["valor"] * 100:.1f}'.replace(".", ",")
+        self.assertEqual(v["texto"]["es"], f"Ordena mejor que el azar (AUROC {auc:.2f}); "
+                                           f"sobrestima el riesgo en {pp} puntos porcentuales.".replace(
+                                               f"{auc:.2f}", f"{auc:.2f}".replace(".", ",")))
+        self.assertIn("overestimates the risk by", v["texto"]["en"])
+        self.assertIn(f'{g["valor"] * 100:.1f} percentage points', v["texto"]["en"])
+
+    def test_infraestima_si_el_ic_excluye_0_por_debajo(self):
+        p = self._v(_filas(1500, semilla=1, desplazamiento=-0.8))
+        self.assertLess(p["calibracion"]["en_grande"]["ic"]["alto"], 0)
+        self.assertEqual(p["veredicto"]["riesgo"], "infraestima")
+        self.assertIn("infraestima el riesgo en", p["veredicto"]["texto"]["es"])
+        self.assertNotIn("-", p["veredicto"]["texto"]["es"].split("riesgo en")[1][:6])   # magnitud, sin signo
+
+    def test_sin_diferencia_clara_si_el_ic_incluye_0_y_no_se_dice_ni_sobre_ni_infra(self):
+        p = self._v(_filas(1500, semilla=1, desplazamiento=0.0))
+        ic = p["calibracion"]["en_grande"]["ic"]
+        self.assertLessEqual(ic["bajo"], 0)
+        self.assertGreaterEqual(ic["alto"], 0)
+        self.assertEqual(p["veredicto"]["riesgo"], "sin_diferencia")
+        self.assertIn("no hay diferencia clara", p["veredicto"]["texto"]["es"])
+        self.assertIn("there is no clear difference", p["veredicto"]["texto"]["en"])
+        for prohibida in ("sobrestima", "infraestima", "overestimates", "underestimates"):
+            self.assertNotIn(prohibida, p["veredicto"]["texto"]["es"] + p["veredicto"]["texto"]["en"])
+
+    def test_una_escala_de_puntos_no_dice_nada_de_si_acierta_en_el_riesgo(self):
+        p = self._v(_filas(1500), columnas=("pts", "y"), tipo="puntuacion")
+        self.assertEqual(p["veredicto"]["riesgo"], "no_aplica")
+        self.assertIn("no se mide si acierta en el riesgo", p["veredicto"]["texto"]["es"])
+        self.assertIn("is not measured", p["veredicto"]["texto"]["en"])
+
+    def test_ordena_se_dice_solo_si_el_ic_excluye_0_5_azar_y_al_reves_lo_dicen_aparte(self):
+        filas = _filas(1500)
+        r = random.Random(9)
+        azar = [dict(f, p=r.random()) for f in filas]
+        pa = self._v(azar)
+        self.assertLessEqual(pa["discriminacion"]["auroc"]["ic"]["bajo"], 0.5)
+        self.assertEqual(pa["veredicto"]["ordena"], "azar")
+        self.assertIn("No se distingue del azar al ordenar", pa["veredicto"]["texto"]["es"])
+        self.assertNotIn("Ordena mejor que el azar", pa["veredicto"]["texto"]["es"])
+        reves = self._v([dict(f, p=1 - f["p"]) for f in filas])
+        self.assertEqual(reves["veredicto"]["ordena"], "al_reves")
+        self.assertIn("¿está bien declarada la dirección?", reves["veredicto"]["texto"]["es"])
+
+    def test_ninguna_frase_lleva_adjetivos_ni_umbrales_inventados(self):
+        for d in (0.8, -0.8, 0.0):
+            v = self._v(_filas(1500, semilla=1, desplazamiento=d))["veredicto"]["texto"]
+            for idioma, frase in v.items():
+                for adjetivo in (" bien", " mal ", "buen", "mala", "good", "bad", "poor", "excelente"):
+                    self.assertNotIn(adjetivo, frase.lower() + " ")
+                self.assertTrue(frase.endswith("."))
+
+    def test_el_veredicto_viaja_con_el_informe_y_comparte_la_version(self):
+        r = _evaluar(_csv(self.filas, ["p", "pts", "y"]), puntuaciones=[
+            Decl("p", "probabilidad", ALTO), Decl("pts", "puntuacion", ALTO)])
+        for p in r.informe["puntuaciones"]:
+            self.assertEqual(set(p["veredicto"]), {"ordena", "riesgo", "texto"})
+            self.assertEqual(set(p["veredicto"]["texto"]), {"es", "en"})
+        self.assertEqual(r.informe["version_del_informe"], "2.1.0")
 
 
 _FALTA = object()      # «este argumento no se pasa»

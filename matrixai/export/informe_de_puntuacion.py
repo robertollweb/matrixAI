@@ -1137,7 +1137,7 @@ tr.dom th{background:var(--accent-soft);color:var(--accent);font-size:12px}
 .leg .sw{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:3px;background:var(--muted)}
 .leg .sw.s1{background:var(--accent)}.leg .sw.s2{background:var(--s2)}
 section.not{border-left:3px solid var(--warn);padding:6px 0 6px 14px;display:flex;flex-direction:column;gap:6px}
-section.conclusiones{display:flex;flex-direction:column;gap:12px;font-size:15px}
+section.conclusiones{display:flex;flex-direction:column;gap:8px;font-size:14px}
 section.conclusiones ul{margin:4px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 .cs{border-left:4px solid var(--accent);padding-left:12px;display:flex;flex-direction:column;gap:4px}
 .cs.c2{border-left-color:var(--s2)}
@@ -1166,12 +1166,20 @@ def _lista(items: Sequence[str]) -> str:
     return "<ul>" + "".join(f"<li>{x}</li>" for x in items if x) + "</ul>"
 
 
-def _conclusiones_de(p: dict[str, Any], f: _F, idioma: str) -> str:
-    """Las cinco preguntas de UNA puntuación, en lenguaje llano y con las cifras del informe."""
+def _et(clave: str, idioma: str) -> str:
+    """El rótulo de una pregunta o de una línea, listo para ir delante de su texto: una pregunta
+    ya acaba en «?»; lo demás lleva dos puntos («Al umbral de hoy: Con el umbral…»)."""
+    r = t(clave, idioma)
+    return r if r.endswith(("?", ":", ".")) else r + ":"
+
+
+def _en_llano_de(p: dict[str, Any], f: _F, idioma: str) -> str:
+    """Las cinco preguntas de UNA puntuación, en lenguaje llano y con las cifras del informe.
+    Va en el anexo de la puntuación: la página de conclusiones lleva solo el veredicto."""
     hechos: list[str] = []
     a = p["discriminacion"]["auroc"]
     if a.get("valor") is None:
-        hechos.append(f'<b>{_e(t("q_ordena", idioma))}</b> '
+        hechos.append(f'<b>{_e(_et("q_ordena", idioma))}</b> '
                       f'{_e(t("c_ordena_na", idioma, motivo=_bi(a.get("no_definido"), idioma)))}')
     else:
         ic = a.get("ic")
@@ -1184,7 +1192,7 @@ def _conclusiones_de(p: dict[str, Any], f: _F, idioma: str) -> str:
         else:
             pill = t("pill_ic_con_azar", idioma)
         pill = pill[:1].upper() + pill[1:]
-        hechos.append(f'<b>{_e(t("q_ordena", idioma))}</b> ' + _e(t(
+        hechos.append(f'<b>{_e(_et("q_ordena", idioma))}</b> ' + _e(t(
             "c_ordena", idioma, v=f.n(a["valor"]), ic=_ic(a, f.n, idioma),
             pp=f.pct(a["valor"], 0), pill=pill)))
         pr = p.get("cifra_prometida")
@@ -1194,10 +1202,10 @@ def _conclusiones_de(p: dict[str, Any], f: _F, idioma: str) -> str:
                           + f'<span class="adv">{_e(_bi(pr.get("advertencia"), idioma))}</span>')
     cal = p["calibracion"]
     if not cal.get("aplica"):
-        hechos.append(f'<b>{_e(t("q_riesgo", idioma))}</b> '
+        hechos.append(f'<b>{_e(_et("q_riesgo", idioma))}</b> '
                       f'{_e(t("c_riesgo_na", idioma, motivo=_bi(cal.get("motivo"), idioma)))}')
     elif cal["en_grande"].get("valor") is None:
-        hechos.append(f'<b>{_e(t("q_riesgo", idioma))}</b> '
+        hechos.append(f'<b>{_e(_et("q_riesgo", idioma))}</b> '
                       f'{_e(_bi(cal["en_grande"].get("no_definido"), idioma))}')
     else:
         g, ia, ib = cal["en_grande"], cal["intercepto"], cal["pendiente"]
@@ -1209,18 +1217,18 @@ def _conclusiones_de(p: dict[str, Any], f: _F, idioma: str) -> str:
             return _ic(m, lambda x: f.n(x, 2), idioma) or "—"
 
         hechos.append(
-            f'<b>{_e(t("q_riesgo", idioma))}</b> ' + _e(t(
+            f'<b>{_e(_et("q_riesgo", idioma))}</b> ' + _e(t(
                 "c_riesgo", idioma, v=f.signed(g["valor"] * 100, 1),
                 ic=_ic(g, lambda x: f.signed(x * 100, 1), idioma), a=num(ia), ia=par(ia),
                 b=num(ib), ib=par(ib))))
     u = p["al_umbral"]
     if not u.get("declarado"):
-        hechos.append(f'<b>{_e(t("q_umbral", idioma))}</b> '
+        hechos.append(f'<b>{_e(_et("q_umbral", idioma))}</b> '
                       f'{_e(t("c_umbral_sin", idioma, motivo=_bi(u.get("motivo"), idioma)))}')
     else:
         s_, e_ = u["sensibilidad"], u["especificidad"]
         if s_.get("valor") is None or e_.get("valor") is None:
-            hechos.append(f'<b>{_e(t("q_umbral", idioma))}</b> '
+            hechos.append(f'<b>{_e(_et("q_umbral", idioma))}</b> '
                           f'{_e(_bi((s_ if s_.get("valor") is None else e_).get("no_definido"), idioma))}')
         else:
             txt = t("c_umbral", idioma, u=_umbral_texto(p, f, idioma), k=f.miles(u["avisos"]),
@@ -1235,7 +1243,7 @@ def _conclusiones_de(p: dict[str, Any], f: _F, idioma: str) -> str:
             else:
                 txt += " " + t("c_umbral_sin_vp", idioma,
                                motivo=_bi(vpp.get("no_definido"), idioma) or "—")
-            hechos.append(f'<b>{_e(t("q_umbral", idioma))}</b> {_e(txt)}')
+            hechos.append(f'<b>{_e(_et("q_umbral", idioma))}</b> {_e(txt)}')
     medidos, insuf, total = _grupos_de(p)
     if not total:
         grupos = t("grupos_ninguno", idioma)
@@ -1247,7 +1255,7 @@ def _conclusiones_de(p: dict[str, Any], f: _F, idioma: str) -> str:
                             vb=f.n(hi[1])))
         partes.append((t("grupos_insuf", idioma, k=insuf) if insuf else t("grupos_todos", idioma)) + ".")
         grupos = " ".join(partes)
-    hechos.append(f'<b>{_e(t("q_grupos", idioma))}</b> {_e(grupos)}')
+    hechos.append(f'<b>{_e(_et("q_grupos", idioma))}</b> {_e(grupos)}')
     rot = _rotulos_unicos([_rotulo_de_alcance(cal if cal.get("aplica") else None, idioma),
                            _rotulo_de_alcance((u or {}).get("beneficio_neto"), idioma),
                            _rotulo_de_alcance(p.get("curva_de_decision"), idioma)])
@@ -1259,59 +1267,140 @@ def _conclusiones_de(p: dict[str, Any], f: _F, idioma: str) -> str:
 
 
 def _frente_en_llano(inf: dict[str, Any], f: _F, idioma: str) -> str:
+    """«Frente a la otra», con todas las palabras (anexo de la comparación)."""
     c = inf.get("comparacion")
     if not c:
         return ""
     if not c.get("posible") or c.get("diferencia") is None:
-        return (f'<p><b>{_e(t("q_frente", idioma))}</b> '
+        return (f'<p><b>{_e(_et("q_frente", idioma))}</b> '
                 f'{_e(_bi(c.get("motivo"), idioma) or "—")}</p>')
     a, b = c["columna_a"], c["columna_b"]
     est = {"a_mayor_que_b": "frente_a_mayor", "a_menor_que_b": "frente_b_mayor",
            "el_intervalo_incluye_el_cero": "frente_sin_dif"}.get(c.get("resultado"))
     txt = " ".join(x for x in (
         t(est, idioma, a=a, b=b) + "." if est else "",
-        t("frente_dif_linea", idioma, ic=_ic(
+        t("frente_dif_texto", idioma, d=f.signed(c["diferencia"]), ic=_ic(
             {"valor": c["diferencia"], "ic": c.get("ic"), "ic_no_disponible": c.get("ic_no_disponible")},
-            f.signed, idioma)) + ": " + f.signed(c["diferencia"]) + ".",
+            f.signed, idioma)),
         t("frente_filas", idioma, n=f.miles(c["filas_comunes"]), e=f.miles(c["eventos_comunes"])),
         t("frente_directa", idioma)) if x)
-    return f'<p><b>{_e(t("q_frente", idioma))}</b> {_e(txt)}</p>'
+    return f'<p><b>{_e(_et("q_frente", idioma))}</b> {_e(txt)}</p>'
+
+
+def _conclusiones_de(p: dict[str, Any], f: _F, idioma: str) -> str:
+    """Lo que la página de conclusiones dice de UNA puntuación: la frase-veredicto que compuso el
+    núcleo, una línea de cifras clave y, si prometía una cifra, su referencia con la advertencia."""
+    partes = []
+    v = p.get("veredicto")
+    if v:
+        partes.append(f'<p class="veredicto"><b>{_e(_bi(v["texto"], idioma))}</b></p>')
+    cifras: list[str] = []
+    a = p["discriminacion"]["auroc"]
+    if a.get("valor") is not None:
+        cifras.append(t("c_k_auroc", idioma, v=f.n(a["valor"]), ic=_ic(a, f.n, idioma)))
+    cal = p["calibracion"]
+    g = cal.get("en_grande") if cal.get("aplica") else None
+    if g and g.get("valor") is not None:
+        cifras.append(t("c_k_riesgo", idioma, v=f.signed(g["valor"] * 100, 1),
+                        ic=_ic(g, lambda x: f.signed(x * 100, 1), idioma)))
+    u = p["al_umbral"]
+    if u.get("declarado") and u["sensibilidad"].get("valor") is not None \
+            and u["especificidad"].get("valor") is not None:
+        txt = t("c_k_umbral", idioma, u=_umbral_texto(p, f, idioma),
+                s=f.pct(u["sensibilidad"]["valor"]), e=f.pct(u["especificidad"]["valor"]))
+        if u["vpp"].get("valor") is not None and u["vpn"].get("valor") is not None:
+            txt += ", " + t("c_k_vp", idioma, p=f.pct(u["vpp"]["valor"]), n=f.pct(u["vpn"]["valor"]))
+        cifras.append(txt)
+    medidos, insuf, total = _grupos_de(p)
+    if total:
+        cifras.append(t("c_k_grupos", idioma, k=len(medidos), i=insuf))
+    if cifras:
+        partes.append(f'<p class="cifras"><b>{_e(t("c_cifras", idioma))}</b> '
+                      f'{_e(" · ".join(cifras))}</p>')
+    pr = p.get("cifra_prometida")
+    if pr and pr.get("resultado") in ("dentro", "fuera") and a.get("valor") is not None:
+        partes.append(f'<p class="small muted">{_e(t("c_ref_corta", idioma, r=f.n(pr["prometida"]), e=f.n(a["valor"]), pos=t("ref_dentro" if pr["resultado"] == "dentro" else "ref_fuera", idioma)))}</p>')
+    elif pr:
+        partes.append(f'<p class="small muted">{_e(_referencia_linea(pr, a, f, idioma))} '
+                      f'{_e(_bi(pr.get("advertencia"), idioma))}</p>')
+    return "".join(partes)
+
+
+def _frente_compacto(inf: dict[str, Any], f: _F, idioma: str) -> str:
+    c = inf.get("comparacion")
+    if not c:
+        return ""
+    if not c.get("posible") or c.get("diferencia") is None:
+        return (f'<p><b>{_e(_et("q_frente", idioma))}</b> '
+                f'{_e(_bi(c.get("motivo"), idioma) or "—")}</p>')
+    ic = _ic({"valor": c["diferencia"], "ic": c.get("ic"),
+              "ic_no_disponible": c.get("ic_no_disponible")}, f.signed, idioma)
+    return (f'<p><b>{_e(_et("q_frente", idioma))}</b> '
+            + _e(t("c_frente_linea", idioma, a=c["columna_a"], b=c["columna_b"],
+                   d=f.signed(c["diferencia"]), ic=ic, n=f.miles(c["filas_comunes"]),
+                   e=f.miles(c["eventos_comunes"]), directa=t("frente_directa", idioma)))
+            + '</p>')
+
+
+def _limites_cortos(inf: dict[str, Any], idioma: str) -> list[str]:
+    """Tres o cuatro viñetas CORTAS: cada una sale de un dato del informe (no de una lista
+    escrita a mano), y su texto completo está en el anexo de límites."""
+    ids = {x.get("id") for x in inf.get("lo_que_no_es") or []}
+    ps = inf["puntuaciones"]
+    out = [t("l_rep_si" if inf["la_muestra_representa_a_la_poblacion"] else "l_rep_no", idioma)]
+    externa = next((x for x in inf.get("lo_que_no_es") or []
+                    if x.get("id") == "no_es_validacion_externa"), None)
+    if externa:
+        out.append(_bi(externa, idioma))
+    elif ps and all((p.get("validacion_externa") or {}).get("casos_en_su_desarrollo") == "no" for p in ps):
+        out.append(t("l_dev_no", idioma))
+    if "no_es_validacion_clinica" in ids:
+        out.append(t("l_clinica", idioma))
+    if "paradoja_del_tratamiento" in ids:
+        out.append(t("l_paradoja", idioma))
+    return out
 
 
 def _conclusiones(resultado: Any, f: _F, idioma: str) -> str:
-    """R6: la página que se lee primero. Lenguaje llano, las cifras del informe y los límites
-    (R2, R3, R4) a la vista; los detalles técnicos van en los anexos."""
+    """R6: la página que se lee primero y que cabe en UNA hoja A4: qué se evaluó, una
+    frase-veredicto por puntuación, sus cifras clave y tres o cuatro límites. Las definiciones
+    en llano, las advertencias completas y los intervalos van en los anexos."""
     inf = resultado.informe
-    de, rm = inf["desenlace"], inf["remuestreo"]
+    de = inf["desenlace"]
     total = inf["entrada"]["filas_con_desenlace"]
     al = inf.get("alcance") or {}
-    donde = inf.get("donde_se_calcula")
     partes = [f'<h2>{_e(t("s_conclusiones", idioma))}</h2>',
               f'<p>{_e(t("c_intro", idioma, col=de["columna"], ev=de["evento"], n=f.miles(total), e=f.miles(de["eventos"]), p=f.pct(de["eventos"] / total) if total else "—", hor=al.get("horizonte_del_desenlace", "—"), mom=al.get("momento_de_la_puntuacion", "—")))}</p>',
-              (f'<p>{_e(t("c_donde", idioma, texto=_bi(donde["texto"], idioma)))}</p>'
-               if donde else ""),
               _avisos(inf, idioma)]
     for k, p in enumerate(inf["puntuaciones"]):
         partes.append(f'<div class="cs c{k + 1}"><h3>{_e(p["columna"])}</h3>'
-                      f'<p class="small muted">{_e(_declaracion(p, f, idioma))}</p>'
                       f'{_conclusiones_de(p, f, idioma)}</div>')
-    partes.append(_frente_en_llano(inf, f, idioma))
+    partes.append(_frente_compacto(inf, f, idioma))
+    limites = [_e(x) for x in _limites_cortos(inf, idioma)]
+    firma = _e(t("c_lim_firma", idioma)) + (
+        "" if resultado.nivel_de_garantia == "A1" else " " + _e(t("c_lim_sin_firma", idioma)))
+    partes.append(f'<section class="not"><h3>{_e(t("c_lim", idioma))}</h3>{_lista(limites)}'
+                  f'<p><b>{firma}</b></p></section>')
+    partes.append(f'<p class="small muted">{_e(t("c_anexos", idioma))}</p>')
+    return f'<section class="conclusiones">{"".join(x for x in partes if x)}</section>'
+
+
+def _limites_completos(resultado: Any, idioma: str) -> str:
+    """Los límites con todas las palabras (anexo): la nota de representatividad, la de validación
+    externa de cada puntuación y todo lo que el informe dice que NO es."""
+    inf = resultado.informe
     limites: list[str] = []
     rep_ = inf.get("representatividad")
     if rep_:
         limites.append(_e(_bi(rep_.get("nota"), idioma)))
-    for p in inf["puntuaciones"]:                      # R2: validación externa, puntuación a puntuación
+        if rep_.get("porque"):
+            limites.append(_e(_bi(rep_["porque"], idioma)))
+    for p in inf["puntuaciones"]:
         if p.get("validacion_externa"):
             limites.append(_e(_bi(p["validacion_externa"]["nota"], idioma)))
     no_es = [_e(_bi(x, idioma)) for x in inf.get("lo_que_no_es") or []]
-    partes.append(f'<section class="not"><h3>{_e(t("c_lim", idioma))}</h3>{_lista(limites)}'
-                  f'<h4>{_e(t("s_no_es", idioma))}</h4>{_lista(no_es)}'
-                  f'<p><b>{_e(t("c_lim_firma", idioma))}</b></p>'
-                  + ("" if resultado.nivel_de_garantia == "A1"
-                     else f'<p>{_e(t("c_lim_sin_firma", idioma))}</p>')
-                  + '</section>')
-    partes.append(f'<p class="small muted">{_e(t("c_anexos", idioma))}</p>')
-    return f'<section class="conclusiones">{"".join(x for x in partes if x)}</section>'
+    return (f'<section class="not"><h3>{_e(t("c_lim", idioma))}</h3>{_lista(limites)}'
+            f'<h4>{_e(t("s_no_es", idioma))}</h4>{_lista(no_es)}</section>')
 
 
 def _anexo(clave: str, letra: str, cuerpo: str, idioma: str, **campos: Any) -> str:
@@ -1356,13 +1445,17 @@ def informe_html(resultado: Any, *, idioma: str) -> str:
     for k, p in enumerate(ps):
         cuerpo = (f'<section class="score c{k + 1}"><h2>{_e(p["columna"])}</h2>'
                   f'<p class="small muted">{_e(_declaracion(p, f, idioma))}</p>'
+                  f'<div class="blk"><h4>{_e(t("a_en_llano", idioma))}</h4>'
+                  f'{_en_llano_de(p, f, idioma)}</div>'
                   f'{_tarjetas(p, f, idioma)}{_tabla_umbral(p, f, idioma)}'
                   f'{_tabla_subgrupos(p, f, idioma)}</section>')
         anexos.append(_anexo("a_puntuacion", next(letras), cuerpo, idioma, c=p["columna"]))
     anexos.append(_anexo("a_graficas", next(letras), _graficas(inf, f, idioma), idioma))
     comp = _comparacion(inf, f, idioma)
     if comp:
-        anexos.append(_anexo("a_comparacion", next(letras), comp, idioma))
+        anexos.append(_anexo("a_comparacion", next(letras),
+                             comp + _frente_en_llano(inf, f, idioma), idioma))
+    anexos.append(_anexo("a_limites", next(letras), _limites_completos(resultado, idioma), idioma))
     anexos.append(_anexo("a_como", next(letras),
                          _entrada(inf, resultado, f, idioma) + _recibo(resultado, f, idioma), idioma))
     anexos.append(_anexo("a_tripod", next(letras), _tripod(resultado, idioma), idioma))
