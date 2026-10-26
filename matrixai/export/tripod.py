@@ -141,6 +141,8 @@ _T = {
         "paquete_usable": "El paquete incluye `model.onnx`, `predict.py` e "
                           "`inference_spec.json`: predice con valores crudos sin "
                           "instalar MatrixAI.",
+        "paquete_no_usable": "El paquete NO incluye {faltan}: no predice con valores "
+                             "crudos sin instalar MatrixAI.",
         "reproducible_si": "El paquete se declara reproducible. Se comprueba con "
                            "`matrixai verify <paquete>`.",
         "reproducible_no": "El paquete se declara NO reproducible",
@@ -186,6 +188,8 @@ _T = {
         "paquete_usable": "The package ships `model.onnx`, `predict.py` and "
                           "`inference_spec.json`: it predicts from raw values with no "
                           "MatrixAI installed.",
+        "paquete_no_usable": "The package does NOT ship {faltan}: it does not predict from "
+                             "raw values without MatrixAI installed.",
         "reproducible_si": "The package declares itself reproducible. Check it with "
                            "`matrixai verify <package>`.",
         "reproducible_no": "The package declares itself NOT reproducible",
@@ -351,11 +355,20 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
     filas.append(f"## {t['metricas']}")
     metricas = m.get("metrics") or []
     if metricas:
+        # Dos cifras con el MISMO nombre (un estudio publica la estimación de la selección y la
+        # de la prueba reservada) no se distinguen sin su partición: ahí, y solo ahí, se escribe.
+        _repetidas = {n for n in (x.get("name") for x in metricas if isinstance(x, dict))
+                      if sum(1 for y in metricas if isinstance(y, dict) and y.get("name") == n) > 1}
+        # Y si ya hay que distinguirlas, TODAS llevan la suya: una sin etiqueta junto a otra con ella se lee mal.
+        if _repetidas:
+            _repetidas = {x.get("name") for x in metricas if isinstance(x, dict)}
         for metrica in metricas:
             if not isinstance(metrica, dict):
                 continue
             sobre = metrica.get("dataset_sha256")
             cola = f" ({t['medido_sobre']} `{str(sobre)[:12]}…`)" if sobre else ""
+            if metrica.get("name") in _repetidas and metrica.get("split"):
+                cola += f" [{metrica['split']}]"
             filas.append(f"- **{metrica.get('name')}**: {metrica.get('value')}{cola}"
                          f" · `reproduce.json#metrics`")
     else:
@@ -400,11 +413,22 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
             filas.append("")
 
     filas.append(f"## {t['disponibilidad']} · {t['reproducibilidad']}")
-    filas.append(f"- {t['paquete_usable']}")
+    # LO QUE EL PAQUETE LLEVA, mirado en el disco. La frase era fija, y un paquete de ESTUDIO (138-C2a) no lleva
+    # `model.onnx` ni `inference_spec.json`: decía que predice sin instalar nada y no es verdad.
+    _faltan = [f"`{n}`" for n in ("model.onnx", "predict.py", "inference_spec.json")
+               if not (bundle / n).is_file()]
+    if _faltan:
+        filas.append("- " + t["paquete_no_usable"].format(faltan=", ".join(_faltan)))
+    else:
+        filas.append(f"- {t['paquete_usable']}")
     if m.get("reproducible"):
         filas.append(f"- {t['reproducible_si']} · `reproduce.json#reproducible`")
     else:
-        motivo = m.get("reproducible_reason") or ""
+        # Un manifiesto de ESTUDIO (138-C2a) trae su motivo en los dos idiomas; el del
+        # camino clásico, solo `reproducible_reason` (en inglés). Sin el bilingüe, sale el de siempre.
+        _bilingue = m.get("reproducible_reason_i18n")
+        motivo = ((_bilingue.get(idioma) if isinstance(_bilingue, dict) else None)
+                  or m.get("reproducible_reason") or "")
         filas.append(f"- {t['reproducible_no']}: {motivo} "
                      f"· `reproduce.json#reproducible_reason`")
     filas.append("")
