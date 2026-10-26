@@ -29,10 +29,12 @@ from __future__ import annotations
 
 import random
 import unittest
+from pathlib import Path
 from importlib.util import find_spec
 
 from matrixai.estudio import ProblemSpec
 from matrixai.training.diagnostico import (
+    ALFA_PUREZA,
     Diagnostico,
     Limite,
     MUESTREO_MAXIMO_FILAS,
@@ -43,8 +45,8 @@ from matrixai.training.diagnostico import (
     UMBRAL_ASOCIACION_ALTA,
     UMBRAL_EVENTOS_MINIMOS,
     UMBRAL_NMI_ALTA,
-    UMBRAL_PUREZA_ALTA,
-    UMBRAL_PUREZA_ALTA_FUERA_DE_MUESTRA,
+    UMBRAL_REDUCCION_PUREZA,
+    UMBRAL_REDUCCION_PUREZA_FUERA_DE_MUESTRA,
     asociacion,
     asociacion_muy_alta,
     ausencia_de_linaje,
@@ -56,6 +58,8 @@ from matrixai.training.diagnostico import (
     intervalo_wilson,
     nmi_categorica,
     objetivo_duplicado,
+    _prob_por_azar,
+    _reduccion,
     pearson,
     precision_insuficiente,
     proxy_por_nmi,
@@ -335,7 +339,7 @@ class PurezaCategoricaTest(unittest.TestCase):
         categorías de 20 filas cada una (soporte exactamente al mínimo), SIN
         relación real con el objetivo. Buscado por semilla y medido antes de
         escribir el aserto: con `random.seed(22)` una categoría (`cat_22`)
-        alcanza pureza in-sample >= 0.85 por puro azar de muestra pequeña —
+        alcanza pureza in-sample >= 0,85 por puro azar de muestra pequeña —
         la trampa exacta que el contrato prohíbe calificar como predictor."""
         random.seed(22)
         categorias = []
@@ -345,8 +349,12 @@ class PurezaCategoricaTest(unittest.TestCase):
         objetivo = [random.choice(["si", "no"]) for _ in range(len(categorias))]
 
         r = pureza_categorica(categorias, objetivo)
+        # La trampa se buscó con la pureza absoluta de entonces (0,85): con un
+        # objetivo ~50/50 (tasa base de 'no' 0,504) esa pureza es una reducción
+        # de 0,698, a un pelo del umbral nuevo; el fixture se describe como se
+        # encontró.
         puras_in_sample = [c for c, info in r["categorias_evaluadas"].items()
-                          if info["pureza"] >= UMBRAL_PUREZA_ALTA]
+                          if info["pureza"] >= 0.85]
         self.assertIn("cat_22", puras_in_sample,
                       "fixture: se esperaba que cat_22 fuese pura in-sample por azar")
         self.assertNotIn("cat_22", r["confirmadas_fuera_de_muestra"])
@@ -371,6 +379,287 @@ class PurezaCategoricaTest(unittest.TestCase):
         self.assertIsInstance(s, Sospecha)
         self.assertNotIsInstance(s, Bloqueo)
         self.assertEqual(s.clave, "categoria_predictiva_por_pureza")
+
+
+# ---------------------------------------------------------------------------
+# 138 — la pureza se mide CONTRA LA TASA BASE de su clase (hallado el 26-10):
+# con un objetivo desbalanceado, el umbral absoluto 0,85 acusaba a TODA
+# categoría. Aquí se prueban LOS DOS LADOS: que ya no acuse a las que solo
+# reflejan la tasa base, y que siga acusando a las que de verdad delatan.
+# ---------------------------------------------------------------------------
+
+def _escenario(n, k, p_evento, rng, *, especial=None):
+    """`n` filas, `k` categorías al azar, objetivo '1' (evento) con
+    probabilidad `p_evento`. `especial = (categoria, P(evento | categoria))`
+    cambia la probabilidad de UNA categoría."""
+    categorias = [f"c{rng.randrange(k)}" for _ in range(n)]
+    objetivo = []
+    for c in categorias:
+        p = especial[1] if especial and c == especial[0] else p_evento
+        objetivo.append("1" if rng.random() < p else "0")
+    return categorias, objetivo
+
+
+class PurezaRelativaALaTasaBaseTest(unittest.TestCase):
+    def test_a_objetivo_al_7_5_por_ciento_categorias_SIN_relacion_NO_salen(self):
+        """EL DEFECTO: con 7,5 % de eventos, la clase 'no evento' es el 92,5 %
+        de TODO el conjunto, así que cualquier categoría tiene pureza ~0,92
+        sin saber nada. El umbral absoluto de antes (0,85) acusaba a `sexo` y
+        `servicio` en casi cualquier CSV clínico. Medido con 200 repeticiones
+        por celda sobre datos SIN relación: 100 % de falsos positivos con el
+        criterio viejo y 0–1 % con el nuevo (ver el comentario del módulo)."""
+        for semilla in range(8):
+            rng = random.Random(semilla)
+            for n, k in ((600, 2), (1000, 4), (2000, 20)):
+                categorias, objetivo = _escenario(n, k, 0.075, rng)
+                r = pureza_categorica(categorias, objetivo)
+                evaluadas = r["categorias_evaluadas"].values()
+                self.assertTrue(evaluadas)
+                # el fixture MUERDE: con la regla de antes casi todas esas
+                # categorías (pureza ≥ 0,85, la tasa base misma) eran «altas»...
+                self.assertGreaterEqual(sum(i["pureza"] >= 0.85 for i in evaluadas), len(evaluadas) - 1)
+                # ...y con la nueva ninguna reduce lo bastante el error de la tasa base.
+                self.assertIsNone(proxy_por_pureza(categorias, objetivo, columna="sexo"), (semilla, n, k))
+
+    def test_b_objetivo_50_50_una_categoria_que_delata_SI_sale(self):
+        """El otro lado, con clases equilibradas (donde el umbral nuevo
+        equivale al absoluto de antes: 0,85 ↔ reducción 0,70). La categoría
+        `c0` da evento el 97 % de las veces."""
+        rng = random.Random(1)
+        categorias, objetivo = _escenario(1000, 10, 0.5, rng, especial=("c0", 0.97))
+        s = proxy_por_pureza(categorias, objetivo, columna="servicio")
+        self.assertIsInstance(s, Sospecha)
+        self.assertNotIsInstance(s, Bloqueo)
+        self.assertEqual(s.medida["categoria"], "c0")
+        self.assertEqual(s.medida["categorias_evaluadas"]["c0"]["clase"], "1")
+        self.assertGreaterEqual(s.medida["categorias_evaluadas"]["c0"]["reduccion"], UMBRAL_REDUCCION_PUREZA)
+
+    def test_c_objetivo_al_7_5_una_categoria_casi_toda_evento_SI_sale(self):
+        """Lo sospechoso de verdad con eventos raros: una categoría donde el
+        95 % de las filas SON evento cuando en el conjunto lo son el 7,5 %. Su
+        clase dominante es la MINORITARIA ('1'), y se mide contra SU tasa base
+        (~0,13 con esa categoría dentro), no contra la de la mayoritaria."""
+        for semilla in range(5):
+            rng = random.Random(semilla)
+            categorias, objetivo = _escenario(1000, 10, 0.075, rng, especial=("c0", 0.95))
+            s = proxy_por_pureza(categorias, objetivo, columna="servicio")
+            self.assertIsInstance(s, Sospecha, semilla)
+            info = s.medida["categorias_evaluadas"][s.medida["categoria"]]
+            self.assertEqual(s.medida["categoria"], "c0")
+            self.assertEqual(info["clase"], "1")
+            self.assertLess(info["tasa_base"], 0.2)
+            self.assertGreaterEqual(info["reduccion"], UMBRAL_REDUCCION_PUREZA)
+
+    def test_d_categoria_100_por_cien_NO_evento_con_soporte_suficiente_SI_sale(self):
+        """DECISIÓN: una categoría donde el evento NUNCA ocurre, con filas de
+        sobra, SÍ sale. Reduce el 100 % del error de la tasa base y eso no es
+        azar (0,925¹⁵⁰ ≈ 1e-5): es la forma de «los fallecidos no reingresan» —
+        una fuga clínica de manual—, no un reflejo de la tasa base. Lo que NO
+        sale es la misma categoría con pocas filas (abajo): 20 filas todas
+        'no evento' son azar corriente (0,925²⁰ = 21 %)."""
+        rng = random.Random(3)
+        categorias, objetivo = _escenario(1500, 10, 0.075, rng, especial=("c0", 0.0))   # ~150 filas en c0
+        s = proxy_por_pureza(categorias, objetivo, columna="destino")
+        self.assertIsInstance(s, Sospecha)
+        info = s.medida["categorias_evaluadas"]["c0"]
+        self.assertEqual((s.medida["categoria"], info["clase"], info["pureza"], info["reduccion"]),
+                         ("c0", "0", 1.0, 1.0))
+        self.assertGreaterEqual(info["n"], 100)
+
+    def test_d_la_misma_categoria_100_por_cien_NO_evento_con_20_filas_es_AZAR_y_no_sale(self):
+        """La contraparte de la anterior, medida: con 7,5 % de eventos, de cada
+        100 categorías de 20 filas AL AZAR, ~21 salen enteras 'no evento'. Si
+        salieran, una columna con 40 categorías pequeñas acusaría siempre."""
+        rng = random.Random(4)
+        sale_pura = 0
+        for _ in range(100):
+            categorias, objetivo = _escenario(400, 20, 0.075, rng)   # ~20 filas por categoría
+            r = pureza_categorica(categorias, objetivo)
+            sale_pura += any(i["reduccion"] >= UMBRAL_REDUCCION_PUREZA for i in r["categorias_evaluadas"].values())
+            self.assertIsNone(proxy_por_pureza(categorias, objetivo, columna="x"))
+        self.assertGreater(sale_pura, 50, "el fixture debe MORDER: sin la prueba de azar, casi siempre habría una")
+
+    def test_la_confirmacion_fuera_de_muestra_sigue_siendo_necesaria(self):
+        """Una categoría fuerte en conjunto que NO se sostiene en una de las
+        mitades internas no se confirma, aunque pase el umbral y la prueba de
+        azar (premisas afirmadas aquí, para que el fixture no sea ciego):
+        mitad par 100 % 'no'; mitad impar 76 %."""
+        filas = []
+        k = nf = 0
+        for i in range(500):
+            if i % 10 == 0:
+                filas.append(("c", "no"))
+            elif i % 10 == 1:
+                filas.append(("c", "si" if k % 50 < 12 else "no"))
+                k += 1
+            else:
+                filas.append(("f", "no" if nf % 2 == 0 else "si"))
+                nf += 1
+        categorias = [c for c, _ in filas]
+        objetivo = [o for _, o in filas]
+        r = pureza_categorica(categorias, objetivo)
+        info = r["categorias_evaluadas"]["c"]
+        self.assertGreaterEqual(info["reduccion"], UMBRAL_REDUCCION_PUREZA)
+        self.assertLessEqual(info["prob_por_azar"], r["alfa_por_categoria"])
+        self.assertNotIn("c", r["confirmadas_fuera_de_muestra"])
+        self.assertIsNone(proxy_por_pureza(categorias, objetivo, columna="x"))
+
+    def test_el_umbral_es_de_la_REDUCCION_no_de_la_pureza_absoluta_los_dos_lados(self):
+        """Objetivo 65/35. Una categoría de 300 filas con 88 % de la clase
+        mayoritaria tiene pureza ABSOLUTA 0,88 (≥ 0,85: la regla de antes la
+        acusaba), se confirma en las dos mitades y NO es azar (premisas abajo),
+        pero solo reduce el error en 0,66 < 0,70: no sale. Con 92 % (reducción
+        0,77) sí. Sin esta prueba el umbral absoluto sobrevivía en el filtro
+        final, porque las mitades y la prueba de azar ya cortaban todo lo demás."""
+        def caso(ceros_en_c):
+            categorias = ["c"] * 300 + ["f"] * 700
+            objetivo = (["0"] * ceros_en_c + ["1"] * (300 - ceros_en_c)
+                        + ["0"] * (650 - ceros_en_c) + ["1"] * (700 - (650 - ceros_en_c)))
+            orden = list(range(1000))
+            random.Random(1).shuffle(orden)
+            return [categorias[i] for i in orden], [objetivo[i] for i in orden]
+
+        categorias, objetivo = caso(264)
+        r = pureza_categorica(categorias, objetivo)
+        info = r["categorias_evaluadas"]["c"]
+        self.assertGreaterEqual(info["pureza"], 0.85)
+        self.assertLess(UMBRAL_REDUCCION_PUREZA_FUERA_DE_MUESTRA, info["reduccion"])
+        self.assertLess(info["reduccion"], UMBRAL_REDUCCION_PUREZA)
+        self.assertLessEqual(info["prob_por_azar"], r["alfa_por_categoria"])
+        self.assertIn("c", r["confirmadas_fuera_de_muestra"])
+        self.assertIsNone(proxy_por_pureza(categorias, objetivo, columna="x"))
+
+        categorias, objetivo = caso(276)
+        s = proxy_por_pureza(categorias, objetivo, columna="x")
+        self.assertIsInstance(s, Sospecha)
+        self.assertGreaterEqual(s.medida["categorias_evaluadas"]["c"]["reduccion"], UMBRAL_REDUCCION_PUREZA)
+
+    def test_la_tasa_base_es_la_de_la_clase_de_la_categoria_no_la_otra(self):
+        """Una categoría con 60 % de eventos en un conjunto al 7,5 % tiene la
+        clase dominante '1': su reducción es (0,6 − 0,075) / 0,925 = 0,57, NO
+        (0,6 − 0,925) / 0,075, que sería negativa. Se afirma el número."""
+        categorias = ["a"] * 100 + ["b"] * 900
+        objetivo = (["1"] * 60 + ["0"] * 40) + (["1"] * 15 + ["0"] * 885)
+        r = pureza_categorica(categorias, objetivo)
+        base = 75 / 1000
+        self.assertAlmostEqual(r["categorias_evaluadas"]["a"]["tasa_base"], base, places=6)
+        self.assertEqual(r["categorias_evaluadas"]["a"]["clase"], "1")
+        self.assertAlmostEqual(r["categorias_evaluadas"]["a"]["reduccion"], (0.6 - base) / (1 - base), places=5)
+        self.assertEqual(r["categorias_evaluadas"]["b"]["clase"], "0")
+
+    def test_reduccion_y_prob_por_azar_numeros_conocidos(self):
+        self.assertAlmostEqual(_reduccion(0.85, 0.5), 0.7)              # el 0,85 de antes con 50/50
+        self.assertAlmostEqual(_reduccion(0.925, 0.925), 0.0)           # reflejar la tasa base
+        self.assertAlmostEqual(_reduccion(1.0, 0.925), 1.0)
+        self.assertEqual(_reduccion(1.0, 1.0), 0.0)                     # objetivo de una sola clase
+        from math import comb
+        exacta = sum(comb(30, i) * 0.2 ** i * 0.8 ** (30 - i) for i in range(12, 31))
+        self.assertAlmostEqual(_prob_por_azar(12, 30, 0.2), exacta, places=12)
+        self.assertAlmostEqual(_prob_por_azar(20, 20, 0.925), 0.925 ** 20, places=12)
+        self.assertEqual(_prob_por_azar(5, 100, 0.5), 1.0)              # por debajo de lo esperado
+        self.assertEqual(ALFA_PUREZA, 0.01)
+        self.assertEqual(UMBRAL_REDUCCION_PUREZA_FUERA_DE_MUESTRA, 0.5)
+
+    def test_el_motivo_dice_los_porcentajes_en_cada_idioma_sin_jerga(self):
+        rng = random.Random(1)
+        categorias, objetivo = _escenario(1000, 10, 0.075, rng, especial=("c0", 0.95))
+        s = proxy_por_pureza(categorias, objetivo, columna="servicio")
+        info = s.medida["categorias_evaluadas"]["c0"]
+        es, en = s.motivo["es"], s.motivo["en"]
+        base = f"{info['tasa_base'] * 100:.1f}"
+        pureza = f"{info['pureza'] * 100:.1f}".removesuffix(".0")
+        self.assertIn(base.replace(".", ",") + " %", es)
+        self.assertIn(base + "%", en)
+        self.assertIn(pureza.replace(".", ",") + " %", es)
+        self.assertIn(pureza + "%", en)
+        for texto in (es, en):
+            self.assertNotIn("0.9", texto)          # nada de proporciones crudas
+            self.assertNotIn("{", texto)
+            for jerga in ("binomial", "Bonferroni", "reducción", "reduction"):
+                self.assertNotIn(jerga, texto)
+        self.assertIn("'c0'", es)
+        self.assertIn("'1'", es)
+
+
+_DATOS_STUDIO = (Path(__file__).resolve().parents[2] / "matrixaistudio" / "frontend" / "tests"
+                 / "datos" / "auditor-fuga-plantada.csv")
+_COLUMNAS_FUGA = ["id_paciente", "edad", "sexo", "glucosa", "servicio", "copia_del_desenlace",
+                  "puntuacion_posterior"]
+
+
+def _csv_fuga_plantada(*, intercepto: float, filas: int = 600, semilla: int = 138) -> str:
+    """El CSV del auditor del Studio (`generar-fuga-plantada.py`) con el
+    intercepto de la logística como parámetro: -1,2 son 26 % de reingresos
+    (el CSV original); -2,75, ~7,3 %. Mismas columnas y misma semilla."""
+    import csv
+    import io
+    import math
+    azar = random.Random(semilla)
+    salida = io.StringIO()
+    w = csv.writer(salida, lineterminator="\n")
+    w.writerow(_COLUMNAS_FUGA + ["reingreso_30d"])
+    for i in range(filas):
+        edad = azar.randint(18, 90)
+        glucosa = round(azar.gauss(100, 22), 1)
+        z = intercepto + 0.035 * (edad - 55) + 0.02 * (glucosa - 100)
+        y = 1 if azar.random() < 1 / (1 + math.exp(-z)) else 0
+        w.writerow([f"P{100000 + i * 7}", edad, azar.choice("HM"), glucosa,
+                    azar.choice(["urgencias", "cardiologia", "medicina_interna", "traumatologia"]),
+                    y, round(y * 10 + azar.gauss(0, 0.6), 2), y])
+    return salida.getvalue()
+
+
+def _campos_con_pureza(csv_text: str) -> tuple[set[str], float]:
+    problema = _problema_binaria(observation_unit="paciente", classes=("0", "1"), positive_label="1",
+                                 target="reingreso_30d", predictors=tuple(_COLUMNAS_FUGA))
+    d = diagnosticar_csv(csv_text, problema)
+    lineas = csv_text.splitlines()[1:]
+    eventos = sum(1 for linea in lineas if linea.endswith(",1")) / len(lineas)
+    return {s.campo for s in d.sospechas if s.clave == "categoria_predictiva_por_pureza"}, eventos
+
+
+class AuditorFugaPlantadaTest(unittest.TestCase):
+    """e) La fuga plantada del auditor (138-C5): `copia_del_desenlace` sigue
+    saliendo y las columnas honestas (`sexo`, `servicio`, `edad`, `glucosa`) no
+    — con el CSV original (26 % de eventos) Y con su variante al 7,5 %."""
+
+    def _honestas_no(self, campos):
+        for honesta in ("sexo", "servicio", "edad", "glucosa"):
+            self.assertNotIn(honesta, campos)
+
+    def test_e_el_CSV_del_Studio_copia_si_y_las_honestas_no(self):
+        if not _DATOS_STUDIO.exists():
+            self.skipTest("el CSV del auditor vive en el Studio")
+        campos, eventos = _campos_con_pureza(_DATOS_STUDIO.read_text(encoding="utf-8"))
+        self.assertGreater(eventos, 0.2)
+        self.assertIn("copia_del_desenlace", campos)
+        self._honestas_no(campos)
+
+    def test_e_el_generador_de_aqui_reproduce_el_CSV_del_Studio(self):
+        """La variante no deriva del original: con el intercepto del original
+        salen las mismas filas."""
+        if not _DATOS_STUDIO.exists():
+            self.skipTest("el CSV del auditor vive en el Studio")
+        self.assertEqual(_csv_fuga_plantada(intercepto=-1.2), _DATOS_STUDIO.read_text(encoding="utf-8"))
+
+    def test_e_variante_al_7_5_por_ciento_sexo_y_servicio_dejan_de_salir_y_la_copia_sigue(self):
+        csv_text = _csv_fuga_plantada(intercepto=-2.75)
+        campos, eventos = _campos_con_pureza(csv_text)
+        self.assertTrue(0.065 <= eventos <= 0.085, eventos)
+        self.assertIn("copia_del_desenlace", campos)
+        self._honestas_no(campos)
+        # el fixture MUERDE: con la pureza absoluta de antes, TODAS las
+        # categorías de `sexo` y `servicio` tienen pureza ~0,92 (≥ 0,85).
+        filas = [l.split(",") for l in csv_text.splitlines()[1:]]
+        for columna in ("sexo", "servicio"):
+            idx = _COLUMNAS_FUGA.index(columna)
+            r = pureza_categorica([f[idx] for f in filas], [f[-1] for f in filas])
+            self.assertTrue(r["categorias_evaluadas"], columna)
+            self.assertTrue(all(i["pureza"] >= 0.85 for i in r["categorias_evaluadas"].values()), columna)
+            # (la más cercana al umbral es `medicina_interna`, 0,667 < 0,70: con
+            # 164 filas y 4 eventos de ~12 esperados; el azar también llega lejos.)
+            self.assertTrue(all(i["reduccion"] < UMBRAL_REDUCCION_PUREZA
+                                for i in r["categorias_evaluadas"].values()), columna)
 
 
 class IdentificadorProbableTest(unittest.TestCase):

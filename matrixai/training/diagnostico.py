@@ -70,11 +70,38 @@ prueba):
   pequeñas.
 * `N_MINIMO_ASOCIACION = 30` — por debajo, el error estándar de Fisher
   (1/√(n-3)) es demasiado grande para que el número signifique algo estable.
-* `SOPORTE_MINIMO_PUREZA = 20` y `UMBRAL_PUREZA_ALTA = 0.85` — medidos arriba:
-  sin soporte mínimo, falsos positivos en el 98 % de las repeticiones; con él,
-  0 %. `UMBRAL_PUREZA_ALTA_FUERA_DE_MUESTRA = 0.75` es más laxo a propósito:
-  cada mitad interna tiene la mitad de filas, así que exigir el mismo 0,85 en
-  cada una penalizaría dos veces el mismo ruido de muestra.
+* `SOPORTE_MINIMO_PUREZA = 20` — medido arriba: sin soporte mínimo, falsos
+  positivos en el 98 % de las repeticiones; con él, 0 %.
+* `UMBRAL_REDUCCION_PUREZA = 0.70` y `UMBRAL_REDUCCION_PUREZA_FUERA_DE_MUESTRA =
+  0.50` (138, medido el 26-10). ANTES la pureza (proporción de la clase
+  dominante dentro de la categoría) se comparaba con un 0,85 ABSOLUTO (0,75 en
+  cada mitad). Con un objetivo desbalanceado eso acusaba a TODA categoría: con
+  7,5 % de eventos la clase «no evento» ya es el 92,5 % del conjunto, así que
+  `sexo` y `servicio` salían con pureza 0,92 —la tasa base— en casi cualquier
+  CSV clínico. Ahora se mide la REDUCCIÓN DEL ERROR respecto a la tasa base de
+  la clase dominante de ESA categoría: `(pureza − base) / (1 − base)`. Los dos
+  umbrales son lo que los absolutos eran con un objetivo 50/50
+  ((0,85 − 0,5) / 0,5 = 0,70 y (0,75 − 0,5) / 0,5 = 0,50), así que con clases
+  equilibradas nada cambia. Con 7,5 % de eventos, una categoría de la clase
+  mayoritaria necesita pureza 0,9775 (0,925 + 0,70 · 0,075); una categoría casi
+  toda «evento» (clase minoritaria, base ~0,08) necesita 0,72 y SIGUE saliendo.
+  Y una categoría 100 % «no evento» (reducción 1,0) sale si sus filas no son
+  azar: es «los fallecidos no reingresan», una fuga de manual.
+* `ALFA_PUREZA = 0.01`, con Bonferroni (138). El umbral de reducción solo NO
+  basta con eventos raros: 20 filas todas «no evento» son azar corriente
+  (0,925²⁰ = 21 %) y con categorías de ~100 filas bastan ≤ 2 eventos (2 % cada
+  una, y se prueban todas). Medido con 200–300 repeticiones por celda sobre
+  datos SIN relación (n = 300–5.000, k = 2–40 categorías): reducción ≥ 0,70 +
+  soporte 20 + mitades daba 12–20 % de falsos positivos con 7,5 % de eventos
+  (k ≥ 10); exigir además que la cola binomial de la pureza bajo la tasa base
+  sea ≤ 0,01 / (categorías evaluadas) lo deja en 0–0,3 %. El criterio ABSOLUTO
+  de antes daba 100 % con 7,5 % de eventos, 78–100 % con 15 % y 10–16 % con
+  25 %; el 50/50, 0 % antes y ahora. Coste en potencia, medido (k = 10,
+  n = 1.000): una categoría con 95 % de eventos se detecta el 100 %, con 80 %
+  el 97 %, y una 100 % «no evento» de ~100 filas el 51 % (con ~150, siempre:
+  `test_d_…`). Lo que NO detecta, a propósito: una categoría con riesgo 6 veces
+  mayor pero sin ser casi determinista (50 % de eventos con base 7,5 %: reducción
+  0,46): este detector busca proxies casi deterministas, no asociaciones.
 * `UMBRAL_NMI_ALTA = 0.3` — medido: una categoría que determina el objetivo al
   100 % pero solo en 1 de 4 subgrupos (75 % de las filas sin señal) llega a
   NMI ≈ 0,15; una dependencia total (proxy perfecto o identidad) llega a 1,0.
@@ -134,11 +161,11 @@ from matrixai.training.diagnostico_textos import motivo
 from matrixai.training.objetivo import Bloqueo
 
 __all__ = [
-    "Diagnostico", "Limite", "MUESTREO_MAXIMO_FILAS", "N_MINIMO_ASOCIACION",
+    "ALFA_PUREZA", "Diagnostico", "Limite", "MUESTREO_MAXIMO_FILAS", "N_MINIMO_ASOCIACION",
     "RATIO_MINIMO_FILAS_POR_PREDICTOR", "SOPORTE_MINIMO_PUREZA", "Sospecha",
     "UMBRAL_ASOCIACION_ALTA", "UMBRAL_EVENTOS_MINIMOS",
-    "UMBRAL_MARGEN_RELATIVO_WILSON", "UMBRAL_NMI_ALTA", "UMBRAL_PUREZA_ALTA",
-    "UMBRAL_PUREZA_ALTA_FUERA_DE_MUESTRA", "asociacion", "asociacion_muy_alta",
+    "UMBRAL_MARGEN_RELATIVO_WILSON", "UMBRAL_NMI_ALTA", "UMBRAL_REDUCCION_PUREZA",
+    "UMBRAL_REDUCCION_PUREZA_FUERA_DE_MUESTRA", "asociacion", "asociacion_muy_alta",
     "ausencia_de_linaje", "cruce_de_unidades", "diagnosticar_csv",
     "falta_de_eventos", "identificador_probable", "igualdad_de_valores",
     "intervalo_wilson", "nmi_categorica", "objetivo_duplicado", "pearson",
@@ -158,8 +185,22 @@ N_MINIMO_ASOCIACION = 30
 #: está FIJO: no hace falta una función general de cuantiles para un solo punto.
 _Z_ALPHA_001 = 2.5758293035489004
 SOPORTE_MINIMO_PUREZA = 20
-UMBRAL_PUREZA_ALTA = 0.85
-UMBRAL_PUREZA_ALTA_FUERA_DE_MUESTRA = 0.75
+#: La pureza se mide CONTRA LA TASA BASE de la clase dominante de la categoría
+#: (ver `pureza_categorica`): reducción del error = (pureza − base) / (1 − base).
+#: 0,70 es lo que el 0,85 absoluto original era con un objetivo 50/50
+#: ((0,85 − 0,5) / 0,5), así que con clases equilibradas nada cambia; y 0,50 es
+#: lo que el 0,75 de las mitades era ((0,75 − 0,5) / 0,5). Con un objetivo
+#: desbalanceado el 0,85 absoluto acusaba a CUALQUIER categoría (con 7,5 % de
+#: eventos la tasa base ya es 0,925); medido en `tests/test_c103_c2_detectores.py`.
+UMBRAL_REDUCCION_PUREZA = 0.70
+UMBRAL_REDUCCION_PUREZA_FUERA_DE_MUESTRA = 0.50
+#: Una categoría solo se CONFIRMA si, bajo «no sabe nada del objetivo», la
+#: probabilidad de sacar tantas filas de su clase dominante como ha sacado
+#: (cola binomial con la tasa base) es <= ALFA / (categorías evaluadas): el
+#: nivel del módulo (0,01, el mismo de `_Z_ALPHA_001`) con Bonferroni, porque
+#: se prueban todas las categorías de la columna. Medido en
+#: `tests/test_c103_c2_detectores.py` y arriba, en `pureza_categorica`.
+ALFA_PUREZA = 0.01
 UMBRAL_NMI_ALTA = 0.3
 UMBRAL_EVENTOS_MINIMOS = 10
 RATIO_MINIMO_FILAS_POR_PREDICTOR = 10
@@ -447,24 +488,82 @@ def _mayoria(conteo: Counter) -> tuple[Any, int]:
     return max(conteo.items(), key=lambda kv: kv[1])
 
 
-def _purezas_simples(categorias: Sequence[Any], objetivos: Sequence[Any],
-                     soporte_minimo: int) -> dict[Any, float]:
+def _reduccion(pureza: float, base: float) -> float:
+    """Cuánto del error de «predecir siempre esa clase» se evita: `(pureza −
+    base) / (1 − base)`. 0 = la categoría no sabe más que la tasa base; 1 =
+    la categoría la acierta del todo; negativo = sabe menos. Con `base ≥ 1`
+    (objetivo de una sola clase) no hay error que reducir: 0."""
+    if base >= 1.0:
+        return 0.0
+    return (pureza - base) / (1.0 - base)
+
+
+def _prob_por_azar(aciertos: int, n: int, base: float) -> float:
+    """P(X >= aciertos) con X ~ Binomial(n, base): la probabilidad de que una
+    categoría de `n` filas que NO supiera nada del objetivo sacara al menos
+    `aciertos` de la clase con esa tasa base. Cola exacta, en logaritmos (n
+    puede ser de decenas de miles) y parando cuando los términos ya no suman."""
+    if aciertos <= 0:
+        return 1.0
+    if base <= 0.0:
+        return 0.0
+    if base >= 1.0 or aciertos <= n * base:
+        return 1.0
+    lq = math.log1p(-base)
+    lp = math.log(base)
+    lfact_n = math.lgamma(n + 1)
+    total = 0.0
+    for i in range(aciertos, n + 1):
+        termino = math.exp(lfact_n - math.lgamma(i + 1) - math.lgamma(n - i + 1)
+                           + i * lp + (n - i) * lq)
+        total += termino
+        if termino < total * 1e-12:
+            break
+    return min(1.0, total)
+
+
+def _clase_dominante(conteo: Counter) -> tuple[Any, int]:
+    # Empates: la primera vista (orden de inserción), como `max` en `_mayoria`.
+    return _mayoria(conteo)
+
+
+def _reducciones_simples(categorias: Sequence[Any], objetivos: Sequence[Any],
+                         soporte_minimo: int, clases: Mapping[Any, Any],
+                         tasas_base: Mapping[Any, float]) -> dict[Any, float]:
+    """Reducción del error de cada categoría (con soporte) PARA LA CLASE que
+    la categoría tiene como dominante en el conjunto entero (`clases`), medida
+    en esta mitad. Se exige la misma clase en las dos mitades: una categoría
+    que es «evento» en una y «no evento» en la otra no se sostiene."""
     grupos: dict[Any, Counter] = {}
     for c, o in zip(categorias, objetivos):
         grupos.setdefault(c, Counter())[o] += 1
     salida: dict[Any, float] = {}
     for categoria, conteo in grupos.items():
         total = sum(conteo.values())
-        if total < soporte_minimo:
+        if total < soporte_minimo or categoria not in clases:
             continue
-        _, mayoria = _mayoria(conteo)
-        salida[categoria] = mayoria / total
+        clase = clases[categoria]
+        salida[categoria] = _reduccion(conteo.get(clase, 0) / total, tasas_base[clase])
     return salida
 
 
 def pureza_categorica(valores_categoria: Sequence[Any], valores_objetivo: Sequence[Any], *,
                       soporte_minimo: int = SOPORTE_MINIMO_PUREZA) -> dict[str, Any]:
-    """Cuánto predice cada categoría al objetivo, DENTRO Y FUERA de muestra.
+    """Cuánto predice cada categoría al objetivo MÁS ALLÁ DE LA TASA BASE,
+    DENTRO Y FUERA de muestra.
+
+    **Pureza relativa a la tasa base (138, medido el 26-10).** La pureza —la
+    proporción de la clase dominante dentro de la categoría— con un umbral
+    ABSOLUTO (0,85) acusaba a toda categoría cuando el objetivo está
+    desbalanceado: con 7,5 % de eventos la clase «no evento» ya es el 92,5 % del
+    conjunto entero, y `sexo` o `servicio` (sin relación con nada) salían con
+    pureza 0,92 —la tasa base— como «categoría predictiva». Ahora cada
+    categoría informa de su `clase` dominante, la `tasa_base` de ESA clase en
+    todo el conjunto, y la `reduccion` del error que logra:
+    `(pureza − tasa_base) / (1 − tasa_base)`. Con 50/50 equivale al umbral
+    absoluto de antes (0,85 ↔ 0,70); con 7,5 % de eventos hace falta 0,9775 en
+    la clase mayoritaria, y una categoría casi toda «evento» (clase
+    minoritaria) sigue saliendo, que es lo sospechoso de verdad.
 
     **Por qué esto y no solo `max(conteo) / total` (criterio de terminado
     #3).** Medido en el docstring del módulo: sobre un CSV de 300 filas y 40
@@ -475,7 +574,7 @@ def pureza_categorica(valores_categoria: Sequence[Any], valores_objetivo: Sequen
     SIEMPRE, porque cada bucket "acierta" trivialmente prediciéndose a sí
     mismo.
 
-    Dos defensas, las dos necesarias (medidas por separado):
+    Tres defensas, las tres necesarias (medidas por separado):
 
     1. **Soporte mínimo.** Una categoría con menos de `soporte_minimo` filas
        no se evalúa — con eso solo, la tasa de falsos positivos del escenario
@@ -487,16 +586,29 @@ def pureza_categorica(valores_categoria: Sequence[Any], valores_objetivo: Sequen
        comparaciones múltiples), el soporte mínimo solo no basta: medido con
        1.000 categorías y ~22 filas cada una, la tasa de falsos positivos
        in-sample sube a un 32 % según crece la cardinalidad. Exigir que la
-       MISMA categoría tenga pureza alta en dos mitades INTERNAS de los datos
-       (partición por paridad de índice — nunca el test reservado del
-       protocolo, que aquí no existe todavía) la reduce a un 11 % en ese
-       mismo escenario extremo. **Esto es una reducción, no una eliminación**:
-       con cardinalidad suficientemente alta el riesgo de falso positivo por
-       comparaciones múltiples no desaparece del todo, y eso se deja escrito
-       aquí en vez de prometer una garantía que la medida no sostiene.
+       MISMA categoría tenga reducción alta, de la MISMA clase, en dos mitades
+       INTERNAS de los datos (partición por paridad de índice — nunca el test
+       reservado del protocolo, que aquí no existe todavía) la reduce a un 11 %
+       en ese mismo escenario extremo. **Esto es una reducción, no una
+       eliminación**: con cardinalidad suficientemente alta el riesgo de falso
+       positivo por comparaciones múltiples no desaparece del todo, y eso se
+       deja escrito aquí en vez de prometer una garantía que la medida no
+       sostiene.
+    3. **Que no sea azar CONTRA LA TASA BASE** (`_prob_por_azar`). El soporte
+       20 se midió con un objetivo 50/50. Con 7,5 % de eventos, 20 filas todas
+       «no evento» son el 21 % de las veces azar corriente (0,925²⁰), y con
+       categorías de ~100 filas basta con ≤ 2 eventos (2 % cada una, y se
+       prueban todas). Medido con 200–300 repeticiones por celda sobre datos
+       SIN relación (k categorías al azar, 7,5 % de eventos): con solo el
+       umbral de reducción y el soporte 20, 12–20 % de falsos positivos en
+       n = 1.000–5.000 con k = 10–40; el 50/50 daba 0 %. Por eso la categoría
+       se confirma solo si la cola binomial de su pureza bajo la tasa base es
+       ≤ `ALFA_PUREZA` / (nº de categorías evaluadas).
     """
     n = len(valores_categoria)
+    tasas_base = {o: v / n for o, v in Counter(valores_objetivo).items()} if n else {}
     evaluadas: dict[Any, dict[str, Any]] = {}
+    clases: dict[Any, Any] = {}
     grupos: dict[Any, Counter] = {}
     for c, o in zip(valores_categoria, valores_objetivo):
         grupos.setdefault(c, Counter())[o] += 1
@@ -504,8 +616,16 @@ def pureza_categorica(valores_categoria: Sequence[Any], valores_objetivo: Sequen
         total = sum(conteo.values())
         if total < soporte_minimo:
             continue
-        _, mayoria = _mayoria(conteo)
-        evaluadas[categoria] = {"pureza": round(mayoria / total, 6), "n": total}
+        clase, mayoria = _clase_dominante(conteo)
+        base = tasas_base[clase]
+        pureza = mayoria / total
+        clases[categoria] = clase
+        evaluadas[categoria] = {
+            "pureza": round(pureza, 6), "n": total, "clase": clase,
+            "tasa_base": round(base, 6),
+            "reduccion": round(_reduccion(pureza, base), 6),
+            "prob_por_azar": _prob_por_azar(mayoria, total, base),
+        }
 
     mitad_a_cat: list[Any] = []
     mitad_a_obj: list[Any] = []
@@ -519,18 +639,21 @@ def pureza_categorica(valores_categoria: Sequence[Any], valores_objetivo: Sequen
             mitad_b_cat.append(c)
             mitad_b_obj.append(o)
     soporte_mitad = max(1, soporte_minimo // 2)
-    purezas_a = _purezas_simples(mitad_a_cat, mitad_a_obj, soporte_mitad)
-    purezas_b = _purezas_simples(mitad_b_cat, mitad_b_obj, soporte_mitad)
+    red_a = _reducciones_simples(mitad_a_cat, mitad_a_obj, soporte_mitad, clases, tasas_base)
+    red_b = _reducciones_simples(mitad_b_cat, mitad_b_obj, soporte_mitad, clases, tasas_base)
+    alfa_categoria = ALFA_PUREZA / max(1, len(evaluadas))
     confirmadas = tuple(sorted(
-        (str(c) for c in evaluadas
-         if c in purezas_a and c in purezas_b
-         and purezas_a[c] >= UMBRAL_PUREZA_ALTA_FUERA_DE_MUESTRA
-         and purezas_b[c] >= UMBRAL_PUREZA_ALTA_FUERA_DE_MUESTRA),
+        (str(c) for c, info in evaluadas.items()
+         if info["prob_por_azar"] <= alfa_categoria
+         and c in red_a and c in red_b
+         and red_a[c] >= UMBRAL_REDUCCION_PUREZA_FUERA_DE_MUESTRA
+         and red_b[c] >= UMBRAL_REDUCCION_PUREZA_FUERA_DE_MUESTRA),
         key=str))
 
     return {
         "n": n, "soporte_minimo": soporte_minimo,
         "categorias_evaluadas": evaluadas,
+        "alfa_por_categoria": alfa_categoria,
         "confirmadas_fuera_de_muestra": confirmadas,
     }
 
@@ -777,21 +900,38 @@ def proxy_por_nmi(valores_categoria: Sequence[Any], valores_objetivo: Sequence[A
 
 def proxy_por_pureza(valores_categoria: Sequence[Any], valores_objetivo: Sequence[Any], *,
                      columna: str, soporte_minimo: int = SOPORTE_MINIMO_PUREZA) -> Sospecha | None:
-    """`Sospecha` cuando alguna categoría tiene pureza alta Y CONFIRMADA fuera
-    de muestra (criterio de terminado #3: nunca solo por la pureza in-sample).
+    """`Sospecha` cuando alguna categoría reduce el error de la tasa base de su
+    clase en `UMBRAL_REDUCCION_PUREZA` o más Y lo CONFIRMA fuera de muestra
+    (criterio de terminado #3: nunca solo por la pureza in-sample). Una
+    categoría que solo refleja la tasa base —el 92,5 % de «no evento» con 7,5 %
+    de eventos— tiene reducción 0 y no sale.
     """
     medida = pureza_categorica(valores_categoria, valores_objetivo, soporte_minimo=soporte_minimo)
     candidatas = [c for c, info in medida["categorias_evaluadas"].items()
-                 if info["pureza"] >= UMBRAL_PUREZA_ALTA and str(c) in medida["confirmadas_fuera_de_muestra"]]
+                 if info["reduccion"] >= UMBRAL_REDUCCION_PUREZA
+                 and str(c) in medida["confirmadas_fuera_de_muestra"]]
     if not candidatas:
         return None
-    categoria = sorted(candidatas, key=str)[0]
+    # La que más reduce el error; a igualdad, la primera por nombre (determinista).
+    categoria = sorted(candidatas, key=lambda c: (-medida["categorias_evaluadas"][c]["reduccion"], str(c)))[0]
     detalle = medida["categorias_evaluadas"][categoria]
     return Sospecha(
         clave="categoria_predictiva_por_pureza", campo=columna,
         motivo=motivo("categoria_predictiva_por_pureza", campo=repr(columna),
-                      valor=repr(categoria), opciones=detalle["pureza"], n=detalle["n"]),
+                      valor=repr(categoria), clase=repr(detalle["clase"]),
+                      pureza_es=_pct(detalle["pureza"], "es"), pureza_en=_pct(detalle["pureza"], "en"),
+                      base_es=_pct(detalle["tasa_base"], "es"), base_en=_pct(detalle["tasa_base"], "en"),
+                      n=detalle["n"]),
         medida={**medida, "categoria": categoria})
+
+
+def _pct(proporcion: float, idioma: str) -> str:
+    """Un porcentaje legible, con la coma o el punto de cada idioma («92,5 %» /
+    «92.5%»), no la proporción cruda («0.925»): el motivo es para una persona."""
+    texto = f"{proporcion * 100:.1f}"
+    if texto.endswith(".0"):
+        texto = texto[:-2]
+    return texto.replace(".", ",") + " %" if idioma == "es" else texto + "%"
 
 
 def identificador_probable(columna: str, *, tipo_columna: str | None = None,

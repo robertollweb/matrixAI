@@ -115,18 +115,22 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "category represents before confirming it",
     },
     "categoria_predictiva_por_pureza": {
-        "es": "en la entrada {campo}, la categoría {valor} predice el objetivo con "
-              "pureza {opciones} sobre {n} filas, y esa pureza SE SOSTIENE en las "
-              "dos mitades internas de los datos (no es ruido de una muestra "
-              "pequeña): puede ser un predictor legítimo o un proxy de algo que no "
-              "debería usarse. Documenta qué representa esa categoría antes de "
-              "confirmarla",
-        "en": "in input {campo}, category {valor} predicts the target with purity "
-              "{opciones} over {n} rows, and that purity HOLDS UP across the two "
-              "internal halves of the data (it is not noise from a small sample): "
-              "it may be a legitimate predictor or a proxy for something that "
-              "should not be used. Document what this category represents before "
-              "confirming it",
+        "es": "en la entrada {campo}, el {pureza_es} de las filas con {valor} "
+              "tienen el objetivo {clase}, mientras que en todo el conjunto lo "
+              "tienen el {base_es} ({n} filas con {valor}): esa categoría "
+              "acierta mucho más de lo que acertaría repartir al azar según el "
+              "peso de cada clase, y lo hace igual en las dos mitades internas "
+              "de los datos (no es ruido de una muestra pequeña). Puede ser un "
+              "predictor legítimo o un proxy de algo que no debería usarse. "
+              "Documenta qué representa esa categoría antes de confirmarla",
+        "en": "in input {campo}, {pureza_en} of the rows with {valor} have the "
+              "target {clase}, whereas across the whole data set {base_en} "
+              "do ({n} rows with {valor}): that category gets it right far more "
+              "often than guessing by the share of each class would, and it "
+              "does so equally in the two internal halves of the data (it is "
+              "not noise from a small sample). It may be a legitimate predictor "
+              "or a proxy for something that should not be used. Document what "
+              "this category represents before confirming it",
     },
     "identificador_probable": {
         "es": "{campo} tiene forma de identificador ({valor}) y se declara como "
