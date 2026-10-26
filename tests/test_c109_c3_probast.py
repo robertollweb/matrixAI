@@ -117,7 +117,13 @@ class NoSeInventanLosEnunciadosTest(unittest.TestCase):
                          {"development": 16, "evaluation": 18})
         self.assertFalse(
             mapa["instrumento"]["cuentas_comprobadas_contra_el_instrumento_oficial"])
-        self.assertIn("no está comprobado aquí", ficha)
+        # Sin «El contrato 109 declara»: es una nota del proyecto (138, reparación 2). Se sigue
+        # diciendo la cifra y que NO está comprobada, y el mapa ya no lleva la palabra «contrato».
+        self.assertIn("Este informe espera 16 preguntas señal para desarrollo y 18 para evaluación; "
+                      "esa cifra **no está comprobada aquí**", ficha)
+        self.assertEqual(mapa["instrumento"]["cuentas_esperadas"], {"development": 16, "evaluation": 18})
+        self.assertNotIn("cuentas_segun_el_contrato", mapa["instrumento"])
+        self.assertNotIn("contrato", ficha)
 
     def test_con_instrumento_se_responde_a_LO_QUE_TRAE_el_fichero(self):
         with TemporaryDirectory() as d:
@@ -190,10 +196,13 @@ class LoQueFaltaSeEnumeraTest(unittest.TestCase):
         self.assertIn("`team_declaration.json#uso_previsto`", ficha)
 
     def test_la_comparacion_con_el_proceso_actual_ausente_se_dice(self):
-        """Invariante 4: sin proceso actual declarado, se dice."""
+        """Invariante 4: sin proceso actual declarado, se dice. (Lo dice sin citar el
+        invariante: es del proyecto, no del paquete — 138, reparación 2.)"""
         with TemporaryDirectory() as d:
             ficha = huecos_probast(paquete_clinico(Path(d)), locale="es")
-        self.assertIn("sin proceso actual declarado", ficha)
+        self.assertIn("**Comparación con el proceso actual**: _falta_ — no se ha declarado el proceso "
+                      "actual con el que comparar: se dice en vez de suponerlo", ficha)
+        self.assertNotIn("invariante", ficha)
         self.assertIn("`team_declaration.json#proceso_actual`", ficha)
 
     def test_lo_que_el_paquete_no_trae_lleva_el_campo_que_lo_arreglaria(self):

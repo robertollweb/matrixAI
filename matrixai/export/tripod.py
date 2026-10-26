@@ -78,18 +78,18 @@ _NO_DISPONIBLE: tuple[tuple[str | None, dict[str, tuple[str, str]]], ...] = (
                "with them cannot be stated")}),
     ("calibracion", {
         "es": ("Calibración",
-               "este paquete no trae la curva de calibración que el core sabe "
-               "medir (105-C3)"),
+               "este paquete no trae la curva de calibración, que el core sí "
+               "sabe medir"),
         "en": ("Calibration",
                "this package ships no calibration curve, which the core does know "
-               "how to measure (105-C3)")}),
+               "how to measure")}),
     ("subgrupos", {
         "es": ("Equidad por subgrupos",
                "este paquete no trae ningún subgrupo medido; hace falta que el "
-               "equipo los predefina (105-C4)"),
+               "equipo los predefina"),
         "en": ("Subgroup fairness",
                "this package ships no measured subgroup; it needs a team to "
-               "predefine them (105-C4)")}),
+               "predefine them")}),
     (None, {"es": ("Financiación", "es del autor del estudio, no del run"),
             "en": ("Funding", "belongs to a study's author, not to a run")}),
     (None, {"es": ("Conflictos de interés", "ídem"),
@@ -135,7 +135,7 @@ _T = {
         "disponibilidad": "Disponibilidad del modelo",
         "reproducibilidad": "Reproducibilidad",
         "no_disponible": "Lo que esta ficha NO puede rellenar",
-        "perfil": "Perfil clínico de la tarea (109-C2)",
+        "perfil": "Perfil clínico de la tarea",
         "perfil_intro": "Lo que este paquete sostiene de lo que un revisor "
                         "pregunta, y el campo del que sale cada línea. Se rellena "
                         "lo medido, se marca lo declarado y se enumera lo que "
@@ -178,7 +178,7 @@ _T = {
         "disponibilidad": "Model availability",
         "reproducibilidad": "Reproducibility",
         "no_disponible": "What this record CANNOT fill in",
-        "perfil": "Clinical task profile (109-C2)",
+        "perfil": "Clinical task profile",
         "perfil_intro": "What this package supports of what a reviewer asks, and "
                         "where every line comes from. Measured items are filled "
                         "in, declared items are marked, missing items are listed; "
@@ -462,6 +462,10 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
         if clave is not None and por_clave[clave].hay_dato:
             continue
         rotulo, motivo = textos[idioma]
+        if clave == "politica_de_faltantes":
+            # Lo que registra la preparación del paquete, si lo trae: no es una política
+            # declarada, pero tampoco es «no se puede afirmar qué se hizo con ellos».
+            motivo = expediente.ausentes_segun_la_preparacion(idioma) or motivo
         cola = f" · `{POR_CLAVE[clave].ruta}`" if clave is not None else ""
         filas.append(f"- **{rotulo}**: {motivo}{cola}")
     filas.append("")

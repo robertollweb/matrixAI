@@ -821,11 +821,21 @@ def confirmar_desde_csv(
                     motivo=motivo("objetivo_no_predecible", campo=repr(objetivo),
                                   valor=repr(str(exc)))))
         if etiquetas is not None and len(etiquetas) < 2:
+            # Esta comprobación mira el CSV ENTERO (la del reparto, la de
+            # `no_entrenable_en_train`, mira solo las filas que entrenan). Se
+            # cuentan las FILAS que traen objetivo, con el mismo criterio de
+            # ausencia: antes iba `len(valores_crudos)`, que son los valores
+            # DISTINTOS, y un CSV de 100 filas de una sola clase decía «en las
+            # 1 filas de entrenamiento» (medido el 26-10). Y no son «de
+            # entrenamiento»: son todas las del fichero; su plantilla lo dice.
+            from matrixai.training.dataset_analysis import _is_null  # noqa: PLC0415
+            con_objetivo = sum(1 for fila in filas
+                               if not _is_null(fila.get(objetivo), tokens_de_ausencia))
             bloqueos.append(Bloqueo(
                 clave="objetivo_con_una_sola_clase", campo=objetivo,
-                motivo=motivo("objetivo_con_una_sola_clase", campo=repr(objetivo),
+                motivo=motivo("objetivo_con_una_sola_clase_en_el_csv", campo=repr(objetivo),
                               valor=repr(etiquetas[0] if etiquetas else ""),
-                              opciones=len(valores_crudos))))
+                              opciones=con_objetivo)))
             etiquetas = None
         propuesta["clases"] = list(etiquetas) if etiquetas else []
 

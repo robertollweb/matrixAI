@@ -54,7 +54,8 @@ class LaSeccionClinicaSoloSiElPaqueteLaTraeTest(unittest.TestCase):
     def test_con_perfil_sale_entera(self):
         with TemporaryDirectory() as d:
             ficha = ficha_tripod(paquete_clinico(Path(d)), locale="es")
-        self.assertIn("Perfil clínico de la tarea (109-C2)", ficha)
+        # Sin «(109-C2)»: un nombre de corte no va en un documento del usuario (138, reparación 2).
+        self.assertIn("## Perfil clínico de la tarea\n", ficha)
         for seccion in ("Participantes", "Predictores", "Desenlace", "Análisis",
                         "Aplicabilidad"):
             with self.subTest(seccion=seccion):
@@ -104,13 +105,19 @@ class ElAvisoQueCaducoTest(unittest.TestCase):
     def test_el_motivo_NO_dice_que_el_core_no_sepa_medirlo(self):
         """El core lo mide desde 105-C3/C4; lo que pasa es que ESTE paquete no
         lo trae. Decir «no se calcula» sería heredar una nota vieja, y una nota
-        vieja miente igual que un dato falso."""
+        vieja miente igual que un dato falso.
+
+        REESCRITA en la reparación 2 de 138: exigía que la cola citara «105-C3» y
+        «105-C4», nombres de cortes del proyecto dentro de un documento del
+        usuario. La intención se conserva: dice que el core SÍ sabe medirlo y que
+        lo que falta es que el paquete lo traiga (o que un equipo predefina)."""
         with TemporaryDirectory() as d:
             ficha = ficha_tripod(paquete_clinico(Path(d), con_perfil=False),
                                  locale="es")
             cola = ficha[ficha.index("## Lo que esta ficha NO puede rellenar"):]
-        self.assertIn("105-C3", cola)
-        self.assertIn("105-C4", cola)
+        self.assertIn("este paquete no trae la curva de calibración, que el core sí sabe medir", cola)
+        self.assertIn("hace falta que el equipo los predefina", cola)
+        self.assertNotIn("105-C", cola)
         self.assertNotIn("no se calcula", cola)
 
     def test_la_ficha_de_85_C6_sigue_entera_sin_perfil(self):
@@ -285,7 +292,7 @@ class PorElCliTest(unittest.TestCase):
                 codigo = main()
         texto = salida.getvalue()
         self.assertEqual(codigo, 0)
-        self.assertIn("Perfil clínico de la tarea (109-C2)", texto)
+        self.assertIn("## Perfil clínico de la tarea\n", texto)
         self.assertIn("`team_declaration.json#uso_previsto`", texto)
 
 

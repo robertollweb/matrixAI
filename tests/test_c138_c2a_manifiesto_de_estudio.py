@@ -273,7 +273,20 @@ def test_la_ficha_dice_el_modo_del_estudio_y_quien_no_compitio_por_el(tmp_path):
     assert "**Engines that did not compete because of the mode" in en
     assert "rápido" not in en
     huecos = huecos_probast(paquete, locale="es")
-    assert "**Modo del estudio**: rápido · MEDIDO por el core" in huecos
+    # El modo lo ELIGE quien lanza el estudio y el estudio lo registra; los motores fuera son lo que ese modo deja
+    # fuera («no se midieron»): ninguno de los dos es MEDIDO (re-auditoría de 138, 26-10).
+    assert "**Modo del estudio**: rápido · DECLARADO por una persona" in huecos
+    assert ("**Motores que no compitieron por el modo (no se midieron; no es que puntuaran mal)**: "
+            "matrixai.dense.tabm_cpu, matrixai.dense.torch_cpu · DECLARADO por una persona") in huecos
+    assert "rápido · MEDIDO" not in huecos and "torch_cpu · MEDIDO" not in huecos
+    huecos_en = huecos_probast(paquete, locale="en")
+    assert "**Study mode**: quick · DECLARED by a person" in huecos_en
+    assert "torch_cpu · DECLARED by a person" in huecos_en
+    por_clave = {c["clave"]: c for dom in mapa_probast(paquete, locale="es")["por_dominio"].values() for c in dom}
+    assert por_clave["modo_del_estudio"]["estado"] == "declarado"
+    assert por_clave["motores_fuera_por_el_modo"]["estado"] == "declarado"
+    # Y lo que sí mide el core sigue MEDIDO: no se cambió de más.
+    assert por_clave["filas_que_entrenaron_el_modelo"]["estado"] == "medido"
     # El COMPLETO no deja a nadie fuera: no se escribe una línea de «falta» que sería un hueco inventado.
     otro = tmp_path / "completo"
     otro.mkdir()

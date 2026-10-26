@@ -135,13 +135,13 @@ _T: dict[str, dict[str, str]] = {
                           "DOMINIO. Si el equipo deja el instrumento oficial en "
                           "`probast_instrument.json`, se responde pregunta a "
                           "pregunta.",
-        "cuentas": "El contrato 109 declara 16 preguntas señal para desarrollo y 18 "
-                   "para evaluación; **no está comprobado aquí** contra el "
-                   "instrumento oficial.",
+        "cuentas": "Este informe espera 16 preguntas señal para desarrollo y 18 "
+                   "para evaluación; esa cifra **no está comprobada aquí** contra "
+                   "el instrumento oficial.",
         "cuentas_ok": "El instrumento trae {n} preguntas para «{modo}», que es lo "
-                      "que declara el contrato 109.",
-        "cuentas_no": "**El instrumento trae {n} preguntas para «{modo}» y el "
-                      "contrato 109 declara {esperadas}.** Manda el instrumento; se "
+                      "que espera este informe.",
+        "cuentas_no": "**El instrumento trae {n} preguntas para «{modo}» y este "
+                      "informe espera {esperadas}.** Manda el instrumento; se "
                       "escribe la diferencia en vez de callarla.",
         "dominio": "Dominio", "estado": "Estado", "dato": "Dato", "campo": "Campo",
         "por_dominio": "Lo que este paquete sostiene, por dominio",
@@ -176,14 +176,14 @@ _T: dict[str, dict[str, str]] = {
                           "DOMAIN. If the team drops the official instrument into "
                           "`probast_instrument.json`, each question is answered one "
                           "by one.",
-        "cuentas": "Contract 109 states 16 signalling questions for development and "
-                   "18 for evaluation; **that is not verified here** against the "
-                   "official instrument.",
+        "cuentas": "This report expects 16 signalling questions for development and "
+                   "18 for evaluation; that figure **is not verified here** against "
+                   "the official instrument.",
         "cuentas_ok": "The instrument ships {n} questions for «{modo}», which is what "
-                      "contract 109 states.",
-        "cuentas_no": "**The instrument ships {n} questions for «{modo}» and contract "
-                      "109 states {esperadas}.** The instrument wins; the difference "
-                      "is written rather than swallowed.",
+                      "this report expects.",
+        "cuentas_no": "**The instrument ships {n} questions for «{modo}» and this "
+                      "report expects {esperadas}.** The instrument wins; the "
+                      "difference is written rather than swallowed.",
         "dominio": "Domain", "estado": "State", "dato": "Value", "campo": "Field",
         "por_dominio": "What this package supports, by domain",
         "preguntas": "The instrument's questions",
@@ -301,7 +301,9 @@ def mapa_probast(bundle_dir: str | Path, *, locale: str = "en") -> dict[str, Any
             "presente": a["instrumento"] is not None,
             "motivo": a["motivo"], "modo": a["modo"],
             "desajuste_de_cuenta": a["desajuste"],
-            "cuentas_segun_el_contrato": dict(CUENTAS_SEGUN_EL_CONTRATO),
+            # Antes `cuentas_segun_el_contrato`: el nombre de una nota del proyecto en un JSON
+            # que recibe un usuario. Solo lo leía el propio núcleo (grep en los tres repos, 26-10).
+            "cuentas_esperadas": dict(CUENTAS_SEGUN_EL_CONTRATO),
             "cuentas_comprobadas_contra_el_instrumento_oficial": False,
         },
         "por_dominio": {

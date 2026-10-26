@@ -43,9 +43,11 @@ def test_identificador_por_nombre_en_ingles_no_lleva_castellano():
     assert "(name)" in s.motivo["en"], s.motivo["en"]
     assert "(nombre)" in s.motivo["es"], s.motivo["es"]
     assert not _CASTELLANO.search(s.motivo["en"].replace("'cliente_id'", "")), s.motivo["en"]
-    # la medida conserva su CLAVE de siempre: quien la lea no cambia
-    assert s.medida["evidencia"] == "nombre"
-    assert identificador_probable("x", tipo_columna="identifier").medida["evidencia"] == "tipo de columna"
+    # la medida lleva una CLAVE estable (antes «nombre»/«tipo de columna», prosa castellana que la «Medida del núcleo»
+    # enseñaba tal cual en la página inglesa; nadie la leía por su valor)
+    assert s.medida["evidencia"] == "name"
+    # La medida lleva una CLAVE estable, no la prosa castellana (se enseña tal cual en la página inglesa).
+    assert identificador_probable("x", tipo_columna="identifier").medida["evidencia"] == "column_type"
 
 
 def test_proxy_por_nmi_en_ingles_dice_el_metodo_en_ingles():
@@ -68,8 +70,9 @@ def test_motivo_toma_de_cada_campo_bilingue_el_de_su_idioma_y_deja_los_demas_tal
 
 def _cadenas_con_letras(nodo: ast.AST, nombres: dict[str, list[ast.AST]], hondo: int = 0) -> list[str]:
     """Las cadenas literales con letras que pueden LLEGAR como valor de una expresión: solas, en una condicional, a través de
-    una variable (local o del módulo) o de lo que se indexa. No cuentan las que están dentro de un `{"es": …, "en": …}`, las
-    de un índice (`medida["n"]`) ni los argumentos de una llamada (`_pct(x, "es")`): esas no son el valor que se interpola."""
+    una variable (local o del módulo), de lo que se indexa o de una LLAMADA (sus argumentos y la propia función). No cuentan
+    las que están dentro de un `{"es": …, "en": …}`, las de un índice (`medida["n"]`), un código de idioma pasado a un
+    formateador (`_pct(x, "es")`) ni el especificador de formato de un f-string: esas no son el valor que se interpola."""
     if hondo > 5:
         return []
     if isinstance(nodo, ast.Dict) and {getattr(k, "value", None) for k in nodo.keys} == {"es", "en"}:
@@ -87,8 +90,21 @@ def _cadenas_con_letras(nodo: ast.AST, nombres: dict[str, list[ast.AST]], hondo:
                     return [c for x in v.values for c in _cadenas_con_letras(x, nombres, hondo + 1)]
         return []
     if isinstance(nodo, ast.Call):
-        return []
+        # ANTES `return []`: una llamada no se miraba, y `opciones=" ".join(["la clase", …])` pasaba verde
+        # (re-auditoría de 138, 26-10). Ahora se mira TODO lo que la llamada recibe —función incluida, por si es
+        # `"la clase {}".format(x)`—, salvo el código de idioma que se le pasa a un formateador (`_pct(x, "es")`):
+        # eso elige el idioma, no es texto que llegue al motivo.
+        partes: list[ast.AST] = [nodo.func, *nodo.args, *(k.value for k in nodo.keywords)]
+        return [c for hijo in partes if not _es_codigo_de_idioma(hijo)
+                for c in _cadenas_con_letras(hijo, nombres, hondo + 1)]
+    if isinstance(nodo, ast.FormattedValue):
+        # En un f-string, el especificador de formato (`:.2f`) no es texto: lo que se interpola es el valor.
+        return _cadenas_con_letras(nodo.value, nombres, hondo + 1)
     return [c for hijo in ast.iter_child_nodes(nodo) for c in _cadenas_con_letras(hijo, nombres, hondo + 1)]
+
+
+def _es_codigo_de_idioma(nodo: ast.AST) -> bool:
+    return isinstance(nodo, ast.Constant) and nodo.value in ("es", "en")
 
 
 def _asignaciones(nodo: ast.AST, *, solo_arriba: bool = False) -> dict[str, list[ast.AST]]:
@@ -137,3 +153,25 @@ def test_las_plantillas_inglesas_no_llevan_castellano(clave):
     # «after_outcome» es el valor declarado, no una palabra; lo demás tiene que estar en inglés
     hallado = re.compile(r"\b(el|la|los|las|del|de|con|que|desde|para|por|una|un|y|o)\b").findall(sin_huecos)
     assert not hallado, (clave, hallado)
+
+
+def test_la_medida_del_nucleo_lleva_claves_y_no_prosa():
+    """La «Medida del núcleo» se enseña tal cual (JSON) en la página castellana Y en la inglesa: un valor de texto suyo
+    tiene que ser una CLAVE (`[a-z0-9_]+`), no una frase. Barrido de todos los literales que son VALOR de un diccionario
+    en `diagnostico.py`, salvo los `{"es": …, "en": …}` (esos son para un motivo, en su idioma)."""
+    arbol = ast.parse(_FUENTE.read_text(encoding="utf-8"))
+    prosa = []
+    for n in ast.walk(arbol):
+        if not isinstance(n, ast.Dict) or {getattr(k, "value", None) for k in n.keys} == {"es", "en"}:
+            continue
+        for k, v in zip(n.keys, n.values):
+            if isinstance(v, ast.Dict):
+                continue  # se mira por su cuenta en el mismo recorrido
+            for c in ast.walk(v):
+                if (isinstance(c, ast.Constant) and isinstance(c.value, str) and re.search(r"[^\W\d_]", c.value)
+                        and not re.fullmatch(r"[a-z0-9_]+", c.value)):
+                    prosa.append((n.lineno, getattr(k, "value", None), c.value))
+    assert not prosa, prosa
+    from matrixai.training.diagnostico import nmi_categorica  # noqa: PLC0415
+    assert nmi_categorica(["a", "b"] * 30, ["x", "y"] * 30)["metodo"] == "nmi_arithmetic_log2"
+    assert identificador_probable("x", tipo_columna="identifier").medida["evidencia"] == "column_type"

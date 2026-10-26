@@ -462,7 +462,10 @@ def nmi_categorica(valores_a: Sequence[Any], valores_b: Sequence[Any], *,
     valor = (mi / denominador) if denominador > 0 else 0.0
     return {
         "valor": round(valor, 6),
-        "metodo": "arithmetic: 2*I(X;Y)/(H(X)+H(Y)), en bits (log2)",
+        # Una CLAVE estable y no prosa: la «Medida del núcleo» se enseña tal cual en las dos
+        # páginas, y «…, en bits (log2)» salía en castellano en la inglesa (re-auditoría de 138,
+        # 26-10). Es la NMI aritmética, 2·I(X;Y)/(H(X)+H(Y)), con logaritmos en base 2.
+        "metodo": "nmi_arithmetic_log2",
         "n": n,
         "soporte_minimo": soporte_minimo,
         "categorias_colapsadas": colapso_a or colapso_b,
@@ -887,8 +890,8 @@ def asociacion_muy_alta(valores_x: Sequence[Any], valores_y: Sequence[Any], *,
 #: Lo que se interpola en un motivo con palabras va en los dos idiomas (`motivo()` toma el de cada redacción).
 _METODO_NMI = {"es": "NMI aritmética", "en": "arithmetic NMI"}
 _EVIDENCIA_DE_IDENTIFICADOR = {
-    "tipo de columna": {"es": "tipo de columna", "en": "column type"},
-    "nombre": {"es": "nombre", "en": "name"},
+    "column_type": {"es": "tipo de columna", "en": "column type"},
+    "name": {"es": "nombre", "en": "name"},
 }
 
 
@@ -957,8 +960,10 @@ def identificador_probable(columna: str, *, tipo_columna: str | None = None,
     por_nombre = parece_identificador(columna)
     if not (por_tipo or por_nombre):
         return None
-    # `medida.evidencia` es una CLAVE estable (la de siempre); lo que lee una persona va en su idioma.
-    evidencia = "tipo de columna" if por_tipo else "nombre"
+    # `medida.evidencia` es una CLAVE estable —en inglés, como el resto de tokens que viajan en JSON—, no prosa: la
+    # «Medida del núcleo» se enseña tal cual, y «tipo de columna» salía en la página inglesa (re-auditoría de 138,
+    # 26-10; nadie la leía por su valor: grep en los tres repos). Lo que lee una persona va en su idioma, en el motivo.
+    evidencia = "column_type" if por_tipo else "name"
     return Sospecha(
         clave="identificador_probable", campo=columna,
         motivo=motivo("identificador_probable", campo=repr(columna), valor=_EVIDENCIA_DE_IDENTIFICADOR[evidencia]),

@@ -29,7 +29,8 @@ lo escribe el equipo (`DECLARADO`). La única excepción es cerrada, corta y est
 escrita: `_DECLARADOS_EN_EL_PERFIL`, los campos que el perfil **registra** pero
 que declaró una persona (los umbrales y quién los declaró, la prevalencia de la
 población destino, quién predefinió los subgrupos, la política de ausentes y si
-los datos son sintéticos).
+los datos son sintéticos), y `_DECLARADOS_EN_EL_MANIFIESTO`, el modo de un
+estudio, que elige quien lo lanza, y los motores que ese modo deja fuera.
 
 NO FABRICAR (invariante 5). Población, uso previsto, criterios de inclusión,
 definición y momento del desenlace, umbrales y proceso actual los declara el
@@ -108,6 +109,16 @@ _DECLARADOS_EN_EL_PERFIL = (
     "politica_de_faltantes",
 )
 
+#: Y la misma excepción en el manifiesto de un ESTUDIO: el MODO lo elige quien lanza el
+#: estudio (rápido o completo) y el estudio solo lo REGISTRA; los motores que quedan fuera
+#: son lo que ese modo elegido deja fuera, no algo medido (no se midieron). Rotularlos
+#: «MEDIDO por el core» —con «no se midieron» en la misma línea— se contradecía
+#: (re-auditoría de 138, 26-10). Coincidencia exacta.
+_DECLARADOS_EN_EL_MANIFIESTO = (
+    "study.mode",
+    "study.engines_left_out_by_mode",
+)
+
 #: EL VOCABULARIO DE VEREDICTO DEL INSTRUMENTO, en los dos idiomas.
 #:
 #: Esto NO es un barrido de palabras escogidas a ojo: son las etiquetas con las
@@ -182,10 +193,9 @@ def sin_veredicto_de_riesgo(texto: str, *, origen: str) -> str:
     for veredicto in VEREDICTOS_DE_RIESGO:
         if veredicto in plano:
             raise VeredictoDeRiesgo(
-                f"{origen}: el texto contiene «{veredicto}». El invariante 6 del "
-                f"contrato 109 dice que el core rellena lo medido, marca lo "
-                f"declarado y enumera lo que falta, y NUNCA califica el riesgo de "
-                f"sesgo: eso lo emite quien revisa el estudio.")
+                f"{origen}: el texto contiene «{veredicto}». Este informe rellena lo "
+                f"medido, marca lo declarado y enumera lo que falta, y NUNCA califica "
+                f"el riesgo de sesgo: eso lo emite quien revisa el estudio.")
     return texto
 
 
@@ -382,6 +392,8 @@ class ExpedienteClinico:
             for declarado in _DECLARADOS_EN_EL_PERFIL:
                 if camino == declarado or camino.startswith(declarado + "."):
                     return DECLARADO
+        if fichero == "reproduce.json" and camino in _DECLARADOS_EN_EL_MANIFIESTO:
+            return DECLARADO
         return FUENTES[fichero]
 
     def resolver(self, locale: str
@@ -405,6 +417,14 @@ class ExpedienteClinico:
                     campo = Campo(evidencia.ruta, FALTA, motivo=motivo)
             elif evidencia.clave == "comparacion_con_el_baseline":
                 campo = self.comparacion_con_el_baseline(motivo, idioma)
+            elif evidencia.clave == "politica_de_faltantes":
+                campo = self.campo(evidencia.ruta, motivo_si_falta=motivo, locale=idioma)
+                # Sin política del equipo, sigue FALTANDO (nadie la declaró); pero si el
+                # paquete registra lo que hizo su preparación, se dice eso y no «no consta».
+                if not campo.hay_dato and self.ilegible("clinical_profile.json") is None:
+                    preparacion = self.ausentes_segun_la_preparacion(idioma)
+                    if preparacion:
+                        campo = Campo(evidencia.ruta, FALTA, motivo=preparacion)
             else:
                 campo = self.campo(evidencia.ruta, motivo_si_falta=motivo,
                                    locale=idioma)
@@ -412,6 +432,70 @@ class ExpedienteClinico:
         return tuple(pares), tuple(avisos)
 
     # -- lo derivado ---------------------------------------------------------
+
+    def ausentes_segun_la_preparacion(self, idioma: str) -> str | None:
+        """Lo que la PREPARACIÓN del paquete registra de los valores ausentes, o `None`.
+
+        Un paquete de estudio no trae `clinical_profile.json#politica_de_faltantes` (la
+        política que declara un equipo), pero sí `politica_preparacion.json`: por columna,
+        qué parte faltaba en las filas con que se ajustó y qué se hace con un ausente. La
+        ficha decía «este paquete no declara ninguna política de valores ausentes, así que
+        no se puede afirmar qué se hizo con ellos» con ese fichero al lado (re-auditoría de
+        138, 26-10: `presión`, 8 % ausente, tratada de forma nativa). Se dice lo que el
+        fichero registra, leído tal cual, y nada más: sin él, `None` y el motivo de siempre.
+        La regla de qué se hace con un ausente es la de `preparacion.transformar_fila`.
+        """
+        es = idioma == "es"
+        ruta = self.bundle / "politica_preparacion.json"
+        if not ruta.is_file():
+            return None
+        try:
+            datos = json.loads(ruta.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            return (f"politica_preparacion.json {_MOTIVOS[idioma]['roto']}: {exc}")
+        columnas = datos.get("columnas") if isinstance(datos, dict) else None
+        if not isinstance(columnas, list):
+            return None
+        n = datos.get("filas_de_train_efectivas")
+        cabeza = (("el equipo no ha declarado una política de datos ausentes; lo que hace "
+                   "con ellos la preparación lo registra el paquete en "
+                   "`politica_preparacion.json#columnas`")
+                  if es else
+                  ("no team has declared a missing-data policy; what the preparation does "
+                   "with missing values is recorded by the package in "
+                   "`politica_preparacion.json#columnas`"))
+        donde = ((f", ajustada en {n} filas de entrenamiento" if es
+                  else f", fitted on {n} training rows")
+                 if isinstance(n, int) and not isinstance(n, bool) else "")
+        partes: list[str] = []
+        for col in columnas:
+            if not isinstance(col, dict):
+                continue
+            p = col.get("proporcion_faltante")
+            if not isinstance(p, (int, float)) or isinstance(p, bool) or p <= 0:
+                continue
+            nombre = str(col.get("columna"))
+            pct = _numero(round(p * 100, 1))
+            pct = (pct.replace(".", ",") if es else pct) + " %"
+            if col.get("tipo") == "categorica":
+                trato = ("un ausente es una categoría propia" if es
+                         else "a missing value is a category of its own")
+            elif col.get("admite_nativo") is True:
+                trato = ("se deja ausente para el motor, que lo admite" if es
+                         else "it is left missing for the engine, which accepts it")
+            elif isinstance(col.get("mediana"), (int, float)):
+                med = _numero(col["mediana"])
+                trato = (f"se rellena con la mediana de entrenamiento ({med})" if es
+                         else f"it is filled with the training median ({med})")
+            else:
+                trato = ("el fichero no dice qué se hace con él" if es
+                         else "the file does not say what is done with it")
+            partes.append(f"{nombre}: {pct} {'ausente' if es else 'missing'}; {trato}")
+        if not partes:
+            cola = ("en esas filas no faltaba ningún valor" if es
+                    else "no value was missing in those rows")
+            return f"{cabeza}{donde}: {cola}"
+        return f"{cabeza}{donde}. " + ". ".join(partes)
 
     def comparacion_con_el_baseline(self, motivo_generico: str, idioma: str) -> Campo:
         """La comparación con el baseline, o POR QUÉ no la hay, dicho con lo que el
@@ -519,8 +603,8 @@ _LO_ESCRIBE_EL_EQUIPO_ES = ("lo declara el equipo; este informe lo pide, no lo "
                             "inventa")
 _LO_ESCRIBE_EL_EQUIPO_EN = ("the team declares this; this report asks for it, it "
                             "does not invent it")
-_SIN_PERFIL_ES = "el paquete no trae el perfil clínico (109-C2)"
-_SIN_PERFIL_EN = "the package ships no clinical profile (109-C2)"
+_SIN_PERFIL_ES = "el paquete no trae el perfil clínico"
+_SIN_PERFIL_EN = "the package ships no clinical profile"
 
 #: EL INVENTARIO. Es la única lista, y los dos informes la leen: la ficha
 #: TRIPOD+AI escribe con ella sus secciones y los huecos PROBAST+AI enumeran con
@@ -629,14 +713,16 @@ INVENTARIO: tuple[Evidencia, ...] = (
        "Comparación con el baseline", "Comparison against the baseline",
        "el perfil clínico no la trae: o el estudio no pudo plantearla —y el "
        "perfil dice por qué en `sin_comparacion_con_el_baseline`— o el paquete "
-       "es anterior a 109-C3",
+       "se exportó con una versión que todavía no la escribía",
        "the clinical profile does not ship it: either the study could not pose "
        "it —and the profile says why in `sin_comparacion_con_el_baseline`— or "
-       "the package predates 109-C3", "comparacion"),
+       "the package was exported by a version that did not write it yet", "comparacion"),
     _e("proceso_actual", "analisis", "team_declaration.json#proceso_actual",
        "Comparación con el proceso actual", "Comparison against current practice",
-       "invariante 4 del contrato 109: sin proceso actual declarado, se dice",
-       "invariant 4 of contract 109: with no current practice declared, it is said"),
+       "no se ha declarado el proceso actual con el que comparar: se dice en vez de "
+       "suponerlo",
+       "no current practice has been declared to compare against: it is said rather "
+       "than assumed"),
 )
 
 #: Índice por clave, para que nadie tenga que recorrer la tupla a mano.

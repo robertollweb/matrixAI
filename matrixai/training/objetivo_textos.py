@@ -258,6 +258,21 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "reads as a perfect score. Bring data where the outcome changes, or split "
               "the rows differently",
     },
+    # La MISMA clave de bloqueo, mirada sobre el CSV ENTERO y no sobre las filas
+    # que entrenan: por eso otra plantilla. {opciones} son las FILAS que traen
+    # objetivo, no los valores distintos.
+    "objetivo_con_una_sola_clase_en_el_csv": {
+        "es": "el objetivo confirmado {campo} solo toma un valor ({valor}) en las "
+              "{opciones} filas del fichero que lo traen: no es entrenable para esta "
+              "tarea. Un modelo así llega a pérdida 0 respondiendo siempre lo mismo, y "
+              "ese 0 se lee como acierto perfecto. Trae datos en los que el resultado "
+              "cambie",
+        "en": "confirmed target {campo} takes a single value ({valor}) across the "
+              "{opciones} rows of the file that have it: it is not trainable for this "
+              "task. Such a model reaches loss 0 by always answering the same thing, "
+              "and that 0 reads as a perfect score. Bring data where the outcome "
+              "changes",
+    },
     "objetivo_inexistente": {
         "es": "la columna objetivo {campo} no está en los datos. Columnas: {opciones}",
         "en": "target column {campo} is not in the data. Columns: {opciones}",
