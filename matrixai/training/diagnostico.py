@@ -884,6 +884,14 @@ def asociacion_muy_alta(valores_x: Sequence[Any], valores_y: Sequence[Any], *,
         medida=medida)
 
 
+#: Lo que se interpola en un motivo con palabras va en los dos idiomas (`motivo()` toma el de cada redacción).
+_METODO_NMI = {"es": "NMI aritmética", "en": "arithmetic NMI"}
+_EVIDENCIA_DE_IDENTIFICADOR = {
+    "tipo de columna": {"es": "tipo de columna", "en": "column type"},
+    "nombre": {"es": "nombre", "en": "name"},
+}
+
+
 def proxy_por_nmi(valores_categoria: Sequence[Any], valores_objetivo: Sequence[Any], *,
                   columna: str, soporte_minimo: int = SOPORTE_MINIMO_PUREZA) -> Sospecha | None:
     """`Sospecha` cuando la NMI (ya corregida por soporte mínimo — ver
@@ -894,7 +902,7 @@ def proxy_por_nmi(valores_categoria: Sequence[Any], valores_objetivo: Sequence[A
     return Sospecha(
         clave="proxy_probable", campo=columna,
         motivo=motivo("proxy_probable", campo=repr(columna), valor=medida["valor"],
-                      opciones="NMI aritmética", n=medida["n"], minimo=soporte_minimo),
+                      opciones=_METODO_NMI, n=medida["n"], minimo=soporte_minimo),
         medida=medida)
 
 
@@ -949,10 +957,11 @@ def identificador_probable(columna: str, *, tipo_columna: str | None = None,
     por_nombre = parece_identificador(columna)
     if not (por_tipo or por_nombre):
         return None
+    # `medida.evidencia` es una CLAVE estable (la de siempre); lo que lee una persona va en su idioma.
     evidencia = "tipo de columna" if por_tipo else "nombre"
     return Sospecha(
         clave="identificador_probable", campo=columna,
-        motivo=motivo("identificador_probable", campo=repr(columna), valor=evidencia),
+        motivo=motivo("identificador_probable", campo=repr(columna), valor=_EVIDENCIA_DE_IDENTIFICADOR[evidencia]),
         medida={"evidencia": evidencia, "tipo_columna": tipo_columna, "cardinalidad": cardinalidad})
 
 

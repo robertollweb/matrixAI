@@ -301,6 +301,39 @@ class ExpedienteClinico:
         return None
 
     @property
+    def es_de_estudio(self) -> bool:
+        """Si el manifiesto es el de un ESTUDIO (lleva el bloque `study` de `manifiesto_de_estudio`)."""
+        manifiesto = self._contenido.get("reproduce.json")
+        return isinstance(manifiesto, dict) and isinstance(manifiesto.get("study"), dict)
+
+    def inventario(self) -> tuple["Evidencia", ...]:
+        """El inventario que corresponde a ESTE paquete: el de siempre, o el de un estudio.
+
+        En un estudio, la línea de las filas lleva su rótulo de estudio y detrás van
+        el reparto y el modo; el motivo de que existan está encima de
+        `FILAS_DEL_ESTUDIO`. La línea de los motores que dejó fuera el modo solo
+        va si el modo los dejó: en el completo no hay ninguno, y «falta» sería un
+        hueco inventado."""
+        if not self.es_de_estudio:
+            return INVENTARIO
+        estudio = self._contenido["reproduce.json"]["study"]
+        lineas: list[Evidencia] = []
+        for evidencia in INVENTARIO:
+            if evidencia.clave == "fuente_de_los_datos":
+                lineas.append(FUENTE_EN_ESTUDIO)
+                continue
+            if evidencia.clave == "filas":
+                lineas.append(FILAS_DEL_ESTUDIO)
+                lineas.extend(REPARTO_DEL_ESTUDIO)
+                continue
+            lineas.append(evidencia)
+            if evidencia.clave == "metricas":
+                lineas.append(MODO_DEL_ESTUDIO)
+                if estudio.get("mode") == "rapido":
+                    lineas.append(FUERA_POR_EL_MODO)
+        return tuple(lineas)
+
+    @property
     def hay_perfil(self) -> bool:
         """Si el paquete trae el perfil clínico de 109-C2."""
         return (self.tiene("clinical_profile.json")
@@ -362,7 +395,7 @@ class ExpedienteClinico:
         idioma = "es" if str(locale or "en").strip().lower() == "es" else "en"
         pares: list[tuple[Evidencia, Campo]] = []
         avisos: list[str] = []
-        for evidencia in INVENTARIO:
+        for evidencia in self.inventario():
             motivo = evidencia.motivo_si_falta[idioma]
             if evidencia.clave == "alcance_de_validacion":
                 campo, aviso = self.alcance_de_validacion()
@@ -609,6 +642,76 @@ INVENTARIO: tuple[Evidencia, ...] = (
 #: Índice por clave, para que nadie tenga que recorrer la tupla a mano.
 POR_CLAVE: dict[str, Evidencia] = {e.clave: e for e in INVENTARIO}
 
+# ---------------------------------------------------------------------------
+# Lo que cambia cuando el paquete es de un ESTUDIO (reparación de 138-C1..C3)
+# ---------------------------------------------------------------------------
+#
+# Un manifiesto de estudio (`manifiesto_de_estudio`, con su bloque `study`) pone en
+# `artifacts.dataset.rows` las filas del CONJUNTO —las de la huella—, y el modelo
+# entregado NO entrenó con todas: hubo una prueba reservada que no vio, y dentro del
+# desarrollo se ajustó con una parte. «Filas que entrenaron: 360» con 72 reservadas
+# era la ficha diciendo lo contrario de lo que pasó (la auditoría de C1–C3). Para un
+# estudio, la MISMA ruta lleva otro rótulo, y el reparto va en sus líneas propias,
+# leídas de lo que el estudio contó (nunca deducidas aquí). El camino clásico no
+# cambia: sin bloque `study`, el inventario de arriba tal cual.
+
+#: El rótulo de `artifacts.dataset.rows` en un estudio: lo que esa cifra ES ahí.
+FILAS_DEL_ESTUDIO = _e(
+    "filas", "participantes", "reproduce.json#artifacts.dataset.rows",
+    "Filas del conjunto de datos (desarrollo y prueba reservada)",
+    "Dataset rows (development and holdout test)",
+    "el manifiesto no registra el tamaño del dataset",
+    "the manifest records no dataset size")
+
+#: La fuente de los datos en un estudio. `generation.mode` es el modo del GENERADOR sintético, y su motivo de siempre («no
+#: declara con qué modo se generó») junto a «Modo del estudio: rápido» se leía como una contradicción: un estudio entrena
+#: con el CSV de quien lo trae, y lo que falta es de dónde salió ese CSV.
+FUENTE_EN_ESTUDIO = _e(
+    "fuente_de_los_datos", "participantes", "reproduce.json#generation.mode",
+    "Fuente de los datos", "Data source",
+    "el estudio trabaja con el CSV de quien lo hizo, y el paquete no declara de dónde salió",
+    "the study works on the CSV of whoever ran it, and the package does not declare where it came from")
+
+_SIN_REPARTO_ES = "el estudio no guardó cómo repartió sus filas"
+_SIN_REPARTO_EN = "the study did not record how it split its rows"
+
+#: Las líneas que SOLO tiene un estudio, en el orden en que se escriben, justo después
+#: de la de las filas del conjunto.
+REPARTO_DEL_ESTUDIO: tuple[Evidencia, ...] = (
+    _e("filas_de_desarrollo", "participantes", "reproduce.json#study.rows.development",
+       "Filas de desarrollo (validación cruzada y selección)",
+       "Development rows (cross-validation and selection)",
+       _SIN_REPARTO_ES, _SIN_REPARTO_EN),
+    _e("filas_de_prueba_reservada", "participantes", "reproduce.json#study.rows.holdout_test",
+       "Filas de la prueba reservada (apartadas antes; ni eligen ni entrenan)",
+       "Holdout test rows (set aside first; they neither choose nor train)",
+       _SIN_REPARTO_ES, _SIN_REPARTO_EN),
+    _e("filas_que_entrenaron_el_modelo", "participantes",
+       "reproduce.json#study.rows.trained_the_delivered_model",
+       "Filas que entrenaron el modelo entregado", "Rows that trained the delivered model",
+       _SIN_REPARTO_ES, _SIN_REPARTO_EN),
+)
+
+#: El modo con que corrió el estudio (138-C1) y, si fue el rápido, quién no compitió por él.
+MODO_DEL_ESTUDIO = _e(
+    "modo_del_estudio", "analisis", "reproduce.json#study.mode",
+    "Modo del estudio", "Study mode",
+    "el estudio no registró con qué modo corrió",
+    "the study did not record which mode it ran in", "modo")
+FUERA_POR_EL_MODO = _e(
+    "motores_fuera_por_el_modo", "analisis", "reproduce.json#study.engines_left_out_by_mode",
+    "Motores que no compitieron por el modo (no se midieron; no es que puntuaran mal)",
+    "Engines that did not compete because of the mode (not measured; they did not score badly)",
+    "el estudio no registró qué motores dejó fuera el modo",
+    "the study did not record which engines the mode left out", "lista")
+
+#: Cómo se escribe cada modo. El vocabulario es el de `MODOS_DE_ESTUDIO`; uno que no esté
+#: aquí se escribe tal cual, no se traduce a otro.
+_NOMBRE_DEL_MODO: dict[str, dict[str, str]] = {
+    "es": {"rapido": "rápido", "completo": "completo"},
+    "en": {"rapido": "quick", "completo": "full"},
+}
+
 
 def _numero(valor: float) -> str:
     """Cuatro decimales como mucho, y sin ceros de relleno.
@@ -662,6 +765,8 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
                 f"{valor.get('veredicto')} · baseline={valor.get('baseline')}")
     if isinstance(valor, float):
         return _numero(valor)
+    if evidencia.resumen == "modo" and isinstance(valor, str):
+        return _NOMBRE_DEL_MODO["es" if locale == "es" else "en"].get(valor, valor)
     if evidencia.resumen == "booleano":
         return _si_no(valor, locale)
     if evidencia.resumen == "lista" and isinstance(valor, (list, tuple)):

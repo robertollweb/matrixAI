@@ -215,9 +215,22 @@ def motivo(clave: str, **campos: object) -> dict[str, str]:
     Devuelve un `dict` y no una cadena a propósito: **no se guarda en el estado
     una cadena ya compuesta en un idioma**, porque al cambiar de idioma no
     cambiaría. Quien pinte elige; quien registra guarda los dos.
+
+    UN CAMPO CON PALABRAS va como `{"es": …, "en": …}` y cada redacción toma el
+    suyo: un valor suelto entra TAL CUAL en los dos idiomas, y una palabra
+    castellana («tipo de columna», «NMI aritmética») acababa dentro del motivo
+    inglés (auditoría del 138-C5, 26-10). Los valores sin idioma —un nombre de
+    columna, una cifra— siguen yendo sueltos.
     """
     if clave not in MOTIVOS:
         raise KeyError(
             f"{clave!r} no está en el catálogo de motivos del 103-C2: escribir aquí "
             "una frase suelta dejaría media aplicación sin traducir")
-    return {idioma: MOTIVOS[clave][idioma].format(**campos) for idioma in IDIOMAS}
+    return {idioma: MOTIVOS[clave][idioma].format(**{
+        nombre: (valor[idioma] if _es_bilingue(valor) else valor) for nombre, valor in campos.items()})
+        for idioma in IDIOMAS}
+
+
+def _es_bilingue(valor: object) -> bool:
+    """`{"es": …, "en": …}` exactamente: un campo redactado en los dos idiomas."""
+    return isinstance(valor, dict) and set(valor) == set(IDIOMAS)

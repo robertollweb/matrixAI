@@ -20,6 +20,14 @@ disponible» por su cuenta. Lo que no está aquí y podría parecer que sí:
 * `backend` / `device`: su vocabulario es el del camino clásico (`stdlib`,
   `torch`); el motor ganador de un estudio no cabe en él.
 
+EL BLOQUE `study` (138, reparación de la auditoría de C1–C3) es lo que un estudio sabe y el camino clásico no:
+con qué MODO corrió (`rapido`/`completo`, el vocabulario de `MODOS_DE_ESTUDIO`), qué motores dejó fuera ese modo, y
+CÓMO se repartieron las filas. Va SIEMPRE —vacío si no sabe nada—, porque su presencia es lo que dice a la ficha y a
+PROBAST que esto es un estudio: aquí `artifacts.dataset.rows` son las filas del CONJUNTO (las de la huella), no las que
+entrenaron. En un estudio el modelo entregado NO entrena con todas: hay una prueba reservada que no ve, y dentro del
+desarrollo entrena con una parte del pliegue 0 (`_seleccionar_y_reajustar` del Studio). La auditoría lo cazó: la ficha
+decía «Filas que entrenaron: 360» con 72 de ellas reservadas.
+
 `reproducible` es SIEMPRE `false`, con su motivo en castellano e inglés: un
 estudio no se reproduce por el camino clásico de `matrixai export` /
 `matrixai verify`. Afirmar lo contrario sería lo que este producto persigue.
@@ -97,13 +105,19 @@ def manifiesto_de_estudio(
     metricas: Sequence[Mapping[str, Any]] | None = None,
     problema: Any | None = None,
     entorno: Mapping[str, Any] | None = None,
+    filas_de_desarrollo: int | None = None,
+    filas_de_prueba_reservada: int | None = None,
+    filas_que_entrenaron_el_modelo: int | None = None,
+    modo: str | None = None,
+    motores_fuera_por_el_modo: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """El manifiesto de un estudio, con SOLO lo que el estudio sabe.
 
     Todo es opcional y **ausente es ausente**: ningún argumento `None` produce un
     campo con valor inventado.
 
-    * `filas`: cuántas filas entrenaron (positivo).
+    * `filas`: cuántas filas tiene el conjunto con que trabajó el estudio (positivo): desarrollo Y prueba reservada.
+      NO son las que entrenaron el modelo (esas van en `filas_que_entrenaron_el_modelo`).
     * `huella_del_dataset`: sha256 COMPLETO del CSV tal como lo recibió el estudio.
     * `tipos_de_campo`: `{columna: tipo}` de las entradas del modelo.
     * `columnas_excluidas`: las columnas que se quedaron fuera (identificador de
@@ -114,6 +128,13 @@ def manifiesto_de_estudio(
     * `problema`: el `ProblemSpec` (o su `a_json()`), para el orden de las clases
       y la clase positiva.
     * `entorno`: por omisión, `build_environment()` del proceso que exporta.
+    * `filas_de_desarrollo` / `filas_de_prueba_reservada`: cómo repartió el estudio sus filas (las de la validación
+      cruzada y la selección / las que se apartaron antes y solo midieron al ganador). Contadas por el estudio, nunca
+      deducidas aquí.
+    * `filas_que_entrenaron_el_modelo`: con cuántas filas se ajustó el modelo ENTREGADO (no puede pasar de las de
+      desarrollo).
+    * `modo`: `rapido` o `completo` (`MODOS_DE_ESTUDIO`), el modo con que corrió.
+    * `motores_fuera_por_el_modo`: los motores que no compitieron POR EL MODO (no por fallar). Solo con `modo`.
     """
     if filas is not None:
         _require_positive_int(filas, "filas")
@@ -137,6 +158,47 @@ def manifiesto_de_estudio(
                 f"columnas_excluidas must be a list of strings, got {columnas_excluidas!r}")
         excluidas = sorted(set(_require_str_list(list(columnas_excluidas),
                                                  "columnas_excluidas")))
+
+    for valor, nombre in ((filas_de_desarrollo, "filas_de_desarrollo"),
+                          (filas_de_prueba_reservada, "filas_de_prueba_reservada"),
+                          (filas_que_entrenaron_el_modelo, "filas_que_entrenaron_el_modelo")):
+        if valor is not None:
+            _require_positive_int(valor, nombre)
+    if (filas_que_entrenaron_el_modelo is not None and filas_de_desarrollo is not None
+            and filas_que_entrenaron_el_modelo > filas_de_desarrollo):
+        raise ReproduceManifestError(
+            f"filas_que_entrenaron_el_modelo ({filas_que_entrenaron_el_modelo}) cannot exceed "
+            f"filas_de_desarrollo ({filas_de_desarrollo}): the delivered model trains inside development")
+    if filas is not None:
+        for valor, nombre in ((filas_de_desarrollo, "filas_de_desarrollo"),
+                              (filas_de_prueba_reservada, "filas_de_prueba_reservada")):
+            if valor is not None and valor > filas:
+                raise ReproduceManifestError(
+                    f"{nombre} ({valor}) cannot exceed the dataset rows ({filas})")
+    if modo is not None:
+        from matrixai.estudio.competicion import MODOS_DE_ESTUDIO  # noqa: PLC0415
+        _require_text(modo, "modo", choices=MODOS_DE_ESTUDIO)
+    fuera_por_el_modo: list[str] | None = None
+    if motores_fuera_por_el_modo is not None:
+        if modo is None:
+            raise ReproduceManifestError(
+                "motores_fuera_por_el_modo without modo: an engine left out «by the mode» needs the mode")
+        if isinstance(motores_fuera_por_el_modo, (str, bytes)):
+            raise ReproduceManifestError(
+                f"motores_fuera_por_el_modo must be a list of strings, got {motores_fuera_por_el_modo!r}")
+        fuera_por_el_modo = sorted(set(_require_str_list(list(motores_fuera_por_el_modo),
+                                                         "motores_fuera_por_el_modo")))
+
+    estudio: dict[str, Any] = {}
+    if modo is not None:
+        estudio["mode"] = modo
+    if fuera_por_el_modo:
+        estudio["engines_left_out_by_mode"] = fuera_por_el_modo
+    reparto = {clave: valor for clave, valor in (
+        ("development", filas_de_desarrollo), ("holdout_test", filas_de_prueba_reservada),
+        ("trained_the_delivered_model", filas_que_entrenaron_el_modelo)) if valor is not None}
+    if reparto:
+        estudio["rows"] = reparto
 
     dataset: dict[str, Any] | None = None
     if filas is not None or huella_del_dataset is not None:
@@ -170,6 +232,8 @@ def manifiesto_de_estudio(
         "generation": generation,
         "environment": dict(entorno) if entorno is not None else build_environment(),
         "metrics": _metricas(metricas),
+        # Siempre, aunque vacío: su presencia dice «esto es un estudio» (ver el docstring del módulo).
+        "study": estudio,
         "manifest_canonicalization": MANIFEST_CANONICALIZATION,
     }
     manifiesto["manifest_sha256"] = manifest_digest(manifiesto)

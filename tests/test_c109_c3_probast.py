@@ -286,14 +286,29 @@ class SinPaqueteNoHayFichaTest(unittest.TestCase):
                 huecos_probast(Path(d))
 
 
-class DiceQueNoHayPilotoTest(unittest.TestCase):
-    def test_la_ficha_declara_que_se_construyo_sin_disparador(self):
-        """C3 está marcado «solo si el piloto lo necesita» y no hay piloto. El
-        109 se abrió a sabiendas; eso va escrito, como en el 107."""
-        with TemporaryDirectory() as d:
-            ficha = huecos_probast(paquete_clinico(Path(d)), locale="es")
-        self.assertIn("no hay piloto", ficha)
-        self.assertIn("2026-09-14", ficha)
+class NoLlevaNotasInternasDelProyectoTest(unittest.TestCase):
+    """REESCRITA en la reparación de la auditoría de 138-C1..C3. Esta prueba exigía que
+    los huecos PROBAST abrieran con «C3 está marcado "solo si el piloto lo necesita"… el
+    109 se abrió el 2026-09-14… el invariante 7»: una nota del PROYECTO dentro de un
+    documento que recibe un usuario (el Studio lo sirve tal cual en el expediente de cada
+    estudio). La intención se conserva —el documento dice con honradez lo que es y lo que
+    no: guía de reporte, sin juicio de riesgo—, pero la historia de cómo se construyó no
+    es de este paquete y ya no va."""
+
+    def test_ni_los_huecos_ni_la_ficha_hablan_del_piloto_ni_del_contrato(self):
+        for locale in ("es", "en"):
+            with TemporaryDirectory() as d:
+                paquete = paquete_clinico(Path(d))
+                huecos = huecos_probast(paquete, locale=locale)
+                from matrixai.export.tripod import ficha_tripod  # noqa: PLC0415
+                ficha = ficha_tripod(paquete, locale=locale)
+            for texto in (huecos, ficha):
+                for interno in ("piloto", "pilot", "2026-09-14", "invariante 7", "invariant 7",
+                                "disparador", "trigger"):
+                    self.assertNotIn(interno, texto, (locale, interno))
+            # Lo que el documento SÍ dice de sí mismo sigue ahí.
+            self.assertIn("PROBAST", huecos)
+            self.assertIn("certifica" if locale == "es" else "certification", huecos)
 
 
 if __name__ == "__main__":

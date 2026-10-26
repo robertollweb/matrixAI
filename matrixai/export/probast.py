@@ -143,11 +143,6 @@ _T: dict[str, dict[str, str]] = {
         "cuentas_no": "**El instrumento trae {n} preguntas para «{modo}» y el "
                       "contrato 109 declara {esperadas}.** Manda el instrumento; se "
                       "escribe la diferencia en vez de callarla.",
-        "sin_piloto": "**C3 está marcado «solo si el piloto lo necesita», y no hay "
-                      "piloto.** El 109 se abrió el 2026-09-14 sin disparador, a "
-                      "sabiendas: el invariante 7 dice que la vertical la elige la "
-                      "tarea del socio, y esto se construyó sabiendo que lo "
-                      "contradice.",
         "dominio": "Dominio", "estado": "Estado", "dato": "Dato", "campo": "Campo",
         "por_dominio": "Lo que este paquete sostiene, por dominio",
         "preguntas": "Las preguntas del instrumento",
@@ -189,11 +184,6 @@ _T: dict[str, dict[str, str]] = {
         "cuentas_no": "**The instrument ships {n} questions for «{modo}» and contract "
                       "109 states {esperadas}.** The instrument wins; the difference "
                       "is written rather than swallowed.",
-        "sin_piloto": "**C3 is marked «only if the pilot needs it», and there is no "
-                      "pilot.** Contract 109 was opened on 2026-09-14 with no "
-                      "trigger, knowingly: invariant 7 says the vertical is chosen by "
-                      "the partner's task, and this was built knowing it contradicts "
-                      "that.",
         "dominio": "Domain", "estado": "State", "dato": "Value", "campo": "Field",
         "por_dominio": "What this package supports, by domain",
         "preguntas": "The instrument's questions",
@@ -334,8 +324,8 @@ def huecos_probast(bundle_dir: str | Path, *, locale: str = "en") -> str:
     filas.append(f"> {t['cita']}")
     filas.append(">")
     filas.append(f"> {t['no_juzga']}")
-    filas.append(">")
-    filas.append(f"> {t['sin_piloto']}")
+    # (Aquí abría una nota de que el 109 se construyó «sin piloto»: es una nota del PROYECTO, no
+    # de este paquete, y no va en un documento que recibe un usuario. Auditoría de 138-C1..C3.)
     filas.append("")
 
     if a["instrumento"] is None:

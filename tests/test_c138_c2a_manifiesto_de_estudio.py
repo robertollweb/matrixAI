@@ -81,8 +81,10 @@ def test_el_conjunto_de_claves_es_el_del_esquema_y_no_lleva_campos_de_mas():
     assert set(m) == {
         "schema_version", "claim", "reproducible", "reproducible_reason",
         "reproducible_reason_i18n", "artifacts", "problem", "generation", "environment",
-        "metrics", "manifest_canonicalization", "manifest_sha256"}
+        "metrics", "study", "manifest_canonicalization", "manifest_sha256"}
     assert m["artifacts"]["dataset"] == {"sha256": HUELLA, "rows": 200}
+    # El bloque `study` va SIEMPRE (su presencia dice «esto es un estudio»), y vacío si no se le dice nada.
+    assert m["study"] == {}
 
 
 def test_una_huella_solo_sin_filas_y_unas_filas_sin_huella_se_publican_tal_cual():
@@ -127,7 +129,12 @@ def test_las_tres_funciones_del_nucleo_producen_su_informe_con_las_cifras_del_es
 def test_donde_el_estudio_no_sabe_las_tres_dicen_no_disponible_y_no_una_cifra(tmp_path):
     paquete = _paquete(tmp_path)        # un estudio que no registró nada de lo opcional
     ficha = ficha_tripod(paquete, locale="es")
-    assert "**Filas que entrenaron**: _no disponible_" in ficha
+    # En un estudio la cifra de `rows` son las filas del CONJUNTO, no las que entrenaron (auditoría de 138-C1..C3).
+    assert "**Filas del conjunto de datos (desarrollo y prueba reservada)**: _no disponible_" in ficha
+    assert "Filas que entrenaron**" not in ficha
+    assert ("**Filas que entrenaron el modelo entregado**: _no disponible_ "
+            "(el estudio no guardó cómo repartió sus filas)") in ficha
+    assert "**Modo del estudio**: _no disponible_" in ficha
     assert "**Huella del dataset (sha256)**: _no disponible_" in ficha
     assert "**Predictores (entradas)**: _no disponible_" in ficha
     assert "**Partición y semillas**: _no disponible_" in ficha
@@ -199,6 +206,122 @@ def test_la_ficha_no_dice_que_predice_sin_instalar_nada_si_el_paquete_no_lleva_e
                     {"name": "a", "value": 0.5, "split": "test"}]), "dos valores para la misma métrica"),
 ])
 def test_un_dato_imposible_se_rechaza_en_vez_de_publicarse(malo, quien):
+    with pytest.raises((ReproduceManifestError, ValueError)):
+        manifiesto_de_estudio(**malo)
+
+
+# ── Reparación de la auditoría de 138-C1..C3: filas, reparto y modo ────────────────────────────────────────────────
+
+REPARTO = dict(filas_de_desarrollo=160, filas_de_prueba_reservada=40, filas_que_entrenaron_el_modelo=68,
+               modo="rapido", motores_fuera_por_el_modo=["matrixai.dense.torch_cpu", "matrixai.dense.tabm_cpu"])
+
+
+def test_el_bloque_study_lleva_el_reparto_y_el_modo_tal_cual_se_le_dan():
+    m = manifiesto_de_estudio(**LO_QUE_SABE, **REPARTO)
+    assert m["study"] == {
+        "mode": "rapido",
+        "engines_left_out_by_mode": ["matrixai.dense.tabm_cpu", "matrixai.dense.torch_cpu"],
+        "rows": {"development": 160, "holdout_test": 40, "trained_the_delivered_model": 68}}
+    # `rows` del conjunto NO cambia: sigue siendo la cifra de la huella.
+    assert m["artifacts"]["dataset"] == {"sha256": HUELLA, "rows": 200}
+    assert verify_manifest_digest(m)
+    # Un completo no deja a nadie fuera por el modo: la clave no aparece (ni a `[]`).
+    completo = manifiesto_de_estudio(modo="completo", motores_fuera_por_el_modo=[])
+    assert completo["study"] == {"mode": "completo"}
+
+
+def test_la_ficha_de_un_estudio_dice_cuantas_filas_entrenaron_de_verdad_y_cuantas_se_reservaron(tmp_path):
+    """EL DEFECTO: «Filas que entrenaron: 200» con 40 de ellas en la prueba reservada que el modelo nunca vio."""
+    paquete = _paquete(tmp_path, **LO_QUE_SABE, **REPARTO)
+    es = ficha_tripod(paquete, locale="es")
+    assert "Filas que entrenaron**: 200" not in es
+    assert ("**Filas del conjunto de datos (desarrollo y prueba reservada)**: 200 "
+            "· `reproduce.json#artifacts.dataset.rows`") in es
+    assert "**Filas de desarrollo (validación cruzada y selección)**: 160 · `reproduce.json#study.rows.development`" in es
+    assert ("**Filas de la prueba reservada (apartadas antes; ni eligen ni entrenan)**: 40 "
+            "· `reproduce.json#study.rows.holdout_test`") in es
+    assert ("**Filas que entrenaron el modelo entregado**: 68 "
+            "· `reproduce.json#study.rows.trained_the_delivered_model`") in es
+    en = ficha_tripod(paquete, locale="en")
+    assert "**Dataset rows (development and holdout test)**: 200" in en
+    assert "**Rows that trained the delivered model**: 68" in en
+    assert "Rows that trained**: 200" not in en
+
+
+def test_probast_dice_lo_mismo_que_la_ficha_de_las_filas_de_un_estudio(tmp_path):
+    paquete = _paquete(tmp_path, **LO_QUE_SABE, **REPARTO)
+    huecos = huecos_probast(paquete, locale="es")
+    assert "Filas que entrenaron**: 200" not in huecos
+    assert "**Filas del conjunto de datos (desarrollo y prueba reservada)**: 200 · MEDIDO por el core" in huecos
+    assert "**Filas que entrenaron el modelo entregado**: 68 · MEDIDO por el core" in huecos
+    assert "**Filas de la prueba reservada (apartadas antes; ni eligen ni entrenan)**: 40" in huecos
+    mapa = mapa_probast(paquete, locale="en")
+    por_clave = {c["clave"]: c for dom in mapa["por_dominio"].values() for c in dom}
+    assert por_clave["filas"]["rotulo"] == "Dataset rows (development and holdout test)"
+    assert por_clave["filas_que_entrenaron_el_modelo"]["valor"] == 68
+    assert por_clave["filas_de_prueba_reservada"]["valor"] == 40
+
+
+def test_la_ficha_dice_el_modo_del_estudio_y_quien_no_compitio_por_el(tmp_path):
+    paquete = _paquete(tmp_path, **LO_QUE_SABE, **REPARTO)
+    es = ficha_tripod(paquete, locale="es")
+    assert "**Modo del estudio**: rápido · `reproduce.json#study.mode`" in es
+    assert ("**Motores que no compitieron por el modo (no se midieron; no es que puntuaran mal)**: "
+            "matrixai.dense.tabm_cpu, matrixai.dense.torch_cpu") in es
+    en = ficha_tripod(paquete, locale="en")
+    assert "**Study mode**: quick · `reproduce.json#study.mode`" in en
+    assert "**Engines that did not compete because of the mode" in en
+    assert "rápido" not in en
+    huecos = huecos_probast(paquete, locale="es")
+    assert "**Modo del estudio**: rápido · MEDIDO por el core" in huecos
+    # El COMPLETO no deja a nadie fuera: no se escribe una línea de «falta» que sería un hueco inventado.
+    otro = tmp_path / "completo"
+    otro.mkdir()
+    completo = ficha_tripod(_paquete(otro, **LO_QUE_SABE, modo="completo"), locale="es")
+    assert "**Modo del estudio**: completo" in completo
+    assert "no compitieron por el modo" not in completo
+    assert "no compitieron por el modo" not in huecos_probast(otro, locale="es")
+
+
+def test_la_fuente_de_un_estudio_no_habla_del_modo_del_generador_junto_al_modo_del_estudio(tmp_path):
+    """«Fuente: no disponible (no declara con qué modo se generó)» encima de «Modo del estudio: rápido» se leía como una
+    contradicción: en un estudio lo que falta es de dónde salió el CSV."""
+    paquete = _paquete(tmp_path, **LO_QUE_SABE, **REPARTO)
+    for texto in (ficha_tripod(paquete, locale="es"), huecos_probast(paquete, locale="es")):
+        assert "con qué modo se generó" not in texto
+        assert "el estudio trabaja con el CSV de quien lo hizo, y el paquete no declara de dónde salió" in texto
+    assert "the study works on the CSV of whoever ran it" in ficha_tripod(paquete, locale="en")
+
+
+def test_un_manifiesto_clasico_sigue_diciendo_filas_que_entrenaron_y_sin_reparto_ni_modo(tmp_path):
+    """El camino de `matrixai export` no cambia: sin bloque `study`, la ficha de siempre."""
+    (tmp_path / "reproduce.json").write_text(json.dumps({
+        "reproducible": True, "artifacts": {"dataset": {"rows": 300}}, "metrics": []}), encoding="utf-8")
+    ficha = ficha_tripod(tmp_path, locale="es")
+    assert "**Filas que entrenaron**: 300 · `reproduce.json#artifacts.dataset.rows`" in ficha
+    assert "Filas del conjunto de datos" not in ficha and "Modo del estudio" not in ficha
+    assert "el paquete no declara con qué modo se generó" in ficha
+    huecos = huecos_probast(tmp_path, locale="es")
+    assert "**Filas que entrenaron**: 300 · MEDIDO por el core" in huecos
+    assert "prueba reservada" not in huecos and "Modo del estudio" not in huecos
+
+
+def test_la_ficha_no_afirma_una_orden_que_no_se_ejecuto(tmp_path):
+    """La compone el núcleo por los dos caminos (CLI y Studio): nombrar `matrixai report --tripod` era falso en el Studio."""
+    for locale in ("es", "en"):
+        ficha = ficha_tripod(_paquete(tmp_path, **LO_QUE_SABE), locale=locale)
+        assert "matrixai report" not in ficha
+        assert ("La compone el núcleo de MatrixAI" if locale == "es" else "Composed by the MatrixAI core") in ficha
+
+
+@pytest.mark.parametrize("malo", [
+    dict(filas_de_desarrollo=0), dict(filas_de_prueba_reservada=True), dict(filas_que_entrenaron_el_modelo=-1),
+    dict(filas_de_desarrollo=10, filas_que_entrenaron_el_modelo=11),
+    dict(filas=100, filas_de_desarrollo=101), dict(filas=100, filas_de_prueba_reservada=101),
+    dict(modo="turbo"), dict(modo=""), dict(motores_fuera_por_el_modo=["x"]),
+    dict(modo="rapido", motores_fuera_por_el_modo="matrixai.dense.torch_cpu"),
+])
+def test_un_reparto_o_un_modo_imposible_se_rechaza(malo):
     with pytest.raises((ReproduceManifestError, ValueError)):
         manifiesto_de_estudio(**malo)
 
