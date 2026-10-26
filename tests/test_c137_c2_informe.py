@@ -120,18 +120,26 @@ class _Lector(HTMLParser):
         self._ignorar = 0
 
     def handle_starttag(self, tag, attrs):
-        if tag in ("style", "script"):
+        # El recuadro de los datos firmados (auditoría del 26-10, hallazgo 9) es JSON con base64:
+        # datos para una máquina, no texto de la plantilla.
+        if tag in ("style", "script") or (tag == "pre" and ("class", "datos") in attrs):
             self._ignorar += 1
         for k, v in attrs:
             self.atributos.append((tag, k, v or ""))
 
     def handle_endtag(self, tag):
-        if tag in ("style", "script"):
+        if tag in ("style", "script") or (tag == "pre" and self._ignorar):
             self._ignorar -= 1
 
     def handle_data(self, data):
         if not self._ignorar:
             self.texto.append(data)
+
+
+def _sin_datos_firmados(doc: str) -> str:
+    """El documento sin el recuadro de los datos firmados: su base64 puede traer, por azar, las
+    letras «http» seguidas, y eso no es una URL."""
+    return re.sub(r'<pre class="datos"[^>]*>.*?</pre>', "", doc, flags=re.S)
 
 
 def _leer(doc: str) -> _Lector:
@@ -222,7 +230,7 @@ class SeccionesTest(Base):
 
     def test_autocontenido_sin_javascript_ni_recursos_externos_ni_una_url(self):
         for doc in (self.es, self.en):
-            self.assertNotIn("http", doc.lower())
+            self.assertNotIn("http", _sin_datos_firmados(doc).lower())
             self.assertNotIn("<script", doc.lower())
             self.assertNotIn("<link", doc.lower())
             self.assertNotIn("@import", doc.lower())
@@ -496,7 +504,7 @@ class HtmlPorLaOrdenTest(unittest.TestCase):
                 doc = ruta.read_text(encoding="utf-8")
                 self.assertIn(f'<html lang="{lang}">', doc)
                 self.assertIn(frase, _texto(doc))
-                self.assertNotIn("http", doc.lower())
+                self.assertNotIn("http", _sin_datos_firmados(doc).lower())
                 self.assertIn("<polyline", _svg(doc, "roc"))        # la curva ROC del núcleo
                 self.assertIn(f"HTML report written to {ruta}", r.stdout)
                 self.assertTrue((d / "informe.json").is_file())     # y el JSON sigue saliendo
@@ -662,7 +670,9 @@ class ReciboTest(unittest.TestCase):
         a1, a0 = informe_html(firmado, idioma="es"), informe_html(sin, idioma="es")
         self.assertIn("Garantía A1 · firmado", _texto(a1))
         self.assertIn("A1: el recibo está firmado con la clave de esta instalación", _texto(a1))
-        self.assertIn("clave evaluate-score, firma", _texto(a1))
+        # La firma COMPLETA (auditoría del 26-10), no sus 16 primeros caracteres.
+        self.assertIn("clave «evaluate-score», firma: " + firmado.sobre["signatures"][0]["sig"],
+                      _texto(a1))
         self.assertIn("Garantía A0 · sin firmar", _texto(a0))
         self.assertIn("A0: el recibo no lleva firma", _texto(a0))
         self.assertNotIn("firma ", _fila(a0, "Firma (HMAC)").replace("Firma (HMAC)", ""))
@@ -990,10 +1000,12 @@ class R6ConclusionesTest(unittest.TestCase):
     def test_R6_los_anexos_son_details_nativos_sin_javascript(self):
         for doc in (self.es, self.en):
             self.assertEqual(doc.count('<details class="anexo">'), 7)   # 2 puntuaciones + 5
-            self.assertEqual(doc.count("</details>"), 7)
-            self.assertEqual(doc.count("<summary>"), 7)
+            # + el recuadro de los datos firmados, dentro del anexo «cómo se hizo» (26-10)
+            self.assertEqual(doc.count('<details class="datos-firmados">'), 1)
+            self.assertEqual(doc.count("</details>"), 8)
+            self.assertEqual(doc.count("<summary>"), 8)
             self.assertNotIn("<script", doc.lower())
-            self.assertNotIn("http", doc.lower())
+            self.assertNotIn("http", _sin_datos_firmados(doc).lower())
             self.assertNotIn("onclick", doc.lower())
 
     def test_R6_al_imprimir_los_anexos_se_piden_abiertos_y_las_conclusiones_hacen_hoja(self):
@@ -1321,5 +1333,7 @@ class VppVpnTextoTest(unittest.TestCase):
             doc = informe_html(r, idioma=idioma)
             self.assertIn(esperado, _texto(doc))
             self.assertNotIn(prohibido, _texto(doc))
-            self.assertNotIn("--", _texto(doc))     # el CSS lleva `--fg`: se mira el texto visible
+            # el CSS lleva `--fg`: se mira el texto visible; `--key` es la opción de la orden que
+            # verifica el recibo (26-10), no un guion doble de redacción
+            self.assertNotIn("--", _texto(doc).replace("--key", ""))
             self.assertIn(esperado, _texto(doc[doc.index("<details"):]))   # el motivo vive en el anexo

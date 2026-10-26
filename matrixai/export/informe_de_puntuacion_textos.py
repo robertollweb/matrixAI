@@ -33,14 +33,20 @@ TEXTOS: dict[str, dict[str, str]] = {
               "remuestras, {diseno}",
         "en": "{n} cases with an outcome · {e} events ({p}) · {nivel} intervals from {r} "
               "resamples, {diseno}"},
-    "diseno_iid": {"es": "estratificadas por desenlace", "en": "stratified by outcome"},
+    # Auditoría del 26-10: la calibración y la AP dependen de la prevalencia y se remuestrean
+    # sin conservar el número de eventos; decir «estratificadas» a secas sería falso para ellas.
+    "diseno_iid": {"es": "por filas: estratificadas por desenlace, salvo la calibración y la AP, "
+                         "que dependen de la prevalencia",
+                   "en": "by rows: stratified by outcome, except calibration and AP, which "
+                         "depend on prevalence"},
     "diseno_paciente": {"es": "por paciente (columna «{col}»)",
                         "en": "by patient (column “{col}”)"},
     "solo_agregados": {
         "es": "Este informe no lleva filas de datos, solo agregados.",
         "en": "This report carries no data rows, only aggregates."},
     "garantia_a0": {"es": "Garantía A0 · sin firmar", "en": "Assurance A0 · unsigned"},
-    "garantia_a1": {"es": "Garantía A1 · firmado", "en": "Assurance A1 · signed"},
+    "garantia_a1": {"es": "Garantía A1 · firmado (HMAC: lo comprueba quien tiene la clave)",
+                    "en": "Assurance A1 · signed (HMAC: checked by whoever holds the key)"},
     "garantia_a0_sentido": {
         "es": "A0: el recibo no lleva firma. Recoge lo que se midió y con qué entradas, pero "
               "nada impide que alguien lo reescriba sin que se note.",
@@ -417,7 +423,53 @@ TEXTOS: dict[str, dict[str, str]] = {
     "r_huella_informe": {"es": "Huella de las cifras (sha256)", "en": "Digest of the figures (sha256)"},
     "r_firma": {"es": "Firma (HMAC)", "en": "Signature (HMAC)"},
     "r_sin_firma": {"es": "sin firmar", "en": "unsigned"},
-    "r_clave": {"es": "clave {k}, firma {s}…", "en": "key {k}, signature {s}…"},
+    "r_clave": {"es": "clave «{k}», firma:", "en": "key “{k}”, signature:"},
+    # ---- cómo se comprueba (auditoría del 26-10, hallazgo 9) ----------------------
+    "s_como_se_comprueba": {"es": "Cómo se comprueba", "en": "How to check it"},
+    "v_hmac": {
+        "es": "La firma es un HMAC con la clave de la instalación que hizo la comprobación: "
+              "solo puede comprobarla quien tiene esa clave. Sin ella, nadie —tampoco un "
+              "tercero— puede saber si este informe es el que se firmó.",
+        "en": "The signature is an HMAC with the key of the installation that ran the check: "
+              "only whoever holds that key can check it. Without it nobody, a third party "
+              "included, can tell whether this report is the one that was signed."},
+    "v_paso_copiar": {
+        "es": "Copia de «envelope», en el recuadro «{id}» (abajo, «Datos firmados»), el "
+              "objeto entero a un fichero, o usa el recibo JSON que se descargó con el informe.",
+        "en": "From the “{id}” box (below, “Signed data”) copy the whole “envelope” object "
+              "into a file, or use the JSON receipt downloaded with the report."},
+    "v_paso_verificar": {
+        "es": "Comprueba la firma de «envelope» (el recibo firmado: sus bytes en base64 y la "
+              "firma completa) con la orden de abajo y la clave de la instalación.",
+        "en": "Check the signature of the “envelope” (the signed receipt: its bytes in base64 and "
+              "the full signature) with the command below and the installation key."},
+    "v_paso_huella": {
+        "es": "Las cifras principales de esta página (AUROC, AP, calibración y las del umbral, "
+              "con sus intervalos) van DENTRO de lo firmado, en «metrics». El resto del "
+              "informe lo cubre la «huella de las cifras» (SHA-256 del informe del núcleo en "
+              "forma canónica, JCS), que se comprueba con el informe en JSON que guarda el "
+              "Studio con la comprobación.",
+        "en": "The main figures on this page (AUROC, AP, calibration and those at the "
+              "threshold, with their intervals) are INSIDE what is signed, in “metrics”. The "
+              "rest of the report is covered by the “digest of the figures” (SHA-256 of the "
+              "core report in canonical form, JCS), checked against the report in JSON that "
+              "the Studio keeps with the check."},
+    "v_paso_pagina": {
+        "es": "Esta página está compuesta a partir de ese informe; su maquetación y sus textos "
+              "no van firmados: lo firmado son las cifras y las declaraciones.",
+        "en": "This page is composed from that report; its layout and wording are not signed: "
+              "what is signed is the figures and the declarations."},
+    "v_orden": {"es": "matrixai receipt verify recibo.json --key <clave de la instalación>",
+                "en": "matrixai receipt verify receipt.json --key <installation key>"},
+    "v_sin_firma": {
+        "es": "Este informe no está firmado (A0): no hay firma que comprobar, y nada impide "
+              "reescribirlo sin que se note. El recuadro de abajo lleva el recibo sin firmar.",
+        "en": "This report is not signed (A0): there is no signature to check, and nothing "
+              "prevents rewriting it unnoticed. The box below carries the unsigned receipt."},
+    "v_datos": {"es": "Datos firmados (JSON: el recibo firmado, «envelope»)",
+                "en": "Signed data (JSON: the signed receipt, “envelope”)"},
+    "v_datos_sin_firma": {"es": "Recibo sin firmar (JSON, «receipt»)",
+                          "en": "Unsigned receipt (JSON, “receipt”)"},
     "r_atestigua": {"es": "Qué atestigua", "en": "What it attests"},
     "r_no_atestigua": {"es": "Qué no atestigua", "en": "What it does not attest"},
     "r_garantia": {"es": "Nivel de garantía", "en": "Assurance level"},

@@ -220,13 +220,13 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "comparación emparejada posible",
         "en": "the two scores share no row with an outcome: no paired comparison is possible",
     },
-    "ic_con_la_prevalencia_fija": {
-        "es": "VPP y VPN se calculan con la prevalencia de esta muestra ({valor}), declarada "
-              "por quien ejecuta la evaluación como la de la población de uso; su intervalo "
-              "no recoge la incertidumbre de esa prevalencia",
-        "en": "PPV and NPV are computed at this sample's prevalence ({valor}), declared by "
-              "whoever runs the evaluation as the population of use's; their interval does "
-              "not include the uncertainty of that prevalence",
+    "vpp_vpn_de_la_muestra": {
+        "es": "VPP y VPN son los de esta muestra, con su prevalencia ({valor}); valen para la "
+              "población de uso porque quien ejecuta la evaluación declaró que la muestra la "
+              "representa. Su intervalo recoge la incertidumbre de esa prevalencia",
+        "en": "PPV and NPV are this sample's, at its prevalence ({valor}); they hold for the "
+              "population of use because whoever runs the evaluation declared that the sample "
+              "represents it. Their interval includes the uncertainty of that prevalence",
     },
     # ---- la frase-veredicto de cada puntuación (la compone el núcleo con los números) ----
     "veredicto_ordena_si": {
@@ -453,6 +453,12 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "desenlaces (con evento y sin evento) y no hay curva que recorrer.",
         "en": "There is no threshold exploration: the rows used lack one of the two outcomes "
               "(with and without the event), so there is no curve to walk along.",
+    },
+    "exploracion_umbral_de_uso_no_alcanza": {
+        "es": "Con el umbral de uso declarado ({valor}) no se señala a ningún caso de esta "
+              "muestra: ninguna puntuación lo alcanza.",
+        "en": "With the declared threshold of use ({valor}) no case in this sample is "
+              "flagged: no score reaches it.",
     },
     "exploracion_recuentos_pequenos": {
         "es": "En {valor} de los {opciones} umbrales hay un recuento de 1 o 2 casos. Son "

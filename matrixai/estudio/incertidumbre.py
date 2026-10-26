@@ -318,10 +318,11 @@ class Intervalo:
 # Generadores de índices: uno por diseño, cada uno con su propia unidad
 # ---------------------------------------------------------------------------
 
-def _indices_iid(muestra: Muestra, azar: random.Random) -> list[int]:
+def _indices_iid(muestra: Muestra, azar: random.Random, estratificar: bool = True) -> list[int]:
     """Bootstrap emparejado por observaciones. Clasificación: ESTRATIFICADO por
-    la etiqueta observada — ver la decisión 1 del módulo."""
-    if muestra.task in TAREAS_DE_CLASIFICACION:
+    la etiqueta observada — ver la decisión 1 del módulo—, salvo que quien pide
+    el intervalo diga `estratificar=False` (ver `intervalo`)."""
+    if estratificar and muestra.task in TAREAS_DE_CLASIFICACION:
         filas_por_clase: dict[Any, list[int]] = {}
         for i, y in enumerate(muestra.y_true):
             filas_por_clase.setdefault(y, []).append(i)
@@ -411,7 +412,8 @@ def intervalo(metric_id: str, muestra: Muestra, *, diseno: str, estimando: str,
               umbral: float | None = None, longitud_de_bloque: int | None = None,
               valor: ValorDeMetrica | None = None,
               formula: Callable[[Muestra, float | None],
-                                "float | Indefinida"] | None = None) -> Intervalo:
+                                "float | Indefinida"] | None = None,
+              estratificar: bool = True) -> Intervalo:
     """El intervalo de confianza de `metric_id` sobre `muestra`, según `diseno`.
 
     `diseno` y `estimando` son OBLIGATORIOS y sin valor por omisión: elegir por
@@ -435,6 +437,19 @@ def intervalo(metric_id: str, muestra: Muestra, *, diseno: str, estimando: str,
     definición no está, y el rechazo llegaría con un motivo que no explica
     nada. `formula` recibe `(muestra, umbral)` y devuelve un número o
     `Indefinida`, exactamente como las del registro.
+
+    `estratificar` (137, auditoría del 26-10) solo cambia el diseño IID de una
+    clasificación, y por omisión es `True`: lo de siempre, para todos los
+    llamantes que no lo pidan. Con `False` el bootstrap remuestrea FILAS sin
+    conservar el recuento de cada clase, y el método se declara
+    `iid_paired_bootstrap`. Es lo que piden las cantidades que dependen de la
+    PREVALENCIA observada (la calibración en grande, el intercepto y la
+    pendiente de la recalibración, la AP): con el recuento de eventos fijo en
+    cada remuestra, la incertidumbre de la prevalencia no entra en el
+    intervalo, y 30 casos con 15 eventos y una probabilidad constante de 0,51
+    daban un intervalo de un punto, [0,01; 0,01]. Una remuestra que pierda una
+    clase se trata como cualquier remuestra degenerada (decisión 2). En grupos
+    y en el temporal no cambia nada: ya no estratifican.
     """
     if formula is not None and valor is None:
         raise EntradaNoMedible("intervalo_derivado_sin_punto", campo=metric_id)
@@ -475,9 +490,10 @@ def intervalo(metric_id: str, muestra: Muestra, *, diseno: str, estimando: str,
                              undefined_reason=motivo("observaciones_insuficientes"))
         unidad = "row"
         metodo = ("iid_paired_bootstrap_stratified"
-                  if muestra.task in TAREAS_DE_CLASIFICACION else "iid_paired_bootstrap")
+                  if estratificar and muestra.task in TAREAS_DE_CLASIFICACION
+                  else "iid_paired_bootstrap")
         rng = random.Random(semilla)
-        generador = lambda: _indices_iid(muestra, rng)  # noqa: E731
+        generador = lambda: _indices_iid(muestra, rng, estratificar)  # noqa: E731
 
     elif diseno == "groups":
         if muestra.units is None:
@@ -539,7 +555,7 @@ def intervalo(metric_id: str, muestra: Muestra, *, diseno: str, estimando: str,
 
 def medir(metric_id: str, muestra: Muestra, *, diseno: str, estimando: str, semilla: int,
           remuestras: int = 1000, nivel: float = 0.95, umbral: float | None = None,
-          longitud_de_bloque: int | None = None) -> ValorDeMetrica:
+          longitud_de_bloque: int | None = None, estratificar: bool = True) -> ValorDeMetrica:
     """El número de C1 Y su incertidumbre de C2, en un solo `ValorDeMetrica`.
 
     Conveniencia para quien no necesita las dos llamadas por separado. Calcula
@@ -551,5 +567,6 @@ def medir(metric_id: str, muestra: Muestra, *, diseno: str, estimando: str, semi
     punto = calcular(metric_id, muestra, umbral=umbral)
     ic = intervalo(metric_id, muestra, diseno=diseno, estimando=estimando, semilla=semilla,
                    remuestras=remuestras, nivel=nivel, umbral=umbral,
-                   longitud_de_bloque=longitud_de_bloque, valor=punto)
+                   longitud_de_bloque=longitud_de_bloque, valor=punto,
+                   estratificar=estratificar)
     return _replace(punto, uncertainty=ic.a_json())

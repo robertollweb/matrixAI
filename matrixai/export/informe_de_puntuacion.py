@@ -829,10 +829,13 @@ def _recibo(resultado: Any, f: _F, idioma: str) -> str:
     if huella_inf:
         kv.append((t("r_huella_informe", idioma), f'<code>{_e(huella_inf)}</code>'))
     sobre = resultado.sobre
-    if sobre and sobre.get("signatures"):
+    firmado = bool(sobre and sobre.get("signatures"))
+    if firmado:
         s = sobre["signatures"][0]
+        # La firma COMPLETA (auditoría del 26-10): con 16 caracteres no se compara nada.
         kv.append((t("r_firma", idioma),
-                   _e(t("r_clave", idioma, k=s.get("keyid"), s=str(s.get("sig", ""))[:16]))))
+                   _e(t("r_clave", idioma, k=s.get("keyid"))) + " "
+                   + f'<code class="firma">{_e(s.get("sig", ""))}</code>'))
     else:
         kv.append((t("r_firma", idioma), _e(t("r_sin_firma", idioma))))
     sentido = t("garantia_a1_sentido" if nivel == "A1" else "garantia_a0_sentido", idioma)
@@ -844,7 +847,50 @@ def _recibo(resultado: Any, f: _F, idioma: str) -> str:
         kv.append((t("r_no_atestigua", idioma), _e(_bi(ev["does_not_attest"], idioma))))
     filas = "".join(f"<tr><th>{_e(k)}</th><td>{v}</td></tr>" for k, v in kv)
     return (f'<section class="blk"><h3>{_e(t("s_recibo", idioma))}</h3>'
-            f'<div class="tw"><table class="kv"><tbody>{filas}</tbody></table></div></section>')
+            f'<div class="tw"><table class="kv"><tbody>{filas}</tbody></table></div></section>'
+            + _como_se_comprueba(resultado, firmado, idioma))
+
+
+#: El `id` del recuadro con los datos firmados: lo citan las instrucciones y lo buscan las pruebas.
+ID_DE_LOS_DATOS_FIRMADOS = "matrixai-recibo-firmado"
+
+
+def _datos_firmados(resultado: Any) -> str:
+    """El JSON que permite comprobar el informe, SIN JavaScript: el sobre firmado TAL CUAL
+    (payload en base64 y la firma completa; se verifica sobre esos bytes). Su recibo lleva las
+    cifras principales (`metrics`) y la huella del informe completo (`output_digests.report`).
+    Sin firma, el recibo sin firmar. NO se mete el informe del núcleo entero: sus umbrales de
+    la exploración son valores de la columna, y el HTML no lleva valores de fila (regla 22).
+    Va escapado como texto de un `<pre>`: un texto declarado con `</pre>` o `</script>` no
+    puede cerrar el recuadro ni inyectar nada."""
+    import json  # noqa: PLC0415
+
+    datos: dict[str, Any] = {"format": "matrixai.score_evaluation.signed_data/1",
+                             "envelope": resultado.sobre}
+    if not resultado.sobre:
+        datos["receipt"] = resultado.recibo
+    return json.dumps(datos, ensure_ascii=False, sort_keys=True, indent=1)
+
+
+def _como_se_comprueba(resultado: Any, firmado: bool, idioma: str) -> str:
+    """Cómo se comprueba este informe (auditoría del 26-10, hallazgo 9). Con firma: los pasos y
+    los datos firmados en el propio HTML; y que es HMAC, así que solo lo comprueba quien tiene
+    la clave, y que la maquetación de esta página no está firmada (sí las cifras del informe
+    que va en el recuadro). Sin firma: que no hay nada que comprobar."""
+    if firmado:
+        pasos = [t("v_paso_copiar", idioma, id=ID_DE_LOS_DATOS_FIRMADOS),
+                 t("v_paso_verificar", idioma), t("v_paso_huella", idioma),
+                 t("v_paso_pagina", idioma)]
+        cuerpo = (f'<p>{_e(t("v_hmac", idioma))}</p>'
+                  + "<ol>" + "".join(f"<li>{_e(x)}</li>" for x in pasos) + "</ol>"
+                  + f'<p class="small"><code>{_e(t("v_orden", idioma))}</code></p>')
+    else:
+        cuerpo = f'<p>{_e(t("v_sin_firma", idioma))}</p>'
+    return (f'<section class="blk"><h3>{_e(t("s_como_se_comprueba", idioma))}</h3>{cuerpo}'
+            f'<details class="datos-firmados"><summary>'
+            f'{_e(t("v_datos" if firmado else "v_datos_sin_firma", idioma))}</summary>'
+            f'<pre class="datos" id="{ID_DE_LOS_DATOS_FIRMADOS}">{_e(_datos_firmados(resultado))}'
+            f'</pre></details></section>')
 
 
 def _no_es(inf: dict[str, Any], idioma: str) -> str:
@@ -1159,6 +1205,10 @@ details.anexo{break-inside:auto}details.anexo>summary{break-after:avoid}
 .tw{overflow:visible}
 }
 @media print{details.anexo::details-content{content-visibility:visible;display:block;height:auto}}
+code.firma{word-break:break-all}
+details.datos-firmados>summary{cursor:pointer;font-weight:600}
+pre.datos{max-height:16em;overflow:auto;font-size:11px;white-space:pre-wrap;word-break:break-all;background:var(--raised);padding:8px;border-radius:6px}
+@media print{details.datos-firmados{display:none}}
 """
 
 

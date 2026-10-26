@@ -385,7 +385,20 @@ class SinProgresoNadaCambia(DatosBase):
         """Los digests son de la ejecución del código de ANTES de este corte (HEAD 5d54f8e)
         con las mismas semillas, sin `version_del_informe`, `versiones` ni `exploracion`
         (lo único que cambia). Si cambias a propósito un número o un texto del informe,
-        regenera estos digests y dilo."""
+        regenera estos digests y dilo.
+
+        REGENERADOS el 26-10 (auditoría externa, hallazgo 2) para a, b, c y e. Descompuesto
+        contra HEAD campo a campo: lo ÚNICO que cambia es el intervalo (`ic.bajo`, `ic.alto`,
+        `ic.metodo`) de la calibración en grande, el intercepto, la pendiente y la AP, que ya no
+        se remuestrean estratificados por desenlace. `d` (columna de paciente: remuestreo por
+        grupos, que nunca estratificó) sale igual que antes, y eso también es la prueba.
+
+        Y OTRA VEZ el 26-10 (re-auditoría, N1) para a, c y d: VPP y VPN ya no se transportan a la
+        prevalencia observada con el recuento de eventos fijo, sino que se remuestrean sin
+        estratificar. Descompuesto contra el árbol de antes: cambian SOLO `vpp/vpn.ic` (bajo, alto,
+        y el método en IID), la `nota` (clave nueva `vpp_vpn_de_la_muestra`) y, en c, el último
+        decimal del valor (0,28400000000000003 → 0,284 = 142/500: el empírico, sin la fórmula del
+        transporte). b (sin «representa») y e (sin umbral) salen iguales."""
         filas = _filas_c1(900, semilla=7, desplazamiento=0.8)
         texto = _csv_c1(filas)
         pct = _csv_c1([dict(f, p=round(f["p"] * 100, 1)) for f in filas])
@@ -405,11 +418,11 @@ class SinProgresoNadaCambia(DatosBase):
                               columnas_de_subgrupo=["sexo"])),
         }
         esperados = {
-            "a": "85936a5a4973c724ebc1b4865d6875ea552a6b5bed3e0abef3820b1758fb9f3a",
-            "b": "e09f09188bfd7011928e744e479fa75cbbe716686deede6ecc5656b406f156e7",
-            "c": "d9ceda6f607ec9501182c5949aca61ca098d84c16bc5d1a1c11816aaba18f629",
-            "d": "c394bcacc3a0472b9b28c34e05de48fb8d147e684f4ab70fa369cd8a3e588aca",
-            "e": "8a2d15185a0a685a11aa869227ef1e6f9e621c021dea4b9d49ad8541194f0629",
+            "a": "f30daa95ef59047018ea49df6765a986433f6bd39f6f500417c0e0287ad864ee",
+            "b": "f66f552b274ac1a6cc876c8a7ec7058f4513dd9c128eaf3cef676f31624e716c",
+            "c": "fd68c4c426a201f9476820f0d400d8ac3d0c9f0d391d06551f057254a5744d53",
+            "d": "dd6a8713dbb3ce6bb82c911920664eac7a60499de3bff63abe87ad05a65502d8",
+            "e": "91e602c01f1c871424fca78e3593ae2580b3d7787304fe770cdc7225c947da76",
         }
         for clave, (t, kw) in casos.items():
             with self.subTest(clave):
@@ -420,11 +433,12 @@ class SinProgresoNadaCambia(DatosBase):
                     p["al_umbral"].pop("exploracion")
                 self.assertEqual(hashlib.sha256(jcs_bytes(inf)).hexdigest(), esperados[clave])
 
-    def test_la_version_del_informe_sube_a_2_2_0_con_la_exploracion(self):
-        self.assertEqual(VERSION_DEL_INFORME, "2.2.0")
+    def test_la_version_del_informe_sube_con_la_exploracion_y_con_la_auditoria_del_26_10(self):
+        # 2.2.0 con la exploración (137-C4); 2.3.0 con las reparaciones de la auditoría del 26-10.
+        self.assertEqual(VERSION_DEL_INFORME, "2.3.0")
         r = _evaluar(_csv(self.filas), puntuaciones=[Decl("p", "probabilidad", ALTO)])
-        self.assertEqual(r.informe["version_del_informe"], "2.2.0")
-        self.assertEqual(r.recibo["environment"]["report_version"], "2.2.0")
+        self.assertEqual(r.informe["version_del_informe"], "2.3.0")
+        self.assertEqual(r.recibo["environment"]["report_version"], "2.3.0")
 
 
 class LaCancelacionEsLimpia(DatosBase):
@@ -758,11 +772,19 @@ class TopeDePuntosYOrden(DatosBase):
                                  tuple(au["matriz"][k] for k in ("tp", "fp", "fn", "tn")))
                 self.assertGreaterEqual(p["umbral"], umbral)
 
-    def test_un_umbral_de_uso_que_no_alcanza_a_nadie_no_tiene_punto(self):
+    def test_un_umbral_de_uso_que_no_alcanza_a_nadie_tiene_su_punto_sin_senalados_y_se_dice(self):
+        # Reescrita el 26-10 (auditoría externa, hallazgo 5): antes afirmaba que no había punto,
+        # y la pantalla decía entonces «no declaraste un umbral de uso». La intención se conserva
+        # —no se inventa un vértice que no existe—: el punto es el umbral DECLARADO, sin nadie
+        # señalado, y el núcleo dice por qué.
         r = _evaluar(_csv(self.filas), puntuaciones=[Decl("pts", "puntuacion", ALTO, umbral=99)])
         e = _explor(r.informe)
-        self.assertIsNone(e["indice_del_umbral_de_uso"])
-        self.assertFalse(any(p["es_el_umbral_de_uso"] for p in e["puntos"]))
+        uso = [p for p in e["puntos"] if p["es_el_umbral_de_uso"]]
+        self.assertEqual([p["umbral"] for p in uso], [99.0])
+        self.assertEqual((uso[0]["tp"], uso[0]["fp"]), (0, 0))
+        self.assertEqual(e["puntos"][e["indice_del_umbral_de_uso"]]["umbral"], 99.0)
+        self.assertIn("99", e["nota_del_umbral_de_uso"]["es"])
+        self.assertEqual(e["vertices_de_la_curva"], len(e["puntos"]) - 1)
 
     def test_sin_umbral_de_uso_tambien_hay_exploracion(self):
         r = _evaluar(_csv(self.filas), puntuaciones=[Decl("p", "probabilidad", ALTO)])

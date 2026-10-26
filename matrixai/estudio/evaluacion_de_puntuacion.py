@@ -74,7 +74,17 @@ LO QUE SE DECIDIÓ AL COMPONER (para que no se «simplifique» sin saberlo):
   VÉRTICES de la curva (un umbral por valor distinto de la columna, en las UNIDADES de la
   columna, adelgazados a `PUNTOS_DE_LA_EXPLORACION`), con tp/fp/fn/tn en cada uno. VPP y VPN
   solo con «la muestra representa»; un recuento pequeño NO se oculta (no hay filas) pero se
-  cuenta cuántos hay. Con «más bajo = más riesgo» el umbral se aplica al revés y se dice.
+  cuenta cuántos hay. Con «más bajo = más riesgo» el umbral se aplica al revés y se dice. El
+  punto «de uso» es el umbral DECLARADO: si no es un vértice se añade con su valor, y si no
+  alcanza a nadie se dice (`nota_del_umbral_de_uso`).
+* **Lo que depende de la prevalencia se remuestrea sin estratificar (auditoría del 26-10).** La
+  calibración en grande, el intercepto y la pendiente, y la AP: con el número de eventos fijo
+  en cada remuestra su intervalo no recogía la incertidumbre de la prevalencia observada. El
+  AUROC, la sensibilidad y la especificidad son condicionales al desenlace y siguen
+  estratificados. VPP y VPN (solo con «la muestra representa») son los de la muestra, a su
+  prevalencia OBSERVADA, y también se remuestrean sin estratificar (re-auditoría, N1); el informe
+  dice de qué prevalencia son (`vpp_vpn_de_la_muestra`). Con columna de paciente, todo remuestrea
+  pacientes, como siempre.
 
 Y sigue siendo stdlib puro.
 """
@@ -97,7 +107,7 @@ from matrixai.estudio.calibracion import ajustar_recalibracion_logistica, curva_
 from matrixai.estudio.comparaciones import comparar_candidatos
 from matrixai.estudio.errores import ErrorDeEstudio
 from matrixai.estudio.esquemas import ValorDeMetrica
-from matrixai.estudio.evaluacion_de_puntuacion_textos import cifra, motivo, valor_p
+from matrixai.estudio.evaluacion_de_puntuacion_textos import PorIdioma, cifra, motivo, valor_p
 from matrixai.estudio.incertidumbre import (
     Intervalo,
     _percentil,
@@ -132,12 +142,17 @@ __all__ = [
     "AUSENTES", "CASOS_EN_SU_DESARROLLO", "DIRECCIONES", "DONDE_SE_CALCULA",
     "MAXIMO_DE_VALORES_POR_SUBGRUPO", "MINIMO_DE_REMUESTRAS",
     "TIPOS_DE_PUNTUACION", "VERSION_DEL_INFORME", "DeclaracionDePuntuacion",
-    "EvaluacionCancelada", "EvaluacionRechazada", "FASES_DE_PROGRESO",
+    "EvaluacionCancelada", "EvaluacionRechazada", "FASES_DE_PROGRESO", "contar_filas_de_datos",
+    "validar_umbrales_de_decision",
     "PUNTOS_DE_LA_EXPLORACION", "ResultadoDeEvaluacion", "evaluar_puntuacion",
     "resumen_de_la_evaluacion",
 ]
 
-VERSION_DEL_INFORME = "2.2.0"
+#: 2.3.0 (auditoría externa del 26-10): la tabla al umbral cuenta en la escala de la columna con
+#: `probabilidad_pct` + «más bajo»; la calibración (en grande, intercepto, pendiente) y la AP
+#: remuestrean SIN estratificar por desenlace; el punto de uso del deslizador es el umbral
+#: declarado (y `nota_del_umbral_de_uso`); las claves numéricas son exactas.
+VERSION_DEL_INFORME = "2.3.0"
 ESQUEMA_DEL_INFORME = "matrixai.estudio.score_evaluation_report"
 
 #: Lo que declara quien evalúa. Cerrado, como todo vocabulario de esta casa.
@@ -461,6 +476,30 @@ def _separador(texto: str) -> str:
     return mejor
 
 
+def _registros(texto: str, sep: str) -> list[list[str]]:
+    """Los registros del CSV con celdas recortadas, sin los que están en blanco. Lo usan la
+    lectura (`_leer_csv`) y el contador de filas (`contar_filas_de_datos`): un solo lector."""
+    try:
+        return [[c.strip() for c in r]
+                for r in csv.reader(io.StringIO(texto, newline=""), delimiter=sep)
+                if r and any(c.strip() for c in r)]
+    except csv.Error as exc:
+        raise EvaluacionRechazada("csv_ilegible", valor=str(exc)) from None
+
+
+def contar_filas_de_datos(contenido: bytes | str) -> int:
+    """Cuántas filas de DATOS (sin la cabecera) ve el lector de esta evaluación: la misma
+    decodificación (UTF-8 o Windows-1252), el mismo separador detectado y las mismas comillas.
+    Es lo que cuentan los topes de la demo (auditoría del 26-10): con `csv.reader` y la coma
+    fija, un `;` con campos entrecomillados con saltos de línea contaba filas de más (2 → 4) y
+    podía rechazar un CSV válido. Barato: no convierte números ni mira las columnas. Un CSV
+    ilegible levanta `EvaluacionRechazada`, como al evaluarlo."""
+    texto = _decodificar(contenido)[0]
+    if not texto.strip():
+        return 0
+    return max(len(_registros(texto, _separador(texto))) - 1, 0)
+
+
 def _leer_csv(contenido: bytes | str) -> _Tabla:
     """Cabecera + filas de celdas recortadas.
 
@@ -473,12 +512,7 @@ def _leer_csv(contenido: bytes | str) -> _Tabla:
     if not texto.strip():
         raise EvaluacionRechazada("csv_vacio")
     sep = _separador(texto)
-    try:
-        registros = [[c.strip() for c in r]
-                     for r in csv.reader(io.StringIO(texto, newline=""), delimiter=sep)
-                     if r and any(c.strip() for c in r)]
-    except csv.Error as exc:
-        raise EvaluacionRechazada("csv_ilegible", valor=str(exc)) from None
+    registros = _registros(texto, sep)
     if not registros:
         raise EvaluacionRechazada("csv_vacio")
     cabecera, datos = registros[0], registros[1:]
@@ -503,6 +537,27 @@ _NUM_PUNTO = re.compile(r"[+-]?(?:\d+\.\d*|\.\d+|\d+(?:\.\d+)?[eE][+-]?\d+)")
 _NUM_COMA = re.compile(r"[+-]?(?:\d+,\d+|,\d+)")
 
 
+def _clave_numerica(t: str) -> str:
+    """La clave EXACTA de un número escrito: sus cifras significativas y su exponente, en
+    decimal (auditoría del 26-10). `1`, `1.0`, `1,0`, `01`, `+1` y `1e0` son una; `1000000`,
+    `1000001` y `1000002` son tres. Hasta el 26-10 era `format(float, "g")`, con 6 cifras
+    significativas: las tres daban `1e+06` y un desenlace o un subgrupo codificado con números
+    largos se fundía en uno. El cero no tiene signo (`-0` es `0`).
+
+    LA MISMA REGLA vive en la pantalla (`claveDeValor` de `studio/src/funcionaAqui/leerCsv.ts`):
+    una prueba de cada lado lee los MISMOS ficheros (`lectura_compartida/`)."""
+    from decimal import Decimal  # noqa: PLC0415
+
+    # Sin `normalize()`: redondea a la precisión del contexto (28 cifras) y volvería a fundir.
+    signo, cifras, exponente = Decimal(t.replace(",", ".")).as_tuple()
+    texto_cifras = "".join(str(c) for c in cifras).lstrip("0")
+    if texto_cifras == "":
+        return "0"
+    sin_ceros = texto_cifras.rstrip("0")
+    exponente = int(exponente) + len(texto_cifras) - len(sin_ceros)
+    return f"{'-' if signo else ''}{sin_ceros}e{exponente}"
+
+
 def _clave_de_texto(texto: str) -> str | None:
     """La clave con la que se UNEN variantes: sin mayúsculas, sin tildes, sin espacios de
     más; y un número es el mismo número escrito como `1`, `1.0` o `1,0`. `None` = ausente."""
@@ -510,7 +565,7 @@ def _clave_de_texto(texto: str) -> str | None:
     if t.casefold() in AUSENTES:
         return None
     if _NUM_ENTERO.fullmatch(t) or _NUM_PUNTO.fullmatch(t) or _NUM_COMA.fullmatch(t):
-        return format(float(t.replace(",", ".")), "g")
+        return _clave_numerica(t)
     t = unicodedata.normalize("NFKD", t)
     t = "".join(c for c in t if not unicodedata.combining(c))
     return " ".join(t.casefold().split())
@@ -648,6 +703,12 @@ def _vertices_elegidos(vertices: Sequence[tuple[float, float]], tope: int,
     return sorted(elegidos)
 
 
+def _numero_tal_cual(valor: float) -> PorIdioma:
+    """Un umbral declarado como lo escribió la persona (`0,9`, `23,5`), sin ceros de relleno."""
+    texto = f"{valor:.6g}"
+    return PorIdioma({"es": texto.replace(".", ","), "en": texto})
+
+
 #: Cuántos umbrales como mucho ofrece `al_umbral.exploracion` al deslizador.
 PUNTOS_DE_LA_EXPLORACION = 50
 
@@ -684,14 +745,29 @@ def _exploracion(decl: "DeclaracionDePuntuacion", crudos: Sequence[float], ys: S
         fp += cuenta[valor][1]
         vertices.append((valor, tp, fp))
 
+    n_vertices = len(vertices)
     forzados: list[int] = []
+    nota_de_uso = None
     if decl.umbral is not None:
-        # Los señalados con el umbral de uso son un prefijo (los de más riesgo); el vértice
-        # que lo cierra es el último de ese prefijo. Sin ninguno, no hay vértice que enseñar.
+        # Los señalados con el umbral de uso son un prefijo (los de más riesgo). El punto de
+        # uso es EL UMBRAL DECLARADO (auditoría del 26-10): si coincide con un vértice, ese
+        # vértice; si no, un punto propio con su valor y los recuentos del prefijo, colocado
+        # justo detrás de él. Antes se marcaba el vértice que cierra el prefijo y la pantalla
+        # decía «es el umbral de uso» de 0,8 con un umbral de 0,5; y sin nadie alcanzado no
+        # había punto, y la pantalla decía «no declaraste un umbral».
+        u = float(decl.umbral)
         alcanzados = [i for i, (v, _, _) in enumerate(vertices)
-                      if (v >= decl.umbral if decl.mas_alto else v <= decl.umbral)]
-        if alcanzados:
+                      if (v >= u if decl.mas_alto else v <= u)]
+        if alcanzados and vertices[alcanzados[-1]][0] == u:
             forzados.append(alcanzados[-1])
+        else:
+            pos = alcanzados[-1] + 1 if alcanzados else 0
+            tp_u, fp_u = (vertices[pos - 1][1], vertices[pos - 1][2]) if pos else (0, 0)
+            vertices.insert(pos, (u, tp_u, fp_u))
+            forzados.append(pos)
+            if not alcanzados:
+                nota_de_uso = motivo("exploracion_umbral_de_uso_no_alcanza",
+                                     valor=_numero_tal_cual(u))
     if len(vertices) > PUNTOS_DE_LA_EXPLORACION:
         curva = [(f / negativos, t / positivos) for _, t, f in vertices]
         elegidos = _vertices_elegidos(curva, PUNTOS_DE_LA_EXPLORACION, forzados)
@@ -721,13 +797,14 @@ def _exploracion(decl: "DeclaracionDePuntuacion", crudos: Sequence[float], ys: S
         "direccion_invertida": not decl.mas_alto,
         "nota_direccion": (None if decl.mas_alto else motivo("exploracion_direccion_invertida")),
         "orden": "umbral_ascendente", "indice_del_umbral_de_uso": indice_en_uso,
-        "n_puntos": len(puntos), "vertices_de_la_curva": len(vertices),
+        "n_puntos": len(puntos), "vertices_de_la_curva": n_vertices,
         "tope_de_puntos": PUNTOS_DE_LA_EXPLORACION,
         "nota_de_los_umbrales": (
-            motivo("exploracion_todos_los_umbrales", valor=len(vertices))
-            if len(vertices) <= PUNTOS_DE_LA_EXPLORACION else
+            motivo("exploracion_todos_los_umbrales", valor=n_vertices)
+            if n_vertices <= PUNTOS_DE_LA_EXPLORACION else
             motivo("exploracion_umbrales_ofrecidos", valor=PUNTOS_DE_LA_EXPLORACION,
-                   opciones=len(vertices))),
+                   opciones=n_vertices)),
+        "nota_del_umbral_de_uso": nota_de_uso,
         "casos": {"con_evento": positivos, "sin_evento": negativos},
         "vpp_vpn": {"publicables": representa,
                     "nota": motivo("exploracion_vpp_vpn_con_la_prevalencia_de_la_muestra"
@@ -875,9 +952,17 @@ def _muestra(decl: DeclaracionDePuntuacion, crudos: Sequence[float], ys: Sequenc
 
 
 def _umbral_de_trabajo(decl: DeclaracionDePuntuacion) -> float | None:
-    u = decl.umbral_en_probabilidad
-    if u is None:
+    """El umbral en la MISMA escala que la muestra de `_muestra` (auditoría del 26-10, P1).
+
+    Solo una probabilidad con «más alto» se mide como probabilidad (el % pasa a 0–1); todo lo
+    demás se mide como puntuación EN LAS UNIDADES DE LA COLUMNA, negada con «más bajo». Hasta el
+    26-10 se negaba el umbral ya pasado a 0–1, y con `probabilidad_pct` + «más bajo» la tabla
+    comparaba −20 y −80 con −0,5: publicaba 0 VP y 15 FN donde el deslizador contaba 15 y 0."""
+    if decl.umbral is None:
         return None
+    if decl.es_probabilidad and decl.mas_alto:
+        return decl.umbral_en_probabilidad
+    u = float(decl.umbral)
     return u if decl.mas_alto else -u
 
 
@@ -901,7 +986,10 @@ def _calibracion(decl: DeclaracionDePuntuacion, muestra: Muestra, ctx: _Contexto
     salida: dict[str, Any] = {"aplica": True, "motivo": None,
                               "metodo_de_recalibracion": "logistico_completo",
                               "rotulo_de_alcance": _rotulo_de_alcance(ctx)}
-    salida["en_grande"] = _metrica(medir("calibration_in_the_large", muestra, **ctx.comun))
+    # SIN estratificar por desenlace (auditoría del 26-10, P1): la calibración depende de la
+    # prevalencia observada, y con el recuento de eventos fijo su intervalo no la recogía.
+    salida["en_grande"] = _metrica(medir("calibration_in_the_large", muestra, **ctx.comun,
+                                         estratificar=False))
     salida["brier"] = _simple(calcular("brier_score", muestra))
 
     ajuste = ajustar_recalibracion_logistica(muestra)
@@ -923,7 +1011,7 @@ def _calibracion(decl: DeclaracionDePuntuacion, muestra: Muestra, ctx: _Contexto
             return r.a
 
         base = dict(muestra=muestra, semilla=ctx.semilla, remuestras=ctx.remuestras,
-                    estimando=ESTIMANDO, diseno=ctx.diseno, nivel=NIVEL)
+                    estimando=ESTIMANDO, diseno=ctx.diseno, nivel=NIVEL, estratificar=False)
         punto_a = ValorDeMetrica(metric_id="calibration_intercept", formula_version="1.0.0",
                                  value=ajuste.a, n_observations=muestra.n,
                                  n_units=muestra.n_unidades)
@@ -977,11 +1065,18 @@ def _al_umbral(decl: DeclaracionDePuntuacion, muestra: Muestra, ctx: _Contexto,
     if decl.umbral is None:
         return {"declarado": False, "motivo": motivo("sin_umbral_de_uso", campo=decl.columna)}
     trabajo = _umbral_de_trabajo(decl)
-    tabla = tabla_de_umbrales(
-        muestra, umbrales=[trabajo], prevalencia=prevalencia if ctx.representa else None,
-        declarados_por="declared by whoever runs the evaluation: the sample represents the "
-                       "population of use", **ctx.comun)
+    # VPP y VPN SIN la tabla: la prevalencia a la que la tabla los transportaría es la OBSERVADA en
+    # esta muestra (la persona solo declara que la muestra representa a la población), así que el
+    # punto es el VPP/VPN empírico y su intervalo tiene que recoger la incertidumbre de esa
+    # prevalencia: se remuestrea sin estratificar, como la AP (re-auditoría del 26-10, N1). Con el
+    # transporte, cada remuestra conservaba el número de eventos y el intervalo salía ~25 % más estrecho.
+    tabla = tabla_de_umbrales(muestra, umbrales=[trabajo], prevalencia=None, **ctx.comun)
     fila = tabla.filas[0]
+    if ctx.representa and prevalencia is not None:
+        vpp = medir("ppv", muestra, umbral=trabajo, **ctx.comun, estratificar=False)
+        vpn = medir("npv", muestra, umbral=trabajo, **ctx.comun, estratificar=False)
+    else:
+        vpp, vpn = fila.ppv, fila.npv
     salida: dict[str, Any] = {
         "declarado": True, "umbral": decl.umbral, "umbral_en_la_escala_medida": trabajo,
         "regla_de_aviso": "mayor_o_igual" if decl.mas_alto else "menor_o_igual",
@@ -989,10 +1084,10 @@ def _al_umbral(decl: DeclaracionDePuntuacion, muestra: Muestra, ctx: _Contexto,
         "matriz": {"tp": fila.tp, "fp": fila.fp, "fn": fila.fn, "tn": fila.tn},
         "sensibilidad": _metrica(fila.sensibilidad),
         "especificidad": _metrica(fila.especificidad),
-        "vpp": _metrica(fila.ppv), "vpn": _metrica(fila.npv),
+        "vpp": _metrica(vpp), "vpn": _metrica(vpn),
         "prevalencia_de_la_muestra": tabla.prevalencia_observada,
-        "prevalencia_declarada": tabla.prevalencia_declarada,
-        "nota": (motivo("ic_con_la_prevalencia_fija", valor=cifra(prevalencia or 0.0,
+        "prevalencia_declarada": prevalencia if ctx.representa else None,
+        "nota": (motivo("vpp_vpn_de_la_muestra", valor=cifra(prevalencia or 0.0,
                                                                   porcentaje=True))
                  if ctx.representa and prevalencia is not None else None),
     }
@@ -1120,6 +1215,22 @@ def _subgrupos(decl: DeclaracionDePuntuacion, muestra: Muestra,
 # La función pública
 # ---------------------------------------------------------------------------
 
+def validar_umbrales_de_decision(umbrales: Any) -> list[float]:
+    """Los umbrales de la curva de decisión tal como los admite esta evaluación: una lista de
+    probabilidades en [0, 1), sin repetir (también para una columna en %). Vacía = no se
+    declararon (como siempre). Lo que no lo es levanta `EvaluacionRechazada` con su motivo.
+    Pública para que quien traduce una petición (el backend del Studio) rechace con LA MISMA
+    regla antes de empezar a calcular."""
+    if isinstance(umbrales, (str, bytes, dict)) or not hasattr(umbrales, "__iter__"):
+        raise EvaluacionRechazada("umbrales_de_decision_invalidos", valor=repr(umbrales))
+    lista = list(umbrales)
+    ok = all(not isinstance(u, bool) and isinstance(u, (int, float)) and math.isfinite(u)
+             and 0 <= u < 1 for u in lista) and len(set(lista)) == len(lista)
+    if not ok:
+        raise EvaluacionRechazada("umbrales_de_decision_invalidos", valor=repr(lista))
+    return [float(u) for u in lista]
+
+
 def evaluar_puntuacion(
         csv_contenido: bytes | str, *, columna_desenlace: str, valor_del_evento: str,
         puntuaciones: Sequence[DeclaracionDePuntuacion], muestra_representativa: bool,
@@ -1217,12 +1328,7 @@ def _evaluar_puntuacion(
         raise EvaluacionRechazada("declaracion_fuera_del_vocabulario", campo="semilla",
                                   opciones="un entero", valor=repr(semilla))
     if umbrales_de_decision is not None:
-        lista = list(umbrales_de_decision)
-        ok = all(not isinstance(u, bool) and isinstance(u, (int, float)) and 0 <= u < 1
-                 for u in lista) and len(set(lista)) == len(lista)
-        if not ok:
-            raise EvaluacionRechazada("umbrales_de_decision_invalidos", valor=repr(lista))
-        umbrales_de_decision = [float(u) for u in lista]
+        umbrales_de_decision = validar_umbrales_de_decision(umbrales_de_decision)
     if clave is not None and not creado_en:
         raise EvaluacionRechazada("recibo_sin_fecha")
 
@@ -1364,7 +1470,9 @@ def _evaluar_puntuacion(
         kw = ctx.comun
         with avance.tramo("intervalos", remuestras * plan[k]["intervalos"]):
             auroc = medir("auroc", muestra, **kw)
-            promedio = medir("average_precision", muestra, **kw)
+            # La AP también depende de la prevalencia (la del azar ES la prevalencia): sin
+            # estratificar. El AUROC es condicional al desenlace y sigue estratificado.
+            promedio = medir("average_precision", muestra, **kw, estratificar=False)
         if auroc.value is not None and auroc.value < 0.5:
             avisos_k.append(_aviso("direccion_posiblemente_mal_declarada", campo=d.columna,
                                    valor=cifra(auroc.value)))
