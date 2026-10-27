@@ -38,55 +38,55 @@ sostenerlos, se reducen con un `Limite` declarado; con menos de 2 grupos
 en desarrollo, el diseño es un `Bloqueo`: no hay con qué separar
 desarrollo de una prueba que generalice a unidades nuevas.
 
-FUERA DE ESTE CORTE, CON SU MOTIVO. La validación cruzada temporal
-"rodante" (rolling-origin/expanding window) no se implementa: `temporal` y
-`groups_and_time` producen UN solo corte desarrollo/prueba, sin rotación
-de pliegues dentro de desarrollo — mezclar tiempo con k-fold shuffling
-sería fingir independencia donde el diseño declara que no la hay
-(105-C2, invariante 5, el mismo principio aplicado aquí). La
-estratificación de `groups` por clase (equilibrar la clase minoritaria
-entre pliegues de grupos, no solo el número de filas) tampoco: el criterio
-la declara condicional («solo cuando sea compatible»), y una heurística
-combinatoria a medias sería peor que no tenerla.
+140-C1 — GRUPOS Y TIEMPO DE VERDAD. Lo que el 103-C4 dejó fuera, con su motivo,
+entra ahora (contrato 140, decisiones D1 y D2 de Roberto, 27-10-2026):
+
+- `temporal` da PLIEGUES: ventana que se expande con hueco
+  (`particion_por_diseno_tiempo`). `entrena` sale ordenado por tiempo, las filas
+  del mismo instante nunca quedan a los dos lados de un corte, el pliegue 0 es el
+  más reciente y `repeats` se fija a 1 (declarado). El primer bloque solo entrena:
+  la propuesta dice cuántas filas de desarrollo no tienen validación fuera de
+  pliegue (`cobertura.filas_sin_validacion`).
+- `groups` reparte la CLASE entre grupos, sin partir ninguno
+  (`particion_por_diseno_grupos`), y con la guarda de D2: «repartir la clase
+  entre grupos; si no cabe, bajar el número de pliegues hasta 2 y decirlo; si ni
+  así, rechazar el estudio con los números». Lo mismo para la prueba reservada y
+  para `temporal`: nunca una sola clase en silencio.
+- El tiempo llega como lo trae la gente: texto del CSV (con `fechas.py`; las
+  fechas ambiguas se RECHAZAN), `datetime` o número, y el `gap` como el `dict` del
+  JSON o un `Horizonte`.
+- `iid` NO cambia (bit a bit, con prueba que lo compara con el código anterior)
+  y `groups_and_time` tampoco: sigue dando un solo corte sin pliegues, fuera de
+  este corte (140b) porque su definición no sirve para paneles (medido).
+- Sin objetivo de clasificación (regresión) o con una sola clase, `groups` reparte
+  como siempre (por grupos barajados) y lo declara si había una sola clase.
 """
 
 from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from datetime import date, datetime
 from typing import Any, Mapping, Sequence
 
 from matrixai.estudio import Horizonte, SplitPlan
 from matrixai.estudio.validacion import digest_canonico
 from matrixai.training.diagnostico import Bloqueo, Limite
+from matrixai.training.particion_por_diseno_comun import BloqueoConNumeros, Rechazo
+from matrixai.training.particion_por_diseno_grupos import repartir_grupos_estratificado
 from matrixai.training.particion_por_diseno_textos import motivo
+from matrixai.training.particion_por_diseno_tiempo import (
+    convertir_gap, convertir_tiempos, elegir_ventana, segundos_de)
 
 __all__ = [
-    "MINIMO_GRUPOS", "AsignacionDePliegues", "Pliegue", "PropuestaDeParticion",
-    "proponer_particion",
+    "MINIMO_GRUPOS", "AsignacionDePliegues", "CoberturaDePliegues", "Pliegue",
+    "PropuestaDeParticion", "proponer_particion",
 ]
 
 #: Con menos de 2 grupos en desarrollo no hay con qué separar desarrollo de
 #: una prueba que generalice a unidades nuevas.
 MINIMO_GRUPOS = 2
 
-_SEGUNDOS_POR_UNIDAD = {
-    "seconds": 1.0, "minutes": 60.0, "hours": 3600.0, "days": 86400.0,
-    "weeks": 604800.0, "months": 2629800.0, "years": 31557600.0,
-}
-
-
-def _segundos_de(horizonte: Horizonte) -> float:
-    return horizonte.magnitud * _SEGUNDOS_POR_UNIDAD[horizonte.unidad]
-
-
-def _como_epoch(valor: Any) -> float:
-    if isinstance(valor, datetime):
-        return valor.timestamp()
-    if isinstance(valor, date):
-        return datetime(valor.year, valor.month, valor.day).timestamp()
-    return float(valor)
+_segundos_de = segundos_de
 
 
 @dataclass(frozen=True)
@@ -124,11 +124,43 @@ class AsignacionDePliegues:
 
 
 @dataclass(frozen=True)
+class CoberturaDePliegues:
+    """Qué filas de desarrollo están en alguna `valida` (140-C1).
+
+    En `iid` y `groups` las `valida` de una repetición cubren TODO el
+    desarrollo. En `temporal` NO: el primer bloque solo entrena, así que sus
+    filas no tienen predicción fuera de pliegue. El backend (C2) lo declara
+    como `cobertura_fuera_de_pliegue`."""
+
+    filas_de_desarrollo: int
+    #: Los ids de desarrollo que no están en ninguna `valida` (la primera repetición).
+    ids_sin_validacion: tuple[str, ...]
+    #: Cuántas filas quitó el hueco de `entrena`, por pliegue (vacío si no hay hueco o no es `temporal`).
+    quitadas_por_el_hueco: tuple[int, ...] = ()
+
+    @property
+    def filas_sin_validacion(self) -> int:
+        return len(self.ids_sin_validacion)
+
+    @property
+    def filas_con_validacion(self) -> int:
+        return self.filas_de_desarrollo - len(self.ids_sin_validacion)
+
+    def a_json(self) -> dict[str, Any]:
+        return {"filas_de_desarrollo": self.filas_de_desarrollo,
+                "filas_con_validacion": self.filas_con_validacion,
+                "filas_sin_validacion": self.filas_sin_validacion,
+                "quitadas_por_el_hueco": list(self.quitadas_por_el_hueco)}
+
+
+@dataclass(frozen=True)
 class PropuestaDeParticion:
     plan: SplitPlan | None
     pliegues: AsignacionDePliegues | None
     bloqueos: tuple[Bloqueo, ...] = ()
     limites: tuple[Limite, ...] = ()
+    #: 140-C1. `None` si no hay pliegues (`groups_and_time`) o la propuesta no es viable.
+    cobertura: CoberturaDePliegues | None = None
 
     @property
     def es_viable(self) -> bool:
@@ -256,8 +288,25 @@ def proponer_particion(filas: Sequence[Mapping[str, Any]], *, plan_id: str,
 
     unidad_por_id = ({obs: str(fila[unit_id_field]) for obs, fila in internos.items()}
                      if unit_id_field else None)
-    tiempo_por_id = ({obs: _como_epoch(fila[time_column]) for obs, fila in internos.items()}
-                     if time_column else None)
+    # La cohorte externa también lleva su unidad en el plan (`SplitPlan` agrupado exige una por observación).
+    unidad_de_los_externos = ({obs: str(todos[obs][unit_id_field]) for obs in externos if obs in todos}
+                              if unit_id_field else {})
+    tiempo_por_id = None
+    es_fecha = True
+    if split_type in ("temporal", "groups_and_time"):
+        # 140-C1: el tiempo como lo trae la gente (texto del CSV, datetime, número) y el hueco como el dict
+        # del JSON. Lo que no se entiende es un Bloqueo con sus números, no una excepción de Python.
+        if not time_column:
+            return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(
+                Bloqueo(clave="falta_columna_de_tiempo", campo="time_column",
+                        motivo=motivo("falta_columna_de_tiempo", valor=split_type)),))
+        try:
+            gap = convertir_gap(gap)
+            convertido = convertir_tiempos({obs: fila.get(time_column) for obs, fila in internos.items()},
+                                           time_column)
+        except Rechazo as rechazo:
+            return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(rechazo.bloqueo(),))
+        tiempo_por_id, es_fecha = convertido.valores, convertido.es_fecha
     etiqueta_por_id = ({obs: fila[objetivo] for obs, fila in internos.items()}
                        if objetivo else None)
 
@@ -268,7 +317,8 @@ def proponer_particion(filas: Sequence[Mapping[str, Any]], *, plan_id: str,
                 Bloqueo(clave="grupos_insuficientes", campo="unit_id_field",
                        motivo=motivo("grupos_insuficientes", campo="unit_id_field", valor=n_grupos)),))
         return _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_field,
-                                test_fraction, seed, folds, repeats, etiqueta_por_id, unit_id_field)
+                                test_fraction, seed, folds, repeats, etiqueta_por_id, unit_id_field,
+                                unidad_de_los_externos)
 
     if split_type == "iid":
         return _proponer_iid(plan_id, internos, externos, observation_id_field,
@@ -276,7 +326,8 @@ def proponer_particion(filas: Sequence[Mapping[str, Any]], *, plan_id: str,
 
     if split_type == "temporal":
         return _proponer_temporal(plan_id, internos, externos, tiempo_por_id, observation_id_field,
-                                  test_fraction, gap, time_column)
+                                  test_fraction, gap, time_column, folds=folds, repeats=repeats,
+                                  seed=seed, etiqueta_por_id=etiqueta_por_id, es_fecha=es_fecha)
 
     if split_type == "groups_and_time":
         n_grupos = len(set(unidad_por_id.values())) if unidad_por_id else 0
@@ -331,14 +382,36 @@ def _proponer_iid(plan_id, internos, externos, observation_id_field, test_fracti
                            folds=folds, repeats=repeats, seed=seed)
     asignacion = AsignacionDePliegues(folds=pliegues_tupla[-1].pliegue + 1 if pliegues_tupla else folds,
                                       repeats=repeats, seed=seed, pliegues=pliegues_tupla)
-    return PropuestaDeParticion(plan=plan, pliegues=asignacion, limites=limites)
+    return PropuestaDeParticion(plan=plan, pliegues=asignacion, limites=limites,
+                                cobertura=_cobertura(desarrollo, asignacion))
+
+
+def _cobertura(desarrollo: Sequence[str], asignacion: AsignacionDePliegues,
+               quitadas: Sequence[int] = ()) -> CoberturaDePliegues:
+    primera = min((p.repeticion for p in asignacion.pliegues), default=0)
+    con_validacion = {o for p in asignacion.pliegues if p.repeticion == primera for o in p.valida}
+    return CoberturaDePliegues(
+        filas_de_desarrollo=len(desarrollo),
+        ids_sin_validacion=tuple(sorted(o for o in desarrollo if o not in con_validacion)),
+        quitadas_por_el_hueco=tuple(quitadas))
 
 
 def _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_field,
-                     test_fraction, seed, folds, repeats, etiqueta_por_id, unit_id_field):
+                     test_fraction, seed, folds, repeats, etiqueta_por_id, unit_id_field,
+                     unidad_de_los_externos=None):
     filas_por_unidad: dict[str, list[str]] = {}
     for obs in internos:
         filas_por_unidad.setdefault(unidad_por_id[obs], []).append(obs)
+    limites_previos: tuple[Limite, ...] = ()
+    if etiqueta_por_id:
+        clases = {etiqueta_por_id[obs] for obs in internos}
+        if len(clases) >= 2:
+            return _proponer_groups_estratificado(plan_id, internos, externos, unidad_por_id, filas_por_unidad,
+                                                  observation_id_field, test_fraction, seed, folds, repeats,
+                                                  etiqueta_por_id, unit_id_field, unidad_de_los_externos or {})
+        limites_previos = (Limite(clave="una_sola_clase_sin_guardas", campo="objetivo",
+                                  motivo=motivo("una_sola_clase_sin_guardas", campo="objetivo"),
+                                  medida={"clases": len(clases)}),)
     grupos = sorted(filas_por_unidad)
     azar = random.Random(f"{seed}:corte")
     azar.shuffle(grupos)
@@ -356,7 +429,7 @@ def _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_
 
     roles = {obs: ("test" if obs in prueba_set else "development") for obs in internos}
     roles.update({obs: "external_test" for obs in externos})
-    units = dict(unidad_por_id)
+    units = {**unidad_por_id, **(unidad_de_los_externos or {})}
 
     desarrollo = [obs for obs in internos if obs not in prueba_set]
     pliegues_tupla, limites = _kfold_groups(desarrollo, unidad_por_id, folds, repeats, seed)
@@ -365,11 +438,42 @@ def _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_
                            folds=folds, repeats=repeats, seed=seed)
     asignacion = AsignacionDePliegues(folds=pliegues_tupla[-1].pliegue + 1 if pliegues_tupla else folds,
                                       repeats=repeats, seed=seed, pliegues=pliegues_tupla)
-    return PropuestaDeParticion(plan=plan, pliegues=asignacion, limites=limites)
+    return PropuestaDeParticion(plan=plan, pliegues=asignacion, limites=limites_previos + limites,
+                                cobertura=_cobertura(desarrollo, asignacion))
+
+
+def _proponer_groups_estratificado(plan_id, internos, externos, unidad_por_id, filas_por_unidad,
+                                   observation_id_field, test_fraction, seed, folds, repeats,
+                                   etiqueta_por_id, unit_id_field, unidad_de_los_externos):
+    """`groups` con clasificación: la prueba y cada pliegue llevan TODAS las clases, sin partir
+    ninguna unidad (140-C1, D2)."""
+    try:
+        reparto = repartir_grupos_estratificado(
+            filas_por_unidad, etiqueta_por_id, folds=folds, test_fraction=test_fraction,
+            seed=seed, repeats=repeats, campo=unit_id_field)
+    except Rechazo as rechazo:
+        return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(rechazo.bloqueo(),))
+    prueba_set = {obs for grupo in reparto.grupos_de_prueba for obs in filas_por_unidad[grupo]}
+    roles = {obs: ("test" if obs in prueba_set else "development") for obs in internos}
+    roles.update({obs: "external_test" for obs in externos})
+    desarrollo = [obs for obs in internos if obs not in prueba_set]
+
+    pliegues: list[Pliegue] = []
+    for r, cubos in enumerate(reparto.cubos_por_repeticion):
+        cubos_de_filas = [[obs for grupo in cubo for obs in filas_por_unidad[grupo]] for cubo in cubos]
+        pliegues.extend(_pliegues_desde_cubos(cubos_de_filas, r))
+    plan = _plan_con_roles(plan_id, "groups", roles, observation_id_field,
+                           unit_id_field=unit_id_field, units={**unidad_por_id, **unidad_de_los_externos},
+                           folds=reparto.pliegues_usados, repeats=repeats, seed=seed)
+    asignacion = AsignacionDePliegues(folds=reparto.pliegues_usados, repeats=repeats, seed=seed,
+                                      pliegues=tuple(pliegues))
+    return PropuestaDeParticion(plan=plan, pliegues=asignacion, limites=reparto.limites,
+                                cobertura=_cobertura(desarrollo, asignacion))
 
 
 def _proponer_temporal(plan_id, internos, externos, tiempo_por_id, observation_id_field,
-                       test_fraction, gap, time_column):
+                       test_fraction, gap, time_column, *, folds=5, repeats=1, seed=0,
+                       etiqueta_por_id=None, es_fecha=True):
     ids = sorted(internos, key=lambda o: (tiempo_por_id[o], o))
     n = len(ids)
     corte_idx = n - round(n * test_fraction)
@@ -386,12 +490,57 @@ def _proponer_temporal(plan_id, internos, externos, tiempo_por_id, observation_i
 
     assert max(tiempo_por_id[o] for o in desarrollo) <= min(tiempo_por_id[o] for o in prueba)
 
+    limites: list[Limite] = []
+    clase_por_id = None
+    clases: list[Any] = []
+    if etiqueta_por_id:
+        clases = sorted({etiqueta_por_id[o] for o in internos}, key=str)
+        if len(clases) >= 2:
+            # D2: la prueba reservada (lo más reciente) no puede quedarse sin una clase en silencio.
+            en_prueba = {etiqueta_por_id[o] for o in prueba}
+            ausentes = [c for c in clases if c not in en_prueba]
+            if ausentes:
+                rara = ausentes[0]
+                return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(BloqueoConNumeros(
+                    clave="prueba_sin_una_clase", campo="objetivo",
+                    motivo=motivo("prueba_sin_una_clase", clase=str(rara), filas=len(prueba)),
+                    medida={"clase": str(rara), "filas_de_prueba": len(prueba),
+                            "clases_que_faltan": [str(c) for c in ausentes],
+                            "filas_de_prueba_por_clase": {str(c): sum(1 for o in prueba if etiqueta_por_id[o] == c)
+                                                          for c in clases}}),))
+            clase_por_id = {o: etiqueta_por_id[o] for o in desarrollo}
+        else:
+            limites.append(Limite(clave="una_sola_clase_sin_guardas", campo="objetivo",
+                                  motivo=motivo("una_sola_clase_sin_guardas", campo="objetivo"),
+                                  medida={"clases": len(clases)}))
+    if gap is not None and not es_fecha:
+        limites.append(Limite(clave="tiempo_numerico_sin_unidad", campo="time_column",
+                              motivo=motivo("tiempo_numerico_sin_unidad", campo=time_column),
+                              medida={"hueco_segundos": _segundos_de(gap)}))
+    if repeats > 1:
+        limites.append(Limite(clave="repeticiones_fijadas_a_1", campo="repeats",
+                              motivo=motivo("repeticiones_fijadas_a_1", opciones=repeats, valor=1),
+                              medida={"repeticiones_pedidas": repeats, "repeticiones_usadas": 1}))
+    try:
+        ventana, limites_de_la_ventana = elegir_ventana(
+            desarrollo, tiempo_por_id, folds=folds, gap=gap, clase_por_id=clase_por_id,
+            clases=clases if clase_por_id is not None else None, campo_de_tiempo=time_column)
+    except Rechazo as rechazo:
+        return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(rechazo.bloqueo(),))
+
     roles = {obs: "development" for obs in desarrollo}
     roles.update({obs: "test" for obs in prueba})
     roles.update({obs: "external_test" for obs in externos})
+    # La ventana no baraja nada: la semilla no decide el reparto. Va en el plan igualmente (como en los
+    # demás diseños): quien lee `plan.seed` no debe encontrarse un `None`.
     plan = _plan_con_roles(plan_id, "temporal", roles, observation_id_field,
-                           time_column=time_column, gap=gap)
-    return PropuestaDeParticion(plan=plan, pliegues=None)
+                           time_column=time_column, gap=gap, folds=ventana.folds, repeats=1, seed=seed)
+    pliegues = tuple(Pliegue(repeticion=0, pliegue=p, entrena=entrena, valida=valida)
+                     for p, (entrena, valida) in enumerate(ventana.pliegues))
+    asignacion = AsignacionDePliegues(folds=ventana.folds, repeats=1, seed=seed, pliegues=pliegues)
+    return PropuestaDeParticion(plan=plan, pliegues=asignacion,
+                                limites=tuple(limites) + limites_de_la_ventana,
+                                cobertura=_cobertura(desarrollo, asignacion, ventana.quitadas_por_el_hueco))
 
 
 def _proponer_groups_and_time(plan_id, internos, externos, unidad_por_id, tiempo_por_id,
