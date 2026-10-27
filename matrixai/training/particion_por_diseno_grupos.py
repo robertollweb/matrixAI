@@ -55,9 +55,13 @@ from matrixai.training.diagnostico import Limite
 from matrixai.training.particion_por_diseno_comun import Rechazo, clave_de_clase
 from matrixai.training.particion_por_diseno_textos import motivo
 
-__all__ = ["MINIMO_PLIEGUES", "ReparteGrupos", "repartir_cubos", "repartir_grupos_estratificado"]
+__all__ = ["MARGEN_RELATIVO_DE_LA_PRUEBA", "MINIMO_PLIEGUES", "ReparteGrupos", "repartir_cubos",
+           "repartir_grupos_estratificado"]
 
 MINIMO_PLIEGUES = 2
+#: Cuánto puede apartarse la fracción de prueba obtenida de la pedida, en relativo, sin declararlo (auditoría I1):
+#: con 0,2 pedido, de 0,1 a 0,3. Los grupos no se parten, así que alguna desviación es inevitable; más que esto se dice.
+MARGEN_RELATIVO_DE_LA_PRUEBA = 0.5
 #: Cuánto se desordena el tamaño de cada grupo al ordenarlos de grande a pequeño.
 _DESORDEN = 0.25
 
@@ -107,10 +111,19 @@ _GRANDE = 64
 
 
 def _cubrir(cuentas: Mapping[str, Mapping[Any, int]], clases: Sequence[Any], n_cubos: int,
-            azar: random.Random, excluidos: frozenset[str] = frozenset()) -> list[list[str]] | None:
+            azar: random.Random, excluidos: frozenset[str] = frozenset(),
+            capacidades: Sequence[float] | None = None) -> list[list[str]] | None:
     """Un grupo por pareja (cubo, clase) pendiente, de modo que CADA cubo tenga TODAS las clases;
-    `None` si no se encuentra. Búsqueda con vuelta atrás, la pareja con menos grupos libres primero."""
+    `None` si no se encuentra. Búsqueda con vuelta atrás, la pareja con menos grupos libres primero.
+
+    `capacidades` son las filas que le tocan a cada cubo. **Entre los grupos que traen la clase pendiente se
+    prefiere primero el que NO desborda el cubo** (auditoría I1, 27-10): sin esto se elegía el que traía más
+    clases nuevas, que en datos longitudinales es el sujeto más grande —el único con las dos clases—, y la
+    prueba, que se cubre la primera, salía del 60 % pedida al 20 %. El orden solo cambia qué se prueba antes:
+    la vuelta atrás encuentra un reparto igual si existe."""
     nombres = [g for g in sorted(cuentas) if g not in excluidos]
+    filas_de = {g: sum(cuentas[g].values()) for g in nombres}
+    lleno = [0.0] * n_cubos
     tamano = {g: sum(cuentas[g].values()) * (1.0 + _DESORDEN * azar.random()) for g in nombres}
     con_clase = {c: [g for g in nombres if cuentas[g].get(c)] for c in clases}
     libres = {c: len(con_clase[c]) for c in clases}
@@ -130,12 +143,15 @@ def _cubrir(cuentas: Mapping[str, Mapping[Any, int]], clases: Sequence[Any], n_c
             return False
         candidatos = [g for g in con_clase[c] if g not in asignado]
         nuevas = lambda g: sum(1 for k in cuentas[g] if k not in cubierto[b])   # noqa: E731
-        clave = lambda g: (-nuevas(g), tamano[g], g)                            # noqa: E731
+        desborda = (lambda g: max(0.0, lleno[b] + filas_de[g] - capacidades[b])) if capacidades is not None \
+            else (lambda g: 0.0)                                                # noqa: E731
+        clave = lambda g: (desborda(g), -nuevas(g), tamano[g], g)               # noqa: E731
         orden = sorted(candidatos, key=clave) if len(candidatos) <= _GRANDE \
             else heapq.nsmallest(_RAMAS_EN_GRANDE, candidatos, key=clave)
         for g in orden:
             anadidas = [k for k in cuentas[g] if k not in cubierto[b]]
             asignado[g] = b
+            lleno[b] += filas_de[g]
             cubierto[b].update(anadidas)
             for k in cuentas[g]:
                 libres[k] -= 1
@@ -144,6 +160,7 @@ def _cubrir(cuentas: Mapping[str, Mapping[Any, int]], clases: Sequence[Any], n_c
             for k in cuentas[g]:
                 libres[k] += 1
             cubierto[b].difference_update(anadidas)
+            lleno[b] -= filas_de[g]
             del asignado[g]
         return False
 
@@ -167,7 +184,8 @@ def repartir_cubos(cuentas: Mapping[str, Mapping[Any, int]], clases: Sequence[An
     tablero = _Tablero(objetivos)
     libres = set(cuentas)
     if previos is None:
-        previos = _cubrir(cuentas, clases, tablero.n, azar) if cubrir else [[] for _ in objetivos]
+        previos = (_cubrir(cuentas, clases, tablero.n, azar, capacidades=[sum(o.values()) for o in objetivos])
+                   if cubrir else [[] for _ in objetivos])
         if previos is None:
             return None
     for cubo, grupos in enumerate(previos):
@@ -220,7 +238,9 @@ def _intentar(cuentas: Mapping[str, Mapping[Any, int]], clases: Sequence[Any], k
     if test_fraction > 0:
         # Un reparto que cubre la prueba y los `k` pliegues A LA VEZ: la prueba se lleva sus grupos y NO
         # toca los de los pliegues, así que a desarrollo le queda con qué cubrirlos en cada repetición.
-        cubierta = _cubrir(cuentas, clases, k + 1, random.Random(f"{seed}:corte"))
+        filas = sum(total.values())
+        cubierta = _cubrir(cuentas, clases, k + 1, random.Random(f"{seed}:corte"),
+                           capacidades=[filas * test_fraction] + [filas * (1 - test_fraction) / k] * k)
         if cubierta is None:
             return None
         grupos_de_prueba = _llenar_la_prueba(cuentas, clases, total, test_fraction, cubierta,
@@ -258,6 +278,29 @@ def _llenar_la_prueba(cuentas, clases, total, test_fraction, cubierta, azar) -> 
     return tablero.grupos[0]
 
 
+def _limite_de_fraccion(cuentas: Mapping[str, Mapping[Any, int]], grupos_de_prueba: Sequence[str],
+                        test_fraction: float, campo: str) -> tuple[Limite, ...]:
+    """Un `Limite` si la prueba se aparta de la fracción pedida más del margen (auditoría I1)."""
+    if test_fraction <= 0 or not grupos_de_prueba:
+        return ()
+    filas = sum(sum(c.values()) for c in cuentas.values())
+    en_prueba = sum(sum(cuentas[g].values()) for g in grupos_de_prueba)
+    obtenida = en_prueba / filas
+    if abs(obtenida - test_fraction) <= MARGEN_RELATIVO_DE_LA_PRUEBA * test_fraction:
+        return ()
+    mayor = max(grupos_de_prueba, key=lambda g: (sum(cuentas[g].values()), g))
+    medida = {"fraccion_pedida": test_fraction, "fraccion_obtenida": round(obtenida, 4),
+              "filas_de_prueba": en_prueba, "filas": filas, "grupos_de_prueba": len(grupos_de_prueba),
+              "mayor_grupo_de_prueba": mayor, "filas_del_mayor_grupo_de_prueba": sum(cuentas[mayor].values()),
+              "margen_relativo": MARGEN_RELATIVO_DE_LA_PRUEBA}
+    return (Limite(clave="fraccion_de_prueba_desviada", campo="unit_id_field",
+                   motivo=motivo("fraccion_de_prueba_desviada", campo=campo,
+                                 opciones=f"{100 * test_fraction:g}", valor=f"{100 * obtenida:.1f}",
+                                 n=en_prueba, partes=filas, grupo=mayor,
+                                 minimo=sum(cuentas[mayor].values())),
+                   medida=medida),)
+
+
 def repartir_grupos_estratificado(filas_por_unidad: Mapping[str, Sequence[str]],
                                   clase_por_id: Mapping[str, Any], *, folds: int,
                                   test_fraction: float, seed: int, repeats: int,
@@ -284,8 +327,10 @@ def repartir_grupos_estratificado(filas_por_unidad: Mapping[str, Sequence[str]],
             ultimo_motivo = ("conteo", min(faltan, key=lambda c: (grupos_con[c], str(c)))) if faltan \
                 else ("reparto", la_rara())
             continue
+        desvio = _limite_de_fraccion(cuentas, resultado.grupos_de_prueba, test_fraction, campo)
         if k == pedidos:
-            return resultado
+            return ReparteGrupos(resultado.pliegues_usados, resultado.grupos_de_prueba,
+                                 resultado.cubos_por_repeticion, desvio)
         causa, clase = ultimo_motivo   # lo que impidió k + 1
         medida = {"pliegues_pedidos": pedidos, "pliegues_usados": k, "clase": clave_de_clase(clase),
                   "grupos_con_la_clase": grupos_con[clase], "grupos_necesarios": pedidos + partes_extra,
@@ -297,7 +342,7 @@ def repartir_grupos_estratificado(filas_por_unidad: Mapping[str, Sequence[str]],
                                       n=grupos_con[clase], partes=pedidos + partes_extra),
                         medida=medida)
         return ReparteGrupos(resultado.pliegues_usados, resultado.grupos_de_prueba,
-                             resultado.cubos_por_repeticion, (limite,))
+                             resultado.cubos_por_repeticion, (limite,) + desvio)
 
     clase = la_rara()
     minimo = MINIMO_PLIEGUES + partes_extra

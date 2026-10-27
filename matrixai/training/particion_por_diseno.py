@@ -72,7 +72,8 @@ from matrixai.estudio import Horizonte, SplitPlan
 from matrixai.estudio.validacion import digest_canonico
 from matrixai.training.diagnostico import Bloqueo, Limite
 from matrixai.training.particion_por_diseno_comun import BloqueoConNumeros, Rechazo
-from matrixai.training.particion_por_diseno_grupos import repartir_grupos_estratificado
+from matrixai.training.particion_por_diseno_grupos import (
+    MARGEN_RELATIVO_DE_LA_PRUEBA, _limite_de_fraccion, repartir_grupos_estratificado)
 from matrixai.training.particion_por_diseno_textos import motivo
 from matrixai.training.particion_por_diseno_tiempo import (
     convertir_gap, convertir_tiempos, elegir_ventana, segundos_de)
@@ -85,6 +86,9 @@ __all__ = [
 #: Con menos de 2 grupos en desarrollo no hay con qué separar desarrollo de
 #: una prueba que generalice a unidades nuevas.
 MINIMO_GRUPOS = 2
+#: `groups` sin guardas de clase: la prueba no se lleva tantos grupos que a desarrollo le queden menos que estos
+#: (con 1 no hay dos pliegues que no compartan sujeto). Auditoría I5.
+_MINIMO_GRUPOS_EN_DESARROLLO = 2
 
 _segundos_de = segundos_de
 
@@ -307,10 +311,43 @@ def proponer_particion(filas: Sequence[Mapping[str, Any]], *, plan_id: str,
         except Rechazo as rechazo:
             return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(rechazo.bloqueo(),))
         tiempo_por_id, es_fecha = convertido.valores, convertido.es_fecha
+        if (split_type == "temporal" and gap is not None and not es_fecha and gap.magnitud > 0
+                and gap.unidad != "seconds"):
+            # Auditoría I4: un hueco en días o años sobre una columna que se lee como NÚMERO (`2000`, `20240131`)
+            # se aplicaba como segundos y el corte salía con un `cronologia_no_se_pudo_separar` que no decía por
+            # qué. Se decide ANTES de cortar. `AAAAMMDD` sigue siendo un número (lo decide `fechas.py`, que leen
+            # también la confirmación y la preparación); sin hueco, un tiempo numérico ordena como siempre.
+            ejemplos = sorted({str(fila.get(time_column)) for fila in internos.values()})[:3]
+            return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(BloqueoConNumeros(
+                clave="hueco_en_tiempo_numerico", campo="gap",
+                motivo=motivo("hueco_en_tiempo_numerico", campo=time_column, valor=f"{gap.magnitud:g} {gap.unidad}",
+                              ejemplos=", ".join(ejemplos)),
+                medida={"columna": time_column, "magnitud_del_hueco": gap.magnitud, "unidad_del_hueco": gap.unidad,
+                        "ejemplos": ejemplos}),))
     etiqueta_por_id = ({obs: fila[objetivo] for obs, fila in internos.items()}
                        if objetivo else None)
 
+    if split_type in ("groups", "groups_and_time") and unit_id_field:
+        # Auditoría M1: una unidad vacía llegaba a `SplitPlan` y salía un `EsquemaInvalido` («units.0 must be a
+        # non-empty string»). Una fila sin sujeto no se puede poner a un lado ni a otro sin adivinar de quién es.
+        vacias = sum(1 for obs in todos if str(todos[obs].get(unit_id_field)).strip() == "")
+        if vacias:
+            return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(BloqueoConNumeros(
+                clave="unidad_vacia", campo="unit_id_field",
+                motivo=motivo("unidad_vacia", campo=unit_id_field, valor=vacias, n=len(todos)),
+                medida={"columna": unit_id_field, "filas_sin_unidad": vacias, "filas": len(todos)}),))
+
     if split_type == "groups":
+        compartidas = sorted(set(unidad_de_los_externos.values()) & set(unidad_por_id.values())) if unidad_por_id else []
+        if compartidas:
+            # Auditoría M1: el mismo sujeto en la cohorte externa y dentro dejaba a `SplitPlan` lanzar un
+            # `EsquemaInvalido`. La cohorte externa mide a sujetos que el modelo no ha visto: si comparte uno, no lo es.
+            return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(BloqueoConNumeros(
+                clave="cohorte_externa_comparte_unidad", campo="unit_id_field",
+                motivo=motivo("cohorte_externa_comparte_unidad", campo=unit_id_field, valor=len(compartidas),
+                              ejemplos=", ".join(compartidas[:3])),
+                medida={"columna": unit_id_field, "unidades_compartidas": len(compartidas),
+                        "ejemplos": compartidas[:3]}),))
         n_grupos = len(set(unidad_por_id.values())) if unidad_por_id else 0
         if n_grupos < MINIMO_GRUPOS:
             return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(
@@ -318,7 +355,7 @@ def proponer_particion(filas: Sequence[Mapping[str, Any]], *, plan_id: str,
                        motivo=motivo("grupos_insuficientes", campo="unit_id_field", valor=n_grupos)),))
         return _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_field,
                                 test_fraction, seed, folds, repeats, etiqueta_por_id, unit_id_field,
-                                unidad_de_los_externos)
+                                unidad_de_los_externos, columna_objetivo=objetivo)
 
     if split_type == "iid":
         return _proponer_iid(plan_id, internos, externos, observation_id_field,
@@ -327,7 +364,8 @@ def proponer_particion(filas: Sequence[Mapping[str, Any]], *, plan_id: str,
     if split_type == "temporal":
         return _proponer_temporal(plan_id, internos, externos, tiempo_por_id, observation_id_field,
                                   test_fraction, gap, time_column, folds=folds, repeats=repeats,
-                                  seed=seed, etiqueta_por_id=etiqueta_por_id, es_fecha=es_fecha)
+                                  seed=seed, etiqueta_por_id=etiqueta_por_id, es_fecha=es_fecha,
+                                  columna_objetivo=objetivo)
 
     if split_type == "groups_and_time":
         n_grupos = len(set(unidad_por_id.values())) if unidad_por_id else 0
@@ -372,6 +410,8 @@ def _proponer_iid(plan_id, internos, externos, observation_id_field, test_fracti
         azar.shuffle(barajados)
         corte = round(len(barajados) * test_fraction)
         prueba = barajados[:corte]
+    if not prueba:
+        return _sin_prueba(test_fraction, len(ids))
     prueba_set = set(prueba)
     roles = {obs: ("test" if obs in prueba_set else "development") for obs in ids}
     roles.update({obs: "external_test" for obs in externos})
@@ -386,6 +426,15 @@ def _proponer_iid(plan_id, internos, externos, observation_id_field, test_fracti
                                 cobertura=_cobertura(desarrollo, asignacion))
 
 
+def _sin_prueba(test_fraction: float, filas: int) -> PropuestaDeParticion:
+    """Auditoría M1: una prueba reservada vacía (`test_fraction` 0, o tan pequeña que no llega a una fila) llegaba a
+    `SplitPlan` y salía un `EsquemaInvalido` que hablaba de `evaluacion_anidada`."""
+    return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(BloqueoConNumeros(
+        clave="sin_prueba_reservada", campo="test_fraction",
+        motivo=motivo("sin_prueba_reservada", opciones=f"{test_fraction:g}", n=filas),
+        medida={"fraccion_pedida": test_fraction, "filas": filas}),))
+
+
 def _cobertura(desarrollo: Sequence[str], asignacion: AsignacionDePliegues,
                quitadas: Sequence[int] = ()) -> CoberturaDePliegues:
     primera = min((p.repeticion for p in asignacion.pliegues), default=0)
@@ -398,10 +447,12 @@ def _cobertura(desarrollo: Sequence[str], asignacion: AsignacionDePliegues,
 
 def _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_field,
                      test_fraction, seed, folds, repeats, etiqueta_por_id, unit_id_field,
-                     unidad_de_los_externos=None):
+                     unidad_de_los_externos=None, columna_objetivo=None):
     filas_por_unidad: dict[str, list[str]] = {}
     for obs in internos:
         filas_por_unidad.setdefault(unidad_por_id[obs], []).append(obs)
+    if test_fraction <= 0:
+        return _sin_prueba(test_fraction, len(internos))
     limites_previos: tuple[Limite, ...] = ()
     if etiqueta_por_id:
         clases = {etiqueta_por_id[obs] for obs in internos}
@@ -410,7 +461,7 @@ def _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_
                                                   observation_id_field, test_fraction, seed, folds, repeats,
                                                   etiqueta_por_id, unit_id_field, unidad_de_los_externos or {})
         limites_previos = (Limite(clave="una_sola_clase_sin_guardas", campo="objetivo",
-                                  motivo=motivo("una_sola_clase_sin_guardas", campo="objetivo"),
+                                  motivo=motivo("una_sola_clase_sin_guardas", campo=columna_objetivo or "objetivo"),
                                   medida={"clases": len(clases)}),)
     grupos = sorted(filas_por_unidad)
     azar = random.Random(f"{seed}:corte")
@@ -418,14 +469,54 @@ def _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_
 
     n_total = len(internos)
     objetivo_prueba = round(n_total * test_fraction)
+    if objetivo_prueba == 0:
+        return _sin_prueba(test_fraction, n_total)
+    minimo_de_grupos = 1 + _MINIMO_GRUPOS_EN_DESARROLLO
+    if len(grupos) < minimo_de_grupos:
+        # Auditoría I5 (heredado de la 139): con 2 grupos la prueba se lleva uno y a desarrollo le queda uno (o
+        # ninguno): pliegues vacíos y una propuesta «viable» que no valida nada.
+        pedidos = max(2, folds)
+        return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(BloqueoConNumeros(
+            clave="grupos_insuficientes_para_prueba_y_pliegues", campo="unit_id_field",
+            motivo=motivo("grupos_insuficientes_para_prueba_y_pliegues", campo=unit_id_field, valor=len(grupos),
+                          opciones=pedidos, partes=pedidos + 1, minimo=minimo_de_grupos),
+            medida={"grupos": len(grupos), "pliegues_pedidos": pedidos,
+                    "grupos_necesarios_con_los_pedidos": pedidos + 1,
+                    "grupos_necesarios_con_2_pliegues": minimo_de_grupos}),))
     prueba: list[str] = []
     grupos_prueba: list[str] = []
+    recortada = False
+    tope_prueba = objetivo_prueba * (1 + MARGEN_RELATIVO_DE_LA_PRUEBA)
     for grupo in grupos:
         if len(prueba) >= objetivo_prueba:
             break
+        if len(grupos) - len(grupos_prueba) <= _MINIMO_GRUPOS_EN_DESARROLLO:
+            # Auditoría I5: el grupo siguiente dejaría a desarrollo con menos de 2 grupos (pliegues vacíos). Solo
+            # pasa donde la 139 daba un reparto inservible; lo que funcionaba sale bit a bit igual.
+            recortada = True
+            break
+        if len(prueba) + len(filas_por_unidad[grupo]) > tope_prueba:
+            # Supervisor, 27-10 (la auditoría lo vio en la ruta estratificada; aquí, en regresión, seguía): un
+            # sujeto enorme no entra en la prueba si la desborda más del margen; se prueba con los siguientes.
+            continue
         prueba.extend(filas_por_unidad[grupo])
         grupos_prueba.append(grupo)
+    if not prueba and not recortada:
+        # Ningún grupo cabe en el margen: el más pequeño (y el `Limite` de abajo lo dice).
+        menor = min(enumerate(grupos), key=lambda par: (len(filas_por_unidad[par[1]]), par[0]))[1]
+        prueba.extend(filas_por_unidad[menor])
+        grupos_prueba.append(menor)
+    limites_previos += _limite_de_fraccion({g: {"filas": len(filas_por_unidad[g])} for g in grupos},
+                                           grupos_prueba, test_fraction, unit_id_field)
     prueba_set = set(prueba)
+    if recortada:
+        limites_previos += (Limite(
+            clave="prueba_recortada_para_dejar_grupos", campo="unit_id_field",
+            motivo=motivo("prueba_recortada_para_dejar_grupos", campo=unit_id_field, valor=len(prueba),
+                          n=objetivo_prueba, partes=len(grupos), minimo=_MINIMO_GRUPOS_EN_DESARROLLO),
+            medida={"grupos": len(grupos), "grupos_de_prueba": len(grupos_prueba),
+                    "grupos_en_desarrollo": len(grupos) - len(grupos_prueba), "filas_de_prueba": len(prueba),
+                    "filas_de_prueba_pedidas": objetivo_prueba, "filas": n_total}),)
 
     roles = {obs: ("test" if obs in prueba_set else "development") for obs in internos}
     roles.update({obs: "external_test" for obs in externos})
@@ -473,7 +564,7 @@ def _proponer_groups_estratificado(plan_id, internos, externos, unidad_por_id, f
 
 def _proponer_temporal(plan_id, internos, externos, tiempo_por_id, observation_id_field,
                        test_fraction, gap, time_column, *, folds=5, repeats=1, seed=0,
-                       etiqueta_por_id=None, es_fecha=True):
+                       etiqueta_por_id=None, es_fecha=True, columna_objetivo=None):
     ids = sorted(internos, key=lambda o: (tiempo_por_id[o], o))
     n = len(ids)
     corte_idx = n - round(n * test_fraction)
@@ -511,7 +602,7 @@ def _proponer_temporal(plan_id, internos, externos, tiempo_por_id, observation_i
             clase_por_id = {o: etiqueta_por_id[o] for o in desarrollo}
         else:
             limites.append(Limite(clave="una_sola_clase_sin_guardas", campo="objetivo",
-                                  motivo=motivo("una_sola_clase_sin_guardas", campo="objetivo"),
+                                  motivo=motivo("una_sola_clase_sin_guardas", campo=columna_objetivo or "objetivo"),
                                   medida={"clases": len(clases)}))
     if gap is not None and not es_fecha:
         limites.append(Limite(clave="tiempo_numerico_sin_unidad", campo="time_column",
@@ -524,7 +615,8 @@ def _proponer_temporal(plan_id, internos, externos, tiempo_por_id, observation_i
     try:
         ventana, limites_de_la_ventana = elegir_ventana(
             desarrollo, tiempo_por_id, folds=folds, gap=gap, clase_por_id=clase_por_id,
-            clases=clases if clase_por_id is not None else None, campo_de_tiempo=time_column)
+            clases=clases if clase_por_id is not None else None, campo_de_tiempo=time_column,
+            tiempo_original={o: internos[o].get(time_column) for o in desarrollo})
     except Rechazo as rechazo:
         return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(rechazo.bloqueo(),))
 

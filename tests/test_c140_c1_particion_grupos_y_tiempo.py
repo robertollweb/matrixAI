@@ -78,6 +78,19 @@ def _firma(r):
             [x.a_json() for x in r.limites], [b.a_json() for b in r.bloqueos], r.es_viable)
 
 
+def _fraccion_de_prueba(r) -> float:
+    roles = list(r.plan.assignments.values())
+    internos = [x for x in roles if x != "external_test"]
+    return sum(x == "test" for x in internos) / len(internos)
+
+
+def _desborda_la_prueba(r, test_fraction: float) -> bool:
+    """Supervisor, 27-10: la 139 dejaba que un sujeto enorme se llevara la prueba (74 % en vez de 20 % en regresión).
+    Eso ya no se conserva bit a bit: es el margen de `MARGEN_RELATIVO_DE_LA_PRUEBA`."""
+    from matrixai.training.particion_por_diseno_grupos import MARGEN_RELATIVO_DE_LA_PRUEBA
+    return abs(_fraccion_de_prueba(r) - test_fraction) > MARGEN_RELATIVO_DE_LA_PRUEBA * test_fraction
+
+
 @pytest.mark.parametrize("semilla", [0, 1, 7, 42])
 @pytest.mark.parametrize("n", [30, 200, 1000])
 @pytest.mark.parametrize("clases", [["si"] * 9 + ["no"], ["a", "b", "c"], [None]])   # desbalanceada, multiclase, regresión
@@ -212,8 +225,8 @@ def test_sklearn_TimeSeriesSplit_como_oraculo_sin_hueco():
 
 
 def test_sklearn_TimeSeriesSplit_como_oraculo_con_hueco():
-    """`gap=2` de sklearn quita las 2 filas anteriores; nuestro hueco quita las que están a MENOS de 3 días:
-    con una fila por día, las mismas dos."""
+    """`gap=3` de sklearn quita las 3 filas anteriores; nuestro hueco quita las que están a 3 días O MENOS (frontera
+    estricta, auditoría M2): con una fila por día, las mismas tres."""
     from sklearn.model_selection import TimeSeriesSplit    # noqa: PLC0415
     np = pytest.importorskip("numpy")
     r = _temporal(_dias(61), folds=5, gap={"magnitud": 3, "unidad": "days"})
@@ -221,7 +234,7 @@ def test_sklearn_TimeSeriesSplit_como_oraculo_con_hueco():
     # con hueco el corte desarrollo/prueba también deja 3 días: se compara sobre el desarrollo que salió
     # (61 días → 48 filas de desarrollo, divisible por 6 como pide la partición de sklearn)
     assert len(desarrollo) == 48
-    oraculo = list(TimeSeriesSplit(n_splits=5, gap=2).split(np.arange(len(desarrollo))))
+    oraculo = list(TimeSeriesSplit(n_splits=5, gap=3).split(np.arange(len(desarrollo))))
     for k, (entrena, valida) in enumerate(oraculo):
         ours = r.pliegues.pliegue_de(0, 4 - k)
         assert set(ours.valida) == {desarrollo[i] for i in valida}
@@ -251,20 +264,20 @@ def test_filas_con_el_mismo_instante_nunca_quedan_a_los_dos_lados_de_un_corte():
     assert max(tamanos) - min(tamanos) <= 3
 
 
-def test_el_hueco_quita_de_entrena_las_filas_a_menos_de_gap_del_inicio_de_valida():
+def test_el_hueco_quita_de_entrena_las_filas_a_gap_o_menos_del_inicio_de_valida():
     filas = _dias(100)
     r = _temporal(filas, folds=5, gap={"magnitud": 5, "unidad": "days"})
     assert r.es_viable
     dia = {f["id"]: BASE + timedelta(days=int(f["id"][1:])) for f in filas}      # el id r0NN = día NN
     for pl in r.pliegues.pliegues:
         inicio = min(dia[o] for o in pl.valida)
-        # lo que entrena está a 5 días o más del inicio de la validación…
-        assert max(dia[o] for o in pl.entrena) <= inicio - timedelta(days=5)
-        # …y las 4 filas de los 4 días justo anteriores (distancia 1-4... y la de 5 sí, la de <5 no) se quitaron
-        quitadas = [o for o in dia if inicio - timedelta(days=5) < dia[o] < inicio and o in set(r.plan.assignments)
+        # lo que entrena está a MÁS de 5 días del inicio de la validación (frontera estricta, auditoría M2)…
+        assert max(dia[o] for o in pl.entrena) < inicio - timedelta(days=5)
+        # …y las 5 filas de los 5 días justo anteriores (distancia 1-5; la de 5 justos también) se quitaron
+        quitadas = [o for o in dia if inicio - timedelta(days=5) <= dia[o] < inicio and o in set(r.plan.assignments)
                     and r.plan.assignments[o] == "development"]
-        assert len(quitadas) == 4 and not (set(quitadas) & set(pl.entrena))
-    assert r.cobertura.quitadas_por_el_hueco == (4, 4, 4, 4, 4)
+        assert len(quitadas) == 5 and not (set(quitadas) & set(pl.entrena))
+    assert r.cobertura.quitadas_por_el_hueco == (5, 5, 5, 5, 5)
     # entre desarrollo y prueba, también
     ultimo_dev = max(dia[o] for o in _ids_de(r, "development"))
     primero_prueba = min(dia[o] for o in _ids_de(r, "test"))
@@ -450,7 +463,9 @@ def test_menos_de_3_instantes_en_desarrollo_se_rechaza_con_los_numeros():
 
 
 def test_un_hueco_que_deja_sin_entrenamiento_al_pliegue_mas_antiguo_reduce_pliegues():
-    r = _temporal(_dias(100), folds=5, gap={"magnitud": 14, "unidad": "days"})
+    # 13 días con la frontera estricta (auditoría M2) es el mismo caso que 14 con la de antes: con 14, el pliegue más
+    # antiguo de 4 entrenaría con un solo día (un «pos») y la guarda de clase lo bajaría a 3 por otra causa.
+    r = _temporal(_dias(100), folds=5, gap={"magnitud": 13, "unidad": "days"})
     assert r.es_viable
     (limite,) = [x for x in r.limites if x.clave == "pliegues_reducidos_por_hueco"]
     assert limite.medida["pliegues_pedidos"] == 5 and limite.medida["pliegues_usados"] == r.pliegues.folds == 4
@@ -879,7 +894,11 @@ def test_regresion_no_tiene_guardas_aunque_los_valores_sean_de_un_solo_sujeto():
     rng = random.Random(0)
     filas = [{"id": f"o{s}_{i}", "suj": f"s{s}", "v": rng.random()} for s in range(6) for i in range(4)]
     r = proponer_particion(filas, **_pide(split_type="groups", seed=1, unit_id_field="suj", objetivo=None, folds=5))
-    assert r.es_viable and r.limites[0].clave == "pliegues_reducidos_por_grupos"      # lo de siempre
+    # La regresión no tiene guardas de clase: ningún límite ni bloqueo habla de clases. (Antes afirmaba además
+    # `pliegues_reducidos_por_grupos`: con la 139 la prueba se llevaba 2 de 6 sujetos, el 33 % frente al 20 %
+    # pedido; con el margen se lleva 1 y a desarrollo le quedan 5, que dan los 5 pliegues.)
+    assert r.es_viable and not any("clase" in x.clave for x in (*r.limites, *r.bloqueos))
+    assert not _desborda_la_prueba(r, 0.2)
 
 
 def test_cohorte_externa_con_groups_estratificado_no_entra_en_ningun_pliegue():
@@ -1033,6 +1052,10 @@ _CLAVES_NUEVAS = (
     "bloques_sin_clase", "prueba_sin_una_clase", "pliegues_reducidos_por_clase_en_grupos", "clase_sin_grupos_suficientes",
     "clases_sin_reparto_por_grupos", "valida_con_una_sola_unidad", "valida_con_un_solo_instante", "mitad_sin_una_clase",
     "hueco_sin_filas_para_entrenar", "pliegues_reducidos_por_reparto_de_clases_en_grupos",
+    # reparación de la auditoría (27-10)
+    "fraccion_de_prueba_desviada", "entrena_sin_clase", "hueco_en_tiempo_numerico", "unidad_vacia",
+    "cohorte_externa_comparte_unidad", "sin_prueba_reservada", "grupos_insuficientes_para_prueba_y_pliegues",
+    "prueba_recortada_para_dejar_grupos",
 )
 
 
@@ -1043,3 +1066,275 @@ def test_cada_motivo_nuevo_se_compone_en_los_dos_idiomas_sin_huecos_sueltos(clav
     textos = motivo(clave, **{h: "XX" for h in huecos_de(MOTIVOS[clave]["es"])})
     for idioma in ("es", "en"):
         assert "XX" in textos[idioma] and "{" not in textos[idioma]
+
+
+# ---------------------------------------------------------------------------
+# Reparación de la auditoría independiente del C1 (27-10): cada prueba salió ROJA antes de su arreglo
+# ---------------------------------------------------------------------------
+
+def _gigante(filas_del_gigante):
+    """1000 filas: un sujeto `gigante` con las dos clases y 40 sujetos de una sola clase cada uno (8 «pos», 32 «neg»)."""
+    return [{"id": f"o{i:04d}", "suj": ("gigante" if i < filas_del_gigante else f"s{i % 40:02d}"),
+             "y": "pos" if i % 5 == 0 else "neg"} for i in range(1000)]
+
+
+@pytest.mark.parametrize("filas_del_gigante", [600, 400])
+def test_I1_un_sujeto_enorme_con_las_dos_clases_no_se_lleva_la_prueba(filas_del_gigante):
+    """Auditoría I1: la cobertura de clases ponía primero en la prueba el grupo que trae las dos clases —el más
+    grande—, y la prueba salía del 60 % (o del 40 %) en 10 semillas de 10, sin decir nada. Existe un reparto
+    cercano al 20 % (un sujeto «pos» entero y grupos «neg»): tiene que salir ese."""
+    filas = _gigante(filas_del_gigante)
+    gigante = {f["id"] for f in filas if f["suj"] == "gigante"}
+    for semilla in range(10):
+        r = _groups(filas, seed=semilla, folds=5, test_fraction=0.2)
+        assert r.es_viable
+        fraccion = len(_ids_de(r, "test")) / len(filas)
+        assert 0.15 <= fraccion <= 0.25, (semilla, fraccion)
+        assert {r.plan.assignments[o] for o in gigante} == {"development"}
+        assert not [x for x in r.limites if x.clave == "fraccion_de_prueba_desviada"]
+        _ninguna_unidad_partida(filas, r)
+        _todas_las_clases_en_todas_partes(filas, r)
+
+
+def test_I1_el_sujeto_del_40_por_ciento_del_constructor_deja_la_prueba_cerca_de_lo_pedido():
+    filas = _sujetos(11, lambda s: 40 if s == 0 else 6, lambda s, i: (s == 0 and i % 2 == 0) or (s in (3, 5, 8, 10) and i < 2))
+    for semilla in range(5):
+        r = _groups(filas, seed=semilla, folds=3, test_fraction=0.2)
+        assert 0.1 <= len(_ids_de(r, "test")) / len(filas) <= 0.3
+
+
+def test_I1_si_la_prueba_no_puede_acercarse_a_lo_pedido_se_declara_con_los_numeros():
+    """Tres sujetos de ~333 filas, todos con las dos clases, y 2 pliegues: la prueba se lleva uno entero (33 %
+    frente al 20 % pedido, más de un 50 % de desvío relativo). No hay reparto mejor: se dice."""
+    filas = [{"id": f"o{i:04d}", "suj": f"S{i % 3}", "y": "pos" if i % 4 == 0 else "neg"} for i in range(1000)]
+    r = _groups(filas, seed=0, folds=2, test_fraction=0.2)
+    assert r.es_viable
+    (limite,) = [x for x in r.limites if x.clave == "fraccion_de_prueba_desviada"]
+    filas_de_prueba = len(_ids_de(r, "test"))
+    assert limite.campo == "unit_id_field"
+    assert limite.medida["fraccion_pedida"] == 0.2
+    assert limite.medida["fraccion_obtenida"] == round(filas_de_prueba / 1000, 4)
+    assert limite.medida["filas_de_prueba"] == filas_de_prueba and limite.medida["filas"] == 1000
+    assert limite.medida["margen_relativo"] == 0.5
+    assert "20" in limite.motivo["es"] and "suj" in limite.motivo["es"] and "suj" in limite.motivo["en"]
+    # y dentro del margen no se declara nada
+    r2 = _groups(_sujetos(40, lambda s: 5, lambda s, i: i % 2 == 0), seed=0, folds=3, test_fraction=0.2)
+    assert not [x for x in r2.limites if x.clave == "fraccion_de_prueba_desviada"]
+
+
+def test_I2_una_clase_que_solo_esta_en_la_prueba_tambien_cuenta_para_los_pliegues():
+    """Auditoría I2 (sabotaje: no pasar `clases` a `elegir_ventana`, 223 verdes). 100 días; la clase «c» solo en los
+    últimos, todos dentro de la prueba: ningún pliegue la tiene, y el estudio no arranca con pliegues que no la miden."""
+    filas = [{"id": f"o{i:03d}", "t": float(i), "y": ("c" if i >= 85 and i % 2 else ("a" if i % 3 else "b"))}
+             for i in range(100)]
+    r = proponer_particion(filas, **_pide(split_type="temporal", seed=0, time_column="t", objetivo="y"))
+    assert not r.es_viable
+    (b,) = r.bloqueos
+    assert b.clave == "bloques_sin_clase" and b.medida["clase"] == "c"
+    assert b.medida["filas_de_la_clase_en_desarrollo"] == 0
+    assert b.medida["filas_de_la_clase_por_bloque"] == [0, 0, 0]
+
+
+def test_I3_cada_entrena_temporal_tiene_todas_las_clases():
+    """Auditoría I3 (sabotaje: comprobar solo `valida`, 223 verdes). 120 días; «si» solo desde el día 40: el pliegue
+    más antiguo entrenaría sin ningún «si». La regla (más estricta que la letra de D2) se le pregunta a Roberto; aquí
+    se afirma que existe y que el motivo dice qué pliegue, sin qué clase y desde cuándo aparece."""
+    filas = [{"id": f"o{i:03d}", "t": float(i), "y": ("si" if i >= 40 and i % 4 == 0 else "no")} for i in range(120)]
+    r = proponer_particion(filas, **_pide(split_type="temporal", seed=0, time_column="t", objetivo="y"))
+    assert not r.es_viable
+    (b,) = r.bloqueos
+    assert b.clave == "entrena_sin_clase" and b.campo == "objetivo"
+    assert b.medida["clase"] == "si" and b.medida["pliegues"] == 2
+    assert b.medida["pliegue"] == 1                    # con 2 pliegues, el 1 es el más antiguo
+    assert b.medida["primera_aparicion"] == "40.0"     # el valor de la columna, como venía
+    assert b.medida["filas_de_entrena"] == 32 and b.medida["filas_de_la_clase_en_entrena"] == 0
+    for idioma in ("es", "en"):
+        assert "si" in b.motivo[idioma] and "40.0" in b.motivo[idioma] and "t" in b.motivo[idioma]
+    # con fechas, el instante se enseña como lo escribió la persona
+    con_fecha = [dict(f, t=(BASE + timedelta(days=i)).strftime("%d/%m/%Y")) for i, f in enumerate(filas)]
+    (b2,) = proponer_particion(con_fecha, **_pide(split_type="temporal", seed=0, time_column="t", objetivo="y")).bloqueos
+    assert b2.clave == "entrena_sin_clase" and b2.medida["primera_aparicion"] == "10/02/2024"
+    assert "10/02/2024" in b2.motivo["es"]
+
+
+@pytest.mark.parametrize("valor_de,gap", [
+    (lambda i: str(2000 + i), {"magnitud": 1, "unidad": "years"}),                                   # un año escrito como número
+    (lambda i: (BASE + timedelta(days=i)).strftime("%Y%m%d"), {"magnitud": 7, "unidad": "days"}),   # AAAAMMDD en texto
+    (lambda i: float(i), {"magnitud": 2, "unidad": "hours"}),                                         # un número de verdad
+])
+def test_I4_un_hueco_con_unidad_sobre_un_tiempo_numerico_se_rechaza_diciendo_que_es_un_numero(valor_de, gap):
+    """Auditoría I4: el hueco se aplicaba como segundos y salía `cronologia_no_se_pudo_separar`, genérico; el aviso
+    de tiempo numérico nunca llegaba (se calculaba después)."""
+    filas = [{"id": _id(i), "fecha": valor_de(i), "y": "pos" if i % 4 == 0 else "neg"} for i in range(400)]
+    r = _temporal(filas, folds=5, gap=gap)
+    (b,) = r.bloqueos
+    assert b.clave == "hueco_en_tiempo_numerico" and b.campo == "gap"
+    assert b.medida["columna"] == "fecha" and b.medida["unidad_del_hueco"] == gap["unidad"]
+    assert "fecha" in b.motivo["es"] and "número" in b.motivo["es"] and "AAAA-MM-DD" in b.motivo["es"]
+    assert "number" in b.motivo["en"] and "YYYY-MM-DD" in b.motivo["en"]
+    # sin hueco, el mismo tiempo numérico sigue funcionando como hoy: por orden
+    sin = _temporal(filas, folds=5)
+    assert sin.es_viable and _ids_de(sin, "test") == [_id(i) for i in range(320, 400)]
+
+
+def _con_dos_grupos(objetivo):
+    filas = [{"id": str(i), "u": "A" if i < 3 else "B", "y": "no", "v": float(i)} for i in range(30)]
+    return proponer_particion(filas, **_pide(split_type="groups", seed=0, unit_id_field="u", objetivo=objetivo))
+
+
+@pytest.mark.parametrize("objetivo", [None, "y"])          # regresión, y clasificación con una sola clase
+def test_I5_groups_sin_guardas_con_dos_grupos_no_da_un_desarrollo_vacio(objetivo):
+    """Auditoría I5 (heredado de la 139): grupo A con 3 filas y B con 27 → las 30 a la prueba y pliegues 0/0, viable."""
+    r = _con_dos_grupos(objetivo)
+    assert not r.es_viable
+    (b,) = r.bloqueos
+    assert b.clave == "grupos_insuficientes_para_prueba_y_pliegues" and b.campo == "unit_id_field"
+    assert b.medida == {"grupos": 2, "pliegues_pedidos": 5, "grupos_necesarios_con_los_pedidos": 6,
+                        "grupos_necesarios_con_2_pliegues": 3}
+    assert "u" in b.motivo["es"] and "2" in b.motivo["es"] and "3" in b.motivo["en"]
+
+
+def test_I5_groups_sin_guardas_no_deja_menos_de_2_grupos_en_desarrollo_y_lo_dice():
+    """Tres grupos de 2, 2 y 26 filas: barajados, la prueba se llevaba los pequeños y después el grande (el 100 %)."""
+    filas = [{"id": f"o{i:02d}", "u": ("p1" if i < 2 else "p2" if i < 4 else "G")} for i in range(30)]
+    vistos = 0
+    for semilla in range(30):
+        kw = _pide(split_type="groups", seed=semilla, unit_id_field="u", folds=3)
+        antes, r = ANTES.proponer_particion(filas, **kw), proponer_particion(filas, **kw)
+        dev_antes = {f["u"] for f in filas if antes.plan.assignments[f["id"]] == "development"}
+        if len(dev_antes) >= 2 and not _desborda_la_prueba(antes, 0.2):
+            assert _firma(r) == _firma(antes)           # lo que funcionaba, bit a bit
+            continue
+        if len(dev_antes) >= 2:                         # la 139 daba la prueba casi entera al grupo grande
+            assert r.es_viable and (not _desborda_la_prueba(r, 0.2)
+                                    or any(x.clave == "fraccion_de_prueba_desviada" for x in r.limites))
+            continue
+        vistos += 1
+        assert r.es_viable
+        assert len({f["u"] for f in filas if r.plan.assignments[f["id"]] == "development"}) == 2
+        assert all(p.entrena and p.valida for p in r.pliegues.pliegues)
+        (limite,) = [x for x in r.limites if x.clave == "prueba_recortada_para_dejar_grupos"]
+        assert limite.medida["grupos"] == 3 and limite.medida["grupos_en_desarrollo"] == 2
+    assert vistos > 0
+
+
+def test_I5_groups_sin_objetivo_bit_a_bit_con_la_139_salvo_donde_la_139_era_inservible():
+    """Oráculo congelado: en 600 formas aleatorias, lo que la 139 repartía bien sale igual; lo que cambia es solo
+    lo que la 139 dejaba sin desarrollo, sin pliegues o sin prueba (o lo que lanzaba una excepción)."""
+    cambiados = 0
+    for c in range(600):
+        rng = random.Random(c)
+        n = rng.choice([3, 5, 10, 31, 100])
+        filas = [{"id": f"{i:04d}", "u": f"u{rng.randrange(max(1, rng.choice([2, 3, n // 3 or 1])))}"} for i in range(n)]
+        kw = _pide(split_type="groups", seed=rng.randrange(100), unit_id_field="u",
+                   test_fraction=rng.choice([0.1, 0.2, 0.33, 0.5]), folds=rng.choice([2, 3, 5]), repeats=rng.choice([1, 2]))
+        try:
+            antes = ANTES.proponer_particion(filas, **kw)
+        except Exception:                                      # noqa: BLE001 — la 139 lanzaba: ahora es un Bloqueo
+            antes = None
+        ahora = proponer_particion(filas, **kw)
+        servible = (antes is not None and antes.es_viable and any(x == "test" for x in antes.plan.assignments.values())
+                    and all(p.entrena and p.valida for p in antes.pliegues.pliegues))
+        if servible and not _desborda_la_prueba(antes, kw["test_fraction"]):
+            assert _firma(ahora) == _firma(antes), c
+        elif servible:                                         # la 139 desbordaba la prueba: ahora cabe o se dice
+            assert ahora.es_viable, c
+            assert (not _desborda_la_prueba(ahora, kw["test_fraction"])
+                    or any(x.clave == "fraccion_de_prueba_desviada" for x in ahora.limites)), c
+        else:
+            cambiados += 1
+            assert not ahora.es_viable or all(p.entrena and p.valida for p in ahora.pliegues.pliegues), c
+    assert cambiados > 0
+
+
+def test_M1_una_unidad_vacia_es_un_bloqueo_con_motivo_no_una_excepcion():
+    filas = [{"id": str(i), "u": ("" if i < 5 else " " if i < 7 else f"s{i % 6}"), "y": "a" if i % 2 else "b"}
+             for i in range(60)]
+    for objetivo in ("y", None):
+        (b,) = proponer_particion(filas, **_pide(split_type="groups", seed=0, unit_id_field="u", objetivo=objetivo)).bloqueos
+        assert b.clave == "unidad_vacia" and b.medida == {"columna": "u", "filas_sin_unidad": 7, "filas": 60}
+        assert "u" in b.motivo["es"] and "7" in b.motivo["en"] and "units." not in b.motivo["en"]
+
+
+@pytest.mark.parametrize("objetivo", ["y", None])
+def test_M1_groups_sin_prueba_reservada_es_un_bloqueo_con_motivo(objetivo):
+    filas = [{"id": str(i), "u": f"s{i % 10}", "y": "a" if i % 2 else "b"} for i in range(60)]
+    (b,) = proponer_particion(filas, **_pide(split_type="groups", seed=0, unit_id_field="u", objetivo=objetivo,
+                                             test_fraction=0)).bloqueos
+    assert b.clave == "sin_prueba_reservada" and b.medida == {"fraccion_pedida": 0, "filas": 60}
+    assert "evaluacion_anidada" not in b.motivo["es"] + b.motivo["en"]
+
+
+def test_M1_iid_sin_prueba_reservada_tambien():
+    filas = [{"id": str(i), "y": "a" if i % 2 else "b"} for i in range(60)]
+    (b,) = proponer_particion(filas, **_pide(split_type="iid", seed=0, objetivo="y", test_fraction=0)).bloqueos
+    assert b.clave == "sin_prueba_reservada"
+
+
+@pytest.mark.parametrize("objetivo", ["y", None])
+def test_M1_cohorte_externa_que_comparte_unidad_con_las_internas_es_un_bloqueo(objetivo):
+    filas = [{"id": str(i), "u": f"s{i % 10}", "y": "a" if i % 2 else "b"} for i in range(60)]
+    (b,) = proponer_particion(filas, **_pide(split_type="groups", seed=0, unit_id_field="u", objetivo=objetivo,
+                                             ids_cohorte_externa=["0", "1", "10"])).bloqueos
+    assert b.clave == "cohorte_externa_comparte_unidad"
+    assert b.medida == {"columna": "u", "unidades_compartidas": 2, "ejemplos": ["s0", "s1"]}
+    assert "s0" in b.motivo["es"] and "s0" in b.motivo["en"]
+
+
+def test_M2_la_frontera_del_hueco_es_la_misma_en_los_pliegues_y_en_la_prueba():
+    """Una fila a EXACTAMENTE `gap` del inicio de lo que se valida no entrena: su etiqueta, que mira `gap` hacia
+    delante, caería en ese inicio. La prueba reservada ya era estricta; los pliegues, no (`>=`)."""
+    filas = _dias(100)
+    r = _temporal(filas, folds=5, gap={"magnitud": 5, "unidad": "days"})
+    dia = {f["id"]: BASE + timedelta(days=int(f["id"][1:])) for f in filas}
+    for pl in r.pliegues.pliegues:
+        inicio = min(dia[o] for o in pl.valida)
+        assert inicio - max(dia[o] for o in pl.entrena) > timedelta(days=5)
+        assert inicio - max(dia[o] for o in pl.entrena) == timedelta(days=6)    # el día a 5 justos, fuera
+    ultimo_dev = max(dia[o] for o in _ids_de(r, "development"))
+    primero_prueba = min(dia[o] for o in _ids_de(r, "test"))
+    assert primero_prueba - ultimo_dev > timedelta(days=5)
+
+
+def test_M3_los_mensajes_nombran_la_columna_no_el_rol():
+    filas = _sujetos(10, lambda s: 4, lambda s, i: False)
+    (limite,) = _groups(filas, folds=3).limites[:1]
+    assert limite.clave == "una_sola_clase_sin_guardas" and "y" in limite.motivo["es"].split()[0]
+    assert "objetivo" not in limite.motivo["es"] and "objetivo" not in limite.motivo["en"]
+    t = _temporal(_dias(60, etiqueta=lambda i: "neg"), folds=5)
+    assert t.limites[0].motivo["es"].startswith("y ")
+    ids = [f"o{i}" for i in range(10)]
+    m = partir_valida_en_mitades(ids, diseno="groups", unidad_por_id={o: "unica" for o in ids}, columna_de_unidad="paciente")
+    assert "paciente" in m.limites[0].motivo["es"] and "unit_id_field" not in m.limites[0].motivo["es"]
+    m2 = partir_valida_en_mitades(ids, diseno="temporal", tiempo_por_id={o: 5.0 for o in ids}, columna_de_tiempo="fecha")
+    assert "fecha" in m2.limites[0].motivo["en"] and "time_column" not in m2.limites[0].motivo["en"]
+
+
+def test_M1_groups_sin_guardas_con_una_fraccion_que_no_llega_a_una_fila_tambien_es_sin_prueba_reservada():
+    """`test_fraction` > 0 pero tan pequeña que redondea a 0 filas (4 filas × 0,1): la 139 lanzaba `EsquemaInvalido`."""
+    filas = [{"id": str(i), "u": f"s{i}"} for i in range(4)]
+    (b,) = proponer_particion(filas, **_pide(split_type="groups", seed=0, unit_id_field="u", test_fraction=0.1)).bloqueos
+    assert b.clave == "sin_prueba_reservada" and b.medida == {"fraccion_pedida": 0.1, "filas": 4}
+    assert "0.1" in b.motivo["es"] and "4" in b.motivo["en"]
+
+
+@pytest.mark.parametrize("semilla", range(8))
+def test_en_regresion_un_sujeto_enorme_no_se_lleva_la_prueba(semilla):
+    """Supervisor, 27-10 (la ruta sin estratificar, que es la de la REGRESIÓN y la de Parkinson): un sujeto con el 60 %
+    de las filas entraba en la prueba en 2 de 5 semillas y la dejaba en el 65–74 %, sin decir nada."""
+    filas = [{"id": f"g{i}", "suj": "gigante"} for i in range(600)]
+    filas += [{"id": f"r{i}", "suj": f"s{i % 40}"} for i in range(400)]
+    r = proponer_particion(filas, **_pide(split_type="groups", seed=semilla, unit_id_field="suj", objetivo=None))
+    assert r.es_viable
+    assert r.plan.assignments["g0"] == "development"
+    assert 0.1 <= _fraccion_de_prueba(r) <= 0.3
+
+
+def test_en_regresion_si_ningun_sujeto_cabe_en_el_margen_se_dice():
+    """Cinco sujetos de 20 filas y una prueba del 10 % (10 filas): ninguno cabe; va el más pequeño y se declara."""
+    filas = [{"id": f"{s}_{i}", "suj": f"s{s}"} for s in range(5) for i in range(20)]
+    r = proponer_particion(filas, **_pide(split_type="groups", seed=0, unit_id_field="suj", objetivo=None,
+                                          test_fraction=0.1, folds=2))
+    assert r.es_viable and _fraccion_de_prueba(r) == 0.2
+    (limite,) = [x for x in r.limites if x.clave == "fraccion_de_prueba_desviada"]
+    assert limite.medida["fraccion_pedida"] == 0.1 and limite.medida["fraccion_obtenida"] == 0.2
