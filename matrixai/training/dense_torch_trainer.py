@@ -162,6 +162,7 @@ def train_dense_network_torch(
     schedule: str | None = None,
     capturar: CapturaSpec | None = None,
     validacion_completa: list[tuple[list[float], list[float]]] | None = None,
+    restaurar_el_mejor: bool = True,
 ) -> dict[str, Any]:
     """Train a dense_network via torch autograd.
 
@@ -170,6 +171,11 @@ def train_dense_network_torch(
     | None — CPU), epochs (trace), best_val_loss, best_epoch, backend, device,
     train_loss, materialized (bool)}.
     cancel_check: called after each batch; raise _TrainingCancelled-compatible exception to abort.
+
+    `restaurar_el_mejor` (139-C4, épocas fijas): `True` (por omisión, y lo de siempre) devuelve el MEJOR estado visto por la
+    pérdida de validación. `False` devuelve el de la ÚLTIMA época ejecutada —y `best_epoch`/`best_val_loss` son los de esa
+    última—: es lo que pide reentrenar una red con un número de épocas FIJADO de antemano (sin parada temprana: `early_stop=None`),
+    donde la validación ya no puede elegir qué época se entrega. Solo la traza de `val_loss` sigue calculándose.
 
     **`plazo`: PARAR A TIEMPO Y QUEDARSE CON LO APRENDIDO** (2026-09-22). Un instante de
     `time.monotonic()`; `None` = sin plazo, como siempre. Se mira DESPUÉS DE CADA LOTE
@@ -474,6 +480,12 @@ def train_dense_network_torch(
                 cap_fallos.append(_lab.omitido_por_fallo(
                     "pesos_por_epoca", cap_plan["n_muestra"],
                     _lab.FALLO_PESOS_POR_EPOCA, _exc, epoca=cap_ultima))
+
+        # 139-C4: con épocas FIJAS no se elige la mejor: se entrega la última ejecutada.
+        if not restaurar_el_mejor and epoch_trace:
+            best_state = _snapshot()
+            best_epoch = epoch_trace[-1]["epoch"]
+            best_val_loss = epoch_trace[-1]["val_loss"]
 
         # Restaurar el mejor estado (clon barato en device, sin conversión).
         with torch.no_grad():

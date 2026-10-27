@@ -53,6 +53,7 @@ def train_composite_network_torch(
     plazo: float | None = None,
     weight_decay: float = 0.0,
     schedule: str | None = None,
+    restaurar_el_mejor: bool = True,
 ) -> dict[str, Any]:
     """Train a composite_network via torch autograd with batched forward.
 
@@ -65,6 +66,11 @@ def train_composite_network_torch(
     trainer: {best_params, epochs, best_val_loss, best_epoch, train_loss, backend,
     device, effective_batch_size}.
     cancel_check: called after each batch; raise to abort (mismo contrato que el denso).
+
+    `restaurar_el_mejor` (139-C4, épocas fijas): `True` (por omisión, y lo de siempre) devuelve el MEJOR estado visto por la
+    pérdida de validación. `False` devuelve el de la ÚLTIMA época ejecutada —y `best_epoch`/`best_val_loss` son los de esa
+    última—: es lo que pide reentrenar una red con un número de épocas FIJADO de antemano (sin parada temprana: `early_stop=None`),
+    donde la validación ya no puede elegir qué época se entrega. Solo la traza de `val_loss` sigue calculándose.
 
     `plazo` (2026-09-23): el MISMO contrato que `train_dense_network_torch` —un
     instante de `time.monotonic()` mirado después de cada lote; al pasarse, la época a
@@ -306,6 +312,12 @@ def train_composite_network_torch(
                 break
             if patience is not None and no_improve >= patience:
                 break
+
+        # 139-C4: con épocas FIJAS no se elige la mejor: se entrega la última ejecutada.
+        if not restaurar_el_mejor and epoch_trace:
+            best_state = _snapshot()
+            best_epoch = epoch_trace[-1]["epoch"]
+            best_val_loss = epoch_trace[-1]["val_loss"]
 
         # Restaurar el mejor estado y convertir a ParameterSet una sola vez (M15).
         with torch.no_grad():

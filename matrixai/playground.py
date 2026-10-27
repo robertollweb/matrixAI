@@ -1997,6 +1997,7 @@ def _dense_torch_train_result(
     plazo: float | None = None,
     objetivo_sin_recorte: frozenset[str] = frozenset(),
     capturar: Any = None,
+    restaurar_el_mejor: bool = True,
 ) -> dict[str, Any]:
     """GPU-C3 — train a dense_network with the torch trainer and build the SAME
     result shape as the stdlib path (so snapshot/infer/export/M3 metrics are
@@ -2132,6 +2133,8 @@ def _dense_torch_train_result(
             initial_state_dict=initial_state_dict,
             # Parar a tiempo y quedarse con la mejor época (ver el trainer).
             plazo=plazo,
+            # 139-C4: `False` = épocas FIJAS, se entrega la última (ver el trainer).
+            restaurar_el_mejor=restaurar_el_mejor,
             # 133-C2: el laboratorio. Los nombres de columna y de clase los conoce
             # este llamante, no el entrenador.
             capturar=(capturar.con_nombres(list(vector.fields), labels)
@@ -2298,6 +2301,7 @@ def _run_playground_dense_training(
     objetivo_sin_recorte: frozenset[str] = frozenset(),
     capturar: Any = None,
     preferir_torch_en_cpu: bool = False,
+    restaurar_el_mejor: bool = True,
 ) -> dict[str, Any]:
     """Synchronous training for NETWORK (dense) models using DenseSupervisedTrainer.
 
@@ -2358,7 +2362,8 @@ def _run_playground_dense_training(
                                              initial_state_dict=initial_state_dict,
                                              target_range=target_range, plazo=plazo,
                                              objetivo_sin_recorte=objetivo_sin_recorte,
-                                             capturar=capturar)
+                                             capturar=capturar,
+                                             restaurar_el_mejor=restaurar_el_mejor)
         except _TrainingCancelled:
             raise
         except Exception as exc:  # noqa: BLE001  — never let GPU break training: fall back
@@ -2457,6 +2462,7 @@ def _run_playground_composite_training(
     plazo: float | None = None,
     objetivo_sin_recorte: frozenset[str] = frozenset(),
     preferir_torch_en_cpu: bool = False,
+    restaurar_el_mejor: bool = True,
 ) -> dict[str, Any]:
     """M2-C2 — Synchronous training for composite (P19) NETWORK models.
 
@@ -2656,6 +2662,8 @@ def _run_playground_composite_training(
                 schedule=training.optimizer.schedule if training.optimizer else None,
                 validation_examples=_torch_val,
                 plazo=plazo,
+                # 139-C4: `False` = épocas FIJAS, se entrega la última (ver el trainer).
+                restaurar_el_mejor=restaurar_el_mejor,
             )
             parado_por_plazo = bool(tr.get("parado_por_plazo"))
             best_ps = tr["best_params"]
@@ -3123,8 +3131,15 @@ def _run_playground_training(
     recortar_objetivo: bool = True,
     capturar: Any = None,
     preferir_torch_en_cpu: bool = False,
+    restaurar_el_mejor: bool = True,
 ) -> dict[str, Any]:
     """Synchronous training — used by tests and /api/train endpoint.
+
+    139-C4 — `restaurar_el_mejor` (`True` por omisión = lo de siempre): con `False` la red densa y la compuesta por torch
+    entregan el estado de la ÚLTIMA época ejecutada y no el de menor pérdida de validación. Es el modo de las ÉPOCAS FIJAS
+    (`epochs_override` = las épocas, un texto sin `EARLY_STOP`): lo usa `matrixai_engines` para reentrenar una red ganadora
+    con todo el desarrollo y el número de épocas de su ajuste de selección. Un transformer o una ruta stdlib no lo honran
+    (el motor de redes exige torch).
 
     CONTRATO 133: `preferir_torch_en_cpu` (lo pide el laboratorio, apagado por omisión)
     solo afecta a la red DENSA: ver `_select_train_backend`.
@@ -3246,12 +3261,12 @@ def _run_playground_training(
             return _sin_laboratorio(_run_playground_composite_training(
                 mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
                 seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte,
-                preferir_torch_en_cpu=preferir_torch_en_cpu),
+                preferir_torch_en_cpu=preferir_torch_en_cpu, restaurar_el_mejor=restaurar_el_mejor),
                 capturar, lambda: _motivo_sin_lab_compuesta(mxai_text))
         return _run_playground_dense_training(
             mxai_text, training_text, csv_text, epochs_override, target_range=target_range,
             seed=seed, plazo=plazo, objetivo_sin_recorte=sin_recorte, capturar=capturar,
-            preferir_torch_en_cpu=preferir_torch_en_cpu)
+            preferir_torch_en_cpu=preferir_torch_en_cpu, restaurar_el_mejor=restaurar_el_mejor)
 
     validation = _validate_training_csv(mxai_text, training_text, csv_text)
     if not validation.get("ok"):
