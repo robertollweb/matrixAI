@@ -103,10 +103,10 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "would give the same folds; {valor} is used",
     },
     "tiempo_numerico_sin_unidad": {
-        "es": "{campo} es numérico y no dice en qué unidad está: el hueco declarado "
-              "se aplica tomándolo como segundos",
-        "en": "{campo} is numeric and does not say its unit: the declared gap is "
-              "applied taking it as seconds",
+        "es": "{campo} se lee como un número, no como una fecha, y no dice en qué unidad está: "
+              "el hueco en segundos se aplica restando ese número tal cual",
+        "en": "{campo} is read as a number, not as a date, and does not say its unit: the gap "
+              "in seconds is applied by subtracting that number as is",
     },
     "instantes_insuficientes": {
         "es": "desarrollo solo tiene {valor} instante(s) distintos en {campo}: la "
@@ -186,10 +186,10 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "the study does not start",
     },
     "valida_con_una_sola_unidad": {
-        "es": "la validación solo tiene un {campo}: no se puede partir en dos mitades sin "
+        "es": "la validación solo tiene un valor de {campo}: no se puede partir en dos mitades sin "
               "partir esa unidad, así que las mitades se cortan por posición y comparten "
               "unidad",
-        "en": "the validation fold has a single {campo}: it cannot be halved without "
+        "en": "the validation fold has a single value of {campo}: it cannot be halved without "
               "splitting that unit, so the halves are cut by position and share a unit",
     },
     "valida_con_un_solo_instante": {
@@ -221,6 +221,68 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "{n} group(s) of {campo}, the groups carrying the classes overlap and with "
               "that many folds some fold or the test would lack a class: folds reduced "
               "to {valor}",
+    },
+
+    # -- reparación de la auditoría del 140-C1 (27-10) --------------------------
+    "unidad_vacia": {
+        "es": "{campo} está vacía en {valor} de {n} filas: una fila sin sujeto no se puede poner en desarrollo "
+              "ni en la prueba sin adivinar de quién es. Rellena esas filas o quítalas",
+        "en": "{campo} is empty in {valor} of {n} rows: a row without a subject cannot be put in development or "
+              "in the test without guessing whose it is. Fill those rows in or remove them",
+    },
+    "cohorte_externa_comparte_unidad": {
+        "es": "la cohorte externa comparte {valor} valor(es) de {campo} con el resto de los datos (por ejemplo "
+              "{ejemplos}): una cohorte externa mide a sujetos que el modelo no ha visto, y estos sí los vería",
+        "en": "the external cohort shares {valor} value(s) of {campo} with the rest of the data (for example "
+              "{ejemplos}): an external cohort measures subjects the model has not seen, and it would see these",
+    },
+    "sin_prueba_reservada": {
+        "es": "con la fracción de prueba pedida ({opciones}) y {n} filas, la prueba reservada se queda sin "
+              "ninguna fila: sin ella no hay una nota medida con datos que el estudio no haya usado. Pide una "
+              "fracción mayor que 0",
+        "en": "with the requested test fraction ({opciones}) and {n} rows, the reserved test gets no row at all: "
+              "without it there is no score measured on data the study has not used. Ask for a fraction above 0",
+    },
+    "grupos_insuficientes_para_prueba_y_pliegues": {
+        "es": "{campo} tiene {valor} grupos distintos: la prueba reservada se lleva al menos uno entero y los "
+              "pliegues necesitan otros {opciones} (uno por pliegue), así que hacen falta {partes}; aun bajando "
+              "a 2 pliegues hacen falta {minimo}. No se parte un grupo para completarlos: el estudio no arranca",
+        "en": "{campo} has {valor} distinct groups: the reserved test takes at least one whole group and the folds "
+              "need {opciones} more (one per fold), so {partes} are needed; even dropping to 2 folds {minimo} are "
+              "needed. A group is never split to fill them: the study does not start",
+    },
+    "prueba_recortada_para_dejar_grupos": {
+        "es": "la prueba reservada se queda con {valor} filas en vez de {n}: con {partes} grupos de {campo}, "
+              "el grupo siguiente habría dejado a desarrollo con menos de {minimo} y los pliegues sin nada que "
+              "validar",
+        "en": "the reserved test keeps {valor} rows instead of {n}: with {partes} groups of {campo}, the next "
+              "group would have left development with fewer than {minimo} and the folds with nothing to validate",
+    },
+    "hueco_en_tiempo_numerico": {
+        "es": "{campo} se lee como un número, no como una fecha (por ejemplo {ejemplos}), y un número no dice "
+              "en qué unidad está: un hueco de {valor} no se le puede aplicar sin saber cuánto es un día en esa "
+              "columna. Escribe la columna como fecha (AAAA-MM-DD, o DD/MM/AAAA) o quita el hueco",
+        "en": "{campo} is read as a number, not as a date (for example {ejemplos}), and a number does not say "
+              "its unit: a gap of {valor} cannot be applied without knowing how much a day is in that column. "
+              "Write the column as a date (YYYY-MM-DD, or DD/MM/YYYY) or remove the gap",
+    },
+    "entrena_sin_clase": {
+        "es": "ni con {opciones} pliegues (el mínimo) cada entrenamiento tiene la clase {clase}: el pliegue {valor} "
+              "(0 es el más reciente) entrenaría con {n} filas y ninguna es {clase}, porque la primera fila con "
+              "{clase} está en {campo} = {detalle}. Un modelo que no ha visto una clase no aprende a reconocerla: "
+              "el estudio no arranca. Aporta más historia con esa clase o empieza los datos más cerca de {detalle}",
+        "en": "not even with {opciones} folds (the minimum) does every training set have class {clase}: fold {valor} "
+              "(0 is the most recent) would train on {n} rows and none is {clase}, because the first row with "
+              "{clase} is at {campo} = {detalle}. A model that has never seen a class does not learn to recognise "
+              "it: the study does not start. Provide more history with that class or start the data closer to {detalle}",
+    },
+    "fraccion_de_prueba_desviada": {
+        "es": "se pidió una prueba reservada del {opciones} % de las filas y sale del {valor} % ({n} de {partes}): "
+              "los grupos de {campo} no se parten y la prueba tiene que llevar todas las clases, y este es el "
+              "reparto más cercano que se ha encontrado (el grupo más grande de la prueba, {grupo}, trae {minimo} filas)",
+        "en": "a reserved test of {opciones} % of the rows was requested and it comes out at {valor} % ({n} of "
+              "{partes}): groups of {campo} are never split and the test must carry every class, and this is the "
+              "closest split found (the largest group in the test, {grupo}, has {minimo} rows)",
     },
 }
 

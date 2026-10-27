@@ -65,9 +65,13 @@ def partir_valida_en_mitades(ids: Sequence[str], *, diseno: str,
                              unidad_por_id: Mapping[str, str] | None = None,
                              tiempo_por_id: Mapping[str, float] | None = None,
                              clase_por_id: Mapping[str, Any] | None = None,
-                             semilla: int = 0) -> MitadesDeValida:
+                             semilla: int = 0, columna_de_unidad: str = "unit_id_field",
+                             columna_de_tiempo: str = "time_column") -> MitadesDeValida:
     """Las filas `ids` de UNA `valida` en dos mitades. `diseno` en
-    `DISENOS_CON_MITADES`; `groups_and_time` no está soportado (140b)."""
+    `DISENOS_CON_MITADES`; `groups_and_time` no está soportado (140b).
+
+    `columna_de_unidad`/`columna_de_tiempo` son los NOMBRES de las columnas del CSV, para que los avisos digan
+    «`paciente`» y no «unit_id_field» (auditoría M3); el llamante los pasa."""
     n = len(ids)
     if diseno == "iid":
         mitad = n // 2
@@ -75,15 +79,16 @@ def partir_valida_en_mitades(ids: Sequence[str], *, diseno: str,
     if diseno == "temporal":
         if tiempo_por_id is None:
             raise ValueError("el diseño temporal necesita tiempo_por_id")
-        return _mitades_cronologicas(ids, tiempo_por_id)
+        return _mitades_cronologicas(ids, tiempo_por_id, columna_de_tiempo)
     if diseno == "groups":
         if unidad_por_id is None:
             raise ValueError("el diseño groups necesita unidad_por_id")
-        return _mitades_por_unidad(ids, unidad_por_id, clase_por_id, semilla)
+        return _mitades_por_unidad(ids, unidad_por_id, clase_por_id, semilla, columna_de_unidad)
     raise ValueError(f"el diseño {diseno!r} no tiene mitades de validación (soportados: {DISENOS_CON_MITADES})")
 
 
-def _mitades_cronologicas(ids: Sequence[str], tiempo: Mapping[str, float]) -> MitadesDeValida:
+def _mitades_cronologicas(ids: Sequence[str], tiempo: Mapping[str, float],
+                          columna: str = "time_column") -> MitadesDeValida:
     n = len(ids)
     orden = sorted(range(n), key=lambda i: (tiempo[ids[i]], ids[i]))
     # cortes posibles: entre dos instantes distintos
@@ -96,13 +101,14 @@ def _mitades_cronologicas(ids: Sequence[str], tiempo: Mapping[str, float]) -> Mi
         if n > 1:
             limites.append(Limite(
                 clave="valida_con_un_solo_instante", campo="time_column",
-                motivo=motivo("valida_con_un_solo_instante", campo="time_column"),
+                motivo=motivo("valida_con_un_solo_instante", campo=columna),
                 medida={"filas": n}))
     return _resultado(ids, orden[:corte], orden[corte:], limites)
 
 
 def _mitades_por_unidad(ids: Sequence[str], unidad_por_id: Mapping[str, str],
-                        clase_por_id: Mapping[str, Any] | None, semilla: int) -> MitadesDeValida:
+                        clase_por_id: Mapping[str, Any] | None, semilla: int,
+                        columna: str = "unit_id_field") -> MitadesDeValida:
     n = len(ids)
     posiciones: dict[str, list[int]] = {}
     for i, obs in enumerate(ids):
@@ -110,7 +116,7 @@ def _mitades_por_unidad(ids: Sequence[str], unidad_por_id: Mapping[str, str],
     if len(posiciones) < 2:
         mitad = n // 2
         limites = (Limite(clave="valida_con_una_sola_unidad", campo="unit_id_field",
-                          motivo=motivo("valida_con_una_sola_unidad", campo="unit_id_field"),
+                          motivo=motivo("valida_con_una_sola_unidad", campo=columna),
                           medida={"filas": n, "unidades": len(posiciones)}),) if n > 1 else ()
         return _resultado(ids, range(mitad), range(mitad, n), limites)
 

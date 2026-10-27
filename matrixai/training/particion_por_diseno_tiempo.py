@@ -34,9 +34,12 @@
   salen del pliegue (0, 0): si el 0 fuera el primero, serían los de menos datos.
 - **`entrena` sale ORDENADO por tiempo** (y `valida` también): la cola de parada
   temprana del backend es «las últimas filas», y solo es hacia delante si lo está.
-- **El hueco (`gap`) quita de `entrena` las filas cuyo tiempo esté a menos de
-  `gap` del inicio de su `valida`**: la etiqueta de una fila del final del
+- **El hueco (`gap`) quita de `entrena` las filas cuyo tiempo esté a `gap` o
+  menos del inicio de su `valida`**: la etiqueta de una fila del final del
   entrenamiento mira `gap` hacia delante y puede caer dentro de lo que se valida.
+  La frontera es ESTRICTA (entrena solo lo que está a MÁS de `gap`), la misma que
+  ya tenía el corte desarrollo/prueba (auditoría M2): una fila a `gap` justo mira
+  exactamente el primer instante de la validación.
 - **Sin semilla**: la ventana es determinista; barajar mezclaría pasado y futuro.
   Por eso `repeats` se fija a 1 (el llamante lo declara).
 - **Guarda de clase (D2 del contrato 140)**: con objetivo de clasificación, cada
@@ -295,8 +298,9 @@ def _ventana(ids: Sequence[str], tiempo: Mapping[str, float], folds: int, hueco_
         valida = bloques[b]
         inicio = tiempo[valida[0]]
         pasado = [o for j in range(b) for o in bloques[j]]
-        # El hueco: se quitan las filas a menos de `hueco` del inicio de la validación.
-        entrena = tuple(o for o in pasado if inicio - tiempo[o] >= hueco_s)
+        # El hueco: se quitan las filas a `hueco` o menos del inicio de la validación (frontera estricta, como el
+        # corte desarrollo/prueba: la etiqueta de una fila a `hueco` justo mira el primer instante de `valida`).
+        entrena = tuple(o for o in pasado if inicio - tiempo[o] > hueco_s)
         if not entrena:
             raise _NoCabe("hueco", pliegue=p)
         quitadas.append(len(pasado) - len(entrena))
@@ -304,17 +308,20 @@ def _ventana(ids: Sequence[str], tiempo: Mapping[str, float], folds: int, hueco_
     ventana = VentanaExpansiva(folds, bloques, tuple(pliegues), tuple(quitadas))
 
     if clase_por_id is not None:
-        for entrena, valida in ventana.pliegues:
-            for lado in (valida, entrena):
-                if len(_clases_de(lado, clase_por_id)) < len(clases):
-                    raise _NoCabe("clase", ventana=ventana)
+        for p, (entrena, valida) in enumerate(ventana.pliegues):
+            for nombre, lado in (("valida", valida), ("entrena", entrena)):
+                presentes = _clases_de(lado, clase_por_id)
+                if len(presentes) < len(clases):
+                    raise _NoCabe("clase", ventana=ventana, pliegue=p, lado=nombre,
+                                  faltan=[c for c in clases if c not in presentes], filas=len(lado))
     return ventana
 
 
 def elegir_ventana(ids: Sequence[str], tiempo: Mapping[str, float], *, folds: int, gap: Horizonte | None,
                    clase_por_id: Mapping[str, Any] | None = None,
                    clases: Sequence[Any] | None = None,
-                   campo_de_tiempo: str = "time_column"
+                   campo_de_tiempo: str = "time_column",
+                   tiempo_original: Mapping[str, Any] | None = None,
                    ) -> tuple[VentanaExpansiva, tuple[Limite, ...]]:
     """La ventana con los pliegues pedidos o, si no cabe, con menos (hasta 2)
     declarándolo. Lanza `Rechazo` si ni con 2 cabe.
@@ -323,7 +330,9 @@ def elegir_ventana(ids: Sequence[str], tiempo: Mapping[str, float], *, folds: in
     él, cada bloque de validación y cada entrenamiento tiene todas las clases
     de `clases` (por omisión, las de `ids`; el llamante pasa las de TODO el
     reparto para que una clase que solo está en la prueba también cuente).
-    `campo_de_tiempo` es el nombre de la columna, para los mensajes."""
+    `campo_de_tiempo` es el nombre de la columna, para los mensajes, y
+    `tiempo_original` el valor de cada fila tal como venía (para decir «desde
+    `10/02/2024`» y no unos segundos desde 1970)."""
     hueco_s = segundos_de(gap) if gap is not None else 0.0
     if clase_por_id is None:
         clases = []
@@ -343,7 +352,7 @@ def elegir_ventana(ids: Sequence[str], tiempo: Mapping[str, float], *, folds: in
             return ventana, ()
         return ventana, _limite_de_reduccion(pedidos, k, ultima, clases, ids, clase_por_id)
     assert ultima is not None
-    raise _rechazo(ultima, ids, tiempo, hueco_s, gap, clase_por_id, clases, campo_de_tiempo)
+    raise _rechazo(ultima, ids, tiempo, hueco_s, gap, clase_por_id, clases, campo_de_tiempo, tiempo_original)
 
 
 def _limite_de_reduccion(pedidos: int, usados: int, causa: _NoCabe | None, clases: Sequence[Any],
@@ -370,7 +379,7 @@ def _limite_de_reduccion(pedidos: int, usados: int, causa: _NoCabe | None, clase
                            "filas_de_la_clase_mas_rara": conteo.get(rara, 0)}),)
 
 
-def _rechazo(fallo: _NoCabe, ids, tiempo, hueco_s, gap, clase_por_id, clases, campo) -> Rechazo:
+def _rechazo(fallo: _NoCabe, ids, tiempo, hueco_s, gap, clase_por_id, clases, campo, tiempo_original=None) -> Rechazo:
     if fallo.causa == "instantes":
         n = fallo.datos["instantes"]
         return Rechazo("instantes_insuficientes", "time_column",
@@ -382,6 +391,20 @@ def _rechazo(fallo: _NoCabe, ids, tiempo, hueco_s, gap, clase_por_id, clases, ca
     # clase: los números del último intento (2 pliegues = 3 bloques)
     ventana: VentanaExpansiva = fallo.datos["ventana"]
     conteo = _clases_de(ids, clase_por_id)
+    if fallo.datos["lado"] == "entrena":
+        # Todas las validaciones tienen la clase, pero un entrenamiento no (auditoría I3): la clase EMPIEZA tarde.
+        # `entrena` es un prefijo en el tiempo, así que su primera fila de la clase es posterior a todo él.
+        rara = min(fallo.datos["faltan"], key=lambda c: (conteo.get(c, 0), str(c)))
+        primera = min((o for o in ids if clase_por_id[o] == rara), key=lambda o: (tiempo[o], o))
+        cuando = str(tiempo_original[primera]) if tiempo_original is not None else f"{tiempo[primera]:g}"
+        pliegue, filas = fallo.datos["pliegue"], fallo.datos["filas"]
+        return Rechazo("entrena_sin_clase", "objetivo",
+                       {"clase": clave_de_clase(rara), "pliegues": MINIMO_PLIEGUES, "pliegue": pliegue,
+                        "filas_de_entrena": filas, "filas_de_la_clase_en_entrena": 0,
+                        "filas_de_la_clase_en_desarrollo": conteo.get(rara, 0),
+                        "columna": campo, "primera_aparicion": cuando},
+                       clase=clave_de_clase(rara), opciones=MINIMO_PLIEGUES, valor=pliegue, n=filas,
+                       campo=campo, detalle=cuando)
     por_bloque = [_clases_de(b, clase_por_id) for b in ventana.bloques]
     # la clase que más falla: la que menos filas tiene y no está en algún bloque validado
     faltan = [c for c in clases if any(c not in bloque for bloque in por_bloque[1:])
