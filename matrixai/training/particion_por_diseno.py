@@ -65,7 +65,7 @@ entra ahora (contrato 140, decisiones D1 y D2 de Roberto, 27-10-2026):
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 from matrixai.estudio import Horizonte, SplitPlan
@@ -161,6 +161,11 @@ class PropuestaDeParticion:
     limites: tuple[Limite, ...] = ()
     #: 140-C1. `None` si no hay pliegues (`groups_and_time`) o la propuesta no es viable.
     cobertura: CoberturaDePliegues | None = None
+    #: 140-C2. SOLO en `temporal`: el instante (segundos) de cada fila de desarrollo y de prueba, tal como el generador lo
+    #: leyó (formato de fecha detectado una vez, sobre todo el conjunto). El backend lo necesita para ordenar por tiempo lo que
+    #: reparte DESPUÉS (el ajuste final con todo el desarrollo, las mitades cronológicas) sin volver a leer la columna: releerla
+    #: sobre otras filas o ya tipada podría darle otro formato. `None` en los demás diseños. No cuenta en la igualdad ni en `repr`.
+    tiempo_por_id: dict[str, float] | None = field(default=None, compare=False, repr=False)
 
     @property
     def es_viable(self) -> bool:
@@ -540,7 +545,8 @@ def _proponer_temporal(plan_id, internos, externos, tiempo_por_id, observation_i
     asignacion = AsignacionDePliegues(folds=ventana.folds, repeats=1, seed=seed, pliegues=pliegues)
     return PropuestaDeParticion(plan=plan, pliegues=asignacion,
                                 limites=tuple(limites) + limites_de_la_ventana,
-                                cobertura=_cobertura(desarrollo, asignacion, ventana.quitadas_por_el_hueco))
+                                cobertura=_cobertura(desarrollo, asignacion, ventana.quitadas_por_el_hueco),
+                                tiempo_por_id={o: tiempo_por_id[o] for o in (*desarrollo, *prueba)})
 
 
 def _proponer_groups_and_time(plan_id, internos, externos, unidad_por_id, tiempo_por_id,

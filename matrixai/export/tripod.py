@@ -35,6 +35,7 @@ from matrixai.export.expediente_clinico import (
     DOMINIOS,
     ENTRENAMIENTO_DE_LA_RED,
     FILAS_DEL_ESTUDIO,
+    REPARTO_POR_DISENO,
     FUENTE_EN_ESTUDIO,
     FUERA_POR_EL_MODO,
     MODO_DEL_ESTUDIO,
@@ -383,6 +384,10 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
         # 139-C2: qué motor es el modelo entregado y cómo se calibró y se eligió su umbral. Mismos rótulos y rutas que el
         # inventario (PROBAST): la ficha y los huecos no pueden decir dos cosas de lo mismo.
         _lineas_del_modo.extend((MOTOR_ENTREGADO, CALIBRACION_Y_UMBRAL))
+        # 140-C2: cómo se repartieron las filas del examen (diseño, columnas, hueco, cobertura). Mismo rótulo y ruta que el
+        # inventario (PROBAST). Solo si el estudio lo declaró.
+        if expediente.diseno_del_reparto is not None:
+            _lineas_del_modo.insert(0, REPARTO_POR_DISENO)
         for evidencia in _lineas_del_modo:
             campo = expediente.campo(evidencia.ruta)
             filas.append(_linea(evidencia.rotulo[idioma],

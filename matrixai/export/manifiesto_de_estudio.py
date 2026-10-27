@@ -42,6 +42,13 @@ del 139 no trae nada de esto, y la ficha dice «no disponible»: ni «pliegue 0�
 * `study.calibration_and_threshold` — `method` (`fuera_de_pliegue` | `pliegue_0`, `METODOS_DE_CALIBRACION`), `reason`
   (`{es, en}`, solo si cayó al pliegue 0 y el estudio dijo por qué) y las cuentas que el estudio dio (`folds`,
   `out_of_fold_rows`, `rows_for_calibration`, `rows_for_threshold`).
+* `study.split` (140-C2, Ola 2: validación por grupos y por tiempo) — CÓMO se repartieron las filas del examen, tal cual lo
+  declara el sobre del estudio (`reparto`): `design` (`iid` | `groups` | `temporal`), `unit_column` (la columna que identifica
+  al sujeto, solo en `groups`), `time_column` (solo en `temporal`), `gap` (`{magnitude, unit}`: el hueco entre lo que entrena
+  y lo que se mide) y `gap_origin` (`declared_horizon`: el horizonte del problema, el valor por omisión; `requested`: lo pidió
+  la persona), `out_of_fold_coverage` (`development_rows`, `rows_without_validation`: las filas de desarrollo sin predicción
+  fuera de pliegue —el primer bloque de una ventana temporal—) y `limits` (lo que el reparto declaró, con su frase en los dos
+  idiomas). Lo que el estudio no dijo se omite: un estudio anterior al 140 no trae el bloque.
 * `study.network_training` (reparación de la re-auditoría del 139, I1/I2) — SOLO si el entregado es una red reentrenada con
   épocas fijas (`calibracion_y_umbral.entrenamiento_de_la_red` del sobre): `fixed_epochs` y de dónde salen
   (`best_epoch_of_selection`, `completed_epochs_of_selection`: la mejor época de la selección acotada a las completas),
@@ -82,7 +89,14 @@ from matrixai.export.reproduce import (
 )
 
 __all__ = ["manifiesto_de_estudio", "escribir_manifiesto_de_estudio",
-           "MOTIVO_NO_REPRODUCIBLE", "METODOS_DE_CALIBRACION"]
+           "MOTIVO_NO_REPRODUCIBLE", "METODOS_DE_CALIBRACION", "DISENOS_DEL_REPARTO"]
+
+#: Cómo pudo repartirse un estudio (140-C2): el vocabulario de `reparto.diseno` del sobre de selección del Studio. Cerrado: un
+#: diseño que no esté aquí no se publica (`groups_and_time` no lo mide el Studio todavía).
+DISENOS_DEL_REPARTO: tuple[str, ...] = ("iid", "groups", "temporal")
+
+#: `reparto.gap_origen` del sobre → `study.split.gap_origin`, en inglés.
+_ORIGEN_DEL_HUECO = {"horizonte_declarado": "declared_horizon", "pedido": "requested"}
 
 #: Cómo pudo calibrarse el modelo entregado y elegirse su umbral (139-C1): el vocabulario del sobre de selección del
 #: Studio (`calibracion_y_umbral.metodo`). Cerrado: un método que no esté aquí no se publica.
@@ -141,6 +155,61 @@ def _entrenamiento_de_la_red(declarado: Mapping[str, Any]) -> dict[str, Any]:
                 raise ReproduceManifestError(f"{nombre} must be one of {tuple(_LO_QUE_SE_ENTREGA)}, got {valor!r}")
             valor = _LO_QUE_SE_ENTREGA[valor]
         bloque[clave] = valor
+    return bloque
+
+
+def _reparto_del_estudio(declarado: Mapping[str, Any]) -> dict[str, Any]:
+    """El bloque `study.split` (140-C2), validado y SIN rellenar lo que el estudio no dijo (`None` = no consta: se omite)."""
+    from matrixai.estudio.vocabulario import UNIDADES_DE_TIEMPO  # noqa: PLC0415
+
+    if not isinstance(declarado, Mapping):
+        raise ReproduceManifestError(f"reparto_del_estudio must be an object, got {declarado!r}")
+    bloque: dict[str, Any] = {
+        "design": _require_text(declarado.get("diseno"), "reparto_del_estudio.diseno", choices=DISENOS_DEL_REPARTO)}
+    for clave_del_sobre, clave in (("unit_id_field", "unit_column"), ("time_column", "time_column")):
+        valor = declarado.get(clave_del_sobre)
+        if valor is not None:
+            bloque[clave] = _require_text(valor, f"reparto_del_estudio.{clave_del_sobre}")
+    gap = declarado.get("gap")
+    if gap is not None:
+        if (not isinstance(gap, Mapping) or isinstance(gap.get("magnitud"), bool)
+                or not isinstance(gap.get("magnitud"), (int, float)) or not gap["magnitud"] > 0
+                or gap.get("unidad") not in UNIDADES_DE_TIEMPO):
+            raise ReproduceManifestError(
+                f"reparto_del_estudio.gap must be {{magnitud > 0, unidad in {tuple(UNIDADES_DE_TIEMPO)}}}, got {gap!r}")
+        bloque["gap"] = {"magnitude": gap["magnitud"], "unit": gap["unidad"]}
+        origen = declarado.get("gap_origen")
+        if origen is not None:
+            if origen not in _ORIGEN_DEL_HUECO:
+                raise ReproduceManifestError(
+                    f"reparto_del_estudio.gap_origen must be one of {tuple(_ORIGEN_DEL_HUECO)}, got {origen!r}")
+            bloque["gap_origin"] = _ORIGEN_DEL_HUECO[origen]
+    cobertura = declarado.get("cobertura_fuera_de_pliegue")
+    if cobertura is not None:
+        if (not isinstance(cobertura, Mapping) or type(cobertura.get("filas_de_desarrollo")) is not int
+                or type(cobertura.get("filas_sin_validacion")) is not int or cobertura["filas_de_desarrollo"] < 1
+                or not 0 <= cobertura["filas_sin_validacion"] <= cobertura["filas_de_desarrollo"]):
+            raise ReproduceManifestError(
+                f"reparto_del_estudio.cobertura_fuera_de_pliegue must be {{filas_de_desarrollo >= 1, "
+                f"0 <= filas_sin_validacion <= filas_de_desarrollo}}, got {cobertura!r}")
+        bloque["out_of_fold_coverage"] = {"development_rows": cobertura["filas_de_desarrollo"],
+                                          "rows_without_validation": cobertura["filas_sin_validacion"]}
+    limites = declarado.get("limites")
+    if limites:
+        if not isinstance(limites, (list, tuple)):
+            raise ReproduceManifestError(f"reparto_del_estudio.limites must be a list, got {limites!r}")
+        salida = []
+        for i, limite in enumerate(limites):
+            motivo = limite.get("motivo") if isinstance(limite, Mapping) else None
+            if (not isinstance(limite, Mapping) or not isinstance(motivo, Mapping) or set(motivo) != {"es", "en"}):
+                raise ReproduceManifestError(
+                    f"reparto_del_estudio.limites[{i}] must be {{clave, motivo: {{es, en}}, medida?}}, got {limite!r}")
+            salida.append({"key": _require_text(limite.get("clave"), f"reparto_del_estudio.limites[{i}].clave"),
+                           "reason": {idioma: _require_text(motivo[idioma], f"reparto_del_estudio.limites[{i}].motivo.{idioma}")
+                                      for idioma in ("es", "en")},
+                           **({"measure": dict(limite["medida"])} if isinstance(limite.get("medida"), Mapping)
+                              and limite["medida"] else {})})
+        bloque["limits"] = salida
     return bloque
 
 
@@ -221,6 +290,7 @@ def manifiesto_de_estudio(
     calibracion_y_umbral: Mapping[str, Any] | None = None,
     modo: str | None = None,
     motores_fuera_por_el_modo: Sequence[str] | None = None,
+    reparto_del_estudio: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """El manifiesto de un estudio, con SOLO lo que el estudio sabe.
 
@@ -253,6 +323,9 @@ def manifiesto_de_estudio(
       lleva además `study.network_training`.
     * `modo`: `rapido` o `completo` (`MODOS_DE_ESTUDIO`), el modo con que corrió.
     * `motores_fuera_por_el_modo`: los motores que no compitieron POR EL MODO (no por fallar). Solo con `modo`.
+    * `reparto_del_estudio` (140-C2): `{diseno, unit_id_field, time_column, gap: {magnitud, unidad}, gap_origen,
+      cobertura_fuera_de_pliegue: {filas_de_desarrollo, filas_sin_validacion}, limites: [{clave, motivo: {es, en}, medida}]}`
+      tal cual lo declara el sobre del estudio (`reparto`); `diseno` en `DISENOS_DEL_REPARTO`. Va en `study.split`.
     """
     if filas is not None:
         _require_positive_int(filas, "filas")
@@ -328,6 +401,8 @@ def manifiesto_de_estudio(
         estudio["rows"] = reparto
     if motor_del_modelo_entregado is not None:
         estudio["delivered_engine"] = motor_del_modelo_entregado
+    if reparto_del_estudio is not None:
+        estudio["split"] = _reparto_del_estudio(reparto_del_estudio)
     if calibracion_y_umbral is not None:
         estudio["calibration_and_threshold"] = _calibracion_y_umbral(calibracion_y_umbral)
         if calibracion_y_umbral.get("entrenamiento_de_la_red") is not None:

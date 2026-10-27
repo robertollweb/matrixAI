@@ -335,6 +335,11 @@ class ExpedienteClinico:
             if evidencia.clave == "filas":
                 lineas.append(FILAS_DEL_ESTUDIO)
                 lineas.extend(self.reparto_del_estudio())
+                # 140-C2: CÓMO se repartieron las filas del examen (por filas al azar, por sujeto, por el tiempo), con sus
+                # columnas, el hueco y lo que no tiene predicción fuera de pliegue. Solo si el estudio lo declaró: uno anterior
+                # al 140 no lo registró y «no disponible» sería un hueco que no sabemos si lo es.
+                if self.diseno_del_reparto is not None:
+                    lineas.append(REPARTO_POR_DISENO)
                 continue
             lineas.append(evidencia)
             if evidencia.clave == "metricas":
@@ -352,6 +357,12 @@ class ExpedienteClinico:
     def entrenamiento_de_la_red(self) -> dict[str, Any] | None:
         """`study.network_training` del manifiesto (139-C4: una red reentrenada con épocas fijas), o `None`."""
         bloque = ((self._contenido.get("reproduce.json") or {}).get("study") or {}).get("network_training")
+        return bloque if isinstance(bloque, dict) else None
+
+    @property
+    def diseno_del_reparto(self) -> dict[str, Any] | None:
+        """`study.split` del manifiesto (140-C2: diseño del reparto, columnas, hueco, cobertura y límites), o `None`."""
+        bloque = ((self._contenido.get("reproduce.json") or {}).get("study") or {}).get("split")
         return bloque if isinstance(bloque, dict) else None
 
     def reparto_del_estudio(self) -> tuple["Evidencia", ...]:
@@ -822,6 +833,17 @@ COLA_DE_UNA_RED_CON_EPOCAS_FIJAS = _e(
     "decide nothing)",
     _SIN_REPARTO_ES, _SIN_REPARTO_EN)
 
+#: CÓMO SE REPARTIERON LAS FILAS DEL EXAMEN (140-C2, Ola 2): al azar por filas, por sujeto (`unit_column`) o hacia delante en el
+#: tiempo (`time_column`, con su hueco y de dónde sale), y cuántas filas de desarrollo no tienen predicción fuera de pliegue.
+#: Solo va en el inventario si el estudio lo declaró (un estudio anterior al 140 no lo registró).
+REPARTO_POR_DISENO = _e(
+    "reparto_por_diseno", "participantes", "reproduce.json#study.split",
+    "Cómo se reparten las filas del examen (diseño, columnas, hueco y cobertura)",
+    "How the exam rows are split (design, columns, gap and coverage)",
+    "el estudio no registró cómo repartió las filas del examen",
+    "the study did not record how it split the exam rows",
+    "reparto_por_diseno")
+
 #: LAS ÉPOCAS DE UNA RED ENTREGADA (reparación de la re-auditoría del 139, I1): cuántas se fijaron, de dónde salen y si el
 #: plazo cortó el ajuste de selección (entonces el número lo puso ese reloj). Solo en el inventario si el estudio lo dijo.
 ENTRENAMIENTO_DE_LA_RED = _e(
@@ -927,6 +949,53 @@ def _texto_de_la_calibracion(bloque: dict[str, Any], idioma: str) -> str:
     return texto
 
 
+def _texto_del_reparto(bloque: dict[str, Any], idioma: str) -> str:
+    """140-C2 — cómo se repartieron las filas del examen, escrito en el idioma pedido. Solo lo que el bloque trae: un hueco o
+    una cobertura ausentes no se escriben; el diseño fuera del vocabulario se enseña TAL CUAL, sin traducirlo a otro."""
+    es = idioma == "es"
+    diseno = bloque.get("design")
+    columna_de_sujeto, columna_de_tiempo = bloque.get("unit_column"), bloque.get("time_column")
+    if diseno == "iid":
+        texto = "al azar por filas (iid)" if es else "at random by rows (iid)"
+    elif diseno == "groups":
+        texto = ((f"por sujeto (groups): el examen se hace con sujetos que el modelo no vio, columna «{columna_de_sujeto}»"
+                  if columna_de_sujeto else "por sujeto (groups)") if es else
+                 (f"by subject (groups): the exam uses subjects the model did not see, column “{columna_de_sujeto}”"
+                  if columna_de_sujeto else "by subject (groups)"))
+    elif diseno == "temporal":
+        texto = ((f"hacia delante en el tiempo (temporal): se entrena con el pasado y se mide en el futuro, columna "
+                  f"«{columna_de_tiempo}»" if columna_de_tiempo else "hacia delante en el tiempo (temporal)") if es else
+                 (f"forward in time (temporal): trained on the past and measured on the future, column "
+                  f"“{columna_de_tiempo}”" if columna_de_tiempo else "forward in time (temporal)"))
+    else:
+        texto = str(diseno)
+    gap = bloque.get("gap")
+    if isinstance(gap, dict) and gap.get("magnitude") is not None:
+        unidad = {"es": {"seconds": "segundos", "minutes": "minutos", "hours": "horas", "days": "días", "weeks": "semanas",
+                         "months": "meses", "years": "años"},
+                  "en": {}}["es" if es else "en"].get(gap.get("unit"), gap.get("unit"))
+        cuanto = f"{gap['magnitude']:g}" if isinstance(gap["magnitude"], (int, float)) else str(gap["magnitude"])
+        origen = {"declared_horizon": ("el horizonte declarado del problema", "the problem's declared horizon"),
+                  "requested": ("pedido por la persona", "requested by the person")}.get(bloque.get("gap_origin"))
+        texto += (f"; hueco de {cuanto} {unidad} entre lo que entrena y lo que se mide" if es
+                  else f"; gap of {cuanto} {unidad} between what trains and what is measured")
+        if origen is not None:
+            texto += f" ({origen[0] if es else origen[1]})"
+    cobertura = bloque.get("out_of_fold_coverage")
+    if isinstance(cobertura, dict):
+        total, sin = _cuenta(cobertura.get("development_rows")), _cuenta(cobertura.get("rows_without_validation"))
+        if total is not None and sin is not None:
+            texto += (f"; de {total} filas de desarrollo, {sin} no tienen predicción fuera de pliegue" if es
+                      else f"; of {total} development rows, {sin} have no out-of-fold prediction")
+    limites = bloque.get("limits")
+    if isinstance(limites, list) and limites:
+        dichos = [(l.get("reason") or {}).get(idioma) for l in limites if isinstance(l, dict)]
+        dichos = [d for d in dichos if d]
+        if dichos:
+            texto += ("; límites declarados: " if es else "; declared limits: ") + " · ".join(dichos)
+    return texto
+
+
 def _segundos(valor: Any, idioma: str) -> str | None:
     if isinstance(valor, bool) or not isinstance(valor, (int, float)):
         return None
@@ -1010,6 +1079,8 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
         return _numero(valor)
     if evidencia.resumen == "calibracion_y_umbral" and isinstance(valor, dict):
         return _texto_de_la_calibracion(valor, "es" if locale == "es" else "en")
+    if evidencia.resumen == "reparto_por_diseno" and isinstance(valor, dict):
+        return _texto_del_reparto(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "entrenamiento_de_la_red" and isinstance(valor, dict):
         return _texto_del_entrenamiento_de_la_red(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "modo" and isinstance(valor, str):
