@@ -33,6 +33,7 @@ from typing import Any
 from matrixai.export.expediente_clinico import (
     CALIBRACION_Y_UMBRAL,
     DOMINIOS,
+    ENTRENAMIENTO_DE_LA_RED,
     FILAS_DEL_ESTUDIO,
     FUENTE_EN_ESTUDIO,
     FUERA_POR_EL_MODO,
@@ -351,11 +352,20 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
     # tres números en fila donde solo hay uno: un valor ausente no es un dato, y
     # aquí encima parece uno. Cada hueco se marca por su cuenta.
     _epocas = [gen.get(k) for k in ("epochs_declared", "epochs_effective", "epochs_ran")]
-    filas.append(_linea(
-        t["epocas"],
-        " / ".join(str(v) if v is not None else f"_{t['sin_dato']}_" for v in _epocas)
-        if any(v is not None for v in _epocas) else None, t["sin_dato"],
-        ruta="reproduce.json#generation.epochs_declared+effective+ran"))
+    if expediente.es_de_estudio and expediente.entrenamiento_de_la_red is not None:
+        # Reparación de la re-auditoría del 139 (I1): un estudio con una red entregada con épocas fijas NO las registra en
+        # `generation` (eso es del camino clásico) sino en `study.network_training`; la línea «Épocas» decía «no disponible»
+        # de un estudio que guardó 20. Se escribe la del estudio, con el rótulo y la ruta del inventario (PROBAST).
+        campo = expediente.campo(ENTRENAMIENTO_DE_LA_RED.ruta)
+        filas.append(_linea(ENTRENAMIENTO_DE_LA_RED.rotulo[idioma],
+                            texto_del_valor(ENTRENAMIENTO_DE_LA_RED, campo, idioma) if campo.hay_dato else None,
+                            t["sin_dato"], ENTRENAMIENTO_DE_LA_RED.motivo_si_falta[idioma], ENTRENAMIENTO_DE_LA_RED.ruta))
+    else:
+        filas.append(_linea(
+            t["epocas"],
+            " / ".join(str(v) if v is not None else f"_{t['sin_dato']}_" for v in _epocas)
+            if any(v is not None for v in _epocas) else None, t["sin_dato"],
+            ruta="reproduce.json#generation.epochs_declared+effective+ran"))
     _piezas = [
         f"matrixai {env['matrixai_version']}" if env.get("matrixai_version") else None,
         f"python {(env.get('python') or {}).get('version')}"

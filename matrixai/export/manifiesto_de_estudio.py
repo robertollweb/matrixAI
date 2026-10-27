@@ -30,16 +30,24 @@ entrenaron: 360» con 72 de ellas reservadas.
 
 139-C2 (Ola 2) — QUÉ MODELO ES EL ENTREGADO Y CÓMO SE CALIBRÓ. Desde el 139-C1 el modelo entregado se reentrena con TODO
 el desarrollo (menos su cola de parada temprana) y su recalibración y su umbral salen de las predicciones del ganador
-fuera de pliegue; cuando no se puede (una red, el texto, un pliegue sin modelo…) se entrega el del pliegue 0, como antes,
-y el estudio dice por qué. El bloque `study` lo declara, y lo que el estudio no dijo SE OMITE (un estudio guardado antes
+fuera de pliegue —desde el 139-C4 también una red ganadora, con las épocas fijadas de su ajuste de selección—; cuando no se
+puede (el texto, una red sin épocas que fijar o que agota su techo de seguridad, un pliegue sin modelo, el ganador fuera de
+pliegue peor que la referencia…) se entrega el del pliegue 0, como antes, y el estudio dice por qué. El bloque `study` lo declara, y lo que el estudio no dijo SE OMITE (un estudio guardado antes
 del 139 no trae nada de esto, y la ficha dice «no disponible»: ni «pliegue 0» ni una cifra deducida):
 
-* `study.rows.early_stopping_tail` — las filas de esa cola (no entrenan). Solo si el estudio la contó y no es cero.
+* `study.rows.early_stopping_tail` — las filas de esa cola (no entrenan; a un árbol le dicen cuándo parar, a una red con
+  épocas fijas ya no le deciden nada: ver `study.network_training`). Solo si el estudio la contó y no es cero.
 * `study.delivered_engine` — el MOTOR del modelo entregado (`candidate_engine` del sobre de selección; la deuda del 138:
   el expediente no decía qué motor era).
 * `study.calibration_and_threshold` — `method` (`fuera_de_pliegue` | `pliegue_0`, `METODOS_DE_CALIBRACION`), `reason`
   (`{es, en}`, solo si cayó al pliegue 0 y el estudio dijo por qué) y las cuentas que el estudio dio (`folds`,
   `out_of_fold_rows`, `rows_for_calibration`, `rows_for_threshold`).
+* `study.network_training` (reparación de la re-auditoría del 139, I1/I2) — SOLO si el entregado es una red reentrenada con
+  épocas fijas (`calibracion_y_umbral.entrenamiento_de_la_red` del sobre): `fixed_epochs` y de dónde salen
+  (`best_epoch_of_selection`, `completed_epochs_of_selection`: la mejor época de la selección acotada a las completas),
+  `epochs_run_in_selection`, `selection_stopped_by_time_limit` y `selection_time_limit_seconds` (si el plazo cortó la selección, el NÚMERO de épocas
+  lo fijó ese reloj), `epochs_run_in_final`, `delivers` (`last_epoch`), `safety_ceiling_seconds` y
+  `early_stopping_tail_decides` (`false`: con épocas fijas la cola no decide nada). Lo que el sobre no dijo se omite.
 
 El `manifest_sha256` cubre el bloque entero, como el resto del manifiesto: cambiar el método o el motor cambia el digest.
 
@@ -87,6 +95,53 @@ _CUENTAS_DE_LA_CALIBRACION: tuple[tuple[str, str], ...] = (
     ("filas_para_calibrar", "rows_for_calibration"),
     ("filas_para_el_umbral", "rows_for_threshold"),
 )
+
+
+#: `entrenamiento_de_la_red` del sobre (clave del Studio) → `study.network_training` (clave inglesa), con su tipo.
+_ENTRENAMIENTO_DE_LA_RED: tuple[tuple[str, str, str], ...] = (
+    ("epocas_fijadas", "fixed_epochs", "entero"),
+    ("mejor_epoca_de_la_seleccion", "best_epoch_of_selection", "entero"),
+    ("epocas_completas_de_la_seleccion", "completed_epochs_of_selection", "entero"),
+    ("parado_por_plazo_en_la_seleccion", "selection_stopped_by_time_limit", "booleano"),
+    ("epocas_ejecutadas_de_la_seleccion", "epochs_run_in_selection", "entero"),
+    ("plazo_de_la_seleccion_segundos", "selection_time_limit_seconds", "segundos"),
+    ("epocas_ejecutadas_en_el_final", "epochs_run_in_final", "entero"),
+    ("se_entrega", "delivers", "entrega"),
+    ("techo_de_seguridad_segundos", "safety_ceiling_seconds", "segundos"),
+    ("la_cola_decide_algo", "early_stopping_tail_decides", "booleano"),
+)
+_LO_QUE_SE_ENTREGA = {"ultima_epoca": "last_epoch"}
+
+
+def _entrenamiento_de_la_red(declarado: Mapping[str, Any]) -> dict[str, Any]:
+    """El bloque `study.network_training`, validado y SIN rellenar lo que el estudio no dijo (`None` = no consta: se omite)."""
+    if not isinstance(declarado, Mapping):
+        raise ReproduceManifestError(
+            f"calibracion_y_umbral.entrenamiento_de_la_red must be an object, got {declarado!r}")
+    if type(declarado.get("epocas_fijadas")) is not int or declarado["epocas_fijadas"] < 1:
+        raise ReproduceManifestError(
+            "calibracion_y_umbral.entrenamiento_de_la_red.epocas_fijadas must be a positive integer, got "
+            f"{declarado.get('epocas_fijadas')!r}: a network block without its fixed epochs says nothing")
+    bloque: dict[str, Any] = {}
+    for clave_del_sobre, clave, tipo in _ENTRENAMIENTO_DE_LA_RED:
+        valor = declarado.get(clave_del_sobre)
+        if valor is None:
+            continue
+        nombre = f"calibracion_y_umbral.entrenamiento_de_la_red.{clave_del_sobre}"
+        if tipo == "entero" and (type(valor) is not int or valor < 0):
+            raise ReproduceManifestError(f"{nombre} must be a non-negative integer, got {valor!r}")
+        if tipo == "booleano" and not isinstance(valor, bool):
+            raise ReproduceManifestError(f"{nombre} must be a boolean, got {valor!r}")
+        if tipo == "segundos":
+            if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not valor > 0:
+                raise ReproduceManifestError(f"{nombre} must be a positive number of seconds, got {valor!r}")
+            valor = float(valor)
+        if tipo == "entrega":
+            if valor not in _LO_QUE_SE_ENTREGA:
+                raise ReproduceManifestError(f"{nombre} must be one of {tuple(_LO_QUE_SE_ENTREGA)}, got {valor!r}")
+            valor = _LO_QUE_SE_ENTREGA[valor]
+        bloque[clave] = valor
+    return bloque
 
 
 def _calibracion_y_umbral(declarada: Mapping[str, Any]) -> dict[str, Any]:
@@ -189,11 +244,13 @@ def manifiesto_de_estudio(
       deducidas aquí.
     * `filas_que_entrenaron_el_modelo`: con cuántas filas se ajustó el modelo ENTREGADO (no puede pasar de las de
       desarrollo).
-    * `filas_de_cola_de_parada_temprana` (139-C2): las filas de la cola interna con la que el modelo entregado decide
-      cuándo parar (no entrenan). Con `filas_que_entrenaron_el_modelo` no pueden pasar de las de desarrollo.
+    * `filas_de_cola_de_parada_temprana` (139-C2): las filas de la cola interna de parada temprana del modelo entregado
+      (no entrenan; con una red de épocas fijas tampoco deciden nada). Con `filas_que_entrenaron_el_modelo` no pueden pasar de las de desarrollo.
     * `motor_del_modelo_entregado` (139-C2): el motor del modelo entregado (`candidate_engine` de la selección).
     * `calibracion_y_umbral` (139-C2): `{metodo, motivo?, pliegues?, filas_fuera_de_pliegue?, filas_para_calibrar?,
-      filas_para_el_umbral?}` tal cual lo declara el sobre del estudio; `metodo` en `METODOS_DE_CALIBRACION`.
+      filas_para_el_umbral?, entrenamiento_de_la_red?}` tal cual lo declara el sobre del estudio; `metodo` en
+      `METODOS_DE_CALIBRACION`. Con `entrenamiento_de_la_red` (139-C4, una red reentrenada con épocas fijas) el manifiesto
+      lleva además `study.network_training`.
     * `modo`: `rapido` o `completo` (`MODOS_DE_ESTUDIO`), el modo con que corrió.
     * `motores_fuera_por_el_modo`: los motores que no compitieron POR EL MODO (no por fallar). Solo con `modo`.
     """
@@ -273,6 +330,8 @@ def manifiesto_de_estudio(
         estudio["delivered_engine"] = motor_del_modelo_entregado
     if calibracion_y_umbral is not None:
         estudio["calibration_and_threshold"] = _calibracion_y_umbral(calibracion_y_umbral)
+        if calibracion_y_umbral.get("entrenamiento_de_la_red") is not None:
+            estudio["network_training"] = _entrenamiento_de_la_red(calibracion_y_umbral["entrenamiento_de_la_red"])
 
     dataset: dict[str, Any] | None = None
     if filas is not None or huella_del_dataset is not None:

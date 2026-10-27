@@ -342,7 +342,17 @@ class ExpedienteClinico:
                 if estudio.get("mode") == "rapido":
                     lineas.append(FUERA_POR_EL_MODO)
                 lineas.extend((MOTOR_ENTREGADO, CALIBRACION_Y_UMBRAL))
+                # Reparación de la re-auditoría del 139 (I1): las ÉPOCAS de una red entregada con épocas fijas. Solo si el
+                # estudio lo dijo (un árbol no tiene épocas: «falta» sería un hueco inventado).
+                if self.entrenamiento_de_la_red is not None:
+                    lineas.append(ENTRENAMIENTO_DE_LA_RED)
         return tuple(lineas)
+
+    @property
+    def entrenamiento_de_la_red(self) -> dict[str, Any] | None:
+        """`study.network_training` del manifiesto (139-C4: una red reentrenada con épocas fijas), o `None`."""
+        bloque = ((self._contenido.get("reproduce.json") or {}).get("study") or {}).get("network_training")
+        return bloque if isinstance(bloque, dict) else None
 
     def reparto_del_estudio(self) -> tuple["Evidencia", ...]:
         """Las líneas del reparto de las filas de un estudio: las tres de siempre y, si el estudio contó la cola de
@@ -350,7 +360,12 @@ class ExpedienteClinico:
         lineas = list(REPARTO_DEL_ESTUDIO)
         reparto = (self._contenido.get("reproduce.json") or {}).get("study", {}).get("rows")
         if isinstance(reparto, dict) and "early_stopping_tail" in reparto:
-            lineas.append(COLA_DE_PARADA_TEMPRANA)
+            # Reparación de la re-auditoría del 139 (I2): con una red de épocas fijas la cola NO decide cuándo parar (el
+            # estudio lo declara: `early_stopping_tail_decides: false`). Mismo dato y ruta, otro rótulo: el que es verdad.
+            red = self.entrenamiento_de_la_red
+            lineas.append(COLA_DE_UNA_RED_CON_EPOCAS_FIJAS
+                          if red is not None and red.get("early_stopping_tail_decides") is False
+                          else COLA_DE_PARADA_TEMPRANA)
         return tuple(lineas)
 
     @property
@@ -797,6 +812,25 @@ COLA_DE_PARADA_TEMPRANA = _e(
     "Early-stopping tail rows (from development; they decide when to stop, they do not train)",
     _SIN_REPARTO_ES, _SIN_REPARTO_EN)
 
+#: La MISMA cola cuando el entregado es una red reentrenada con épocas fijas (reparación de la re-auditoría del 139, I2): ahí
+#: no decide nada —no hay paciencia—, solo se aparta y no entrena. Mismo dato (`clave`, `ruta`), el rótulo que es verdad.
+COLA_DE_UNA_RED_CON_EPOCAS_FIJAS = _e(
+    "filas_de_cola_de_parada_temprana", "participantes", "reproduce.json#study.rows.early_stopping_tail",
+    "Filas de la cola de parada temprana (del desarrollo; se apartan y no entrenan; con las épocas fijadas de la red no "
+    "deciden nada)",
+    "Early-stopping tail rows (from development; set aside, they do not train; with the network's fixed epochs they "
+    "decide nothing)",
+    _SIN_REPARTO_ES, _SIN_REPARTO_EN)
+
+#: LAS ÉPOCAS DE UNA RED ENTREGADA (reparación de la re-auditoría del 139, I1): cuántas se fijaron, de dónde salen y si el
+#: plazo cortó el ajuste de selección (entonces el número lo puso ese reloj). Solo en el inventario si el estudio lo dijo.
+ENTRENAMIENTO_DE_LA_RED = _e(
+    "entrenamiento_de_la_red", "analisis", "reproduce.json#study.network_training",
+    "Épocas de la red entregada", "Epochs of the delivered network",
+    "el estudio no registró con cuántas épocas se entrenó la red entregada",
+    "the study did not record how many epochs the delivered network was trained for",
+    "entrenamiento_de_la_red")
+
 #: QUÉ MOTOR ES EL MODELO ENTREGADO (139-C2; la deuda del 138: el expediente no lo decía). Va SIEMPRE en un estudio: un
 #: estudio que no lo registró dice «no disponible», que es un hueco real.
 MOTOR_ENTREGADO = _e(
@@ -893,6 +927,49 @@ def _texto_de_la_calibracion(bloque: dict[str, Any], idioma: str) -> str:
     return texto
 
 
+def _segundos(valor: Any, idioma: str) -> str | None:
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        return None
+    texto = f"{float(valor):g}"
+    return texto.replace(".", ",") if idioma == "es" else texto
+
+
+def _texto_del_entrenamiento_de_la_red(bloque: dict[str, Any], idioma: str) -> str:
+    """Reparación de la re-auditoría del 139 (I1) — las épocas de la red entregada, escritas en el idioma pedido. Solo lo que
+    el bloque trae: una cifra ausente no se escribe, y «la selección la cortó su plazo» solo con un `true` del estudio."""
+    es = idioma == "es"
+    fijadas = _cuenta(bloque.get("fixed_epochs"))
+    mejor = _cuenta(bloque.get("best_epoch_of_selection"))
+    completas = _cuenta(bloque.get("completed_epochs_of_selection"))
+    final = _cuenta(bloque.get("epochs_run_in_final"))
+    partes: list[str] = []
+    if fijadas is not None:
+        partes.append(f"{fijadas} épocas fijadas, sin parada temprana" if es
+                      else f"{fijadas} fixed epochs, without early stopping")
+    if bloque.get("delivers") == "last_epoch":
+        partes.append("se entrega la última" if es else "the last one is delivered")
+    if mejor is not None and completas is not None:
+        partes.append(f"salen del ajuste de selección: su mejor época ({mejor}), acotada a sus épocas completas ({completas})"
+                      if es else f"they come from the selection fit: its best epoch ({mejor}), capped at its completed "
+                      f"epochs ({completas})")
+    elif mejor is not None:
+        partes.append(f"salen de la mejor época del ajuste de selección ({mejor})" if es
+                      else f"they come from the selection fit's best epoch ({mejor})")
+    if bloque.get("selection_stopped_by_time_limit") is True:
+        plazo = _segundos(bloque.get("selection_time_limit_seconds"), idioma)
+        de = (f" (unos {plazo} s)" if es else f" (about {plazo} s)") if plazo is not None else ""
+        partes.append(f"ese ajuste de selección lo cortó su tope de tiempo{de}: el número de épocas lo fijó ese reloj" if es
+                      else f"that selection fit was cut short by its time limit{de}: the number of epochs was set by that clock")
+    elif bloque.get("selection_stopped_by_time_limit") is False:
+        partes.append("ese ajuste de selección no lo cortó su tope de tiempo" if es
+                      else "that selection fit was not cut short by its time limit")
+    if final is not None:
+        partes.append(f"el modelo entregado hizo {final}" if es else f"the delivered model ran {final}")
+    if bloque.get("early_stopping_tail_decides") is False:
+        partes.append("la cola de parada temprana no decide nada" if es else "the early-stopping tail decides nothing")
+    return "; ".join(partes)
+
+
 def _si_no(valor: Any, locale: str) -> str:
     if locale == "es":
         return "sí" if valor else "no"
@@ -933,6 +1010,8 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
         return _numero(valor)
     if evidencia.resumen == "calibracion_y_umbral" and isinstance(valor, dict):
         return _texto_de_la_calibracion(valor, "es" if locale == "es" else "en")
+    if evidencia.resumen == "entrenamiento_de_la_red" and isinstance(valor, dict):
+        return _texto_del_entrenamiento_de_la_red(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "modo" and isinstance(valor, str):
         return _NOMBRE_DEL_MODO["es" if locale == "es" else "en"].get(valor, valor)
     if evidencia.resumen == "booleano":
