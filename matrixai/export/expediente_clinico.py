@@ -334,13 +334,23 @@ class ExpedienteClinico:
                 continue
             if evidencia.clave == "filas":
                 lineas.append(FILAS_DEL_ESTUDIO)
-                lineas.extend(REPARTO_DEL_ESTUDIO)
+                lineas.extend(self.reparto_del_estudio())
                 continue
             lineas.append(evidencia)
             if evidencia.clave == "metricas":
                 lineas.append(MODO_DEL_ESTUDIO)
                 if estudio.get("mode") == "rapido":
                     lineas.append(FUERA_POR_EL_MODO)
+                lineas.extend((MOTOR_ENTREGADO, CALIBRACION_Y_UMBRAL))
+        return tuple(lineas)
+
+    def reparto_del_estudio(self) -> tuple["Evidencia", ...]:
+        """Las líneas del reparto de las filas de un estudio: las tres de siempre y, si el estudio contó la cola de
+        parada temprana (139-C2), la cola. Tras `filas_que_entrenaron_el_modelo`, que es de donde sale su resta."""
+        lineas = list(REPARTO_DEL_ESTUDIO)
+        reparto = (self._contenido.get("reproduce.json") or {}).get("study", {}).get("rows")
+        if isinstance(reparto, dict) and "early_stopping_tail" in reparto:
+            lineas.append(COLA_DE_PARADA_TEMPRANA)
         return tuple(lineas)
 
     @property
@@ -778,6 +788,32 @@ REPARTO_DEL_ESTUDIO: tuple[Evidencia, ...] = (
        _SIN_REPARTO_ES, _SIN_REPARTO_EN),
 )
 
+#: La cola con la que el modelo entregado decide cuándo parar (139-C2): filas de DESARROLLO que no entrenan. Solo va en el
+#: inventario si el estudio la contó (`study.rows.early_stopping_tail`): un estudio guardado antes del 139 no la trae, y un
+#: motor sin parada temprana no tiene cola; en ninguno de los dos «no disponible» sería un hueco real.
+COLA_DE_PARADA_TEMPRANA = _e(
+    "filas_de_cola_de_parada_temprana", "participantes", "reproduce.json#study.rows.early_stopping_tail",
+    "Filas de la cola de parada temprana (del desarrollo; deciden cuándo parar, no entrenan)",
+    "Early-stopping tail rows (from development; they decide when to stop, they do not train)",
+    _SIN_REPARTO_ES, _SIN_REPARTO_EN)
+
+#: QUÉ MOTOR ES EL MODELO ENTREGADO (139-C2; la deuda del 138: el expediente no lo decía). Va SIEMPRE en un estudio: un
+#: estudio que no lo registró dice «no disponible», que es un hueco real.
+MOTOR_ENTREGADO = _e(
+    "motor_del_modelo_entregado", "analisis", "reproduce.json#study.delivered_engine",
+    "Motor del modelo entregado", "Engine of the delivered model",
+    "el estudio no registró qué motor es el modelo entregado",
+    "the study did not record which engine is the delivered model")
+
+#: CÓMO SE CALIBRÓ Y SE ELIGIÓ EL UMBRAL del modelo entregado (139-C2). Siempre en un estudio; uno guardado antes del
+#: 139-C1 no lo registró y se dice así, SIN suponer el método de antes: lo que consta es lo que consta.
+CALIBRACION_Y_UMBRAL = _e(
+    "calibracion_y_umbral", "analisis", "reproduce.json#study.calibration_and_threshold",
+    "Calibración y umbral del modelo entregado", "Calibration and threshold of the delivered model",
+    "el estudio no registró cómo calibró el modelo ni cómo eligió su umbral",
+    "the study did not record how it calibrated the model or chose its threshold",
+    "calibracion_y_umbral")
+
 #: El modo con que corrió el estudio (138-C1) y, si fue el rápido, quién no compitió por él.
 MODO_DEL_ESTUDIO = _e(
     "modo_del_estudio", "analisis", "reproduce.json#study.mode",
@@ -811,6 +847,50 @@ def _numero(valor: float) -> str:
     if "." in texto:
         texto = texto.rstrip("0").rstrip(".")
     return texto or "0"
+
+
+def _cuenta(valor: Any) -> int | None:
+    return valor if type(valor) is int and valor >= 0 else None
+
+
+def _texto_de_la_calibracion(bloque: dict[str, Any], idioma: str) -> str:
+    """139-C2 — cómo se calibró el modelo entregado y se eligió su umbral, escrito en el idioma pedido.
+
+    Solo dice lo que el bloque trae: una cuenta ausente no se escribe (ni como cero), y el motivo de haber caído al pliegue
+    0 es el que dio el estudio, en este idioma. Un método fuera del vocabulario se enseña TAL CUAL, sin traducirlo a otro."""
+    es = idioma == "es"
+    metodo = bloque.get("method")
+    pliegues = _cuenta(bloque.get("folds"))
+    fuera = _cuenta(bloque.get("out_of_fold_rows"))
+    para_calibrar = _cuenta(bloque.get("rows_for_calibration"))
+    para_umbral = _cuenta(bloque.get("rows_for_threshold"))
+    partes: list[str] = []
+    if metodo == "fuera_de_pliegue":
+        partes.append("con predicciones fuera de pliegue (cada fila puntuada por un modelo que no la vio)" if es
+                      else "with out-of-fold predictions (each row scored by a model that had not seen it)")
+        if fuera is not None and pliegues is not None:
+            partes.append(f"{fuera} filas de desarrollo en {pliegues} pliegues" if es
+                          else f"{fuera} development rows across {pliegues} folds")
+        elif fuera is not None:
+            partes.append(f"{fuera} filas de desarrollo" if es else f"{fuera} development rows")
+    elif metodo == "pliegue_0":
+        partes.append("método de antes: con la parte de validación del pliegue 0" if es
+                      else "the previous method: with the validation part of fold 0")
+    else:
+        partes.append(str(metodo))
+    if para_calibrar is not None:
+        partes.append(f"{para_calibrar} para ajustar la recalibración" if es
+                      else f"{para_calibrar} to fit the recalibration")
+    if para_umbral is not None:
+        partes.append(f"{para_umbral} para elegir el umbral y las bandas" if es
+                      else f"{para_umbral} to choose the threshold and the bands")
+    texto = "; ".join(partes)
+    motivo = bloque.get("reason")
+    if isinstance(motivo, dict):
+        dicho = motivo.get(idioma) or motivo.get("es" if idioma != "es" else "en")
+        if dicho:
+            texto += f". Motivo: {dicho}" if es else f". Reason: {dicho}"
+    return texto
 
 
 def _si_no(valor: Any, locale: str) -> str:
@@ -851,6 +931,8 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
                 f"{valor.get('veredicto')} · baseline={valor.get('baseline')}")
     if isinstance(valor, float):
         return _numero(valor)
+    if evidencia.resumen == "calibracion_y_umbral" and isinstance(valor, dict):
+        return _texto_de_la_calibracion(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "modo" and isinstance(valor, str):
         return _NOMBRE_DEL_MODO["es" if locale == "es" else "en"].get(valor, valor)
     if evidencia.resumen == "booleano":

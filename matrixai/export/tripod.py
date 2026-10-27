@@ -31,13 +31,14 @@ from pathlib import Path
 from typing import Any
 
 from matrixai.export.expediente_clinico import (
+    CALIBRACION_Y_UMBRAL,
     DOMINIOS,
     FILAS_DEL_ESTUDIO,
     FUENTE_EN_ESTUDIO,
     FUERA_POR_EL_MODO,
     MODO_DEL_ESTUDIO,
+    MOTOR_ENTREGADO,
     POR_CLAVE,
-    REPARTO_DEL_ESTUDIO,
     ExpedienteClinico,
     linea_de_campo,
     rotulo_de_dominio,
@@ -300,7 +301,7 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
         # UN ESTUDIO NO ENTRENA CON TODAS SUS FILAS: `rows` son las del conjunto (las de la
         # huella) y el reparto, lo que el estudio contó. Rótulos y rutas, los del inventario:
         # la ficha y PROBAST no pueden decir dos cosas de la misma cifra.
-        for evidencia in (FILAS_DEL_ESTUDIO, *REPARTO_DEL_ESTUDIO):
+        for evidencia in (FILAS_DEL_ESTUDIO, *expediente.reparto_del_estudio()):
             campo = expediente.campo(evidencia.ruta)
             filas.append(_linea(evidencia.rotulo[idioma], campo.valor, t["sin_dato"],
                                 evidencia.motivo_si_falta[idioma], evidencia.ruta))
@@ -369,6 +370,9 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
         _lineas_del_modo = [MODO_DEL_ESTUDIO]
         if expediente.campo(MODO_DEL_ESTUDIO.ruta).valor == "rapido":
             _lineas_del_modo.append(FUERA_POR_EL_MODO)
+        # 139-C2: qué motor es el modelo entregado y cómo se calibró y se eligió su umbral. Mismos rótulos y rutas que el
+        # inventario (PROBAST): la ficha y los huecos no pueden decir dos cosas de lo mismo.
+        _lineas_del_modo.extend((MOTOR_ENTREGADO, CALIBRACION_Y_UMBRAL))
         for evidencia in _lineas_del_modo:
             campo = expediente.campo(evidencia.ruta)
             filas.append(_linea(evidencia.rotulo[idioma],

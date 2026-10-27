@@ -24,9 +24,24 @@ EL BLOQUE `study` (138, reparación de la auditoría de C1–C3) es lo que un es
 con qué MODO corrió (`rapido`/`completo`, el vocabulario de `MODOS_DE_ESTUDIO`), qué motores dejó fuera ese modo, y
 CÓMO se repartieron las filas. Va SIEMPRE —vacío si no sabe nada—, porque su presencia es lo que dice a la ficha y a
 PROBAST que esto es un estudio: aquí `artifacts.dataset.rows` son las filas del CONJUNTO (las de la huella), no las que
-entrenaron. En un estudio el modelo entregado NO entrena con todas: hay una prueba reservada que no ve, y dentro del
-desarrollo entrena con una parte del pliegue 0 (`_seleccionar_y_reajustar` del Studio). La auditoría lo cazó: la ficha
-decía «Filas que entrenaron: 360» con 72 de ellas reservadas.
+entrenaron. En un estudio el modelo entregado NO entrena con todas: hay una prueba reservada que no ve (y, dentro del
+desarrollo, una cola interna con la que decide cuándo parar). La auditoría lo cazó: la ficha decía «Filas que
+entrenaron: 360» con 72 de ellas reservadas.
+
+139-C2 (Ola 2) — QUÉ MODELO ES EL ENTREGADO Y CÓMO SE CALIBRÓ. Desde el 139-C1 el modelo entregado se reentrena con TODO
+el desarrollo (menos su cola de parada temprana) y su recalibración y su umbral salen de las predicciones del ganador
+fuera de pliegue; cuando no se puede (una red, el texto, un pliegue sin modelo…) se entrega el del pliegue 0, como antes,
+y el estudio dice por qué. El bloque `study` lo declara, y lo que el estudio no dijo SE OMITE (un estudio guardado antes
+del 139 no trae nada de esto, y la ficha dice «no disponible»: ni «pliegue 0» ni una cifra deducida):
+
+* `study.rows.early_stopping_tail` — las filas de esa cola (no entrenan). Solo si el estudio la contó y no es cero.
+* `study.delivered_engine` — el MOTOR del modelo entregado (`candidate_engine` del sobre de selección; la deuda del 138:
+  el expediente no decía qué motor era).
+* `study.calibration_and_threshold` — `method` (`fuera_de_pliegue` | `pliegue_0`, `METODOS_DE_CALIBRACION`), `reason`
+  (`{es, en}`, solo si cayó al pliegue 0 y el estudio dijo por qué) y las cuentas que el estudio dio (`folds`,
+  `out_of_fold_rows`, `rows_for_calibration`, `rows_for_threshold`).
+
+El `manifest_sha256` cubre el bloque entero, como el resto del manifiesto: cambiar el método o el motor cambia el digest.
 
 `reproducible` es SIEMPRE `false`, con su motivo en castellano e inglés: un
 estudio no se reproduce por el camino clásico de `matrixai export` /
@@ -59,7 +74,45 @@ from matrixai.export.reproduce import (
 )
 
 __all__ = ["manifiesto_de_estudio", "escribir_manifiesto_de_estudio",
-           "MOTIVO_NO_REPRODUCIBLE"]
+           "MOTIVO_NO_REPRODUCIBLE", "METODOS_DE_CALIBRACION"]
+
+#: Cómo pudo calibrarse el modelo entregado y elegirse su umbral (139-C1): el vocabulario del sobre de selección del
+#: Studio (`calibracion_y_umbral.metodo`). Cerrado: un método que no esté aquí no se publica.
+METODOS_DE_CALIBRACION: tuple[str, ...] = ("fuera_de_pliegue", "pliegue_0")
+
+#: Las cuentas que el estudio da de su calibración, en el sobre (clave del Studio) y en el manifiesto (clave inglesa).
+_CUENTAS_DE_LA_CALIBRACION: tuple[tuple[str, str], ...] = (
+    ("pliegues", "folds"),
+    ("filas_fuera_de_pliegue", "out_of_fold_rows"),
+    ("filas_para_calibrar", "rows_for_calibration"),
+    ("filas_para_el_umbral", "rows_for_threshold"),
+)
+
+
+def _calibracion_y_umbral(declarada: Mapping[str, Any]) -> dict[str, Any]:
+    """El bloque `study.calibration_and_threshold`, validado y SIN rellenar lo que el estudio no dijo."""
+    if not isinstance(declarada, Mapping):
+        raise ReproduceManifestError(
+            f"calibracion_y_umbral must be an object, got {declarada!r}")
+    bloque: dict[str, Any] = {
+        "method": _require_text(declarada.get("metodo"), "calibracion_y_umbral.metodo",
+                                choices=METODOS_DE_CALIBRACION)}
+    motivo = declarada.get("motivo")
+    if motivo is not None:
+        if not isinstance(motivo, Mapping) or set(motivo) != {"es", "en"}:
+            raise ReproduceManifestError(
+                f"calibracion_y_umbral.motivo must be an object with exactly «es» and «en», got {motivo!r}")
+        bloque["reason"] = {idioma: _require_text(motivo[idioma], f"calibracion_y_umbral.motivo.{idioma}")
+                            for idioma in ("es", "en")}
+    for clave_del_sobre, clave in _CUENTAS_DE_LA_CALIBRACION:
+        valor = declarada.get(clave_del_sobre)
+        if valor is None:
+            continue
+        if type(valor) is not int or valor < 0:
+            raise ReproduceManifestError(
+                f"calibracion_y_umbral.{clave_del_sobre} must be a non-negative integer, got {valor!r}")
+        bloque[clave] = valor
+    return bloque
 
 #: Por qué un estudio NO se declara reproducible. Bilingüe: la ficha TRIPOD lo
 #: enseña en el idioma que se le pida, y el resto del core (BOM, CLI) lee la
@@ -108,6 +161,9 @@ def manifiesto_de_estudio(
     filas_de_desarrollo: int | None = None,
     filas_de_prueba_reservada: int | None = None,
     filas_que_entrenaron_el_modelo: int | None = None,
+    filas_de_cola_de_parada_temprana: int | None = None,
+    motor_del_modelo_entregado: str | None = None,
+    calibracion_y_umbral: Mapping[str, Any] | None = None,
     modo: str | None = None,
     motores_fuera_por_el_modo: Sequence[str] | None = None,
 ) -> dict[str, Any]:
@@ -133,6 +189,11 @@ def manifiesto_de_estudio(
       deducidas aquí.
     * `filas_que_entrenaron_el_modelo`: con cuántas filas se ajustó el modelo ENTREGADO (no puede pasar de las de
       desarrollo).
+    * `filas_de_cola_de_parada_temprana` (139-C2): las filas de la cola interna con la que el modelo entregado decide
+      cuándo parar (no entrenan). Con `filas_que_entrenaron_el_modelo` no pueden pasar de las de desarrollo.
+    * `motor_del_modelo_entregado` (139-C2): el motor del modelo entregado (`candidate_engine` de la selección).
+    * `calibracion_y_umbral` (139-C2): `{metodo, motivo?, pliegues?, filas_fuera_de_pliegue?, filas_para_calibrar?,
+      filas_para_el_umbral?}` tal cual lo declara el sobre del estudio; `metodo` en `METODOS_DE_CALIBRACION`.
     * `modo`: `rapido` o `completo` (`MODOS_DE_ESTUDIO`), el modo con que corrió.
     * `motores_fuera_por_el_modo`: los motores que no compitieron POR EL MODO (no por fallar). Solo con `modo`.
     """
@@ -161,7 +222,8 @@ def manifiesto_de_estudio(
 
     for valor, nombre in ((filas_de_desarrollo, "filas_de_desarrollo"),
                           (filas_de_prueba_reservada, "filas_de_prueba_reservada"),
-                          (filas_que_entrenaron_el_modelo, "filas_que_entrenaron_el_modelo")):
+                          (filas_que_entrenaron_el_modelo, "filas_que_entrenaron_el_modelo"),
+                          (filas_de_cola_de_parada_temprana, "filas_de_cola_de_parada_temprana")):
         if valor is not None:
             _require_positive_int(valor, nombre)
     if (filas_que_entrenaron_el_modelo is not None and filas_de_desarrollo is not None
@@ -169,6 +231,13 @@ def manifiesto_de_estudio(
         raise ReproduceManifestError(
             f"filas_que_entrenaron_el_modelo ({filas_que_entrenaron_el_modelo}) cannot exceed "
             f"filas_de_desarrollo ({filas_de_desarrollo}): the delivered model trains inside development")
+    if (filas_de_cola_de_parada_temprana is not None and filas_de_desarrollo is not None
+            and (filas_que_entrenaron_el_modelo or 0) + filas_de_cola_de_parada_temprana > filas_de_desarrollo):
+        raise ReproduceManifestError(
+            f"filas_que_entrenaron_el_modelo ({filas_que_entrenaron_el_modelo}) plus the early-stopping tail "
+            f"({filas_de_cola_de_parada_temprana}) cannot exceed filas_de_desarrollo ({filas_de_desarrollo})")
+    if motor_del_modelo_entregado is not None:
+        _require_text(motor_del_modelo_entregado, "motor_del_modelo_entregado")
     if filas is not None:
         for valor, nombre in ((filas_de_desarrollo, "filas_de_desarrollo"),
                               (filas_de_prueba_reservada, "filas_de_prueba_reservada")):
@@ -196,9 +265,14 @@ def manifiesto_de_estudio(
         estudio["engines_left_out_by_mode"] = fuera_por_el_modo
     reparto = {clave: valor for clave, valor in (
         ("development", filas_de_desarrollo), ("holdout_test", filas_de_prueba_reservada),
-        ("trained_the_delivered_model", filas_que_entrenaron_el_modelo)) if valor is not None}
+        ("trained_the_delivered_model", filas_que_entrenaron_el_modelo),
+        ("early_stopping_tail", filas_de_cola_de_parada_temprana)) if valor is not None}
     if reparto:
         estudio["rows"] = reparto
+    if motor_del_modelo_entregado is not None:
+        estudio["delivered_engine"] = motor_del_modelo_entregado
+    if calibracion_y_umbral is not None:
+        estudio["calibration_and_threshold"] = _calibracion_y_umbral(calibracion_y_umbral)
 
     dataset: dict[str, Any] | None = None
     if filas is not None or huella_del_dataset is not None:
