@@ -542,14 +542,24 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "that never settled",
     },
     "calibracion_separacion_detectada": {
-        "es": "{campo} muestra separación (un coeficiente superó "
-              "{opciones} en {valor} iteraciones): la verosimilitud logística "
-              "no tiene máximo finito aquí, y devolver el último número "
-              "sería una conclusión falsa de precisión que no existe",
-        "en": "{campo} shows separation (a coefficient exceeded {opciones} "
-              "at iteration {valor}): the logistic likelihood has no finite "
-              "maximum here, and returning the last number would be a false "
-              "claim of precision that does not exist",
+        "es": "{campo} muestra separación {opciones}, comprobada sobre los datos: "
+              "todas las puntuaciones de una clase quedan a un lado de un corte y "
+              "todas las de la otra al otro. La verosimilitud logística no tiene "
+              "máximo finito aquí, y devolver un número sería una conclusión falsa "
+              "de precisión que no existe",
+        "en": "{campo} shows {opciones} separation, checked on the data: every "
+              "score of one class lies on one side of a cut and every score of the "
+              "other class on the other side. The logistic likelihood has no "
+              "finite maximum here, and returning a number would be a false claim "
+              "of precision that does not exist",
+    },
+    "calibracion_puntuacion_constante": {
+        "es": "{campo} no se puede ajustar: todas las puntuaciones de esta muestra "
+              "son la misma, así que la pendiente no se distingue del intercepto "
+              "(hay infinitas rectas igual de buenas, y elegir una sería inventarla)",
+        "en": "{campo} cannot be fitted: every score in this sample is the same, so "
+              "the slope cannot be told apart from the intercept (infinitely many "
+              "lines fit equally well, and picking one would be making it up)",
     },
     "unidades_insuficientes": {
         "es": "la muestra solo trae {valor} unidad(es) de remuestreo: un "

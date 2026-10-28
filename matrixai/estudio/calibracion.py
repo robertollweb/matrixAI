@@ -21,15 +21,31 @@ MIDEN aquí, con su propio criterio, no se toman prestados de otra
 herramienta (invariante 9 del 105).
 
 LA SEPARACIÓN, Y POR QUÉ SE DETECTA EN VEZ DE DEVOLVER UN NÚMERO ENORME. Con
-separación perfecta o casi perfecta, la verosimilitud logística no tiene
-máximo finito: `b` crece sin límite y el hessiano se degenera (su
-determinante tiende a cero, porque `sigmoid·(1-sigmoid)` se acerca a cero
-en las predicciones que ya saturan a 0/1). Devolver el último `b` de un
-Newton que diverge sería justo lo que el criterio de terminado prohíbe:
-«separación... no devuelve conclusiones falsas». Se detecta por dos vías —
-`|a|`/`|b|` superando un techo grande, o un hessiano casi singular— y se
-declara `separacion_detectada=True` con el ajuste sin usar, nunca con un
-número que parece preciso y no lo es.
+separación completa o cuasi completa, la verosimilitud logística no tiene
+máximo finito: `b` crece sin límite. Devolver el último `b` de un Newton que
+diverge sería justo lo que el criterio de terminado prohíbe: «separación...
+no devuelve conclusiones falsas». Se declara `separacion_detectada=True` con
+el ajuste sin usar, nunca con un número que parece preciso y no lo es.
+
+141 (28-10): LA SEPARACIÓN SE MIRA EN LOS DATOS, NO EN EL CAMINO DEL NEWTON.
+Hasta el 141 se declaraba cuando `|a|`/`|b|` superaba 50 a mitad de
+iteraciones, o con un hessiano casi singular. Un Newton SIN amortiguar que
+parte de `a=0, b=1` con logits extremos (−12 a +7, los de un buen
+clasificador) da un primer paso enorme y pasa de 50 en 2–3 iteraciones con
+datos que NO son separables: medido sobre las predicciones fuera de pliegue
+de climate-model-simulation-crashes, 3 de 6 subconjuntos de 215 filas salían
+«separación» y `LogisticRegression(C=1e8)` daba a≈0,4, b≈0,56. El estudio
+entregaba sin recalibrar cuando había un ajuste finito. Ahora: (1) con `a` y
+`b` libres, el máximo existe si y solo si las puntuaciones de las dos clases
+SE SOLAPAN (Albert y Anderson, 1984: en una dimensión con intercepto, no
+existe si `min(z | y=1) >= max(z | y=0)` o al revés) — eso se comprueba
+sobre los `z` antes de iterar; con `b` fijo el máximo de `a` siempre existe
+si hay las dos clases; (2) el Newton va AMORTIGUADO: un paso que empeora la
+verosimilitud se parte a la mitad hasta que no la empeora, así que con
+máximo finito converge desde cualquier arranque (la log-verosimilitud es
+cóncava); (3) «no convergió» sigue existiendo con su motivo. Y una muestra
+con TODAS las puntuaciones iguales no es separación: es una recta sin
+pendiente identificable, y lleva su propio motivo.
 
 QUÉ SE EVALÚA CON QUÉ. El criterio de terminado pide literalmente «datos
 usados para evaluar calibración no ajustan ese calibrador»: `ajustar_*`
@@ -48,7 +64,7 @@ from typing import Any, Sequence
 
 from matrixai.estudio.errores import EsquemaInvalido
 from matrixai.estudio.metricas import Muestra
-from matrixai.estudio.textos import motivo
+from matrixai.estudio.textos import PorIdioma, motivo
 from matrixai.estudio.validacion import digest_canonico, exigir_entero, exigir_real
 from matrixai.estudio.vocabulario import exigir_opcion
 
@@ -72,12 +88,10 @@ METODOS_DE_BINS = ("ancho_igual", "frecuencia_igual")
 #: distintas, nunca el mismo número con dos nombres.
 METODOS_DE_RECALIBRACION = ("logistico_completo", "intercepto_en_grande")
 
-#: Límite de |a|/|b| para declarar separación en vez de devolver un número
-#: que "parece" preciso. Medido: con separación perfecta (200 puntos, y=1
-#: syss z>0) el propio Newton ya supera esto en 9 iteraciones — no hace
-#: falta un techo mayor para cazar el caso real, y uno menor arriesgaría
-#: cortar un ajuste legítimo pero con b grande de verdad.
-TECHO_COEFICIENTE = 50.0
+#: Cuántas veces se parte a la mitad un paso de Newton que empeora la
+#: verosimilitud antes de rendirse (2**-60 ≈ 1e-18: por debajo de eso el paso
+#: ya no mueve un `float`).
+MAX_MITADES = 60
 
 #: Igual que `CLIP_LOG_LOSS` de 105-C1 pero declarado aparte a propósito:
 #: aquí se recorta ANTES de tomar logit (evita ±inf), allí se recorta un
@@ -142,46 +156,106 @@ class RecalibracionLogistica:
         return digest_canonico(self.a_json())
 
 
+def _log1p_exp(x: float) -> float:
+    """`log(1 + e^x)` sin desbordar en ninguno de los dos extremos."""
+    if x > 0:
+        return x + math.log1p(math.exp(-x))
+    return math.log1p(math.exp(x))
+
+
+def _evaluar(zs: Sequence[float], ys: Sequence[float], a: float, b: float, libre_b: bool
+             ) -> tuple[float, float, float, float, float, float]:
+    """Log-verosimilitud, gradiente y hessiano en `(a, b)`, en UNA pasada:
+    `(ll, ga, gb, haa, hab, hbb)`. `ll_i = y·η − log(1+e^η)`, con `η = a + b·z`."""
+    ll = ga = gb = haa = hab = hbb = 0.0
+    for z, y in zip(zs, ys):
+        eta = a + b * z
+        ll += y * eta - _log1p_exp(eta)
+        s = _sigmoid(eta)
+        w = s * (1.0 - s)
+        ga += (y - s)
+        haa -= w
+        if libre_b:
+            gb += z * (y - s)
+            hab -= z * w
+            hbb -= z * z * w
+    return ll, ga, gb, haa, hab, hbb
+
+
+def _separacion_en_los_datos(zs: Sequence[float], ys: Sequence[float]) -> str | None:
+    """`"completa"`, `"cuasi_completa"` o `None`, MIRANDO LOS DATOS. En una
+    dimensión con intercepto, el máximo de `a + b·z` no existe si y solo si
+    hay un corte con todas las de una clase a un lado y todas las de la otra
+    al otro (Albert y Anderson, 1984): `min(z|y=1) >= max(z|y=0)` o
+    `max(z|y=1) <= min(z|y=0)`. Estricto es completa; con empate en el corte,
+    cuasi completa. El llamante descarta antes una sola clase y el `z`
+    constante (que cumpliría la igualdad sin ser separación)."""
+    unos = [z for z, y in zip(zs, ys) if y == 1.0]
+    ceros = [z for z, y in zip(zs, ys) if y != 1.0]
+    for abajo, arriba in ((ceros, unos), (unos, ceros)):
+        if min(arriba) > max(abajo):
+            return "completa"
+        if min(arriba) >= max(abajo):
+            return "cuasi_completa"
+    return None
+
+
 def _newton_logistico(zs: Sequence[float], ys: Sequence[float], *, fijar_b: float | None,
                       max_iter: int = 100, tol: float = 1e-10) -> tuple[float | None, float | None, int, bool, bool]:
     """Devuelve `(a, b, iteraciones, convergio, separacion)`. Con `fijar_b`
-    dado, el Newton es de 1 parámetro (`a` solo); si no, de 2 (`a` y `b`)."""
+    dado, el Newton es de 1 parámetro (`a` solo); si no, de 2 (`a` y `b`).
+
+    141: AMORTIGUADO. Cada paso de Newton se parte a la mitad mientras empeore
+    la log-verosimilitud (hasta `MAX_MITADES` veces); si el hessiano no es
+    definido negativo en el punto (pesos `s·(1-s)` que se anulan), el paso es
+    el del gradiente, también con búsqueda en línea. La separación se decide
+    sobre los datos antes de iterar (`_separacion_en_los_datos`), nunca por el
+    tamaño de un coeficiente a mitad de camino."""
+    libre_b = fijar_b is None
+    if libre_b and _separacion_en_los_datos(zs, ys) is not None:
+        return None, None, 0, False, True
     a = 0.0
     b = fijar_b if fijar_b is not None else 1.0
+    ll, ga, gb, haa, hab, hbb = _evaluar(zs, ys, a, b, libre_b)
     for it in range(1, max_iter + 1):
-        ga = gb = haa = hab = hbb = 0.0
-        for z, y in zip(zs, ys):
-            s = _sigmoid(a + b * z)
-            w = s * (1.0 - s)
-            ga += (y - s)
-            haa -= w
-            if fijar_b is None:
-                gb += z * (y - s)
-                hab -= z * w
-                hbb -= z * z * w
-
-        if fijar_b is not None:
-            if abs(haa) < 1e-12:
-                return a, b, it, False, True
-            da = ga / haa
-            a_nuevo = a - da
-            if abs(a_nuevo - a) < tol:
-                return a_nuevo, b, it, True, False
-            a = a_nuevo
-        else:
+        if libre_b:
             det = haa * hbb - hab * hab
-            if abs(det) < 1e-9:
-                return a, b, it, False, True
-            da = (hbb * ga - hab * gb) / det
-            db = (-hab * ga + haa * gb) / det
-            a_nuevo, b_nuevo = a - da, b - db
-            if abs(a_nuevo - a) < tol and abs(b_nuevo - b) < tol:
-                return a_nuevo, b_nuevo, it, True, False
-            a, b = a_nuevo, b_nuevo
-
-        if abs(a) > TECHO_COEFICIENTE or abs(b) > TECHO_COEFICIENTE:
-            return a, b, it, False, True
+            if haa < 0.0 and det > 0.0:
+                da = -(hbb * ga - hab * gb) / det
+                db = -(-hab * ga + haa * gb) / det
+            else:
+                escala = 1.0 / max(1.0, math.hypot(ga, gb))
+                da, db = ga * escala, gb * escala
+        else:
+            da = -ga / haa if haa < 0.0 else ga / max(1.0, abs(ga))
+            db = 0.0
+        if max(abs(da), abs(db)) < tol:
+            return a + da, b + db, it, True, False
+        # la mejora que el paso promete (decremento de Newton, o |g|² si es el del gradiente)
+        prometida = ga * da + gb * db
+        holgura = 1e-13 * (1.0 + abs(ll))
+        t = 1.0
+        for _ in range(MAX_MITADES):
+            a_n, b_n = a + t * da, b + t * db
+            nuevo = _evaluar(zs, ys, a_n, b_n, libre_b)
+            if math.isfinite(nuevo[0]) and nuevo[0] >= ll - holgura:
+                break
+            t *= 0.5
+        else:
+            # ningún trozo del paso deja de empeorarla: o ya estamos en el máximo (lo que el paso
+            # prometía cabe en el ruido de redondeo), o el ajuste no se ha estabilizado.
+            if prometida <= holgura:
+                return a, b, it, True, False
+            return a, b, it, False, False
+        a, b = a_n, b_n
+        ll, ga, gb, haa, hab, hbb = nuevo
     return a, b, max_iter, False, False
+
+
+_ROTULO_DE_SEPARACION = {
+    "completa": PorIdioma(es="completa", en="complete"),
+    "cuasi_completa": PorIdioma(es="cuasi completa (empate en el corte)", en="quasi-complete (tie at the cut)"),
+}
 
 
 def ajustar_recalibracion_logistica(muestra: Muestra, *, metodo: str = "logistico_completo",
@@ -210,6 +284,13 @@ def ajustar_recalibracion_logistica(muestra: Muestra, *, metodo: str = "logistic
     zs = [_logit(p) for p in probabilidades]
 
     fijar_b = 1.0 if metodo == "intercepto_en_grande" else None
+    if fijar_b is None and min(zs) == max(zs):
+        # 141: no es separación (no hay corte que deje una clase a cada lado): con un solo `z`
+        # solo se identifica `a + b·z`, no `a` y `b` por separado.
+        return RecalibracionLogistica(
+            metodo=metodo, n_observaciones=n,
+            undefined_reason=motivo("calibracion_puntuacion_constante",
+                                    campo="recalibracion_logistica"))
     a, b, iteraciones, convergio, separacion = _newton_logistico(
         zs, ys, fijar_b=fijar_b, max_iter=max_iter, tol=tol)
 
@@ -219,7 +300,7 @@ def ajustar_recalibracion_logistica(muestra: Muestra, *, metodo: str = "logistic
             convergio=False, separacion_detectada=True,
             undefined_reason=motivo("calibracion_separacion_detectada",
                                     campo="recalibracion_logistica",
-                                    opciones=TECHO_COEFICIENTE, valor=iteraciones))
+                                    opciones=_ROTULO_DE_SEPARACION[_separacion_en_los_datos(zs, ys)]))
     if not convergio:
         return RecalibracionLogistica(
             metodo=metodo, n_observaciones=n, iteraciones=iteraciones,
