@@ -65,7 +65,7 @@ class TestI2ElTiempoEnLaFicha:
                                                  hay, "es")
 
 
-OBJETIVO = {"tarea": "clasificacion", "cambia_mucho": True, "se_ensena": True,
+OBJETIVO = {"tarea": "clasificacion", "cambia_mucho": True,
             "desarrollo": {"filas": 237, "proporciones": {"0": 0.646, "1": 0.354}},
             "prueba": {"filas": 56, "proporciones": {"0": 0.321, "1": 0.679}},
             "mayor_cambio": {"clase": "1", "puntos": 32.5, "z": 4.4}, "criterio": {"puntos": 10.0, "z": 1.96}}
@@ -103,6 +103,42 @@ class TestElObjetivoEnDesarrolloYPrueba:
             self._split({**OBJETIVO, "cambia_mucho": "sí"})
         with pytest.raises(ReproduceManifestError):
             self._split({**OBJETIVO, "prueba": {"filas": 0, "proporciones": {"1": 1.0}}})
+
+
+class TestR5ElObjetivoSinVariacionEnElDesarrollo:
+    """R5 de la re-auditoría del C2/C3 (28-10): con el objetivo CONSTANTE en el desarrollo no hay desviación con que medir el
+    cambio. El sobre lo dice (`desviaciones: null`, `desarrollo_sin_variacion: true`) y el manifiesto lo admite SOLO con la
+    desviación del desarrollo en 0 (un `null` cualquiera sigue rechazándose)."""
+
+    SIN_VARIACION = {"tarea": "regresion", "cambia_mucho": True,
+                     "desarrollo": {"filas": 20, "media": 5.0, "desviacion_tipica": 0.0},
+                     "prueba": {"filas": 20, "media": 9.25, "desviacion_tipica": 0.2565},
+                     "cambio": {"desviaciones": None, "z": 74.1, "desarrollo_sin_variacion": True},
+                     "criterio": {"desviaciones": 0.5, "z": 1.96}}
+
+    def _split(self, objetivo):
+        return manifiesto_de_estudio(reparto_del_estudio={"diseno": "temporal", "time_column": "fecha",
+                                                          "objetivo_en_desarrollo_y_prueba": objetivo})["study"]["split"]
+
+    def test_el_manifiesto_lo_admite_y_la_ficha_lo_dice(self):
+        s = self._split(self.SIN_VARIACION)
+        assert s["target_in_development_and_test"]["change"] == {
+            "standard_deviations": None, "z": 74.1, "development_without_variation": True}
+        es = _texto(REPARTO_POR_DISENO, "reproduce.json#study.split", s, "es")
+        en = _texto(REPARTO_POR_DISENO, "reproduce.json#study.split", s, "en")
+        assert "en el desarrollo el objetivo no varía" in es and ": CAMBIA MUCHO" in es
+        assert "the target does not vary in development" in en and "IT CHANGES A LOT" in en
+        # con la prueba también constante, `z` es `null`
+        o = {**self.SIN_VARIACION, "cambio": {"desviaciones": None, "z": None, "desarrollo_sin_variacion": True}}
+        assert self._split(o)["target_in_development_and_test"]["change"]["z"] is None
+
+    def test_un_null_sin_la_marca_o_con_desviacion_se_rechaza(self):
+        with pytest.raises(ReproduceManifestError):
+            self._split({**self.SIN_VARIACION, "cambio": {"desviaciones": None, "z": 74.1}})
+        with pytest.raises(ReproduceManifestError):
+            self._split({**self.SIN_VARIACION, "desarrollo": {"filas": 20, "media": 5.0, "desviacion_tipica": 1.2}})
+        with pytest.raises(ReproduceManifestError):
+            self._split({**self.SIN_VARIACION, "cambio": {"desviaciones": 3.0, "z": 74.1, "desarrollo_sin_variacion": True}})
 
 
 class TestM5ElSingularEnLaFicha:
