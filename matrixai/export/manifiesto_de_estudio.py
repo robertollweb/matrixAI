@@ -276,8 +276,23 @@ def _objetivo_en_desarrollo_y_prueba(declarado: Mapping[str, Any]) -> dict[str, 
         cambio = declarado.get("cambio")
         if not isinstance(cambio, Mapping):
             raise ReproduceManifestError(f"{nombre}.cambio must be an object, got {cambio!r}")
-        salida["change"] = {"standard_deviations": _numero_finito(cambio.get("desviaciones"), f"{nombre}.cambio.desviaciones"),
-                            "z": _numero_finito(cambio.get("z"), f"{nombre}.cambio.z")}
+        if cambio.get("desarrollo_sin_variacion") is True:
+            # R5 de la re-auditoría del C2/C3 (28-10): el objetivo NO VARÍA en el desarrollo. Sin desviación con que medir el
+            # cambio, `desviaciones` es `null` (no un cero: un cero diría «no cambió»), y `z` también lo es si la prueba es
+            # constante. Solo se admite si la desviación del desarrollo es de verdad 0.
+            if salida["development"]["standard_deviation"] != 0:
+                raise ReproduceManifestError(f"{nombre}.cambio.desarrollo_sin_variacion needs a development standard deviation "
+                                             f"of 0, got {salida['development']['standard_deviation']!r}")
+            if cambio.get("desviaciones") is not None:
+                raise ReproduceManifestError(f"{nombre}.cambio.desviaciones must be null when the development does not vary")
+            z = cambio.get("z")
+            salida["change"] = {"standard_deviations": None,
+                                "z": None if z is None else _numero_finito(z, f"{nombre}.cambio.z"),
+                                "development_without_variation": True}
+        else:
+            salida["change"] = {"standard_deviations": _numero_finito(cambio.get("desviaciones"),
+                                                                      f"{nombre}.cambio.desviaciones"),
+                                "z": _numero_finito(cambio.get("z"), f"{nombre}.cambio.z")}
     criterio = declarado.get("criterio")
     if isinstance(criterio, Mapping):
         salida["criterion"] = {({"puntos": "points", "desviaciones": "standard_deviations"}.get(k, k)):

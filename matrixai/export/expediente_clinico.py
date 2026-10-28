@@ -1064,10 +1064,17 @@ def _texto_del_objetivo_en_la_prueba(o: dict[str, Any], idioma: str) -> str:
         a, b, sd = dev.get("mean"), test.get("mean"), dev.get("standard_deviation")
         if not all(isinstance(v, (int, float)) for v in (a, b, sd)):
             return ""
-        base = (f"la media del objetivo es {_numero(a)} en el desarrollo y {_numero(b)} en la prueba reservada (desviación "
-                f"típica del desarrollo: {_numero(sd)})" if es else
-                f"the target mean is {_numero(a)} in development and {_numero(b)} in the held-out test (development standard "
-                f"deviation: {_numero(sd)})")
+        if (o.get("change") or {}).get("development_without_variation") is True:
+            # R5 (re-auditoría del C2/C3): sin variación en el desarrollo no hay desviación con que medir el cambio; se dice.
+            base = (f"la media del objetivo es {_numero(a)} en el desarrollo y {_numero(b)} en la prueba reservada (en el "
+                    "desarrollo el objetivo no varía: no hay desviación con que medir el cambio)" if es else
+                    f"the target mean is {_numero(a)} in development and {_numero(b)} in the held-out test (the target does "
+                    "not vary in development: there is no deviation to measure the change with)")
+        else:
+            base = (f"la media del objetivo es {_numero(a)} en el desarrollo y {_numero(b)} en la prueba reservada (desviación "
+                    f"típica del desarrollo: {_numero(sd)})" if es else
+                    f"the target mean is {_numero(a)} in development and {_numero(b)} in the held-out test (development "
+                    f"standard deviation: {_numero(sd)})")
     aviso = ((": CAMBIA MUCHO (solo se informa; no cambia ninguna decisión del estudio)" if mucho
               else " (no cambia mucho)") if es else
              (": IT CHANGES A LOT (reported only; it changes no decision of the study)" if mucho
