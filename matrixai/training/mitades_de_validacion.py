@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from matrixai.training.diagnostico import Limite
-from matrixai.training.particion_por_diseno_comun import clave_de_clase
+from matrixai.training.particion_por_diseno_comun import nombres_de_clases
 from matrixai.training.particion_por_diseno_grupos import repartir_cubos
 from matrixai.training.particion_por_diseno_textos import motivo
 
@@ -143,14 +143,15 @@ def _mitades_por_unidad(ids: Sequence[str], unidad_por_id: Mapping[str, str],
 
     limites: list[Limite] = []
     if clase_por_id is not None and len(clases) > 1:
+        nombre = nombres_de_clases(clases)
         for k in clases:
             en_cada = (sum(1 for i in calibrar if clase_por_id[ids[i]] == k),
                        sum(1 for i in umbral if clase_por_id[ids[i]] == k))
             if 0 in en_cada:
                 limites.append(Limite(
                     clave="mitad_sin_una_clase", campo="unit_id_field",
-                    motivo=motivo("mitad_sin_una_clase", clase=clave_de_clase(k),
+                    motivo=motivo("mitad_sin_una_clase", clase=nombre[k],
                                   detalle=f"{en_cada[0]} / {en_cada[1]}"),
-                    medida={"clase": clave_de_clase(k), "filas_para_calibrar": en_cada[0],
+                    medida={"clase": nombre[k], "filas_para_calibrar": en_cada[0],
                             "filas_para_el_umbral": en_cada[1]}))
     return _resultado(ids, calibrar, umbral, limites)

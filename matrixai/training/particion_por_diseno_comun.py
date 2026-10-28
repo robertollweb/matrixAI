@@ -22,7 +22,7 @@ from typing import Any
 from matrixai.training.objetivo import Bloqueo
 from matrixai.training.particion_por_diseno_textos import motivo
 
-__all__ = ["BloqueoConNumeros", "Rechazo", "clave_de_clase"]
+__all__ = ["BloqueoConNumeros", "Rechazo", "clave_de_clase", "nombres_de_clases"]
 
 
 @dataclass(frozen=True)
@@ -57,3 +57,17 @@ def clave_de_clase(clase: Any) -> str:
     """Cómo se nombra una clase en un mensaje y en una medida (JSON no admite
     claves que no sean texto)."""
     return str(clase)
+
+
+def nombres_de_clases(clases: Any) -> dict[Any, str]:
+    """El nombre de cada clase en los mensajes y medidas de un mismo reparto: `clave_de_clase`, salvo que dos clases
+    DISTINTAS se escriban igual (`1` y `"1"`), y entonces las dos van con `repr` (`1` y `'1'`).
+
+    Re-auditoría (M-c, 28-10): las dos se juntaban en las medidas (`{'0': 9, '1': 2}`, una clave perdida) y el motivo
+    decía «la clase 1 solo tiene 0 filas en desarrollo» habiendo filas de `1`. Desde un CSV no pasa (todo llega como
+    texto); lo mínimo honesto es no escribir dos clases con el mismo nombre. No se juntan: son dos clases."""
+    clases = list(clases)
+    por_texto: dict[str, int] = {}
+    for c in clases:
+        por_texto[clave_de_clase(c)] = por_texto.get(clave_de_clase(c), 0) + 1
+    return {c: (repr(c) if por_texto[clave_de_clase(c)] > 1 else clave_de_clase(c)) for c in clases}
