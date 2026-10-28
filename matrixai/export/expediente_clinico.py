@@ -946,7 +946,47 @@ def _texto_de_la_calibracion(bloque: dict[str, Any], idioma: str) -> str:
         dicho = motivo.get(idioma) or motivo.get("es" if idioma != "es" else "en")
         if dicho:
             texto += f". Motivo: {dicho}" if es else f". Reason: {dicho}"
+    # I2 de la auditoría del C2/C3 (D4): en un reparto por el tiempo, el supuesto, la deriva MEDIDA (y lo que no mide) y la nota
+    # de la predicción conforme. Solo lo que el bloque trae.
+    for clave in ("temporal_assumption", "conformal_without_exchangeability"):
+        nota = bloque.get(clave)
+        if isinstance(nota, dict) and (nota.get(idioma) or "").strip():
+            texto += f". {nota[idioma].rstrip('.')}"
+    deriva = bloque.get("drift_between_halves")
+    if isinstance(deriva, dict):
+        dicho = _texto_de_la_deriva(deriva, idioma)
+        if dicho:
+            texto += f". {dicho}"
     return texto
+
+
+def _texto_de_la_deriva(deriva: dict[str, Any], idioma: str) -> str:
+    """La deriva medida entre las dos mitades de las validaciones de un reparto `temporal`: QUÉ mide (dentro del desarrollo,
+    entre la mitad que calibra y la que elige el umbral) y qué NO mide (del desarrollo al futuro). Vacía si faltan las cifras."""
+    es = idioma == "es"
+    antes, despues, z, umbral = (deriva.get(k) for k in ("in_the_calibration_half", "in_the_threshold_half", "z", "z_threshold"))
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (antes, despues, z, umbral)):
+        return ""
+    pct = deriva.get("measure") == "prevalence"
+
+    def cifra(v: float) -> str:
+        return f"{100 * v:.1f} %" if pct else _numero(v)
+    que = (("la proporción de la clase positiva" if pct else "la media del objetivo") if es
+           else ("the share of the positive class" if pct else "the mean of the target"))
+    hay = deriva.get("drift") is True
+    if es:
+        veredicto = (f"pasa del umbral ({_numero(umbral)}): el umbral y la prevalencia se eligieron con el pasado y pueden "
+                     "haber derivado" if hay else f"por debajo del umbral ({_numero(umbral)}): sin deriva apreciable entre las "
+                     "dos mitades")
+        return (f"Deriva medida DENTRO del desarrollo: {que} en la mitad anterior de cada validación (la que calibra) es "
+                f"{cifra(antes)} y en la posterior (la que elige el umbral) {cifra(despues)}; z = {_numero(abs(z))}, {veredicto}. "
+                "No mide la deriva del desarrollo al futuro (a la prueba reservada ni a lo que venga después)")
+    veredicto = (f"above the threshold ({_numero(umbral)}): the threshold and the prevalence were chosen with the past and "
+                 "may have drifted" if hay else f"below the threshold ({_numero(umbral)}): no noticeable drift between the "
+                 "two halves")
+    return (f"Drift measured WITHIN development: {que} in the earlier half of each validation (the one that calibrates) is "
+            f"{cifra(antes)} and in the later half (the one that picks the threshold) {cifra(despues)}; z = {_numero(abs(z))}, "
+            f"{veredicto}. It does not measure drift from development to the future (to the held-out test or beyond)")
 
 
 def _texto_del_reparto(bloque: dict[str, Any], idioma: str) -> str:
@@ -971,9 +1011,15 @@ def _texto_del_reparto(bloque: dict[str, Any], idioma: str) -> str:
         texto = str(diseno)
     gap = bloque.get("gap")
     if isinstance(gap, dict) and gap.get("magnitude") is not None:
-        unidad = {"es": {"seconds": "segundos", "minutes": "minutos", "hours": "horas", "days": "días", "weeks": "semanas",
-                         "months": "meses", "years": "años"},
-                  "en": {}}["es" if es else "en"].get(gap.get("unit"), gap.get("unit"))
+        # M5 de la auditoría del C2/C3: «1 día», no «1 días» (y «1 day», no «1 days»).
+        uno = gap.get("magnitude") == 1
+        unidad = ({"es": {"seconds": "segundos", "minutes": "minutos", "hours": "horas", "days": "días", "weeks": "semanas",
+                          "months": "meses", "years": "años"},
+                   "en": {}} if not uno else
+                  {"es": {"seconds": "segundo", "minutes": "minuto", "hours": "hora", "days": "día", "weeks": "semana",
+                          "months": "mes", "years": "año"},
+                   "en": {"seconds": "second", "minutes": "minute", "hours": "hour", "days": "day", "weeks": "week",
+                          "months": "month", "years": "year"}})["es" if es else "en"].get(gap.get("unit"), gap.get("unit"))
         cuanto = f"{gap['magnitude']:g}" if isinstance(gap["magnitude"], (int, float)) else str(gap["magnitude"])
         origen = {"declared_horizon": ("el horizonte declarado del problema", "the problem's declared horizon"),
                   "requested": ("pedido por la persona", "requested by the person")}.get(bloque.get("gap_origin"))
@@ -993,7 +1039,40 @@ def _texto_del_reparto(bloque: dict[str, Any], idioma: str) -> str:
         dichos = [d for d in dichos if d]
         if dichos:
             texto += ("; límites declarados: " if es else "; declared limits: ") + " · ".join(dichos)
+    objetivo = bloque.get("target_in_development_and_test")
+    if isinstance(objetivo, dict):
+        dicho = _texto_del_objetivo_en_la_prueba(objetivo, idioma)
+        if dicho:
+            texto += f"; {dicho}"
     return texto
+
+
+def _texto_del_objetivo_en_la_prueba(o: dict[str, Any], idioma: str) -> str:
+    """El objetivo en el desarrollo y en la prueba reservada (decisión de Roberto del 28-10): solo informa."""
+    es = idioma == "es"
+    dev, test = o.get("development") or {}, o.get("test") or {}
+    mucho = o.get("changes_a_lot") is True
+    if o.get("task") == "classification":
+        mayor = o.get("largest_change") or {}
+        clase = mayor.get("class")
+        a, b = (dev.get("shares") or {}).get(clase), (test.get("shares") or {}).get(clase)
+        if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
+            return ""
+        base = (f"la clase «{clase}» es el {100 * a:.1f} % del desarrollo y el {100 * b:.1f} % de la prueba reservada" if es
+                else f"class “{clase}” is {100 * a:.1f}% of development and {100 * b:.1f}% of the held-out test")
+    else:
+        a, b, sd = dev.get("mean"), test.get("mean"), dev.get("standard_deviation")
+        if not all(isinstance(v, (int, float)) for v in (a, b, sd)):
+            return ""
+        base = (f"la media del objetivo es {_numero(a)} en el desarrollo y {_numero(b)} en la prueba reservada (desviación "
+                f"típica del desarrollo: {_numero(sd)})" if es else
+                f"the target mean is {_numero(a)} in development and {_numero(b)} in the held-out test (development standard "
+                f"deviation: {_numero(sd)})")
+    aviso = ((": CAMBIA MUCHO (solo se informa; no cambia ninguna decisión del estudio)" if mucho
+              else " (no cambia mucho)") if es else
+             (": IT CHANGES A LOT (reported only; it changes no decision of the study)" if mucho
+              else " (it does not change much)"))
+    return base + aviso
 
 
 def _segundos(valor: Any, idioma: str) -> str | None:

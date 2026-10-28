@@ -75,7 +75,11 @@ class TestManifiestoDelReparto:
         assert a["manifest_sha256"] != b["manifest_sha256"]
 
     @pytest.mark.parametrize("malo", [
-        {"diseno": "groups_and_time"}, {"diseno": "otro"}, {"diseno": "temporal", "gap": {"magnitud": 0, "unidad": "days"}},
+        # Reparación del I1 (auditoría del C2/C3): un hueco 0 ya NO es malo (ver `test_un_hueco_cero_es_valido…`); negativo,
+        # NaN e infinito, sí.
+        {"diseno": "groups_and_time"}, {"diseno": "otro"}, {"diseno": "temporal", "gap": {"magnitud": -1, "unidad": "days"}},
+        {"diseno": "temporal", "gap": {"magnitud": float("nan"), "unidad": "days"}},
+        {"diseno": "temporal", "gap": {"magnitud": float("inf"), "unidad": "days"}},
         {"diseno": "temporal", "gap": {"magnitud": True, "unidad": "days"}},
         {"diseno": "temporal", "gap": {"magnitud": 3, "unidad": "lustros"}},
         {"diseno": "temporal", "gap": {"magnitud": 3, "unidad": "days"}, "gap_origen": "por_costumbre"},
@@ -85,6 +89,14 @@ class TestManifiestoDelReparto:
     def test_un_reparto_mal_formado_se_rechaza(self, malo):
         with pytest.raises(ReproduceManifestError):
             manifiesto_de_estudio(reparto_del_estudio=malo)
+
+    def test_un_hueco_cero_es_valido_y_se_publica(self):
+        """I1 de la auditoría del C2/C3: la pantalla admite un hueco 0 («sin hueco») y el estudio completa; el manifiesto lo
+        rechazaba (`magnitud > 0`) y la exportación reventaba. Se publica tal cual."""
+        m = manifiesto_de_estudio(reparto_del_estudio={"diseno": "temporal", "time_column": "fecha",
+                                                       "gap": {"magnitud": 0, "unidad": "days"}, "gap_origen": "pedido"})
+        assert m["study"]["split"]["gap"] == {"magnitude": 0, "unit": "days"}
+        assert m["study"]["split"]["gap_origin"] == "requested"
 
     def test_el_vocabulario_es_el_que_mide_el_studio(self):
         assert DISENOS_DEL_REPARTO == ("iid", "groups", "temporal")

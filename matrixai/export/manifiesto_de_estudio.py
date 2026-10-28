@@ -41,14 +41,22 @@ del 139 no trae nada de esto, y la ficha dice «no disponible»: ni «pliegue 0�
   el expediente no decía qué motor era).
 * `study.calibration_and_threshold` — `method` (`fuera_de_pliegue` | `pliegue_0`, `METODOS_DE_CALIBRACION`), `reason`
   (`{es, en}`, solo si cayó al pliegue 0 y el estudio dijo por qué) y las cuentas que el estudio dio (`folds`,
-  `out_of_fold_rows`, `rows_for_calibration`, `rows_for_threshold`).
+  `out_of_fold_rows`, `rows_for_calibration`, `rows_for_threshold`). En un reparto `temporal` (140, D4; reparación del I2 de
+  la auditoría del C2/C3), además: `temporal_assumption` (`{es, en}`: el modelo final predice un futuro que no vio y la
+  calibración y el umbral se eligieron con el pasado), `drift_between_halves` (la deriva MEDIDA entre la mitad anterior de cada
+  validación, que calibra, y la posterior, que elige el umbral: `measure` `prevalence` | `target_mean`, las dos cifras, `z`,
+  `z_threshold`, las filas de cada mitad y `drift`; NO mide la deriva del desarrollo al futuro) y
+  `conformal_without_exchangeability` (`{es, en}`: la cobertura nominal del intervalo conforme no es una garantía sin
+  intercambiabilidad; la que cuenta es la medida en la prueba reservada).
 * `study.split` (140-C2, Ola 2: validación por grupos y por tiempo) — CÓMO se repartieron las filas del examen, tal cual lo
   declara el sobre del estudio (`reparto`): `design` (`iid` | `groups` | `temporal`), `unit_column` (la columna que identifica
   al sujeto, solo en `groups`), `time_column` (solo en `temporal`), `gap` (`{magnitude, unit}`: el hueco entre lo que entrena
   y lo que se mide) y `gap_origin` (`declared_horizon`: el horizonte del problema, el valor por omisión; `requested`: lo pidió
   la persona), `out_of_fold_coverage` (`development_rows`, `rows_without_validation`: las filas de desarrollo sin predicción
   fuera de pliegue —el primer bloque de una ventana temporal—) y `limits` (lo que el reparto declaró, con su frase en los dos
-  idiomas). Lo que el estudio no dijo se omite: un estudio anterior al 140 no trae el bloque.
+  idiomas). Lo que el estudio no dijo se omite: un estudio anterior al 140 no trae el bloque. Y `target_in_development_and_test`
+  (decisión de Roberto del 28-10): la proporción de cada clase (o la media y la desviación típica) del objetivo en el desarrollo y
+  en la prueba reservada, el mayor cambio y si `changes_a_lot` con su `criterion`; solo informa.
 * `study.network_training` (reparación de la re-auditoría del 139, I1/I2) — SOLO si el entregado es una red reentrenada con
   épocas fijas (`calibracion_y_umbral.entrenamiento_de_la_red` del sobre): `fixed_epochs` y de dónde salen
   (`best_epoch_of_selection`, `completed_epochs_of_selection`: la mejor época de la selección acotada a las completas),
@@ -69,6 +77,7 @@ EL ESQUEMA es el de `reproduce.py` (1.1): los mismos nombres de campo, el mismo
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -172,11 +181,14 @@ def _reparto_del_estudio(declarado: Mapping[str, Any]) -> dict[str, Any]:
             bloque[clave] = _require_text(valor, f"reparto_del_estudio.{clave_del_sobre}")
     gap = declarado.get("gap")
     if gap is not None:
+        # I1 de la auditoría del C2/C3 (28-10): un hueco 0 es VÁLIDO («sin hueco» es una petición legítima: la pantalla y el
+        # `Horizonte` del núcleo admiten ≥ 0), y aquí se exigía > 0: un estudio `completed` con hueco 0 no se podía exportar
+        # (`ReproduceManifestError` dentro de `exportar_estudio`). Lo que sigue sin valer: negativo, NaN, infinito, un booleano.
         if (not isinstance(gap, Mapping) or isinstance(gap.get("magnitud"), bool)
-                or not isinstance(gap.get("magnitud"), (int, float)) or not gap["magnitud"] > 0
-                or gap.get("unidad") not in UNIDADES_DE_TIEMPO):
+                or not isinstance(gap.get("magnitud"), (int, float)) or not math.isfinite(gap["magnitud"])
+                or not gap["magnitud"] >= 0 or gap.get("unidad") not in UNIDADES_DE_TIEMPO):
             raise ReproduceManifestError(
-                f"reparto_del_estudio.gap must be {{magnitud > 0, unidad in {tuple(UNIDADES_DE_TIEMPO)}}}, got {gap!r}")
+                f"reparto_del_estudio.gap must be {{magnitud >= 0, unidad in {tuple(UNIDADES_DE_TIEMPO)}}}, got {gap!r}")
         bloque["gap"] = {"magnitude": gap["magnitud"], "unit": gap["unidad"]}
         origen = declarado.get("gap_origen")
         if origen is not None:
@@ -210,7 +222,67 @@ def _reparto_del_estudio(declarado: Mapping[str, Any]) -> dict[str, Any]:
                            **({"measure": dict(limite["medida"])} if isinstance(limite.get("medida"), Mapping)
                               and limite["medida"] else {})})
         bloque["limits"] = salida
+    objetivo = declarado.get("objetivo_en_desarrollo_y_prueba")
+    if objetivo is not None:
+        bloque["target_in_development_and_test"] = _objetivo_en_desarrollo_y_prueba(objetivo)
     return bloque
+
+
+def _numero_finito(valor: Any, nombre: str) -> float:
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not math.isfinite(valor):
+        raise ReproduceManifestError(f"{nombre} must be a finite number, got {valor!r}")
+    return float(valor)
+
+
+def _filas_positivas(valor: Any, nombre: str) -> int:
+    if type(valor) is not int or valor < 1:
+        raise ReproduceManifestError(f"{nombre} must be a positive integer, got {valor!r}")
+    return valor
+
+
+def _objetivo_en_desarrollo_y_prueba(declarado: Mapping[str, Any]) -> dict[str, Any]:
+    """`reparto.objetivo_en_desarrollo_y_prueba` (decisión de Roberto del 28-10: «decir la proporción del objetivo, o su media
+    en regresión, en el desarrollo y en la prueba, y avisar si cambia mucho; solo informa»), validado, en inglés."""
+    nombre = "reparto_del_estudio.objetivo_en_desarrollo_y_prueba"
+    if not isinstance(declarado, Mapping) or declarado.get("tarea") not in ("clasificacion", "regresion"):
+        raise ReproduceManifestError(f"{nombre} must be an object with tarea clasificacion|regresion, got {declarado!r}")
+    if not isinstance(declarado.get("cambia_mucho"), bool):
+        raise ReproduceManifestError(f"{nombre}.cambia_mucho must be a boolean, got {declarado.get('cambia_mucho')!r}")
+    salida: dict[str, Any] = {"task": "classification" if declarado["tarea"] == "clasificacion" else "regression",
+                              "changes_a_lot": declarado["cambia_mucho"]}
+    for lado, side in (("desarrollo", "development"), ("prueba", "test")):
+        datos = declarado.get(lado)
+        if not isinstance(datos, Mapping):
+            raise ReproduceManifestError(f"{nombre}.{lado} must be an object, got {datos!r}")
+        bloque: dict[str, Any] = {"rows": _filas_positivas(datos.get("filas"), f"{nombre}.{lado}.filas")}
+        if declarado["tarea"] == "clasificacion":
+            proporciones = datos.get("proporciones")
+            if not isinstance(proporciones, Mapping) or not proporciones:
+                raise ReproduceManifestError(f"{nombre}.{lado}.proporciones must be a non-empty object")
+            bloque["shares"] = {str(c): _numero_finito(p, f"{nombre}.{lado}.proporciones[{c!r}]")
+                                for c, p in proporciones.items()}
+        else:
+            bloque["mean"] = _numero_finito(datos.get("media"), f"{nombre}.{lado}.media")
+            bloque["standard_deviation"] = _numero_finito(datos.get("desviacion_tipica"), f"{nombre}.{lado}.desviacion_tipica")
+        salida[side] = bloque
+    if declarado["tarea"] == "clasificacion":
+        mayor = declarado.get("mayor_cambio")
+        if not isinstance(mayor, Mapping):
+            raise ReproduceManifestError(f"{nombre}.mayor_cambio must be an object, got {mayor!r}")
+        salida["largest_change"] = {"class": _require_text(mayor.get("clase"), f"{nombre}.mayor_cambio.clase"),
+                                    "points": _numero_finito(mayor.get("puntos"), f"{nombre}.mayor_cambio.puntos"),
+                                    "z": _numero_finito(mayor.get("z"), f"{nombre}.mayor_cambio.z")}
+    else:
+        cambio = declarado.get("cambio")
+        if not isinstance(cambio, Mapping):
+            raise ReproduceManifestError(f"{nombre}.cambio must be an object, got {cambio!r}")
+        salida["change"] = {"standard_deviations": _numero_finito(cambio.get("desviaciones"), f"{nombre}.cambio.desviaciones"),
+                            "z": _numero_finito(cambio.get("z"), f"{nombre}.cambio.z")}
+    criterio = declarado.get("criterio")
+    if isinstance(criterio, Mapping):
+        salida["criterion"] = {({"puntos": "points", "desviaciones": "standard_deviations"}.get(k, k)):
+                               _numero_finito(v, f"{nombre}.criterio.{k}") for k, v in criterio.items()}
+    return salida
 
 
 def _calibracion_y_umbral(declarada: Mapping[str, Any]) -> dict[str, Any]:
@@ -236,7 +308,57 @@ def _calibracion_y_umbral(declarada: Mapping[str, Any]) -> dict[str, Any]:
             raise ReproduceManifestError(
                 f"calibracion_y_umbral.{clave_del_sobre} must be a non-negative integer, got {valor!r}")
         bloque[clave] = valor
+    # I2 de la auditoría del C2/C3 (28-10; D4 de Roberto: «el sobre/ficha dicen que el umbral y la prevalencia pueden derivar con
+    # el tiempo» y «la conforme se publica con … la nota de que no hay intercambiabilidad»). El sobre ya los escribía y la
+    # ficha no los leía. Solo en un reparto `temporal`; ausentes, se omiten (un estudio `iid` no cambia ni un byte).
+    for clave_del_sobre, clave in (("supuesto_temporal", "temporal_assumption"),
+                                   ("conforme_sin_intercambiabilidad", "conformal_without_exchangeability")):
+        texto = declarada.get(clave_del_sobre)
+        if texto is None:
+            continue
+        if not isinstance(texto, Mapping) or set(texto) != {"es", "en"}:
+            raise ReproduceManifestError(
+                f"calibracion_y_umbral.{clave_del_sobre} must be an object with exactly «es» and «en», got {texto!r}")
+        bloque[clave] = {idioma: _require_text(texto[idioma], f"calibracion_y_umbral.{clave_del_sobre}.{idioma}")
+                         for idioma in ("es", "en")}
+    deriva = declarada.get("deriva")
+    if deriva is not None:
+        bloque["drift_between_halves"] = _deriva_entre_las_mitades(deriva)
     return bloque
+
+
+#: `calibracion_y_umbral.deriva` del sobre (clave del Studio) → `study.calibration_and_threshold.drift_between_halves`.
+_DERIVA = (("medida", "measure"), ("en_la_mitad_que_calibra", "in_the_calibration_half"),
+           ("en_la_mitad_del_umbral", "in_the_threshold_half"), ("z", "z"), ("umbral_de_z", "z_threshold"),
+           ("filas_que_calibran", "calibration_rows"), ("filas_del_umbral", "threshold_rows"), ("hay_deriva", "drift"))
+_MEDIDAS_DE_LA_DERIVA = {"prevalencia": "prevalence", "media_del_objetivo": "target_mean"}
+
+
+def _deriva_entre_las_mitades(deriva: Mapping[str, Any]) -> dict[str, Any]:
+    """La deriva MEDIDA entre la mitad anterior de cada validación (calibra) y la posterior (elige el umbral) de un reparto
+    `temporal` (140-C2, D4). Mide eso y nada más: NO es la deriva del desarrollo al futuro (la prueba reservada), y la ficha
+    lo dice. Todo lo que trae se valida; no se rellena nada."""
+    if not isinstance(deriva, Mapping):
+        raise ReproduceManifestError(f"calibracion_y_umbral.deriva must be an object, got {deriva!r}")
+    salida: dict[str, Any] = {}
+    for clave_del_sobre, clave in _DERIVA:
+        valor = deriva.get(clave_del_sobre)
+        nombre = f"calibracion_y_umbral.deriva.{clave_del_sobre}"
+        if clave_del_sobre == "medida":
+            salida[clave] = _MEDIDAS_DE_LA_DERIVA[_require_text(valor, nombre, choices=tuple(_MEDIDAS_DE_LA_DERIVA))]
+        elif clave_del_sobre == "hay_deriva":
+            if not isinstance(valor, bool):
+                raise ReproduceManifestError(f"{nombre} must be a boolean, got {valor!r}")
+            salida[clave] = valor
+        elif clave_del_sobre in ("filas_que_calibran", "filas_del_umbral"):
+            if type(valor) is not int or valor < 0:
+                raise ReproduceManifestError(f"{nombre} must be a non-negative integer, got {valor!r}")
+            salida[clave] = valor
+        else:
+            if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not math.isfinite(valor):
+                raise ReproduceManifestError(f"{nombre} must be a finite number, got {valor!r}")
+            salida[clave] = float(valor)
+    return salida
 
 #: Por qué un estudio NO se declara reproducible. Bilingüe: la ficha TRIPOD lo
 #: enseña en el idioma que se le pida, y el resto del core (BOM, CLI) lee la
