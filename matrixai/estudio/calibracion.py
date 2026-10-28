@@ -307,6 +307,14 @@ def ajustar_recalibracion_logistica(muestra: Muestra, *, metodo: str = "logistic
             convergio=False, separacion_detectada=False,
             undefined_reason=motivo("calibracion_no_convergio",
                                     campo="recalibracion_logistica", valor=iteraciones))
+    if b < 0:
+        # Decisión de Roberto (28-10, A): una pendiente NEGATIVA invierte la puntuación (el modelo ordena al revés en estas
+        # filas). Aceptarla le daría la vuelta en silencio a un modelo que predice peor que el azar, y la guarda del campeón
+        # dejaría de verlo. Se declara sin ajustar, con su motivo.
+        return RecalibracionLogistica(
+            metodo=metodo, n_observaciones=n, iteraciones=iteraciones,
+            convergio=True, separacion_detectada=False,
+            undefined_reason=motivo("calibracion_pendiente_negativa", campo="recalibracion_logistica"))
     return RecalibracionLogistica(metodo=metodo, n_observaciones=n, a=a, b=b,
                                   convergio=True, iteraciones=iteraciones,
                                   separacion_detectada=False)

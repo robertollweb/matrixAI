@@ -212,3 +212,21 @@ def test_probabilidades_exactas_de_cero_y_uno_no_rompen_el_ajuste():
     zs = [_logit(p) for p in ps]
     a_ref, b_ref = _sklearn(zs, [float(y) for y in ys])
     assert r.a == pytest.approx(a_ref, abs=1e-4) and r.b == pytest.approx(b_ref, abs=1e-4)
+
+
+# Decisión de Roberto (28-10 22:49, A): una recalibración con pendiente NEGATIVA no se acepta. El modelo ordena al revés en
+# las filas de calibración; darle la vuelta en silencio escondería que predice peor que el azar (y la guarda del campeón,
+# `test_128_r3_*`, dejaba de apartarlo). Se declara sin ajustar, con su motivo, y las curvas dicen esa causa.
+def test_una_pendiente_negativa_se_declara_sin_ajustar_con_su_motivo_y_las_curvas_dicen_por_que():
+    from matrixai.estudio.curvas_de_la_evaluacion import _causa_de_la_no_ajustada
+    rng = random.Random(7)
+    zs = [rng.gauss(0.0, 1.5) for _ in range(400)]
+    ys = [1.0 if rng.random() < _sigmoid(-1.2 * z) else 0.0 for z in zs]   # cuanto más alta la puntuación, MENOS positivos
+    r = ajustar_recalibracion_logistica(_muestra([_sigmoid(z) for z in zs], ys))
+    assert r.a is None and r.b is None
+    assert r.undefined_reason is not None and "pendiente negativa" in r.undefined_reason["es"]
+    assert "negative slope" in r.undefined_reason["en"]
+    assert _causa_de_la_no_ajustada(r) == "pendiente_negativa"
+    # Y el lado contrario: la misma muestra con la puntuación al derecho se ajusta (b > 0).
+    ok = ajustar_recalibracion_logistica(_muestra([_sigmoid(-z) for z in zs], ys))
+    assert ok.b is not None and ok.b > 0

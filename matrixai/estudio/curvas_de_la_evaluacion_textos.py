@@ -97,6 +97,14 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "la decisión usa las probabilidades del modelo tal cual, y no hay un «antes» que comparar",
         "en": "the recalibration fit did not settle on the calibration rows, so it is not used; the decision uses the model's probabilities as they come, and there is no \"before\" to compare",
     },
+    "recalibracion_no_ajustada_por_pendiente_negativa": {
+        "es": "en las filas de calibración el modelo ordena al revés (puntúa más alto a la clase que no es), así que no se "
+              "recalibra: darle la vuelta escondería que ahí predice peor que el azar; la decisión usa las probabilidades del "
+              "modelo tal cual, y no hay un «antes» que comparar",
+        "en": "on the calibration rows the model ranks the wrong way round (it scores the other class higher), so it is not "
+              "recalibrated: turning it round would hide that it predicts worse than chance there; the decision uses the "
+              "model's probabilities as they come, and there is no \"before\" to compare",
+    },
     "recalibracion_no_ajustada_por_una_sola_clase": {
         "es": "las filas de calibración tenían una sola de las dos clases, y con una sola no se puede ajustar una "
               "recalibración; la decisión usa las probabilidades del modelo tal cual, y no hay un «antes» que comparar",

@@ -541,6 +541,12 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "unfitted instead of returning the last step of a Newton run "
               "that never settled",
     },
+    "calibracion_pendiente_negativa": {
+        "es": "{campo} sale con pendiente negativa: en las filas de calibración el modelo ordena al revés (puntúa más "
+              "alto a la clase que no es), y una recalibración así le daría la vuelta en silencio — declarado sin ajustar",
+        "en": "{campo} comes out with a negative slope: on the calibration rows the model ranks the wrong way round (it scores "
+              "the other class higher), and such a recalibration would silently turn it round — declared unfitted",
+    },
     "calibracion_separacion_detectada": {
         "es": "{campo} muestra separación {opciones}, comprobada sobre los datos: "
               "todas las puntuaciones de una clase quedan a un lado de un corte y "

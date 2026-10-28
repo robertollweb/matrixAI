@@ -384,6 +384,7 @@ _FRASE_DE_LA_CAUSA = {
     "no_convergio": "recalibracion_no_ajustada_por_no_converger",
     "una_sola_clase": "recalibracion_no_ajustada_por_una_sola_clase",
     "pocas_filas": "recalibracion_no_ajustada_por_pocas_filas",
+    "pendiente_negativa": "recalibracion_no_ajustada_por_pendiente_negativa",
     "desconocida": "recalibracion_no_ajustada",
 }
 
@@ -402,6 +403,8 @@ def _causa_de_la_no_ajustada(recalibracion: RecalibracionLogistica) -> str:
         return "una_sola_clase"
     if razon == _motivo_del_calibrador("calibracion_datos_insuficientes", campo="recalibracion_logistica"):
         return "pocas_filas"
+    if razon == _motivo_del_calibrador("calibracion_pendiente_negativa", campo="recalibracion_logistica"):
+        return "pendiente_negativa"
     return "desconocida"
 
 
