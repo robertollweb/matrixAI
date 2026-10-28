@@ -54,6 +54,7 @@ from matrixai.estudio.calibracion import (
 )
 from matrixai.estudio.errores import EsquemaInvalido
 from matrixai.estudio.curvas_de_la_evaluacion_textos import PorIdioma, motivo
+from matrixai.estudio.textos import motivo as _motivo_del_calibrador
 from matrixai.estudio.evaluacion_de_puntuacion import PUNTOS_DE_LA_CURVA_ROC, _vertices_elegidos
 from matrixai.estudio.metricas import (
     UMBRAL_POR_DEFECTO,
@@ -72,6 +73,7 @@ from matrixai.estudio.validacion import exigir_entero, exigir_real
 from matrixai.estudio.vocabulario import exigir_opcion
 
 __all__ = [
+    "MINIMO_DE_TRAMOS_PARA_EL_ECE",
     "PUNTOS_DE_LA_CURVA_PR",
     "VERSION_DE_LAS_CURVAS",
     "curva_pr",
@@ -85,6 +87,14 @@ VERSION_DE_LAS_CURVAS = "1.0.0"
 #: Cuántos puntos de la curva PR viajan: los extremos y, como mucho, 38 vértices reales más. El mismo
 #: tope que la ROC (`PUNTOS_DE_LA_CURVA_ROC`), a propósito: dos curvas del mismo informe, mismo peso.
 PUNTOS_DE_LA_CURVA_PR = 40
+
+#: Cuántos tramos CON CIFRA (cada uno con al menos `minimo_de_filas` filas, D5) hacen falta para publicar el ECE. Decisión del
+#: supervisor tras la auditoría del 141 (I2, 28-10): con UN tramo el ECE es |probabilidad media − prevalencia|, la calibración «en
+#: grande», y no si la probabilidad se puede creer tramo a tramo (medido: con 45 filas y 1 tramo, un modelo sobreconfiado daba la
+#: MITAD del ECE de referencia; con 100 filas y 3 tramos, lo mismo que la referencia). Con dos sigue siendo una cifra de dos puntos.
+#: Vale para cualquier forma de cortar los tramos: con 10 bins de ancho fijo y 100 filas, ninguno llega a 30 y tampoco se publica.
+#: ESTE es el sitio del número: el backend lo lleva en su política de tramos y la pantalla y el glosario lo leen de ahí.
+MINIMO_DE_TRAMOS_PARA_EL_ECE = 3
 
 _TAREA_EN_TEXTO = {
     "binary_classification": PorIdioma({"es": "clasificación binaria", "en": "binary classification"}),
@@ -219,16 +229,26 @@ def _bin_a_json(b, minimo: int) -> dict[str, Any]:
             "tasa_observada": b.tasa_observada, "clave": None, "motivo": None}
 
 
-def _curva_a_json(curva: CurvaDeFiabilidad, n: int, minimo: int) -> dict[str, Any]:
+def _curva_a_json(curva: CurvaDeFiabilidad, n: int, minimo: int,
+                  minimo_de_tramos: int = MINIMO_DE_TRAMOS_PARA_EL_ECE) -> dict[str, Any]:
     """Los bins con la regla de D5 y el ECE. El ECE se calcula con TODAS las filas (un bin pequeño
-    pesa poco en él, justamente), pero con una prueba entera por debajo del mínimo no se da."""
-    ece, ece_clave = curva.ece, None
+    pesa poco en él, justamente), pero NO SE DA con una prueba entera por debajo del mínimo de filas
+    ni con menos de `minimo_de_tramos` tramos con cifra (ver `MINIMO_DE_TRAMOS_PARA_EL_ECE`): en los
+    dos casos el motivo lleva las filas y los tramos con cifra que hubo."""
+    con_cifra = sum(1 for b in curva.bins if b.n >= minimo)
+    ece, ece_clave, ece_motivo = curva.ece, None, None
     if curva.ece is not None and n < minimo:
         ece, ece_clave = None, "ece_con_pocas_filas"
+        ece_motivo = motivo(ece_clave, valor=n, opciones=minimo)
+    elif curva.ece is not None and con_cifra < minimo_de_tramos:
+        ece, ece_clave = None, "ece_con_pocos_tramos"
+        ece_motivo = motivo(ece_clave, valor=con_cifra, opciones=minimo_de_tramos, filas=n, minimo=minimo)
     return {"metodo_de_bins": curva.metodo_de_bins, "n_bins": curva.n_bins_solicitados,
             "ece": ece,
             "ece_clave": ece_clave,
-            "ece_motivo": motivo(ece_clave, valor=n, opciones=minimo) if ece_clave else None,
+            "ece_motivo": ece_motivo,
+            "ece_tramos_con_cifra": con_cifra,
+            "ece_minimo_de_tramos": minimo_de_tramos,
             "no_definido": curva.undefined_reason,
             "bins": [_bin_a_json(b, minimo) for b in curva.bins]}
 
@@ -314,7 +334,8 @@ def _la_prueba(muestra: Muestra, minimo: int) -> dict[str, Any]:
 def curvas_de_la_evaluacion(muestra: Muestra, *, recalibracion: RecalibracionLogistica | None = None,
                             umbral: float | None = None, n_bins: int = 10,
                             metodo_de_bins: str = "ancho_igual", n_tramos: int = 10,
-                            minimo_de_filas: int = MINIMO_FILAS_POR_SEGMENTO) -> dict[str, Any]:
+                            minimo_de_filas: int = MINIMO_FILAS_POR_SEGMENTO,
+                            minimo_de_tramos_para_el_ece: int = MINIMO_DE_TRAMOS_PARA_EL_ECE) -> dict[str, Any]:
     """Las curvas de UNA evaluación, como un `dict` JSON serializable.
 
     `muestra` es la de la PRUEBA RESERVADA con la salida CRUDA del modelo (en binaria, la
@@ -323,6 +344,7 @@ def curvas_de_la_evaluacion(muestra: Muestra, *, recalibracion: RecalibracionLog
     pudo ajustar, son dos claves distintas); esta función lo aplica y es quien separa el «antes» del
     «después». `umbral` es el elegido, en la escala de decisión (la recalibrada si la hay); sin él la
     matriz binaria usa 0,5 y LO DICE (`matriz.aviso`). Sin pesos: los recuentos son filas enteras.
+    `minimo_de_tramos_para_el_ece`: el ECE solo se da con al menos esos tramos con cifra.
     """
     if muestra.weights is not None:
         raise EntradaNoMedible("pesos_no_admitidos", campo="curvas_de_la_evaluacion")
@@ -330,6 +352,7 @@ def curvas_de_la_evaluacion(muestra: Muestra, *, recalibracion: RecalibracionLog
     exigir_opcion(metodo_de_bins, "metodo_de_bins", METODOS_DE_BINS)
     exigir_entero(n_tramos, "n_tramos", minimo=1)
     exigir_entero(minimo_de_filas, "minimo_de_filas", minimo=1)
+    exigir_entero(minimo_de_tramos_para_el_ece, "minimo_de_tramos_para_el_ece", minimo=1)
     if umbral is not None:
         exigir_real(umbral, "umbral")
     if recalibracion is not None and not isinstance(recalibracion, RecalibracionLogistica):
@@ -346,16 +369,45 @@ def curvas_de_la_evaluacion(muestra: Muestra, *, recalibracion: RecalibracionLog
         return salida
 
     if muestra.task == "binary_classification":
-        _binaria(muestra, salida, recalibracion, umbral, n_bins, metodo_de_bins, minimo_de_filas)
+        _binaria(muestra, salida, recalibracion, umbral, n_bins, metodo_de_bins, minimo_de_filas,
+                 minimo_de_tramos_para_el_ece)
     elif muestra.task == "multiclass_classification":
-        _multiclase(muestra, salida, n_bins, metodo_de_bins, minimo_de_filas)
+        _multiclase(muestra, salida, n_bins, metodo_de_bins, minimo_de_filas, minimo_de_tramos_para_el_ece)
     else:
         _regresion(muestra, salida, n_tramos, minimo_de_filas)
     return salida
 
 
+#: La causa de una recalibración que no se pudo ajustar → la clave de su frase (`curvas_de_la_evaluacion_textos`).
+_FRASE_DE_LA_CAUSA = {
+    "separacion": "recalibracion_no_ajustada_por_separacion",
+    "no_convergio": "recalibracion_no_ajustada_por_no_converger",
+    "una_sola_clase": "recalibracion_no_ajustada_por_una_sola_clase",
+    "pocas_filas": "recalibracion_no_ajustada_por_pocas_filas",
+    "desconocida": "recalibracion_no_ajustada",
+}
+
+
+def _causa_de_la_no_ajustada(recalibracion: RecalibracionLogistica) -> str:
+    """Por qué no se ajustó, de lo que el calibrador DECLARA: sus banderas (`separacion_detectada`, `convergio` con iteraciones)
+    y, para las dos causas que no llevan bandera, su motivo comparado con el que el propio calibrador compone para ellas
+    (`calibracion.ajustar_recalibracion_logistica`). Lo que no case con nada es `desconocida`: una frase genérica, nunca una
+    causa supuesta."""
+    if recalibracion.separacion_detectada:
+        return "separacion"
+    if not recalibracion.convergio and recalibracion.iteraciones > 0:
+        return "no_convergio"
+    razon = recalibracion.undefined_reason
+    if razon == _motivo_del_calibrador("calibracion_una_sola_clase", campo="recalibracion_logistica"):
+        return "una_sola_clase"
+    if razon == _motivo_del_calibrador("calibracion_datos_insuficientes", campo="recalibracion_logistica"):
+        return "pocas_filas"
+    return "desconocida"
+
+
 def _binaria(muestra: Muestra, salida: dict[str, Any], recalibracion: RecalibracionLogistica | None,
-             umbral: float | None, n_bins: int, metodo_de_bins: str, minimo: int) -> None:
+             umbral: float | None, n_bins: int, metodo_de_bins: str, minimo: int,
+             minimo_de_tramos: int = MINIMO_DE_TRAMOS_PARA_EL_ECE) -> None:
     n = muestra.n
     prueba = salida["prueba"]
     hay_probabilidades = muestra.probabilidad_del_positivo
@@ -380,10 +432,14 @@ def _binaria(muestra: Muestra, salida: dict[str, Any], recalibracion: Recalibrac
     elif recalibracion is None:
         salida["recalibracion"] = {**_no("sin_recalibracion"), "aplicada": False, "metodo": None}
     elif recalibracion.a is None or recalibracion.b is None:
-        razon = PorIdioma(recalibracion.undefined_reason or {"es": "motivo no declarado",
-                                                              "en": "reason not declared"})
-        salida["recalibracion"] = {**_no("recalibracion_no_ajustada", valor=razon), "aplicada": False,
-                                   "metodo": recalibracion.metodo}
+        # La clave del bloque sigue siendo `recalibracion_no_ajustada`; la FRASE, la de su causa (`causa`), escrita aquí para
+        # quien lee la pantalla. El diagnóstico del calibrador, tal cual, en `detalle` (no se enseña como motivo).
+        causa = _causa_de_la_no_ajustada(recalibracion)
+        salida["recalibracion"] = {**_no("recalibracion_no_ajustada"), "aplicada": False,
+                                   "metodo": recalibracion.metodo, "causa": causa,
+                                   "motivo": motivo(_FRASE_DE_LA_CAUSA[causa]),
+                                   "detalle": (dict(recalibracion.undefined_reason)
+                                               if recalibracion.undefined_reason else None)}
     else:
         salida["recalibracion"] = {**_no("recalibracion_sin_probabilidades"), "aplicada": False,
                                    "metodo": recalibracion.metodo}
@@ -432,16 +488,17 @@ def _binaria(muestra: Muestra, salida: dict[str, Any], recalibracion: Recalibrac
         if aplicable:
             antes = _si(escala="probabilidad_del_modelo",
                         curva=_curva_a_json(curva_de_fiabilidad(
-                            muestra, n_bins=n_bins, metodo_de_bins=metodo_de_bins), n, minimo))
+                            muestra, n_bins=n_bins, metodo_de_bins=metodo_de_bins), n, minimo, minimo_de_tramos))
         else:
             antes = {k: salida["recalibracion"][k] for k in ("disponible", "clave", "motivo")}
         salida["fiabilidad"] = _si(tipo="clase_positiva", escala=salida["escala"],
-                                   curva=_curva_a_json(despues, n, minimo), antes=antes, resumen=None)
+                                   curva=_curva_a_json(despues, n, minimo, minimo_de_tramos), antes=antes,
+                                   resumen=None)
     salida["tramos"] = _no_aplica("tramos", muestra.task)
 
 
 def _multiclase(muestra: Muestra, salida: dict[str, Any], n_bins: int, metodo_de_bins: str,
-                minimo: int) -> None:
+                minimo: int, minimo_de_tramos: int = MINIMO_DE_TRAMOS_PARA_EL_ECE) -> None:
     n = muestra.n
     salida["roc"] = _no_aplica("roc", muestra.task)
     salida["pr"] = _no_aplica("pr", muestra.task)
@@ -464,7 +521,7 @@ def _multiclase(muestra: Muestra, salida: dict[str, Any], n_bins: int, metodo_de
     aciertos = sum(1 for a in acierto if a == _ACIERTO)
     salida["fiabilidad"] = _si(
         tipo="clase_predicha", escala=salida["escala"],
-        curva=_curva_a_json(curva, n, minimo),
+        curva=_curva_a_json(curva, n, minimo, minimo_de_tramos),
         antes={k: salida["recalibracion"][k] for k in ("disponible", "clave", "motivo")},
         resumen={"confianza_media": math.fsum(confianza) / n, "tasa_de_acierto": aciertos / n,
                  "aciertos": aciertos})

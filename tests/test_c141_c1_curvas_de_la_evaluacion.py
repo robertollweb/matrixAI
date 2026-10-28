@@ -29,6 +29,7 @@ from matrixai.estudio.calibracion import (  # noqa: E402
     ajustar_recalibracion_logistica,
 )
 from matrixai.estudio.curvas_de_la_evaluacion import (  # noqa: E402
+    MINIMO_DE_TRAMOS_PARA_EL_ECE,
     PUNTOS_DE_LA_CURVA_PR,
     VERSION_DE_LAS_CURVAS,
     curva_pr,
@@ -271,12 +272,58 @@ def test_ninguna_cifra_de_un_tramo_pequeno_llega_ni_con_valor_cero():
             assert b["tasa_observada"] is not None and b["clave"] is None
 
 
-def test_ece_no_se_da_con_una_prueba_por_debajo_del_minimo_y_si_con_30():
+def test_ece_no_se_da_con_una_prueba_por_debajo_del_minimo_de_filas():
     chica = curvas_de_la_evaluacion(_binaria(29, 37))["fiabilidad"]["curva"]
     assert chica["ece"] is None and chica["ece_clave"] == "ece_con_pocas_filas"
     assert chica["ece_motivo"] == motivo("ece_con_pocas_filas", valor=29, opciones=30)
-    justa = curvas_de_la_evaluacion(_binaria(30, 37))["fiabilidad"]["curva"]
-    assert justa["ece"] is not None and justa["ece_clave"] is None and justa["ece_motivo"] is None
+
+
+def test_el_minimo_de_tramos_para_el_ece_es_3_y_vive_aqui():
+    """I2 de la auditoría del 141 (decisión del supervisor): el número vive en el núcleo y el backend, la pantalla y el glosario
+    lo leen de aquí. Si cambia, esta prueba obliga a mirar los textos que lo citan."""
+    assert MINIMO_DE_TRAMOS_PARA_EL_ECE == 3
+    import inspect  # noqa: PLC0415
+    firma = inspect.signature(curvas_de_la_evaluacion).parameters["minimo_de_tramos_para_el_ece"]
+    assert firma.default is MINIMO_DE_TRAMOS_PARA_EL_ECE
+
+
+@pytest.mark.parametrize("filas, n_bins, con_cifra", [(45, 1, 1), (60, 2, 2), (89, 3, 2)])
+def test_con_menos_de_3_tramos_con_cifra_el_ece_no_se_publica_y_dice_cuantos_y_con_cuantas_filas(filas, n_bins, con_cifra):
+    """Con 1 tramo el ECE es |media predicha − prevalencia| (la calibración «en grande»): sale casi 0 con un modelo
+    sobreconfiado. Con 30–89 filas (la política da 1–2 tramos, o 3 con uno de 29) no se publica, y el motivo lo dice con números."""
+    c = curvas_de_la_evaluacion(_binaria(filas, 71, senal=0.5), n_bins=n_bins, metodo_de_bins="frecuencia_igual")
+    curva = c["fiabilidad"]["curva"]
+    assert curva["ece"] is None and curva["ece_clave"] == "ece_con_pocos_tramos"
+    assert curva["ece_tramos_con_cifra"] == con_cifra and curva["ece_minimo_de_tramos"] == 3
+    assert curva["ece_motivo"] == motivo("ece_con_pocos_tramos", valor=con_cifra, opciones=3, filas=filas, minimo=30)
+    assert str(filas) in curva["ece_motivo"]["es"] and str(filas) in curva["ece_motivo"]["en"]
+    # el diagrama SIGUE dibujando sus tramos con cifra: solo el ECE se calla
+    assert sum(1 for b in curva["bins"] if b["clave"] is None) == con_cifra
+
+
+def test_con_3_tramos_con_cifra_el_ece_si_se_publica_y_es_el_de_los_bins():
+    c = curvas_de_la_evaluacion(_binaria(90, 71, senal=0.5), n_bins=3, metodo_de_bins="frecuencia_igual")
+    curva = c["fiabilidad"]["curva"]
+    assert curva["ece"] is not None and curva["ece_clave"] is None and curva["ece_motivo"] is None
+    assert curva["ece_tramos_con_cifra"] == 3
+    ece = sum(b["n"] / 90 * abs(b["tasa_observada"] - b["probabilidad_media"]) for b in curva["bins"])
+    assert curva["ece"] == pytest.approx(ece, abs=1e-12)
+
+
+def test_con_ancho_fijo_un_ece_hecho_solo_de_tramos_sin_cifra_tampoco_se_publica():
+    """Menor 6 de la auditoría: 100 filas en 10 bins de ancho fijo dejan los 10 por debajo de 30; antes el ECE salía igual."""
+    curva = curvas_de_la_evaluacion(_binaria(100, 73))["fiabilidad"]["curva"]
+    assert all(b["n"] < 30 for b in curva["bins"])
+    assert curva["ece"] is None and curva["ece_clave"] == "ece_con_pocos_tramos" and curva["ece_tramos_con_cifra"] == 0
+
+
+def test_el_minimo_de_tramos_vale_tambien_para_el_antes_y_para_multiclase():
+    m = _binaria(80, 79, senal=0.6)
+    rec = _con_recalibracion(m)
+    f = curvas_de_la_evaluacion(m, recalibracion=rec, n_bins=2, metodo_de_bins="frecuencia_igual")["fiabilidad"]
+    assert f["curva"]["ece_clave"] == f["antes"]["curva"]["ece_clave"] == "ece_con_pocos_tramos"
+    mc = curvas_de_la_evaluacion(_multi(70, 83, CLASES_MULTI[0]), n_bins=2, metodo_de_bins="frecuencia_igual")
+    assert mc["fiabilidad"]["curva"]["ece"] is None and mc["fiabilidad"]["curva"]["ece_clave"] == "ece_con_pocos_tramos"
 
 
 def test_frecuencia_igual_viaja_declarada_y_cambia_los_bins():
@@ -325,6 +372,30 @@ def test_con_recalibracion_roc_pr_y_matriz_viven_en_la_escala_recalibrada():
     assert (pred != pred_cruda).any()
 
 
+def test_los_puntos_de_la_roc_van_en_la_escala_de_la_decision_aunque_la_recalibracion_invierta_el_orden():
+    """Menor 4 de la auditoría (sabotaje C1-S7 verde): con `b < 0` la recalibración INVIERTE el orden, y la ROC sobre la cruda
+    sería otra curva (la simétrica). Los PUNTOS, no solo el área, son los de sklearn sobre la probabilidad recalibrada."""
+    rng = random.Random(89)
+    p = [rng.choice([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]) for _ in range(400)]
+    y = ["Sí" if rng.random() < q else "No" for q in p]
+    m = Muestra.binaria(y, classes=("No", "Sí"), positive_label="Sí", probabilidades=p)
+    rec = RecalibracionLogistica(metodo="logistico_completo", n_observaciones=400, a=0.2, b=-1.0, convergio=True)
+    nueva = _sigmoide_oraculo(rec.a, rec.b, p)
+    c = curvas_de_la_evaluacion(m, recalibracion=rec, umbral=0.5)
+    fpr, tpr, _ = sk.roc_curve(_y01(m), nueva, drop_intermediate=False)
+    assert len(fpr) <= PUNTOS_DE_LA_CURVA_ROC                       # sin adelgazar: se comparan TODOS los vértices
+    xs, ys = [q["fpr"] for q in c["roc"]["puntos"]], [q["tpr"] for q in c["roc"]["puntos"]]
+    assert xs == pytest.approx(list(fpr), abs=1e-12) and ys == pytest.approx(list(tpr), abs=1e-12)
+    fpr0, tpr0, _ = sk.roc_curve(_y01(m), p, drop_intermediate=False)
+    assert len(fpr0) == len(xs)                                     # mismo número de vértices: la diferencia está en DÓNDE
+    assert xs + ys != pytest.approx(list(fpr0) + list(tpr0), abs=1e-6)
+    assert c["roc"]["area"] == pytest.approx(sk.roc_auc_score(_y01(m), nueva), abs=1e-12)
+    # y la PR, igual
+    prec, rec_, _ = sk.precision_recall_curve(_y01(m), nueva, drop_intermediate=False)
+    assert [q["recall"] for q in c["pr"]["puntos"]] == pytest.approx(list(rec_[::-1][1:]), abs=1e-12)
+    assert [q["precision"] for q in c["pr"]["puntos"]] == pytest.approx(list(prec[::-1][1:]), abs=1e-12)
+
+
 def test_calibrador_nulo_se_dice_y_no_hay_antes():
     m = _binaria(400, 53)
     c = curvas_de_la_evaluacion(m, recalibracion=None)
@@ -347,10 +418,55 @@ def test_recalibracion_que_no_se_pudo_ajustar_dice_su_motivo_y_no_se_aplica():
     c = curvas_de_la_evaluacion(m, recalibracion=fallida)
     r = c["recalibracion"]
     assert r["aplicada"] is False and r["clave"] == "recalibracion_no_ajustada"
-    for idioma in IDIOMAS:
-        assert fallida.undefined_reason[idioma] in r["motivo"][idioma]
+    # el diagnóstico del calibrador viaja tal cual en `detalle`; la pantalla enseña la frase de su causa
+    assert r["detalle"] == fallida.undefined_reason
+    assert r["causa"] == "una_sola_clase" and r["motivo"] == motivo("recalibracion_no_ajustada_por_una_sola_clase")
     assert c["escala"] == "probabilidad_del_modelo"
     assert c["fiabilidad"]["antes"]["clave"] == "recalibracion_no_ajustada"
+    assert c["fiabilidad"]["antes"]["motivo"] == r["motivo"]
+
+
+def _no_ajustada_de(causa):
+    """Una recalibración que NO se pudo ajustar, por cada causa, hecha por el calibrador REAL salvo la que no sabe provocar a
+    voluntad (no converger) y la desconocida."""
+    if causa == "separacion":
+        p = [i / 101 for i in range(1, 101)]
+        return ajustar_recalibracion_logistica(Muestra.binaria(
+            ["Sí" if q > 0.5 else "No" for q in p], classes=("No", "Sí"), positive_label="Sí", probabilidades=p))
+    if causa == "una_sola_clase":
+        return ajustar_recalibracion_logistica(Muestra.binaria(["No"] * 10, classes=("No", "Sí"), positive_label="Sí",
+                                                               probabilidades=[0.3] * 10))
+    if causa == "pocas_filas":
+        return ajustar_recalibracion_logistica(Muestra.binaria(["Sí"], classes=("No", "Sí"), positive_label="Sí",
+                                                               probabilidades=[0.3]))
+    if causa == "no_convergio":
+        return RecalibracionLogistica(metodo="logistico_completo", n_observaciones=50, iteraciones=100, convergio=False,
+                                      undefined_reason={"es": "no convergió en 100 iteraciones", "en": "did not converge"})
+    return RecalibracionLogistica(metodo="logistico_completo", n_observaciones=50,
+                                  undefined_reason={"es": "otra cosa", "en": "something else"})
+
+
+@pytest.mark.parametrize("causa, clave", [
+    ("separacion", "recalibracion_no_ajustada_por_separacion"),
+    ("no_convergio", "recalibracion_no_ajustada_por_no_converger"),
+    ("una_sola_clase", "recalibracion_no_ajustada_por_una_sola_clase"),
+    ("pocas_filas", "recalibracion_no_ajustada_por_pocas_filas"),
+    ("desconocida", "recalibracion_no_ajustada"),
+])
+def test_la_recalibracion_no_ajustada_se_dice_con_la_frase_de_su_causa_y_sin_jerga(causa, clave):
+    """Decisión del supervisor tras la auditoría: la frase de pantalla es de ESTE módulo, por la causa ESTRUCTURADA del calibrador
+    (banderas y, si no las hay, su motivo); el diagnóstico técnico va aparte en `detalle`. Sin el identificador del método, sin
+    números con punto en castellano, y una causa que no se reconoce da la frase genérica (no una supuesta)."""
+    rec = _no_ajustada_de(causa)
+    assert rec.a is None and rec.undefined_reason
+    r = curvas_de_la_evaluacion(_binaria(200, 61), recalibracion=rec)["recalibracion"]
+    assert r["clave"] == "recalibracion_no_ajustada" and r["causa"] == causa
+    assert r["motivo"] == motivo(clave)
+    assert r["detalle"] == rec.undefined_reason
+    for idioma in IDIOMAS:
+        assert "recalibracion_logistica" not in r["motivo"][idioma] and "_" not in r["motivo"][idioma]
+        assert not re.search(r"\d", r["motivo"][idioma]), r["motivo"][idioma]
+        assert rec.undefined_reason[idioma] not in r["motivo"][idioma]
 
 
 def test_calibrador_con_solo_puntuacion_no_se_aplica():
@@ -753,10 +869,16 @@ def test_cada_motivo_tiene_las_dos_redacciones_y_los_mismos_huecos():
         assert redacciones["es"] != redacciones["en"], clave
 
 
+def test_los_motivos_ingleses_no_llevan_comillas_espanolas():
+    """Menor 7 de la auditoría: «before» en una frase inglesa. El inglés usa comillas inglesas; el castellano, las suyas."""
+    for clave, redacciones in MOTIVOS.items():
+        assert "«" not in redacciones["en"] and "»" not in redacciones["en"], clave
+
+
 def test_toda_clave_que_el_codigo_usa_esta_en_el_catalogo_y_toda_del_catalogo_se_usa():
     fuente = Path(modulo.__file__).read_text(encoding="utf-8")
     usadas = set(re.findall(r'(?:motivo|_no)\(\s*"([a-z_0-9]+)"', fuente))
-    usadas |= set(re.findall(r'"(ece_con_pocas_filas|tramo_vacio|tramo_con_pocas_filas)"', fuente))
+    usadas |= set(re.findall(r'"(ece_con_pocas_filas|ece_con_pocos_tramos|tramo_vacio|tramo_con_pocas_filas|recalibracion_no_ajustada_por_[a-z_]+)"', fuente))
     assert usadas <= set(MOTIVOS)
     assert set(MOTIVOS) <= usadas | {"no_aplica_a_la_tarea"}, set(MOTIVOS) - usadas
 

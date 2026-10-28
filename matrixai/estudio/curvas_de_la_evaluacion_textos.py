@@ -65,17 +65,47 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "the test has {valor} rows: with fewer than {opciones} the ECE is not given "
               "(insufficient evidence)",
     },
-    "sin_recalibracion": {
-        "es": "el estudio no ajustó una recalibración (calibrador nulo): la fiabilidad es la de la "
-              "probabilidad del modelo tal cual, y no hay un «antes» que comparar",
-        "en": "the study fitted no recalibration (null calibrator): reliability is that of the "
-              "model's probability as it comes, and there is no «before» to compare",
+    "ece_con_pocos_tramos": {
+        "es": "el ECE no se publica: hacen falta al menos {opciones} tramos con cifra ({minimo} filas o más "
+              "cada uno) y con las {filas} filas de la prueba hay {valor}; con menos tramos, el ECE mide "
+              "sobre todo el nivel general de la probabilidad, no si se puede creer tramo a tramo",
+        "en": "the ECE is not published: it needs at least {opciones} bins with a figure ({minimo} rows or "
+              "more each) and the {filas} rows of the test give {valor}; with fewer bins, the ECE mostly "
+              "measures the overall level of the probability, not whether it can be believed bin by bin",
     },
+    "sin_recalibracion": {
+        "es": "el estudio no recalibró la probabilidad del modelo: la fiabilidad es la de esa probabilidad "
+              "tal cual, y no hay un «antes» que comparar",
+        "en": "the study did not recalibrate the model's probability: reliability is that of that "
+              "probability as it comes, and there is no \"before\" to compare",
+    },
+    # La recalibración se INTENTÓ y no se pudo ajustar. La frase es de ESTE módulo, para pantalla, según la causa estructurada del
+    # calibrador (`curvas_de_la_evaluacion._causa_de_la_no_ajustada`); el diagnóstico técnico del calibrador (que lleva el nombre
+    # interno del método y números con punto) viaja aparte, en `recalibracion.detalle`. Decisión del supervisor tras la auditoría.
     "recalibracion_no_ajustada": {
-        "es": "la recalibración no se pudo ajustar ({valor}): la fiabilidad es la de la probabilidad "
-              "del modelo tal cual, y no hay un «antes» que comparar",
-        "en": "the recalibration could not be fitted ({valor}): reliability is that of the model's "
-              "probability as it comes, and there is no «before» to compare",
+        "es": "la recalibración no se pudo ajustar con las filas de calibración; la decisión usa las probabilidades del modelo tal cual, y no hay un «antes» que comparar",
+        "en": "the recalibration could not be fitted on the calibration rows; the decision uses the model's probabilities as they come, and there is no \"before\" to compare",
+    },
+    "recalibracion_no_ajustada_por_separacion": {
+        "es": "en las filas de calibración, las puntuaciones del modelo ya separan del todo las dos clases, así que no se "
+              "puede ajustar una recalibración; la decisión usa las probabilidades del modelo tal cual, y no hay un «antes» que comparar",
+        "en": "on the calibration rows, the model's scores already separate the two classes completely, so no "
+              "recalibration can be fitted; the decision uses the model's probabilities as they come, and there is no \"before\" to compare",
+    },
+    "recalibracion_no_ajustada_por_no_converger": {
+        "es": "el ajuste de la recalibración no llegó a estabilizarse con las filas de calibración, así que no se usa; "
+              "la decisión usa las probabilidades del modelo tal cual, y no hay un «antes» que comparar",
+        "en": "the recalibration fit did not settle on the calibration rows, so it is not used; the decision uses the model's probabilities as they come, and there is no \"before\" to compare",
+    },
+    "recalibracion_no_ajustada_por_una_sola_clase": {
+        "es": "las filas de calibración tenían una sola de las dos clases, y con una sola no se puede ajustar una "
+              "recalibración; la decisión usa las probabilidades del modelo tal cual, y no hay un «antes» que comparar",
+        "en": "the calibration rows had only one of the two classes, and with only one no recalibration can be "
+              "fitted; the decision uses the model's probabilities as they come, and there is no \"before\" to compare",
+    },
+    "recalibracion_no_ajustada_por_pocas_filas": {
+        "es": "había demasiado pocas filas de calibración para ajustar una recalibración; la decisión usa las probabilidades del modelo tal cual, y no hay un «antes» que comparar",
+        "en": "there were too few calibration rows to fit a recalibration; the decision uses the model's probabilities as they come, and there is no \"before\" to compare",
     },
     "multiclase_sin_recalibrar": {
         "es": "en multiclase el estudio no recalibra (decisión del 23-09): la fiabilidad es la de la "
