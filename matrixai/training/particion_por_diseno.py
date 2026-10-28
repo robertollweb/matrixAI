@@ -71,9 +71,10 @@ from typing import Any, Mapping, Sequence
 from matrixai.estudio import Horizonte, SplitPlan
 from matrixai.estudio.validacion import digest_canonico
 from matrixai.training.diagnostico import Bloqueo, Limite
-from matrixai.training.particion_por_diseno_comun import BloqueoConNumeros, Rechazo
+from matrixai.training.dataset_analysis import _is_null
+from matrixai.training.particion_por_diseno_comun import BloqueoConNumeros, Rechazo, nombres_de_clases
 from matrixai.training.particion_por_diseno_grupos import (
-    MARGEN_RELATIVO_DE_LA_PRUEBA, _limite_de_fraccion, repartir_grupos_estratificado)
+    _limite_de_fraccion, fuera_del_margen, repartir_grupos_estratificado)
 from matrixai.training.particion_por_diseno_textos import motivo
 from matrixai.training.particion_por_diseno_tiempo import (
     convertir_gap, convertir_tiempos, elegir_ventana, segundos_de)
@@ -295,10 +296,12 @@ def proponer_particion(filas: Sequence[Mapping[str, Any]], *, plan_id: str,
     externos = set(str(i) for i in ids_cohorte_externa)
     internos = {obs: fila for obs, fila in todos.items() if obs not in externos}
 
-    unidad_por_id = ({obs: str(fila[unit_id_field]) for obs, fila in internos.items()}
+    # `.get`: una fila SIN la columna de unidad (un `DictReader` con la fila corta) no es un `KeyError` del núcleo;
+    # llega como `None`, que es una unidad faltante y la para `unidad_vacia` (re-auditoría, IMPORTANTE 3).
+    unidad_por_id = ({obs: str(fila.get(unit_id_field)) for obs, fila in internos.items()}
                      if unit_id_field else None)
     # La cohorte externa también lleva su unidad en el plan (`SplitPlan` agrupado exige una por observación).
-    unidad_de_los_externos = ({obs: str(todos[obs][unit_id_field]) for obs in externos if obs in todos}
+    unidad_de_los_externos = ({obs: str(todos[obs].get(unit_id_field)) for obs in externos if obs in todos}
                               if unit_id_field else {})
     tiempo_por_id = None
     es_fecha = True
@@ -335,7 +338,9 @@ def proponer_particion(filas: Sequence[Mapping[str, Any]], *, plan_id: str,
     if split_type in ("groups", "groups_and_time") and unit_id_field:
         # Auditoría M1: una unidad vacía llegaba a `SplitPlan` y salía un `EsquemaInvalido` («units.0 must be a
         # non-empty string»). Una fila sin sujeto no se puede poner a un lado ni a otro sin adivinar de quién es.
-        vacias = sum(1 for obs in todos if str(todos[obs].get(unit_id_field)).strip() == "")
+        # Re-auditoría (IMPORTANTE 3): «vacía» es lo que el núcleo ya llama faltante (`_is_null`: `NA`, `N/A`, `nan`,
+        # `NULL`, `None`, `?`, `-`, la celda que no está); sin esto «N/A» era un sujeto más, y podía ser el enorme.
+        vacias = sum(1 for obs in todos if _unidad_falta(todos[obs].get(unit_id_field)))
         if vacias:
             return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(BloqueoConNumeros(
                 clave="unidad_vacia", campo="unit_id_field",
@@ -355,9 +360,7 @@ def proponer_particion(filas: Sequence[Mapping[str, Any]], *, plan_id: str,
                         "ejemplos": compartidas[:3]}),))
         n_grupos = len(set(unidad_por_id.values())) if unidad_por_id else 0
         if n_grupos < MINIMO_GRUPOS:
-            return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(
-                Bloqueo(clave="grupos_insuficientes", campo="unit_id_field",
-                       motivo=motivo("grupos_insuficientes", campo="unit_id_field", valor=n_grupos)),))
+            return _grupos_insuficientes(n_grupos, len(internos), unit_id_field)
         return _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_field,
                                 test_fraction, seed, folds, repeats, etiqueta_por_id, unit_id_field,
                                 unidad_de_los_externos, columna_objetivo=objetivo)
@@ -375,14 +378,29 @@ def proponer_particion(filas: Sequence[Mapping[str, Any]], *, plan_id: str,
     if split_type == "groups_and_time":
         n_grupos = len(set(unidad_por_id.values())) if unidad_por_id else 0
         if n_grupos < MINIMO_GRUPOS:
-            return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(
-                Bloqueo(clave="grupos_insuficientes", campo="unit_id_field",
-                       motivo=motivo("grupos_insuficientes", campo="unit_id_field", valor=n_grupos)),))
+            return _grupos_insuficientes(n_grupos, len(internos), unit_id_field)
         return _proponer_groups_and_time(plan_id, internos, externos, unidad_por_id, tiempo_por_id,
                                          observation_id_field, test_fraction, gap,
                                          unit_id_field, time_column)
 
     raise ValueError(f"split_type desconocido: {split_type!r}")
+
+
+def _unidad_falta(valor: Any) -> bool:
+    """¿Esta celda de la columna de unidad dice «no hay sujeto»? Lo decide `_is_null` (la misma lista con la que el
+    núcleo da por faltante el objetivo), sobre el texto: `None` (la celda no está) y `NaN` también."""
+    return valor is None or _is_null(str(valor))
+
+
+def _grupos_insuficientes(n_grupos: int, filas: int, unit_id_field: str | None) -> PropuestaDeParticion:
+    """Re-auditoría (M-b): nombraba el ROL («unit_id_field tiene 1 grupo(s)») y no llevaba números. Aquí el núcleo
+    tiene la columna; `mitades_de_validacion` también la recibe (`columna_de_unidad`), pero su llamante del backend
+    aún no se la pasa: eso es cableado del C2."""
+    columna = unit_id_field or "unit_id_field"
+    return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(BloqueoConNumeros(
+        clave="grupos_insuficientes", campo="unit_id_field",
+        motivo=motivo("grupos_insuficientes", campo=columna, valor=n_grupos),
+        medida={"columna": columna, "grupos": n_grupos, "grupos_necesarios": MINIMO_GRUPOS, "filas": filas}),))
 
 
 def _plan_con_roles(plan_id: str, split_type: str, roles: dict[str, str],
@@ -491,7 +509,6 @@ def _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_
     prueba: list[str] = []
     grupos_prueba: list[str] = []
     recortada = False
-    tope_prueba = objetivo_prueba * (1 + MARGEN_RELATIVO_DE_LA_PRUEBA)
     for grupo in grupos:
         if len(prueba) >= objetivo_prueba:
             break
@@ -500,9 +517,12 @@ def _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_
             # pasa donde la 139 daba un reparto inservible; lo que funcionaba sale bit a bit igual.
             recortada = True
             break
-        if len(prueba) + len(filas_por_unidad[grupo]) > tope_prueba:
+        if fuera_del_margen(len(prueba) + len(filas_por_unidad[grupo]), n_total, test_fraction, solo_por_arriba=True):
             # Supervisor, 27-10 (la auditoría lo vio en la ruta estratificada; aquí, en regresión, seguía): un
             # sujeto enorme no entra en la prueba si la desborda más del margen; se prueba con los siguientes.
+            # El margen es el de la fracción PEDIDA, no el de las filas redondeadas (re-auditoría, M-a): con
+            # `round(n·f)·1,5`, n=1254 y f=0,1 daban un tope de 187,5 y la prueba de 188 filas de la 139 (dentro del
+            # margen, 188,1) pasaba a 146. Así solo cambia lo que la 139 dejaba fuera del margen.
             continue
         prueba.extend(filas_por_unidad[grupo])
         grupos_prueba.append(grupo)
@@ -597,12 +617,13 @@ def _proponer_temporal(plan_id, internos, externos, tiempo_por_id, observation_i
             ausentes = [c for c in clases if c not in en_prueba]
             if ausentes:
                 rara = ausentes[0]
+                nombre = nombres_de_clases(clases)
                 return PropuestaDeParticion(plan=None, pliegues=None, bloqueos=(BloqueoConNumeros(
                     clave="prueba_sin_una_clase", campo="objetivo",
-                    motivo=motivo("prueba_sin_una_clase", clase=str(rara), filas=len(prueba)),
-                    medida={"clase": str(rara), "filas_de_prueba": len(prueba),
-                            "clases_que_faltan": [str(c) for c in ausentes],
-                            "filas_de_prueba_por_clase": {str(c): sum(1 for o in prueba if etiqueta_por_id[o] == c)
+                    motivo=motivo("prueba_sin_una_clase", clase=nombre[rara], filas=len(prueba)),
+                    medida={"clase": nombre[rara], "filas_de_prueba": len(prueba),
+                            "clases_que_faltan": [nombre[c] for c in ausentes],
+                            "filas_de_prueba_por_clase": {nombre[c]: sum(1 for o in prueba if etiqueta_por_id[o] == c)
                                                           for c in clases}}),))
             clase_por_id = {o: etiqueta_por_id[o] for o in desarrollo}
         else:

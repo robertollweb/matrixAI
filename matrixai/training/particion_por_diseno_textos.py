@@ -276,6 +276,20 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "{clase} is at {campo} = {detalle}. A model that has never seen a class does not learn to recognise "
               "it: the study does not start. Provide more history with that class or start the data closer to {detalle}",
     },
+    "entrena_sin_clase_por_el_hueco": {
+        "es": "ni con {opciones} pliegues (el mínimo) cada entrenamiento tiene la clase {clase}: el pliegue {valor} "
+              "(0 es el más reciente) se valida desde {campo} = {inicio}, y el hueco declarado ({minimo}) le quita "
+              "las {partes} fila(s) de {clase} que tenía antes (la última, en {campo} = {detalle}): entrenaría con {n} "
+              "filas y ninguna es {clase}. Un modelo que no ha visto una clase no aprende a reconocerla: el estudio "
+              "no arranca. La causa es el hueco, no el comienzo de los datos: reduce el hueco o aporta más historia "
+              "con esa clase antes de {detalle}",
+        "en": "not even with {opciones} folds (the minimum) does every training set have class {clase}: fold {valor} "
+              "(0 is the most recent) is validated from {campo} = {inicio}, and the declared gap ({minimo}) removes "
+              "the {partes} row(s) of {clase} it had before (the last one at {campo} = {detalle}): it would train on "
+              "{n} rows and none is {clase}. A model that has never seen a class does not learn to recognise it: the "
+              "study does not start. The cause is the gap, not where the data starts: reduce the gap or provide more "
+              "history with that class before {detalle}",
+    },
     "fraccion_de_prueba_desviada": {
         "es": "se pidió una prueba reservada del {opciones} % de las filas y sale del {valor} % ({n} de {partes}): "
               "los grupos de {campo} no se parten y la prueba tiene que llevar todas las clases, y este es el "

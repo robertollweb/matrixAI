@@ -52,16 +52,30 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from matrixai.training.diagnostico import Limite
-from matrixai.training.particion_por_diseno_comun import Rechazo, clave_de_clase
+from matrixai.training.particion_por_diseno_comun import Rechazo, nombres_de_clases
 from matrixai.training.particion_por_diseno_textos import motivo
 
-__all__ = ["MARGEN_RELATIVO_DE_LA_PRUEBA", "MINIMO_PLIEGUES", "ReparteGrupos", "repartir_cubos",
-           "repartir_grupos_estratificado"]
+__all__ = ["MARGEN_RELATIVO_DE_LA_PRUEBA", "MINIMO_PLIEGUES", "ReparteGrupos", "fuera_del_margen",
+           "repartir_cubos", "repartir_grupos_estratificado"]
 
 MINIMO_PLIEGUES = 2
 #: Cuánto puede apartarse la fracción de prueba obtenida de la pedida, en relativo, sin declararlo (auditoría I1):
 #: con 0,2 pedido, de 0,1 a 0,3. Los grupos no se parten, así que alguna desviación es inevitable; más que esto se dice.
 MARGEN_RELATIVO_DE_LA_PRUEBA = 0.5
+
+
+def fuera_del_margen(filas_de_la_parte: int, filas: int, fraccion: float, *, solo_por_arriba: bool = False) -> bool:
+    """¿Se aparta `filas_de_la_parte / filas` de `fraccion` más que el margen? LA definición del margen: la usan el
+    `Limite` que lo declara y la ruta sin estratificar al decidir si un grupo cabe (re-auditoría, M-a: un tope
+    redondeado, `round(n·f)·1,5`, cambiaba repartos que la 139 ya dejaba dentro del margen). `solo_por_arriba`:
+    quedarse corto no cuenta (un grupo que aún no llega a lo pedido «cabe»)."""
+    desvio = filas_de_la_parte / filas - fraccion
+    return (desvio if solo_por_arriba else abs(desvio)) > MARGEN_RELATIVO_DE_LA_PRUEBA * fraccion
+
+
+def _con_margen(capacidad: float) -> float:
+    """Las filas que puede llevar un cubo sin salirse del margen por arriba (`capacidad` son las que le tocan)."""
+    return capacidad * (1 + MARGEN_RELATIVO_DE_LA_PRUEBA)
 #: Cuánto se desordena el tamaño de cada grupo al ordenarlos de grande a pequeño.
 _DESORDEN = 0.25
 
@@ -120,7 +134,13 @@ def _cubrir(cuentas: Mapping[str, Mapping[Any, int]], clases: Sequence[Any], n_c
     prefiere primero el que NO desborda el cubo** (auditoría I1, 27-10): sin esto se elegía el que traía más
     clases nuevas, que en datos longitudinales es el sujeto más grande —el único con las dos clases—, y la
     prueba, que se cubre la primera, salía del 60 % pedida al 20 %. El orden solo cambia qué se prueba antes:
-    la vuelta atrás encuentra un reparto igual si existe."""
+    la vuelta atrás encuentra un reparto igual si existe.
+
+    **Desbordar es pasarse del MARGEN, no de la capacidad pelada** (re-auditoría, IMPORTANTE 1, 28-10): con la
+    capacidad pelada, cualquier grupo que pasara de la parte justa por una fila contaba como peor que uno diminuto,
+    y en el caso 90 de la re-auditoría (90 filas, 20 % pedido) la prueba salía con 4 filas (4,4 %) donde el C1 la
+    dejaba en 21 (23 %, dentro del margen). Es el mismo margen que la ruta
+    sin estratificar (`MARGEN_RELATIVO_DE_LA_PRUEBA`; `_con_margen` es `fuera_del_margen` por arriba, en filas)."""
     nombres = [g for g in sorted(cuentas) if g not in excluidos]
     filas_de = {g: sum(cuentas[g].values()) for g in nombres}
     lleno = [0.0] * n_cubos
@@ -143,7 +163,7 @@ def _cubrir(cuentas: Mapping[str, Mapping[Any, int]], clases: Sequence[Any], n_c
             return False
         candidatos = [g for g in con_clase[c] if g not in asignado]
         nuevas = lambda g: sum(1 for k in cuentas[g] if k not in cubierto[b])   # noqa: E731
-        desborda = (lambda g: max(0.0, lleno[b] + filas_de[g] - capacidades[b])) if capacidades is not None \
+        desborda = (lambda g: max(0.0, lleno[b] + filas_de[g] - _con_margen(capacidades[b]))) if capacidades is not None \
             else (lambda g: 0.0)                                                # noqa: E731
         clave = lambda g: (desborda(g), -nuevas(g), tamano[g], g)               # noqa: E731
         orden = sorted(candidatos, key=clave) if len(candidatos) <= _GRANDE \
@@ -286,7 +306,7 @@ def _limite_de_fraccion(cuentas: Mapping[str, Mapping[Any, int]], grupos_de_prue
     filas = sum(sum(c.values()) for c in cuentas.values())
     en_prueba = sum(sum(cuentas[g].values()) for g in grupos_de_prueba)
     obtenida = en_prueba / filas
-    if abs(obtenida - test_fraction) <= MARGEN_RELATIVO_DE_LA_PRUEBA * test_fraction:
+    if not fuera_del_margen(en_prueba, filas, test_fraction):
         return ()
     mayor = max(grupos_de_prueba, key=lambda g: (sum(cuentas[g].values()), g))
     medida = {"fraccion_pedida": test_fraction, "fraccion_obtenida": round(obtenida, 4),
@@ -313,6 +333,7 @@ def repartir_grupos_estratificado(filas_por_unidad: Mapping[str, Sequence[str]],
     cuentas = _cuentas(filas_por_unidad, clase_por_id)
     clases = sorted({c for cuenta in cuentas.values() for c in cuenta}, key=str)
     grupos_con = {c: sum(1 for cuenta in cuentas.values() if cuenta.get(c)) for c in clases}
+    nombre = nombres_de_clases(clases)      # `1` y `"1"` no se escriben igual (re-auditoría, M-c)
     partes_extra = 1 if test_fraction > 0 else 0
     pedidos = max(MINIMO_PLIEGUES, folds)
 
@@ -332,13 +353,13 @@ def repartir_grupos_estratificado(filas_por_unidad: Mapping[str, Sequence[str]],
             return ReparteGrupos(resultado.pliegues_usados, resultado.grupos_de_prueba,
                                  resultado.cubos_por_repeticion, desvio)
         causa, clase = ultimo_motivo   # lo que impidió k + 1
-        medida = {"pliegues_pedidos": pedidos, "pliegues_usados": k, "clase": clave_de_clase(clase),
+        medida = {"pliegues_pedidos": pedidos, "pliegues_usados": k, "clase": nombre[clase],
                   "grupos_con_la_clase": grupos_con[clase], "grupos_necesarios": pedidos + partes_extra,
-                  "grupos_por_clase": {clave_de_clase(c): grupos_con[c] for c in clases}}
+                  "grupos_por_clase": {nombre[c]: grupos_con[c] for c in clases}}
         clave = ("pliegues_reducidos_por_clase_en_grupos" if causa == "conteo"
                  else "pliegues_reducidos_por_reparto_de_clases_en_grupos")
         limite = Limite(clave=clave, campo="unit_id_field",
-                        motivo=motivo(clave, campo=campo, opciones=pedidos, valor=k, clase=clave_de_clase(clase),
+                        motivo=motivo(clave, campo=campo, opciones=pedidos, valor=k, clase=nombre[clase],
                                       n=grupos_con[clase], partes=pedidos + partes_extra),
                         medida=medida)
         return ReparteGrupos(resultado.pliegues_usados, resultado.grupos_de_prueba,
@@ -346,12 +367,12 @@ def repartir_grupos_estratificado(filas_por_unidad: Mapping[str, Sequence[str]],
 
     clase = la_rara()
     minimo = MINIMO_PLIEGUES + partes_extra
-    medida = {"pliegues_pedidos": pedidos, "clase": clave_de_clase(clase),
+    medida = {"pliegues_pedidos": pedidos, "clase": nombre[clase],
               "grupos_con_la_clase": grupos_con[clase], "grupos_necesarios_con_los_pedidos": pedidos + partes_extra,
               "grupos_necesarios_con_2_pliegues": minimo,
-              "grupos_por_clase": {clave_de_clase(c): grupos_con[c] for c in clases}}
+              "grupos_por_clase": {nombre[c]: grupos_con[c] for c in clases}}
     if grupos_con[clase] < minimo:
-        raise Rechazo("clase_sin_grupos_suficientes", "unit_id_field", medida, campo=campo, clase=clave_de_clase(clase),
+        raise Rechazo("clase_sin_grupos_suficientes", "unit_id_field", medida, campo=campo, clase=nombre[clase],
                       valor=grupos_con[clase], opciones=pedidos, partes=pedidos + partes_extra, minimo=minimo)
-    raise Rechazo("clases_sin_reparto_por_grupos", "unit_id_field", medida, campo=campo, clase=clave_de_clase(clase),
+    raise Rechazo("clases_sin_reparto_por_grupos", "unit_id_field", medida, campo=campo, clase=nombre[clase],
                   valor=grupos_con[clase])

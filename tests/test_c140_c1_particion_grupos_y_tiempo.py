@@ -1056,6 +1056,8 @@ _CLAVES_NUEVAS = (
     "fraccion_de_prueba_desviada", "entrena_sin_clase", "hueco_en_tiempo_numerico", "unidad_vacia",
     "cohorte_externa_comparte_unidad", "sin_prueba_reservada", "grupos_insuficientes_para_prueba_y_pliegues",
     "prueba_recortada_para_dejar_grupos",
+    # reparación de la re-auditoría (28-10)
+    "entrena_sin_clase_por_el_hueco",
 )
 
 
@@ -1338,3 +1340,197 @@ def test_en_regresion_si_ningun_sujeto_cabe_en_el_margen_se_dice():
     assert r.es_viable and _fraccion_de_prueba(r) == 0.2
     (limite,) = [x for x in r.limites if x.clave == "fraccion_de_prueba_desviada"]
     assert limite.medida["fraccion_pedida"] == 0.1 and limite.medida["fraccion_obtenida"] == 0.2
+
+
+# ---------------------------------------------------------------------------
+# Reparación de la re-auditoría del C1 (28-10): cada prueba salió ROJA antes de su arreglo
+# ---------------------------------------------------------------------------
+
+def _forma_del_fuzz_estratificado(caso):
+    """La forma `caso` del fuzz estratificado de la re-auditoría (`caso_regresion_fraccion.py`), tal cual."""
+    rng = random.Random(50_000 + caso)
+    n_suj = rng.choice([4, 6, 10, 20, 40, 80, 150])
+    clases = rng.choice([["pos", "neg"], ["a", "b", "c"], ["raro", "comun"]])
+    filas, k = [], 0
+    for s in range(n_suj):
+        t = rng.choice([1, 2, 3, 8, 20]) if rng.random() > 0.05 else rng.choice([100, 300])
+        p_raro = rng.choice([0.0, 0.0, 0.05, 0.3, 1.0])
+        for _ in range(t):
+            if clases[0] == "raro":
+                y = "raro" if rng.random() < p_raro else "comun"
+            else:
+                y = rng.choice(clases) if rng.random() < 0.7 else clases[s % len(clases)]
+            filas.append({"id": f"o{k}", "suj": f"s{s}", "y": y})
+            k += 1
+    kw = dict(seed=rng.randrange(1000), test_fraction=rng.choice([0.1, 0.2, 0.3]),
+              folds=rng.choice([2, 3, 5]), repeats=rng.choice([1, 2]))
+    return filas, clases, kw
+
+
+@pytest.mark.parametrize("caso,filas_de_prueba", [(90, 21), (591, 7), (408, 6)])
+def test_reaudit_IMP1_la_ruta_estratificada_aplica_el_mismo_margen_que_la_sin_estratificar(caso, filas_de_prueba):
+    """Re-auditoría, IMPORTANTE 1: `_cubrir` trataba cualquier desborde de la capacidad PELADA como peor que quedarse
+    corto, y la prueba encogía donde el C1 acertaba: el caso 90 (90 filas, 20 % pedido) pasaba de 21 filas a 4, el 591
+    de 7 a 3 y el 408 de 6 a 2, con `fraccion_de_prueba_desviada`. Con el margen (`MARGEN_RELATIVO_DE_LA_PRUEBA`,
+    como en la otra ruta) salen dentro, sin límite, y con todas las clases en todas partes."""
+    from matrixai.training.particion_por_diseno_grupos import fuera_del_margen
+    filas, clases, kw = _forma_del_fuzz_estratificado(caso)
+    r = _groups(filas, **kw)
+    assert r.es_viable
+    assert len(_ids_de(r, "test")) == filas_de_prueba
+    assert not fuera_del_margen(filas_de_prueba, len(filas), kw["test_fraction"])
+    assert not [x for x in r.limites if x.clave == "fraccion_de_prueba_desviada"]
+    _ninguna_unidad_partida(filas, r)
+    _todas_las_clases_en_todas_partes(filas, r, clases=tuple(sorted({f["y"] for f in filas})))
+
+
+def _clase_que_el_hueco_quita():
+    """120 días; «si» en los días 28–31 y desde el 40 cada 3 (`sonda_i3_con_hueco.py` de la re-auditoría)."""
+    base = datetime(2024, 1, 1)
+    return [{"id": f"o{i:03d}", "t": (base + timedelta(days=i)).strftime("%Y-%m-%d"),
+             "y": "si" if (28 <= i <= 31 or (i >= 40 and i % 3 == 0)) else "no"} for i in range(120)]
+
+
+def test_reaudit_IMP2_si_es_el_hueco_el_que_deja_sin_la_clase_el_motivo_dice_el_hueco():
+    """Re-auditoría, IMPORTANTE 2: con un hueco de 5 días, el pliegue más antiguo se queda sin «si» porque el HUECO le
+    quita los días 28–30; el motivo decía «la primera fila con si está en 2024-01-29… empieza los datos más cerca»,
+    una causa falsa y un remedio que no arregla nada. Sin hueco, el mismo reparto es viable."""
+    filas = _clase_que_el_hueco_quita()
+    kw = _pide(split_type="temporal", seed=0, time_column="t", objetivo="y", folds=2)
+    sin = proponer_particion(filas, **kw)
+    assert sin.es_viable
+    (b,) = proponer_particion(filas, **kw, gap={"magnitud": 5, "unidad": "days"}).bloqueos
+    assert b.clave == "entrena_sin_clase_por_el_hueco" and b.campo == "gap"
+    assert b.medida["clase"] == "si" and b.medida["pliegue"] == 1 and b.medida["filas_de_la_clase_en_entrena"] == 0
+    assert b.medida["filas_de_la_clase_quitadas_por_el_hueco"] == 3          # los días 28, 29 y 30 (29–31 de enero)
+    assert b.medida["inicio_de_la_validacion"] == "2024-02-01"               # el día 31
+    assert b.medida["ultima_fila_de_la_clase_antes_de_la_validacion"] == "2024-01-31"   # el día 30
+    assert b.medida["hueco"] == "5 days"
+    for idioma, hueco in (("es", "hueco"), ("en", "gap")):
+        texto = b.motivo[idioma]
+        assert hueco in texto and "5 days" in texto and "2024-02-01" in texto and "si" in texto
+        assert "más cerca de" not in texto and "closer to" not in texto   # el remedio que no lo arregla, fuera
+    # sin hueco en juego (la clase empieza tarde de verdad) sigue siendo `entrena_sin_clase` (I3)
+    tarde = [{"id": f"o{i:03d}", "t": float(i), "y": ("si" if i >= 40 and i % 4 == 0 else "no")} for i in range(120)]
+    (b2,) = proponer_particion(tarde, **_pide(split_type="temporal", seed=0, time_column="t", objetivo="y",
+                                              gap={"magnitud": 1, "unidad": "seconds"})).bloqueos
+    assert b2.clave == "entrena_sin_clase"
+
+
+_FALTA = object()
+
+
+@pytest.mark.parametrize("valor", ["NA", "N/A", "nan", "NULL", "None", "?", "-", "na", None, float("nan"), _FALTA],
+                         ids=["NA", "N/A", "nan", "NULL", "None-texto", "?", "-", "na", "None", "NaN", "sin-columna"])
+@pytest.mark.parametrize("diseno", ["groups", "groups_and_time"])
+def test_reaudit_IMP3_una_unidad_que_el_nucleo_llama_faltante_es_unidad_vacia(valor, diseno):
+    """Re-auditoría, IMPORTANTE 3: solo `""` contaba como vacía; «N/A», «nan» o `None` eran un sujeto más, sin aviso
+    (y una fila SIN la columna, un `KeyError` del núcleo). Ahora es lo que el núcleo ya llama faltante (`_is_null`)."""
+    filas = []
+    for i in range(120):
+        f = {"id": f"o{i}", "y": "a" if i % 2 else "b", "t": float(i)}
+        if i >= 10:
+            f["u"] = f"p{i % 12}"
+        elif valor is not _FALTA:
+            f["u"] = valor
+        filas.append(f)
+    for objetivo in ("y", None):
+        kw = _pide(split_type=diseno, seed=0, unit_id_field="u", objetivo=objetivo, time_column="t")
+        (b,) = proponer_particion(filas, **kw).bloqueos
+        assert b.clave == "unidad_vacia" and b.medida == {"columna": "u", "filas_sin_unidad": 10, "filas": 120}
+
+
+def test_reaudit_IMP3_la_lista_de_faltantes_es_la_del_nucleo_no_una_copia(monkeypatch):
+    """Lo que decide es `dataset_analysis._is_null` (la misma con la que el núcleo da por faltante el objetivo): si
+    el núcleo aprende una marca nueva, la unidad la aprende con él. Una copia de la lista no lo haría."""
+    from matrixai.training import dataset_analysis
+    filas = [{"id": f"o{i}", "u": ("desconocido" if i < 4 else f"p{i % 12}")} for i in range(60)]
+    kw = _pide(split_type="groups", seed=0, unit_id_field="u")
+    assert proponer_particion(filas, **kw).es_viable                  # «desconocido» no es faltante para el núcleo
+    monkeypatch.setattr(dataset_analysis, "_NULL_TOKENS", dataset_analysis._NULL_TOKENS | {"desconocido"})
+    (b,) = proponer_particion(filas, **kw).bloqueos
+    assert b.clave == "unidad_vacia" and b.medida["filas_sin_unidad"] == 4
+
+
+def test_reaudit_IMP3_una_unidad_de_verdad_que_se_parece_no_es_faltante():
+    """`NA` es faltante; `NA1`, `0` o `Nadia` no: se decide por la celda entera, como en el objetivo."""
+    filas = [{"id": f"o{i}", "u": ["NA1", "0", "Nadia", "nada", "x-1"][i % 5]} for i in range(60)]
+    assert proponer_particion(filas, **_pide(split_type="groups", seed=0, unit_id_field="u")).es_viable
+
+
+def _rejilla_en_el_borde_del_tope(tf):
+    """Formas cuya prueba de la 139 cae justo entre el tope redondeado (`round(n·f)·1,5`) y el exacto (`n·f·1,5`):
+    dos grupos de `floor(n·f·1,5)` filas y el resto de 1 a 3."""
+    import math
+    for n in range(10, 260):
+        m = math.floor(n * tf * 1.5)
+        if round(n * tf) == 0:
+            continue
+        for semilla in range(3):
+            tam = [m, m]
+            rng = random.Random(f"{tf}:{n}:{semilla}")
+            while sum(tam) < n:
+                tam.append(min(rng.choice([1, 2, 3]), n - sum(tam)))
+            yield [{"id": f"o{s}_{i}", "u": f"S{s}"} for s, t in enumerate(tam) for i in range(t)], semilla
+
+
+@pytest.mark.parametrize("tf", [0.1, 0.2, 0.25, 0.3])
+def test_reaudit_Ma_groups_sin_objetivo_en_una_rejilla_solo_cambia_donde_la_139_se_salia_del_margen(tf):
+    """Re-auditoría, M-a: el tope redondeado cambiaba el reparto donde la 139 estaba DENTRO del margen (n=1254, f=0,1:
+    de 188 filas a 146). La prueba de 600 formas del I5 no lo cazaba; esta rejilla va a por el borde."""
+    comparados = 0
+    for filas, semilla in _rejilla_en_el_borde_del_tope(tf):
+        kw = _pide(split_type="groups", seed=semilla, unit_id_field="u", test_fraction=tf, folds=3)
+        antes = ANTES.proponer_particion(filas, **kw)
+        if not (antes.es_viable and all(p.entrena and p.valida for p in antes.pliegues.pliegues)):
+            continue
+        if _desborda_la_prueba(antes, tf):
+            continue
+        comparados += 1
+        assert _firma(proponer_particion(filas, **kw)) == _firma(antes), (len(filas), semilla)
+    assert comparados > 30                     # que la rejilla compare de verdad (41 con 0,25; 46 con 0,3)
+
+
+@pytest.mark.parametrize("caso", [498, 1056, 1351, 1582, 2190, 2194])
+def test_reaudit_Ma_los_seis_casos_del_fuzz_de_la_reauditoria_salen_como_en_la_139(caso):
+    """Los seis de `fuzz_groups_regresion_139.py` (entre ellos el de 1254 filas) donde la 139 estaba dentro."""
+    rng = random.Random(7_000 + caso)
+    n_suj = rng.choice([2, 3, 4, 5, 8, 20, 42, 100])
+    tam = [rng.choice([1, 3, 10, 30, 140]) for _ in range(n_suj)]
+    if rng.random() < 0.3:
+        tam[0] = sum(tam) * rng.choice([0.5, 1, 2])
+    filas = [{"id": f"o{s}_{i}", "u": (s if rng.random() < 0.3 else f"S{s}")} for s, t in enumerate(tam) for i in range(int(t))]
+    kw = _pide(split_type="groups", seed=rng.randrange(1000), unit_id_field="u", test_fraction=rng.choice([0.1, 0.2, 0.25, 0.3]),
+               folds=rng.choice([2, 3, 5]), repeats=rng.choice([1, 2]))
+    antes = ANTES.proponer_particion(filas, **kw)
+    assert antes.es_viable and not _desborda_la_prueba(antes, kw["test_fraction"])
+    assert _firma(proponer_particion(filas, **kw)) == _firma(antes)
+
+
+@pytest.mark.parametrize("diseno", ["groups", "groups_and_time"])
+def test_reaudit_Mb_grupos_insuficientes_nombra_la_columna_y_lleva_sus_numeros(diseno):
+    """Re-auditoría, M-b: decía «unit_id_field tiene 1 grupo(s)» y no llevaba números. (El llamante del backend de
+    `partir_valida_en_mitades` aún no le pasa `columna_de_unidad`: es cableado del C2.)"""
+    filas = [{"id": f"o{i}", "paciente": "P-07", "t": float(i), "y": "a" if i % 2 else "b"} for i in range(10)]
+    (b,) = proponer_particion(filas, **_pide(split_type=diseno, seed=0, unit_id_field="paciente", time_column="t",
+                                             objetivo="y")).bloqueos
+    assert b.clave == "grupos_insuficientes" and b.campo == "unit_id_field"
+    assert b.medida == {"columna": "paciente", "grupos": 1, "grupos_necesarios": 2, "filas": 10}
+    for idioma in ("es", "en"):
+        assert b.motivo[idioma].startswith("paciente ") and "unit_id_field" not in b.motivo[idioma]
+
+
+def test_reaudit_Mc_las_clases_1_y_texto_1_no_se_escriben_igual():
+    """Re-auditoría, M-c: `1` y `"1"` son dos clases, pero se nombraban igual: en `groups` las medidas perdían una
+    clave (`{'0': 9, '1': 2}`) y en `temporal` el motivo decía «la clase 1 solo tiene 0 filas en desarrollo» con filas
+    de `1` en desarrollo. No se juntan (son dos clases); solo se escriben distinto."""
+    filas = [{"id": f"o{i}", "suj": f"p{i % 12}", "y": (1 if i % 3 == 0 else "1") if i % 4 == 0 else 0} for i in range(120)]
+    (b,) = _groups(filas).bloqueos
+    assert set(b.medida["grupos_por_clase"]) == {"0", "1", "'1'"}            # tres clases, tres claves
+    t = [{"id": f"o{i}", "t": float(i), "y": ("1" if i > 100 else 1) if i % 4 == 0 else 0} for i in range(120)]
+    (b2,) = proponer_particion(t, **_pide(split_type="temporal", seed=0, time_column="t", objetivo="y")).bloqueos
+    assert b2.clave == "bloques_sin_clase" and b2.medida["clase"] == "'1'"   # la de texto, que es la que no está
+    assert "la clase '1' solo tiene 0" in b2.motivo["es"]
+    # sin choque de nombres, nada cambia: la clase se escribe como siempre
+    from matrixai.training.particion_por_diseno_comun import nombres_de_clases
+    assert nombres_de_clases([0, 1]) == {0: "0", 1: "1"} and nombres_de_clases(["si", "no"]) == {"si": "si", "no": "no"}

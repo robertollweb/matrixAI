@@ -61,7 +61,7 @@ from matrixai.estudio.vocabulario import UNIDADES_DE_TIEMPO
 from matrixai.training.diagnostico import Limite
 from matrixai.training.dataset_analysis import _DATE_FORMATS
 from matrixai.training.fechas import _CONFUNDIBLES, detectar_fechas, fechas_ambiguas
-from matrixai.training.particion_por_diseno_comun import Rechazo, clave_de_clase
+from matrixai.training.particion_por_diseno_comun import Rechazo, nombres_de_clases
 from matrixai.training.particion_por_diseno_textos import motivo
 
 __all__ = [
@@ -372,10 +372,11 @@ def _limite_de_reduccion(pedidos: int, usados: int, causa: _NoCabe | None, clase
     assert causa.causa == "clase" and clase_por_id is not None
     conteo = _clases_de(ids, clase_por_id)
     rara = min(clases, key=lambda c: (conteo.get(c, 0), str(c)))
+    nombre = nombres_de_clases(clases)      # `1` y `"1"` no se escriben igual (re-auditoría, M-c)
     return (Limite(clave="pliegues_reducidos_por_clase_en_bloques", campo="objetivo",
                    motivo=motivo("pliegues_reducidos_por_clase_en_bloques", opciones=pedidos, valor=usados,
-                                 clase=clave_de_clase(rara)),
-                   medida={**base, "clase_mas_rara": clave_de_clase(rara),
+                                 clase=nombre[rara]),
+                   medida={**base, "clase_mas_rara": nombre[rara],
                            "filas_de_la_clase_mas_rara": conteo.get(rara, 0)}),)
 
 
@@ -391,19 +392,43 @@ def _rechazo(fallo: _NoCabe, ids, tiempo, hueco_s, gap, clase_por_id, clases, ca
     # clase: los números del último intento (2 pliegues = 3 bloques)
     ventana: VentanaExpansiva = fallo.datos["ventana"]
     conteo = _clases_de(ids, clase_por_id)
+    nombre = nombres_de_clases(clases)      # `1` y `"1"` no se escriben igual (re-auditoría, M-c)
+
+    def como_venia(obs: str) -> str:
+        return str(tiempo_original[obs]) if tiempo_original is not None else f"{tiempo[obs]:g}"
+
     if fallo.datos["lado"] == "entrena":
-        # Todas las validaciones tienen la clase, pero un entrenamiento no (auditoría I3): la clase EMPIEZA tarde.
-        # `entrena` es un prefijo en el tiempo, así que su primera fila de la clase es posterior a todo él.
+        # Todas las validaciones tienen la clase, pero un entrenamiento no (auditoría I3). Dos causas, y el motivo
+        # dice cuál (re-auditoría, IMPORTANTE 2): el entrenamiento es el pasado de su validación MENOS lo que quita el
+        # hueco. Si ese pasado tiene la clase, la ha quitado el HUECO (recortar los datos no lo arregla); si no la
+        # tiene, la clase EMPIEZA tarde y su primera fila es posterior a todo ese pasado.
         rara = min(fallo.datos["faltan"], key=lambda c: (conteo.get(c, 0), str(c)))
-        primera = min((o for o in ids if clase_por_id[o] == rara), key=lambda o: (tiempo[o], o))
-        cuando = str(tiempo_original[primera]) if tiempo_original is not None else f"{tiempo[primera]:g}"
         pliegue, filas = fallo.datos["pliegue"], fallo.datos["filas"]
+        valida = ventana.pliegues[pliegue][1]
+        pasado = [o for j in range(ventana.folds - pliegue) for o in ventana.bloques[j]]
+        quitadas = [o for o in pasado if clase_por_id[o] == rara]
+        if quitadas:
+            ultima = max(quitadas, key=lambda o: (tiempo[o], o))
+            inicio = min(valida, key=lambda o: (tiempo[o], o))
+            texto = f"{gap.magnitud:g} {gap.unidad}" if gap is not None else "0"
+            return Rechazo("entrena_sin_clase_por_el_hueco", "gap",
+                           {"clase": nombre[rara], "pliegues": MINIMO_PLIEGUES, "pliegue": pliegue,
+                            "filas_de_entrena": filas, "filas_de_la_clase_en_entrena": 0,
+                            "filas_de_la_clase_quitadas_por_el_hueco": len(quitadas),
+                            "filas_de_la_clase_en_desarrollo": conteo.get(rara, 0), "columna": campo,
+                            "hueco": texto, "hueco_segundos": hueco_s, "inicio_de_la_validacion": como_venia(inicio),
+                            "ultima_fila_de_la_clase_antes_de_la_validacion": como_venia(ultima)},
+                           clase=nombre[rara], opciones=MINIMO_PLIEGUES, valor=pliegue, n=filas,
+                           partes=len(quitadas), campo=campo, minimo=texto, inicio=como_venia(inicio),
+                           detalle=como_venia(ultima))
+        primera = min((o for o in ids if clase_por_id[o] == rara), key=lambda o: (tiempo[o], o))
+        cuando = como_venia(primera)
         return Rechazo("entrena_sin_clase", "objetivo",
-                       {"clase": clave_de_clase(rara), "pliegues": MINIMO_PLIEGUES, "pliegue": pliegue,
+                       {"clase": nombre[rara], "pliegues": MINIMO_PLIEGUES, "pliegue": pliegue,
                         "filas_de_entrena": filas, "filas_de_la_clase_en_entrena": 0,
                         "filas_de_la_clase_en_desarrollo": conteo.get(rara, 0),
                         "columna": campo, "primera_aparicion": cuando},
-                       clase=clave_de_clase(rara), opciones=MINIMO_PLIEGUES, valor=pliegue, n=filas,
+                       clase=nombre[rara], opciones=MINIMO_PLIEGUES, valor=pliegue, n=filas,
                        campo=campo, detalle=cuando)
     por_bloque = [_clases_de(b, clase_por_id) for b in ventana.bloques]
     # la clase que más falla: la que menos filas tiene y no está en algún bloque validado
@@ -412,7 +437,7 @@ def _rechazo(fallo: _NoCabe, ids, tiempo, hueco_s, gap, clase_por_id, clases, ca
     rara = min(faltan or clases, key=lambda c: (conteo.get(c, 0), str(c)))
     detalle = ", ".join(str(b.get(rara, 0)) for b in por_bloque)
     return Rechazo("bloques_sin_clase", "objetivo",
-                   {"clase": clave_de_clase(rara), "filas_de_la_clase_en_desarrollo": conteo.get(rara, 0),
+                   {"clase": nombre[rara], "filas_de_la_clase_en_desarrollo": conteo.get(rara, 0),
                     "pliegues": MINIMO_PLIEGUES, "filas_de_la_clase_por_bloque": [b.get(rara, 0) for b in por_bloque],
                     "filas_por_bloque": [len(b) for b in ventana.bloques]},
-                   clase=clave_de_clase(rara), valor=conteo.get(rara, 0), opciones=MINIMO_PLIEGUES, detalle=detalle)
+                   clase=nombre[rara], valor=conteo.get(rara, 0), opciones=MINIMO_PLIEGUES, detalle=detalle)
