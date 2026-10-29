@@ -7,6 +7,173 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.20.0] — 2026-10-30
+
+A study can now be examined the way the data were collected: between subjects it has never seen (`groups`) or forward in
+time (`temporal`), and the core writes down what a study delivered. The study gets its own `reproduce.json`, and the
+clinical dossier (TRIPOD card, PROBAST map, ML-BOM) is composed from what the study measured: which engine was
+delivered, how the rows were split, how its calibration and threshold were chosen and, for a network, how many epochs
+were fixed. Two figures the core gives change: the logistic recalibration no longer declares "separation" on data that
+are not separable, so studies that used to be delivered uncalibrated are calibrated again; and a recalibration with a
+negative slope is declared unfitted instead of used. Also new: the curves of an evaluation (ROC, precision-recall,
+reliability before and after, confusion matrix, regression by bands), and "what the model saw" now marks a date it
+cannot read and one outside the period it saw.
+
+### Added
+- **`manifiesto_de_estudio` and `escribir_manifiesto_de_estudio`** (`matrixai.export.manifiesto_de_estudio`): the
+  `reproduce.json` of a model-selection study (same schema version 1.1, environment and digest as `reproduce.py`),
+  composed only from what the study measured and declared, which is what `ficha_tripod`, `mapa_probast` /
+  `huecos_probast` and `ml_bom` read. What the study did not say is omitted — never a `null` or a zero, and the
+  dossier says "not available" — and `reproducible` is always `false`, with its reason in Spanish and English. It
+  carries a `study` block (always present; its presence is what says "this is a study"): `mode` and
+  `engines_left_out_by_mode`; `rows` (`development`, `holdout_test`, `trained_the_delivered_model`,
+  `early_stopping_tail`); `delivered_engine`; `calibration_and_threshold`; `split`; and, for a network,
+  `network_training` and `delivered_network_training` (see Changed for what each says). `artifacts.dataset.rows` is the
+  number of rows of the data set, not the rows that trained the model.
+- **Validation by groups and by time** (`proponer_particion`, `matrixai.training.particion_por_diseno`):
+  - `temporal` now gives folds: an expanding window with a gap, training rows sorted by time, no instant ever split
+    between the two sides of a cut, fold 0 the most recent one, and `repeats` fixed to 1 and declared. The first block
+    only trains, and `PropuestaDeParticion.cobertura` (`CoberturaDePliegues`) says how many development rows have no
+    out-of-fold validation. `PropuestaDeParticion.tiempo_por_id` carries the time of each row.
+  - `groups` spreads the classes of the test set and of the folds without splitting any subject (pure Python;
+    scikit-learn is used only as the oracle in the tests). If it does not fit, it lowers the number of folds down to 2
+    with a `Limite` that carries the numbers, and if not even then it refuses with a `Bloqueo` that carries them (also
+    when the test set would be left without a class). A test set that would end up more than 50 % (relative) away from
+    the requested fraction is declared (`fraccion_de_prueba_desviada`); a subject that is too large no longer takes the
+    whole test set, also without a classification target (regression).
+  - The time arrives as the CSV has it: text dates are read with `fechas.py` (ambiguous dates are refused with their
+    reason), `datetime` or number; the `gap` is a `{magnitud, unidad}` dict or a `Horizonte`. A gap in days or years over
+    a numeric time column is refused (`hueco_en_tiempo_numerico`). A subject column with empty cells, or a subject that
+    is also in the external cohort, is refused with its numbers.
+  - `iid` is unchanged, and `groups_and_time` still gives a single cut without folds.
+- **`partir_valida_en_mitades`** (`matrixai.training.mitades_de_validacion`): splits each validation fold into the half
+  that calibrates and the half that chooses the threshold. `iid`: the positional halves of before; `groups`: whole
+  subjects, with the classes spread (a single subject is cut by position and declared); `temporal`: the earlier part
+  calibrates and the later one chooses the threshold, with the cut between two different instants.
+- **`curvas_de_la_evaluacion`, `curva_roc` and `curva_pr`** (`matrixai.estudio.curvas_de_la_evaluacion`, version 1.0.0):
+  from the held-out sample, aggregates only (no rows, no ids). ROC and precision-recall; the confusion matrix at the
+  chosen threshold (binary) or at the argmax (multiclass); the reliability diagram "before" and "after" the
+  recalibration when there was one, and the predicted class's confidence against its hit rate for multiclass (declared
+  `multiclase_sin_recalibrar`); predicted against real by bands for regression. A band or bin with fewer than 30 rows is
+  given without a figure and with its reason. The ECE is published only with at least
+  `MINIMO_DE_TRAMOS_PARA_EL_ECE` = 3 bands with a figure. Every block is either available or carries a key and a
+  reason in Spanish and English — never a zero. A recalibration that could not be fitted reaches the curves with its
+  cause (separation, did not converge, a single class, too few rows, constant score, negative slope).
+- **`aplicar_la_regla_de_la_pendiente` and `TOLERANCIA_DE_LA_PENDIENTE`** (`matrixai.estudio.calibracion`): the
+  decision of a study on an already fitted recalibration (see Changed). It lives apart from
+  `ajustar_recalibracion_logistica` on purpose: that function is also the instrument that measures the slope in
+  `evaluar_puntuacion`, where a negative slope is a legitimate measurement.
+- **Fixed epochs for a network** (`restaurar_el_mejor=False` in `train_dense_network_torch`,
+  `train_composite_network_torch` and the playground training paths; `True`, the previous behaviour, by default): the
+  network delivers the state of the LAST epoch run instead of the best one by validation loss, with `best_epoch` and
+  `best_val_loss` those of that last epoch. It is what retraining a winning network with all the development rows and the
+  epochs of its selection fit asks for. Only the dense and composite torch paths honour it.
+- **`UltimaEpocaNoFinita`** (`matrixai.training.dense_torch_trainer`; message prefix `CLAVE_ULTIMA_EPOCA_NO_FINITA`): with
+  fixed epochs the last epoch is delivered only if its validation loss and its weights are finite; otherwise the
+  training fails with a reason in Spanish and English. The playground returns it as `{"ok": False, "error", "motivo"}`
+  and does not fall back to the stdlib trainer (another trainer would be another model with the same name).
+- **`ValorNoNumerico`** (`matrixai.training.preparacion`, a `ValueError` subclass): a misspelt number in a numeric column
+  of a row of use ("sixty", "1.234,5") raises it with `columna`, `valor` and a `motivo` in Spanish and English.
+- **`contar_filas_de_datos` and `validar_umbrales_de_decision`** (`matrixai.estudio.evaluacion_de_puntuacion`): the row
+  count with the same reader as the evaluation (same decoding, detected separator and quotes), and the rule for the
+  decision-curve thresholds, public so a caller can refuse a request with the same rule before computing anything.
+- **`intervalo(..., estratificar=...)`** (`matrixai.estudio.incertidumbre`; `True` by default, as before): `False`
+  resamples rows without keeping each class count; the method is then declared `iid_paired_bootstrap`.
+- **`comprobar_lo_visto`: two new kinds of mark**, `fecha_ilegible` (a date that cannot be read with the study's format,
+  which the model treats as missing, read exactly as `transformar_fila` reads it) and `fecha_fuera_del_periodo` (a date
+  outside the period seen in training, written as dates), both with a reason in Spanish and English.
+  `sin_rango` now holds a date only if its derived columns really carry no range.
+
+### Changed
+- **The manifest of a study, as `ficha_tripod`, `mapa_probast`, `huecos_probast` and the clinical dossier read it** (for
+  whoever reads `reproduce.json`; the `reproduce.json` of `matrixai export` does not change):
+  - `study.rows`: the card and PROBAST no longer say "rows that trained" with the whole CSV. They show "rows of the data
+    set" and the split the study counted. `study.mode` and `study.engines_left_out_by_mode` are labelled DECLARED (the
+    mode is chosen by whoever launches the study), and the engines it leaves out appear only for the fast mode.
+  - `study.delivered_engine`: the engine of the delivered model.
+  - `study.rows.early_stopping_tail` (the rows of the internal early-stopping tail, only if the study counted them) and
+    `study.calibration_and_threshold` (`method`, `reason` {es, en}, `folds`, `out_of_fold_rows`, `rows_for_calibration`,
+    `rows_for_threshold`): `method` is `fuera_de_pliegue` (calibration and threshold from the winner's out-of-fold
+    predictions) or `pliegue_0` (the delivered model is that of fold 0, with the reason it fell there). A study that did
+    not say it is written "not available", never "fold 0" or a deduced figure.
+  - `study.calibration_and_threshold.uses`: what each half was used for (`calibration_rows`: `recalibration` |
+    `conformal` | `drift`; `threshold_rows`: `threshold` | `bands` | `champion_guard` | `selection_evaluation` |
+    `drift`). In regression and multiclass the dossier writes "no recalibration or threshold".
+  - `study.split`: `design` (`iid` | `groups` | `temporal`), `unit_column`, `time_column`, `gap` {magnitude, unit},
+    `gap_origin` (`declared_horizon` | `requested`), `out_of_fold_coverage` and `limits`. With `temporal`, also
+    `temporal_assumption`, `drift_between_halves` (the drift MEASURED between the half that calibrates and the half that
+    chooses the threshold; not the drift from development to the future) and `conformal_without_exchangeability`; and
+    `target_in_development_and_test` (the target in the development set and in the held-out test, and whether it
+    changes a lot). TRIPOD and PROBAST write them only if the study declared them.
+  - `study.network_training` (only for a network retrained with fixed epochs): the fixed epochs and where they come from,
+    and `early_stopping_tail_decides: false` — with fixed epochs the tail decides nothing, and the dossier labels it so.
+  - `study.delivered_network_training`: how the training of the delivered network ended (`stopped_by_time_limit`,
+    `epochs_run`, `completed_epochs`, `best_epoch`, `last_epoch_partial`, `time_limit_before_first_complete_epoch`,
+    `time_limit_seconds`). The "Epochs" line of a study with a network now comes from the study, not from
+    `generation.epochs_*` (the classical path), where it used to read "not available".
+  - `manifest_sha256` covers the whole `study` block. With two metrics of the same name the card tags both `[test]` and
+    `[validation]`; and it no longer says the package "predicts without installing MatrixAI" when the package has no
+    `model.onnx` / `inference_spec.json` (it looks at the disk).
+- **The text of the card, the PROBAST report and the dossier** carries no internal references of the project (no "(105-C3)",
+  "contract 109" or "invariant 4"; no note that the section was built "without a pilot"), and the card no longer says it
+  was generated by `matrixai report --tripod` when the Studio composed it. The key `cuentas_segun_el_contrato` of the
+  PROBAST map is now `cuentas_esperadas`, and `mapa-probast.{es,en}.json` names the package by its folder, not by the
+  whole path of the machine.
+- **The logistic recalibration (`ajustar_recalibracion_logistica`) no longer declares "separation" on data that are not
+  separable — this changes figures.** It was an undamped Newton from `a = 0, b = 1`: with the extreme logits of
+  a good classifier it jumped past a coefficient of 50 in two or three iterations and declared separation. In a sweep of
+  1,477 non-separable cases, 672 (45 %) were declared separated; the new fit agrees with scikit-learn's to 3e-13 in
+  log-likelihood. Now the Newton step is damped (halved while the likelihood gets worse, bounded, and the gradient when the
+  Hessian is not negative definite), and separation is declared by LOOKING AT THE DATA (complete or quasi-complete, the
+  reason says which, and "the wrong way round" when the order is inverted). A constant score has its own reason. On the
+  Studio's demo examples, `climate-model-simulation-crashes` and `pc1`, which were delivered uncalibrated, are now
+  recalibrated: the threshold moves from 0.3875 to 0.6254 and from 0.4667 to 0.4336, and the ECE on the held-out test is
+  0.0056 and 0.0399; champion, AUROC, accuracy, sensitivity and specificity are identical. `dresses-sales` is
+  unchanged and `us_crime` (regression) has no calibration. The reason of a separation no longer cites a coefficient
+  limit, and `TECHO_COEFICIENTE` is gone.
+- **A recalibration with a negative slope, or one that cannot be told from zero (`|b| <= TOLERANCIA_DE_LA_PENDIENTE`,
+  1e-8), is not used by a study** (`aplicar_la_regla_de_la_pendiente`): it is declared unfitted with the measured slope
+  and the AUROC of the calibration rows. It says "ranks the wrong way round" only if that AUROC is below 0.5; with a good
+  AUROC it says it does not. `ajustar_recalibracion_logistica` itself still returns the slope with its sign.
+- **`evaluar_puntuacion`: report version 2.3.0** (it was 2.2.0). The calibration (in the large, intercept and slope), the
+  average precision and, when the sample represents the population, the PPV and NPV are resampled WITHOUT stratifying by
+  outcome, because they depend on the observed prevalence (the symptom: 30 cases with 15 events and a constant probability
+  of 0.51 gave an interval of one point, `[0.01; 0.01]`); AUROC, sensitivity and specificity stay stratified. PPV and NPV are those of the
+  sample at its observed prevalence, and the report says so (`vpp_vpn_de_la_muestra`). The "use" point of the threshold
+  exploration is the declared threshold (added with its value if it is not a vertex, and `nota_del_umbral_de_uso` when it
+  reaches nobody). Numeric keys are the exact number written: `1`, `1.0`, `1,0`, `01` and `1e0` are one, but `1000000` and
+  `1000001` are two (before, six significant digits merged them). The HTML report prints the whole signature, a "How it is
+  checked" section and the signed data as they are.
+- **`categoria_predictiva_por_pureza` measures the purity against the base rate** (`matrixai.training.diagnostico`).
+  The absolute thresholds `UMBRAL_PUREZA_ALTA` (0.85) and `UMBRAL_PUREZA_ALTA_FUERA_DE_MUESTRA` (0.75) become
+  `UMBRAL_REDUCCION_PUREZA` (0.70) and `UMBRAL_REDUCCION_PUREZA_FUERA_DE_MUESTRA` (0.50) on the reduction of the error,
+  `(purity - base) / (1 - base)`, which are what the old ones were with a 50/50 target, so with balanced classes nothing
+  changes. A category is also confirmed only if the binomial tail of its purity under the base rate is
+  <= `ALFA_PUREZA` (0.01) / (categories evaluated). Each category reports its dominant `clase`, its `tasa_base` and its
+  `reduccion`. Measured on data with no relation to the target: false positives with 7.5 % events from 100 % (absolute
+  criterion) to 0-1 %, with 15 % from 78-100 % to <= 1 %, with 25 % from 10-16 % to 0 %; a category with 95 % events
+  is still found 100 % of the time. What it does not look for, on purpose: a category with a much higher risk that is
+  not almost deterministic (50 % events against a 7.5 % base rate).
+- **The `medida` of the diagnosis carries keys, not prose** (`column_type` / `name`, `nmi_arithmetic_log2`), and the
+  evidence of an identifier and the "arithmetic NMI" are written in the language of the reason (in English, "column type"
+  used to come out in Spanish).
+- **`transformar_fila` reads a numeric cell with one rule**: what is not a number raises `ValorNoNumerico` (still a
+  `ValueError`). The decimal comma is not accepted there.
+
+### Fixed
+- `evaluar_puntuacion` with `probabilidad_pct` and "lower is more risk": the table at the threshold counted on the wrong
+  scale (0 true positives and 15 false negatives where the slider counted 15 and 0).
+- A target with a single class said "in the 1 rows" in a CSV of 100: it now counts the rows that carry the target, and
+  its wording says they are the rows of the file, not of the training.
+- The question for the positive class said "which of class_0, class_1 is the POSITIVE class" with a 0/1 target; it now
+  names the classes as the CSV has them (`opciones` are still the normalised ones).
+- A date written in another format than the study's (15/06/2023 in an ISO study) was explained as if the model had read
+  it; "what the model saw" now marks it.
+- A network with fixed epochs that diverged on its last epoch was delivered with NaN weights and no failure; it is now
+  `UltimaEpocaNoFinita`, and the playground no longer retries it with the stdlib trainer.
+- A misspelt number in a row of use raised a bare `ValueError` that the Studio answered as a 500 and the screen showed as
+  "network failure"; it is now `ValorNoNumerico`.
+
 ## [1.19.0] — 2026-10-25
 
 "Does it work here?": check, on your own cases, whether a risk score you already use — a published scale, a vendor's

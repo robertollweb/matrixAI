@@ -59,6 +59,18 @@ matrixai --help
   each layer per epoch, the weights of a sample of epochs and a few prepared validation rows —
   for the MatrixAI Studio laboratory; on a machine without CUDA it can ask for torch on the CPU.
   A run that diverges says its weights are the starting ones
+- **Validation that matches how the data were collected**: `proponer_particion` splits by subject
+  (`groups`: no subject on both sides, the classes spread among them) or forward in time (`temporal`:
+  an expanding window with a gap, the most recent fold first). When it does not fit it lowers the
+  folds, or refuses, and says it with the numbers. The study's manifest (`reproduce.json`) now says
+  how the rows were split, which engine was delivered, how its calibration and threshold were chosen
+  and, for a network, which epochs were fixed, so the TRIPOD card and the PROBAST map come out of what
+  the study measured
+- **The curves of an evaluation** (`curvas_de_la_evaluacion`): ROC, precision-recall, reliability
+  before and after recalibration, the confusion matrix at the chosen threshold and, for regression,
+  predicted against real by bands — aggregates only, a band with fewer than 30 rows without a figure,
+  and an absent value never drawn as a zero. The logistic recalibration declares "separation" only
+  when the data really separate
 - **Model generation from real data**: point at your own CSV instead of writing a prompt —
   schema inference (types, ranges, one-hot categoricals, temporal columns), target-column
   detection (classification or regression) and a trained model in one pass, with target
@@ -331,7 +343,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 10087 passed, 29 skipped
+# 10704 passed, 130 skipped
 ```
 
 ---
