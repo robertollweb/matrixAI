@@ -2356,6 +2356,7 @@ def _run_playground_dense_training(
           f"MATRIXAI_TRAIN_BACKEND={os.environ.get('MATRIXAI_TRAIN_BACKEND','auto')}, "
           f"torch_available={_ta}, cuda_available={_tcuda}")
     if use_torch:
+        from matrixai.training.dense_torch_trainer import UltimaEpocaNoFinita  # noqa: PLC0415
         try:
             return _dense_torch_train_result(mxai_text, training, spec, csv_text,
                                              device, seed, epoch_callback, cancel_check,
@@ -2366,6 +2367,10 @@ def _run_playground_dense_training(
                                              restaurar_el_mejor=restaurar_el_mejor)
         except _TrainingCancelled:
             raise
+        except UltimaEpocaNoFinita as exc:
+            # Auditoría de Roberto del 139 (P2-2): una red de épocas fijas que divergió en su última época NO es un fallo de la
+            # GPU: no se cae al entrenador stdlib (otro modelo con el mismo nombre). Se devuelve el fallo con su motivo.
+            return {"ok": False, "error": str(exc), "motivo": dict(exc.motivo)}
         except Exception as exc:  # noqa: BLE001  — never let GPU break training: fall back
             import logging as _log
             _log.getLogger(__name__).warning("torch dense training failed, falling back to stdlib: %s", exc)
@@ -2811,7 +2816,10 @@ def _run_playground_composite_training(
     except _TrainingCancelled:
         raise
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": str(exc)}
+        # Auditoría de Roberto del 139 (P2-2): la última época no finita de una red de épocas fijas lleva su motivo bilingüe.
+        motivo = getattr(exc, "motivo", None)
+        return {"ok": False, "error": str(exc),
+                **({"motivo": dict(motivo)} if isinstance(motivo, dict) and set(motivo) == {"es", "en"} else {})}
 
 
 def _network_is_transformer(mxai_text: str) -> bool:

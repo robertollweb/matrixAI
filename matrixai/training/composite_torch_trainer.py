@@ -22,7 +22,7 @@ from matrixai.forward.composite_torch import (
     composite_network_to_torch_module,
     torch_module_to_composite_parameter_set,
 )
-from matrixai.training.dense_torch_trainer import _loss_on_probabilities, effective_batch_size
+from matrixai.training.dense_torch_trainer import _loss_on_probabilities, effective_batch_size, exigir_ultima_epoca_finita
 
 
 class CompositeTorchTrainError(ValueError):
@@ -316,6 +316,8 @@ def train_composite_network_torch(
         # 139-C4: con épocas FIJAS no se elige la mejor: se entrega la última ejecutada.
         if not restaurar_el_mejor and epoch_trace:
             best_state = _snapshot()
+            # Auditoría de Roberto del 139 (P2-2): la última época se entrega SOLO si es finita (pérdida y pesos).
+            exigir_ultima_epoca_finita(best_state, epoch_trace, torch)
             best_epoch = epoch_trace[-1]["epoch"]
             best_val_loss = epoch_trace[-1]["val_loss"]
 
