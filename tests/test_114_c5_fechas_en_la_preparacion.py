@@ -77,9 +77,13 @@ def test_una_politica_ANTERIOR_sin_fechas_se_sigue_leyendo():
     assert PoliticaDePreparacion.desde_json(payload).derivadas_de_fecha == ()
 
 
-def test_lo_visto_dice_que_la_fecha_NO_se_comprobo_en_vez_de_afirmar_dentro():
+def test_lo_visto_nunca_afirma_dentro_de_una_fecha_fuera_del_periodo():
+    """Reescrita en el 142 (M1) conservando su intención —una fecha que el entrenamiento no vio
+    no sale «dentro»—: antes iba a `sin_rango` con la razón falsa de que el estudio no guardó el
+    rango; ahora se compara con el periodo que sí guarda (`test_142_lo_visto_de_las_fechas.py`)."""
     politica = _politica()
     lo_visto = comprobar_lo_visto({"fecha": "2031-06-15", "x": 3.0}, politica)
-    assert "fecha" in lo_visto.sin_rango and lo_visto.dentro_de_lo_visto is None
+    assert [m.tipo for m in lo_visto.marcas] == ["fecha_fuera_del_periodo"]
+    assert lo_visto.dentro_de_lo_visto is False
     vacia = comprobar_lo_visto({"fecha": "", "x": 3.0}, politica)
     assert [m.tipo for m in vacia.marcas] == ["faltante_nunca_visto"]
