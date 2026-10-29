@@ -879,10 +879,13 @@ def confirmar_desde_csv(
             clase_positiva = mapa[clase_positiva]
         if (etiquetas is not None and tarea == "binary_classification"
                 and (clase_positiva is None or clase_positiva not in etiquetas)):
+            # Deuda N-3 (06-10): la frase decía «cuál de class_0, class_1» con un objetivo 0/1. Se
+            # escribe con lo que trae el CSV, como la pregunta de arriba; `opciones` sigue siendo
+            # las normalizadas (es lo que se manda de vuelta, y se traduce con el mismo mapa).
             preguntas.append(Pregunta(
                 clave="clase_positiva", campo=objetivo, opciones=tuple(etiquetas),
                 motivo=motivo("clase_positiva", campo=repr(objetivo),
-                              opciones=", ".join(etiquetas))))
+                              opciones=", ".join(f"«{v}»" for v in _vistas_en_el_csv(etiquetas, mapa)))))
             clase_positiva = None
 
     # -- el objetivo, en las filas que de verdad entrenan ------------------
