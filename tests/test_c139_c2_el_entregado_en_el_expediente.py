@@ -22,12 +22,15 @@ from matrixai.export.reproduce import ReproduceManifestError, verify_manifest_di
 from matrixai.export.tripod import ficha_tripod
 
 REPARTO = dict(filas=360, filas_de_desarrollo=288, filas_de_prueba_reservada=72)
+# Auditoría de Roberto del 139 (P2-1): una binaria lleva `usos` (para qué sirvió cada mitad), como lo escribe hoy el estudio.
 FUERA = {"metodo": "fuera_de_pliegue", "motivo": None, "pliegues": 2, "filas_fuera_de_pliegue": 288,
-         "filas_para_calibrar": 144, "filas_para_el_umbral": 144}
+         "filas_para_calibrar": 144, "filas_para_el_umbral": 144,
+         "usos": {"para_calibrar": ["recalibracion", "conforme"], "para_el_umbral": ["umbral", "bandas"]}}
 MOTIVO = {"es": "El estudio lee una columna de texto, que no se reentrena por pliegue.",
           "en": "The study reads a text column, which is not retrained per fold."}
 PLIEGUE_0 = {"metodo": "pliegue_0", "motivo": MOTIVO, "pliegues": 1, "filas_fuera_de_pliegue": 0,
-             "filas_para_calibrar": 20, "filas_para_el_umbral": 21}
+             "filas_para_calibrar": 20, "filas_para_el_umbral": 21,
+             "usos": {"para_calibrar": ["recalibracion"], "para_el_umbral": ["umbral", "evaluacion_de_seleccion"]}}
 
 
 def _paquete(tmp_path, **kw):
@@ -48,7 +51,8 @@ def test_el_bloque_study_lleva_motor_cola_y_metodo_y_el_digest_los_cubre():
                          "early_stopping_tail": 28}
     assert e["calibration_and_threshold"] == {
         "method": "fuera_de_pliegue", "folds": 2, "out_of_fold_rows": 288,
-        "rows_for_calibration": 144, "rows_for_threshold": 144}
+        "rows_for_calibration": 144, "rows_for_threshold": 144,
+        "uses": {"calibration_rows": ["recalibration", "conformal"], "threshold_rows": ["threshold", "bands"]}}
     assert "reason" not in e["calibration_and_threshold"]
     assert verify_manifest_digest(m)
     otro = manifiesto_de_estudio(**{**_entregado(), "motor_del_modelo_entregado": "xgboost"})
@@ -92,8 +96,8 @@ def test_la_ficha_dice_motor_cola_y_metodo_en_castellano(tmp_path):
     assert "`reproduce.json#study.delivered_engine`" in ficha
     assert "**Filas de la cola de parada temprana" in ficha and ": 28 ·" in ficha
     assert ("- **Calibración y umbral del modelo entregado**: con predicciones fuera de pliegue (cada fila puntuada por un "
-            "modelo que no la vio); 288 filas de desarrollo en 2 pliegues; 144 para ajustar la recalibración; 144 para "
-            "elegir el umbral y las bandas") in ficha
+            "modelo que no la vio); 288 filas de desarrollo en 2 pliegues; 144 para ajustar la recalibración y calibrar la "
+            "predicción conforme; 144 para elegir el umbral y fijar las bandas de decisión") in ficha
     assert "`reproduce.json#study.calibration_and_threshold`" in ficha
 
 
@@ -101,8 +105,8 @@ def test_la_ficha_en_ingles_no_lleva_castellano(tmp_path):
     ficha = ficha_tripod(_paquete(tmp_path, **_entregado()), locale="en")
     assert "- **Engine of the delivered model**: sklearn.hgb" in ficha
     assert ("- **Calibration and threshold of the delivered model**: with out-of-fold predictions (each row scored by a model "
-            "that had not seen it); 288 development rows across 2 folds; 144 to fit the recalibration; 144 to choose the "
-            "threshold and the bands") in ficha
+            "that had not seen it); 288 development rows across 2 folds; 144 to fit the recalibration and calibrate the "
+            "conformal prediction; 144 to choose the threshold and set the decision bands") in ficha
     assert "Early-stopping tail rows" in ficha
     for es in ("Motor del modelo", "pliegues;", "fuera de pliegue", "parada temprana"):
         assert es not in ficha
@@ -112,7 +116,8 @@ def test_el_pliegue_0_dice_su_motivo_en_el_idioma_pedido(tmp_path):
     paquete = _paquete(tmp_path, **dict(_entregado(), calibracion_y_umbral=PLIEGUE_0))
     es = ficha_tripod(paquete, locale="es")
     en = ficha_tripod(paquete, locale="en")
-    assert "método de antes: con la parte de validación del pliegue 0; 20 para ajustar la recalibración; 21 para elegir" in es
+    assert ("método de antes: con la parte de validación del pliegue 0; 20 para ajustar la recalibración; 21 para elegir "
+            "el umbral y medir al modelo en la selección") in es
     assert f"Motivo: {MOTIVO['es']}" in es and MOTIVO["en"] not in es
     assert "the previous method: with the validation part of fold 0" in en
     assert f"Reason: {MOTIVO['en']}" in en and MOTIVO["es"] not in en

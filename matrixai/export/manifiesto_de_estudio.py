@@ -47,7 +47,10 @@ del 139 no trae nada de esto, y la ficha dice «no disponible»: ni «pliegue 0�
   validación, que calibra, y la posterior, que elige el umbral: `measure` `prevalence` | `target_mean`, las dos cifras, `z`,
   `z_threshold`, las filas de cada mitad y `drift`; NO mide la deriva del desarrollo al futuro) y
   `conformal_without_exchangeability` (`{es, en}`: la cobertura nominal del intervalo conforme no es una garantía sin
-  intercambiabilidad; la que cuenta es la medida en la prueba reservada).
+  intercambiabilidad; la que cuenta es la medida en la prueba reservada). Y `uses` (auditoría de Roberto del 139, P2-1): PARA
+  QUÉ SIRVIÓ cada mitad (`calibration_rows`: `recalibration` | `conformal` | `drift`; `threshold_rows`: `threshold` | `bands` |
+  `champion_guard` | `selection_evaluation` | `drift`), lo que PASÓ: en regresión y multiclase no hay recalibración ni umbral.
+  Un estudio anterior no lo trae, y entonces las cuentas no dicen para qué sirvieron.
 * `study.split` (140-C2, Ola 2: validación por grupos y por tiempo) — CÓMO se repartieron las filas del examen, tal cual lo
   declara el sobre del estudio (`reparto`): `design` (`iid` | `groups` | `temporal`), `unit_column` (la columna que identifica
   al sujeto, solo en `groups`), `time_column` (solo en `temporal`), `gap` (`{magnitude, unit}`: el hueco entre lo que entrena
@@ -63,6 +66,12 @@ del 139 no trae nada de esto, y la ficha dice «no disponible»: ni «pliegue 0�
   `epochs_run_in_selection`, `selection_stopped_by_time_limit` y `selection_time_limit_seconds` (si el plazo cortó la selección, el NÚMERO de épocas
   lo fijó ese reloj), `epochs_run_in_final`, `delivers` (`last_epoch`), `safety_ceiling_seconds` y
   `early_stopping_tail_decides` (`false`: con épocas fijas la cola no decide nada). Lo que el sobre no dijo se omite.
+* `study.delivered_network_training` (auditoría de Roberto del 139, P3-5) — CÓMO TERMINÓ EL ENTRENAMIENTO de la red ENTREGADA,
+  tal como lo declaró su motor (`entrenamiento_del_entregado` del sobre): `stopped_by_time_limit`, `epochs_run`,
+  `completed_epochs`, `best_epoch` (la época que se entrega), `last_epoch_partial`,
+  `time_limit_before_first_complete_epoch` y `time_limit_seconds`. Va con toda red entregada; la ficha lo lee cuando no hay
+  `network_training` (una red que cayó al pliegue 0: su ajuste de selección, con su parada temprana y su plazo, ES el
+  entregado, y el expediente callaba si ese plazo la cortó). Un árbol no lo trae; lo que el motor no declaró se omite.
 
 El `manifest_sha256` cubre el bloque entero, como el resto del manifiesto: cambiar el método o el motor cambia el digest.
 
@@ -163,6 +172,46 @@ def _entrenamiento_de_la_red(declarado: Mapping[str, Any]) -> dict[str, Any]:
             if valor not in _LO_QUE_SE_ENTREGA:
                 raise ReproduceManifestError(f"{nombre} must be one of {tuple(_LO_QUE_SE_ENTREGA)}, got {valor!r}")
             valor = _LO_QUE_SE_ENTREGA[valor]
+        bloque[clave] = valor
+    return bloque
+
+
+#: `entrenamiento_del_entregado` del sobre (clave del Studio: `estudio_job._entrenamiento_declarado`) →
+#: `study.delivered_network_training` (clave inglesa), con su tipo. Lo demás que declara (dispositivo, caída a CPU) no va.
+_ENTRENAMIENTO_DEL_ENTREGADO: tuple[tuple[str, str, str], ...] = (
+    ("parado_por_plazo", "stopped_by_time_limit", "booleano"),
+    ("epocas_ejecutadas", "epochs_run", "entero"),
+    ("epocas_completas", "completed_epochs", "entero"),
+    ("mejor_epoca", "best_epoch", "entero"),
+    ("ultima_epoca_parcial", "last_epoch_partial", "booleano"),
+    ("plazo_antes_de_la_primera_epoca_completa", "time_limit_before_first_complete_epoch", "booleano"),
+    ("plazo_de_entrenamiento_segundos", "time_limit_seconds", "segundos"),
+)
+
+
+def _entrenamiento_del_entregado(declarado: Mapping[str, Any]) -> dict[str, Any]:
+    """El bloque `study.delivered_network_training` (auditoría de Roberto del 139, P3-5), validado y SIN rellenar lo que el
+    motor no declaró (`None` = no consta: se omite). `parado_por_plazo` es obligatorio: sin él no se sabe cómo terminó."""
+    if not isinstance(declarado, Mapping):
+        raise ReproduceManifestError(f"entrenamiento_del_entregado must be an object, got {declarado!r}")
+    if not isinstance(declarado.get("parado_por_plazo"), bool):
+        raise ReproduceManifestError(
+            "entrenamiento_del_entregado.parado_por_plazo must be a boolean, got "
+            f"{declarado.get('parado_por_plazo')!r}: without it nothing says how the training ended")
+    bloque: dict[str, Any] = {}
+    for clave_del_sobre, clave, tipo in _ENTRENAMIENTO_DEL_ENTREGADO:
+        valor = declarado.get(clave_del_sobre)
+        if valor is None:
+            continue
+        nombre = f"entrenamiento_del_entregado.{clave_del_sobre}"
+        if tipo == "entero" and (type(valor) is not int or valor < 0):
+            raise ReproduceManifestError(f"{nombre} must be a non-negative integer, got {valor!r}")
+        if tipo == "booleano" and not isinstance(valor, bool):
+            raise ReproduceManifestError(f"{nombre} must be a boolean, got {valor!r}")
+        if tipo == "segundos":
+            if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not valor > 0:
+                raise ReproduceManifestError(f"{nombre} must be a positive number of seconds, got {valor!r}")
+            valor = float(valor)
         bloque[clave] = valor
     return bloque
 
@@ -339,7 +388,37 @@ def _calibracion_y_umbral(declarada: Mapping[str, Any]) -> dict[str, Any]:
     deriva = declarada.get("deriva")
     if deriva is not None:
         bloque["drift_between_halves"] = _deriva_entre_las_mitades(deriva)
+    usos = declarada.get("usos")
+    if usos is not None:
+        bloque["uses"] = _usos_de_las_mitades(usos)
     return bloque
+
+
+#: Auditoría de Roberto del 139 (P2-1) — PARA QUÉ SIRVIÓ cada mitad (`calibracion_y_umbral.usos` del sobre del Studio, su
+#: vocabulario cerrado `estudio_job.USOS_DE_LA_MITAD_*`) → `study.calibration_and_threshold.uses`, en inglés. Las cuentas
+#: `rows_for_calibration` / `rows_for_threshold` son las de las dos mitades; esto dice qué se hizo con cada una (en regresión y
+#: multiclase no hay recalibración ni umbral). Una lista vacía es «no sirvió para nada en este estudio».
+_USOS_DE_LAS_MITADES: dict[str, tuple[str, dict[str, str]]] = {
+    "para_calibrar": ("calibration_rows", {"recalibracion": "recalibration", "conforme": "conformal", "deriva": "drift"}),
+    "para_el_umbral": ("threshold_rows", {"umbral": "threshold", "bandas": "bands", "guarda_del_campeon": "champion_guard",
+                                          "evaluacion_de_seleccion": "selection_evaluation", "deriva": "drift"}),
+}
+
+
+def _usos_de_las_mitades(usos: Mapping[str, Any]) -> dict[str, list[str]]:
+    """`{calibration_rows: [...], threshold_rows: [...]}`, validado: las dos mitades, y cada uso del vocabulario cerrado."""
+    if not isinstance(usos, Mapping) or set(usos) != set(_USOS_DE_LAS_MITADES):
+        raise ReproduceManifestError(
+            f"calibracion_y_umbral.usos must be an object with exactly {sorted(_USOS_DE_LAS_MITADES)}, got {usos!r}")
+    salida: dict[str, list[str]] = {}
+    for mitad, (clave, vocabulario) in _USOS_DE_LAS_MITADES.items():
+        lista = usos[mitad]
+        if not isinstance(lista, (list, tuple)) or any(u not in vocabulario for u in lista) or len(set(lista)) != len(lista):
+            raise ReproduceManifestError(
+                f"calibracion_y_umbral.usos.{mitad} must be a list of distinct values from {sorted(vocabulario)}, "
+                f"got {lista!r}")
+        salida[clave] = [vocabulario[u] for u in lista]
+    return salida
 
 
 #: `calibracion_y_umbral.deriva` del sobre (clave del Studio) → `study.calibration_and_threshold.drift_between_halves`.
@@ -428,6 +507,7 @@ def manifiesto_de_estudio(
     modo: str | None = None,
     motores_fuera_por_el_modo: Sequence[str] | None = None,
     reparto_del_estudio: Mapping[str, Any] | None = None,
+    entrenamiento_del_entregado: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """El manifiesto de un estudio, con SOLO lo que el estudio sabe.
 
@@ -455,7 +535,7 @@ def manifiesto_de_estudio(
       (no entrenan; con una red de épocas fijas tampoco deciden nada). Con `filas_que_entrenaron_el_modelo` no pueden pasar de las de desarrollo.
     * `motor_del_modelo_entregado` (139-C2): el motor del modelo entregado (`candidate_engine` de la selección).
     * `calibracion_y_umbral` (139-C2): `{metodo, motivo?, pliegues?, filas_fuera_de_pliegue?, filas_para_calibrar?,
-      filas_para_el_umbral?, entrenamiento_de_la_red?}` tal cual lo declara el sobre del estudio; `metodo` en
+      filas_para_el_umbral?, entrenamiento_de_la_red?, usos?}` tal cual lo declara el sobre del estudio; `metodo` en
       `METODOS_DE_CALIBRACION`. Con `entrenamiento_de_la_red` (139-C4, una red reentrenada con épocas fijas) el manifiesto
       lleva además `study.network_training`.
     * `modo`: `rapido` o `completo` (`MODOS_DE_ESTUDIO`), el modo con que corrió.
@@ -463,6 +543,9 @@ def manifiesto_de_estudio(
     * `reparto_del_estudio` (140-C2): `{diseno, unit_id_field, time_column, gap: {magnitud, unidad}, gap_origen,
       cobertura_fuera_de_pliegue: {filas_de_desarrollo, filas_sin_validacion}, limites: [{clave, motivo: {es, en}, medida}]}`
       tal cual lo declara el sobre del estudio (`reparto`); `diseno` en `DISENOS_DEL_REPARTO`. Va en `study.split`.
+    * `entrenamiento_del_entregado` (auditoría de Roberto del 139, P3-5): cómo terminó el entrenamiento de la red ENTREGADA, tal
+      cual lo declara el sobre (`{parado_por_plazo, epocas_ejecutadas?, epocas_completas?, mejor_epoca?, ultima_epoca_parcial?,
+      plazo_antes_de_la_primera_epoca_completa?, plazo_de_entrenamiento_segundos?}`). Va en `study.delivered_network_training`.
     """
     if filas is not None:
         _require_positive_int(filas, "filas")
@@ -544,6 +627,8 @@ def manifiesto_de_estudio(
         estudio["calibration_and_threshold"] = _calibracion_y_umbral(calibracion_y_umbral)
         if calibracion_y_umbral.get("entrenamiento_de_la_red") is not None:
             estudio["network_training"] = _entrenamiento_de_la_red(calibracion_y_umbral["entrenamiento_de_la_red"])
+    if entrenamiento_del_entregado is not None:
+        estudio["delivered_network_training"] = _entrenamiento_del_entregado(entrenamiento_del_entregado)
 
     dataset: dict[str, Any] | None = None
     if filas is not None or huella_del_dataset is not None:

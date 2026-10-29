@@ -351,12 +351,23 @@ class ExpedienteClinico:
                 # estudio lo dijo (un árbol no tiene épocas: «falta» sería un hueco inventado).
                 if self.entrenamiento_de_la_red is not None:
                     lineas.append(ENTRENAMIENTO_DE_LA_RED)
+                elif self.entrenamiento_del_entregado is not None:
+                    # Auditoría de Roberto del 139 (P3-5): una red que cayó al pliegue 0 (su ajuste de selección ES el
+                    # entregado) dice cómo terminó su entrenamiento, también si su plazo la cortó.
+                    lineas.append(ENTRENAMIENTO_DEL_ENTREGADO)
         return tuple(lineas)
 
     @property
     def entrenamiento_de_la_red(self) -> dict[str, Any] | None:
         """`study.network_training` del manifiesto (139-C4: una red reentrenada con épocas fijas), o `None`."""
         bloque = ((self._contenido.get("reproduce.json") or {}).get("study") or {}).get("network_training")
+        return bloque if isinstance(bloque, dict) else None
+
+    @property
+    def entrenamiento_del_entregado(self) -> dict[str, Any] | None:
+        """`study.delivered_network_training` del manifiesto (auditoría de Roberto del 139, P3-5: cómo terminó el entrenamiento
+        de la red entregada, tal como lo declaró su motor), o `None`."""
+        bloque = ((self._contenido.get("reproduce.json") or {}).get("study") or {}).get("delivered_network_training")
         return bloque if isinstance(bloque, dict) else None
 
     @property
@@ -853,6 +864,16 @@ ENTRENAMIENTO_DE_LA_RED = _e(
     "the study did not record how many epochs the delivered network was trained for",
     "entrenamiento_de_la_red")
 
+#: CÓMO TERMINÓ EL ENTRENAMIENTO DE LA RED ENTREGADA (auditoría de Roberto del 139, P3-5), cuando no se reentrenó con épocas
+#: fijas (cayó al pliegue 0): el mismo rótulo que `ENTRENAMIENTO_DE_LA_RED` —es la misma pregunta, «con cuántas épocas»—, de
+#: otro bloque. Solo en el inventario si el estudio lo dijo y no hay `network_training`.
+ENTRENAMIENTO_DEL_ENTREGADO = _e(
+    "entrenamiento_del_entregado", "analisis", "reproduce.json#study.delivered_network_training",
+    "Épocas de la red entregada", "Epochs of the delivered network",
+    "el estudio no registró cómo terminó el entrenamiento de la red entregada",
+    "the study did not record how the delivered network's training ended",
+    "entrenamiento_del_entregado")
+
 #: QUÉ MOTOR ES EL MODELO ENTREGADO (139-C2; la deuda del 138: el expediente no lo decía). Va SIEMPRE en un estudio: un
 #: estudio que no lo registró dice «no disponible», que es un hueco real.
 MOTOR_ENTREGADO = _e(
@@ -909,6 +930,28 @@ def _cuenta(valor: Any) -> int | None:
     return valor if type(valor) is int and valor >= 0 else None
 
 
+#: Auditoría de Roberto del 139 (P2-1): qué hace cada uso de `study.calibration_and_threshold.uses` (vocabulario del manifiesto).
+_LO_QUE_HACE_UN_USO: dict[str, tuple[str, str]] = {
+    "recalibration": ("ajustar la recalibración", "fit the recalibration"),
+    "conformal": ("calibrar la predicción conforme", "calibrate the conformal prediction"),
+    "threshold": ("elegir el umbral", "choose the threshold"),
+    "bands": ("fijar las bandas de decisión", "set the decision bands"),
+    "champion_guard": ("comparar al ganador con la referencia", "compare the winner with the reference"),
+    "selection_evaluation": ("medir al modelo en la selección", "measure the model in the selection"),
+    "drift": ("medir la deriva entre las dos mitades", "measure the drift between the two halves"),
+}
+
+
+def _texto_de_una_mitad(cuenta: int, usos: Any, es: bool) -> str:
+    """«N para X, Y y Z», o «N que no se usaron para nada» si la lista está vacía. Un uso fuera del vocabulario, tal cual."""
+    hechos = [(_LO_QUE_HACE_UN_USO.get(u) or (str(u), str(u)))[0 if es else 1] for u in (usos or [])]
+    if not hechos:
+        return f"{cuenta} que no se usaron para nada" if es else f"{cuenta} that were not used for anything"
+    y = " y " if es else " and "
+    lista = hechos[0] if len(hechos) == 1 else ", ".join(hechos[:-1]) + y + hechos[-1]
+    return f"{cuenta} para {lista}" if es else f"{cuenta} to {lista}"
+
+
 def _texto_de_la_calibracion(bloque: dict[str, Any], idioma: str) -> str:
     """139-C2 — cómo se calibró el modelo entregado y se eligió su umbral, escrito en el idioma pedido.
 
@@ -934,12 +977,30 @@ def _texto_de_la_calibracion(bloque: dict[str, Any], idioma: str) -> str:
                       else "the previous method: with the validation part of fold 0")
     else:
         partes.append(str(metodo))
-    if para_calibrar is not None:
-        partes.append(f"{para_calibrar} para ajustar la recalibración" if es
-                      else f"{para_calibrar} to fit the recalibration")
-    if para_umbral is not None:
-        partes.append(f"{para_umbral} para elegir el umbral y las bandas" if es
-                      else f"{para_umbral} to choose the threshold and the bands")
+    # Auditoría de Roberto del 139 (P2-1): las cuentas de las dos mitades, con PARA QUÉ SIRVIÓ cada una (`uses`, lo que pasó).
+    # Antes se escribía «para ajustar la recalibración» y «para elegir el umbral y las bandas» siempre, también en una regresión
+    # que no tiene ni una cosa ni otra. Sin `uses` (un estudio anterior), las cuentas sin afirmar para qué sirvieron.
+    usos = bloque.get("uses")
+    if isinstance(usos, dict):
+        recalibra = "recalibration" in (usos.get("calibration_rows") or [])
+        hay_umbral = "threshold" in (usos.get("threshold_rows") or [])
+        if not recalibra and not hay_umbral:
+            partes.insert(0, "sin recalibración ni umbral" if es else "no recalibration and no threshold")
+        elif not recalibra:
+            partes.insert(0, "sin recalibración" if es else "no recalibration")
+        elif not hay_umbral:
+            partes.insert(0, "sin umbral" if es else "no threshold")
+        for cuenta, mitad in ((para_calibrar, "calibration_rows"), (para_umbral, "threshold_rows")):
+            if cuenta is not None:
+                partes.append(_texto_de_una_mitad(cuenta, usos.get(mitad), es))
+    elif para_calibrar is not None and para_umbral is not None:
+        partes.append(f"dos mitades de {para_calibrar} y {para_umbral} filas (el estudio no registró para qué sirvió cada una)"
+                      if es else f"two halves of {para_calibrar} and {para_umbral} rows (the study did not record what each "
+                      "was used for)")
+    elif para_calibrar is not None or para_umbral is not None:
+        cuenta = para_calibrar if para_calibrar is not None else para_umbral
+        partes.append(f"una mitad de {cuenta} filas (el estudio no registró para qué sirvió)" if es
+                      else f"one half of {cuenta} rows (the study did not record what it was used for)")
     texto = "; ".join(partes)
     motivo = bloque.get("reason")
     if isinstance(motivo, dict):
@@ -1125,6 +1186,40 @@ def _texto_del_entrenamiento_de_la_red(bloque: dict[str, Any], idioma: str) -> s
     return "; ".join(partes)
 
 
+def _texto_del_entrenamiento_del_entregado(bloque: dict[str, Any], idioma: str) -> str:
+    """Auditoría de Roberto del 139 (P3-5) — cómo terminó el entrenamiento de la red ENTREGADA cuando no se reentrenó con
+    épocas fijas (cayó al pliegue 0), en el idioma pedido. Solo lo que el bloque trae; «lo cortó su tope de tiempo» solo con un
+    `true` del motor, y «la época entregada quedó a medias» solo si la entregada pasa de las completas."""
+    es = idioma == "es"
+    ejecutadas = _cuenta(bloque.get("epochs_run"))
+    completas = _cuenta(bloque.get("completed_epochs"))
+    entregada = _cuenta(bloque.get("best_epoch"))
+    partes: list[str] = []
+    if entregada is not None:
+        partes.append(f"se entrega su época {entregada}" if es else f"its epoch {entregada} is delivered")
+    if ejecutadas is not None and completas is not None:
+        partes.append(f"de {ejecutadas} ejecutadas, {completas} completas" if es
+                      else f"out of {ejecutadas} run, {completas} completed")
+    elif ejecutadas is not None:
+        partes.append(f"de {ejecutadas} ejecutadas" if es else f"out of {ejecutadas} run")
+    if bloque.get("stopped_by_time_limit") is True:
+        plazo = _segundos(bloque.get("time_limit_seconds"), idioma)
+        de = (f" (unos {plazo} s)" if es else f" (about {plazo} s)") if plazo is not None else ""
+        partes.append(f"su entrenamiento lo cortó su tope de tiempo{de}: el número de épocas lo fijó ese reloj" if es
+                      else f"its training was cut short by its time limit{de}: the number of epochs was set by that clock")
+        if bloque.get("time_limit_before_first_complete_epoch") is True:
+            partes.append("el plazo llegó antes de completar ninguna época: no vio todos los datos ni una vez" if es
+                          else "the time limit came before any epoch was completed: it did not see all the data even once")
+        elif bloque.get("last_epoch_partial") is True:
+            partes.append("la última época quedó a medias" if es else "the last epoch was left half done")
+        if entregada is not None and completas is not None and entregada > completas:
+            partes.append("y la época entregada es esa, la que quedó a medias" if es
+                          else "and the delivered epoch is that one, the half-done one")
+    elif bloque.get("stopped_by_time_limit") is False:
+        partes.append("no lo cortó su tope de tiempo" if es else "it was not cut short by its time limit")
+    return "; ".join(partes)
+
+
 def _si_no(valor: Any, locale: str) -> str:
     if locale == "es":
         return "sí" if valor else "no"
@@ -1169,6 +1264,8 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
         return _texto_del_reparto(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "entrenamiento_de_la_red" and isinstance(valor, dict):
         return _texto_del_entrenamiento_de_la_red(valor, "es" if locale == "es" else "en")
+    if evidencia.resumen == "entrenamiento_del_entregado" and isinstance(valor, dict):
+        return _texto_del_entrenamiento_del_entregado(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "modo" and isinstance(valor, str):
         return _NOMBRE_DEL_MODO["es" if locale == "es" else "en"].get(valor, valor)
     if evidencia.resumen == "booleano":

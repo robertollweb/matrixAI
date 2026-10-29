@@ -62,6 +62,46 @@ class DenseTorchTrainError(ValueError):
     pass
 
 
+#: Auditoría de Roberto del 139 (P2-2): el prefijo ESTABLE del mensaje de `UltimaEpocaNoFinita`. Quien recibe el fallo como
+#: texto (`run_playground_training` → `{"ok": False, "error": …}` → el motor lo envuelve) lo reconoce por aquí, no por la frase.
+CLAVE_ULTIMA_EPOCA_NO_FINITA = "ultima_epoca_no_finita"
+
+
+class UltimaEpocaNoFinita(DenseTorchTrainError):
+    """Auditoría de Roberto del 139 (P2-2): con épocas FIJAS (`restaurar_el_mejor=False`) se entrega la ÚLTIMA época, y si esa
+    época dejó una pérdida de validación o unos pesos no finitos (la red divergió) no hay nada que entregar: se falla con su
+    motivo. Antes se entregaban los pesos NaN sin ningún fallo (reproducido: 2 filas, 5 épocas, `lr = 1e10`).
+
+    NO es un fallo «de la GPU» que justifique caer al entrenador stdlib: `run_playground_training` la devuelve como
+    `{"ok": False, …}` con su `motivo` bilingüe, sin reintentar por otro camino (con épocas fijas, otro entrenador sería otro
+    modelo con el mismo nombre)."""
+
+    def __init__(self, *, epoca: int, val_loss: float, pesos_finitos: bool) -> None:
+        que_es = ("una pérdida de validación no finita" if not math.isfinite(val_loss) else "") + (
+            (" y " if not math.isfinite(val_loss) else "") + "pesos no finitos" if not pesos_finitos else "")
+        que_en = ("a non-finite validation loss" if not math.isfinite(val_loss) else "") + (
+            (" and " if not math.isfinite(val_loss) else "") + "non-finite weights" if not pesos_finitos else "")
+        self.epoca = epoca
+        self.val_loss = val_loss
+        self.pesos_finitos = pesos_finitos
+        self.motivo = {
+            "es": (f"con épocas fijas se entrega la última, y la última ejecutada (la {epoca}) dejó {que_es} "
+                   f"(val_loss = {val_loss!r}): la red divergió y no se entrega"),
+            "en": (f"with fixed epochs the last one is delivered, and the last one run (epoch {epoca}) left {que_en} "
+                   f"(val_loss = {val_loss!r}): the network diverged and is not delivered")}
+        super().__init__(f"{CLAVE_ULTIMA_EPOCA_NO_FINITA}: {self.motivo['en']}")
+
+
+def exigir_ultima_epoca_finita(estado: list[Any], epoch_trace: list[dict[str, Any]], torch: Any) -> None:
+    """Auditoría de Roberto del 139 (P2-2). Con épocas fijas, la última época (la que se entrega) tiene que tener pérdida de
+    validación y pesos FINITOS; si no, `UltimaEpocaNoFinita`. Lo comparten la red densa y la compuesta."""
+    ultima = epoch_trace[-1]
+    val_loss = float(ultima["val_loss"])
+    pesos_finitos = all(bool(torch.isfinite(t).all()) for t in estado)
+    if not math.isfinite(val_loss) or not pesos_finitos:
+        raise UltimaEpocaNoFinita(epoca=int(ultima["epoch"]), val_loss=val_loss, pesos_finitos=pesos_finitos)
+
+
 def _loss_on_probabilities(out: Any, target: Any, loss_fn: str, torch: Any) -> Any:
     """Loss over the network's probability output — matches stdlib compute_loss."""
     if loss_fn == "mse":
@@ -484,6 +524,8 @@ def train_dense_network_torch(
         # 139-C4: con épocas FIJAS no se elige la mejor: se entrega la última ejecutada.
         if not restaurar_el_mejor and epoch_trace:
             best_state = _snapshot()
+            # Auditoría de Roberto del 139 (P2-2): la última época se entrega SOLO si es finita (pérdida y pesos).
+            exigir_ultima_epoca_finita(best_state, epoch_trace, torch)
             best_epoch = epoch_trace[-1]["epoch"]
             best_val_loss = epoch_trace[-1]["val_loss"]
 

@@ -34,6 +34,7 @@ from matrixai.export.expediente_clinico import (
     CALIBRACION_Y_UMBRAL,
     DOMINIOS,
     ENTRENAMIENTO_DE_LA_RED,
+    ENTRENAMIENTO_DEL_ENTREGADO,
     FILAS_DEL_ESTUDIO,
     REPARTO_POR_DISENO,
     FUENTE_EN_ESTUDIO,
@@ -361,6 +362,15 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
         filas.append(_linea(ENTRENAMIENTO_DE_LA_RED.rotulo[idioma],
                             texto_del_valor(ENTRENAMIENTO_DE_LA_RED, campo, idioma) if campo.hay_dato else None,
                             t["sin_dato"], ENTRENAMIENTO_DE_LA_RED.motivo_si_falta[idioma], ENTRENAMIENTO_DE_LA_RED.ruta))
+    elif expediente.es_de_estudio and expediente.entrenamiento_del_entregado is not None:
+        # Auditoría de Roberto del 139 (P3-5): una red que cayó al pliegue 0 no trae `network_training` (no se reentrenó con
+        # épocas fijas), y la línea decía «no disponible» sin una palabra del plazo que pudo cortarla. Se escribe cómo terminó
+        # el entrenamiento de la red ENTREGADA (`study.delivered_network_training`), con el rótulo y la ruta del inventario.
+        campo = expediente.campo(ENTRENAMIENTO_DEL_ENTREGADO.ruta)
+        filas.append(_linea(ENTRENAMIENTO_DEL_ENTREGADO.rotulo[idioma],
+                            texto_del_valor(ENTRENAMIENTO_DEL_ENTREGADO, campo, idioma) if campo.hay_dato else None,
+                            t["sin_dato"], ENTRENAMIENTO_DEL_ENTREGADO.motivo_si_falta[idioma],
+                            ENTRENAMIENTO_DEL_ENTREGADO.ruta))
     else:
         filas.append(_linea(
             t["epocas"],
