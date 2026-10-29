@@ -61,6 +61,20 @@ from matrixai.training.fechas import (RecetaDeFecha, detectar_fechas, expandir_f
 from matrixai.training.diagnostico import Limite
 from matrixai.training.preparacion_textos import motivo
 
+
+class ValorNoNumerico(ValueError):
+    """Una celda de una columna NUMÉRICA que no se puede leer como número («sesenta», «1.234,5»), al
+    transformar UNA fila de uso. Es un `ValueError` (quien ya lo recogía así sigue recogiéndolo) con lo que
+    hace falta para decírselo a la persona: la columna, lo que escribió y el motivo en los dos idiomas.
+    Antes subía como `ValueError: could not convert string to float` y el Studio contestaba un 500 que la
+    pantalla enseñaba como «la conexión con el servidor falló» (visto por dos auditorías del 142, 29-10)."""
+
+    def __init__(self, columna: str, valor: object):
+        self.columna = columna
+        self.valor = str(valor)
+        self.motivo = motivo("valor_no_numerico", campo=columna, valor=self.valor)
+        super().__init__(self.motivo["es"])
+
 __all__ = [
     "CATEGORIA_DESCONOCIDA", "CATEGORIA_FALTANTE", "MINIMO_FILAS_SIN_AVISO",
     "SUFIJO_FALTANTE", "UMBRAL_AVISO_FALTANTES", "PoliticaDePreparacion",
@@ -440,6 +454,16 @@ def ajustar_preparacion(filas: Sequence[Mapping[str, Any]], *, objetivo: str,
         derivadas_de_fecha=tuple(derivadas))
 
 
+def _numero_de_la_celda(columna: str, valor: object) -> float:
+    """`float(valor)`, o `ValorNoNumerico` con la columna y lo escrito. La coma decimal NO se acepta aquí:
+    esta función ve lo que manda el formulario, que ya la convierte; aceptarla también aquí sería una
+    segunda regla de lectura de números distinta de la del entrenamiento."""
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        raise ValorNoNumerico(columna, valor) from None
+
+
 def transformar_fila(fila: Mapping[str, Any], politica: PoliticaDePreparacion) -> dict[str, Any]:
     """Solo TRANSFORM — nunca reajusta ninguna estadística con esta fila,
     sea de test o de inferencia. Aplica `politica` tal como quedó ajustada."""
@@ -462,7 +486,7 @@ def transformar_fila(fila: Mapping[str, Any], politica: PoliticaDePreparacion) -
             if faltante:
                 resultado[propuesta.columna] = None if propuesta.admite_nativo else propuesta.mediana
             else:
-                resultado[propuesta.columna] = float(valor)
+                resultado[propuesta.columna] = _numero_de_la_celda(propuesta.columna, valor)
             resultado[nombre_de_indicador(propuesta.columna)] = 1.0 if faltante else 0.0
         else:
             if _es_faltante(valor):

@@ -21,6 +21,12 @@ __all__ = ["IDIOMAS", "MOTIVOS", "huecos_de", "motivo"]
 IDIOMAS = ("es", "en")
 
 MOTIVOS: dict[str, dict[str, str]] = {
+    "valor_no_numerico": {
+        "es": "«{campo}» es una columna numérica y «{valor}» no se puede leer como número: escribe solo el "
+              "número, sin separador de miles (por ejemplo 70,5 o -3,5)",
+        "en": "“{campo}” is a numeric column and “{valor}” cannot be read as a number: write only the number, "
+              "with no thousands separator (for example 70.5 or -3.5)",
+    },
     "faltantes_por_encima_del_umbral": {
         "es": "{campo} tiene {valor} de valores faltantes en train: por encima "
               "de la mitad de la columna, cualquier imputación —mediana, "
