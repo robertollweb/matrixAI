@@ -176,3 +176,18 @@ def test_sin_preparacion_en_el_paquete_sigue_el_motivo_de_siempre(tmp_path):
     ficha = ficha_tripod(paquetes["estudio"], locale="es")
     assert ("**Datos ausentes**: este paquete no declara ninguna política de valores ausentes, así que no "
             "se puede afirmar qué se hizo con ellos") in ficha
+
+
+@pytest.mark.parametrize("locale", ["es", "en"])
+def test_ningun_documento_del_expediente_lleva_la_ruta_del_equipo(tmp_path, locale):
+    """29-10 (inventario del 143): el mapa PROBAST llevaba `"paquete": "/home/…/paquete-inference"` — la ruta ENTERA del
+    equipo, en un fichero que se entrega. Se busca la raíz de los paquetes (`tmp_path`) en los tres documentos de cada
+    paquete; el mapa nombra el paquete solo por su carpeta."""
+    raiz = str(tmp_path)
+    for nombre, paquete in _paquetes(tmp_path).items():
+        mapa = mapa_probast(paquete, locale=locale)
+        for quien, texto in (("ficha", ficha_tripod(paquete, locale=locale)),
+                             ("huecos", huecos_probast(paquete, locale=locale)),
+                             ("mapa", json.dumps(mapa, ensure_ascii=False))):
+            assert raiz not in texto, (nombre, quien, locale)
+        assert mapa["paquete"] == Path(paquete).name, (nombre, mapa["paquete"])

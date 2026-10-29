@@ -296,7 +296,9 @@ def mapa_probast(bundle_dir: str | Path, *, locale: str = "en") -> dict[str, Any
     a = _analizar(bundle_dir, idioma)
     return {
         "schema": "matrixai.export.probast",
-        "paquete": str(a["expediente"].bundle),
+        # Solo el NOMBRE de la carpeta del paquete: la ruta entera (`/home/…/paquete-inference`) salía del equipo en un fichero
+        # que se entrega (visto el 29-10 por el inventario del 143). Nadie lee este campo para abrir nada.
+        "paquete": Path(a["expediente"].bundle).name,
         "instrumento": {
             "presente": a["instrumento"] is not None,
             "motivo": a["motivo"], "modo": a["modo"],
