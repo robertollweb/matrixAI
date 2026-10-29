@@ -97,13 +97,54 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "la decisión usa las probabilidades del modelo tal cual, y no hay un «antes» que comparar",
         "en": "the recalibration fit did not settle on the calibration rows, so it is not used; the decision uses the model's probabilities as they come, and there is no \"before\" to compare",
     },
+    # 141 (reauditoría I1): lo MEDIDO — la pendiente (`valor`) y el AUROC del modelo en las filas de calibración
+    # (`opciones`). «Ordena al revés» solo en la variante `_al_reves`, que el núcleo elige cuando ese AUROC es < 0,5.
     "recalibracion_no_ajustada_por_pendiente_negativa": {
-        "es": "en las filas de calibración el modelo ordena al revés (puntúa más alto a la clase que no es), así que no se "
-              "recalibra: darle la vuelta escondería que ahí predice peor que el azar; la decisión usa las probabilidades del "
-              "modelo tal cual, y no hay un «antes» que comparar",
-        "en": "on the calibration rows the model ranks the wrong way round (it scores the other class higher), so it is not "
-              "recalibrated: turning it round would hide that it predicts worse than chance there; the decision uses the "
-              "model's probabilities as they come, and there is no \"before\" to compare",
+        "es": "la recalibración ajustada en las filas de calibración sale con pendiente negativa (b = {valor}): aplicarla "
+              "invertiría el orden de las probabilidades, así que no se usa. En esas filas el AUROC del modelo es "
+              "{opciones}: en conjunto no ordena al revés. La decisión usa las probabilidades del modelo tal cual, y no "
+              "hay un «antes» que comparar",
+        "en": "the recalibration fitted on the calibration rows comes out with a negative slope (b = {valor}): applying "
+              "it would invert the order of the probabilities, so it is not used. On those rows the model's AUROC is "
+              "{opciones}: overall it does not rank the wrong way round. The decision uses the model's probabilities as "
+              "they come, and there is no \"before\" to compare",
+    },
+    "recalibracion_no_ajustada_por_pendiente_negativa_al_reves": {
+        "es": "en las filas de calibración el modelo ordena al revés (su AUROC ahí es {opciones}, por debajo del 0,5 del "
+              "azar) y la recalibración sale con pendiente negativa (b = {valor}), así que no se recalibra: darle la "
+              "vuelta escondería esa inversión. La decisión usa las probabilidades del modelo tal cual, y no hay un "
+              "«antes» que comparar",
+        "en": "on the calibration rows the model ranks the wrong way round (its AUROC there is {opciones}, below chance's "
+              "0.5) and the recalibration comes out with a negative slope (b = {valor}), so it is not recalibrated: "
+              "turning it round would hide that inversion. The decision uses the model's probabilities as they come, and "
+              "there is no \"before\" to compare",
+    },
+    "recalibracion_no_ajustada_por_sin_pendiente": {
+        "es": "la recalibración ajustada en las filas de calibración sale sin pendiente (b = {valor}, que el ajuste no "
+              "distingue de cero): le daría la misma probabilidad a todas las filas, así que no se usa; la decisión usa "
+              "las probabilidades del modelo tal cual, y no hay un «antes» que comparar",
+        "en": "the recalibration fitted on the calibration rows comes out with no slope (b = {valor}, which the fit "
+              "cannot tell apart from zero): it would give every row the same probability, so it is not used; the "
+              "decision uses the model's probabilities as they come, and there is no \"before\" to compare",
+    },
+    # 141 (reauditoría M3 y M4): dos causas que caían en la frase genérica o en la de «separación».
+    "recalibracion_no_ajustada_por_puntuacion_constante": {
+        "es": "en las filas de calibración el modelo dio la misma puntuación a todas, así que no se puede ajustar una "
+              "recalibración (con una sola puntuación, la pendiente no se distingue del intercepto); la decisión usa las "
+              "probabilidades del modelo tal cual, y no hay un «antes» que comparar",
+        "en": "on the calibration rows the model gave every row the same score, so no recalibration can be fitted (with a "
+              "single score, the slope cannot be told apart from the intercept); the decision uses the model's "
+              "probabilities as they come, and there is no \"before\" to compare",
+    },
+    "recalibracion_no_ajustada_por_separacion_al_reves": {
+        "es": "en las filas de calibración, las puntuaciones del modelo separan del todo las dos clases, pero al revés: "
+              "ninguna fila de la clase positiva puntúa por encima de las de la otra. El orden está invertido, así que no "
+              "se recalibra (darle la vuelta escondería esa inversión); la decisión usa las probabilidades del modelo tal "
+              "cual, y no hay un «antes» que comparar",
+        "en": "on the calibration rows, the model's scores separate the two classes completely, but the wrong way round: "
+              "no row of the positive class scores above those of the other. The order is inverted, so it is not "
+              "recalibrated (turning it round would hide that inversion); the decision uses the model's probabilities as "
+              "they come, and there is no \"before\" to compare",
     },
     "recalibracion_no_ajustada_por_una_sola_clase": {
         "es": "las filas de calibración tenían una sola de las dos clases, y con una sola no se puede ajustar una "

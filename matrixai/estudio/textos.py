@@ -541,11 +541,32 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "unfitted instead of returning the last step of a Newton run "
               "that never settled",
     },
+    # 141 (reauditoría I1): lo que se dice es lo MEDIDO — la pendiente y el AUROC del modelo en esas filas. «Ordena al
+    # revés» solo con AUROC < 0,5 (`calibracion.aplicar_la_regla_de_la_pendiente`): una pendiente negativa puede salir de
+    # unas pocas filas con probabilidad extrema equivocada en un modelo que ordena bien la mayoría.
     "calibracion_pendiente_negativa": {
-        "es": "{campo} sale con pendiente negativa: en las filas de calibración el modelo ordena al revés (puntúa más "
-              "alto a la clase que no es), y una recalibración así le daría la vuelta en silencio — declarado sin ajustar",
-        "en": "{campo} comes out with a negative slope: on the calibration rows the model ranks the wrong way round (it scores "
-              "the other class higher), and such a recalibration would silently turn it round — declared unfitted",
+        "es": "{campo} sale con pendiente negativa (b = {valor}): aplicarla invertiría el orden de las probabilidades. "
+              "En estas filas el AUROC del modelo es {opciones}, así que en conjunto no ordena al revés; el estudio no "
+              "usa esta recalibración — declarado sin ajustar",
+        "en": "{campo} comes out with a negative slope (b = {valor}): applying it would invert the order of the "
+              "probabilities. On these rows the model's AUROC is {opciones}, so overall it does not rank the wrong way "
+              "round; the study does not use this recalibration — declared unfitted",
+    },
+    "calibracion_pendiente_negativa_al_reves": {
+        "es": "{campo} sale con pendiente negativa (b = {valor}): aplicarla invertiría el orden de las probabilidades. "
+              "En estas filas el modelo ordena al revés (su AUROC es {opciones}, por debajo del 0,5 del azar), y darle la "
+              "vuelta lo escondería; el estudio no usa esta recalibración — declarado sin ajustar",
+        "en": "{campo} comes out with a negative slope (b = {valor}): applying it would invert the order of the "
+              "probabilities. On these rows the model ranks the wrong way round (its AUROC is {opciones}, below chance's "
+              "0.5), and turning it round would hide that; the study does not use this recalibration — declared unfitted",
+    },
+    "calibracion_sin_pendiente": {
+        "es": "{campo} sale sin pendiente (b = {valor}: a menos de {minimo} del cero, lo que el ajuste no distingue de "
+              "cero): le daría la misma probabilidad a todas las filas; el estudio no usa esta recalibración — "
+              "declarado sin ajustar",
+        "en": "{campo} comes out with no slope (b = {valor}: within {minimo} of zero, which the fit cannot tell apart "
+              "from zero): it would give every row the same probability; the study does not use this recalibration — "
+              "declared unfitted",
     },
     "calibracion_separacion_detectada": {
         "es": "{campo} muestra separación {opciones}, comprobada sobre los datos: "

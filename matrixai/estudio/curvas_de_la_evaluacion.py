@@ -48,7 +48,10 @@ from typing import Any, Sequence
 from matrixai.estudio.calibracion import (
     METODOS_DE_BINS,
     CurvaDeFiabilidad,
+    TOLERANCIA_DE_LA_PENDIENTE,
     RecalibracionLogistica,
+    _ROTULO_DE_SEPARACION,
+    _cifra,
     aplicar_recalibracion,
     curva_de_fiabilidad,
 )
@@ -385,17 +388,31 @@ _FRASE_DE_LA_CAUSA = {
     "una_sola_clase": "recalibracion_no_ajustada_por_una_sola_clase",
     "pocas_filas": "recalibracion_no_ajustada_por_pocas_filas",
     "pendiente_negativa": "recalibracion_no_ajustada_por_pendiente_negativa",
+    "pendiente_negativa_al_reves": "recalibracion_no_ajustada_por_pendiente_negativa_al_reves",
+    "sin_pendiente": "recalibracion_no_ajustada_por_sin_pendiente",
+    "puntuacion_constante": "recalibracion_no_ajustada_por_puntuacion_constante",
+    "separacion_al_reves": "recalibracion_no_ajustada_por_separacion_al_reves",
     "desconocida": "recalibracion_no_ajustada",
 }
 
 
 def _causa_de_la_no_ajustada(recalibracion: RecalibracionLogistica) -> str:
-    """Por qué no se ajustó, de lo que el calibrador DECLARA: sus banderas (`separacion_detectada`, `convergio` con iteraciones)
-    y, para las dos causas que no llevan bandera, su motivo comparado con el que el propio calibrador compone para ellas
-    (`calibracion.ajustar_recalibracion_logistica`). Lo que no case con nada es `desconocida`: una frase genérica, nunca una
-    causa supuesta."""
+    """Por qué no se ajustó, de lo que el calibrador DECLARA: sus banderas (`separacion_detectada`, `convergio` con iteraciones),
+    la pendiente que descartó el estudio (`pendiente_descartada`, con el AUROC de esas filas) y, para las causas que no llevan
+    bandera, su motivo comparado con el que el propio calibrador compone para ellas (`calibracion.ajustar_recalibracion_logistica`).
+    Lo que no case con nada es `desconocida`: una frase genérica, nunca una causa supuesta."""
     if recalibracion.separacion_detectada:
-        return "separacion"
+        # 141 (reauditoría M4): la separación AL REVÉS es una inversión, y se dice como tal.
+        al_reves = tuple(_motivo_del_calibrador("calibracion_separacion_detectada", campo="recalibracion_logistica",
+                                                opciones=_ROTULO_DE_SEPARACION[k])
+                         for k in ("completa_al_reves", "cuasi_completa_al_reves"))
+        return "separacion_al_reves" if recalibracion.undefined_reason in al_reves else "separacion"
+    if recalibracion.pendiente_descartada is not None:
+        # 141 (reauditoría I1): la decisión del estudio (`aplicar_la_regla_de_la_pendiente`), con lo que midió.
+        if abs(recalibracion.pendiente_descartada) <= TOLERANCIA_DE_LA_PENDIENTE:
+            return "sin_pendiente"
+        auroc = recalibracion.auroc_de_calibracion
+        return "pendiente_negativa_al_reves" if auroc is not None and auroc < 0.5 else "pendiente_negativa"
     if not recalibracion.convergio and recalibracion.iteraciones > 0:
         return "no_convergio"
     razon = recalibracion.undefined_reason
@@ -403,9 +420,18 @@ def _causa_de_la_no_ajustada(recalibracion: RecalibracionLogistica) -> str:
         return "una_sola_clase"
     if razon == _motivo_del_calibrador("calibracion_datos_insuficientes", campo="recalibracion_logistica"):
         return "pocas_filas"
-    if razon == _motivo_del_calibrador("calibracion_pendiente_negativa", campo="recalibracion_logistica"):
-        return "pendiente_negativa"
+    if razon == _motivo_del_calibrador("calibracion_puntuacion_constante", campo="recalibracion_logistica"):
+        return "puntuacion_constante"
     return "desconocida"
+
+
+def _frase_de_la_no_ajustada(recalibracion: RecalibracionLogistica, causa: str) -> dict[str, str]:
+    """La frase de pantalla de esa causa; las de la pendiente llevan lo medido (la `b` y el AUROC de esas filas)."""
+    if recalibracion.pendiente_descartada is None:
+        return motivo(_FRASE_DE_LA_CAUSA[causa])
+    auroc = recalibracion.auroc_de_calibracion
+    return motivo(_FRASE_DE_LA_CAUSA[causa], valor=_cifra(recalibracion.pendiente_descartada),
+                  opciones=_cifra(auroc) if auroc is not None else "—")
 
 
 def _binaria(muestra: Muestra, salida: dict[str, Any], recalibracion: RecalibracionLogistica | None,
@@ -440,7 +466,7 @@ def _binaria(muestra: Muestra, salida: dict[str, Any], recalibracion: Recalibrac
         causa = _causa_de_la_no_ajustada(recalibracion)
         salida["recalibracion"] = {**_no("recalibracion_no_ajustada"), "aplicada": False,
                                    "metodo": recalibracion.metodo, "causa": causa,
-                                   "motivo": motivo(_FRASE_DE_LA_CAUSA[causa]),
+                                   "motivo": _frase_de_la_no_ajustada(recalibracion, causa),
                                    "detalle": (dict(recalibracion.undefined_reason)
                                                if recalibracion.undefined_reason else None)}
     else:
