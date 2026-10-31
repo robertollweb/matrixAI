@@ -27,6 +27,7 @@ import json
 import re
 from typing import Any
 
+from matrixai.pipelines import firma_asimetrica as _asim
 from matrixai.pipelines.receipt import (
     nivel_del_recibo,
     nivel_si_la_firma_vale,
@@ -41,8 +42,8 @@ _SHA256 = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
 #: Lo que este verificador NUNCA afirma. Viajan en cada respuesta: un
 #: aviso que hay que ir a buscar al manual no avisa.
 _AVISOS = (
-    "Un recibo verificado prueba que estos bytes no han cambiado y que "
-    "quien tenía la clave los firmó. NO prueba que la decisión del "
+    "Un recibo cuya firma es válida prueba que estos bytes no han cambiado y "
+    "que quien tenía la clave los firmó. NO prueba que la decisión del "
     "pipeline sea correcta: la trazabilidad no es corrección conceptual.",
     "Mientras no se decidan las raíces de confianza, una firma válida "
     "demuestra CONSISTENCIA, no autenticidad: nadie ha respaldado que esa "
@@ -174,8 +175,15 @@ def inspeccionar_recibo(sobre: Any) -> dict[str, Any]:
     }
 
 
-def verificar_sobre(sobre: Any, *, clave: bytes | None) -> dict[str, Any]:
-    """Verifica lo que se pueda y **declara lo que no**."""
+def verificar_sobre(sobre: Any, *, clave: bytes | None = None,
+                    clave_publica: Any = None) -> dict[str, Any]:
+    """Verifica lo que se pueda y **declara lo que no**.
+
+    `clave` comprueba la firma HMAC; `clave_publica` (145-C1), la Ed25519. Lo que
+    sale de la Ed25519 va en `signature_ed25519` (`estado` = `valida` /
+    `no_coincide` / `no_se_pudo_comprobar`, D11) y **no cambia el nivel**: el
+    nivel A sale solo de la firma HMAC (D4).
+    """
     verificado: list[str] = []
     sin_verificar: dict[str, str] = {}
     problemas: list[str] = []
@@ -197,6 +205,7 @@ def verificar_sobre(sobre: Any, *, clave: bytes | None) -> dict[str, Any]:
                 "assurance_is_claimed_not_checked": False,
                 "signature_checked": False,
                 "signature_valid": False,
+                "signature_ed25519": None,
                 "fully_checked": False,
                 "unchecked": ["schema", "signature"],
                 "standing_limitation": "key_identity"}
@@ -241,6 +250,22 @@ def verificar_sobre(sobre: Any, *, clave: bytes | None) -> dict[str, Any]:
         else:
             problemas.append(str(resultado.get("reason") or "firma inválida"))
 
+    # LA SEGUNDA FIRMA (145-C1): Ed25519, con la clave PÚBLICA. Aparece en el informe
+    # si se dio la pública o si el sobre la lleva (entonces, sin pública, sale
+    # «no se pudo comprobar»: nunca «válida»).
+    ed25519 = verificar_recibo(sobre, clave_publica=clave_publica)["firmas"].get("ed25519")
+    if ed25519 is not None:
+        if ed25519["estado"] == _asim.VALIDA:
+            verificado.append("signature_ed25519")
+        elif ed25519["estado"] == _asim.NO_COINCIDE:
+            problemas.append(str(ed25519["motivo"]))
+        else:
+            sin_verificar["signature_ed25519"] = str(ed25519["motivo"])
+    firma_ed25519_valida = "signature_ed25519" in verificado
+    # Si SE PIDIÓ comprobar la Ed25519 y no valió (porque el sobre ya no la lleva, o la
+    # clave no se leyó...), no se da por comprobado nada: lo que se pidió no salió.
+    pidio_ed25519_y_no_valio = clave_publica is not None and not firma_ed25519_valida
+
     # La identidad de la clave NO se puede comprobar todavía: las raíces
     # de confianza están sin decidir (§0.1, mitad abierta a propósito).
     sin_verificar["key_identity"] = (
@@ -276,6 +301,9 @@ def verificar_sobre(sobre: Any, *, clave: bytes | None) -> dict[str, Any]:
         # comprobado.
         "signature_checked": firma_comprobada,
         "signature_valid": "signature" in verificado,
+        # La Ed25519, aparte y sin colapsar (`None` si el sobre no la lleva y no se
+        # pidió): `estado`, `motivo` y la `huella` de la clave con la que se comprobó.
+        "signature_ed25519": ed25519,
         # LO QUE NO SE PUDO COMPROBAR Y SÍ SE PODÍA, a la vista. Un
         # informe con esto no vacío no es un aprobado: es un «no lo sé».
         #
@@ -285,8 +313,18 @@ def verificar_sobre(sobre: Any, *, clave: bytes | None) -> dict[str, Any]:
         # permanente y declarada. Metiéndola, `fully_checked` sería
         # siempre falso y el código de salida `0` no se alcanzaría nunca —
         # un código que no puede ocurrir no distingue nada.
-        "fully_checked": "signature" in verificado and not problemas,
-        "unchecked": sorted(k for k in sin_verificar if k != "key_identity"),
+        #
+        # Con dos firmas sobre los MISMOS bytes basta que una valga: quien tiene la
+        # pública no tiene el secreto HMAC (ese es el sentido de la Ed25519), y a
+        # quien tiene el secreto no se le pide una pública para dar por comprobado
+        # lo que ya comprobó. La otra queda en `unverified`, a la vista, pero no en
+        # `unchecked`. Con CUALQUIERA mala, `problems` no está vacío.
+        "fully_checked": (("signature" in verificado or firma_ed25519_valida)
+                          and not problemas and not pidio_ed25519_y_no_valio),
+        "unchecked": sorted(k for k in sin_verificar if k != "key_identity"
+                            and not (k == "signature" and firma_ed25519_valida)
+                            and not (k == "signature_ed25519" and "signature" in verificado
+                                     and clave_publica is None)),
         # Y la limitación permanente, dicha aparte para que no se
         # confunda con un fallo de esta pasada.
         "standing_limitation": "key_identity",

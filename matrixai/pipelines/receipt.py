@@ -3,8 +3,12 @@
 Decisión de Roberto (2026-08-20): **DSSE sobre bytes JSON canonicalizados
 con JCS**.
 
-**Lo que un recibo firmado aquí demuestra hoy es CONSISTENCIA, no
-autenticidad.** La otra mitad de la decisión —quién es de fiar: raíces de
+**Lo que un recibo firmado con HMAC aquí demuestra es CONSISTENCIA, no
+autenticidad.** Desde el 145-C1 el sobre puede llevar además una SEGUNDA firma,
+Ed25519 (`firma_asimetrica.py`, extra `[firma]`): con la clave pública, quien
+recibe el recibo comprueba que lo firmó quien tiene la privada de esa huella,
+sin compartir ningún secreto. Sigue sin haber revocación, y **el nivel A no sube
+por ella** (D4). La otra mitad de la decisión —quién es de fiar: raíces de
 confianza, identidad y rotación de claves, revocación, sellado de tiempo,
 verificación offline— quedó abierta a propósito. Decirlo importa: es la
 misma distinción que el contrato 82 tiene escrita en su §6.7, y sin ella
@@ -30,10 +34,11 @@ import hmac
 import re
 from typing import Any
 
+from matrixai.pipelines import firma_asimetrica as _asim
 from matrixai.pipelines.canonical import jcs_bytes
 
-__all__ = ["NIVELES", "PAYLOAD_TYPE_IN_TOTO", "PREDICATE_TYPE", "ReciboInvalido",
-           "firmar_recibo", "nivel_del_recibo", "nivel_si_la_firma_vale",
+__all__ = ["ALGORITMO_HMAC", "NIVELES", "PAYLOAD_TYPE_IN_TOTO", "PREDICATE_TYPE",
+           "ReciboInvalido", "firmar_recibo", "nivel_del_recibo", "nivel_si_la_firma_vale",
            "payload_del_sobre", "problemas_de_esquema", "recibo_del_sobre",
            "sobre_in_toto",
            "sujetos_del_recibo", "verificar_recibo"]
@@ -292,11 +297,10 @@ def _validar(recibo: Any) -> dict[str, Any]:
 def _firma(payload: bytes, clave: bytes) -> str:
     """HMAC-SHA256 sobre el sobre PAE de DSSE.
 
-    HMAC y no asimétrico **a propósito y por ahora**: la parte asimétrica
-    exige decidir raíces de confianza y rotación, que es justo la mitad
-    que quedó abierta. Con HMAC el recibo demuestra que no lo han tocado
-    entre quien lo emitió y quien lo lee — consistencia—, y el día que se
-    decida la confianza se cambia aquí sin tocar el resto.
+    HMAC, y la asimétrica va APARTE (145-C1: `firma_asimetrica.py`, como segunda
+    firma del sobre): decidir raíces de confianza y rotación sigue abierto. Con
+    HMAC el recibo demuestra que no lo han tocado entre quien lo emitió y
+    quien lo lee — consistencia.
     """
     return base64.b64encode(hmac.new(clave, payload, hashlib.sha256).digest()).decode()
 
@@ -380,7 +384,61 @@ def sujetos_del_recibo(recibo: dict[str, Any]) -> list[dict[str, Any]]:
     return sujetos
 
 
-def sobre_in_toto(recibo: dict[str, Any], *, clave: bytes, key_id: str) -> dict[str, Any]:
+#: El `alg` de la firma HMAC. Las firmas HMAC de siempre NO lo llevan (no se
+#: cambia el sobre que ya hay por ahí): ausente significa HMAC-SHA256.
+ALGORITMO_HMAC = "hmac-sha256"
+
+
+def _es_firma_hmac(firma: Any) -> bool:
+    """Una firma sin `alg`, o con `alg: hmac-sha256`. Cualquier otro algoritmo
+    (Ed25519, o uno que no conocemos) NO es una firma HMAC y no se compara
+    como tal."""
+    if not isinstance(firma, dict):
+        return True
+    return firma.get("alg") in (None, ALGORITMO_HMAC)
+
+
+def _es_firma_ed25519(firma: Any) -> bool:
+    return isinstance(firma, dict) and firma.get("alg") == _asim.ALGORITMO
+
+
+def _firmas_del_sobre(tipo: str, payload: bytes, *, clave: bytes | None,
+                      key_id: str | None, clave_privada: Any) -> list[dict[str, Any]]:
+    """Las firmas del sobre: la HMAC (si hay clave) y, DESPUÉS, la Ed25519.
+
+    **Las dos firman el MISMO `PAE(payloadType, payload)`** (D4): el payload no
+    se recanonicaliza para la segunda. Un sobre con dos firmas es un único
+    mensaje firmado dos veces, no dos mensajes.
+    """
+    if clave is None and clave_privada is None:
+        raise ReciboInvalido(
+            "no hay con qué firmar: se necesita una clave HMAC (`clave`) o una "
+            "privada Ed25519 (`clave_privada`)")
+    firmas: list[dict[str, Any]] = []
+    mensaje = _pae(tipo, payload)
+    if clave is not None:
+        if not str(key_id or "").strip():
+            raise ReciboInvalido(
+                "la firma tiene que decir con QUÉ clave se hizo: sin `keyid`, "
+                "verificar exige adivinarlo")
+        firmas.append({"keyid": key_id.strip(), "sig": _firma(mensaje, clave)})
+    if clave_privada is not None:
+        privada = _asim.cargar_clave_privada(clave_privada)
+        firmas.append({
+            # El `keyid` es la HUELLA de la pública: quien reciba el sobre sabe
+            # con qué clave cotejar sin que nadie se la tenga que decir. No va
+            # firmado (DSSE no lo cubre) y por eso al comprobar NO se confía en
+            # él: se prueba con la clave que el verificador tiene en la mano.
+            "keyid": _asim.huella_de_clave_publica(privada),
+            # El algoritmo, EXPLÍCITO: para poder migrar sin adivinar.
+            "alg": _asim.ALGORITMO,
+            "sig": _asim.firmar(privada, mensaje),
+        })
+    return firmas
+
+
+def sobre_in_toto(recibo: dict[str, Any], *, clave: bytes | None = None,
+                  key_id: str | None = None, clave_privada: Any = None) -> dict[str, Any]:
     """El MISMO recibo, en un sobre que lee el resto del mundo (86-C2).
 
     No sustituye a `firmar_recibo`: se emiten los dos y se dice cuál es cuál.
@@ -391,10 +449,6 @@ def sobre_in_toto(recibo: dict[str, Any], *, clave: bytes, key_id: str) -> dict[
     estándar lo haría parecer más serio, no serlo.
     """
     limpio = _validar(recibo)
-    if not str(key_id or "").strip():
-        raise ReciboInvalido(
-            "la firma tiene que decir con QUÉ clave se hizo: sin `keyid`, "
-            "verificar exige adivinarlo")
     declaracion = {
         "_type": _STATEMENT_TYPE,
         "subject": sujetos_del_recibo(limpio),
@@ -405,18 +459,25 @@ def sobre_in_toto(recibo: dict[str, Any], *, clave: bytes, key_id: str) -> dict[
     return {
         "payloadType": PAYLOAD_TYPE_IN_TOTO,
         "payload": base64.b64encode(payload).decode("ascii"),
-        "signatures": [{"keyid": key_id.strip(),
-                        "sig": _firma(_pae(PAYLOAD_TYPE_IN_TOTO, payload), clave)}],
+        "signatures": _firmas_del_sobre(PAYLOAD_TYPE_IN_TOTO, payload, clave=clave,
+                                        key_id=key_id, clave_privada=clave_privada),
     }
 
 
-def firmar_recibo(recibo: dict[str, Any], *, clave: bytes, key_id: str) -> dict[str, Any]:
-    """Devuelve el sobre DSSE con el payload canonicalizado y su firma."""
+def firmar_recibo(recibo: dict[str, Any], *, clave: bytes | None = None,
+                  key_id: str | None = None, clave_privada: Any = None) -> dict[str, Any]:
+    """Devuelve el sobre DSSE con el payload canonicalizado y su(s) firma(s).
+
+    * `clave` + `key_id`: la firma HMAC de siempre (consistencia).
+    * `clave_privada`: una SEGUNDA firma, Ed25519 (145-C1), sobre los mismos
+      bytes. Acepta un objeto de clave, un PEM PKCS#8 o 32 bytes crudos. Pide
+      `cryptography` (extra `[firma]`): sin ella lanza `FirmaNoDisponible` con
+      el motivo, no una firma a medias.
+    * Se pueden dar las dos, o solo una. **El nivel A no sube por la
+      Ed25519** (D4, y el mismo principio que el 86-C4): un sobre con SOLO
+      Ed25519 se queda en A0.
+    """
     limpio = _validar(recibo)
-    if not str(key_id or "").strip():
-        raise ReciboInvalido(
-            "la firma tiene que decir con QUÉ clave se hizo: sin `keyid`, "
-            "verificar exige adivinarlo")
     payload = jcs_bytes(limpio)
     return {
         "payloadType": PAYLOAD_TYPE,
@@ -429,12 +490,25 @@ def firmar_recibo(recibo: dict[str, Any], *, clave: bytes, key_id: str) -> dict[
         # diferencias (P23-R-0016), y por eso el verificador decodifica
         # esto en vez de recanonicalizar el objeto.
         "payload": base64.b64encode(payload).decode("ascii"),
-        "signatures": [{"keyid": key_id.strip(), "sig": _firma(_pae(PAYLOAD_TYPE, payload), clave)}],
+        "signatures": _firmas_del_sobre(PAYLOAD_TYPE, payload, clave=clave,
+                                        key_id=key_id, clave_privada=clave_privada),
     }
 
 
-def verificar_recibo(sobre: Any, *, clave: bytes) -> dict[str, Any]:
-    """¿La firma cuadra con los bytes que el sobre lleva?
+def _firma_pedida(estado: str, motivo: str | None = None, **extra: Any) -> dict[str, Any]:
+    return {"estado": estado, "motivo": motivo, **extra}
+
+
+_NOTA_HMAC = ("demuestra CONSISTENCIA, no autenticidad: las raíces "
+              "de confianza siguen sin decidirse")
+_NOTA_ED25519 = ("firma válida: estos bytes los firmó quien tiene la clave privada de "
+                 "esa huella y nadie los ha tocado después. No dice quién es esa persona, "
+                 "ni que el modelo sea correcto, ni cuándo se firmó; y no hay revocación")
+
+
+def verificar_recibo(sobre: Any, *, clave: bytes | None = None,
+                     clave_publica: Any = None) -> dict[str, Any]:
+    """¿Las firmas cuadran con los bytes que el sobre lleva?
 
     **Se verifica sobre el payload GUARDADO**, no sobre uno recompuesto a
     partir del objeto: reserializar aquí haría que dos serializadores
@@ -442,22 +516,105 @@ def verificar_recibo(sobre: Any, *, clave: bytes) -> dict[str, Any]:
     Desde el 86-C1 eso significa **decodificar el base64 del sobre y
     verificar sobre ESOS bytes** — decodificar no es recomponer: los
     bytes que salen son exactamente los que entraron.
+
+    Qué se comprueba lo decide qué claves se dan (145-C1):
+
+    * `clave` (HMAC): la firma HMAC, como siempre;
+    * `clave_publica` (Ed25519): la firma Ed25519. Se prueba con ESA clave
+      cada firma del sobre que diga ser Ed25519; el `keyid` del sobre es una
+      etiqueta que nadie firma y no se usa para decidir;
+    * sin ninguna: no se pudo comprobar (`ok: False`), nunca «válida».
+
+    Devuelve `ok` (todas las comprobaciones PEDIDAS salieron `valida`, y hubo
+    al menos una) y, en `firmas`, el estado de cada una: `valida`,
+    `no_coincide` o `no_se_pudo_comprobar` (D11), con su `motivo`. Si el sobre
+    lleva una firma Ed25519 y no se dio clave pública, sale ahí como
+    `no_se_pudo_comprobar`, sin contar para `ok`.
     """
+    firmas_estado: dict[str, dict[str, Any]] = {}
+    pedidas: list[str] = []
+    if clave is not None:
+        pedidas.append("hmac")
+    if clave_publica is not None:
+        pedidas.append("ed25519")
+
+    def _salida(ok: bool, reason: str | None = None, **extra: Any) -> dict[str, Any]:
+        sal: dict[str, Any] = {"ok": ok, "firmas": firmas_estado}
+        if reason is not None:
+            sal["reason"] = reason
+        sal.update(extra)
+        return sal
+
     crudo, motivo = payload_del_sobre(sobre)
     if crudo is None:
-        return {"ok": False, "reason": motivo}
+        for que in pedidas:
+            firmas_estado[que] = _firma_pedida(_asim.NO_SE_PUDO_COMPROBAR, motivo)
+        return _salida(False, motivo)
     firmas = sobre.get("signatures")
     if not isinstance(firmas, list) or not firmas:
-        return {"ok": False, "reason": "el sobre no lleva firma"}
+        for que in pedidas:
+            firmas_estado[que] = _firma_pedida(_asim.NO_SE_PUDO_COMPROBAR,
+                                               "el sobre no lleva firma")
+        return _salida(False, "el sobre no lleva firma")
 
     tipo = str(sobre.get("payloadType") or "")
-    esperada = _firma(_pae(tipo, crudo), clave)
-    for firma in firmas:
-        if isinstance(firma, dict) and hmac.compare_digest(str(firma.get("sig") or ""), esperada):
-            return {"ok": True, "keyid": firma.get("keyid"),
-                    "note": "demuestra CONSISTENCIA, no autenticidad: las raíces "
-                            "de confianza siguen sin decidirse"}
-    return {"ok": False, "reason": "la firma no corresponde a estos bytes"}
+    mensaje = _pae(tipo, crudo)
+    keyid = None
+
+    if clave is not None:
+        esperada = _firma(mensaje, clave)
+        coincide = next((f for f in firmas if _es_firma_hmac(f) and isinstance(f, dict)
+                         and hmac.compare_digest(str(f.get("sig") or ""), esperada)), None)
+        if coincide is not None:
+            firmas_estado["hmac"] = _firma_pedida(_asim.VALIDA, keyid=coincide.get("keyid"))
+            keyid = coincide.get("keyid")
+        else:
+            firmas_estado["hmac"] = _firma_pedida(
+                _asim.NO_COINCIDE, "la firma no corresponde a estos bytes")
+
+    candidatas = [f for f in firmas if _es_firma_ed25519(f)]
+    if clave_publica is not None or candidatas:
+        firmas_estado["ed25519"] = _comprobar_ed25519(mensaje, candidatas, clave_publica)
+        if firmas_estado["ed25519"]["estado"] == _asim.VALIDA and keyid is None:
+            keyid = firmas_estado["ed25519"].get("huella")
+
+    if not pedidas:
+        return _salida(False, "no se aportó ninguna clave: no se pudo comprobar la firma")
+    malas = [firmas_estado[q] for q in pedidas if firmas_estado[q]["estado"] != _asim.VALIDA]
+    if malas:
+        return _salida(False, "; ".join(str(m["motivo"]) for m in malas))
+    notas = [_NOTA_HMAC if q == "hmac" else _NOTA_ED25519 for q in pedidas]
+    return _salida(True, keyid=keyid, note="; ".join(notas))
+
+
+def _comprobar_ed25519(mensaje: bytes, candidatas: list[Any],
+                       clave_publica: Any) -> dict[str, Any]:
+    """El estado de la(s) firma(s) Ed25519 de un sobre frente a una pública."""
+    if clave_publica is None:
+        return _firma_pedida(
+            _asim.NO_SE_PUDO_COMPROBAR,
+            "el sobre lleva una firma Ed25519 y no se aportó la clave pública para comprobarla")
+    if not candidatas:
+        return _firma_pedida(_asim.NO_SE_PUDO_COMPROBAR,
+                             "el sobre no lleva firma Ed25519")
+    try:
+        publica = _asim.cargar_clave_publica(clave_publica)
+    except _asim.FirmaNoDisponible as exc:
+        return _firma_pedida(_asim.NO_SE_PUDO_COMPROBAR, str(exc))
+    except _asim.ClaveInvalida as exc:
+        return _firma_pedida(_asim.NO_SE_PUDO_COMPROBAR, f"la clave pública no se pudo leer: {exc}")
+    # La huella que se enseña es la de la clave con la que SE COMPROBÓ, no la
+    # etiqueta (`keyid`) del sobre: una etiqueta no firmada puede decir lo que
+    # quiera.
+    huella = _asim.huella_de_clave_publica(publica)
+    if any(_asim.comprobar(publica, mensaje, f.get("sig")) for f in candidatas):
+        return _firma_pedida(_asim.VALIDA, None, huella=huella)
+    etiquetas = {str(f.get("keyid")) for f in candidatas}
+    motivo = "la firma Ed25519 no coincide con estos bytes para la clave dada"
+    if huella not in etiquetas:
+        motivo += (f" (la firma del sobre dice ser de la huella {sorted(etiquetas)[0]}, "
+                   f"y la clave dada es la {huella})")
+    return _firma_pedida(_asim.NO_COINCIDE, motivo, huella=huella)
 
 
 def _con_bundle_de_sigstore(recibo_o_sobre: dict[str, Any]) -> bool:
@@ -523,7 +680,13 @@ def nivel_si_la_firma_vale(recibo_o_sobre: Any) -> str:
         contenido = recibo_o_sobre["payload"]
         return "A2" if _evidencia_reproducible(contenido.get("evidence")) else "A1"
 
-    firmado = bool(recibo_o_sobre.get("signatures")) and bool(recibo_o_sobre.get("payload"))
+    # SOLO CUENTAN LAS FIRMAS HMAC (145-C1, D4): una firma Ed25519 —ni ninguna de
+    # algoritmo que no conocemos— no sube el nivel. Igual que Sigstore (86-C4): los
+    # niveles hablan de lo que se comprobó, no de la fuerza de la firma. Un sobre
+    # con SOLO Ed25519 se queda en A0.
+    firmas = recibo_o_sobre.get("signatures")
+    firmado = (isinstance(firmas, list) and any(_es_firma_hmac(f) for f in firmas)
+               and bool(recibo_o_sobre.get("payload")))
     if not firmado:
         return "A0"
     import json

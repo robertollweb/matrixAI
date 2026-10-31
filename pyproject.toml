@@ -34,6 +34,9 @@ Documentation = "https://github.com/robertollweb/matrixAI/tree/main/docs"
 dev = ["pytest>=7"]
 export = ["onnx>=1.14", "onnxruntime>=1.14", "numpy>=1.24"]
 torch = ["torch>=2.0"]
+# Firma asimétrica Ed25519 de los recibos (145-C1). Opcional: sin ella, el recibo se firma
+# con HMAC como siempre y la Ed25519 dice «falta cryptography».
+firma = ["cryptography>=41"]
 
 [project.scripts]
 matrixai = "matrixai.cli:main"

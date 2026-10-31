@@ -237,8 +237,19 @@ def main() -> int:
     r_verify = receipt_sub.add_parser("verify", help="Verify a receipt and say what could NOT be checked")
     r_verify.add_argument("file")
     r_verify.add_argument("--key", help="Hex or utf-8 key to check the signature with")
+    r_verify.add_argument(
+        "--pubkey", metavar="FILE",
+        help="Ed25519 PUBLIC key (PEM, or its 32 bytes in hex/base64) to check the "
+             "Ed25519 signature with (145-C1; needs `pip install 'matrixai[firma]'`)")
+    r_verify.add_argument("--locale", choices=["es", "en"], default="en",
+                          help="Language of the Ed25519 signature line (the rest stays as is)")
     r_verify.add_argument("--offline", action="store_true",
                           help="Do not reach the network for trust material (today: always offline)")
+    r_pubkey = receipt_sub.add_parser(
+        "pubkey",
+        help="Show the fingerprint and the PUBLIC key of an Ed25519 key (PEM file: private "
+             "or public; the private one is never printed) (145-C1)")
+    r_pubkey.add_argument("file")
     r_compare = receipt_sub.add_parser("compare", help="Diff two receipts by content")
     r_compare.add_argument("a")
     r_compare.add_argument("b")
@@ -1030,6 +1041,11 @@ def main() -> int:
              "library and an OIDC identity; if either is missing it says which one "
              "and does not fall back to HMAC in silence")
     attest_p.add_argument("--key-id", default="attest", help="Key identifier for the signature")
+    attest_p.add_argument(
+        "--ed25519-key", metavar="FILE",
+        help="PEM file with an Ed25519 PRIVATE key: adds a SECOND, asymmetric signature "
+             "(145-C1; needs `pip install 'matrixai[firma]'`). The assurance level does not "
+             "rise because of it; with it alone the receipt stays A0")
     attest_p.add_argument("-o", "--output", help="Write the receipt to this file")
 
     # ── evaluate-score: ¿funciona aquí? — evaluar una puntuación YA REGISTRADA (137-C1) ──
@@ -1769,6 +1785,8 @@ def _cmd_receipt(args) -> int:
             return None
 
     sub = args.receipt_command
+    if sub == "pubkey":
+        return _cmd_receipt_pubkey(args)
     if sub == "compare":
         a, b = _leer(args.a), _leer(args.b)
         if a is None or b is None:
@@ -1791,7 +1809,15 @@ def _cmd_receipt(args) -> int:
             clave = bytes.fromhex(args.key)
         except ValueError:
             clave = args.key.encode("utf-8")
-    informe = verificar_sobre(sobre, clave=clave)
+    clave_publica = None
+    if getattr(args, "pubkey", None):
+        try:
+            with open(args.pubkey, "rb") as fh:
+                clave_publica = fh.read()
+        except OSError as exc:
+            print(f"receipt: no se pudo leer {args.pubkey}: {exc}", file=sys.stderr)
+            return 1
+    informe = verificar_sobre(sobre, clave=clave, clave_publica=clave_publica)
     if getattr(args, "json", False):
         print(json.dumps(informe, indent=2, ensure_ascii=False))
     else:
@@ -1801,12 +1827,16 @@ def _cmd_receipt(args) -> int:
             # aprobado si no se dice que no lo es. Y solo cuando NO se
             # comprobó: decirlo sobre una firma que se comprobó y se
             # rechazó era el etiquetado falso de H6.
-            _nivel += "  (la firma no se ha comprobado: sin clave no se puede sostener más"
+            # Con una Ed25519 en el sobre, «la firma» sería ambiguo: lo que no se comprobó
+            # es la HMAC, y la Ed25519 sale en su propia línea más abajo.
+            _cual = "la firma HMAC" if informe.get("signature_ed25519") else "la firma"
+            _nivel += f"  ({_cual} no se ha comprobado: sin clave no se puede sostener más"
             if informe.get("assurance_if_signature_holds"):
                 _nivel += f"; si valiera, sería {informe['assurance_if_signature_holds']}"
             _nivel += ")"
         print(f"assurance: {_nivel}")
         print(f"verified:  {', '.join(informe['verified']) or '(nada)'}")
+        _linea_ed25519(informe.get("signature_ed25519"), getattr(args, "locale", "en"))
         if informe.get("signature_checked") and not informe.get("signature_valid"):
             # La firma SÍ se comprobó, y falló. Sin esta línea quedaba
             # dicho entre los PROBLEM, mezclada con lo demás.
@@ -1818,6 +1848,54 @@ def _cmd_receipt(args) -> int:
         for aviso in informe["disclaimers"]:
             print(f"note · {aviso}")
     return _salida_de_receipt(informe)
+
+
+def _linea_ed25519(firma: dict | None, idioma: str) -> None:
+    """La línea de la firma Ed25519, con el vocabulario cerrado de D11 (145-C1):
+    «firma válida / no coincide / no se pudo comprobar». Si el sobre no la lleva
+    y no se pidió, no hay línea."""
+    if not firma:
+        return
+    from matrixai.pipelines.firma_asimetrica import texto_del_estado  # noqa: PLC0415
+
+    etiqueta = "Firma Ed25519" if idioma == "es" else "Ed25519 signature"
+    huella = firma.get("huella")
+    print(f"{etiqueta}: {texto_del_estado(firma['estado'], idioma)}"
+          + (f" (huella {huella})" if huella else ""))
+    if firma.get("motivo"):
+        print(f"  {firma['motivo']}")
+
+
+def _cmd_receipt_pubkey(args) -> int:
+    """`matrixai receipt pubkey <fichero>` — la huella y la PÚBLICA de una clave Ed25519.
+
+    El fichero puede ser la privada (PEM) o la pública: en los dos casos solo
+    se imprime la pública. La privada no sale NUNCA de aquí.
+    """
+    from matrixai.pipelines import firma_asimetrica as asim  # noqa: PLC0415
+
+    try:
+        with open(args.file, "rb") as fh:
+            datos = fh.read()
+        publica = asim.cargar_clave_publica(datos)
+        huella = asim.huella_de_clave_publica(publica)
+        pem = asim.clave_publica_pem(publica)
+    except OSError as exc:
+        print(f"receipt: no se pudo leer {args.file}: {exc}", file=sys.stderr)
+        return 1
+    except (asim.FirmaNoDisponible, asim.ClaveInvalida) as exc:
+        print(f"receipt: {exc}", file=sys.stderr)
+        return 1
+    if getattr(args, "json", False):
+        print(json.dumps({"algorithm": asim.ALGORITMO, "fingerprint": huella,
+                          "public_key_pem": pem}, indent=2, ensure_ascii=False))
+    else:
+        print(f"algorithm:   {asim.ALGORITMO}")
+        print(f"fingerprint: {huella}")
+        print("(SHA-256 of the 32 raw bytes of the public key; compare it through ANOTHER "
+              "channel before trusting it)")
+        print(pem, end="")
+    return 0
 
 
 def _salida_de_receipt(informe: dict) -> int:
@@ -3579,6 +3657,26 @@ def _cmd_attest(args) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
+    # LA PRIVADA ED25519 (145-C1), leída ANTES de nada: si el fichero no vale o falta
+    # `cryptography`, se dice ahora y no a mitad de la firma. No cae a otra firma
+    # en silencio, y el mensaje nunca lleva la clave.
+    privada_ed25519 = None
+    if getattr(args, "ed25519_key", None):
+        from matrixai.pipelines import firma_asimetrica as asim  # noqa: PLC0415
+        try:
+            with open(args.ed25519_key, "rb") as fh:
+                privada_ed25519 = asim.cargar_clave_privada(fh.read())
+        except OSError as exc:
+            print(f"Error: no se pudo leer {args.ed25519_key}: {exc}", file=sys.stderr)
+            return 2
+        except (asim.FirmaNoDisponible, asim.ClaveInvalida) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+        if getattr(args, "sigstore", False):
+            print("Error: --ed25519-key y --sigstore no se combinan todavía: Sigstore firma "
+                  "el recibo por su cuenta y no lleva una segunda firma", file=sys.stderr)
+            return 2
+
     # La hora la pone quien atestigua, y es un hecho de ESTE acto. El módulo no
     # se inventa un reloj: lo deja en `None` y lo rellena aquí.
     recibo["created_at"] = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -3606,18 +3704,21 @@ def _cmd_attest(args) -> int:
         # «UNSIGNED: pass --key to sign it» encima de una firma Sigstore recién
         # hecha (2ª auditoría externa, hallazgo 4 residual).
         nivel = nivel_del_recibo(salida)
-    elif args.key:
-        try:
-            clave = bytes.fromhex(args.key)
-        except ValueError:
-            print("Error: --key must be hex", file=sys.stderr)
-            return 2
-        salida = firmar_recibo(recibo, clave=clave, key_id=args.key_id)
+    elif args.key or privada_ed25519 is not None:
+        clave = None
+        if args.key:
+            try:
+                clave = bytes.fromhex(args.key)
+            except ValueError:
+                print("Error: --key must be hex", file=sys.stderr)
+                return 2
+        salida = firmar_recibo(recibo, clave=clave, key_id=args.key_id,
+                               clave_privada=privada_ed25519)
         nivel = nivel_del_recibo(salida, clave=clave)
         if getattr(args, "in_toto", False):
             from matrixai.pipelines.receipt import sobre_in_toto  # noqa: PLC0415
             sobres_extra["in_toto"] = sobre_in_toto(
-                recibo, clave=clave, key_id=args.key_id)
+                recibo, clave=clave, key_id=args.key_id, clave_privada=privada_ed25519)
     elif getattr(args, "in_toto", False):
         print("Error: --in-toto necesita --key: un Statement sin firmar no dice de "
               "quién es, y emitirlo así sería un sobre estándar vacío de garantía",
@@ -3653,7 +3754,11 @@ def _cmd_attest(args) -> int:
     print(f"\n{metrica['name']}: {metrica['value']} "
           f"(on {recibo['dataset']['rows_measured']} rows)", file=sys.stderr)
     print(f"assurance: {nivel}", file=sys.stderr)
-    if nivel == "A0":
+    if nivel == "A0" and privada_ed25519 is not None:
+        print("  The receipt carries an Ed25519 signature, which does not raise the "
+              "assurance level; it stays A0 until it is also signed with --key.",
+              file=sys.stderr)
+    elif nivel == "A0":
         print("  UNSIGNED: this receipt proves nothing about who issued it. "
               "Pass --key to sign it.", file=sys.stderr)
     # Y lo que NO demuestra, siempre — firmado o no.
