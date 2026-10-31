@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from matrixai.export.expediente_clinico import (
+    CALIBRACION_DEL_ESTUDIO,
     CALIBRACION_Y_UMBRAL,
     DOMINIOS,
     ENTRENAMIENTO_DE_LA_RED,
@@ -393,12 +394,20 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
             _lineas_del_modo.append(FUERA_POR_EL_MODO)
         # 139-C2: qué motor es el modelo entregado y cómo se calibró y se eligió su umbral. Mismos rótulos y rutas que el
         # inventario (PROBAST): la ficha y los huecos no pueden decir dos cosas de lo mismo.
-        _lineas_del_modo.extend((MOTOR_ENTREGADO, CALIBRACION_Y_UMBRAL))
+        _lineas_del_modo.extend((MOTOR_ENTREGADO, CALIBRACION_Y_UMBRAL, CALIBRACION_DEL_ESTUDIO))
         # 140-C2: cómo se repartieron las filas del examen (diseño, columnas, hueco, cobertura). Mismo rótulo y ruta que el
         # inventario (PROBAST). Solo si el estudio lo declaró.
         if expediente.diseno_del_reparto is not None:
             _lineas_del_modo.insert(0, REPARTO_POR_DISENO)
         for evidencia in _lineas_del_modo:
+            if evidencia is CALIBRACION_DEL_ESTUDIO:
+                # ola 2: sus tres casos (medido / no medido o no aplica / no figura) llevan SU motivo, y la ruta es la de lo
+                # que se leyó (el bloque del estudio o, si se declaró uno, el perfil clínico).
+                campo = expediente.calibracion_del_estudio(idioma)
+                filas.append(_linea(evidencia.rotulo[idioma],
+                                    texto_del_valor(evidencia, campo, idioma) if campo.hay_dato else None,
+                                    t["sin_dato"], campo.motivo, campo.ruta))
+                continue
             campo = expediente.campo(evidencia.ruta)
             filas.append(_linea(evidencia.rotulo[idioma],
                                 texto_del_valor(evidencia, campo, idioma) if campo.hay_dato else None,
@@ -489,6 +498,10 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
         # Lo que el paquete SÍ trae ya no falta, y decir que falta sería la
         # media verdad tranquilizadora al revés: un hueco inventado.
         if clave is not None and por_clave[clave].hay_dato:
+            continue
+        if clave == "calibracion" and expediente.es_de_estudio:
+            # Un estudio ya la dijo arriba (medida, no medida o «no figura»), con su motivo: repetirla aquí con el texto de
+            # «este paquete no trae la curva» sería la media verdad de antes.
             continue
         rotulo, motivo = textos[idioma]
         if clave == "politica_de_faltantes":

@@ -73,6 +73,14 @@ del 139 no trae nada de esto, y la ficha dice «no disponible»: ni «pliegue 0�
   `network_training` (una red que cayó al pliegue 0: su ajuste de selección, con su parada temprana y su plazo, ES el
   entregado, y el expediente callaba si ese plazo la cortó). Un árbol no lo trae; lo que el motor no declaró se omite.
 
+* `study.evaluation_calibration` (Ola 2, 30-10) — lo que el estudio MIDIÓ de la calibración de las probabilidades que entrega, de
+  SUS curvas (141, `calibracion_de_las_curvas`): `status` (`measured` | `not_measured` | `not_applicable`), y medida: `ece`,
+  `bins_with_figure`, `n_bins`, `bins_method`, `kind` (`positive_class` | `predicted_class_confidence`), `scale` (si las
+  probabilidades están recalibradas), `test_rows` y `test_positives` (solo en binaria); no medida o no aplicable: `reason_key` y
+  `reason` (`{es, en}`, el motivo del núcleo). Un estudio SIN curvas (anterior al 141, o que no las pudo calcular) no escribe el
+  bloque: la ficha dice entonces «no figura en esta exportación», que no es «no se midió». Lo lee el expediente, que antes solo
+  miraba el perfil clínico —que un estudio no trae— y decía «no se ha medido la calibración».
+
 El `manifest_sha256` cubre el bloque entero, como el resto del manifiesto: cambiar el método o el motor cambia el digest.
 
 `reproducible` es SIEMPRE `false`, con su motivo en castellano e inglés: un
@@ -143,6 +151,53 @@ _ENTRENAMIENTO_DE_LA_RED: tuple[tuple[str, str, str], ...] = (
     ("la_cola_decide_algo", "early_stopping_tail_decides", "booleano"),
 )
 _LO_QUE_SE_ENTREGA = {"ultima_epoca": "last_epoch"}
+
+
+#: `calibracion_de_las_curvas.estado` → `study.evaluation_calibration.status` (inglés).
+_ESTADO_DE_LA_CALIBRACION = {"medido": "measured", "no_medido": "not_measured", "no_aplica": "not_applicable"}
+_TIPO_DE_LA_FIABILIDAD = {"clase_positiva": "positive_class", "clase_predicha": "predicted_class_confidence"}
+#: De dónde sale, para que quien lea el manifiesto sepa que es la misma pieza que dibuja la pestaña Curvas.
+_FUENTE_DE_LA_CALIBRACION = "curvas_de_la_evaluacion.fiabilidad.curva.ece"
+
+
+def _calibracion_de_la_evaluacion(curvas: Any) -> dict[str, Any] | None:
+    """El bloque `study.evaluation_calibration`, leído de las curvas del estudio con LA MISMA función que usa el Informe Vivo
+    (`calibracion_de_las_curvas`), o `None` si el estudio no trae curvas (no figura: ni «medido» ni «no medido»).
+
+    Ola 2 (30-10): el expediente decía «no se ha medido la calibración» de un estudio que SÍ la había medido, porque solo
+    leía el perfil clínico, que un estudio no trae. Lo que se publica es el hecho: medido (con su ECE y los tramos con cifra),
+    no medido (con el motivo del núcleo) o no aplicable (una regresión)."""
+    if curvas is not None and not isinstance(curvas, Mapping):
+        raise ReproduceManifestError(f"curvas_de_la_evaluacion must be an object, got {curvas!r}")
+    from matrixai.estudio.curvas_de_la_evaluacion import calibracion_de_las_curvas  # noqa: PLC0415
+
+    c = calibracion_de_las_curvas(dict(curvas) if curvas is not None else None)
+    estado = _ESTADO_DE_LA_CALIBRACION.get(c["estado"])
+    if estado is None:
+        return None
+    bloque: dict[str, Any] = {"status": estado}
+    if c["estado"] == "medido":
+        ece = c["ece"]
+        if not 0.0 <= ece <= 1.0:
+            raise ReproduceManifestError(f"curvas_de_la_evaluacion: the ECE must be in [0, 1], got {ece!r}")
+        bloque["ece"] = ece
+        for clave, valor in (("bins_with_figure", c.get("tramos")), ("n_bins", c.get("n_bins")),
+                             ("test_rows", c.get("filas")), ("test_positives", c.get("positivos"))):
+            if type(valor) is int and valor >= 0:
+                bloque[clave] = valor
+        if isinstance(c.get("metodo_de_bins"), str):
+            bloque["bins_method"] = c["metodo_de_bins"]
+        if c.get("tipo") in _TIPO_DE_LA_FIABILIDAD:
+            bloque["kind"] = _TIPO_DE_LA_FIABILIDAD[c["tipo"]]
+        if isinstance(c.get("escala"), str):
+            bloque["scale"] = c["escala"]
+    else:
+        if isinstance(c.get("clave"), str):
+            bloque["reason_key"] = c["clave"]
+        if c.get("motivo"):
+            bloque["reason"] = dict(c["motivo"])
+    bloque["source"] = _FUENTE_DE_LA_CALIBRACION
+    return bloque
 
 
 def _entrenamiento_de_la_red(declarado: Mapping[str, Any]) -> dict[str, Any]:
@@ -508,6 +563,7 @@ def manifiesto_de_estudio(
     motores_fuera_por_el_modo: Sequence[str] | None = None,
     reparto_del_estudio: Mapping[str, Any] | None = None,
     entrenamiento_del_entregado: Mapping[str, Any] | None = None,
+    curvas_de_la_evaluacion: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """El manifiesto de un estudio, con SOLO lo que el estudio sabe.
 
@@ -533,6 +589,8 @@ def manifiesto_de_estudio(
       desarrollo).
     * `filas_de_cola_de_parada_temprana` (139-C2): las filas de la cola interna de parada temprana del modelo entregado
       (no entrenan; con una red de épocas fijas tampoco deciden nada). Con `filas_que_entrenaron_el_modelo` no pueden pasar de las de desarrollo.
+    * `curvas_de_la_evaluacion` (Ola 2): el campo del mismo nombre del sobre de selección (141); de él se lee SOLO la calibración
+      (`study.evaluation_calibration`). Sin curvas (`None`, `{disponible: false}`), el bloque no se escribe.
     * `motor_del_modelo_entregado` (139-C2): el motor del modelo entregado (`candidate_engine` de la selección).
     * `calibracion_y_umbral` (139-C2): `{metodo, motivo?, pliegues?, filas_fuera_de_pliegue?, filas_para_calibrar?,
       filas_para_el_umbral?, entrenamiento_de_la_red?, usos?}` tal cual lo declara el sobre del estudio; `metodo` en
@@ -629,6 +687,9 @@ def manifiesto_de_estudio(
             estudio["network_training"] = _entrenamiento_de_la_red(calibracion_y_umbral["entrenamiento_de_la_red"])
     if entrenamiento_del_entregado is not None:
         estudio["delivered_network_training"] = _entrenamiento_del_entregado(entrenamiento_del_entregado)
+    calibracion_medida = _calibracion_de_la_evaluacion(curvas_de_la_evaluacion)
+    if calibracion_medida is not None:
+        estudio["evaluation_calibration"] = calibracion_medida
 
     dataset: dict[str, Any] | None = None
     if filas is not None or huella_del_dataset is not None:

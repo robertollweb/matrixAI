@@ -33,7 +33,7 @@ from typing import Any
 from matrixai.pipelines.canonical import jcs_bytes
 
 __all__ = ["NIVELES", "PAYLOAD_TYPE_IN_TOTO", "PREDICATE_TYPE", "ReciboInvalido",
-           "firmar_recibo", "nivel_del_recibo",
+           "firmar_recibo", "nivel_del_recibo", "nivel_si_la_firma_vale",
            "payload_del_sobre", "problemas_de_esquema", "recibo_del_sobre",
            "sobre_in_toto",
            "sujetos_del_recibo", "verificar_recibo"]
@@ -460,8 +460,51 @@ def verificar_recibo(sobre: Any, *, clave: bytes) -> dict[str, Any]:
     return {"ok": False, "reason": "la firma no corresponde a estos bytes"}
 
 
-def nivel_del_recibo(recibo_o_sobre: Any) -> str:
-    """Qué nivel A0-A4 sostiene de verdad — no el que se declare.
+def _con_bundle_de_sigstore(recibo_o_sobre: dict[str, Any]) -> bool:
+    bundle = recibo_o_sobre.get("sigstore")
+    return isinstance(bundle, dict) and bool(bundle.get("bundle")) and isinstance(
+        recibo_o_sobre.get("payload"), dict)
+
+
+def nivel_del_recibo(recibo_o_sobre: Any, *, clave: bytes | None = None) -> str:
+    """Qué nivel A0-A4 sostiene de verdad — no el que se declare, ni el que
+    prometería una firma que nadie ha comprobado.
+
+    **El nivel no puede prometer más que `verificar_recibo`** (inventario de la
+    Ola 2, 30-10-2026): antes bastaba con que el sobre LLEVARA `signatures` —una
+    firma basura (`sig: "AAAA"`) daba A1 mientras `verificar_recibo` la
+    rechazaba—, y quien leyera el nivel sin verificar se llevaba una A1 falsa.
+    Ahora, para un sobre firmado con HMAC:
+
+    * **con `clave`**: la firma se comprueba con `verificar_recibo` (el mismo
+      criterio, no una copia) y, si no cuadra, el recibo no sostiene nada: A0;
+    * **sin `clave`**: no se pudo comprobar, y «no se pudo comprobar» no es A1:
+      A0 también. Lo que el recibo sostendría SI la firma valiera lo dice
+      `nivel_si_la_firma_vale`, que no es una garantía y se llama así a propósito.
+
+    Quien emite (CLI, Studio) tiene la clave en la mano y la pasa; quien lee un
+    recibo ajeno sin clave obtiene A0 y la razón en `verificar_sobre`.
+
+    Un envoltorio de Sigstore no se comprueba aquí —exige la biblioteca, una
+    identidad OIDC y red (86-C4)—, así que se queda como estaba: no sube el nivel.
+    """
+    if not isinstance(recibo_o_sobre, dict):
+        return "A0"
+    nivel = nivel_si_la_firma_vale(recibo_o_sobre)
+    if nivel == "A0" or _con_bundle_de_sigstore(recibo_o_sobre):
+        return nivel
+    if clave is None:
+        return "A0"
+    return nivel if verificar_recibo(recibo_o_sobre, clave=clave).get("ok") else "A0"
+
+
+def nivel_si_la_firma_vale(recibo_o_sobre: Any) -> str:
+    """Qué nivel A0-A4 sostendría este recibo **si su firma valiera** — NO una garantía.
+
+    Mira lo que el recibo LLEVA (firma presente, evidencia reproducible), no si la
+    firma cuadra: eso es `verificar_recibo`, y el nivel que se enseña a alguien
+    es `nivel_del_recibo`, que lo exige. Se queda público para que `verificar_sobre`
+    diga «sería A1 si la firma valiera» sin fingir que lo es.
 
     Un nivel que cualquiera puede escribirse a sí mismo no significa
     nada: aquí se **deduce de lo que el recibo lleva**, y `assurance_level`
@@ -476,9 +519,7 @@ def nivel_del_recibo(recibo_o_sobre: Any) -> str:
     # «pass --key to sign it» sobre un recibo ya firmado. Sigstore sigue **sin
     # subir el nivel** (eso es del 86-C4, y hay prueba): aquí solo se deja de
     # decir que no está firmado cuando lo está.
-    bundle = recibo_o_sobre.get("sigstore")
-    if isinstance(bundle, dict) and bundle.get("bundle") and isinstance(
-            recibo_o_sobre.get("payload"), dict):
+    if _con_bundle_de_sigstore(recibo_o_sobre):
         contenido = recibo_o_sobre["payload"]
         return "A2" if _evidencia_reproducible(contenido.get("evidence")) else "A1"
 

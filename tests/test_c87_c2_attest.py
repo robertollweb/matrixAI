@@ -111,7 +111,7 @@ class AtestiguaLoQueMideTest(unittest.TestCase):
             recibo["created_at"] = "2026-08-25T10:00:00Z"
             sobre = firmar_recibo(recibo, clave=b"k", key_id="k1")
         self.assertTrue(verificar_recibo(sobre, clave=b"k")["ok"])
-        self.assertNotEqual(nivel_del_recibo(sobre), "A0")
+        self.assertNotEqual(nivel_del_recibo(sobre, clave=b"k"), "A0")
 
     def test_el_mismo_modelo_y_los_mismos_datos_dan_el_MISMO_id(self):
         """Sin eso, dos atestaciones de lo mismo no se podrían comparar."""

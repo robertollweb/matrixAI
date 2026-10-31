@@ -341,6 +341,9 @@ class ExpedienteClinico:
                 if self.diseno_del_reparto is not None:
                     lineas.append(REPARTO_POR_DISENO)
                 continue
+            if evidencia.clave == "calibracion":
+                lineas.append(CALIBRACION_DEL_ESTUDIO)
+                continue
             lineas.append(evidencia)
             if evidencia.clave == "metricas":
                 lineas.append(MODO_DEL_ESTUDIO)
@@ -462,6 +465,8 @@ class ExpedienteClinico:
                     avisos.append(aviso)
                 if not campo.hay_dato:
                     campo = Campo(evidencia.ruta, FALTA, motivo=motivo)
+            elif evidencia.clave == "calibracion" and self.es_de_estudio:
+                campo = self.calibracion_del_estudio(idioma)
             elif evidencia.clave == "comparacion_con_el_baseline":
                 campo = self.comparacion_con_el_baseline(motivo, idioma)
             elif evidencia.clave == "politica_de_faltantes":
@@ -477,6 +482,35 @@ class ExpedienteClinico:
                                    locale=idioma)
             pares.append((evidencia, campo))
         return tuple(pares), tuple(avisos)
+
+    def calibracion_del_estudio(self, idioma: str) -> Campo:
+        """La calibración de un ESTUDIO (Ola 2): `study.evaluation_calibration` del manifiesto, con sus tres casos dichos aparte.
+
+        * `measured` → el bloque, estado MEDIDO (la cifra y de dónde sale);
+        * `not_measured` / `not_applicable` → FALTA con el motivo que dio el núcleo, sin llamarlo «no se midió» a secas;
+        * sin bloque → el perfil clínico si lo trae (se declaró uno) y, si no, FALTA con «no figura en esta exportación».
+        Nunca se deduce una calibración de lo que no la dice."""
+        es = idioma == "es"
+        ruta = CALIBRACION_DEL_ESTUDIO.ruta
+        bloque = (((self._contenido.get("reproduce.json") or {}).get("study") or {}).get("evaluation_calibration"))
+        if isinstance(bloque, dict):
+            estado = bloque.get("status")
+            razon = bloque.get("reason") if isinstance(bloque.get("reason"), dict) else {}
+            frase = razon.get("es" if es else "en")
+            if estado == "measured" and isinstance(bloque.get("ece"), float):
+                return Campo(ruta, self._estado_de("reproduce.json", "study.evaluation_calibration"), valor=bloque)
+            if estado == "not_measured":
+                base = ("el estudio intentó medirla y no pudo definir el ECE" if es
+                        else "the study tried to measure it and could not define the ECE")
+                return Campo(ruta, FALTA, motivo=f"{base}: {frase}" if frase else base)
+            if estado == "not_applicable":
+                base = ("la calibración no aplica a este problema" if es
+                        else "calibration does not apply to this problem")
+                return Campo(ruta, FALTA, motivo=f"{base}: {frase}" if frase else base)
+        perfil = self.campo("clinical_profile.json#calibracion.ece", locale=idioma)
+        if perfil.hay_dato:
+            return perfil
+        return Campo(ruta, FALTA, motivo=CALIBRACION_DEL_ESTUDIO.motivo_si_falta[idioma])
 
     # -- lo derivado ---------------------------------------------------------
 
@@ -891,6 +925,20 @@ CALIBRACION_Y_UMBRAL = _e(
     "the study did not record how it calibrated the model or chose its threshold",
     "calibracion_y_umbral")
 
+#: LA CALIBRACIÓN QUE EL ESTUDIO MIDIÓ (Ola 2, 30-10). La línea «Calibración (ECE)» del inventario lee el perfil clínico, que un
+#: estudio no trae, y por eso el expediente de un estudio decía «no se ha medido la calibración» con las curvas del estudio
+#: (141) llevando su ECE. Para un estudio, la MISMA clave `calibracion` lee `study.evaluation_calibration` del manifiesto; y sus
+#: tres casos se dicen distintos: MEDIDO (la cifra), NO MEDIDO / NO APLICA (el motivo del núcleo) y NO FIGURA en esta exportación
+#: (un estudio sin curvas: no se sabe si se midió, que no es lo mismo que «no se midió»).
+CALIBRACION_DEL_ESTUDIO = _e(
+    "calibracion", "analisis", "reproduce.json#study.evaluation_calibration",
+    "Calibración (ECE)", "Calibration (ECE)",
+    "no figura en esta exportación: el estudio no trae las curvas de su evaluación, así que no se sabe si se midió la calibración "
+    "(no es lo mismo que «no se midió»)",
+    "it is not in this export: the study carries no evaluation curves, so it is not known whether calibration was measured "
+    "(not the same as “it was not measured”)",
+    "calibracion_medida")
+
 #: El modo con que corrió el estudio (138-C1) y, si fue el rápido, quién no compitió por él.
 MODO_DEL_ESTUDIO = _e(
     "modo_del_estudio", "analisis", "reproduce.json#study.mode",
@@ -950,6 +998,35 @@ def _texto_de_una_mitad(cuenta: int, usos: Any, es: bool) -> str:
     y = " y " if es else " and "
     lista = hechos[0] if len(hechos) == 1 else ", ".join(hechos[:-1]) + y + hechos[-1]
     return f"{cuenta} para {lista}" if es else f"{cuenta} to {lista}"
+
+
+def _texto_de_la_calibracion_medida(bloque: dict[str, Any], idioma: str) -> str:
+    """Ola 2 — la calibración que MIDIÓ el estudio (`study.evaluation_calibration`, medida), con lo que hace falta para leer la
+    cifra: sobre cuántas filas de la prueba reservada, con cuántos tramos con cifra, y si las probabilidades están recalibradas.
+    En multiclase no hay clase positiva: la cifra es la de la confianza de la clase predicha, y se dice. Una cuenta ausente no se
+    escribe."""
+    es = idioma == "es"
+    ece = _numero(bloque["ece"])
+    filas, positivos = _cuenta(bloque.get("test_rows")), _cuenta(bloque.get("test_positives"))
+    tramos = _cuenta(bloque.get("bins_with_figure"))
+    partes: list[str] = []
+    if bloque.get("kind") == "predicted_class_confidence":
+        partes.append("ECE de la confianza de la clase predicha" if es else "ECE of the predicted class's confidence")
+    else:
+        partes.append("error de calibración esperado, ECE" if es else "expected calibration error, ECE")
+    if filas is not None:
+        donde = f"sobre {filas} filas de la prueba reservada" if es else f"over {filas} rows of the reserved test set"
+        if positivos is not None:
+            donde += f", {positivos} positivos" if es else f", {positivos} positives"
+        partes.append(donde)
+    if tramos is not None:
+        partes.append(f"{tramos} tramos con cifra" if es else f"{tramos} bins with a figure")
+    escala = bloque.get("scale")
+    if escala == "probabilidad_recalibrada":
+        partes.append("probabilidades recalibradas" if es else "recalibrated probabilities")
+    elif escala == "probabilidad_del_modelo":
+        partes.append("probabilidades del modelo, sin recalibrar" if es else "the model's probabilities, not recalibrated")
+    return f"{ece} ({'; '.join(partes)})"
 
 
 def _texto_de_la_calibracion(bloque: dict[str, Any], idioma: str) -> str:
@@ -1260,6 +1337,8 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
         return _numero(valor)
     if evidencia.resumen == "calibracion_y_umbral" and isinstance(valor, dict):
         return _texto_de_la_calibracion(valor, "es" if locale == "es" else "en")
+    if evidencia.resumen == "calibracion_medida" and isinstance(valor, dict):
+        return _texto_de_la_calibracion_medida(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "reparto_por_diseno" and isinstance(valor, dict):
         return _texto_del_reparto(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "entrenamiento_de_la_red" and isinstance(valor, dict):

@@ -837,7 +837,7 @@ class ReciboTest(DatosBase):
         self.assertEqual(sin.nivel_de_garantia, "A0")
         self.assertIsNone(sin.sobre)
         self.assertEqual(con.nivel_de_garantia, "A1")
-        self.assertEqual(nivel_del_recibo(con.sobre), "A1")
+        self.assertEqual(nivel_del_recibo(con.sobre, clave=self.CLAVE), "A1")
         self.assertEqual(con.recibo["assurance_ceiling"], "A1")
         for clave in ("replay_reference", "reproduce", "package", "package_sha256"):
             self.assertNotIn(clave, con.recibo["evidence"])
@@ -1207,7 +1207,7 @@ class CliTest(DatosBase):
             self.assertEqual(informe["donde_se_calcula"]["valor"], "local")   # la CLI corre aquí
             self.assertIn("NO es una validación externa", r.stderr)
             self.assertIn("Se calculó en local", r.stderr)
-            self.assertEqual(nivel_del_recibo(recibo), "A1")
+            self.assertEqual(nivel_del_recibo(recibo, clave=bytes.fromhex("aa" * 16)), "A1")
             self.assertTrue(verificar_recibo(recibo, clave=bytes.fromhex("aa" * 16))["ok"])
             self.assertIn("AUROC", r.stderr)
             self.assertIn("assurance: A1", r.stderr)

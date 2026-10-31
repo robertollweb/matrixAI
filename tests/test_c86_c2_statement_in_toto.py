@@ -114,8 +114,8 @@ class LosDosSobresValenLoMismoTest(unittest.TestCase):
         viejo por un detalle de forma."""
         r = _recibo(evidence={"trace_root": "sha256:" + "4" * 64,
                               "package_sha256": "a" * 64})
-        self.assertEqual(nivel_del_recibo(firmar_recibo(r, clave=_CLAVE, key_id="k1")), "A2")
-        self.assertEqual(nivel_del_recibo(sobre_in_toto(r, clave=_CLAVE, key_id="k1")), "A2")
+        self.assertEqual(nivel_del_recibo(firmar_recibo(r, clave=_CLAVE, key_id="k1"), clave=_CLAVE), "A2")
+        self.assertEqual(nivel_del_recibo(sobre_in_toto(r, clave=_CLAVE, key_id="k1"), clave=_CLAVE), "A2")
 
 
 class LoQueNoSeInterpretaAMediasTest(unittest.TestCase):

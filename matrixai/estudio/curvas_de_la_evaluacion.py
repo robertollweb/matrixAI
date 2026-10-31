@@ -79,6 +79,7 @@ __all__ = [
     "MINIMO_DE_TRAMOS_PARA_EL_ECE",
     "PUNTOS_DE_LA_CURVA_PR",
     "VERSION_DE_LAS_CURVAS",
+    "calibracion_de_las_curvas",
     "curva_pr",
     "curva_roc",
     "curvas_de_la_evaluacion",
@@ -379,6 +380,53 @@ def curvas_de_la_evaluacion(muestra: Muestra, *, recalibracion: RecalibracionLog
     else:
         _regresion(muestra, salida, n_tramos, minimo_de_filas)
     return salida
+
+
+def _motivo_bilingue(valor: Any) -> dict[str, str] | None:
+    """`{es, en}` con las dos frases, o `None`: un motivo a medias no se enseña como si estuviera entero."""
+    if isinstance(valor, dict) and all(isinstance(valor.get(i), str) and valor[i].strip() for i in ("es", "en")):
+        return {"es": valor["es"], "en": valor["en"]}
+    return None
+
+
+def calibracion_de_las_curvas(curvas: Any) -> dict[str, Any]:
+    """Lo que el ESTUDIO sabe de la calibración, leído de SUS curvas (141) — el único sitio que lo decide.
+
+    Lo leen el expediente (`manifiesto_de_estudio` → ficha TRIPOD y mapa PROBAST) y el Informe Vivo del Studio: dos sitios
+    leyendo la misma pieza acabarían divergiendo, y el expediente decía «no se ha medido la calibración» con el estudio
+    habiéndola medido (Ola 2, 30-10). Es la fiabilidad de `curva`, o sea la de las probabilidades que entrega el estudio
+    (recalibradas si hubo recalibración: `escala`). `estado`:
+
+    * `medido` — hay ECE: `ece`, `tramos` (con cifra), `n_bins`, `metodo_de_bins`, `tipo` (`clase_positiva` | `clase_predicha`),
+      `escala`, `filas` y `positivos` (solo en binaria: en multiclase no hay clase positiva y no se inventa);
+    * `no_medido` — la fiabilidad se intentó y el ECE no salió (pocos tramos con cifra, pocas filas, sin probabilidades…):
+      `clave` y `motivo` (`{es, en}`) tal como los dio el núcleo;
+    * `no_aplica` — la tarea no tiene calibración (una regresión): también con su `motivo`;
+    * `sin_curvas` — el estudio no trae las curvas (es anterior al 141, o no se pudieron calcular): **no figura en esta
+      exportación, y no se sabe si se midió**. NO es «no medido».
+    """
+    if not isinstance(curvas, dict) or not curvas.get("disponible"):
+        return {"estado": "sin_curvas"}
+    fiabilidad = curvas.get("fiabilidad")
+    if not isinstance(fiabilidad, dict):
+        return {"estado": "sin_curvas"}
+    if not fiabilidad.get("disponible"):
+        clave = fiabilidad.get("clave")
+        return {"estado": "no_aplica" if clave == "no_aplica_a_la_tarea" else "no_medido",
+                "clave": clave if isinstance(clave, str) else None, "motivo": _motivo_bilingue(fiabilidad.get("motivo"))}
+    curva = fiabilidad.get("curva") if isinstance(fiabilidad.get("curva"), dict) else {}
+    prueba = curvas.get("prueba") if isinstance(curvas.get("prueba"), dict) else {}
+    ece = curva.get("ece")
+    if isinstance(ece, (int, float)) and not isinstance(ece, bool) and math.isfinite(ece):
+        medido: dict[str, Any] = {
+            "estado": "medido", "ece": float(ece), "tramos": curva.get("ece_tramos_con_cifra"), "n_bins": curva.get("n_bins"),
+            "metodo_de_bins": curva.get("metodo_de_bins"), "tipo": fiabilidad.get("tipo"), "escala": fiabilidad.get("escala"),
+            "filas": prueba.get("filas")}
+        if prueba.get("positivos") is not None and fiabilidad.get("tipo") == "clase_positiva":
+            medido["positivos"] = prueba["positivos"]
+        return medido
+    return {"estado": "no_medido", "clave": curva.get("ece_clave"),
+            "motivo": _motivo_bilingue(curva.get("ece_motivo")) or _motivo_bilingue(curva.get("no_definido"))}
 
 
 #: La causa de una recalibración que no se pudo ajustar → la clave de su frase (`curvas_de_la_evaluacion_textos`).

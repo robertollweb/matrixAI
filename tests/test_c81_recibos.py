@@ -77,13 +77,13 @@ class ElNIVELDiceLoQueElReciboSOSTIENETest(unittest.TestCase):
 
     def test_firmado_es_A1(self):
         firmado = firmar_recibo(_recibo(), clave=_CLAVE, key_id="k1")
-        self.assertEqual(nivel_del_recibo(firmado), "A1")
+        self.assertEqual(nivel_del_recibo(firmado, clave=_CLAVE), "A1")
 
     def test_con_evidencias_reproducibles_es_A2(self):
         firmado = firmar_recibo(
             _recibo(evidence={"reproduce": {"package_sha256": "b" * 64}}),
             clave=_CLAVE, key_id="k1")
-        self.assertEqual(nivel_del_recibo(firmado), "A2")
+        self.assertEqual(nivel_del_recibo(firmado, clave=_CLAVE), "A2")
 
     def test_una_RAIZ_DE_TRAZA_no_basta_para_A2(self):
         """Encontrado al emitir recibos desde el motor (81-C3): TODO
@@ -94,7 +94,7 @@ class ElNIVELDiceLoQueElReciboSOSTIENETest(unittest.TestCase):
         firmado = firmar_recibo(
             _recibo(evidence={"trace_root": "run-1", "runtime": "matrixai"}),
             clave=_CLAVE, key_id="k1")
-        self.assertEqual(nivel_del_recibo(firmado), "A1")
+        self.assertEqual(nivel_del_recibo(firmado, clave=_CLAVE), "A1")
 
     def test_lo_que_NO_se_reconoce_como_reproducible_tampoco_sube_el_nivel(self):
         """Fallo cerrado: un campo inventado dentro de `evidence` no
@@ -102,14 +102,14 @@ class ElNIVELDiceLoQueElReciboSOSTIENETest(unittest.TestCase):
         firmado = firmar_recibo(
             _recibo(evidence={"parece_una_evidencia": {"algo": 1}}),
             clave=_CLAVE, key_id="k1")
-        self.assertEqual(nivel_del_recibo(firmado), "A1")
+        self.assertEqual(nivel_del_recibo(firmado, clave=_CLAVE), "A1")
 
     def test_A3_y_A4_estan_RESERVADOS_y_no_se_alcanzan(self):
         """Reservado significa que nadie puede declararlos todavía. Si un
         recibo pudiera decir A4 sin prueba criptográfica, el nivel dejaría
         de significar nada."""
         firmado = firmar_recibo(_recibo(assurance_level="A4"), clave=_CLAVE, key_id="k1")
-        self.assertIn(nivel_del_recibo(firmado), ("A1", "A2"))
+        self.assertIn(nivel_del_recibo(firmado, clave=_CLAVE), ("A1", "A2"))
         self.assertEqual(NIVELES[-2:], ("A3", "A4"))
 
 
@@ -213,18 +213,18 @@ class LoQueElREFUTADOREncontroTest(unittest.TestCase):
         que `nivel_del_recibo` existe para impedir."""
         firmado = firmar_recibo(_recibo(evidence={"package_sha256": True}),
                                 clave=_CLAVE, key_id="k1")
-        self.assertEqual(nivel_del_recibo(firmado), "A1")
+        self.assertEqual(nivel_del_recibo(firmado, clave=_CLAVE), "A1")
 
     def test_ni_una_cadena_que_no_es_un_DIGEST(self):
         firmado = firmar_recibo(_recibo(evidence={"package_sha256": "si"}),
                                 clave=_CLAVE, key_id="k1")
-        self.assertEqual(nivel_del_recibo(firmado), "A1")
+        self.assertEqual(nivel_del_recibo(firmado, clave=_CLAVE), "A1")
 
     def test_ni_una_referencia_VACIA(self):
         """Un `{}` es tan poco reproducible como la ausencia."""
         firmado = firmar_recibo(_recibo(evidence={"replay_reference": {}}),
                                 clave=_CLAVE, key_id="k1")
-        self.assertEqual(nivel_del_recibo(firmado), "A1")
+        self.assertEqual(nivel_del_recibo(firmado, clave=_CLAVE), "A1")
 
     def test_pero_una_evidencia_QUE_SE_PUEDE_SEGUIR_sigue_dando_A2(self):
         """El otro lado, que es el que se rompe al apretar: arreglar un
@@ -236,4 +236,4 @@ class LoQueElREFUTADOREncontroTest(unittest.TestCase):
             with self.subTest(evidencia=evidencia):
                 firmado = firmar_recibo(_recibo(evidence=evidencia),
                                         clave=_CLAVE, key_id="k1")
-                self.assertEqual(nivel_del_recibo(firmado), "A2")
+                self.assertEqual(nivel_del_recibo(firmado, clave=_CLAVE), "A2")

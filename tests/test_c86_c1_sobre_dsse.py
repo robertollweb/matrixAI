@@ -380,7 +380,7 @@ class ElBASE64NoEsUnaFIRMATest(unittest.TestCase):
         sobre = firmar_recibo(_recibo(), clave=_CLAVE, key_id="k1")
         self.assertTrue(verificar_recibo(sobre, clave=_CLAVE)["ok"])
         self.assertTrue(verificar_sobre(sobre, clave=_CLAVE)["ok"])
-        self.assertEqual(nivel_del_recibo(sobre), "A1")
+        self.assertEqual(nivel_del_recibo(sobre, clave=_CLAVE), "A1")
 
 
 if __name__ == "__main__":

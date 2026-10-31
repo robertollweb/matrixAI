@@ -437,7 +437,7 @@ class ElReciboDiceLoQueLaTrazaVIOTest(unittest.TestCase):
     def test_se_puede_firmar_y_alcanza_A1(self):
         recibo = emitir_recibo(self._ok(), pipeline=_pipeline(), receipt_id="r-1")
         sobre = firmar_recibo(recibo, clave=b"secreta", key_id="k1")
-        self.assertEqual(nivel_del_recibo(sobre), "A1")
+        self.assertEqual(nivel_del_recibo(sobre, clave=b"secreta"), "A1")
 
     def test_un_pipeline_CORTADO_no_pasa_por_uno_entero(self):
         def rompe(*, entradas, nodo, contexto):

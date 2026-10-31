@@ -1801,7 +1801,10 @@ def _cmd_receipt(args) -> int:
             # aprobado si no se dice que no lo es. Y solo cuando NO se
             # comprobó: decirlo sobre una firma que se comprobó y se
             # rechazó era el etiquetado falso de H6.
-            _nivel += "  (lo que el recibo SOSTIENE; la firma no se ha comprobado)"
+            _nivel += "  (la firma no se ha comprobado: sin clave no se puede sostener más"
+            if informe.get("assurance_if_signature_holds"):
+                _nivel += f"; si valiera, sería {informe['assurance_if_signature_holds']}"
+            _nivel += ")"
         print(f"assurance: {_nivel}")
         print(f"verified:  {', '.join(informe['verified']) or '(nada)'}")
         if informe.get("signature_checked") and not informe.get("signature_valid"):
@@ -3610,7 +3613,7 @@ def _cmd_attest(args) -> int:
             print("Error: --key must be hex", file=sys.stderr)
             return 2
         salida = firmar_recibo(recibo, clave=clave, key_id=args.key_id)
-        nivel = nivel_del_recibo(salida)
+        nivel = nivel_del_recibo(salida, clave=clave)
         if getattr(args, "in_toto", False):
             from matrixai.pipelines.receipt import sobre_in_toto  # noqa: PLC0415
             sobres_extra["in_toto"] = sobre_in_toto(

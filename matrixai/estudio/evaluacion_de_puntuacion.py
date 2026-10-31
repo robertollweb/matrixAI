@@ -1644,7 +1644,7 @@ def _evaluar_puntuacion(
                      umbrales_de_decision, nombre_del_fichero, actor, creado_en)
     sobre = firmar_recibo(recibo, clave=clave, key_id=id_de_clave) if clave is not None else None
     return ResultadoDeEvaluacion(informe=informe, recibo=recibo, sobre=sobre,
-                                 nivel_de_garantia=nivel_del_recibo(sobre or recibo))
+                                 nivel_de_garantia=nivel_del_recibo(sobre or recibo, clave=clave))
 
 
 # ---------------------------------------------------------------------------

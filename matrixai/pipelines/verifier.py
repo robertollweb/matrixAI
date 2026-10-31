@@ -29,6 +29,7 @@ from typing import Any
 
 from matrixai.pipelines.receipt import (
     nivel_del_recibo,
+    nivel_si_la_firma_vale,
     payload_del_sobre,
     verificar_recibo,
 )
@@ -192,6 +193,7 @@ def verificar_sobre(sobre: Any, *, clave: bytes | None) -> dict[str, Any]:
                 # Los mismos campos que la salida normal: quien encadene
                 # esto en un guion no puede encontrarse un informe con la
                 # mitad de las claves según por dónde salga.
+                "assurance_if_signature_holds": None,
                 "assurance_is_claimed_not_checked": False,
                 "signature_checked": False,
                 "signature_valid": False,
@@ -245,18 +247,28 @@ def verificar_sobre(sobre: Any, *, clave: bytes | None) -> dict[str, Any]:
         "no hay raíces de confianza decididas: no se puede comprobar que la "
         "clave sea de quien dice ser")
 
-    nivel = nivel_del_recibo(sobre) if not problemas else "A0"
+    # EL NIVEL NO PROMETE MÁS QUE LA VERIFICACIÓN (inventario de la Ola 2). Con la
+    # firma comprobada y buena, el que el recibo lleva; sin clave —«no se pudo
+    # comprobar» no es A1— A0, y lo que sería SI la firma valiera, aparte y con
+    # su nombre. Con un problema (incluida una firma mala), A0.
+    nivel = nivel_del_recibo(sobre, clave=clave) if not problemas else "A0"
+    nivel_si_valiera = (nivel_si_la_firma_vale(sobre)
+                        if not problemas and not firma_comprobada else None)
     return {
         "ok": not problemas,
         "verified": verificado,
         "unverified": sin_verificar,
         "problems": problemas,
-        # DEDUCIDO, nunca el que el recibo se atribuya.
+        # DEDUCIDO, nunca el que el recibo se atribuya, y CON LA FIRMA COMPROBADA:
+        # sin clave es A0, no el A1 que «lleva firma» prometía.
         "assurance_level": nivel,
-        # Y el nivel dice lo que el recibo SOSTIENE, no lo que se ha
-        # comprobado en esta pasada: sin clave, un A1 significa «lleva
-        # firma», no «la firma es buena». Sin esta línea, un `assurance:
-        # A1` con la firma sin verificar se lee como un aprobado.
+        # Lo que el recibo sostendría si la firma valiera (`None` si no aplica).
+        # NO es una garantía: está aquí para que «A0» sin clave no se lea como
+        # «sin firmar» cuando el sobre sí lleva firma.
+        "assurance_if_signature_holds": nivel_si_valiera,
+        # La firma no se ha comprobado en esta pasada: el nivel de arriba no se
+        # puede leer como un aprobado de la firma. (El nombre es de cuando sin
+        # clave se decía A1; se conserva porque quien encadene esto lo lee.)
         "assurance_is_claimed_not_checked": not firma_comprobada,
         # Y QUÉ le pasó a la firma, sin colapsar: «no se pidió» no es
         # «falló», y quien encadene esto en un script necesita

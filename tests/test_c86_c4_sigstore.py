@@ -102,14 +102,14 @@ class SigstoreNoSubeElNivelTest(unittest.TestCase):
 
     def test_un_recibo_sin_evidencia_reproducible_sigue_siendo_A1(self):
         sobre = firmar_recibo(self._recibo(), clave=b"k", key_id="k1")
-        self.assertEqual(nivel_del_recibo(sobre), "A1")
+        self.assertEqual(nivel_del_recibo(sobre, clave=b"k"), "A1")
 
     def test_y_con_ella_es_A2_por_LA_EVIDENCIA_no_por_la_firma(self):
         sobre = firmar_recibo(
             self._recibo(evidence={"trace_root": "sha256:" + "4" * 64,
                                    "package_sha256": "a" * 64}),
             clave=b"k", key_id="k1")
-        self.assertEqual(nivel_del_recibo(sobre), "A2")
+        self.assertEqual(nivel_del_recibo(sobre, clave=b"k"), "A2")
 
     def test_el_modulo_lo_deja_ESCRITO(self):
         """Un límite que solo vive en la cabeza de quien lo escribió se pierde

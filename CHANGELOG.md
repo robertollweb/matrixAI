@@ -7,6 +7,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **`nivel_del_recibo` no promete más que `verificar_recibo`.** It used to look at whether the envelope *carried* signatures,
+  not whether they were *valid*: a garbage signature (`sig: "AAAA"`) came out as **A1** while `verificar_recibo` rejected it.
+  `nivel_del_recibo(x, *, clave=None)` now checks the HMAC with `verificar_recibo` itself (same criterion, not a copy) and
+  gives **A0** if it does not hold. **Without the key it is A0 too** — "could not be checked" is not A1. Callers that sign
+  (CLI `attest`, `evaluar_puntuacion`, the Studio) pass the key they hold. `matrixai receipt verify` without `--key` now
+  reports `assurance_level: A0` and, apart and by name, `assurance_if_signature_holds: A1` (the new public
+  `nivel_si_la_firma_vale` — what the receipt would hold *if* the signature were good; it is not a guarantee). A Sigstore
+  envelope is not checked here (needs the library, an OIDC identity and the network) and stays as it was. **Behaviour change**:
+  code that called `nivel_del_recibo(sobre)` with one argument on a signed envelope now gets A0; pass `clave=`.
+- **The dossier of a study says the calibration the study measured.** The TRIPOD card and PROBAST map read `clinical_profile.json`,
+  which a study does not carry, so they said "calibration was not measured" over a study whose evaluation curves (141) carried
+  its ECE. `manifiesto_de_estudio` takes `curvas_de_la_evaluacion` and writes `study.evaluation_calibration` (read with the new
+  `calibracion_de_las_curvas`, the same function the Living Report uses). The dossier now tells three things apart: **measured**
+  (the ECE, over how many test rows and bins, and whether the probabilities are recalibrated), **not measured / not applicable**
+  (the core's reason; a regression has no calibration) and **not in this export** (a study without curves: it is not known
+  whether it was measured, which is not the same as "it was not measured"). Multiclass reads as the confidence of the predicted
+  class, with no invented positive class.
+
 ## [1.20.0] — 2026-10-30
 
 A study can now be examined the way the data were collected: between subjects it has never seen (`groups`) or forward in
