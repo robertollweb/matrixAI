@@ -298,6 +298,92 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "{partes}): groups of {campo} are never split and the test must carry every class, and this is the "
               "closest split found (the largest group in the test, {grupo}, has {minimo} rows)",
     },
+
+    # -- 140b-C1: «por sujeto y por el tiempo» estricto ----------------------
+    "estricto_sin_sujetos_con_filas_posteriores": {
+        "es": "con el corte en {tiempo} = {corte} y un hueco de {hueco}, ningún valor de {unidad} tiene filas "
+              "posteriores (el último {tiempo} es {ultimo}): este reparto elige los sujetos de prueba entre los que "
+              "tienen filas después del corte, y aquí no hay ninguno. Mueve el corte hacia atrás o quita el hueco",
+        "en": "with the cut at {tiempo} = {corte} and a gap of {hueco}, no value of {unidad} has later rows (the last "
+              "{tiempo} is {ultimo}): this split picks the test subjects among those with rows after the cut, and "
+              "there are none. Move the cut earlier or remove the gap",
+    },
+    "estricto_prueba_con_pocas_unidades": {
+        "es": "la prueba tendría {valor} valor(es) de {unidad} y hacen falta al menos {minimo}: con menos sujetos la "
+              "nota depende de quiénes hayan caído en la prueba más que del modelo. Se probaron {n} cortes y ninguno "
+              "llegó (el mejor deja {filas} filas de prueba; hay {elegibles} sujeto(s) con filas posteriores al corte)",
+        "en": "the test would have {valor} value(s) of {unidad} and at least {minimo} are needed: with fewer subjects "
+              "the score depends on who landed in the test more than on the model. {n} cuts were tried and none "
+              "reached it (the best leaves {filas} test rows; {elegibles} subject(s) have rows after the cut)",
+    },
+    "estricto_prueba_con_pocas_filas": {
+        "es": "la prueba tendría {valor} fila(s), de {partes} valor(es) de {unidad}, y hacen falta al menos {minimo}. "
+              "Se probaron {n} cortes y ninguno llegó",
+        "en": "the test would have {valor} row(s), from {partes} value(s) of {unidad}, and at least {minimo} are "
+              "needed. {n} cuts were tried and none reached it",
+    },
+    "estricto_clase_en_pocos_sujetos_de_prueba": {
+        "es": "la clase {clase} estaría en {valor} valor(es) de {unidad} de la prueba y hacen falta al menos "
+              "{minimo}: con menos, lo que se mide de esa clase depende de una sola persona. Entre los sujetos con "
+              "filas posteriores al corte, {partes} la traen. Se probaron {n} cortes y ninguno llegó",
+        "en": "class {clase} would be in {valor} value(s) of {unidad} in the test and at least {minimo} are needed: "
+              "with fewer, what is measured for that class depends on a single person. Among the subjects with rows "
+              "after the cut, {partes} have it. {n} cuts were tried and none reached it",
+    },
+    "estricto_desarrollo_sin_clase": {
+        "es": "el desarrollo ({filas} filas) no tiene ninguna fila de la clase {clase}: los sujetos que la traen están "
+              "en la prueba o sus filas son posteriores al corte. Un modelo que no ha visto una clase no aprende a "
+              "reconocerla: el estudio no arranca",
+        "en": "development ({filas} rows) has no row of class {clase}: the subjects that have it are in the test or "
+              "their rows come after the cut. A model that has never seen a class does not learn to recognise it: "
+              "the study does not start",
+    },
+    "estricto_desarrollo_vacio": {
+        "es": "con este reparto el desarrollo tiene {filas} fila(s) de {valor} valor(es) de {unidad} y hacen falta "
+              "al menos {minimo}: los demás sujetos solo tienen filas posteriores al corte",
+        "en": "with this split development has {filas} row(s) from {valor} value(s) of {unidad} and at least "
+              "{minimo} are needed: the other subjects only have rows after the cut",
+    },
+    "estricto_filas_descartadas": {
+        "es": "este reparto deja fuera {valor} de {n} filas ({porcentaje} %): las de los sujetos de prueba anteriores "
+              "al corte, las de los demás sujetos posteriores al corte y las que caen en el hueco. Ningún sujeto "
+              "queda a los dos lados, y la prueba es posterior al desarrollo",
+        "en": "this split leaves out {valor} of {n} rows ({porcentaje} %): the test subjects' rows before the cut, "
+              "the other subjects' rows after the cut, and those inside the gap. No subject is on both sides, and "
+              "the test comes after development",
+    },
+    "estricto_corte_relajado": {
+        "es": "se pidió una prueba con el {pedida} % de los sujetos y el corte en el cuantil {cuantil_pedido}, y no "
+              "cumplía los mínimos de la prueba: se usa el {usada} % de los sujetos y el cuantil {cuantil_usado}",
+        "en": "a test with {pedida} % of the subjects and the cut at quantile {cuantil_pedido} was requested and it "
+              "did not meet the test minimums: {usada} % of the subjects and quantile {cuantil_usado} are used",
+    },
+    "estricto_pliegues_reducidos": {
+        "es": "se pidieron {pedidos} pliegues y el último tramo del desarrollo solo permite {usados}: con más, algún "
+              "pliegue se quedaría con menos de {minimo} filas de validación o sin una clase",
+        "en": "{pedidos} folds were requested and the last stretch of development only allows {usados}: with more, "
+              "some fold would have fewer than {minimo} validation rows or no row of some class",
+    },
+    "estricto_pliegues_por_sujeto_por_pocas_filas": {
+        "es": "el desarrollo tiene {filas} filas, menos de {minimo}: los pliegues se hacen por sujeto sin mirar el "
+              "tiempo. La prueba reservada sí es posterior al corte",
+        "en": "development has {filas} rows, fewer than {minimo}: folds are made by subject without looking at time. "
+              "The reserved test does come after the cut",
+    },
+    "estricto_pliegues_por_sujeto_por_ventana_vacia": {
+        "es": "el último {fraccion} % de las filas del desarrollo no deja, ni con {pliegues} pliegues, validaciones "
+              "con al menos {minimo} filas y todas las clases: los pliegues se hacen por sujeto sin mirar el tiempo. "
+              "La prueba reservada sí es posterior al corte",
+        "en": "the last {fraccion} % of development's rows does not leave, even with {pliegues} folds, validations "
+              "with at least {minimo} rows and every class: folds are made by subject without looking at time. The "
+              "reserved test does come after the cut",
+    },
+    "estricto_unidad_dominante_en_la_prueba": {
+        "es": "el valor {dominante} de {unidad} aporta el {porcentaje} % de las filas de la prueba: lo que se mide "
+              "depende sobre todo de ese sujeto",
+        "en": "the value {dominante} of {unidad} contributes {porcentaje} % of the test rows: what is measured "
+              "depends mostly on that subject",
+    },
 }
 
 
