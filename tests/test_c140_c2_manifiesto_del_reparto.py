@@ -77,6 +77,7 @@ class TestManifiestoDelReparto:
     @pytest.mark.parametrize("malo", [
         # Reparación del I1 (auditoría del C2/C3): un hueco 0 ya NO es malo (ver `test_un_hueco_cero_es_valido…`); negativo,
         # NaN e infinito, sí.
+        # `groups_and_time` sin su sobre `estricto` (140b-C2b: el diseño ya se admite, pero no sin declarar lo que hizo)
         {"diseno": "groups_and_time"}, {"diseno": "otro"}, {"diseno": "temporal", "gap": {"magnitud": -1, "unidad": "days"}},
         {"diseno": "temporal", "gap": {"magnitud": float("nan"), "unidad": "days"}},
         {"diseno": "temporal", "gap": {"magnitud": float("inf"), "unidad": "days"}},
@@ -99,7 +100,9 @@ class TestManifiestoDelReparto:
         assert m["study"]["split"]["gap_origin"] == "requested"
 
     def test_el_vocabulario_es_el_que_mide_el_studio(self):
-        assert DISENOS_DEL_REPARTO == ("iid", "groups", "temporal")
+        # 140b-C2b: `groups_and_time` (el reparto estricto) entra, y solo con su sobre `estricto` (ver
+        # `test_c140b_c2b_manifiesto_estricto.py`).
+        assert DISENOS_DEL_REPARTO == ("iid", "groups", "temporal", "groups_and_time")
 
 
 class TestElTextoDelReparto:

@@ -333,7 +333,7 @@ class ExpedienteClinico:
                 lineas.append(FUENTE_EN_ESTUDIO)
                 continue
             if evidencia.clave == "filas":
-                lineas.append(FILAS_DEL_ESTUDIO)
+                lineas.append(self.filas_del_estudio)
                 lineas.extend(self.reparto_del_estudio())
                 # 140-C2: CÓMO se repartieron las filas del examen (por filas al azar, por sujeto, por el tiempo), con sus
                 # columnas, el hueco y lo que no tiene predicción fuera de pliegue. Solo si el estudio lo declaró: uno anterior
@@ -379,9 +379,23 @@ class ExpedienteClinico:
         bloque = ((self._contenido.get("reproduce.json") or {}).get("study") or {}).get("split")
         return bloque if isinstance(bloque, dict) else None
 
+    @property
+    def reparto_estricto(self) -> dict[str, Any] | None:
+        """`study.split.strict` (140b-C2: el corte, las filas sin rol, los pliegues y el intervalo de un reparto por sujeto y por
+        el tiempo), o `None`: solo lo trae un estudio `groups_and_time`."""
+        bloque = (self.diseno_del_reparto or {}).get("strict")
+        return bloque if isinstance(bloque, dict) else None
+
+    @property
+    def filas_del_estudio(self) -> "Evidencia":
+        """La línea de `artifacts.dataset.rows` de un estudio. Con un reparto estricto (140b-C2) esa cifra YA NO es desarrollo +
+        prueba reservada: la diferencia son las filas sin rol, y el rótulo lo dice (la cifra de ellas, en `FILAS_SIN_ROL`)."""
+        return FILAS_DEL_ESTUDIO_CON_FILAS_SIN_ROL if self.reparto_estricto is not None else FILAS_DEL_ESTUDIO
+
     def reparto_del_estudio(self) -> tuple["Evidencia", ...]:
         """Las líneas del reparto de las filas de un estudio: las tres de siempre y, si el estudio contó la cola de
-        parada temprana (139-C2), la cola. Tras `filas_que_entrenaron_el_modelo`, que es de donde sale su resta."""
+        parada temprana (139-C2), la cola. Tras `filas_que_entrenaron_el_modelo`, que es de donde sale su resta. Con un reparto
+        estricto (140b-C2), al final, las filas sin rol."""
         lineas = list(REPARTO_DEL_ESTUDIO)
         reparto = (self._contenido.get("reproduce.json") or {}).get("study", {}).get("rows")
         if isinstance(reparto, dict) and "early_stopping_tail" in reparto:
@@ -391,6 +405,8 @@ class ExpedienteClinico:
             lineas.append(COLA_DE_UNA_RED_CON_EPOCAS_FIJAS
                           if red is not None and red.get("early_stopping_tail_decides") is False
                           else COLA_DE_PARADA_TEMPRANA)
+        if self.reparto_estricto is not None:
+            lineas.append(FILAS_SIN_ROL)
         return tuple(lineas)
 
     @property
@@ -848,6 +864,15 @@ FILAS_DEL_ESTUDIO = _e(
     "el manifiesto no registra el tamaño del dataset",
     "the manifest records no dataset size")
 
+#: La MISMA línea en un reparto estricto (140b-C2, `groups_and_time`): el conjunto ya no es desarrollo + prueba reservada. Hay filas
+#: SIN ROL —ni de desarrollo ni de prueba—, y sumar las dos líneas de abajo no da esta cifra. Misma clave y ruta; el rótulo que es verdad.
+FILAS_DEL_ESTUDIO_CON_FILAS_SIN_ROL = _e(
+    "filas", "participantes", "reproduce.json#artifacts.dataset.rows",
+    "Filas del conjunto de datos (desarrollo, prueba reservada y filas sin rol)",
+    "Dataset rows (development, holdout test and rows without a role)",
+    "el manifiesto no registra el tamaño del dataset",
+    "the manifest records no dataset size")
+
 #: La fuente de los datos en un estudio. `generation.mode` es el modo del GENERADOR sintético, y su motivo de siempre («no
 #: declara con qué modo se generó») junto a «Modo del estudio: rápido» se leía como una contradicción: un estudio entrena
 #: con el CSV de quien lo trae, y lo que falta es de dónde salió ese CSV.
@@ -876,6 +901,15 @@ REPARTO_DEL_ESTUDIO: tuple[Evidencia, ...] = (
        "Filas que entrenaron el modelo entregado", "Rows that trained the delivered model",
        _SIN_REPARTO_ES, _SIN_REPARTO_EN),
 )
+
+#: LAS FILAS SIN ROL de un reparto estricto (140b-C2): ni desarrollo ni prueba reservada. No eligen, no entrenan y no se miden. Es la
+#: diferencia entre `artifacts.dataset.rows` y desarrollo + prueba. Solo va si el estudio repartió por sujeto y por el tiempo.
+FILAS_SIN_ROL = _e(
+    "filas_sin_rol", "participantes", "reproduce.json#study.split.strict",
+    "Filas sin rol (ni desarrollo ni prueba reservada: no eligen, no entrenan y no se miden)",
+    "Rows without a role (neither development nor holdout test: they do not select, train or get measured)",
+    _SIN_REPARTO_ES, _SIN_REPARTO_EN,
+    "filas_sin_rol")
 
 #: La cola con la que el modelo entregado decide cuándo parar (139-C2): filas de DESARROLLO que no entrenan. Solo va en el
 #: inventario si el estudio la contó (`study.rows.early_stopping_tail`): un estudio guardado antes del 139 no la trae, y un
@@ -1164,8 +1198,20 @@ def _texto_del_reparto(bloque: dict[str, Any], idioma: str) -> str:
                   f"«{columna_de_tiempo}»" if columna_de_tiempo else "hacia delante en el tiempo (temporal)") if es else
                  (f"forward in time (temporal): trained on the past and measured on the future, column "
                   f"“{columna_de_tiempo}”" if columna_de_tiempo else "forward in time (temporal)"))
+    elif diseno == "groups_and_time":
+        # 140b-C2: el reparto ESTRICTO. Sujeto Y tiempo a la vez; lo que añade (corte, filas sin rol, pliegues, intervalo) va aparte.
+        columnas = ((f" (sujeto: «{columna_de_sujeto}»; tiempo: «{columna_de_tiempo}»)" if es
+                     else f" (subject: “{columna_de_sujeto}”; time: “{columna_de_tiempo}”)")
+                    if columna_de_sujeto and columna_de_tiempo else "")
+        texto = (("por sujeto y por el tiempo (groups_and_time): el examen se hace con sujetos que el modelo no vio y con filas "
+                  "posteriores al corte" if es else
+                  "by subject and by time (groups_and_time): the exam uses subjects the model did not see and rows after the cut")
+                 + columnas)
     else:
         texto = str(diseno)
+    estricto = bloque.get("strict")
+    if diseno == "groups_and_time" and isinstance(estricto, dict):
+        texto += _texto_del_reparto_estricto(estricto, idioma)
     gap = bloque.get("gap")
     if isinstance(gap, dict) and gap.get("magnitude") is not None:
         # M5 de la auditoría del C2/C3: «1 día», no «1 días» (y «1 day», no «1 days»).
@@ -1202,6 +1248,73 @@ def _texto_del_reparto(bloque: dict[str, Any], idioma: str) -> str:
         if dicho:
             texto += f"; {dicho}"
     return texto
+
+
+def _porcentaje_sin_ceros(valor: Any) -> str | None:
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        return None
+    return f"{valor:g}"
+
+
+def _texto_del_reparto_estricto(e: dict[str, Any], idioma: str) -> str:
+    """140b-C2 — lo que declara `study.split.strict`, en el idioma pedido y solo lo que trae: el corte, la cuota de sujetos y el
+    cuantil (lo pedido y, si la escalera lo cambió, lo usado), los pliegues y el intervalo. Las filas sin rol van en su propia
+    línea (`_texto_de_las_filas_sin_rol`) y aquí en una frase corta, para que el diseño no se lea sin ellas. SIN cobertura del
+    intervalo: la decide Roberto."""
+    es = idioma == "es"
+    texto = ""
+    if e.get("cut_readable"):
+        texto += (f"; corte en el tiempo: {e['cut_readable']}" if es else f"; cut in time: {e['cut_readable']}")
+    cuota, cuantil = e.get("subject_fraction"), e.get("quantile")
+    if isinstance(cuota, dict) and isinstance(cuantil, dict):
+        pedida, usada = _porcentaje_sin_ceros(100 * cuota["requested"]), _porcentaje_sin_ceros(100 * cuota["used"])
+        q_pedido, q_usado = _numero(cuantil["requested"]), _numero(cuantil["used"])
+        if (cuota["requested"], cuantil["requested"]) == (cuota["used"], cuantil["used"]):
+            texto += (f"; sujetos de prueba: el {usada} % de los sujetos, con el corte en el cuantil {q_usado} del tiempo" if es
+                      else f"; test subjects: {usada}% of the subjects, with the cut at the {q_usado} quantile of time")
+        else:
+            texto += (f"; sujetos de prueba: se pidió el {pedida} % con el corte en el cuantil {q_pedido} y se usó el {usada} % "
+                      f"con el cuantil {q_usado}" if es else
+                      f"; test subjects: {pedida}% with the cut at the {q_pedido} quantile was requested and {usada}% with the "
+                      f"{q_usado} quantile was used")
+    if isinstance(e.get("discarded_rows"), int) and not isinstance(e.get("discarded_rows"), bool):
+        texto += _texto_corto_de_las_filas_sin_rol(e, es)
+    tipo = e.get("fold_type")
+    if tipo == "by_subject_and_last_stretch":
+        texto += ("; pliegues por sujeto y por el último tramo de tiempo del desarrollo" if es
+                  else "; folds by subject and by the last time stretch of development")
+    elif tipo == "by_subject":
+        texto += ("; pliegues solo por sujeto, sin tramo de tiempo (el motivo, en los límites declarados)" if es
+                  else "; folds by subject only, with no time stretch (the reason is in the declared limits)")
+    intervalo = e.get("interval")
+    if isinstance(intervalo, dict) and intervalo.get("conditional_on_the_window") is True:
+        n = _cuenta(intervalo.get("test_units"))
+        con = ((f", con {n} sujetos de prueba" if es else f", with {n} test subjects") if n is not None else "")
+        texto += (f"; intervalo condicional a esta ventana de tiempo (remuestreo por sujeto{con}): dice cuánto varía la nota "
+                  "al elegir otros sujetos DENTRO de esta ventana, no cuánto rendirá en otro periodo" if es else
+                  f"; interval conditional on this time window (resampling by subject{con}): it says how much the score varies "
+                  "when other subjects are chosen WITHIN this window, not how it will perform in another period")
+    return texto
+
+
+def _texto_corto_de_las_filas_sin_rol(e: dict[str, Any], es: bool) -> str:
+    n, pct = e["discarded_rows"], _porcentaje_sin_ceros(e.get("discarded_percentage"))
+    cuanto = f"{n}" + (f" ({pct} %)" if es and pct is not None else f" ({pct}%)" if pct is not None else "")
+    return (f"; {cuanto} filas sin rol (ni de desarrollo ni de prueba)" if es
+            else f"; {cuanto} rows without a role (neither development nor test)")
+
+
+def _texto_de_las_filas_sin_rol(bloque: dict[str, Any], idioma: str) -> str:
+    """140b-C2 — la línea de las filas sin rol de un reparto estricto: cuántas, qué por ciento del conjunto y qué significa."""
+    es = idioma == "es"
+    n, pct = _cuenta(bloque.get("discarded_rows")), _porcentaje_sin_ceros(bloque.get("discarded_percentage"))
+    if n is None:
+        return ""
+    cuanto = f"{n}" + ((f" ({pct} % del conjunto)" if es else f" ({pct}% of the dataset)") if pct is not None else "")
+    return (f"{cuanto}: filas de sujetos del desarrollo posteriores al corte, de sujetos de la prueba anteriores a él, o del "
+            "hueco entre los dos; ni eligen, ni entrenan, ni se miden" if es else
+            f"{cuanto}: rows of development subjects after the cut, of test subjects before it, or from the gap between the "
+            "two; they neither select, train nor get measured")
 
 
 def _texto_del_objetivo_en_la_prueba(o: dict[str, Any], idioma: str) -> str:
@@ -1362,6 +1475,8 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
         return _texto_de_la_calibracion(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "calibracion_medida" and isinstance(valor, dict):
         return _texto_de_la_calibracion_medida(valor, "es" if locale == "es" else "en")
+    if evidencia.resumen == "filas_sin_rol" and isinstance(valor, dict):
+        return _texto_de_las_filas_sin_rol(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "reparto_por_diseno" and isinstance(valor, dict):
         return _texto_del_reparto(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "entrenamiento_de_la_red" and isinstance(valor, dict):

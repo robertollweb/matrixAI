@@ -36,7 +36,6 @@ from matrixai.export.expediente_clinico import (
     DOMINIOS,
     ENTRENAMIENTO_DE_LA_RED,
     ENTRENAMIENTO_DEL_ENTREGADO,
-    FILAS_DEL_ESTUDIO,
     REPARTO_POR_DISENO,
     FUENTE_EN_ESTUDIO,
     FUERA_POR_EL_MODO,
@@ -305,9 +304,13 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
         # UN ESTUDIO NO ENTRENA CON TODAS SUS FILAS: `rows` son las del conjunto (las de la
         # huella) y el reparto, lo que el estudio contó. Rótulos y rutas, los del inventario:
         # la ficha y PROBAST no pueden decir dos cosas de la misma cifra.
-        for evidencia in (FILAS_DEL_ESTUDIO, *expediente.reparto_del_estudio()):
+        for evidencia in (expediente.filas_del_estudio, *expediente.reparto_del_estudio()):
             campo = expediente.campo(evidencia.ruta)
-            filas.append(_linea(evidencia.rotulo[idioma], campo.valor, t["sin_dato"],
+            # Las cifras de siempre, tal cual; solo las filas SIN ROL de un reparto estricto (140b-C2) se escriben (cuántas y qué
+            # por ciento): su ruta es el bloque entero.
+            valor = (texto_del_valor(evidencia, campo, idioma)
+                     if evidencia.resumen != "tal_cual" and campo.hay_dato else campo.valor)
+            filas.append(_linea(evidencia.rotulo[idioma], valor, t["sin_dato"],
                                 evidencia.motivo_si_falta[idioma], evidencia.ruta))
     else:
         filas.append(_linea(t["filas"], (art.get("dataset") or {}).get("rows"),

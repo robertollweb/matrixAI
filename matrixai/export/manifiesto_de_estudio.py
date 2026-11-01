@@ -59,7 +59,13 @@ del 139 no trae nada de esto, y la ficha dice «no disponible»: ni «pliegue 0�
   y lo que se mide) y `gap_origin` (`declared_horizon`: el horizonte del problema, el valor por omisión; `requested`: lo pidió
   la persona), `out_of_fold_coverage` (`development_rows`, `rows_without_validation`: las filas de desarrollo sin predicción
   fuera de pliegue —el primer bloque de una ventana temporal—) y `limits` (lo que el reparto declaró, con su frase en los dos
-  idiomas). Lo que el estudio no dijo se omite: un estudio anterior al 140 no trae el bloque. Y `target_in_development_and_test`
+  idiomas). **`groups_and_time` (140b-C2, el reparto ESTRICTO)** añade `strict`: `cut` y `cut_readable` (el corte), `gap_seconds`,
+  `subject_fraction` y `quantile` (`requested`/`used`: lo pedido y lo que la escalera usó), `cuts_tried`, `development_rows`,
+  `test_rows`, **`discarded_rows` y `discarded_percentage`** (las filas SIN ROL: ni desarrollo ni prueba; las filas del conjunto ya
+  NO son desarrollo + prueba, la diferencia son ellas), `development_units`, `test_units` (números, no nombres), `fold_type`
+  (`by_subject_and_last_stretch` | `by_subject`), `folds`, `last_stretch_start`, `interval` (`method`, `resampling_design`,
+  `resampling_unit`, `conditional_on_the_window`: siempre `true`, `test_units`, `test_window`; SIN cobertura: la decide Roberto) y,
+  si el Studio la trae, `time_column_as_input`. Lo que el estudio no dijo se omite: un estudio anterior al 140 no trae el bloque. Y `target_in_development_and_test`
   (decisión de Roberto del 28-10): la proporción de cada clase (o la media y la desviación típica) del objetivo en el desarrollo y
   en la prueba reservada, el mayor cambio y si `changes_a_lot` con su `criterion`; solo informa.
 * `study.network_training` (reparación de la re-auditoría del 139, I1/I2) — SOLO si el entregado es una red reentrenada con
@@ -120,8 +126,9 @@ __all__ = ["manifiesto_de_estudio", "escribir_manifiesto_de_estudio",
            "MOTIVO_NO_REPRODUCIBLE", "METODOS_DE_CALIBRACION", "DISENOS_DEL_REPARTO"]
 
 #: Cómo pudo repartirse un estudio (140-C2): el vocabulario de `reparto.diseno` del sobre de selección del Studio. Cerrado: un
-#: diseño que no esté aquí no se publica (`groups_and_time` no lo mide el Studio todavía).
-DISENOS_DEL_REPARTO: tuple[str, ...] = ("iid", "groups", "temporal")
+#: diseño que no esté aquí no se publica. `groups_and_time` (140b-C2) es el reparto ESTRICTO del 140b-C1 (sujeto Y tiempo, con filas
+#: sin rol): solo se admite con su sobre `reparto.estricto` (ver `_reparto_estricto`), que no se acepta en ningún otro diseño.
+DISENOS_DEL_REPARTO: tuple[str, ...] = ("iid", "groups", "temporal", "groups_and_time")
 
 #: `reparto.gap_origen` del sobre → `study.split.gap_origin`, en inglés.
 _ORIGEN_DEL_HUECO = {"horizonte_declarado": "declared_horizon", "pedido": "requested"}
@@ -331,6 +338,143 @@ def _reparto_del_estudio(declarado: Mapping[str, Any]) -> dict[str, Any]:
     objetivo = declarado.get("objetivo_en_desarrollo_y_prueba")
     if objetivo is not None:
         bloque["target_in_development_and_test"] = _objetivo_en_desarrollo_y_prueba(objetivo)
+    estricto = declarado.get("estricto")
+    if bloque["design"] == "groups_and_time":
+        # 140b-C2: el reparto estricto SIEMPRE trae su declaración (corte, filas sin rol, pliegues, intervalo) y las dos columnas
+        # que lo definen; sin ellas no se publica un `groups_and_time` que no dice qué hizo.
+        for clave_del_sobre in ("unit_id_field", "time_column"):
+            if declarado.get(clave_del_sobre) is None:
+                raise ReproduceManifestError(f"reparto_del_estudio.{clave_del_sobre} is required for groups_and_time")
+        if estricto is None:
+            raise ReproduceManifestError("reparto_del_estudio.estricto is required for groups_and_time (the strict split "
+                                         "declares its cut, its rows without a role, its folds and its interval)")
+        bloque["strict"] = _reparto_estricto(estricto)
+    elif estricto is not None:
+        raise ReproduceManifestError(f"reparto_del_estudio.estricto only belongs to groups_and_time, got design "
+                                     f"{bloque['design']!r}")
+    return bloque
+
+
+#: Las claves de `reparto.estricto` (`RepartoEstricto.a_json()` del núcleo, con `unidades_de_prueba` como NÚMERO de sujetos, y la
+#: columna de tiempo como entrada que añade el Studio). Cerradas: una clave que no esté aquí no se acepta sin validar.
+_CLAVES_DEL_REPARTO_ESTRICTO = frozenset({
+    "modo", "corte", "corte_legible", "hueco_segundos", "fraccion_de_sujetos_pedida", "cuantil_pedido", "fraccion_de_sujetos",
+    "cuantil", "cortes_probados", "filas_de_desarrollo", "filas_de_prueba", "filas_descartadas", "porcentaje_descartado",
+    "unidades_de_desarrollo", "unidades_de_prueba", "tipo_de_pliegues", "pliegues", "inicio_del_tramo", "intervalo",
+    "columna_de_tiempo_como_entrada"})
+_CLAVES_DEL_INTERVALO_ESTRICTO = frozenset({
+    "metodo", "diseno_de_remuestreo", "unidad_de_remuestreo", "condicional_a_la_ventana", "unidades_de_prueba",
+    "ventana_de_prueba"})
+#: `reparto.estricto.tipo_de_pliegues` → `study.split.strict.fold_type`. F2q: pliegues por sujeto × el último tramo de las filas
+#: de cada sujeto; F1: solo por sujeto (el desarrollo no dio para un tramo de tiempo, y un límite del reparto dice por qué).
+_TIPOS_DE_PLIEGUES = {"por_sujeto_y_ultimo_tramo": "by_subject_and_last_stretch", "por_sujeto": "by_subject"}
+
+
+def _fraccion(valor: Any, nombre: str, *, abierta_por_arriba: bool) -> float:
+    """Un número en (0, 1] (`abierta_por_arriba=False`) o en (0, 1) (`True`)."""
+    numero = _numero_finito(valor, nombre)
+    if not (0 < numero < 1 if abierta_por_arriba else 0 < numero <= 1):
+        raise ReproduceManifestError(f"{nombre} must be in {'(0, 1)' if abierta_por_arriba else '(0, 1]'}, got {valor!r}")
+    return numero
+
+
+def _natural(valor: Any, nombre: str, *, minimo: int) -> int:
+    if type(valor) is not int or valor < minimo:
+        raise ReproduceManifestError(f"{nombre} must be an integer >= {minimo}, got {valor!r}")
+    return valor
+
+
+def _reparto_estricto(estricto: Any) -> dict[str, Any]:
+    """`reparto.estricto` (140b-C2) → `study.split.strict`, validado, en inglés y SIN rellenar nada.
+
+    Es lo que el reparto estricto del 140b-C1 declara de sí mismo: el corte, el hueco, lo pedido y lo USADO de la cuota de sujetos
+    y del cuantil, las filas de cada rol y las **filas sin rol** con su porcentaje, el tipo de pliegues y el intervalo
+    (`condicional_a_la_ventana`: lo único que se afirma de él; su cobertura no se redacta aquí, la decide Roberto). Los números se
+    comprueban entre sí: un porcentaje que no sale de las filas, o un intervalo con otros sujetos de prueba que el reparto, no se
+    publican. Una clave desconocida, tampoco."""
+    nombre = "reparto_del_estudio.estricto"
+    if not isinstance(estricto, Mapping):
+        raise ReproduceManifestError(f"{nombre} must be an object, got {estricto!r}")
+    sobran = sorted(set(estricto) - _CLAVES_DEL_REPARTO_ESTRICTO)
+    faltan = sorted((_CLAVES_DEL_REPARTO_ESTRICTO - {"columna_de_tiempo_como_entrada"}) - set(estricto))
+    if sobran or faltan:
+        raise ReproduceManifestError(f"{nombre} has unknown keys {sobran} / lacks keys {faltan}")
+    if estricto["modo"] != "grupos_y_tiempo_estricto":
+        raise ReproduceManifestError(f"{nombre}.modo must be 'grupos_y_tiempo_estricto', got {estricto['modo']!r}")
+    desarrollo = _natural(estricto["filas_de_desarrollo"], f"{nombre}.filas_de_desarrollo", minimo=1)
+    prueba = _natural(estricto["filas_de_prueba"], f"{nombre}.filas_de_prueba", minimo=1)
+    descartadas = _natural(estricto["filas_descartadas"], f"{nombre}.filas_descartadas", minimo=0)
+    porcentaje = _numero_finito(estricto["porcentaje_descartado"], f"{nombre}.porcentaje_descartado")
+    if porcentaje != round(100 * descartadas / (desarrollo + prueba + descartadas), 1):
+        raise ReproduceManifestError(
+            f"{nombre}.porcentaje_descartado ({porcentaje!r}) does not follow from its rows: {descartadas} without a role out of "
+            f"{desarrollo} development + {prueba} test + {descartadas}")
+    unidades_de_prueba = _natural(estricto["unidades_de_prueba"], f"{nombre}.unidades_de_prueba", minimo=1)
+    tipo = estricto["tipo_de_pliegues"]
+    if tipo not in _TIPOS_DE_PLIEGUES:
+        raise ReproduceManifestError(f"{nombre}.tipo_de_pliegues must be one of {tuple(_TIPOS_DE_PLIEGUES)}, got {tipo!r}")
+    inicio = estricto["inicio_del_tramo"]
+    if (tipo == "por_sujeto") != (inicio is None):
+        raise ReproduceManifestError(f"{nombre}.inicio_del_tramo must be null exactly when tipo_de_pliegues is 'por_sujeto', "
+                                     f"got {inicio!r} with {tipo!r}")
+    intervalo = estricto["intervalo"]
+    if not isinstance(intervalo, Mapping) or set(intervalo) != _CLAVES_DEL_INTERVALO_ESTRICTO:
+        raise ReproduceManifestError(f"{nombre}.intervalo must be an object with exactly "
+                                     f"{sorted(_CLAVES_DEL_INTERVALO_ESTRICTO)}, got {intervalo!r}")
+    if intervalo["condicional_a_la_ventana"] is not True:
+        raise ReproduceManifestError(f"{nombre}.intervalo.condicional_a_la_ventana must be true: the interval of a strict split "
+                                     f"is conditional on its time window, got {intervalo['condicional_a_la_ventana']!r}")
+    if intervalo["unidades_de_prueba"] != unidades_de_prueba or type(intervalo["unidades_de_prueba"]) is not int:
+        raise ReproduceManifestError(f"{nombre}.intervalo.unidades_de_prueba ({intervalo['unidades_de_prueba']!r}) must be the "
+                                     f"number of test units of the split ({unidades_de_prueba})")
+    ventana = intervalo["ventana_de_prueba"]
+    if (not isinstance(ventana, (list, tuple)) or len(ventana) != 2
+            or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in ventana)
+            or ventana[0] > ventana[1]):
+        raise ReproduceManifestError(f"{nombre}.intervalo.ventana_de_prueba must be [from, to] with from <= to, got {ventana!r}")
+    bloque: dict[str, Any] = {
+        "cut": _numero_finito(estricto["corte"], f"{nombre}.corte"),
+        "cut_readable": _require_text(estricto["corte_legible"], f"{nombre}.corte_legible"),
+        "gap_seconds": _numero_finito(estricto["hueco_segundos"], f"{nombre}.hueco_segundos"),
+        "subject_fraction": {
+            "requested": _fraccion(estricto["fraccion_de_sujetos_pedida"], f"{nombre}.fraccion_de_sujetos_pedida",
+                                   abierta_por_arriba=False),
+            "used": _fraccion(estricto["fraccion_de_sujetos"], f"{nombre}.fraccion_de_sujetos", abierta_por_arriba=False)},
+        "quantile": {
+            "requested": _fraccion(estricto["cuantil_pedido"], f"{nombre}.cuantil_pedido", abierta_por_arriba=True),
+            "used": _fraccion(estricto["cuantil"], f"{nombre}.cuantil", abierta_por_arriba=True)},
+        "cuts_tried": _natural(estricto["cortes_probados"], f"{nombre}.cortes_probados", minimo=1),
+        "development_rows": desarrollo,
+        "test_rows": prueba,
+        "discarded_rows": descartadas,
+        "discarded_percentage": porcentaje,
+        "development_units": _natural(estricto["unidades_de_desarrollo"], f"{nombre}.unidades_de_desarrollo", minimo=1),
+        "test_units": unidades_de_prueba,
+        "fold_type": _TIPOS_DE_PLIEGUES[tipo],
+        "folds": _natural(estricto["pliegues"], f"{nombre}.pliegues", minimo=1),
+        "last_stretch_start": None if inicio is None else _numero_finito(inicio, f"{nombre}.inicio_del_tramo"),
+        "interval": {
+            "method": _require_text(intervalo["metodo"], f"{nombre}.intervalo.metodo"),
+            "resampling_design": _require_text(intervalo["diseno_de_remuestreo"], f"{nombre}.intervalo.diseno_de_remuestreo"),
+            "resampling_unit": _require_text(intervalo["unidad_de_remuestreo"], f"{nombre}.intervalo.unidad_de_remuestreo"),
+            "conditional_on_the_window": True,
+            "test_units": unidades_de_prueba,
+            "test_window": [float(ventana[0]), float(ventana[1])]},
+    }
+    if bloque["gap_seconds"] < 0:
+        raise ReproduceManifestError(f"{nombre}.hueco_segundos must be >= 0, got {estricto['hueco_segundos']!r}")
+    entrada = estricto.get("columna_de_tiempo_como_entrada")
+    if entrada is not None:
+        motivo = entrada.get("motivo") if isinstance(entrada, Mapping) else None
+        if (not isinstance(entrada, Mapping) or set(entrada) != {"columna", "entra", "motivo"}
+                or not isinstance(entrada["entra"], bool) or not isinstance(motivo, Mapping) or set(motivo) != {"es", "en"}):
+            raise ReproduceManifestError(f"{nombre}.columna_de_tiempo_como_entrada must be {{columna, entra: bool, motivo: "
+                                         f"{{es, en}}}}, got {entrada!r}")
+        bloque["time_column_as_input"] = {
+            "column": _require_text(entrada["columna"], f"{nombre}.columna_de_tiempo_como_entrada.columna"),
+            "enters": entrada["entra"],
+            "reason": {idioma: _require_text(motivo[idioma], f"{nombre}.columna_de_tiempo_como_entrada.motivo.{idioma}")
+                       for idioma in ("es", "en")}}
     return bloque
 
 
@@ -606,7 +750,9 @@ def manifiesto_de_estudio(
     * `motores_fuera_por_el_modo`: los motores que no compitieron POR EL MODO (no por fallar). Solo con `modo`.
     * `reparto_del_estudio` (140-C2): `{diseno, unit_id_field, time_column, gap: {magnitud, unidad}, gap_origen,
       cobertura_fuera_de_pliegue: {filas_de_desarrollo, filas_sin_validacion}, limites: [{clave, motivo: {es, en}, medida}]}`
-      tal cual lo declara el sobre del estudio (`reparto`); `diseno` en `DISENOS_DEL_REPARTO`. Va en `study.split`.
+      tal cual lo declara el sobre del estudio (`reparto`); `diseno` en `DISENOS_DEL_REPARTO`. Va en `study.split`. Con
+      `groups_and_time` (140b-C2) EXIGE además `estricto` (la declaración del reparto estricto del núcleo, `RepartoEstricto.a_json()`
+      con `unidades_de_prueba` como número), que va en `study.split.strict`; en cualquier otro diseño, `estricto` se rechaza.
     * `entrenamiento_del_entregado` (auditoría de Roberto del 139, P3-5): cómo terminó el entrenamiento de la red ENTREGADA, tal
       cual lo declara el sobre (`{parado_por_plazo, epocas_ejecutadas?, epocas_completas?, mejor_epoca?, ultima_epoca_parcial?,
       plazo_antes_de_la_primera_epoca_completa?, plazo_de_entrenamiento_segundos?}`). Va en `study.delivered_network_training`.
@@ -700,6 +846,15 @@ def manifiesto_de_estudio(
             estudio["delivered_engine_name"] = nombre_del_motor
     if reparto_del_estudio is not None:
         estudio["split"] = _reparto_del_estudio(reparto_del_estudio)
+        estricto = estudio["split"].get("strict")
+        if estricto is not None:
+            # 140b-C2: las filas de cada rol se declaran en DOS sitios (`study.rows`, de lo que contó el estudio, y el reparto
+            # estricto): si los dos dicen cifras distintas, la ficha diría dos cosas de lo mismo. No se publica.
+            for dado, clave, nombre in ((filas_de_desarrollo, "development_rows", "filas_de_desarrollo"),
+                                        (filas_de_prueba_reservada, "test_rows", "filas_de_prueba_reservada")):
+                if dado is not None and dado != estricto[clave]:
+                    raise ReproduceManifestError(
+                        f"{nombre} ({dado!r}) disagrees with reparto_del_estudio.estricto ({estricto[clave]!r})")
     if calibracion_y_umbral is not None:
         estudio["calibration_and_threshold"] = _calibracion_y_umbral(calibracion_y_umbral)
         if calibracion_y_umbral.get("entrenamiento_de_la_red") is not None:
