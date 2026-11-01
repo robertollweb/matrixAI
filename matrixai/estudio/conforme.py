@@ -37,6 +37,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from matrixai.estudio.intervalo_por_filas import aviso_del_intervalo_por_filas, unidades_distintas
 from matrixai.estudio.metricas import Muestra
 from matrixai.training.diagnostico import intervalo_wilson
 
@@ -187,6 +188,13 @@ class CoberturaMedida:
     #: Tamaño medio del conjunto (clasificación) o anchura media (regresión).
     tamano_medio: float | None
     vacios: int = 0
+    #: 140b, auditoría I4: cuántos sujetos distintos hay entre las `n` filas, si la muestra trae `units` (`None` si no).
+    unidades: int | None = None
+
+    @property
+    def intervalo_por_filas(self) -> dict[str, str] | None:
+        """El aviso de que `intervalo_95` cuenta FILAS de menos sujetos (`intervalo_por_filas.py`), o `None`."""
+        return aviso_del_intervalo_por_filas(self.n, self.unidades, frente_a_una_promesa=True)
 
     @property
     def cobertura_observada(self) -> float | None:
@@ -194,18 +202,25 @@ class CoberturaMedida:
 
     @property
     def compatible_con_la_nominal(self) -> bool | None:
-        """¿La nominal cae dentro del intervalo de la observada? `None` sin filas."""
-        if self.intervalo_95 is None:
+        """¿La nominal cae dentro del intervalo de la observada? `None` sin filas, y `None` cuando el intervalo cuenta filas de
+        sujetos repetidos (auditoría I4 del 140b: ese intervalo es más estrecho de lo que debería, y un «NO compatible» —o un
+        «compatible»— sería del método, no de la cobertura)."""
+        if self.intervalo_95 is None or self.intervalo_por_filas is not None:
             return None
         bajo, alto = self.intervalo_95
         return bajo <= self.cobertura_nominal <= alto
 
     def a_json(self) -> dict[str, Any]:
-        return {"cobertura_nominal": self.cobertura_nominal, "n": self.n,
-                "cubiertas": self.cubiertas, "cobertura_observada": self.cobertura_observada,
-                "intervalo_95": list(self.intervalo_95) if self.intervalo_95 else None,
-                "compatible_con_la_nominal": self.compatible_con_la_nominal,
-                "tamano_medio": self.tamano_medio, "vacios": self.vacios, "garantia": GARANTIA}
+        cuerpo = {"cobertura_nominal": self.cobertura_nominal, "n": self.n,
+                  "cubiertas": self.cubiertas, "cobertura_observada": self.cobertura_observada,
+                  "intervalo_95": list(self.intervalo_95) if self.intervalo_95 else None,
+                  "compatible_con_la_nominal": self.compatible_con_la_nominal,
+                  "tamano_medio": self.tamano_medio, "vacios": self.vacios, "garantia": GARANTIA}
+        if self.unidades is not None:
+            # Solo con `units` (los repartos por sujeto): los demás diseños, el JSON de siempre, byte a byte.
+            cuerpo["unidades"] = self.unidades
+            cuerpo["intervalo_por_filas"] = self.intervalo_por_filas
+        return cuerpo
 
 
 def medir_cobertura(muestra_test: Muestra, calibracion: CalibracionConforme) -> CoberturaMedida:
@@ -241,4 +256,5 @@ def medir_cobertura(muestra_test: Muestra, calibracion: CalibracionConforme) -> 
                                                 min(1.0, wilson[0] + wilson[1]))
     return CoberturaMedida(cobertura_nominal=calibracion.cobertura_nominal, n=n,
                            cubiertas=cubiertas, intervalo_95=intervalo_95,
-                           tamano_medio=(sum(tamanos) / n if n else None), vacios=vacios)
+                           tamano_medio=(sum(tamanos) / n if n else None), vacios=vacios,
+                           unidades=unidades_distintas(muestra_test.units))

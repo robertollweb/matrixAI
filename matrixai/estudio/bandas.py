@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from matrixai.estudio.esquemas import Restriccion
+from matrixai.estudio.intervalo_por_filas import aviso_del_intervalo_por_filas, unidades_distintas
 from matrixai.estudio.metricas import Muestra
 from matrixai.training.diagnostico import intervalo_wilson
 
@@ -212,12 +213,24 @@ class MedidaDeBanda:
     intervalo_95: tuple[float, float] | None
     medida: bool
     motivo: dict[str, str] | None
+    #: 140b, auditoría I4: cuántos sujetos distintos hay entre las filas de la banda, si la muestra trae `units`.
+    unidades: int | None = None
+
+    @property
+    def intervalo_por_filas(self) -> dict[str, str] | None:
+        """El aviso de que `intervalo_95` cuenta FILAS de menos sujetos (`intervalo_por_filas.py`), o `None`."""
+        return aviso_del_intervalo_por_filas(self.n, self.unidades)
 
     def a_json(self) -> dict[str, Any]:
-        return {"banda": self.banda, "n": self.n, "cobertura": self.cobertura,
-                "aciertos": self.aciertos, "proporcion": self.proporcion,
-                "intervalo_95": list(self.intervalo_95) if self.intervalo_95 else None,
-                "medida": self.medida, "motivo": self.motivo}
+        cuerpo = {"banda": self.banda, "n": self.n, "cobertura": self.cobertura,
+                  "aciertos": self.aciertos, "proporcion": self.proporcion,
+                  "intervalo_95": list(self.intervalo_95) if self.intervalo_95 else None,
+                  "medida": self.medida, "motivo": self.motivo}
+        if self.unidades is not None:
+            # Solo con `units` (los repartos por sujeto): los demás diseños, el JSON de siempre, byte a byte.
+            cuerpo["unidades"] = self.unidades
+            cuerpo["intervalo_por_filas"] = self.intervalo_por_filas
+        return cuerpo
 
 
 def medir_bandas(muestra_test: Muestra, politica: PoliticaDeBandas) -> tuple[MedidaDeBanda, ...]:
@@ -225,8 +238,10 @@ def medir_bandas(muestra_test: Muestra, politica: PoliticaDeBandas) -> tuple[Med
     probabilidades = _probabilidades(muestra_test)
     n_total = len(probabilidades)
     por_banda: dict[str, list[bool]] = {b: [] for b in BANDAS}
-    for p, y in zip(probabilidades, muestra_test.y_true):
+    indices_de: dict[str, list[int]] = {b: [] for b in BANDAS}
+    for i, (p, y) in enumerate(zip(probabilidades, muestra_test.y_true)):
         por_banda[politica.banda_de(p)].append(y == politica.positive_label)
+        indices_de[politica.banda_de(p)].append(i)
     medidas = []
     for banda in BANDAS:
         positivos = por_banda[banda]
@@ -244,5 +259,5 @@ def medir_bandas(muestra_test: Muestra, politica: PoliticaDeBandas) -> tuple[Med
         medidas.append(MedidaDeBanda(
             banda=banda, n=n, cobertura=(n / n_total if n_total else None), aciertos=aciertos,
             proporcion=(aciertos / n if n else None), intervalo_95=intervalo, medida=medida,
-            motivo=motivo))
+            motivo=motivo, unidades=unidades_distintas(muestra_test.units, indices_de[banda])))
     return tuple(medidas)

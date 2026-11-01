@@ -141,6 +141,7 @@ __all__ = [
     "alcance_de_validacion",
     "beneficio_neto",
     "curva_de_decision",
+    "diseno_de_remuestreo",
     "ficha_del_perfil",
     "tabla_de_umbrales",
 ]
@@ -192,6 +193,23 @@ ALCANCES_DE_VALIDACION = ("internal_only", "temporal", "external")
 #: existe cuando la evidencia no llega a sostenerla — que es justo lo que la
 #: ficha escribía en 6 de las 24 combinaciones (auditoría del 2026-09-15).
 _DISENOS_CON_SEPARACION_TEMPORAL = ("temporal", "groups_and_time")
+
+#: 140b (reparación de I1): el tipo de PARTICIÓN que se declara y el diseño con
+#: que se REMUESTREA no son siempre el mismo. `groups_and_time` reparte por
+#: sujeto Y por el tiempo, pero su intervalo es el bootstrap por unidad de
+#: `groups` (`incertidumbre.py` no lo admite a propósito; lo declara el reparto
+#: estricto en `IntervaloDeclarado.diseno_de_remuestreo`). Usar un mismo campo
+#: para las dos cosas obligaba a declarar la partición como `groups`, y entonces
+#: el alcance derivado negaba una separación temporal que existe. Vive aquí UNA
+#: vez y lo leen el perfil (para comprobar su comparación) y el Studio.
+_REMUESTREO_DE_LA_PARTICION = {"groups_and_time": "groups"}
+
+
+def diseno_de_remuestreo(diseno: str) -> str:
+    """El `diseno=` con que se remuestrea una partición del tipo `diseno`
+    (`tabla_de_umbrales`, `comparar_candidatos`). El de los demás, el mismo."""
+    exigir_opcion(diseno, "diseno", TIPOS_DE_PARTICION)
+    return _REMUESTREO_DE_LA_PARTICION.get(diseno, diseno)
 
 
 def alcance_de_validacion(*, evidencia: str, diseno: str) -> str:
@@ -721,8 +739,10 @@ class PerfilClinico:
             raise EsquemaInvalido("metrica_con_valor_y_motivo",
                                   campo="comparacion_con_el_baseline")
         exigir_texto(self.baseline_comparado, "baseline_comparado")
+        # La comparación remuestrea con el diseño de remuestreo de la partición
+        # declarada (`groups` para `groups_and_time`); en los demás, el mismo.
         exigir_opcion(comparacion.diseno, "comparacion_con_el_baseline.diseno",
-                      (self.diseno,))
+                      (diseno_de_remuestreo(self.diseno),))
 
     def _exigir_tabla_y_curva_de_la_misma_muestra(self) -> None:
         """La tabla y la curva describen la MISMA muestra, o no hay perfil.

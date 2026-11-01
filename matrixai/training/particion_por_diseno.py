@@ -65,14 +65,15 @@ entra ahora (contrato 140, decisiones D1 y D2 de Roberto, 27-10-2026):
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping, Sequence
 
 from matrixai.estudio import Horizonte, SplitPlan
 from matrixai.estudio.validacion import digest_canonico
 from matrixai.training.diagnostico import Bloqueo, Limite
 from matrixai.training.dataset_analysis import _is_null
-from matrixai.training.particion_por_diseno_comun import BloqueoConNumeros, Rechazo, nombres_de_clases
+from matrixai.training.particion_por_diseno_comun import (
+    BloqueoConNumeros, Rechazo, limite_de_sujetos_que_se_escriben_igual, nombres_de_clases)
 from matrixai.training.particion_por_diseno_grupos import (
     _limite_de_fraccion, fuera_del_margen, repartir_grupos_estratificado)
 from matrixai.training.particion_por_diseno_textos import motivo
@@ -361,9 +362,15 @@ def proponer_particion(filas: Sequence[Mapping[str, Any]], *, plan_id: str,
         n_grupos = len(set(unidad_por_id.values())) if unidad_por_id else 0
         if n_grupos < MINIMO_GRUPOS:
             return _grupos_insuficientes(n_grupos, len(internos), unit_id_field)
-        return _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_field,
-                                test_fraction, seed, folds, repeats, etiqueta_por_id, unit_id_field,
-                                unidad_de_los_externos, columna_objetivo=objetivo)
+        propuesta = _proponer_groups(plan_id, internos, externos, unidad_por_id, observation_id_field,
+                                     test_fraction, seed, folds, repeats, etiqueta_por_id, unit_id_field,
+                                     unidad_de_los_externos, columna_objetivo=objetivo)
+        # Auditoría I5 del 140b: «7» y «007» (el mismo paciente, si Excel quitó los ceros al juntar hojas) son dos grupos
+        # y pueden caer a los dos lados. Se AVISA con sus números (no se unifican); sin valores así, la propuesta de siempre.
+        escritos_igual = limite_de_sujetos_que_se_escriben_igual(unidad_por_id, unit_id_field)
+        if escritos_igual is not None and propuesta.es_viable:
+            propuesta = replace(propuesta, limites=tuple(propuesta.limites) + (escritos_igual,))
+        return propuesta
 
     if split_type == "iid":
         return _proponer_iid(plan_id, internos, externos, observation_id_field,

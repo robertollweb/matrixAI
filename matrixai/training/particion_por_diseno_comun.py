@@ -16,13 +16,16 @@ y `particion_por_diseno_grupos` no se importen entre sí:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Mapping
 
+from matrixai.training.diagnostico import Limite
 from matrixai.training.objetivo import Bloqueo
 from matrixai.training.particion_por_diseno_textos import motivo
 
-__all__ = ["BloqueoConNumeros", "Rechazo", "clave_de_clase", "nombres_de_clases"]
+__all__ = ["BloqueoConNumeros", "Rechazo", "clave_de_clase", "escritura_normalizada", "limite_de_sujetos_que_se_escriben_igual",
+           "nombres_de_clases"]
 
 
 @dataclass(frozen=True)
@@ -71,3 +74,47 @@ def nombres_de_clases(clases: Any) -> dict[Any, str]:
     for c in clases:
         por_texto[clave_de_clase(c)] = por_texto.get(clave_de_clase(c), 0) + 1
     return {c: (repr(c) if por_texto[clave_de_clase(c)] > 1 else clave_de_clase(c)) for c in clases}
+
+
+# ---------------------------------------------------------------------------
+# Auditoría I5 del 140b: «7» y «007» del mismo paciente
+# ---------------------------------------------------------------------------
+
+#: Cuántos grupos de valores se citan en la frase (la medida los lleva todos los que cuenta).
+_EJEMPLOS_DE_ESCRITURA = 3
+
+
+def escritura_normalizada(valor: str) -> str:
+    """Cómo se escribe un identificador sin lo que suele cambiar al copiarlo de un sitio a otro: los ceros a la izquierda de
+    cada número (`007` → `7`, `P-007` → `P-7`; Excel los quita al juntar hojas), los espacios y las mayúsculas. Solo sirve para
+    AVISAR: el reparto sigue usando el valor tal cual (no se mapean los datos de nadie)."""
+    sin_espacios = re.sub(r"\s+", "", str(valor)).casefold()
+    return re.sub(r"\d+", lambda m: str(int(m.group())), sin_espacios)
+
+
+def limite_de_sujetos_que_se_escriben_igual(unidad_por_id: Mapping[str, str], campo: str) -> Limite | None:
+    """El aviso (un `Limite` con sus números) de que dos o más valores DISTINTOS de la columna del sujeto se escriben igual al
+    normalizarlos (`escritura_normalizada`), o `None`. Si son el mismo sujeto escrito de dos maneras, el reparto los trata como
+    dos y pueden caer uno en el desarrollo y otro en la prueba: justo lo que `groups` y `groups_and_time` prometen que no pasa.
+    No los unifica: lo dice, con cuántos valores y cuántas filas, y la persona decide."""
+    filas_de: dict[str, int] = {}
+    for unidad in unidad_por_id.values():
+        filas_de[unidad] = filas_de.get(unidad, 0) + 1
+    por_escritura: dict[str, list[str]] = {}
+    for unidad in filas_de:
+        por_escritura.setdefault(escritura_normalizada(unidad), []).append(unidad)
+    grupos = sorted((sorted(v) for v in por_escritura.values() if len(v) > 1), key=lambda g: (-sum(filas_de[u] for u in g), g))
+    if not grupos:
+        return None
+    filas = sum(filas_de[u] for g in grupos for u in g)
+    ejemplos = "; ".join(" = ".join(f"«{u}»" for u in g) + f" ({sum(filas_de[u] for u in g)} filas)"
+                         for g in grupos[:_EJEMPLOS_DE_ESCRITURA])
+    ejemplos_en = "; ".join(" = ".join(f"“{u}”" for u in g) + f" ({sum(filas_de[u] for u in g)} rows)"
+                            for g in grupos[:_EJEMPLOS_DE_ESCRITURA])
+    textos = motivo("sujetos_que_se_escriben_igual", campo=campo, valor=len(grupos), filas=filas,
+                    valores=sum(len(g) for g in grupos), ejemplos="{ejemplos}")
+    return Limite(clave="sujetos_que_se_escriben_igual", campo="unit_id_field",
+                  motivo={"es": textos["es"].replace("{ejemplos}", ejemplos),
+                          "en": textos["en"].replace("{ejemplos}", ejemplos_en)},
+                  medida={"columna": campo, "grupos": len(grupos), "valores": sum(len(g) for g in grupos), "filas": filas,
+                          "ejemplos": [{"valores": g, "filas": sum(filas_de[u] for u in g)} for g in grupos[:10]]})

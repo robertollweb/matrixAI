@@ -103,8 +103,10 @@ class TestElManifiestoGrabaElRepartoEstricto:
         s = split["strict"]
         assert (s["cut"], s["cut_readable"], s["gap_seconds"]) == (r.corte, r.corte_legible, 7 * 86400.0)
         assert s["cut_readable"] == "2024-09-29"
-        # lo pedido y lo usado, por separado
-        assert s["subject_fraction"] == {"requested": 0.3, "used": 0.3} and s["quantile"] == {"requested": 0.7, "used": 0.7}
+        # lo pedido, el peldaño usado y lo que SALIÓ (auditoría I2: 10 de 30 sujetos no es «el 30 %»), por separado
+        assert s["subject_fraction"] == {"requested": 0.3, "used": 0.3, "realized": 0.3333}
+        assert s["quantile"] == {"requested": 0.7, "used": 0.7}
+        assert s["subjects"] == 30
         assert s["cuts_tried"] == 1
         # las filas de cada rol, y las SIN ROL con su porcentaje
         assert (s["development_rows"], s["test_rows"], s["discarded_rows"]) == (337, 114, 149)
@@ -210,6 +212,8 @@ class TestUnRepartoEstrictoMalFormadoSeRechazaConSuMotivo:
         ({"tipo_de_pliegues": "por_sujeto"}, "inicio_del_tramo must be null exactly when"),
         ({"inicio_del_tramo": None}, "inicio_del_tramo must be null exactly when"),
         ({"pliegues": 0}, "pliegues"),
+        ({"sujetos": 1}, "sujetos must be an integer >= 2"),
+        ({"sujetos": 27}, r"sujetos \(27\) is fewer than its 10 test \+ 18 development"),
     ])
     def test_cada_campo_mal_formado_se_rechaza_con_su_nombre(self, f2q, cambio, mensaje):
         _, _, sobre = f2q
@@ -328,10 +332,13 @@ class TestLaFichaDiceElRepartoEstricto:
         assert "sujetos que el modelo no vio y con filas posteriores al corte" in reparto
         assert "(sujeto: «sujeto»; tiempo: «t»)" in reparto
         assert "corte en el tiempo: 2024-09-29" in reparto
-        assert "149 (24.8 %) filas sin rol (ni de desarrollo ni de prueba)" in reparto
+        # M2 de la auditoría: la coma decimal en castellano, como el resto del expediente
+        assert "149 (24,8 %) filas sin rol (ni de desarrollo ni de prueba)" in reparto
         assert "pliegues por sujeto y por el último tramo de tiempo del desarrollo" in reparto
         assert "hueco de 7 días" in reparto and "el horizonte declarado del problema" in reparto
-        assert "sujetos de prueba: el 30 % de los sujetos, con el corte en el cuantil 0.7 del tiempo" in reparto
+        assert "sujetos de prueba: 10 de 30 (el 33,3 %; se pidió el 30 %), con el corte en el cuantil 0,7 del tiempo" in reparto
+        propio = reparto.split("límites declarados")[0]   # (las frases de los límites son del catálogo del reparto, aparte)
+        assert "0.7" not in propio and "24.8" not in propio
         assert ("intervalo condicional a esta ventana de tiempo (remuestreo por sujeto, con 10 sujetos de prueba)" in reparto)
         assert "no cuánto rendirá en otro periodo" in reparto
         # los límites del reparto, con su frase del núcleo, tal cual
@@ -348,7 +355,7 @@ class TestLaFichaDiceElRepartoEstricto:
         assert "149 (24.8%) rows without a role (neither development nor test)" in reparto
         assert "folds by subject and by the last time stretch of development" in reparto
         assert "gap of 7 days" in reparto and "the problem's declared horizon" in reparto
-        assert "test subjects: 30% of the subjects, with the cut at the 0.7 quantile of time" in reparto
+        assert "test subjects: 10 of 30 (33.3%; 30% was requested), with the cut at the 0.7 quantile of time" in reparto
         assert "interval conditional on this time window (resampling by subject, with 10 test subjects)" in reparto
         assert "not how it will perform in another period" in reparto
         # ni una palabra de la línea en español
@@ -373,11 +380,16 @@ class TestLaFichaDiceElRepartoEstricto:
         es = _linea(ficha_tripod(_paquete(filas, p, sobre, tmp_path / "x"), locale="es"), REPARTO_POR_DISENO.rotulo["es"])
         assert "pliegues solo por sujeto, sin tramo de tiempo (el motivo, en los límites declarados)" in es
         assert "último tramo" not in es.split("límites declarados")[0]
-        assert "se pidió el 30 % con el corte en el cuantil 0.7 y se usó el" in es
-        assert f"{r.fraccion_de_sujetos * 100:g} %" in es and f"cuantil {r.cuantil:g}" in es
+        n, m = len(r.unidades_de_prueba), r.sujetos
+        real = f"{round(100 * n / m, 1):g}".replace(".", ",")
+        assert (f"sujetos de prueba: {n} de {m} (el {real} %), con el corte en el cuantil {str(r.cuantil).replace('.', ',')} "
+                "del tiempo") in es
+        assert ("se pidió el 30 % de los sujetos con el corte en el cuantil 0,7 y no cumplía los mínimos de la prueba: se "
+                f"repartió pidiendo el {r.fraccion_de_sujetos * 100:g} % con el cuantil {str(r.cuantil).replace('.', ',')}") in es
         en = _linea(ficha_tripod(_paquete(filas, p, sobre, tmp_path / "y"), locale="en"), REPARTO_POR_DISENO.rotulo["en"])
         assert "folds by subject only, with no time stretch (the reason is in the declared limits)" in en
-        assert "30% with the cut at the 0.7 quantile was requested and" in en
+        assert f"test subjects: {n} of {m} ({round(100 * n / m, 1):g}%), with the cut at the {r.cuantil:g} quantile" in en
+        assert "30% of the subjects with the cut at the 0.7 quantile was requested and it did not meet the test minimums" in en
 
     def test_las_filas_del_conjunto_ya_no_son_desarrollo_mas_prueba_y_la_ficha_lo_dice(self, f2q, tmp_path):
         filas, p, sobre = f2q
@@ -388,7 +400,7 @@ class TestLaFichaDiceElRepartoEstricto:
                     "development, holdout test and rows without a role") in total
             assert FILAS_DEL_ESTUDIO.rotulo[idioma] not in ficha
             sin_rol = _linea(ficha, FILAS_SIN_ROL.rotulo[idioma])
-            assert ("149 (24.8 % del conjunto)" if idioma == "es" else "149 (24.8% of the dataset)") in sin_rol
+            assert ("149 (24,8 % del conjunto)" if idioma == "es" else "149 (24.8% of the dataset)") in sin_rol
             assert "`reproduce.json#study.split.strict`" in sin_rol
             # y las cuatro cifras cuadran: conjunto = desarrollo + prueba + sin rol
             def cifra(rotulo):

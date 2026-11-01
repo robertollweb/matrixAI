@@ -60,9 +60,10 @@ del 139 no trae nada de esto, y la ficha dice «no disponible»: ni «pliegue 0�
   la persona), `out_of_fold_coverage` (`development_rows`, `rows_without_validation`: las filas de desarrollo sin predicción
   fuera de pliegue —el primer bloque de una ventana temporal—) y `limits` (lo que el reparto declaró, con su frase en los dos
   idiomas). **`groups_and_time` (140b-C2, el reparto ESTRICTO)** añade `strict`: `cut` y `cut_readable` (el corte), `gap_seconds`,
-  `subject_fraction` y `quantile` (`requested`/`used`: lo pedido y lo que la escalera usó), `cuts_tried`, `development_rows`,
+  `subject_fraction` y `quantile` (`requested`/`used`: lo pedido y el peldaño de la escalera con que se repartió; y en la cuota,
+  `realized`: `test_units` / `subjects`, la que HUBO, auditoría I2 del 140b), `cuts_tried`, `development_rows`,
   `test_rows`, **`discarded_rows` y `discarded_percentage`** (las filas SIN ROL: ni desarrollo ni prueba; las filas del conjunto ya
-  NO son desarrollo + prueba, la diferencia son ellas), `development_units`, `test_units` (números, no nombres), `fold_type`
+  NO son desarrollo + prueba, la diferencia son ellas), `development_units`, `test_units`, `subjects` (números, no nombres), `fold_type`
   (`by_subject_and_last_stretch` | `by_subject`), `folds`, `last_stretch_start`, `interval` (`method`, `resampling_design`,
   `resampling_unit`, `conditional_on_the_window`: siempre `true`, `test_units`, `test_window`; SIN cobertura: la decide Roberto) y,
   si el Studio la trae, `time_column_as_input`. Lo que el estudio no dijo se omite: un estudio anterior al 140 no trae el bloque. Y `target_in_development_and_test`
@@ -360,7 +361,7 @@ def _reparto_del_estudio(declarado: Mapping[str, Any]) -> dict[str, Any]:
 _CLAVES_DEL_REPARTO_ESTRICTO = frozenset({
     "modo", "corte", "corte_legible", "hueco_segundos", "fraccion_de_sujetos_pedida", "cuantil_pedido", "fraccion_de_sujetos",
     "cuantil", "cortes_probados", "filas_de_desarrollo", "filas_de_prueba", "filas_descartadas", "porcentaje_descartado",
-    "unidades_de_desarrollo", "unidades_de_prueba", "tipo_de_pliegues", "pliegues", "inicio_del_tramo", "intervalo",
+    "unidades_de_desarrollo", "unidades_de_prueba", "sujetos", "tipo_de_pliegues", "pliegues", "inicio_del_tramo", "intervalo",
     "columna_de_tiempo_como_entrada"})
 _CLAVES_DEL_INTERVALO_ESTRICTO = frozenset({
     "metodo", "diseno_de_remuestreo", "unidad_de_remuestreo", "condicional_a_la_ventana", "unidades_de_prueba",
@@ -410,6 +411,15 @@ def _reparto_estricto(estricto: Any) -> dict[str, Any]:
             f"{nombre}.porcentaje_descartado ({porcentaje!r}) does not follow from its rows: {descartadas} without a role out of "
             f"{desarrollo} development + {prueba} test + {descartadas}")
     unidades_de_prueba = _natural(estricto["unidades_de_prueba"], f"{nombre}.unidades_de_prueba", minimo=1)
+    unidades_de_desarrollo = _natural(estricto["unidades_de_desarrollo"], f"{nombre}.unidades_de_desarrollo", minimo=1)
+    # Reparación de la auditoría del 140b (I2): la cuota de sujetos que se DECLARA es la que hubo (`test_units` / `subjects`),
+    # no el parámetro de la escalera. Ningún sujeto está a los dos lados, así que los de prueba y los de desarrollo no pueden
+    # pasar del total.
+    sujetos = _natural(estricto["sujetos"], f"{nombre}.sujetos", minimo=2)
+    if unidades_de_prueba + unidades_de_desarrollo > sujetos:
+        raise ReproduceManifestError(
+            f"{nombre}.sujetos ({sujetos}) is fewer than its {unidades_de_prueba} test + {unidades_de_desarrollo} development "
+            "units: no subject is on both sides")
     tipo = estricto["tipo_de_pliegues"]
     if tipo not in _TIPOS_DE_PLIEGUES:
         raise ReproduceManifestError(f"{nombre}.tipo_de_pliegues must be one of {tuple(_TIPOS_DE_PLIEGUES)}, got {tipo!r}")
@@ -439,7 +449,9 @@ def _reparto_estricto(estricto: Any) -> dict[str, Any]:
         "subject_fraction": {
             "requested": _fraccion(estricto["fraccion_de_sujetos_pedida"], f"{nombre}.fraccion_de_sujetos_pedida",
                                    abierta_por_arriba=False),
-            "used": _fraccion(estricto["fraccion_de_sujetos"], f"{nombre}.fraccion_de_sujetos", abierta_por_arriba=False)},
+            "used": _fraccion(estricto["fraccion_de_sujetos"], f"{nombre}.fraccion_de_sujetos", abierta_por_arriba=False),
+            # lo que SALIÓ: los sujetos de prueba entre todos (`used` es el parámetro del peldaño con que se repartió)
+            "realized": round(unidades_de_prueba / sujetos, 4)},
         "quantile": {
             "requested": _fraccion(estricto["cuantil_pedido"], f"{nombre}.cuantil_pedido", abierta_por_arriba=True),
             "used": _fraccion(estricto["cuantil"], f"{nombre}.cuantil", abierta_por_arriba=True)},
@@ -448,8 +460,9 @@ def _reparto_estricto(estricto: Any) -> dict[str, Any]:
         "test_rows": prueba,
         "discarded_rows": descartadas,
         "discarded_percentage": porcentaje,
-        "development_units": _natural(estricto["unidades_de_desarrollo"], f"{nombre}.unidades_de_desarrollo", minimo=1),
+        "development_units": unidades_de_desarrollo,
         "test_units": unidades_de_prueba,
+        "subjects": sujetos,
         "fold_type": _TIPOS_DE_PLIEGUES[tipo],
         "folds": _natural(estricto["pliegues"], f"{nombre}.pliegues", minimo=1),
         "last_stretch_start": None if inicio is None else _numero_finito(inicio, f"{nombre}.inicio_del_tramo"),

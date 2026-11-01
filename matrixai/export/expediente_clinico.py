@@ -1256,6 +1256,40 @@ def _porcentaje_sin_ceros(valor: Any) -> str | None:
     return f"{valor:g}"
 
 
+def _decimal(texto: str | None, es: bool) -> str | None:
+    """Reparación de la auditoría del 140b (M2): la coma decimal en castellano, como el resto del expediente."""
+    return texto.replace(".", ",") if (es and texto is not None) else texto
+
+
+def _texto_de_la_cuota_de_sujetos(e: dict[str, Any], es: bool) -> str:
+    """Reparación de la auditoría del 140b (I2) — los sujetos de prueba que HUBO, «N de M» con su porcentaje, y lo pedido solo si
+    no es lo que salió. Hasta entonces se escribía la cuota PEDIDA («el 30 % de los sujetos») con una prueba de 8 de 40 sujetos
+    (el 20 %): con pocos sujetos con filas posteriores al corte van todos a la prueba, y el asignador reparte por filas."""
+    cuota, cuantil = e.get("subject_fraction"), e.get("quantile")
+    n, m = _cuenta(e.get("test_units")), _cuenta(e.get("subjects"))
+    if not (isinstance(cuota, dict) and isinstance(cuantil, dict)) or n is None or not m:
+        return ""
+    real = _decimal(_porcentaje_sin_ceros(round(100 * n / m, 1)), es)
+    pedida = _decimal(_porcentaje_sin_ceros(round(100 * cuota["requested"], 1)), es)
+    usada = _decimal(_porcentaje_sin_ceros(round(100 * cuota["used"], 1)), es)
+    q_pedido, q_usado = _decimal(_numero(cuantil["requested"]), es), _decimal(_numero(cuantil["used"]), es)
+    relajado = (cuota["requested"], cuantil["requested"]) != (cuota["used"], cuantil["used"])
+    if es:
+        texto = f"; sujetos de prueba: {n} de {m} (el {real} %"
+        texto += (f"; se pidió el {pedida} %)" if real != pedida and not relajado else ")")
+        texto += f", con el corte en el cuantil {q_usado} del tiempo"
+        if relajado:
+            texto += (f"; se pidió el {pedida} % de los sujetos con el corte en el cuantil {q_pedido} y no cumplía los mínimos "
+                      f"de la prueba: se repartió pidiendo el {usada} % con el cuantil {q_usado}")
+        return texto
+    texto = f"; test subjects: {n} of {m} ({real}%" + (f"; {pedida}% was requested)" if real != pedida and not relajado else ")")
+    texto += f", with the cut at the {q_usado} quantile of time"
+    if relajado:
+        texto += (f"; {pedida}% of the subjects with the cut at the {q_pedido} quantile was requested and it did not meet the "
+                  f"test minimums: the split asked for {usada}% with the {q_usado} quantile")
+    return texto
+
+
 def _texto_del_reparto_estricto(e: dict[str, Any], idioma: str) -> str:
     """140b-C2 — lo que declara `study.split.strict`, en el idioma pedido y solo lo que trae: el corte, la cuota de sujetos y el
     cuantil (lo pedido y, si la escalera lo cambió, lo usado), los pliegues y el intervalo. Las filas sin rol van en su propia
@@ -1265,18 +1299,7 @@ def _texto_del_reparto_estricto(e: dict[str, Any], idioma: str) -> str:
     texto = ""
     if e.get("cut_readable"):
         texto += (f"; corte en el tiempo: {e['cut_readable']}" if es else f"; cut in time: {e['cut_readable']}")
-    cuota, cuantil = e.get("subject_fraction"), e.get("quantile")
-    if isinstance(cuota, dict) and isinstance(cuantil, dict):
-        pedida, usada = _porcentaje_sin_ceros(100 * cuota["requested"]), _porcentaje_sin_ceros(100 * cuota["used"])
-        q_pedido, q_usado = _numero(cuantil["requested"]), _numero(cuantil["used"])
-        if (cuota["requested"], cuantil["requested"]) == (cuota["used"], cuantil["used"]):
-            texto += (f"; sujetos de prueba: el {usada} % de los sujetos, con el corte en el cuantil {q_usado} del tiempo" if es
-                      else f"; test subjects: {usada}% of the subjects, with the cut at the {q_usado} quantile of time")
-        else:
-            texto += (f"; sujetos de prueba: se pidió el {pedida} % con el corte en el cuantil {q_pedido} y se usó el {usada} % "
-                      f"con el cuantil {q_usado}" if es else
-                      f"; test subjects: {pedida}% with the cut at the {q_pedido} quantile was requested and {usada}% with the "
-                      f"{q_usado} quantile was used")
+    texto += _texto_de_la_cuota_de_sujetos(e, es)
     if isinstance(e.get("discarded_rows"), int) and not isinstance(e.get("discarded_rows"), bool):
         texto += _texto_corto_de_las_filas_sin_rol(e, es)
     tipo = e.get("fold_type")
@@ -1298,7 +1321,7 @@ def _texto_del_reparto_estricto(e: dict[str, Any], idioma: str) -> str:
 
 
 def _texto_corto_de_las_filas_sin_rol(e: dict[str, Any], es: bool) -> str:
-    n, pct = e["discarded_rows"], _porcentaje_sin_ceros(e.get("discarded_percentage"))
+    n, pct = e["discarded_rows"], _decimal(_porcentaje_sin_ceros(e.get("discarded_percentage")), es)
     cuanto = f"{n}" + (f" ({pct} %)" if es and pct is not None else f" ({pct}%)" if pct is not None else "")
     return (f"; {cuanto} filas sin rol (ni de desarrollo ni de prueba)" if es
             else f"; {cuanto} rows without a role (neither development nor test)")
@@ -1307,7 +1330,7 @@ def _texto_corto_de_las_filas_sin_rol(e: dict[str, Any], es: bool) -> str:
 def _texto_de_las_filas_sin_rol(bloque: dict[str, Any], idioma: str) -> str:
     """140b-C2 — la línea de las filas sin rol de un reparto estricto: cuántas, qué por ciento del conjunto y qué significa."""
     es = idioma == "es"
-    n, pct = _cuenta(bloque.get("discarded_rows")), _porcentaje_sin_ceros(bloque.get("discarded_percentage"))
+    n, pct = _cuenta(bloque.get("discarded_rows")), _decimal(_porcentaje_sin_ceros(bloque.get("discarded_percentage")), es)
     if n is None:
         return ""
     cuanto = f"{n}" + ((f" ({pct} % del conjunto)" if es else f" ({pct}% of the dataset)") if pct is not None else "")

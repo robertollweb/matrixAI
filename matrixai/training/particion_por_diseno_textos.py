@@ -299,14 +299,36 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "closest split found (the largest group in the test, {grupo}, has {minimo} rows)",
     },
 
+    # -- auditoría I5 del 140b: el mismo sujeto escrito de dos maneras (groups y groups_and_time) -------------
+    "sujetos_que_se_escriben_igual": {
+        "es": "en {campo} hay {valor} grupo(s) de valores distintos ({valores} valores, {filas} filas) que se escriben igual "
+              "sin los ceros a la izquierda, los espacios y las mayúsculas: {ejemplos}. Si son el mismo sujeto, el reparto "
+              "los trata como sujetos distintos y pueden caer uno en el desarrollo y otro en la prueba. No se unifican solos: "
+              "si lo son, corrígelo en los datos",
+        "en": "in {campo} there are {valor} group(s) of distinct values ({valores} values, {filas} rows) that read the same "
+              "without leading zeros, spaces and capital letters: {ejemplos}. If they are the same subject, the split treats "
+              "them as different subjects and one may land in development and the other in the test. They are not merged "
+              "automatically: if they are the same, fix it in the data",
+    },
+
     # -- 140b-C1: «por sujeto y por el tiempo» estricto ----------------------
     "estricto_sin_sujetos_con_filas_posteriores": {
         "es": "con el corte en {tiempo} = {corte} y un hueco de {hueco}, ningún valor de {unidad} tiene filas "
               "posteriores (el último {tiempo} es {ultimo}): este reparto elige los sujetos de prueba entre los que "
-              "tienen filas después del corte, y aquí no hay ninguno. Mueve el corte hacia atrás o quita el hueco",
+              "tienen filas después del corte, y aquí no hay ninguno. El corte lo elige el reparto (el cuantil del "
+              "tiempo): lo que se puede cambiar es el hueco, más pequeño o ninguno",
         "en": "with the cut at {tiempo} = {corte} and a gap of {hueco}, no value of {unidad} has later rows (the last "
               "{tiempo} is {ultimo}): this split picks the test subjects among those with rows after the cut, and "
-              "there are none. Move the cut earlier or remove the gap",
+              "there are none. The split picks the cut (a quantile of time): what can be changed is the gap, smaller "
+              "or none",
+    },
+    "estricto_sujeto_y_tiempo_la_misma_columna": {
+        "es": "{campo} es a la vez la columna del sujeto y la del tiempo: así cada instante sería un «sujeto» distinto y el "
+              "reparto separaría solo por el tiempo, sin apartar a ningún sujeto. Elige como sujeto la columna que identifica "
+              "a la persona (o la unidad) y como tiempo la de la fecha",
+        "en": "{campo} is both the subject column and the time column: each instant would then be a different “subject” and "
+              "the split would only separate by time, without setting any subject apart. Choose as subject the column that "
+              "identifies the person (or the unit) and as time the date column",
     },
     "estricto_prueba_con_pocas_unidades": {
         "es": "la prueba tendría {valor} valor(es) de {unidad} y hacen falta al menos {minimo}: con menos sujetos la "
@@ -324,11 +346,39 @@ MOTIVOS: dict[str, dict[str, str]] = {
     },
     "estricto_clase_en_pocos_sujetos_de_prueba": {
         "es": "la clase {clase} estaría en {valor} valor(es) de {unidad} de la prueba y hacen falta al menos "
-              "{minimo}: con menos, lo que se mide de esa clase depende de una sola persona. Entre los sujetos con "
-              "filas posteriores al corte, {partes} la traen. Se probaron {n} cortes y ninguno llegó",
+              "{minimo}: con menos, lo que se mide de esa clase depende de una sola persona. De los sujetos con filas "
+              "posteriores al corte (los únicos que pueden ser de prueba), {partes} la traen en esas filas; en todo el "
+              "conjunto, {total}. Se probaron {n} cortes y ninguno llegó",
         "en": "class {clase} would be in {valor} value(s) of {unidad} in the test and at least {minimo} are needed: "
-              "with fewer, what is measured for that class depends on a single person. Among the subjects with rows "
-              "after the cut, {partes} have it. {n} cuts were tried and none reached it",
+              "with fewer, what is measured for that class depends on a single person. Of the subjects with rows "
+              "after the cut (the only ones that can be in the test), {partes} have it in those rows; in the whole "
+              "dataset, {total}. {n} cuts were tried and none reached it",
+    },
+    "estricto_clase_sin_prueba_que_la_cubra": {
+        "es": "la clase {clase} la traen {partes} de los sujetos con filas posteriores al corte (en todo el conjunto, "
+              "{total}), pero no se ha encontrado una prueba que la lleve en al menos {minimo} valor(es) de {unidad} sin "
+              "pasarse de la parte de sujetos que le toca. Se probaron {n} cortes y ninguno llegó",
+        "en": "class {clase} is present in {partes} of the subjects with rows after the cut ({total} in the whole "
+              "dataset), but no test was found that carries it in at least {minimo} value(s) of {unidad} without "
+              "exceeding its share of subjects. {n} cuts were tried and none reached it",
+    },
+    "estricto_pliegues_sin_la_clase": {
+        "es": "en el desarrollo la clase {clase} queda en {valor} valor(es) de {unidad}, y los pliegues por sujeto "
+              "necesitan al menos {minimo} para que cada validación tenga alguna fila de ella; en todo el conjunto la "
+              "traen {total} y la prueba se lleva {prueba}. Se probaron {n} cortes y ninguno llegó. Un modelo que no se "
+              "valida en una clase no se elige por ella: el estudio no arranca",
+        "en": "in development class {clase} is left in {valor} value(s) of {unidad}, and folds by subject need at "
+              "least {minimo} so that every validation has some row of it; the whole dataset has it in {total} and "
+              "the test takes {prueba}. {n} cuts were tried and none reached it. A model that is never validated on a "
+              "class is not chosen for it: the study does not start",
+    },
+    "estricto_pliegues_sin_reparto_de_la_clase": {
+        "es": "en el desarrollo la clase {clase} está en {valor} valor(es) de {unidad}, pero no se ha encontrado un "
+              "reparto en pliegues por sujeto con la clase en cada validación; en todo el conjunto la traen {total} y "
+              "la prueba se lleva {prueba}. Se probaron {n} cortes y ninguno llegó: el estudio no arranca",
+        "en": "in development class {clase} is in {valor} value(s) of {unidad}, but no split into folds by subject "
+              "with the class in every validation was found; the whole dataset has it in {total} and the test takes "
+              "{prueba}. {n} cuts were tried and none reached it: the study does not start",
     },
     "estricto_desarrollo_sin_clase": {
         "es": "el desarrollo ({filas} filas) no tiene ninguna fila de la clase {clase}: los sujetos que la traen están "
@@ -339,10 +389,15 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "the study does not start",
     },
     "estricto_desarrollo_vacio": {
-        "es": "con este reparto el desarrollo tiene {filas} fila(s) de {valor} valor(es) de {unidad} y hacen falta "
-              "al menos {minimo}: los demás sujetos solo tienen filas posteriores al corte",
-        "en": "with this split development has {filas} row(s) from {valor} value(s) of {unidad} and at least "
-              "{minimo} are needed: the other subjects only have rows after the cut",
+        "es": "con este reparto el desarrollo tiene {filas} fila(s) de {valor} valor(es) de {unidad}, y hacen falta al "
+              "menos {minimo} sujetos y {minimo_de_filas} filas, los mismos mínimos que la prueba (que tiene {prueba} "
+              "sujetos y {filas_de_prueba} filas): con menos, el modelo se elige con lo que aportan dos o tres personas. El "
+              "resto de los sujetos son de prueba o solo tienen filas posteriores al corte. Se probaron {n} cortes y ninguno "
+              "llegó",
+        "en": "with this split development has {filas} row(s) from {valor} value(s) of {unidad}, and at least {minimo} "
+              "subjects and {minimo_de_filas} rows are needed, the same minimums as the test (which has {prueba} subjects "
+              "and {filas_de_prueba} rows): with fewer, the model is chosen on what two or three people contribute. The "
+              "other subjects are in the test or only have rows after the cut. {n} cuts were tried and none reached it",
     },
     "estricto_filas_descartadas": {
         "es": "este reparto deja fuera {valor} de {n} filas ({porcentaje} %): las de los sujetos de prueba anteriores "
@@ -354,9 +409,11 @@ MOTIVOS: dict[str, dict[str, str]] = {
     },
     "estricto_corte_relajado": {
         "es": "se pidió una prueba con el {pedida} % de los sujetos y el corte en el cuantil {cuantil_pedido}, y no "
-              "cumplía los mínimos de la prueba: se usa el {usada} % de los sujetos y el cuantil {cuantil_usado}",
+              "cumplía los mínimos de la prueba: se repartió pidiendo el {usada} % con el cuantil {cuantil_usado}, y la "
+              "prueba tiene {n} de los {sujetos} sujetos",
         "en": "a test with {pedida} % of the subjects and the cut at quantile {cuantil_pedido} was requested and it "
-              "did not meet the test minimums: {usada} % of the subjects and quantile {cuantil_usado} are used",
+              "did not meet the test minimums: the split asked for {usada} % with quantile {cuantil_usado}, and the "
+              "test has {n} of the {sujetos} subjects",
     },
     "estricto_pliegues_reducidos": {
         "es": "se pidieron {pedidos} pliegues y el último tramo del desarrollo solo permite {usados}: con más, algún "

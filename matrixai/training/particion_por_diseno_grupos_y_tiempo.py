@@ -21,11 +21,13 @@ quiera el estricto llama a `proponer_particion_estricta`.
   dos lados.** El resto de filas (las anteriores de los sujetos de prueba, las posteriores de los demás, las del hueco)
   NO tienen rol, y el resultado DECLARA cuántas son y qué porcentaje (en Parkinson, con la omisión, el 42 %).
 - **Mínimos de la prueba (D2, medidos en el C0): rechazo duro con sus números.** ≥ 5 sujetos, ≥ 50 filas y cada clase en
-  ≥ 2 sujetos de prueba. Con menos, la nota es del azar de quién cayó en la prueba.
+  ≥ 2 sujetos de prueba. Con menos, la nota es del azar de quién cayó en la prueba. **El desarrollo, los mismos ≥ 5 sujetos
+  y ≥ 50 filas** (auditoría M1): un corte que no los cumple se salta y la escalera prueba el siguiente.
 - **Corte automático (D2).** Por omisión `s` = 0,3 (la cuota de sujetos de prueba, sobre TODOS los sujetos) y `q` = 0,7.
   Si esa prueba no cumple los mínimos, la escalera relaja lo justo —más sujetos de prueba (`s` + 0,1 hasta 0,5) y un
   corte más temprano (`q` − 0,1 hasta 0,4)—, **en orden de lo menos a lo más relajado (entre iguales, antes más sujetos)
-  y se queda con el PRIMERO que cumple**. La escalera del C0 buscaba «el mayor desarrollo que cumple los mínimos» y dejaba pruebas de 8 pacientes
+  y se queda con el PRIMERO que cumple** —los mínimos de la prueba, los del desarrollo y que sus pliegues se puedan hacer:
+  si los pliegues fallan (una clase en muy pocos sujetos del desarrollo), se prueba el peldaño siguiente (auditoría I3)—. La escalera del C0 buscaba «el mayor desarrollo que cumple los mínimos» y dejaba pruebas de 8 pacientes
   (Parkinson 132 filas, el mínimo que pasaba): aquí lo que se busca es una prueba SUFICIENTE, no el máximo desarrollo.
   `automatico=False` prueba solo lo pedido.
 - **Pliegues (D3) = F2q del C0.** Pliegues por sujeto × el último 30 % de las FILAS del desarrollo: cada pliegue valida
@@ -59,7 +61,8 @@ from matrixai.training.diagnostico import Bloqueo, Limite
 from matrixai.training.particion_por_diseno import (
     AsignacionDePliegues, Pliegue, PropuestaDeParticion, _cobertura, _grupos_insuficientes,
     _kfold_groups, _pliegues_desde_cubos, _plan_con_roles, _sin_prueba, _unidad_falta)
-from matrixai.training.particion_por_diseno_comun import BloqueoConNumeros, Rechazo, nombres_de_clases
+from matrixai.training.particion_por_diseno_comun import (
+    BloqueoConNumeros, Rechazo, limite_de_sujetos_que_se_escriben_igual, nombres_de_clases)
 from matrixai.training.particion_por_diseno_grupos import _cubrir, repartir_cubos, repartir_grupos_estratificado
 from matrixai.training.particion_por_diseno_textos import motivo
 from matrixai.training.particion_por_diseno_tiempo import convertir_gap, convertir_tiempos, segundos_de
@@ -67,8 +70,8 @@ from matrixai.training.particion_por_diseno_tiempo import convertir_gap, convert
 __all__ = [
     "CUANTIL_DEL_CORTE_POR_OMISION", "DOMINANCIA_DE_UNA_UNIDAD", "FILAS_MINIMAS_PARA_PLIEGUES_CON_TIEMPO",
     "FRACCION_DE_LA_VENTANA", "FRACCION_DE_SUJETOS_POR_OMISION", "IntervaloDeclarado",
-    "MINIMO_FILAS_DE_ENTRENAMIENTO", "MINIMO_FILAS_DE_PRUEBA", "MINIMO_FILAS_DE_VALIDACION",
-    "MINIMO_UNIDADES_DE_PRUEBA", "MINIMO_UNIDADES_POR_CLASE", "PropuestaEstricta", "RepartoEstricto",
+    "MINIMO_FILAS_DE_DESARROLLO", "MINIMO_FILAS_DE_ENTRENAMIENTO", "MINIMO_FILAS_DE_PRUEBA", "MINIMO_FILAS_DE_VALIDACION",
+    "MINIMO_UNIDADES_DE_DESARROLLO", "MINIMO_UNIDADES_DE_PRUEBA", "MINIMO_UNIDADES_POR_CLASE", "PropuestaEstricta", "RepartoEstricto",
     "escalera_del_corte", "proponer_particion_estricta", "repartir_estricto",
 ]
 
@@ -94,7 +97,14 @@ FILAS_MINIMAS_PARA_PLIEGUES_CON_TIEMPO = 300
 MINIMO_FILAS_DE_VALIDACION = 30
 MINIMO_FILAS_DE_ENTRENAMIENTO = 100
 _MINIMO_PLIEGUES = 2
-_MINIMO_UNIDADES_DE_DESARROLLO = 2
+#: Auditoría M1 del 140b: el DESARROLLO tiene los mismos mínimos que la prueba (≥ 5 sujetos y ≥ 50 filas). Hasta entonces el
+#: único era 2 sujetos, y la escalera, que busca una prueba SUFICIENTE, podía dejar un desarrollo más pequeño que ella (8
+#: sujetos: 3 de desarrollo con 24–40 filas frente a 5 de prueba con 51–62; pliegues de un solo sujeto). Medido sobre 420
+#: cohortes sintéticas (8–40 sujetos, 3–30 visitas): 57 de los 266 repartos viables tenían un desarrollo por debajo; con el
+#: mínimo, 3 encuentran otro corte y 54 se rechazan con sus números (casi todos de 8–10 sujetos o de 3–7 visitas). Parkinson
+#: (28 sujetos y 2.745 filas de desarrollo) no cambia. Con menos, el modelo se elige con lo que aportan dos o tres personas.
+MINIMO_UNIDADES_DE_DESARROLLO = MINIMO_UNIDADES_DE_PRUEBA
+MINIMO_FILAS_DE_DESARROLLO = MINIMO_FILAS_DE_PRUEBA
 
 #: Un sujeto con más de esta parte de las filas de la prueba la domina: el bootstrap por unidad depende casi de él.
 DOMINANCIA_DE_UNA_UNIDAD = 0.5
@@ -139,11 +149,16 @@ class RepartoEstricto:
     descartadas: tuple[str, ...]
     unidades_de_desarrollo: tuple[str, ...]
     unidades_de_prueba: tuple[str, ...]
+    #: Cuántos sujetos tiene el conjunto (sin la cohorte externa). La cuota REALIZADA de sujetos de prueba es
+    #: `len(unidades_de_prueba) / sujetos`, que NO es `fraccion_de_sujetos`: con pocos sujetos con filas posteriores al corte
+    #: van todos a la prueba (menos de lo pedido), y el asignador reparte por FILAS (auditoría I2 del 140b).
+    sujetos: int
     #: El corte, en segundos (o en la unidad del número, si el tiempo es numérico), y cómo se lee.
     corte: float
     corte_legible: str
     hueco_segundos: float
-    #: Lo pedido y lo usado: si difieren, la escalera relajó el corte (y hay un `Limite`).
+    #: Lo pedido y el peldaño de la escalera con que se repartió: si difieren, la escalera relajó el corte (y hay un `Limite`).
+    #: `fraccion_de_sujetos` es el PARÁMETRO del peldaño, no la cuota que salió (esa, `unidades_de_prueba` / `sujetos`).
     fraccion_de_sujetos_pedida: float
     cuantil_pedido: float
     fraccion_de_sujetos: float
@@ -173,6 +188,7 @@ class RepartoEstricto:
             "filas_descartadas": self.filas_descartadas, "porcentaje_descartado": self.porcentaje_descartado,
             "unidades_de_desarrollo": len(self.unidades_de_desarrollo),
             "unidades_de_prueba": list(self.unidades_de_prueba),
+            "sujetos": self.sujetos,
             "tipo_de_pliegues": self.tipo_de_pliegues, "pliegues": len(self.pliegues),
             "inicio_del_tramo": self.inicio_del_tramo,
             "intervalo": self.intervalo.a_json(),
@@ -248,13 +264,19 @@ class _Intento:
     unidades_de_prueba: tuple[str, ...] = ()
     prueba: tuple[str, ...] = ()
     desarrollo: tuple[str, ...] = ()
-    #: Qué mínimo no cumple (`None` si cumple todo): unidades, filas, clase, sin_elegibles, desarrollo_sin_clase,
-    #: desarrollo_vacio.
+    #: Qué mínimo no cumple (`None` si cumple todo): unidades, filas, clase, clase_sin_cubrir, sin_elegibles,
+    #: desarrollo_sin_clase, desarrollo_vacio, pliegues (los pliegues del desarrollo no se pudieron hacer).
     fallo: str | None = None
     #: Para el mensaje: por clase, cuántos sujetos de prueba (o, si no hubo reparto, cuántos elegibles) la traen.
     sujetos_por_clase: dict[Any, int] = field(default_factory=dict)
+    #: Por clase, cuántos ELEGIBLES (sujetos con filas posteriores al corte) la traen en esas filas (auditoría M4: la frase
+    #: del rechazo nombra esta población y la de la prueba por separado).
+    elegibles_por_clase: dict[Any, int] = field(default_factory=dict)
     clase_que_falta: Any = None
     unidades_de_desarrollo: int = 0
+    #: El `Rechazo` de los pliegues del desarrollo (auditoría I3): la escalera sigue probando cortes, y si ninguno llega
+    #: se rechaza con los números del estricto, no con la frase de `groups`.
+    rechazo_de_los_pliegues: Any = None
 
     def calidad(self) -> tuple[int, int]:
         return (len(self.unidades_de_prueba), len(self.prueba))
@@ -284,6 +306,9 @@ def _probar_un_corte(filas_de: Mapping[str, Sequence[str]], tiempo: Mapping[str,
 
     n_prueba = max(1, round(len(filas_de) * fraccion))
     clasifica = clases != [None]
+    if clasifica:
+        intento.elegibles_por_clase = {c: sum(1 for filas in posteriores.values() if any(clase_de(o) == c for o in filas))
+                                       for c in clases}
     if n_prueba >= len(posteriores):
         elegidos = sorted(posteriores)
     else:
@@ -298,9 +323,12 @@ def _probar_un_corte(filas_de: Mapping[str, Sequence[str]], tiempo: Mapping[str,
         cubierta = _cubrir(cuentas, clases, MINIMO_UNIDADES_POR_CLASE, azar,
                            capacidades=[capacidad / MINIMO_UNIDADES_POR_CLASE] * MINIMO_UNIDADES_POR_CLASE)
         if cubierta is None:
-            intento.fallo = "clase"
-            intento.sujetos_por_clase = {c: sum(1 for u in cuentas if cuentas[u].get(c)) for c in clases}
+            # Sin prueba posible: la prueba tendría COMO MUCHO los elegibles que traen la clase. Si son menos que el mínimo,
+            # es el rechazo de la clase en pocos sujetos; si no, los hay pero no caben en la parte de la prueba.
+            intento.sujetos_por_clase = dict(intento.elegibles_por_clase)
             intento.clase_que_falta = min(clases, key=lambda c: (intento.sujetos_por_clase[c], str(c)))
+            intento.fallo = ("clase" if intento.sujetos_por_clase[intento.clase_que_falta] < MINIMO_UNIDADES_POR_CLASE
+                             else "clase_sin_cubrir")
             return intento
         cubos = repartir_cubos(
             cuentas, clases, [{c: total[c] * parte for c in clases}, {c: total[c] * (1 - parte) for c in clases}],
@@ -329,7 +357,7 @@ def _probar_un_corte(filas_de: Mapping[str, Sequence[str]], tiempo: Mapping[str,
     intento.desarrollo = tuple(sorted(desarrollo, key=lambda o: (tiempo[o], o)))
     unidades = {u for u, filas in filas_de.items() if u not in en_la_prueba and any(tiempo[o] < antes for o in filas)}
     intento.unidades_de_desarrollo = len(unidades)
-    if len(unidades) < _MINIMO_UNIDADES_DE_DESARROLLO:
+    if len(unidades) < MINIMO_UNIDADES_DE_DESARROLLO or len(desarrollo) < MINIMO_FILAS_DE_DESARROLLO:
         intento.fallo = "desarrollo_vacio"
         return intento
     if clasifica:
@@ -452,19 +480,27 @@ def repartir_estricto(ids: Sequence[str], unidad_por_id: Mapping[str, str], tiem
 
     escalera = escalera_del_corte(fraccion_de_sujetos, cuantil_del_corte, automatico)
     intentos: list[_Intento] = []
-    elegido: _Intento | None = None
     for fraccion, cuantil in escalera:
         intento = _probar_un_corte(filas_de, tiempo_por_id, ordenados, clase_de, clases, hueco_s, fraccion, cuantil, seed)
         intentos.append(intento)
-        if intento.fallo is None:
-            elegido = intento
-            break
-    if elegido is None:
-        raise _rechazo(intentos, ids, clases, nombre, hueco_s, columna_de_unidad, columna_de_tiempo, tiempo_original,
-                       tiempo_por_id, formato_de_fecha, es_fecha)
-    return _armar(elegido, intentos, ids, filas_de, unidad_por_id, tiempo_por_id, clase_de, clases, nombre, hueco_s,
-                  limites, fraccion_de_sujetos, cuantil_del_corte, folds, seed, columna_de_unidad,
-                  formato_de_fecha, es_fecha)
+        if intento.fallo is not None:
+            continue
+        try:
+            return _armar(intento, intentos, ids, filas_de, unidad_por_id, tiempo_por_id, clase_de, clases, nombre,
+                          hueco_s, list(limites), fraccion_de_sujetos, cuantil_del_corte, folds, seed, columna_de_unidad,
+                          formato_de_fecha, es_fecha)
+        except Rechazo as rechazo:
+            # Auditoría I3 del 140b: los pliegues del desarrollo (F1, estratificados con el asignador de `groups`) no se
+            # pudieron hacer —una clase en muy pocos sujetos del desarrollo—. Hasta la reparación ese rechazo salía TAL CUAL,
+            # con la frase de `groups` («la clase solo aparece en 1 grupo(s)… y la prueba reservada») y la cuenta del
+            # DESARROLLO sin decirlo, y la escalera no probaba más cortes. Ahora se prueba el peldaño siguiente; si ninguno
+            # llega, el rechazo dice las tres poblaciones (desarrollo, conjunto y prueba).
+            intento.fallo = "pliegues"
+            intento.rechazo_de_los_pliegues = rechazo
+    con_la_clase = ({c: len({unidad_por_id[o] for o in ids if clase_de(o) == c}) for c in clases}
+                    if clases != [None] else {})
+    raise _rechazo(intentos, ids, clases, nombre, hueco_s, columna_de_unidad, columna_de_tiempo, tiempo_original,
+                   tiempo_por_id, formato_de_fecha, es_fecha, con_la_clase)
 
 
 def _armar(elegido: _Intento, intentos: Sequence[_Intento], ids, filas_de, unidad_por_id, tiempo, clase_de, clases,
@@ -486,10 +522,12 @@ def _armar(elegido: _Intento, intentos: Sequence[_Intento], ids, filas_de, unida
             clave="estricto_corte_relajado", campo="test_fraction",
             motivo=motivo("estricto_corte_relajado", pedida=_porcentaje(fraccion_pedida),
                           cuantil_pedido=_numero(cuantil_pedido), usada=_porcentaje(elegido.fraccion),
-                          cuantil_usado=_numero(elegido.cuantil)),
+                          cuantil_usado=_numero(elegido.cuantil), n=len(elegido.unidades_de_prueba),
+                          sujetos=len(filas_de)),
             medida={"fraccion_pedida": fraccion_pedida, "cuantil_pedido": cuantil_pedido,
                     "fraccion_usada": elegido.fraccion, "cuantil_usado": elegido.cuantil,
-                    "cortes_probados": len(intentos)}))
+                    "cortes_probados": len(intentos), "sujetos_de_prueba": len(elegido.unidades_de_prueba),
+                    "sujetos": len(filas_de)}))
     por_unidad = _cuenta_de_clases(prueba, lambda o: unidad_por_id[o])
     dominante = max(por_unidad, key=lambda u: (por_unidad[u], u))
     if por_unidad[dominante] / len(prueba) > DOMINANCIA_DE_UNA_UNIDAD:
@@ -537,7 +575,7 @@ def _armar(elegido: _Intento, intentos: Sequence[_Intento], ids, filas_de, unida
         ventana_de_prueba=(desde, hasta))
     return RepartoEstricto(
         desarrollo=desarrollo, prueba=prueba, descartadas=descartadas, unidades_de_desarrollo=unidades_de_desarrollo,
-        unidades_de_prueba=elegido.unidades_de_prueba, corte=elegido.corte,
+        unidades_de_prueba=elegido.unidades_de_prueba, sujetos=len(filas_de), corte=elegido.corte,
         corte_legible=_legible(elegido.corte, formato, es_fecha), hueco_segundos=hueco_s,
         fraccion_de_sujetos_pedida=fraccion_pedida, cuantil_pedido=cuantil_pedido,
         fraccion_de_sujetos=elegido.fraccion, cuantil=elegido.cuantil, cortes_probados=len(intentos),
@@ -547,9 +585,11 @@ def _armar(elegido: _Intento, intentos: Sequence[_Intento], ids, filas_de, unida
 
 
 def _rechazo(intentos: Sequence[_Intento], ids, clases, nombre, hueco_s, columna_de_unidad, columna_de_tiempo,
-             tiempo_original, tiempo, formato, es_fecha) -> Rechazo:
-    """El rechazo con los números del MEJOR intento (el de más sujetos y filas de prueba)."""
-    mejor = max(intentos, key=lambda i: (i.calidad(), -intentos.index(i)))
+             tiempo_original, tiempo, formato, es_fecha, con_la_clase: Mapping[Any, int]) -> Rechazo:
+    """El rechazo con los números del MEJOR intento: el que llegó más lejos (cumplió los mínimos de la prueba y falló en los
+    pliegues) y, entre iguales, el de más sujetos y filas de prueba. `con_la_clase`: cuántos sujetos del conjunto traen cada
+    clase en alguna fila."""
+    mejor = max(intentos, key=lambda i: (i.fallo == "pliegues", i.calidad(), -intentos.index(i)))
     base = {"unidad": columna_de_unidad, "columna_de_tiempo": columna_de_tiempo, "cortes_probados": len(intentos),
             "fraccion_de_sujetos": mejor.fraccion, "cuantil": mejor.cuantil, "corte": mejor.corte,
             "hueco_segundos": hueco_s, "sujetos_elegibles": mejor.elegibles}
@@ -574,14 +614,39 @@ def _rechazo(intentos: Sequence[_Intento], ids, clases, nombre, hueco_s, columna
                         "filas_de_prueba": len(mejor.prueba), "minimo": MINIMO_FILAS_DE_PRUEBA},
                        valor=len(mejor.prueba), partes=len(mejor.unidades_de_prueba), unidad=columna_de_unidad,
                        minimo=MINIMO_FILAS_DE_PRUEBA, n=n)
-    if mejor.fallo == "clase":
+    if mejor.fallo in ("clase", "clase_sin_cubrir"):
+        # Auditoría M4: TRES poblaciones, cada una con su nombre: los sujetos de prueba con la clase (`valor`), los elegibles
+        # —con filas posteriores al corte— que la traen en esas filas (`partes`) y los del conjunto entero (`total`).
         clase = mejor.clase_que_falta
-        return Rechazo("estricto_clase_en_pocos_sujetos_de_prueba", "objetivo",
-                       {**base, "clase": nombre[clase], "minimo": MINIMO_UNIDADES_POR_CLASE,
-                        "sujetos_de_prueba_por_clase": {nombre[c]: v for c, v in mejor.sujetos_por_clase.items()},
-                        "unidades_de_prueba": len(mejor.unidades_de_prueba)},
-                       clase=nombre[clase], valor=mejor.sujetos_por_clase.get(clase, 0), unidad=columna_de_unidad,
-                       minimo=MINIMO_UNIDADES_POR_CLASE, partes=mejor.sujetos_por_clase.get(clase, 0), n=n)
+        medida = {**base, "clase": nombre[clase], "minimo": MINIMO_UNIDADES_POR_CLASE,
+                  "sujetos_de_prueba_por_clase": {nombre[c]: v for c, v in mejor.sujetos_por_clase.items()},
+                  "sujetos_elegibles_por_clase": {nombre[c]: v for c, v in mejor.elegibles_por_clase.items()},
+                  "sujetos_del_conjunto_por_clase": {nombre[c]: v for c, v in con_la_clase.items()},
+                  "unidades_de_prueba": len(mejor.unidades_de_prueba)}
+        textos = dict(clase=nombre[clase], valor=mejor.sujetos_por_clase.get(clase, 0), unidad=columna_de_unidad,
+                      minimo=MINIMO_UNIDADES_POR_CLASE, partes=mejor.elegibles_por_clase.get(clase, 0),
+                      total=con_la_clase.get(clase, 0), n=n)
+        clave = ("estricto_clase_en_pocos_sujetos_de_prueba" if mejor.fallo == "clase"
+                 else "estricto_clase_sin_prueba_que_la_cubra")
+        return Rechazo(clave, "objetivo", medida, **textos)
+    if mejor.fallo == "pliegues":
+        interno = mejor.rechazo_de_los_pliegues
+        de_los_pliegues = dict(interno.medida)
+        clave_de_la_clase = {v: c for c, v in nombre.items()}.get(de_los_pliegues.get("clase"))
+        en_el_desarrollo = de_los_pliegues.get("grupos_con_la_clase")
+        minimo = de_los_pliegues.get("grupos_necesarios_con_2_pliegues")
+        en_la_prueba = mejor.sujetos_por_clase.get(clave_de_la_clase, 0)
+        medida = {**base, "clase": de_los_pliegues.get("clase"), "rechazo_de_los_pliegues": interno.clave,
+                  "sujetos_de_desarrollo_con_la_clase": en_el_desarrollo,
+                  "sujetos_de_prueba_con_la_clase": en_la_prueba,
+                  "sujetos_del_conjunto_con_la_clase": con_la_clase.get(clave_de_la_clase, 0),
+                  "minimo_en_el_desarrollo": minimo, "unidades_de_prueba": len(mejor.unidades_de_prueba),
+                  "unidades_de_desarrollo": mejor.unidades_de_desarrollo, "pliegues": de_los_pliegues}
+        textos = dict(clase=de_los_pliegues.get("clase"), valor=en_el_desarrollo, unidad=columna_de_unidad,
+                      total=con_la_clase.get(clave_de_la_clase, 0), prueba=en_la_prueba, n=n)
+        if interno.clave == "clase_sin_grupos_suficientes" and minimo is not None:
+            return Rechazo("estricto_pliegues_sin_la_clase", "objetivo", medida, minimo=minimo, **textos)
+        return Rechazo("estricto_pliegues_sin_reparto_de_la_clase", "objetivo", medida, **textos)
     if mejor.fallo == "desarrollo_sin_clase":
         clase = mejor.clase_que_falta
         return Rechazo("estricto_desarrollo_sin_clase", "objetivo",
@@ -589,9 +654,12 @@ def _rechazo(intentos: Sequence[_Intento], ids, clases, nombre, hueco_s, columna
                        clase=nombre[clase], filas=len(mejor.desarrollo))
     return Rechazo("estricto_desarrollo_vacio", "time_column",
                    {**base, "filas_de_desarrollo": len(mejor.desarrollo),
-                    "unidades_de_desarrollo": mejor.unidades_de_desarrollo, "minimo": _MINIMO_UNIDADES_DE_DESARROLLO},
+                    "unidades_de_desarrollo": mejor.unidades_de_desarrollo, "minimo": MINIMO_UNIDADES_DE_DESARROLLO,
+                    "minimo_de_filas": MINIMO_FILAS_DE_DESARROLLO, "unidades_de_prueba": len(mejor.unidades_de_prueba),
+                    "filas_de_prueba": len(mejor.prueba)},
                    filas=len(mejor.desarrollo), valor=mejor.unidades_de_desarrollo, unidad=columna_de_unidad,
-                   minimo=_MINIMO_UNIDADES_DE_DESARROLLO)
+                   minimo=MINIMO_UNIDADES_DE_DESARROLLO, minimo_de_filas=MINIMO_FILAS_DE_DESARROLLO,
+                   prueba=len(mejor.unidades_de_prueba), filas_de_prueba=len(mejor.prueba), n=n)
 
 
 # ---------------------------------------------------------------------------
@@ -638,6 +706,14 @@ def proponer_particion_estricta(filas: Sequence[Mapping[str, Any]], *, plan_id: 
                     "ejemplos": ejemplos}))
     if not unit_id_field:
         return _como_estricta(_grupos_insuficientes(0, len(internos), unit_id_field))
+    if unit_id_field == time_column:
+        # Auditoría M5 del 140b: con la MISMA columna como sujeto y como tiempo cada «sujeto» es un instante, el reparto sale
+        # puramente temporal (0 % de filas sin rol) y la ficha diría «ningún sujeto estuvo a los dos lados» de un reparto que
+        # no separa sujetos. Se rechaza antes de cortar, con su motivo.
+        return sin(BloqueoConNumeros(
+            clave="estricto_sujeto_y_tiempo_la_misma_columna", campo="unit_id_field",
+            motivo=motivo("estricto_sujeto_y_tiempo_la_misma_columna", campo=unit_id_field),
+            medida={"columna_del_sujeto": unit_id_field, "columna_de_tiempo": time_column}))
     vacias = sum(1 for obs in todos if _unidad_falta(todos[obs].get(unit_id_field)))
     if vacias:
         return sin(BloqueoConNumeros(
@@ -672,6 +748,10 @@ def proponer_particion_estricta(filas: Sequence[Mapping[str, Any]], *, plan_id: 
         return sin(rechazo.bloqueo())
 
     limites = list(reparto.limites)
+    # Auditoría I5 del 140b: el mismo aviso que `groups` (`7` y `007`), con sus números; no se unifican.
+    escritos_igual = limite_de_sujetos_que_se_escriben_igual(unidad_por_id, unit_id_field)
+    if escritos_igual is not None:
+        limites.append(escritos_igual)
     if gap is not None and not convertido.es_fecha:
         limites.append(Limite(clave="tiempo_numerico_sin_unidad", campo="time_column",
                               motivo=motivo("tiempo_numerico_sin_unidad", campo=time_column),

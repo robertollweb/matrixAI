@@ -904,7 +904,7 @@ def test_unidad_vacia_y_pocos_grupos_son_bloqueos_con_numeros():
 
 def test_los_textos_nuevos_estan_en_los_dos_idiomas_con_los_mismos_huecos():
     claves = [k for k in MOTIVOS if k.startswith("estricto_")]
-    assert len(claves) == 12
+    assert len(claves) == 16   # 12 del C1 + 4 de la reparación de la auditoría (I3, M4 y M5)
     for k in claves:
         assert set(MOTIVOS[k]) == {"es", "en"}
         assert huecos_de(MOTIVOS[k]["es"]) == huecos_de(MOTIVOS[k]["en"]), k
