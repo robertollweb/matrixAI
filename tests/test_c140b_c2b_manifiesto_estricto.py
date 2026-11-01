@@ -6,7 +6,7 @@ Antes de este corte `DISENOS_DEL_REPARTO` era `("iid","groups","temporal")` y un
 exportar (el backend lo esquivaba exportando sin `study.split`: la ficha decía «no disponible»). Ahora el manifiesto valida y
 graba lo que el reparto estricto declara de sí mismo (`RepartoEstricto.a_json()`, que el Studio manda como `reparto.estricto`) y
 la ficha lo dice: el diseño, el corte, las filas SIN ROL con su porcentaje y el tipo de pliegues; el intervalo, condicional a la
-ventana. La ficha NO redacta cifras de cobertura (las decide Roberto).
+ventana y, desde la decisión de Roberto del 01-11 (`140b-intervalo`, opción A), con su cobertura MEDIDA y la marca de «aproximado».
 
 Los datos son los del reparto REAL del 140b-C1 (`proponer_particion_estricta`), no un diccionario escrito a mano: lo que se
 afirma es lo que el núcleo declara de verdad.
@@ -118,7 +118,11 @@ class TestElManifiestoGrabaElRepartoEstricto:
         assert s["last_stretch_start"] == r.inicio_del_tramo
         assert s["interval"] == {
             "method": "cluster_bootstrap_by_unit", "resampling_design": "groups", "resampling_unit": "unit",
-            "conditional_on_the_window": True, "test_units": 10, "test_window": list(r.intervalo.ventana_de_prueba)}
+            "conditional_on_the_window": True, "test_units": 10, "test_window": list(r.intervalo.ventana_de_prueba),
+            # 140b-intervalo: 10 sujetos de prueba → el punto medido de 8 (0,835), aproximado (< 50), con las frases del núcleo
+            "measured_coverage": 0.835, "measured_point_subjects": 8, "approximate": True,
+            "coverage_text": dict(r.intervalo.texto), "approximate_text": dict(r.intervalo.texto_aproximado)}
+        assert "83 de cada 100" in s["interval"]["coverage_text"]["es"] and "83 times in 100" in s["interval"]["coverage_text"]["en"]
         # y el digest cubre el bloque
         assert _manifiesto(filas, p, sobre)["manifest_sha256"] == _manifiesto(filas, p, sobre)["manifest_sha256"]
         otro = copy.deepcopy(sobre)
@@ -236,6 +240,34 @@ class TestUnRepartoEstrictoMalFormadoSeRechazaConSuMotivo:
         with pytest.raises(ReproduceManifestError, match=mensaje):
             _manifiesto(filas, p, malo)
 
+    @pytest.mark.parametrize("cambio,mensaje", [
+        ({"cobertura_medida": 0.95}, "measured table says 0.835"),
+        ({"cobertura_medida": None}, "measured table says 0.835"),
+        ({"cobertura_medida": "0.835"}, "cobertura_medida must be a number or null"),
+        ({"sujetos_del_punto_medido": 20}, r"measured with 20 subjects\)"),
+        ({"aproximado": False}, "aproximado must be True with 10 test subjects"),
+        ({"aproximado": 1}, "aproximado must be True"),
+        ({"texto_aproximado": None}, "texto_aproximado must be present exactly when"),
+        ({"texto": {"es": "x", "en": "y"}}, "does not say the measured figure"),
+        ({"texto": {"es": "unas 83 de cada 100 veces"}}, "exactly es and en"),
+        ({"texto": {"es": "unas 83 de cada 100", "en": "about 95 times in 100"}}, "texto.en does not say"),
+    ])
+    def test_una_cobertura_que_no_sale_de_la_tabla_medida_no_se_publica(self, f2q, cambio, mensaje):
+        """140b-intervalo: la cobertura, su punto medido, el «aproximado» y la cifra de la frase se cruzan con la tabla del núcleo."""
+        filas, p, sobre = f2q
+        malo = copy.deepcopy(sobre)
+        malo["estricto"]["intervalo"].update(cambio)
+        with pytest.raises(ReproduceManifestError, match=mensaje):
+            _manifiesto(filas, p, malo)
+
+    def test_un_intervalo_sin_las_claves_de_la_cobertura_se_rechaza(self, f2q):
+        filas, p, sobre = f2q
+        for clave in ("cobertura_medida", "sujetos_del_punto_medido", "aproximado", "texto", "texto_aproximado"):
+            malo = copy.deepcopy(sobre)
+            del malo["estricto"]["intervalo"][clave]
+            with pytest.raises(ReproduceManifestError, match="exactly"):
+                _manifiesto(filas, p, malo)
+
     def test_el_intervalo_sin_una_clave_se_rechaza(self, f2q):
         filas, p, sobre = f2q
         malo = copy.deepcopy(sobre)
@@ -341,6 +373,7 @@ class TestLaFichaDiceElRepartoEstricto:
         assert "0.7" not in propio and "24.8" not in propio
         assert ("intervalo condicional a esta ventana de tiempo (remuestreo por sujeto, con 10 sujetos de prueba)" in reparto)
         assert "no cuánto rendirá en otro periodo" in reparto
+        assert "unas 83 de cada 100 veces" in reparto
         # los límites del reparto, con su frase del núcleo, tal cual
         assert "límites declarados: " in reparto and "149" in reparto
 
@@ -362,17 +395,34 @@ class TestLaFichaDiceElRepartoEstricto:
         for palabra in ("sujetos de prueba", "filas sin rol", "pliegues", "corte en el tiempo", "intervalo condicional"):
             assert palabra not in reparto
 
-    def test_no_redacta_cifras_de_cobertura_del_intervalo(self, f2q, tmp_path):
-        """La cobertura del intervalo la decide Roberto: el texto del intervalo no lleva ningún número salvo los sujetos de prueba."""
+    def test_la_ficha_dice_la_cobertura_medida_con_su_cifra_y_la_marca_de_aproximado(self, f2q, tmp_path):
+        """140b-intervalo (Roberto, 01-11): 10 sujetos de prueba → el punto medido de 8 (0,835), «unas 83 de cada 100», aproximado."""
         filas, p, sobre = f2q
-        for idioma in ("es", "en"):
-            ficha = ficha_tripod(_paquete(filas, p, sobre, tmp_path / idioma), locale=idioma)
-            reparto = _linea(ficha, REPARTO_POR_DISENO.rotulo[idioma])
-            frase = reparto[reparto.index("intervalo condicional" if idioma == "es" else "interval conditional"):]
-            frase = frase.split("; ")[0]
-            assert re.findall(r"\d+(?:[.,]\d+)?", frase) == ["10"], frase
-            for palabra in ("cobertura", "coverage", "95", "nominal"):
-                assert palabra not in frase
+        es = _linea(ficha_tripod(_paquete(filas, p, sobre, tmp_path / "es"), locale="es"), REPARTO_POR_DISENO.rotulo["es"])
+        en = _linea(ficha_tripod(_paquete(filas, p, sobre, tmp_path / "en"), locale="en"), REPARTO_POR_DISENO.rotulo["en"])
+        assert ("con 10 sujetos de prueba, un intervalo así acierta unas 83 de cada 100 veces o algo más, no 95 (se midió con 8 "
+                "sujetos de prueba") in es
+        assert "vale para esta ventana de tiempo (medido con datos sintéticos y un modelo fijo)" in es
+        assert "[cobertura medida 0,835 con 8 sujetos de prueba]" in es          # la coma decimal en castellano
+        assert "intervalo aproximado: con menos de 50 sujetos de prueba" in es
+        assert ("with 10 test subjects, an interval like this is right about 83 times in 100 or a little more, not 95 (it was "
+                "measured with 8 test subjects") in en
+        assert "it holds for this time window (measured on synthetic data with a fixed model)" in en
+        assert "[measured coverage 0.835 with 8 test subjects]" in en            # el punto decimal en inglés
+        assert "approximate interval: with fewer than 50 test subjects" in en
+        # y cada ficha en SU idioma: ni una frase del otro
+        for palabra in ("de cada 100", "intervalo aproximado", "cobertura medida", "sintéticos"):
+            assert palabra not in en
+        for palabra in ("times in 100", "approximate interval", "measured coverage", "synthetic"):
+            assert palabra not in es
+
+    def test_con_60_sujetos_de_prueba_la_ficha_no_marca_aproximado_y_dice_el_punto_de_50(self):
+        """El intervalo de un reparto de 60 sujetos de prueba (construido como lo construye el reparto) no es aproximado."""
+        from matrixai.training.particion_por_diseno_grupos_y_tiempo import (
+            cobertura_medida_del_intervalo, _frase_de_aproximado, _frase_de_cobertura)
+        cobertura, medido = cobertura_medida_del_intervalo(60)
+        assert (cobertura, medido) == (0.922, 50) and _frase_de_aproximado(60) is None
+        assert "unas 92 de cada 100 veces o algo más, no 95 (se midió con 50 sujetos" in _frase_de_cobertura(60, cobertura, medido)["es"]
 
     def test_f1_dice_pliegues_solo_por_sujeto_y_lo_pedido_y_lo_usado_del_corte(self, f1, tmp_path):
         filas, p, sobre = f1

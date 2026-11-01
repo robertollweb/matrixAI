@@ -441,6 +441,45 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "the value {dominante} of {unidad} contributes {porcentaje} % of the test rows: what is measured "
               "depends mostly on that subject",
     },
+
+    # -- 140b-intervalo (Roberto, 01-11, opción A): la cobertura MEDIDA del intervalo de la nota ------------------------
+    # Cada frase dice cuánto acierta un intervalo así con ESE número de sujetos de prueba (la tabla medida por el 140b-C0, en
+    # `particion_por_diseno_grupos_y_tiempo.COBERTURA_MEDIDA_DEL_INTERVALO`), que vale para esta ventana de tiempo y de dónde
+    # sale la medida (datos sintéticos, modelo fijo). `{cobertura}` es un entero «de cada 100», por debajo de lo medido.
+    "estricto_cobertura_medida": {
+        "es": "con {n} sujetos de prueba, un intervalo así acierta unas {cobertura} de cada 100 veces, no {nominal}: vale "
+              "para esta ventana de tiempo (medido con datos sintéticos y un modelo fijo)",
+        "en": "with {n} test subjects, an interval like this is right about {cobertura} times in 100, not {nominal}: it "
+              "holds for this time window (measured on synthetic data with a fixed model)",
+    },
+    "estricto_cobertura_del_punto_menor": {
+        "es": "con {n} sujetos de prueba, un intervalo así acierta unas {cobertura} de cada 100 veces o algo más, no "
+              "{nominal} (se midió con {medido} sujetos de prueba, el punto medido más cercano por debajo): vale para esta "
+              "ventana de tiempo (medido con datos sintéticos y un modelo fijo)",
+        "en": "with {n} test subjects, an interval like this is right about {cobertura} times in 100 or a little more, not "
+              "{nominal} (it was measured with {medido} test subjects, the nearest measured point below): it holds for this "
+              "time window (measured on synthetic data with a fixed model)",
+    },
+    "estricto_cobertura_mas_alla_de_lo_medido": {
+        "es": "con {n} sujetos de prueba, un intervalo así acierta unas {cobertura} de cada 100 veces, no {nominal} (lo "
+              "medido llega hasta {medido} sujetos de prueba): vale para esta ventana de tiempo (medido con datos "
+              "sintéticos y un modelo fijo)",
+        "en": "with {n} test subjects, an interval like this is right about {cobertura} times in 100, not {nominal} (what "
+              "was measured goes up to {medido} test subjects): it holds for this time window (measured on synthetic data "
+              "with a fixed model)",
+    },
+    "estricto_cobertura_no_medida": {
+        "es": "con {n} sujeto(s) de prueba no se ha medido cuánto acierta un intervalo así (se midió desde {minimo} "
+              "sujetos): no hay cifra que dar",
+        "en": "with {n} test subject(s) it has not been measured how often an interval like this is right (it was measured "
+              "from {minimo} subjects): there is no figure to give",
+    },
+    "estricto_intervalo_aproximado": {
+        "es": "intervalo aproximado: con menos de {umbral} sujetos de prueba el remuestreo por sujeto se queda corto de su "
+              "nivel del {nominal} %",
+        "en": "approximate interval: with fewer than {umbral} test subjects the resampling by subject falls short of its "
+              "{nominal}% level",
+    },
 }
 
 

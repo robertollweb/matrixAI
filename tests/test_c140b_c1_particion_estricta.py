@@ -693,14 +693,20 @@ def test_el_intervalo_es_el_bootstrap_por_unidad_existente_y_condicional_a_la_ve
     assert iv.a_json()["unidades_de_prueba"] == iv.unidades_de_prueba
 
 
-def test_ningun_texto_redacta_una_cobertura():
-    """Cómo se enseña la cobertura lo decide Roberto: el núcleo deja el número de sujetos de prueba y NADA más."""
+def test_solo_los_textos_de_la_cobertura_redactan_una_cobertura():
+    """Desde la decisión de Roberto del 01-11 (`140b-intervalo`, opción A) la cobertura SÍ se redacta en el núcleo, pero solo en las
+    frases `estricto_cobertura_*` y en la marca de aproximado: los motivos de bloqueos y límites siguen sin hablar de ella."""
     claves = [k for k in MOTIVOS if k.startswith("estricto_")]
     assert claves
+    de_la_cobertura = {k for k in claves if k.startswith("estricto_cobertura_") or k == "estricto_intervalo_aproximado"}
+    assert len(de_la_cobertura) == 5
     for k in claves:
         for idioma in ("es", "en"):
             texto = MOTIVOS[k][idioma].lower()
-            assert "cobertura" not in texto and "coverage" not in texto and "95" not in texto, (k, idioma)
+            habla = "cobertura" in texto or "coverage" in texto or "95" in texto
+            if k in de_la_cobertura:
+                continue
+            assert not habla, (k, idioma)
 
 
 # ---------------------------------------------------------------------------
@@ -904,7 +910,7 @@ def test_unidad_vacia_y_pocos_grupos_son_bloqueos_con_numeros():
 
 def test_los_textos_nuevos_estan_en_los_dos_idiomas_con_los_mismos_huecos():
     claves = [k for k in MOTIVOS if k.startswith("estricto_")]
-    assert len(claves) == 16   # 12 del C1 + 4 de la reparación de la auditoría (I3, M4 y M5)
+    assert len(claves) == 21   # 12 del C1 + 4 de la reparación de la auditoría (I3, M4 y M5) + 5 de la cobertura del intervalo
     for k in claves:
         assert set(MOTIVOS[k]) == {"es", "en"}
         assert huecos_de(MOTIVOS[k]["es"]) == huecos_de(MOTIVOS[k]["en"]), k

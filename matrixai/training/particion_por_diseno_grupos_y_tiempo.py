@@ -40,8 +40,11 @@ quiera el estricto llama a `proponer_particion_estricta`.
 - **Intervalo (D4).** El método existente de bootstrap por unidad (`cluster_bootstrap_by_unit`, el de `groups`) sobre
   las filas de la prueba. `incertidumbre.py` no se toca. El resultado declara el método, los sujetos de prueba y que el
   intervalo es **condicional a esta ventana de tiempo**: no incluye cambios entre periodos (con deriva compartida la
-  cobertura marginal se hunde, medido en el C0). Con pocos sujetos de prueba el percentil infracubre; la cobertura NO se
-  redacta aquí: se deja el número de sujetos de prueba para que quien la enseñe lo use.
+  cobertura marginal se hunde, medido en el C0). Con pocos sujetos de prueba el percentil infracubre, y eso se DICE
+  (decisión de Roberto del 01-11, tarjeta `140b-intervalo`, opción A): el intervalo declara la cobertura MEDIDA por el C0
+  para su número de sujetos de prueba (`COBERTURA_MEDIDA_DEL_INTERVALO`, UNA sola tabla; `cobertura_medida_del_intervalo`
+  la lee), la frase en los dos idiomas («con 8 sujetos de prueba, un intervalo así acierta unas 83 de cada 100 veces, no
+  95») y la marca de «aproximado» con menos de 50 sujetos de prueba. `incertidumbre.py` no se toca.
 
 **Lo que NO hace.** No quita de `repartir_cubos` su tope de nodos: en conjuntos enormes un «no se ha encontrado»
 del cubrimiento no prueba que no exista (como en `groups`). No elige el corte por fecha puesta por la persona (D2,
@@ -69,10 +72,11 @@ from matrixai.training.particion_por_diseno_tiempo import convertir_gap, convert
 
 __all__ = [
     "CUANTIL_DEL_CORTE_POR_OMISION", "DOMINANCIA_DE_UNA_UNIDAD", "FILAS_MINIMAS_PARA_PLIEGUES_CON_TIEMPO",
-    "FRACCION_DE_LA_VENTANA", "FRACCION_DE_SUJETOS_POR_OMISION", "IntervaloDeclarado",
+    "COBERTURA_MEDIDA_DEL_INTERVALO", "FRACCION_DE_LA_VENTANA", "FRACCION_DE_SUJETOS_POR_OMISION", "IntervaloDeclarado",
     "MINIMO_FILAS_DE_DESARROLLO", "MINIMO_FILAS_DE_ENTRENAMIENTO", "MINIMO_FILAS_DE_PRUEBA", "MINIMO_FILAS_DE_VALIDACION",
     "MINIMO_UNIDADES_DE_DESARROLLO", "MINIMO_UNIDADES_DE_PRUEBA", "MINIMO_UNIDADES_POR_CLASE", "PropuestaEstricta", "RepartoEstricto",
-    "escalera_del_corte", "proponer_particion_estricta", "repartir_estricto",
+    "NIVEL_NOMINAL_DEL_INTERVALO", "PROCEDENCIA_DE_LA_COBERTURA", "SUJETOS_PARA_QUE_NO_SEA_APROXIMADO",
+    "cobertura_medida_del_intervalo", "escalera_del_corte", "proponer_particion_estricta", "repartir_estricto",
 ]
 
 #: Los mínimos de la prueba (D2). Medidos en el 140b-C0 (750 celdas sintéticas + 5 conjuntos reales): los tres tienen
@@ -111,16 +115,92 @@ DOMINANCIA_DE_UNA_UNIDAD = 0.5
 
 
 # ---------------------------------------------------------------------------
+# La cobertura MEDIDA del intervalo (decisión de Roberto, 01-11, tarjeta `140b-intervalo`, opción A)
+# ---------------------------------------------------------------------------
+
+#: El nivel nominal del intervalo de la nota: el que `incertidumbre.intervalo` usa por omisión (una prueba lo vigila) y
+#: el que midió el C0. La frase dice «no 95» con este número.
+NIVEL_NOMINAL_DEL_INTERVALO = 0.95
+
+#: LA TABLA, UNA SOLA VEZ: (sujetos de prueba → cobertura real del IC del 95 % nominal) tal cual la midió el 140b-C0 (P3, E3),
+#: cobertura CONDICIONAL a la ventana y SIN deriva: la media de las 24 celdas por n (4 formas de visitas × 3 correlaciones
+#: dentro del sujeto × 2 calendarios, `salidas/e3.json`, métrica RMSE, R = 500 remuestras de B = 500), redondeada a tres
+#: decimales. Una prueba (`test_c140b_intervalo_a_cobertura.py`) la compara con ese fichero. NO se edita a mano ni se
+#: interpola: si se mide otra rejilla, se vuelve a medir y se pega la nueva con su procedencia.
+COBERTURA_MEDIDA_DEL_INTERVALO: tuple[tuple[int, float], ...] = (
+    (5, 0.775),
+    (8, 0.835),
+    (20, 0.890),
+    (50, 0.922),
+    (200, 0.936),
+)
+
+#: De dónde sale esa tabla. Va en el código para que quien la lea sepa qué NO es: una medición sobre datos SINTÉTICOS con un
+#: modelo FIJO (ŷ = 0), no el estudio de nadie, y sin el reentrenamiento ni la deriva entre periodos.
+PROCEDENCIA_DE_LA_COBERTURA = {
+    "medida_por": "140b-C0 (P3, E3)",
+    "fecha": "2026-11-01",
+    "protocolo_sha256": "59335ce2df4456ad45f7063d0d4ad6b64ff21cec305ea16b4761ea36ad0ddbf3",
+    "datos": "sintéticos (cohortes simuladas: n sujetos × visitas × correlación dentro del sujeto, panel y escalonado)",
+    "modelo": "fijo (sin reentrenar); métrica RMSE",
+    "cobertura": "condicional a la ventana de tiempo, sin deriva compartida entre periodos",
+}
+
+#: Por debajo de este número de sujetos de prueba el intervalo se marca «aproximado» (C0, P1: con n = 50 el déficit ronda los
+#: 3 puntos; con menos, de 8 a 23).
+SUJETOS_PARA_QUE_NO_SEA_APROXIMADO = 50
+
+
+def cobertura_medida_del_intervalo(sujetos_de_prueba: int) -> tuple[float | None, int | None]:
+    """`(cobertura medida, sujetos del punto medido)` para ese número de sujetos de prueba.
+
+    La regla para un número que NO está en la rejilla, declarada: **el valor del punto medido inmediatamente menor o igual,
+    nunca interpolado hacia arriba**, para no prometer nunca más de lo medido (la cobertura sube con los sujetos). Con
+    menos sujetos que el primer punto medido (5), `(None, None)`: no hay cifra, y «no medido» no es un cero. Con más que el
+    último (200), el valor del último."""
+    punto = None
+    for sujetos, cobertura in COBERTURA_MEDIDA_DEL_INTERVALO:
+        if sujetos <= sujetos_de_prueba:
+            punto = (cobertura, sujetos)
+    return punto if punto is not None else (None, None)
+
+
+def _frase_de_cobertura(sujetos_de_prueba: int, cobertura: float | None, medido: int | None) -> dict[str, str]:
+    """La frase de la cobertura en los dos idiomas, del catálogo de textos del núcleo. La cifra es «de cada 100»: el entero
+    por debajo de lo medido (83,5 → 83), para no redondear hacia arriba una promesa."""
+    nominal = round(100 * NIVEL_NOMINAL_DEL_INTERVALO)
+    if cobertura is None or medido is None:
+        return motivo("estricto_cobertura_no_medida", n=sujetos_de_prueba, minimo=COBERTURA_MEDIDA_DEL_INTERVALO[0][0])
+    de_cada_100 = int(round(cobertura * 1000)) // 10
+    if medido == sujetos_de_prueba:
+        clave = "estricto_cobertura_medida"
+    elif sujetos_de_prueba > COBERTURA_MEDIDA_DEL_INTERVALO[-1][0]:
+        clave = "estricto_cobertura_mas_alla_de_lo_medido"
+    else:
+        clave = "estricto_cobertura_del_punto_menor"
+    return motivo(clave, n=sujetos_de_prueba, cobertura=de_cada_100, medido=medido, nominal=nominal)
+
+
+def _frase_de_aproximado(sujetos_de_prueba: int) -> dict[str, str] | None:
+    if sujetos_de_prueba >= SUJETOS_PARA_QUE_NO_SEA_APROXIMADO:
+        return None
+    return motivo("estricto_intervalo_aproximado", umbral=SUJETOS_PARA_QUE_NO_SEA_APROXIMADO,
+                  nominal=round(100 * NIVEL_NOMINAL_DEL_INTERVALO))
+
+
+# ---------------------------------------------------------------------------
 # Lo que el reparto declara
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class IntervaloDeclarado:
-    """Qué intervalo corresponde a esta prueba (D4), sin redactar su cobertura.
+    """Qué intervalo corresponde a esta prueba (D4), con su cobertura MEDIDA al lado (140b-intervalo, opción A).
 
     El método es el de `groups` de `incertidumbre.py` (`diseno_de_remuestreo` es el valor que hay que pasarle a
     `intervalo(diseno=…)`): `groups_and_time` sigue fuera de `DISENOS_SOPORTADOS` a propósito. `unidades_de_prueba` es
-    el número que decide cuánto se parece el intervalo a su nivel nominal (medido en el C0: se infracubre con pocos)."""
+    el número que decide cuánto se parece el intervalo a su nivel nominal (medido en el C0: se infracubre con pocos), y
+    `cobertura_medida` dice cuánto, según `COBERTURA_MEDIDA_DEL_INTERVALO` (regla de los puntos no medidos: la de
+    `cobertura_medida_del_intervalo`)."""
 
     metodo: str
     diseno_de_remuestreo: str
@@ -130,13 +210,29 @@ class IntervaloDeclarado:
     condicional_a_la_ventana: bool
     unidades_de_prueba: int
     ventana_de_prueba: tuple[float, float]
+    #: La cobertura real del IC del 95 % nominal medida por el C0 (0–1), o `None` si hay menos sujetos que el primer punto
+    #: medido: «no medido» no es un cero.
+    cobertura_medida: float | None
+    #: Con cuántos sujetos de prueba se midió ese número (el punto de la tabla que se usó); `None` si no hay cifra.
+    sujetos_del_punto_medido: int | None
+    #: `True` con menos de `SUJETOS_PARA_QUE_NO_SEA_APROXIMADO` sujetos de prueba.
+    aproximado: bool
+    #: La frase de la cobertura, en los dos idiomas, escrita aquí (no al pintarla): lo que la ficha y la pantalla enseñan.
+    texto: dict[str, str] = field(compare=False)
+    #: La marca «aproximado» en los dos idiomas; `None` si `aproximado` es `False`.
+    texto_aproximado: dict[str, str] | None = field(compare=False, default=None)
 
     def a_json(self) -> dict[str, Any]:
         return {"metodo": self.metodo, "diseno_de_remuestreo": self.diseno_de_remuestreo,
                 "unidad_de_remuestreo": self.unidad_de_remuestreo,
                 "condicional_a_la_ventana": self.condicional_a_la_ventana,
                 "unidades_de_prueba": self.unidades_de_prueba,
-                "ventana_de_prueba": list(self.ventana_de_prueba)}
+                "ventana_de_prueba": list(self.ventana_de_prueba),
+                "cobertura_medida": self.cobertura_medida,
+                "sujetos_del_punto_medido": self.sujetos_del_punto_medido,
+                "aproximado": self.aproximado,
+                "texto": dict(self.texto),
+                "texto_aproximado": None if self.texto_aproximado is None else dict(self.texto_aproximado)}
 
 
 @dataclass(frozen=True)
@@ -569,10 +665,16 @@ def _armar(elegido: _Intento, intentos: Sequence[_Intento], ids, filas_de, unida
         tipo = "por_sujeto_y_ultimo_tramo"
 
     desde, hasta = tiempo[prueba[0]], tiempo[prueba[-1]]
+    sujetos_de_prueba = len(elegido.unidades_de_prueba)
+    cobertura, medido = cobertura_medida_del_intervalo(sujetos_de_prueba)
     intervalo = IntervaloDeclarado(
         metodo="cluster_bootstrap_by_unit", diseno_de_remuestreo="groups", unidad_de_remuestreo="unit",
-        condicional_a_la_ventana=True, unidades_de_prueba=len(elegido.unidades_de_prueba),
-        ventana_de_prueba=(desde, hasta))
+        condicional_a_la_ventana=True, unidades_de_prueba=sujetos_de_prueba, ventana_de_prueba=(desde, hasta),
+        cobertura_medida=cobertura, sujetos_del_punto_medido=medido,
+        # El umbral se decide UNA vez (`_frase_de_aproximado`): el booleano y la marca no pueden discrepar en la frontera.
+        aproximado=_frase_de_aproximado(sujetos_de_prueba) is not None,
+        texto=_frase_de_cobertura(sujetos_de_prueba, cobertura, medido),
+        texto_aproximado=_frase_de_aproximado(sujetos_de_prueba))
     return RepartoEstricto(
         desarrollo=desarrollo, prueba=prueba, descartadas=descartadas, unidades_de_desarrollo=unidades_de_desarrollo,
         unidades_de_prueba=elegido.unidades_de_prueba, sujetos=len(filas_de), corte=elegido.corte,

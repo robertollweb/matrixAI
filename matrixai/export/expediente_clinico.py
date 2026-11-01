@@ -1293,8 +1293,9 @@ def _texto_de_la_cuota_de_sujetos(e: dict[str, Any], es: bool) -> str:
 def _texto_del_reparto_estricto(e: dict[str, Any], idioma: str) -> str:
     """140b-C2 — lo que declara `study.split.strict`, en el idioma pedido y solo lo que trae: el corte, la cuota de sujetos y el
     cuantil (lo pedido y, si la escalera lo cambió, lo usado), los pliegues y el intervalo. Las filas sin rol van en su propia
-    línea (`_texto_de_las_filas_sin_rol`) y aquí en una frase corta, para que el diseño no se lea sin ellas. SIN cobertura del
-    intervalo: la decide Roberto."""
+    línea (`_texto_de_las_filas_sin_rol`) y aquí en una frase corta, para que el diseño no se lea sin ellas. La cobertura
+    MEDIDA del intervalo (decisión de Roberto, 01-11, `140b-intervalo`) lleva la frase del núcleo en el idioma pedido, la cifra
+    con su coma decimal en español y la marca de «aproximado»."""
     es = idioma == "es"
     texto = ""
     if e.get("cut_readable"):
@@ -1317,7 +1318,28 @@ def _texto_del_reparto_estricto(e: dict[str, Any], idioma: str) -> str:
                   "al elegir otros sujetos DENTRO de esta ventana, no cuánto rendirá en otro periodo" if es else
                   f"; interval conditional on this time window (resampling by subject{con}): it says how much the score varies "
                   "when other subjects are chosen WITHIN this window, not how it will perform in another period")
+        texto += _texto_de_la_cobertura_del_intervalo(intervalo, es)
     return texto
+
+
+def _texto_de_la_cobertura_del_intervalo(intervalo: dict[str, Any], es: bool) -> str:
+    """140b-intervalo — la cobertura MEDIDA del intervalo de un reparto estricto: la frase que redactó el núcleo (ya en el idioma
+    de la ficha; no se recompone aquí), la cifra medida con su coma decimal en español y la marca de «aproximado». Un manifiesto
+    sin esas claves no dice nada de ella: no se inventa."""
+    idioma = "es" if es else "en"
+    frase = (intervalo.get("coverage_text") or {}).get(idioma)
+    salida = ""
+    if isinstance(frase, str) and frase.strip():
+        salida += f"; {frase.strip()}"
+        medida, punto = intervalo.get("measured_coverage"), intervalo.get("measured_point_subjects")
+        if isinstance(medida, (int, float)) and not isinstance(medida, bool) and _cuenta(punto) is not None:
+            cifra = _decimal(f"{medida:.3f}", es)
+            salida += (f" [cobertura medida {cifra} con {punto} sujetos de prueba]" if es
+                       else f" [measured coverage {cifra} with {punto} test subjects]")
+    aviso = (intervalo.get("approximate_text") or {}).get(idioma) if intervalo.get("approximate") is True else None
+    if isinstance(aviso, str) and aviso.strip():
+        salida += f"; {aviso.strip()}"
+    return salida
 
 
 def _texto_corto_de_las_filas_sin_rol(e: dict[str, Any], es: bool) -> str:

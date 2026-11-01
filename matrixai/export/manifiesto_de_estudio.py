@@ -65,7 +65,10 @@ del 139 no trae nada de esto, y la ficha dice «no disponible»: ni «pliegue 0�
   `test_rows`, **`discarded_rows` y `discarded_percentage`** (las filas SIN ROL: ni desarrollo ni prueba; las filas del conjunto ya
   NO son desarrollo + prueba, la diferencia son ellas), `development_units`, `test_units`, `subjects` (números, no nombres), `fold_type`
   (`by_subject_and_last_stretch` | `by_subject`), `folds`, `last_stretch_start`, `interval` (`method`, `resampling_design`,
-  `resampling_unit`, `conditional_on_the_window`: siempre `true`, `test_units`, `test_window`; SIN cobertura: la decide Roberto) y,
+  `resampling_unit`, `conditional_on_the_window`: siempre `true`, `test_units`, `test_window` y, desde la decisión de Roberto del
+  01-11 (tarjeta `140b-intervalo`, opción A), su cobertura MEDIDA: `measured_coverage` (0–1, o `null` si hay menos sujetos que el
+  primer punto medido), `measured_point_subjects` (con cuántos sujetos de prueba se midió), `approximate` (menos de 50 sujetos de
+  prueba), `coverage_text` y `approximate_text` {es, en}, las frases del núcleo) y,
   si el Studio la trae, `time_column_as_input`. Lo que el estudio no dijo se omite: un estudio anterior al 140 no trae el bloque. Y `target_in_development_and_test`
   (decisión de Roberto del 28-10): la proporción de cada clase (o la media y la desviación típica) del objetivo en el desarrollo y
   en la prueba reservada, el mayor cambio y si `changes_a_lot` con su `criterion`; solo informa.
@@ -365,7 +368,7 @@ _CLAVES_DEL_REPARTO_ESTRICTO = frozenset({
     "columna_de_tiempo_como_entrada"})
 _CLAVES_DEL_INTERVALO_ESTRICTO = frozenset({
     "metodo", "diseno_de_remuestreo", "unidad_de_remuestreo", "condicional_a_la_ventana", "unidades_de_prueba",
-    "ventana_de_prueba"})
+    "ventana_de_prueba", "cobertura_medida", "sujetos_del_punto_medido", "aproximado", "texto", "texto_aproximado"})
 #: `reparto.estricto.tipo_de_pliegues` → `study.split.strict.fold_type`. F2q: pliegues por sujeto × el último tramo de las filas
 #: de cada sujeto; F1: solo por sujeto (el desarrollo no dio para un tramo de tiempo, y un límite del reparto dice por qué).
 _TIPOS_DE_PLIEGUES = {"por_sujeto_y_ultimo_tramo": "by_subject_and_last_stretch", "por_sujeto": "by_subject"}
@@ -390,7 +393,7 @@ def _reparto_estricto(estricto: Any) -> dict[str, Any]:
 
     Es lo que el reparto estricto del 140b-C1 declara de sí mismo: el corte, el hueco, lo pedido y lo USADO de la cuota de sujetos
     y del cuantil, las filas de cada rol y las **filas sin rol** con su porcentaje, el tipo de pliegues y el intervalo
-    (`condicional_a_la_ventana`: lo único que se afirma de él; su cobertura no se redacta aquí, la decide Roberto). Los números se
+    (`condicional_a_la_ventana`, y su cobertura MEDIDA con la frase del núcleo: decisión de Roberto, 01-11, tarjeta `140b-intervalo`). Los números se
     comprueban entre sí: un porcentaje que no sale de las filas, o un intervalo con otros sujetos de prueba que el reparto, no se
     publican. Una clave desconocida, tampoco."""
     nombre = "reparto_del_estudio.estricto"
@@ -442,6 +445,7 @@ def _reparto_estricto(estricto: Any) -> dict[str, Any]:
             or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in ventana)
             or ventana[0] > ventana[1]):
         raise ReproduceManifestError(f"{nombre}.intervalo.ventana_de_prueba must be [from, to] with from <= to, got {ventana!r}")
+    cobertura = _cobertura_del_intervalo_estricto(intervalo, unidades_de_prueba, f"{nombre}.intervalo")
     bloque: dict[str, Any] = {
         "cut": _numero_finito(estricto["corte"], f"{nombre}.corte"),
         "cut_readable": _require_text(estricto["corte_legible"], f"{nombre}.corte_legible"),
@@ -472,7 +476,8 @@ def _reparto_estricto(estricto: Any) -> dict[str, Any]:
             "resampling_unit": _require_text(intervalo["unidad_de_remuestreo"], f"{nombre}.intervalo.unidad_de_remuestreo"),
             "conditional_on_the_window": True,
             "test_units": unidades_de_prueba,
-            "test_window": [float(ventana[0]), float(ventana[1])]},
+            "test_window": [float(ventana[0]), float(ventana[1])],
+            **cobertura},
     }
     if bloque["gap_seconds"] < 0:
         raise ReproduceManifestError(f"{nombre}.hueco_segundos must be >= 0, got {estricto['hueco_segundos']!r}")
@@ -489,6 +494,49 @@ def _reparto_estricto(estricto: Any) -> dict[str, Any]:
             "reason": {idioma: _require_text(motivo[idioma], f"{nombre}.columna_de_tiempo_como_entrada.motivo.{idioma}")
                        for idioma in ("es", "en")}}
     return bloque
+
+
+def _cobertura_del_intervalo_estricto(intervalo: Mapping[str, Any], sujetos_de_prueba: int, nombre: str) -> dict[str, Any]:
+    """140b-intervalo (Roberto, 01-11, opción A) — la cobertura MEDIDA del intervalo de un reparto estricto, validada contra la
+    tabla del núcleo (`COBERTURA_MEDIDA_DEL_INTERVALO`, la única): un sobre cuya cifra no sale de los sujetos de prueba que
+    declara (otra cobertura, otro punto medido, un «aproximado» al revés) no se publica, igual que un porcentaje que no sale de
+    sus filas. Las frases (es/en) las redactó el núcleo y se graban tal cual; si el intervalo es aproximado, la marca también."""
+    from matrixai.training.particion_por_diseno_grupos_y_tiempo import (   # noqa: PLC0415
+        SUJETOS_PARA_QUE_NO_SEA_APROXIMADO, cobertura_medida_del_intervalo)
+    esperada, punto = cobertura_medida_del_intervalo(sujetos_de_prueba)
+    cobertura, medido = intervalo["cobertura_medida"], intervalo["sujetos_del_punto_medido"]
+    if cobertura is not None and (isinstance(cobertura, bool) or not isinstance(cobertura, (int, float))):
+        raise ReproduceManifestError(f"{nombre}.cobertura_medida must be a number or null, got {cobertura!r}")
+    if cobertura != esperada or medido != punto or (medido is not None and type(medido) is not int):
+        raise ReproduceManifestError(
+            f"{nombre} declares a measured coverage of {cobertura!r} (measured with {medido!r} subjects), but with "
+            f"{sujetos_de_prueba} test subjects the measured table says {esperada!r} (measured with {punto!r})")
+    aproximado = intervalo["aproximado"]
+    if aproximado is not (sujetos_de_prueba < SUJETOS_PARA_QUE_NO_SEA_APROXIMADO):
+        raise ReproduceManifestError(
+            f"{nombre}.aproximado must be {sujetos_de_prueba < SUJETOS_PARA_QUE_NO_SEA_APROXIMADO} with {sujetos_de_prueba} test "
+            f"subjects (approximate below {SUJETOS_PARA_QUE_NO_SEA_APROXIMADO}), got {aproximado!r}")
+
+    def frases(valor: Any, que: str) -> dict[str, str]:
+        if not isinstance(valor, Mapping) or set(valor) != {"es", "en"}:
+            raise ReproduceManifestError(f"{que} must be an object with exactly es and en, got {valor!r}")
+        return {idioma: _require_text(valor[idioma], f"{que}.{idioma}") for idioma in ("es", "en")}
+
+    aviso = intervalo["texto_aproximado"]
+    if (aviso is None) == aproximado:
+        raise ReproduceManifestError(f"{nombre}.texto_aproximado must be present exactly when the interval is approximate, "
+                                     f"got {aviso!r} with aproximado={aproximado!r}")
+    texto = frases(intervalo["texto"], f"{nombre}.texto")
+    if esperada is not None:
+        # La frase no se recompone (su redacción puede cambiar entre versiones, y un sobre guardado lleva la suya), pero la cifra
+        # que dice SÍ tiene que ser la medida: «83 de cada 100», no otra con la tabla de al lado diciendo 0,835.
+        cifra = str(int(round(esperada * 1000)) // 10)
+        for idioma, frase in texto.items():
+            if cifra not in frase.replace(",", " ").replace(".", " ").split():
+                raise ReproduceManifestError(f"{nombre}.texto.{idioma} does not say the measured figure ({cifra} in 100): {frase!r}")
+    return {"measured_coverage": None if esperada is None else float(esperada), "measured_point_subjects": punto,
+            "approximate": aproximado, "coverage_text": texto,
+            "approximate_text": None if aviso is None else frases(aviso, f"{nombre}.texto_aproximado")}
 
 
 def _numero_finito(valor: Any, nombre: str) -> float:
