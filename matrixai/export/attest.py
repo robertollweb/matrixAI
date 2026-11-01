@@ -17,9 +17,10 @@ QUÉ **NO** ATESTIGUA:
   pesos ni con qué datos se hicieron. Un modelo copiado de otro sitio produce
   exactamente el mismo recibo que uno propio.
 * **No dice que el modelo sea bueno.** Dice qué salió al medirlo así.
-* **Y su techo de garantía es A1/A2**: se firma como cualquier recibo —hoy con
-  HMAC, o sea consistencia y no autenticidad— y no puede llegar más arriba,
-  porque los niveles altos hablan del entorno de ejecución y de pruebas
+* **Y su techo de garantía es A1/A2**: se firma como cualquier recibo. El nivel
+  sale de la HMAC (consistencia, no autenticidad); la segunda firma Ed25519
+  (145, `--ed25519-key`) dice qué clave firmó y no lo sube. No puede llegar más
+  arriba, porque los niveles altos hablan del entorno de ejecución y de pruebas
   criptográficas que este camino no da.
 
 Decir las tres cosas es lo que separa un recibo de un adorno.
