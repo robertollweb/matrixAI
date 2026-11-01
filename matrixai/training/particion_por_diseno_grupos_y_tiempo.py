@@ -319,6 +319,14 @@ def _porcentaje(x: float) -> str:
     return f"{100 * x:g}"
 
 
+def _decimal_bilingue(texto: str) -> Any:
+    """Un número ya escrito con punto, en la forma de cada idioma (re-auditoría N7: «39,7 %» y «cuantil 0,7» en castellano,
+    como la línea de la ficha que lo cita)."""
+    from matrixai.estudio.textos import PorIdioma  # noqa: PLC0415
+
+    return PorIdioma({"es": texto.replace(".", ","), "en": texto})
+
+
 def escalera_del_corte(fraccion: float, cuantil: float, automatico: bool = True) -> list[tuple[float, float]]:
     """Los cortes que se prueban, EN ORDEN. El primero es el pedido; después, de lo menos a lo más relajado (más
     sujetos de prueba y/o un corte más temprano). **No ordena por desarrollo**: el primero que cumple los mínimos gana."""
@@ -610,15 +618,16 @@ def _armar(elegido: _Intento, intentos: Sequence[_Intento], ids, filas_de, unida
 
     limites.append(Limite(
         clave="estricto_filas_descartadas", campo="time_column",
-        motivo=motivo("estricto_filas_descartadas", valor=len(descartadas), n=len(ids), porcentaje=f"{porcentaje:g}"),
+        motivo=motivo("estricto_filas_descartadas", valor=len(descartadas), n=len(ids), porcentaje=_decimal_bilingue(f"{porcentaje:g}")),
         medida={"filas_descartadas": len(descartadas), "filas": len(ids), "porcentaje_descartado": porcentaje,
                 "filas_de_desarrollo": len(desarrollo), "filas_de_prueba": len(prueba)}))
     if (elegido.fraccion, elegido.cuantil) != (fraccion_pedida, cuantil_pedido):
         limites.append(Limite(
             clave="estricto_corte_relajado", campo="test_fraction",
-            motivo=motivo("estricto_corte_relajado", pedida=_porcentaje(fraccion_pedida),
-                          cuantil_pedido=_numero(cuantil_pedido), usada=_porcentaje(elegido.fraccion),
-                          cuantil_usado=_numero(elegido.cuantil), n=len(elegido.unidades_de_prueba),
+            motivo=motivo("estricto_corte_relajado", pedida=_decimal_bilingue(_porcentaje(fraccion_pedida)),
+                          cuantil_pedido=_decimal_bilingue(_numero(cuantil_pedido)),
+                          usada=_decimal_bilingue(_porcentaje(elegido.fraccion)),
+                          cuantil_usado=_decimal_bilingue(_numero(elegido.cuantil)), n=len(elegido.unidades_de_prueba),
                           sujetos=len(filas_de)),
             medida={"fraccion_pedida": fraccion_pedida, "cuantil_pedido": cuantil_pedido,
                     "fraccion_usada": elegido.fraccion, "cuantil_usado": elegido.cuantil,
@@ -630,7 +639,7 @@ def _armar(elegido: _Intento, intentos: Sequence[_Intento], ids, filas_de, unida
         limites.append(Limite(
             clave="estricto_unidad_dominante_en_la_prueba", campo="unit_id_field",
             motivo=motivo("estricto_unidad_dominante_en_la_prueba", dominante=dominante, unidad=columna_de_unidad,
-                          porcentaje=f"{100 * por_unidad[dominante] / len(prueba):.1f}"),
+                          porcentaje=_decimal_bilingue(f"{100 * por_unidad[dominante] / len(prueba):.1f}")),
             medida={"unidad": dominante, "filas_de_la_unidad": por_unidad[dominante], "filas_de_prueba": len(prueba),
                     "umbral": DOMINANCIA_DE_UNA_UNIDAD}))
 
@@ -644,7 +653,7 @@ def _armar(elegido: _Intento, intentos: Sequence[_Intento], ids, filas_de, unida
         clave = ("estricto_pliegues_por_sujeto_por_pocas_filas" if hecho == "pocas_filas"
                  else "estricto_pliegues_por_sujeto_por_ventana_vacia")
         textos = ({"filas": len(desarrollo), "minimo": FILAS_MINIMAS_PARA_PLIEGUES_CON_TIEMPO} if hecho == "pocas_filas"
-                  else {"fraccion": _porcentaje(FRACCION_DE_LA_VENTANA), "pliegues": _MINIMO_PLIEGUES,
+                  else {"fraccion": _decimal_bilingue(_porcentaje(FRACCION_DE_LA_VENTANA)), "pliegues": _MINIMO_PLIEGUES,
                         "minimo": MINIMO_FILAS_DE_VALIDACION})
         limites.append(Limite(clave=clave, campo="folds", motivo=motivo(clave, **textos),
                               medida={"filas_de_desarrollo": len(desarrollo),
@@ -686,12 +695,20 @@ def _armar(elegido: _Intento, intentos: Sequence[_Intento], ids, filas_de, unida
         limites=tuple(limites), intervalo=intervalo)
 
 
+#: Hasta dónde llegó un intento, por su fallo: los que fallan en la prueba (`sin_elegibles`, `unidades`, `filas`, `clase`,
+#: `clase_sin_cubrir`) son 0; después vienen, en este orden, las comprobaciones que solo se hacen con una prueba que cumple.
+_ETAPA_DEL_FALLO = {"desarrollo_vacio": 1, "desarrollo_sin_clase": 2, "pliegues": 3}
+
+
 def _rechazo(intentos: Sequence[_Intento], ids, clases, nombre, hueco_s, columna_de_unidad, columna_de_tiempo,
              tiempo_original, tiempo, formato, es_fecha, con_la_clase: Mapping[Any, int]) -> Rechazo:
-    """El rechazo con los números del MEJOR intento: el que llegó más lejos (cumplió los mínimos de la prueba y falló en los
-    pliegues) y, entre iguales, el de más sujetos y filas de prueba. `con_la_clase`: cuántos sujetos del conjunto traen cada
-    clase en alguna fila."""
-    mejor = max(intentos, key=lambda i: (i.fallo == "pliegues", i.calidad(), -intentos.index(i)))
+    """El rechazo con los números del MEJOR intento: el que llegó más LEJOS en el orden de las comprobaciones (los mínimos de la
+    prueba, después el desarrollo, después su clase, después los pliegues: `_ETAPA_DEL_FALLO`) y, entre los que llegaron igual
+    de lejos, el de más sujetos y filas de prueba. Re-auditoría N2 del 140b: antes se elegía por `calidad()` sin mirar hasta
+    dónde llegó cada uno, y un corte con más sujetos de prueba que NO llegaba a las 50 filas ganaba a uno cuya prueba SÍ
+    cumplía y fallaba en el desarrollo: el rechazo culpaba a la prueba de lo que no llegó, el desarrollo. `con_la_clase`:
+    cuántos sujetos del conjunto traen cada clase en alguna fila."""
+    mejor = max(intentos, key=lambda i: (_ETAPA_DEL_FALLO.get(i.fallo, 0), i.calidad(), -intentos.index(i)))
     base = {"unidad": columna_de_unidad, "columna_de_tiempo": columna_de_tiempo, "cortes_probados": len(intentos),
             "fraccion_de_sujetos": mejor.fraccion, "cuantil": mejor.cuantil, "corte": mejor.corte,
             "hueco_segundos": hueco_s, "sujetos_elegibles": mejor.elegibles}
@@ -699,11 +716,11 @@ def _rechazo(intentos: Sequence[_Intento], ids, clases, nombre, hueco_s, columna
     if mejor.fallo == "sin_elegibles":
         ultimo = max(ids, key=lambda o: (tiempo[o], o))
         como_venia = str(tiempo_original[ultimo]) if tiempo_original is not None else _numero(tiempo[ultimo])
-        hueco = f"{_numero(hueco_s)} s" if hueco_s else "0"
+        hueco = _decimal_bilingue(f"{_numero(hueco_s)} s") if hueco_s else "0"
         return Rechazo("estricto_sin_sujetos_con_filas_posteriores", "time_column",
                        {**base, "ultimo_tiempo": como_venia}, tiempo=columna_de_tiempo,
                        corte=_legible(mejor.corte, formato, es_fecha), hueco=hueco, unidad=columna_de_unidad,
-                       ultimo=como_venia)
+                       ultimo=como_venia if tiempo_original is not None else _decimal_bilingue(como_venia))
     if mejor.fallo == "unidades":
         return Rechazo("estricto_prueba_con_pocas_unidades", "test_fraction",
                        {**base, "unidades_de_prueba": len(mejor.unidades_de_prueba),

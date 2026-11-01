@@ -85,11 +85,16 @@ _EJEMPLOS_DE_ESCRITURA = 3
 
 
 def escritura_normalizada(valor: str) -> str:
-    """Cómo se escribe un identificador sin lo que suele cambiar al copiarlo de un sitio a otro: los ceros a la izquierda de
-    cada número (`007` → `7`, `P-007` → `P-7`; Excel los quita al juntar hojas), los espacios y las mayúsculas. Solo sirve para
-    AVISAR: el reparto sigue usando el valor tal cual (no se mapean los datos de nadie)."""
-    sin_espacios = re.sub(r"\s+", "", str(valor)).casefold()
-    return re.sub(r"\d+", lambda m: str(int(m.group())), sin_espacios)
+    """Cómo se escribe un identificador sin lo que suele cambiar al copiarlo de un sitio a otro: los espacios, las mayúsculas,
+    un `.0` final de un número (`7.0` → `7`: lo que deja pandas o Excel al leer como número una columna con huecos), los
+    separadores `-` y `_` (`P-007` → `p7`, como `P7`) y los ceros a la izquierda de cada número (`007` → `7`; Excel los quita
+    al juntar hojas). Los ceros que siguen a un punto decimal NO se quitan (`1.05` no es `1.5`). Sin `int()`: un número de
+    miles de cifras no lanza (re-auditoría N6). Solo sirve para AVISAR: el reparto sigue usando el valor tal cual (no se mapean
+    los datos de nadie)."""
+    texto = re.sub(r"\s+", "", str(valor)).casefold()
+    texto = re.sub(r"(\d)\.0+(?![\d])", r"\1", texto)
+    texto = re.sub(r"[-_]", "", texto)
+    return re.sub(r"(?<![\d.])\d+", lambda m: m.group().lstrip("0") or "0", texto)
 
 
 def limite_de_sujetos_que_se_escriben_igual(unidad_por_id: Mapping[str, str], campo: str) -> Limite | None:

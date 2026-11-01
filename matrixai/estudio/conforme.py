@@ -37,7 +37,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from matrixai.estudio.intervalo_por_filas import aviso_del_intervalo_por_filas, unidades_distintas
+from matrixai.estudio.intervalo_por_filas import CorreccionPorSujetos, correccion_por_sujetos
 from matrixai.estudio.metricas import Muestra
 from matrixai.training.diagnostico import intervalo_wilson
 
@@ -188,13 +188,9 @@ class CoberturaMedida:
     #: Tamaño medio del conjunto (clasificación) o anchura media (regresión).
     tamano_medio: float | None
     vacios: int = 0
-    #: 140b, auditoría I4: cuántos sujetos distintos hay entre las `n` filas, si la muestra trae `units` (`None` si no).
-    unidades: int | None = None
-
-    @property
-    def intervalo_por_filas(self) -> dict[str, str] | None:
-        """El aviso de que `intervalo_95` cuenta FILAS de menos sujetos (`intervalo_por_filas.py`), o `None`."""
-        return aviso_del_intervalo_por_filas(self.n, self.unidades, frente_a_una_promesa=True)
+    #: 140b (Kish, decisión de Roberto del 01-11): con varias filas del mismo sujeto, la corrección por sujeto; `intervalo_95`
+    #: es entonces el CORREGIDO. `None` sin `units` o con un sujeto por fila (el Wilson de siempre, sin una clave más).
+    por_sujetos: CorreccionPorSujetos | None = None
 
     @property
     def cobertura_observada(self) -> float | None:
@@ -202,10 +198,9 @@ class CoberturaMedida:
 
     @property
     def compatible_con_la_nominal(self) -> bool | None:
-        """¿La nominal cae dentro del intervalo de la observada? `None` sin filas, y `None` cuando el intervalo cuenta filas de
-        sujetos repetidos (auditoría I4 del 140b: ese intervalo es más estrecho de lo que debería, y un «NO compatible» —o un
-        «compatible»— sería del método, no de la cobertura)."""
-        if self.intervalo_95 is None or self.intervalo_por_filas is not None:
+        """¿La nominal cae dentro del intervalo de la observada? `None` sin filas. Con sujetos repetidos, `intervalo_95` es el
+        corregido por sujeto (Kish): el veredicto vuelve, con la cobertura medida de ese intervalo al lado (`por_sujetos`)."""
+        if self.intervalo_95 is None:
             return None
         bajo, alto = self.intervalo_95
         return bajo <= self.cobertura_nominal <= alto
@@ -216,10 +211,10 @@ class CoberturaMedida:
                   "intervalo_95": list(self.intervalo_95) if self.intervalo_95 else None,
                   "compatible_con_la_nominal": self.compatible_con_la_nominal,
                   "tamano_medio": self.tamano_medio, "vacios": self.vacios, "garantia": GARANTIA}
-        if self.unidades is not None:
-            # Solo con `units` (los repartos por sujeto): los demás diseños, el JSON de siempre, byte a byte.
-            cuerpo["unidades"] = self.unidades
-            cuerpo["intervalo_por_filas"] = self.intervalo_por_filas
+        if self.por_sujetos is not None:
+            # Solo con sujetos repetidos: los demás diseños (y `groups` con un sujeto por fila), el JSON de siempre, byte a byte.
+            cuerpo["unidades"] = self.por_sujetos.unidades
+            cuerpo["por_sujetos"] = self.por_sujetos.a_json()
         return cuerpo
 
 
@@ -234,11 +229,13 @@ def medir_cobertura(muestra_test: Muestra, calibracion: CalibracionConforme) -> 
     _exigir_cuantil(calibracion)
     cubiertas = 0
     tamanos: list[float] = []
+    cubierta_de: list[bool] = []
     vacios = 0
     if muestra_test.task == "regression":
         for y, p in zip(muestra_test.y_true, muestra_test.predictions):
             bajo, alto = intervalo_de_prediccion(p, calibracion)
             cubiertas += bajo <= float(y) <= alto
+            cubierta_de.append(bajo <= float(y) <= alto)
             tamanos.append(alto - bajo)
     else:
         if tuple(muestra_test.classes) != calibracion.clases:
@@ -248,13 +245,17 @@ def medir_cobertura(muestra_test: Muestra, calibracion: CalibracionConforme) -> 
         for y, fila in zip(muestra_test.y_true, muestra_test.probabilities):
             conjunto = conjunto_de_clases(fila, calibracion)
             cubiertas += y in conjunto
+            cubierta_de.append(y in conjunto)
             tamanos.append(float(len(conjunto)))
             vacios += not conjunto
     n = len(tamanos)
     wilson = intervalo_wilson(cubiertas, n)
     intervalo_95 = None if wilson is None else (max(0.0, wilson[0] - wilson[1]),
                                                 min(1.0, wilson[0] + wilson[1]))
+    por_sujetos = correccion_por_sujetos(cubierta_de, muestra_test.units)
+    if por_sujetos is not None:
+        intervalo_95 = por_sujetos.intervalo_95
     return CoberturaMedida(cobertura_nominal=calibracion.cobertura_nominal, n=n,
                            cubiertas=cubiertas, intervalo_95=intervalo_95,
                            tamano_medio=(sum(tamanos) / n if n else None), vacios=vacios,
-                           unidades=unidades_distintas(muestra_test.units))
+                           por_sujetos=por_sujetos)

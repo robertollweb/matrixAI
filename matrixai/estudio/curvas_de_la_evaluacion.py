@@ -69,9 +69,11 @@ from matrixai.estudio.metricas import (
     _average_precision,
     _curva_binaria,
     _puntos_pr,
+    decisiones_de_la_matriz,
     matriz_de_confusion,
 )
 from matrixai.estudio.segmentos import MINIMO_EVENTOS_POR_SEGMENTO, MINIMO_FILAS_POR_SEGMENTO
+from matrixai.estudio.intervalo_por_filas import correccion_por_sujetos
 from matrixai.estudio.validacion import exigir_entero, exigir_real
 from matrixai.estudio.vocabulario import exigir_opcion
 
@@ -203,6 +205,18 @@ def _matriz_a_json(matriz: MatrizDeConfusion, n: int, umbral_dado: bool) -> dict
                                       "es": f"{matriz.threshold:g}".replace(".", ","),
                                       "en": f"{matriz.threshold:g}"}))}
     return _si(**datos)
+
+
+def _sensibilidad_por_sujetos(decision: Muestra, umbral: float | None):
+    """La sensibilidad en el umbral (los positivos de verdad que el modelo detecta) con su intervalo CORREGIDO por sujeto
+    (`intervalo_por_filas.correccion_por_sujetos`, Kish), o `None` sin `units` o con un sujeto por fila. La decisión de cada
+    fila es la MISMA con que cuenta la matriz (`decisiones_de_la_matriz`)."""
+    if decision.units is None or decision.positive_label is None:
+        return None
+    _, _, predichas = decisiones_de_la_matriz(decision, umbral=umbral)
+    positivas = [i for i, y in enumerate(decision.y_true) if y == decision.positive_label]
+    detectada = [predichas[i] == decision.positive_label for i in range(len(predichas))]
+    return correccion_por_sujetos(detectada, decision.units, positivas)
 
 
 def _punto_de_operacion(matriz: MatrizDeConfusion) -> dict[str, Any] | None:
@@ -528,6 +542,10 @@ def _binaria(muestra: Muestra, salida: dict[str, Any], recalibracion: Recalibrac
     else:
         matriz = matriz_de_confusion(decision, umbral=umbral)
         salida["matriz"] = _matriz_a_json(matriz, n, umbral is not None)
+        sensibilidad = _sensibilidad_por_sujetos(decision, umbral)
+        if sensibilidad is not None:
+            # 140b (Kish): solo con sujetos repetidos entre los positivos; los demás diseños, la matriz de siempre.
+            salida["matriz"]["sensibilidad_por_sujetos"] = sensibilidad.a_json()
     operacion = _punto_de_operacion(matriz) if matriz is not None else None
 
     # -- ROC y PR ------------------------------------------------------------------------------------

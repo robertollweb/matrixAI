@@ -207,7 +207,10 @@ def test_el_resultado_declara_el_corte_las_filas_descartadas_y_su_porcentaje():
     assert limite.medida["porcentaje_descartado"] == rep.porcentaje_descartado
     # los dos idiomas llevan los números
     for idioma in ("es", "en"):
-        assert str(rep.filas_descartadas) in limite.motivo[idioma] and f"{rep.porcentaje_descartado:g}" in limite.motivo[idioma]
+        # (re-auditoría N7: el porcentaje con la coma decimal en castellano, como la ficha que lo cita)
+        porcentaje = f"{rep.porcentaje_descartado:g}"
+        assert str(rep.filas_descartadas) in limite.motivo[idioma]
+        assert (porcentaje.replace(".", ",") if idioma == "es" else porcentaje) in limite.motivo[idioma]
 
 
 # ---------------------------------------------------------------------------

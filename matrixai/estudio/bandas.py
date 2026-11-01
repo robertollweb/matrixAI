@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from matrixai.estudio.esquemas import Restriccion
-from matrixai.estudio.intervalo_por_filas import aviso_del_intervalo_por_filas, unidades_distintas
+from matrixai.estudio.intervalo_por_filas import CorreccionPorSujetos, correccion_por_sujetos
 from matrixai.estudio.metricas import Muestra
 from matrixai.training.diagnostico import intervalo_wilson
 
@@ -213,23 +213,19 @@ class MedidaDeBanda:
     intervalo_95: tuple[float, float] | None
     medida: bool
     motivo: dict[str, str] | None
-    #: 140b, auditoría I4: cuántos sujetos distintos hay entre las filas de la banda, si la muestra trae `units`.
-    unidades: int | None = None
-
-    @property
-    def intervalo_por_filas(self) -> dict[str, str] | None:
-        """El aviso de que `intervalo_95` cuenta FILAS de menos sujetos (`intervalo_por_filas.py`), o `None`."""
-        return aviso_del_intervalo_por_filas(self.n, self.unidades)
+    #: 140b (Kish, decisión de Roberto del 01-11): con varias filas del mismo sujeto en la banda, su corrección por sujeto;
+    #: `intervalo_95` y `medida` son entonces los del intervalo CORREGIDO. `None` sin `units` o con un sujeto por fila.
+    por_sujetos: CorreccionPorSujetos | None = None
 
     def a_json(self) -> dict[str, Any]:
         cuerpo = {"banda": self.banda, "n": self.n, "cobertura": self.cobertura,
                   "aciertos": self.aciertos, "proporcion": self.proporcion,
                   "intervalo_95": list(self.intervalo_95) if self.intervalo_95 else None,
                   "medida": self.medida, "motivo": self.motivo}
-        if self.unidades is not None:
-            # Solo con `units` (los repartos por sujeto): los demás diseños, el JSON de siempre, byte a byte.
-            cuerpo["unidades"] = self.unidades
-            cuerpo["intervalo_por_filas"] = self.intervalo_por_filas
+        if self.por_sujetos is not None:
+            # Solo con sujetos repetidos en la banda: los demás, el JSON de siempre, byte a byte.
+            cuerpo["unidades"] = self.por_sujetos.unidades
+            cuerpo["por_sujetos"] = self.por_sujetos.a_json()
         return cuerpo
 
 
@@ -251,13 +247,28 @@ def medir_bandas(muestra_test: Muestra, politica: PoliticaDeBandas) -> tuple[Med
         intervalo = None if wilson is None else (max(0.0, wilson[0] - wilson[1]),
                                                  min(1.0, wilson[0] + wilson[1]))
         medida = wilson is not None and wilson[1] <= SEMIANCHO_MAXIMO
+        exito = [y == politica.positive_label for y in muestra_test.y_true]
+        if banda == "negativa":
+            exito = [not e for e in exito]
+        por_sujetos = correccion_por_sujetos(exito, muestra_test.units, indices_de[banda])
+        if por_sujetos is not None:
+            # Con sujetos repetidos, el margen que decide si la banda se pinta es el del intervalo CORREGIDO.
+            intervalo = por_sujetos.intervalo_95
+            w = intervalo_wilson(por_sujetos.exitos / por_sujetos.filas * por_sujetos.n_efectivo, por_sujetos.n_efectivo)
+            medida = w is not None and w[1] <= SEMIANCHO_MAXIMO
         motivo = None if medida else {
             "es": f"con {n} filas de test en esta banda su acierto no se conoce con un margen de "
                   f"±{SEMIANCHO_MAXIMO:.0%}: no se pinta",
             "en": f"with {n} test rows in this band its accuracy is not known within "
                   f"±{SEMIANCHO_MAXIMO:.0%}: it is not shown"}
+        if motivo is not None and por_sujetos is not None:
+            motivo = {
+                "es": f"con {n} filas de test de {por_sujetos.unidades} sujetos en esta banda su acierto, corregido por "
+                      f"sujeto, no se conoce con un margen de ±{SEMIANCHO_MAXIMO:.0%}: no se pinta",
+                "en": f"with {n} test rows from {por_sujetos.unidades} subjects in this band its accuracy, corrected by "
+                      f"subject, is not known within ±{SEMIANCHO_MAXIMO:.0%}: it is not shown"}
         medidas.append(MedidaDeBanda(
             banda=banda, n=n, cobertura=(n / n_total if n_total else None), aciertos=aciertos,
             proporcion=(aciertos / n if n else None), intervalo_95=intervalo, medida=medida,
-            motivo=motivo, unidades=unidades_distintas(muestra_test.units, indices_de[banda])))
+            motivo=motivo, por_sujetos=por_sujetos))
     return tuple(medidas)

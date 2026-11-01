@@ -302,11 +302,11 @@ MOTIVOS: dict[str, dict[str, str]] = {
     # -- auditoría I5 del 140b: el mismo sujeto escrito de dos maneras (groups y groups_and_time) -------------
     "sujetos_que_se_escriben_igual": {
         "es": "en {campo} hay {valor} grupo(s) de valores distintos ({valores} valores, {filas} filas) que se escriben igual "
-              "sin los ceros a la izquierda, los espacios y las mayúsculas: {ejemplos}. Si son el mismo sujeto, el reparto "
+              "sin los ceros a la izquierda, un «.0» final, los guiones, los espacios y las mayúsculas: {ejemplos}. Si son el mismo sujeto, el reparto "
               "los trata como sujetos distintos y pueden caer uno en el desarrollo y otro en la prueba. No se unifican solos: "
               "si lo son, corrígelo en los datos",
         "en": "in {campo} there are {valor} group(s) of distinct values ({valores} values, {filas} rows) that read the same "
-              "without leading zeros, spaces and capital letters: {ejemplos}. If they are the same subject, the split treats "
+              "without leading zeros, a trailing “.0”, dashes, spaces and capital letters: {ejemplos}. If they are the same subject, the split treats "
               "them as different subjects and one may land in development and the other in the test. They are not merged "
               "automatically: if they are the same, fix it in the data",
     },
@@ -497,4 +497,10 @@ def motivo(clave: str, **campos: object) -> dict[str, str]:
         raise KeyError(
             f"{clave!r} no está en el catálogo de motivos del 103-C4: escribir aquí "
             "una frase suelta dejaría media aplicación sin traducir")
-    return {idioma: MOTIVOS[clave][idioma].format(**campos) for idioma in IDIOMAS}
+    # Re-auditoría N7 del 140b: un hueco `PorIdioma` (`matrixai.estudio.textos`) se escribe en la forma de cada idioma —«39,7»
+    # en castellano, «39.7» en inglés—, como el resto de la ficha; cualquier otro valor, igual en los dos.
+    from matrixai.estudio.textos import PorIdioma  # noqa: PLC0415
+
+    return {idioma: MOTIVOS[clave][idioma].format(**{k: (v[idioma] if isinstance(v, PorIdioma) else v)
+                                                      for k, v in campos.items()})
+            for idioma in IDIOMAS}

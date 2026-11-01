@@ -618,9 +618,23 @@ def matriz_de_confusion(muestra: Muestra, *,
                                opciones=list(TAREAS_DE_CLASIFICACION), valor=muestra.task)
     if muestra.weights is not None:
         raise EntradaNoMedible("pesos_no_admitidos", campo="confusion_matrix")
+    regla, umbral_usado, predichas = decisiones_de_la_matriz(muestra, umbral=umbral)
     clases = muestra.classes or ()
 
-    regla: str
+    counts = {real: {pred: 0 for pred in clases} for real in clases}
+    for real, pred in zip(muestra.y_true, predichas):
+        counts[real][pred] += 1
+    return MatrizDeConfusion(classes=tuple(clases), counts=counts, decision_rule=regla,
+                             positive_label=muestra.positive_label,
+                             threshold=umbral_usado)
+
+
+def decisiones_de_la_matriz(muestra: Muestra, *, umbral: float | None = None
+                            ) -> tuple[str, float | None, list[Any]]:
+    """`(regla, umbral usado, clase predicha de cada fila)`: la decisión fila a fila con que `matriz_de_confusion` cuenta, con
+    sus tres reglas. Aparte para que quien necesite el acierto de CADA fila (la sensibilidad corregida por sujeto de las
+    curvas, 140b) use la MISMA decisión y no una copia."""
+    clases = muestra.classes or ()
     umbral_usado: float | None = None
     if muestra.predictions is not None:
         regla = "declared_label"
@@ -644,13 +658,7 @@ def matriz_de_confusion(muestra: Muestra, *,
             raise EsquemaInvalido("muestra_sin_salida")
         regla = "argmax"
         predichas = [clases[_argmax(fila)] for fila in muestra.probabilities]
-
-    counts = {real: {pred: 0 for pred in clases} for real in clases}
-    for real, pred in zip(muestra.y_true, predichas):
-        counts[real][pred] += 1
-    return MatrizDeConfusion(classes=tuple(clases), counts=counts, decision_rule=regla,
-                             positive_label=muestra.positive_label,
-                             threshold=umbral_usado)
+    return regla, umbral_usado, predichas
 
 
 # ---------------------------------------------------------------------------

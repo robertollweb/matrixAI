@@ -183,7 +183,8 @@ def test_M4_el_rechazo_por_la_clase_nombra_cada_poblacion_con_su_cifra():
 
 def test_I5_la_escritura_normalizada_quita_ceros_a_la_izquierda_espacios_y_mayusculas():
     assert escritura_normalizada("007") == escritura_normalizada("7") == "7"
-    assert escritura_normalizada("P-007") == escritura_normalizada("p-7") == escritura_normalizada(" P - 7 ") == "p-7"
+    # (re-auditoría N6: los guiones también se quitan, así que «P-007» se escribe como «P7»)
+    assert escritura_normalizada("P-007") == escritura_normalizada("p-7") == escritura_normalizada(" P - 7 ") == "p7"
     assert escritura_normalizada("0") == "0" and escritura_normalizada("70") == "70"
     assert escritura_normalizada("P7") != escritura_normalizada("P70")
 
@@ -311,47 +312,24 @@ def _regresion_con_unidades(unidades):
     return Muestra.regresion(y, [v + rng.gauss(0, 1) for v in y], unidades=unidades)
 
 
-def test_I4_la_cobertura_de_un_reparto_por_sujeto_dice_que_su_intervalo_cuenta_filas_y_no_da_veredicto():
-    """13 sujetos para 50 filas: el «intervalo del 95 %» cubre de verdad 0,84 (o 0,61) por sujeto (sonda del auditor). El
-    método no cambia (las cifras son las mismas); lo que cambia es lo que se afirma."""
+def test_I4_la_cobertura_de_un_reparto_por_sujeto_corrige_su_intervalo_por_sujeto_y_da_veredicto():
+    """13 sujetos para 50 filas: el «intervalo del 95 %» por filas cubre de verdad 0,84 (o 0,61) por sujeto (sonda del auditor).
+    Desde la decisión de Roberto del 01-11 (Kish) el intervalo se CORRIGE por sujeto, se dice cuánto acierta así y el
+    veredicto vuelve; sin `units`, y con un sujeto por fila, el JSON de siempre (re-auditoría N5: ni una clave más)."""
     from matrixai.estudio.conforme import calibrar, medir_cobertura
     calibracion = calibrar(_regresion_con_unidades(None), alfa=0.1)
     sin = medir_cobertura(_regresion_con_unidades(None), calibracion)
     con = medir_cobertura(_regresion_con_unidades([f"P{i % 13}" for i in range(50)]), calibracion)
-    # las cifras, idénticas: el método NO ha cambiado
-    assert (con.cubiertas, con.n, con.intervalo_95) == (sin.cubiertas, sin.n, sin.intervalo_95)
-    assert sin.compatible_con_la_nominal is not None
-    assert con.unidades == 13 and con.compatible_con_la_nominal is None
+    assert (con.cubiertas, con.n) == (sin.cubiertas, sin.n)
+    assert con.por_sujetos is not None and con.por_sujetos.intervalo_por_filas == sin.intervalo_95
+    assert con.intervalo_95 == con.por_sujetos.intervalo_95
+    assert sin.compatible_con_la_nominal is not None and con.compatible_con_la_nominal is not None
     j = con.a_json()
-    assert j["unidades"] == 13 and j["compatible_con_la_nominal"] is None
-    assert "cuenta las 50 filas, de 13 sujetos, como si fueran independientes" in j["intervalo_por_filas"]["es"]
-    assert "no sirve para decir si la cobertura es compatible con la prometida" in j["intervalo_por_filas"]["es"]
-    assert "it counts the 50 rows, from 13 subjects, as if they were independent" in j["intervalo_por_filas"]["en"]
-    for idioma in ("es", "en"):
-        assert "95" not in j["intervalo_por_filas"][idioma]
-    # sin `units` (iid, temporal): el JSON de siempre, ni una clave más
-    assert set(sin.a_json()) == {"cobertura_nominal", "n", "cubiertas", "cobertura_observada", "intervalo_95",
-                                 "compatible_con_la_nominal", "tamano_medio", "vacios", "garantia"}
-    # y con un sujeto por fila no hay nada que advertir: el veredicto vuelve
+    assert j["unidades"] == 13 and j["por_sujetos"]["unidades"] == 13 and "intervalo_por_filas" not in j
+    assert "intervalo del 95 % corregido por sujeto: las 50 filas son de 13 sujetos" in j["por_sujetos"]["texto"]["es"]
+    assert "95% interval corrected by subject: the 50 rows come from 13 subjects" in j["por_sujetos"]["texto"]["en"]
+    claves = {"cobertura_nominal", "n", "cubiertas", "cobertura_observada", "intervalo_95", "compatible_con_la_nominal",
+              "tamano_medio", "vacios", "garantia"}
+    assert set(sin.a_json()) == claves
     uno_por_fila = medir_cobertura(_regresion_con_unidades([f"P{i}" for i in range(50)]), calibracion)
-    assert uno_por_fila.intervalo_por_filas is None and uno_por_fila.compatible_con_la_nominal is not None
-
-
-def test_I4_cada_banda_de_un_reparto_por_sujeto_dice_cuantos_sujetos_hay_en_sus_filas():
-    from matrixai.estudio.bandas import PoliticaDeBandas, medir_bandas
-    from matrixai.estudio.metricas import Muestra
-    rng = random.Random(5)
-    p = [rng.random() for _ in range(120)]
-    y = ["si" if rng.random() < q else "no" for q in p]
-    politica = PoliticaDeBandas(umbral_bajo=0.3, umbral_alto=0.7, positive_label="si", negative_label="no",
-                                coste_falso_positivo=1.0, coste_falso_negativo=1.0, coste_de_revision=0.1)
-    unidades = [f"P{i % 10}" for i in range(120)]
-    con = medir_bandas(Muestra.binaria(y, classes=["no", "si"], positive_label="si", probabilidades=p, unidades=unidades),
-                       politica)
-    sin = medir_bandas(Muestra.binaria(y, classes=["no", "si"], positive_label="si", probabilidades=p), politica)
-    for c, s in zip(con, sin):
-        assert (c.n, c.aciertos, c.intervalo_95, c.medida) == (s.n, s.aciertos, s.intervalo_95, s.medida)   # mismo método
-        esperado = len({unidades[i] for i in range(120) if politica.banda_de(p[i]) == c.banda})
-        assert c.unidades == esperado < c.n
-        assert f"cuenta las {c.n} filas, de {esperado} sujetos" in c.a_json()["intervalo_por_filas"]["es"]
-        assert "unidades" not in s.a_json() and "intervalo_por_filas" not in s.a_json()
+    assert uno_por_fila.por_sujetos is None and uno_por_fila.a_json() == sin.a_json()
