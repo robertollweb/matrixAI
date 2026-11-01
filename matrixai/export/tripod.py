@@ -408,7 +408,9 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
                                     texto_del_valor(evidencia, campo, idioma) if campo.hay_dato else None,
                                     t["sin_dato"], campo.motivo, campo.ruta))
                 continue
-            campo = expediente.campo(evidencia.ruta)
+            # Ola 2: el motor, con su nombre en palabras si el estudio lo trajo («<nombre> (<id>)»).
+            campo = (expediente.motor_entregado_del_estudio(idioma) if evidencia is MOTOR_ENTREGADO
+                     else expediente.campo(evidencia.ruta))
             filas.append(_linea(evidencia.rotulo[idioma],
                                 texto_del_valor(evidencia, campo, idioma) if campo.hay_dato else None,
                                 t["sin_dato"], evidencia.motivo_si_falta[idioma], evidencia.ruta))

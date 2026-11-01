@@ -467,6 +467,8 @@ class ExpedienteClinico:
                     campo = Campo(evidencia.ruta, FALTA, motivo=motivo)
             elif evidencia.clave == "calibracion" and self.es_de_estudio:
                 campo = self.calibracion_del_estudio(idioma)
+            elif evidencia.clave == "motor_del_modelo_entregado":
+                campo = self.motor_entregado_del_estudio(idioma)
             elif evidencia.clave == "comparacion_con_el_baseline":
                 campo = self.comparacion_con_el_baseline(motivo, idioma)
             elif evidencia.clave == "politica_de_faltantes":
@@ -482,6 +484,22 @@ class ExpedienteClinico:
                                    locale=idioma)
             pares.append((evidencia, campo))
         return tuple(pares), tuple(avisos)
+
+    def motor_entregado_del_estudio(self, idioma: str) -> Campo:
+        """El motor del modelo entregado de un ESTUDIO (Ola 2): `study.delivered_engine`, con su nombre en palabras si lo trae.
+
+        Con `study.delivered_engine_name` (`{es, en}`, lo escribe quien conoce los nombres) el valor es
+        `{"id": …, "nombre": {es, en}}` y `texto_del_valor` escribe «<nombre> (<id>)»; sin él (o con un nombre que no es un
+        `{es, en}` de textos), el valor es el id TAL CUAL, como antes: nunca un nombre inventado aquí."""
+        campo = self.campo(MOTOR_ENTREGADO.ruta, motivo_si_falta=MOTOR_ENTREGADO.motivo_si_falta[idioma], locale=idioma)
+        if not (campo.hay_dato and isinstance(campo.valor, str)):
+            return campo
+        estudio = (self._contenido.get("reproduce.json") or {}).get("study") or {}
+        nombre = estudio.get("delivered_engine_name") if isinstance(estudio, dict) else None
+        if (isinstance(nombre, dict) and set(nombre) == {"es", "en"}
+                and all(isinstance(t, str) and t.strip() for t in nombre.values())):
+            return Campo(campo.ruta, campo.estado, valor={"id": campo.valor, "nombre": {"es": nombre["es"], "en": nombre["en"]}})
+        return campo
 
     def calibracion_del_estudio(self, idioma: str) -> Campo:
         """La calibración de un ESTUDIO (Ola 2): `study.evaluation_calibration` del manifiesto, con sus tres casos dichos aparte.
@@ -914,7 +932,8 @@ MOTOR_ENTREGADO = _e(
     "motor_del_modelo_entregado", "analisis", "reproduce.json#study.delivered_engine",
     "Motor del modelo entregado", "Engine of the delivered model",
     "el estudio no registró qué motor es el modelo entregado",
-    "the study did not record which engine is the delivered model")
+    "the study did not record which engine is the delivered model",
+    "motor_entregado")
 
 #: CÓMO SE CALIBRÓ Y SE ELIGIÓ EL UMBRAL del modelo entregado (139-C2). Siempre en un estudio; uno guardado antes del
 #: 139-C1 no lo registró y se dice así, SIN suponer el método de antes: lo que consta es lo que consta.
@@ -1335,6 +1354,10 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
                 f"{valor.get('veredicto')} · baseline={valor.get('baseline')}")
     if isinstance(valor, float):
         return _numero(valor)
+    if evidencia.resumen == "motor_entregado" and isinstance(valor, dict):
+        # Ola 2: «<nombre en el idioma> (<id>)». Si el nombre ES el id (nadie lo tradujo), el id una sola vez.
+        nombre = valor["nombre"]["es" if locale == "es" else "en"]
+        return str(valor["id"]) if nombre == valor["id"] else f"{nombre} ({valor['id']})"
     if evidencia.resumen == "calibracion_y_umbral" and isinstance(valor, dict):
         return _texto_de_la_calibracion(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "calibracion_medida" and isinstance(valor, dict):

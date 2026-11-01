@@ -39,6 +39,8 @@ del 139 no trae nada de esto, y la ficha dice «no disponible»: ni «pliegue 0�
   épocas fijas ya no le deciden nada: ver `study.network_training`). Solo si el estudio la contó y no es cero.
 * `study.delivered_engine` — el MOTOR del modelo entregado (`candidate_engine` del sobre de selección; la deuda del 138:
   el expediente no decía qué motor era).
+* `study.delivered_engine_name` — ese motor EN PALABRAS, `{es, en}` (Ola 2): lo trae quien conoce los nombres (el Studio) y el
+  expediente y la ficha TRIPOD escriben «<nombre> (<id>)». Opcional: un estudio que no lo trae se lee como siempre, con el id solo.
 * `study.calibration_and_threshold` — `method` (`fuera_de_pliegue` | `pliegue_0`, `METODOS_DE_CALIBRACION`), `reason`
   (`{es, en}`, solo si cayó al pliegue 0 y el estudio dijo por qué) y las cuentas que el estudio dio (`folds`,
   `out_of_fold_rows`, `rows_for_calibration`, `rows_for_threshold`). En un reparto `temporal` (140, D4; reparación del I2 de
@@ -558,6 +560,7 @@ def manifiesto_de_estudio(
     filas_que_entrenaron_el_modelo: int | None = None,
     filas_de_cola_de_parada_temprana: int | None = None,
     motor_del_modelo_entregado: str | None = None,
+    nombre_del_motor_entregado: Mapping[str, str] | None = None,
     calibracion_y_umbral: Mapping[str, Any] | None = None,
     modo: str | None = None,
     motores_fuera_por_el_modo: Sequence[str] | None = None,
@@ -592,6 +595,9 @@ def manifiesto_de_estudio(
     * `curvas_de_la_evaluacion` (Ola 2): el campo del mismo nombre del sobre de selección (141); de él se lee SOLO la calibración
       (`study.evaluation_calibration`). Sin curvas (`None`, `{disponible: false}`), el bloque no se escribe.
     * `motor_del_modelo_entregado` (139-C2): el motor del modelo entregado (`candidate_engine` de la selección).
+    * `nombre_del_motor_entregado` (Ola 2): el nombre EN PALABRAS de ese motor, `{es, en}` (las dos claves, texto no vacío), tal
+      cual lo escribe quien lo conoce (el Studio): el núcleo no lleva una lista de nombres. Va en `study.delivered_engine_name`
+      y solo con `motor_del_modelo_entregado` (un nombre sin su id no dice de qué motor es). Sin él, el manifiesto es el de siempre.
     * `calibracion_y_umbral` (139-C2): `{metodo, motivo?, pliegues?, filas_fuera_de_pliegue?, filas_para_calibrar?,
       filas_para_el_umbral?, entrenamiento_de_la_red?, usos?}` tal cual lo declara el sobre del estudio; `metodo` en
       `METODOS_DE_CALIBRACION`. Con `entrenamiento_de_la_red` (139-C4, una red reentrenada con épocas fijas) el manifiesto
@@ -646,6 +652,17 @@ def manifiesto_de_estudio(
             f"({filas_de_cola_de_parada_temprana}) cannot exceed filas_de_desarrollo ({filas_de_desarrollo})")
     if motor_del_modelo_entregado is not None:
         _require_text(motor_del_modelo_entregado, "motor_del_modelo_entregado")
+    nombre_del_motor: dict[str, str] | None = None
+    if nombre_del_motor_entregado is not None:
+        if motor_del_modelo_entregado is None:
+            raise ReproduceManifestError(
+                "nombre_del_motor_entregado without motor_del_modelo_entregado: a name needs the engine id it names")
+        if not isinstance(nombre_del_motor_entregado, Mapping) or set(nombre_del_motor_entregado) != {"es", "en"}:
+            raise ReproduceManifestError(
+                f"nombre_del_motor_entregado must be an object with exactly «es» and «en», got {nombre_del_motor_entregado!r}")
+        nombre_del_motor = {idioma: _require_text(nombre_del_motor_entregado[idioma],
+                                                  f"nombre_del_motor_entregado.{idioma}")
+                            for idioma in ("es", "en")}
     if filas is not None:
         for valor, nombre in ((filas_de_desarrollo, "filas_de_desarrollo"),
                               (filas_de_prueba_reservada, "filas_de_prueba_reservada")):
@@ -679,6 +696,8 @@ def manifiesto_de_estudio(
         estudio["rows"] = reparto
     if motor_del_modelo_entregado is not None:
         estudio["delivered_engine"] = motor_del_modelo_entregado
+        if nombre_del_motor is not None:
+            estudio["delivered_engine_name"] = nombre_del_motor
     if reparto_del_estudio is not None:
         estudio["split"] = _reparto_del_estudio(reparto_del_estudio)
     if calibracion_y_umbral is not None:
