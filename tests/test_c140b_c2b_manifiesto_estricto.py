@@ -404,12 +404,12 @@ class TestLaFichaDiceElRepartoEstricto:
                 "sujetos de prueba") in es
         assert "vale para esta ventana de tiempo (medido con datos sintéticos y un modelo fijo)" in es
         assert "[cobertura medida 0,835 con 8 sujetos de prueba]" in es          # la coma decimal en castellano
-        assert "intervalo aproximado: con menos de 50 sujetos de prueba" in es
+        assert "intervalo aproximado (el de la nota, por remuestreo de sujetos): con menos de 50 sujetos de prueba" in es
         assert ("with 10 test subjects, an interval like this is right about 83 times in 100 or a little more, not 95 (it was "
                 "measured with 8 test subjects") in en
         assert "it holds for this time window (measured on synthetic data with a fixed model)" in en
         assert "[measured coverage 0.835 with 8 test subjects]" in en            # el punto decimal en inglés
-        assert "approximate interval: with fewer than 50 test subjects" in en
+        assert "approximate interval (the score's, by resampling subjects): with fewer than 50 test subjects" in en
         # y cada ficha en SU idioma: ni una frase del otro
         for palabra in ("de cada 100", "intervalo aproximado", "cobertura medida", "sintéticos"):
             assert palabra not in en

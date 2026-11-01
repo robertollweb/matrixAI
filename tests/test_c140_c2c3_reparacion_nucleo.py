@@ -85,7 +85,10 @@ class TestElObjetivoEnDesarrolloYPrueba:
         assert o["criterion"] == {"points": 10.0, "z": 1.96}
         es = _texto(REPARTO_POR_DISENO, "reproduce.json#study.split", self._split(OBJETIVO), "es")
         en = _texto(REPARTO_POR_DISENO, "reproduce.json#study.split", self._split(OBJETIVO), "en")
-        assert "«1» es el 35.4 % del desarrollo y el 67.9 % de la prueba reservada: CAMBIA MUCHO" in es
+        # K5 (tercera auditoría del 140b): en castellano, la coma decimal (antes «35.4 %», al lado de un «35,6 %»).
+        assert "«1» es el 35,4 % del desarrollo y el 67,9 % de la prueba reservada: CAMBIA MUCHO" in es
+        assert "35.4" not in es and "67.9" not in es
+        assert "“1” is 35.4% of development and 67.9% of the held-out test" in en
         assert "no cambia ninguna decisión" in es and "IT CHANGES A LOT" in en
 
     def test_regresion_con_la_media_y_la_desviacion_del_desarrollo(self):
@@ -95,7 +98,8 @@ class TestElObjetivoEnDesarrolloYPrueba:
         s = self._split(o)
         assert s["target_in_development_and_test"]["change"] == {"standard_deviations": -0.31, "z": -1.53}
         es = _texto(REPARTO_POR_DISENO, "reproduce.json#study.split", s, "es")
-        assert "media del objetivo es 24.85 en el desarrollo y 22.37" in es and "(no cambia mucho)" in es
+        assert "media del objetivo es 24,85 en el desarrollo y 22,37" in es and "(no cambia mucho)" in es   # K5
+        assert "24.85" not in es and "desviación típica del desarrollo: 8)" in es
 
     def test_sin_el_dato_no_hay_bloque_y_mal_formado_se_rechaza(self):
         assert "target_in_development_and_test" not in self._split(None)

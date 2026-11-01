@@ -30,7 +30,8 @@ from matrixai.estudio.intervalo_por_filas import (   # noqa: E402
     correccion_de_recuentos, correccion_por_sujetos, intervalo_recortado)
 from matrixai.estudio.metricas import Muestra   # noqa: E402
 
-MEDICION = Path.home() / ".agentes" / "140b" / "reparacion2" / "medir_kish.json"
+#: La medición, VERSIONADA (K4 de la tercera auditoría: antes vivía en `~/.agentes` y la prueba se saltaba en un clon).
+MEDICION = Path(__file__).resolve().parents[1] / "benchmarks" / "cobertura_140b" / "kish" / "medir_kish.json"
 
 
 # ---------------------------------------------------------------------------------------------------------------------------
@@ -75,11 +76,22 @@ def test_kish_con_efecto_del_sujeto_la_cobertura_mejora_en_las_celdas_de_la_sond
 
 
 def test_kish_la_tabla_del_codigo_es_la_medida():
-    """`COBERTURA_MEDIDA_POR_SUJETOS` es, número a número, la media de las celdas con efecto de `medir_kish.json`."""
-    if not MEDICION.exists():
-        pytest.skip(f"no está {MEDICION} (la medición de la segunda reparación del 140b)")
-    tabla = json.loads(MEDICION.read_text())["tabla"]
-    assert [(int(k), v["kish_media_con_efecto"]) for k, v in tabla.items()] == list(COBERTURA_MEDIDA_POR_SUJETOS)
+    """`COBERTURA_MEDIDA_POR_SUJETOS` es, número a número, la PEOR forma de tamaños (en media de sus celdas con efecto) de
+    `medir_kish.json`, que está en el repositorio: sin `skip`. Y ese resumen se rehace AQUÍ de las celdas, no se lee."""
+    assert MEDICION.exists(), f"falta {MEDICION}: la procedencia de la tabla va versionada"
+    medicion = json.loads(MEDICION.read_text())
+    tabla = medicion["tabla"]
+    assert [(int(k), v["kish_peor_forma_media"]) for k, v in tabla.items()] == list(COBERTURA_MEDIDA_POR_SUJETOS)
+    rehecha = []
+    for k, _ in COBERTURA_MEDIDA_POR_SUJETOS:
+        por_forma: dict[str, list[float]] = {}
+        for c in medicion["celdas"]:
+            if c["sujetos"] == k and c["sd_logit"] > 0:
+                por_forma.setdefault(c["forma"], []).append(c["kish"])
+        assert set(por_forma) == {"5", "20", "40", "1-39", "lognormal_cv1.5"} and {len(v) for v in por_forma.values()} == {6}
+        rehecha.append((k, min(round(sum(v) / len(v), 3) for v in por_forma.values())))
+    assert rehecha == list(COBERTURA_MEDIDA_POR_SUJETOS)
+    assert medicion["nucleo"] == "matrixai/__init__.py" and medicion["R"] == 2000
 
 
 def test_kish_no_depende_del_orden_de_los_sujetos():
@@ -109,10 +121,18 @@ def test_kish_un_icc_negativo_se_trunca_a_cero_y_el_intervalo_es_el_de_filas():
 
 
 @pytest.mark.parametrize("exitos", [[0] * 8, [10] * 8])
-def test_kish_todas_cero_o_todas_uno_toma_icc_cero_declarado(exitos):
+def test_kish_todas_cero_o_todas_uno_toma_lo_prudente_y_no_da_cobertura(exitos):
+    """K2 (tercera auditoría): sin varianza se tomaba ICC = 0 —el Wilson por filas— y ese intervalo no cubría NUNCA. Ahora,
+    como si ICC = 1: `n_eff = N²/Σm²` (aquí, los 8 sujetos), sin cifra de cobertura y con la marca."""
     c = correccion_de_recuentos(exitos, [10] * 8)
-    assert c.icc == 0.0 and c.n_efectivo == 80.0 and c.intervalo_95 == intervalo_recortado(sum(exitos), 80)
-    assert c.cobertura_medida == 0.920 and c.aproximado is True
+    assert c.icc is None and c.sin_varianza is True and c.n_efectivo == 8.0
+    assert c.intervalo_95 == intervalo_recortado(sum(exitos) / 80 * 8, 8)
+    assert c.intervalo_95 != intervalo_recortado(sum(exitos), 80)
+    assert c.cobertura_medida is None and c.sujetos_del_punto_medido is None and c.aproximado is True
+    assert "de cada 100" not in c.texto["es"] and "in 100" not in c.texto["en"]
+    assert "todas dan lo mismo" in c.texto["es"] and "no hay cifra que dar" in c.texto["es"]
+    assert "all give the same result" in c.texto["en"] and "there is no figure to give" in c.texto["en"]
+    assert "todas las filas dan lo mismo" in c.texto_aproximado["es"]
 
 
 def test_kish_un_solo_sujeto_vale_como_una_fila_y_no_tiene_cobertura_medida():
@@ -133,9 +153,9 @@ def test_kish_un_sujeto_por_fila_o_sin_sujetos_no_corrige_nada():
 
 def test_kish_la_cobertura_de_un_numero_no_medido_es_la_del_punto_menor_y_nunca_la_de_arriba():
     assert cobertura_medida_por_sujetos(1) == (None, None)
-    assert cobertura_medida_por_sujetos(7) == (0.920, 6)
-    assert cobertura_medida_por_sujetos(12) == (0.927, 10)
-    assert cobertura_medida_por_sujetos(5000) == (0.941, 100)
+    assert cobertura_medida_por_sujetos(7) == (0.907, 6)
+    assert cobertura_medida_por_sujetos(12) == (0.923, 10)
+    assert cobertura_medida_por_sujetos(5000) == (0.938, 100)
 
 
 # ---------------------------------------------------------------------------------------------------------------------------
@@ -146,14 +166,14 @@ def test_kish_las_frases_dicen_la_correccion_y_la_cobertura_medida_en_los_dos_id
     exitos = [38, 30, 40, 22, 35, 39, 28, 40, 33, 37, 25, 36, 39]
     c = correccion_de_recuentos(exitos, [40] * 13)
     es, en = c.texto["es"], c.texto["en"]
-    assert c.cobertura_medida == 0.930 and c.sujetos_del_punto_medido == 13 and not c.aproximado
+    assert c.cobertura_medida == 0.924 and c.sujetos_del_punto_medido == 13 and not c.aproximado
     icc_es, icc_en = f"{c.icc:.2f}".replace(".", ","), f"{c.icc:.2f}"
     assert es.startswith("intervalo del 95 % corregido por sujeto: las 520 filas son de 13 sujetos")
     assert f"correlación intraclase {icc_es}" in es and f"efecto de diseño de Kish: {c.efecto_de_diseno:.2f}".replace(".", ",") in es
-    assert "con 13 sujetos, un intervalo así acierta unas 93 de cada 100 veces, no 95 (medido por simulación)" in es
+    assert "con 13 sujetos, un intervalo así acierta unas 92 de cada 100 veces, no 95 (medido por simulación)" in es
     assert en.startswith("95% interval corrected by subject: the 520 rows come from 13 subjects")
     assert f"intraclass correlation {icc_en}" in en
-    assert "with 13 subjects, an interval like this is right about 93 times in 100, not 95 (measured by simulation)" in en
+    assert "with 13 subjects, an interval like this is right about 92 times in 100, not 95 (measured by simulation)" in en
     assert c.texto_aproximado is None
 
 
@@ -162,8 +182,9 @@ def test_kish_la_marca_de_aproximado_va_por_debajo_de_10_sujetos_y_no_en_10():
     nueve = correccion_de_recuentos([3, 4, 5, 6, 7, 8, 9, 2, 1], [10] * 9)
     diez = correccion_de_recuentos([3, 4, 5, 6, 7, 8, 9, 2, 1, 5], [10] * 10)
     assert nueve.aproximado is True and nueve.texto_aproximado is not None
-    assert "intervalo aproximado: con menos de 10 sujetos" in nueve.texto_aproximado["es"]
-    assert "approximate interval: with fewer than 10 subjects" in nueve.texto_aproximado["en"]
+    assert "intervalo aproximado (el de Wilson corregido por sujeto): con menos de 10 sujetos" in nueve.texto_aproximado["es"]
+    assert "approximate interval (the Wilson one corrected by subject): with fewer than 10 subjects" in \
+        nueve.texto_aproximado["en"]
     assert diez.aproximado is False and diez.texto_aproximado is None
     assert nueve.a_json()["aproximado"] is True and diez.a_json()["texto_aproximado"] is None
 
@@ -389,12 +410,13 @@ def test_N7_los_limites_del_estricto_escriben_los_decimales_como_cada_idioma():
 
 
 def test_el_efecto_de_diseno_es_el_de_kish_calculado_a_mano_con_el_icc_de_anova():
-    """Supervisor, 01-11: `deff = 1 + m0·ICC` (sin el «−1») dejaba 49 pruebas verdes: solo se probaba el caso ICC = 0, donde
-    el «−1» no cambia nada. Aquí el ICC de ANOVA de un factor (grupos desiguales) se calcula APARTE, con la fórmula de libro, y
-    se exige el mismo efecto de diseño y el mismo n efectivo."""
+    """Supervisor, 01-11: `deff = 1 + m0·ICC` (sin el «−1») dejaba 49 pruebas verdes. Tercera auditoría (K1): con tamaños
+    DESIGUALES el efecto de diseño de la varianza de la proporción por filas usa el tamaño PONDERADO `Σm²/N`, no el `m0` del
+    ANOVA (que solo estima el ICC). Aquí el ICC de ANOVA de un factor se calcula APARTE, con la fórmula de libro, sobre
+    sujetos de tamaños MUY distintos, y se exige `deff = 1 + (Σm²/N − 1)·ICC` y su n efectivo; y que NO sea el de `m0`."""
     from matrixai.estudio.intervalo_por_filas import correccion_de_recuentos
 
-    exitos, filas = [9, 1, 7, 0, 5, 10], [10, 8, 9, 6, 12, 10]
+    exitos, filas = [36, 1, 7, 0, 5, 2, 19], [40, 3, 9, 6, 12, 2, 25]
     N, k = sum(filas), len(filas)
     p = sum(exitos) / N
     ssb = sum(m * (e / m - p) ** 2 for e, m in zip(exitos, filas))
@@ -402,11 +424,15 @@ def test_el_efecto_de_diseno_es_el_de_kish_calculado_a_mano_con_el_icc_de_anova(
     msb, msw = ssb / (k - 1), ssw / (N - k)
     m0 = (N - sum(m * m for m in filas) / N) / (k - 1)
     icc = max(0.0, (msb - msw) / (msb + (m0 - 1) * msw))
-    deff = 1 + (m0 - 1) * icc
-    assert icc > 0.3, icc                                            # un caso con efecto de verdad: el «−1» pesa
+    m_ponderado = sum(m * m for m in filas) / N
+    deff = 1 + (m_ponderado - 1) * icc
+    assert icc > 0.3, icc                                            # un caso con efecto de verdad
+    assert m_ponderado > m0 + 10, (m_ponderado, m0)                  # tamaños desiguales: los dos tamaños se separan
     c = correccion_de_recuentos(exitos, filas)
     assert c is not None
     assert c.icc == pytest.approx(icc, rel=1e-9) and c.m0 == pytest.approx(m0, rel=1e-9)
+    assert c.m_ponderado == pytest.approx(m_ponderado, rel=1e-12)
     assert c.efecto_de_diseno == pytest.approx(deff, rel=1e-9)
     assert c.n_efectivo == round(N / deff, 3)
-    assert c.n_efectivo != round(N / (1 + m0 * icc), 3)              # el sabotaje se distingue
+    assert c.n_efectivo != round(N / (1 + (m0 - 1) * icc), 3)        # el de m0 (K1) se distingue
+    assert c.n_efectivo != round(N / (1 + m_ponderado * icc), 3)     # y el que olvida el «−1»

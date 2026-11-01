@@ -90,7 +90,12 @@ def escritura_normalizada(valor: str) -> str:
     separadores `-` y `_` (`P-007` → `p7`, como `P7`) y los ceros a la izquierda de cada número (`007` → `7`; Excel los quita
     al juntar hojas). Los ceros que siguen a un punto decimal NO se quitan (`1.05` no es `1.5`). Sin `int()`: un número de
     miles de cifras no lanza (re-auditoría N6). Solo sirve para AVISAR: el reparto sigue usando el valor tal cual (no se mapean
-    los datos de nadie)."""
+    los datos de nadie).
+
+    Lo que NO ve, DEUDA DECLARADA (tercera auditoría del 140b, K6): la coma decimal (`7,0` frente a `7`), el punto como
+    separador (`P.007`), la raya y otros guiones que no son `-` (`P–007`) y los dígitos de ancho completo (`Ｐ７`): de esos no
+    avisa. Y avisa DE MÁS cuando quitar el separador junta dos números (`1-2` y `12`, `A1_0` y `A10`): es un aviso, no un
+    reparto distinto, y la persona decide."""
     texto = re.sub(r"\s+", "", str(valor)).casefold()
     texto = re.sub(r"(\d)\.0+(?![\d])", r"\1", texto)
     texto = re.sub(r"[-_]", "", texto)

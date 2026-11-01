@@ -32,7 +32,9 @@ from matrixai.training.particion_por_diseno_grupos_y_tiempo import (   # noqa: E
     COBERTURA_MEDIDA_DEL_INTERVALO, NIVEL_NOMINAL_DEL_INTERVALO, PROCEDENCIA_DE_LA_COBERTURA,
     SUJETOS_PARA_QUE_NO_SEA_APROXIMADO, IntervaloDeclarado, cobertura_medida_del_intervalo)
 
-C0 = Path.home() / ".agentes" / "140b" / "c0"
+#: La medición del C0, VERSIONADA (K4 de la tercera auditoría: antes vivía en `~/.agentes` y estas pruebas se saltaban en un
+#: clon): el protocolo sellado, los guiones de E3 que sella y su salida `e3.json`.
+C0 = Path(__file__).resolve().parents[1] / "benchmarks" / "cobertura_140b" / "c0"
 
 
 # ---------------------------------------------------------------------------------------------------------------------------
@@ -42,8 +44,7 @@ C0 = Path.home() / ".agentes" / "140b" / "c0"
 def test_la_tabla_del_codigo_es_la_que_midio_el_c0():
     """Cobertura condicional SIN deriva de `e3.json` (RMSE): la media de las celdas de cada n, a tres decimales."""
     fichero = C0 / "salidas" / "e3.json"
-    if not fichero.exists():
-        pytest.skip(f"no está {fichero} (la medición del 140b-C0): no hay con qué comparar la tabla del código")
+    assert fichero.exists(), f"falta {fichero}: la procedencia de la tabla va versionada"
     celdas = json.loads(fichero.read_text())["rmse"]
     por_n: dict[int, list[float]] = {}
     for c in celdas:
@@ -57,8 +58,7 @@ def test_la_tabla_del_codigo_es_la_que_midio_el_c0():
 
 def test_la_procedencia_de_la_tabla_es_el_protocolo_sellado_del_c0():
     sellado = C0 / "PROTOCOLO.sha256"
-    if not sellado.exists():
-        pytest.skip(f"no está {sellado}")
+    assert sellado.exists(), f"falta {sellado}"
     assert PROCEDENCIA_DE_LA_COBERTURA["protocolo_sha256"] in sellado.read_text()
     assert PROCEDENCIA_DE_LA_COBERTURA["fecha"] == "2026-11-01"
     assert "sintéticos" in PROCEDENCIA_DE_LA_COBERTURA["datos"] and "fijo" in PROCEDENCIA_DE_LA_COBERTURA["modelo"]

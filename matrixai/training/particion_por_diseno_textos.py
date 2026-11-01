@@ -474,11 +474,13 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "with {n} test subject(s) it has not been measured how often an interval like this is right (it was measured "
               "from {minimo} subjects): there is no figure to give",
     },
+    # La marca NOMBRA su intervalo (el de la nota, por remuestreo de sujetos): en la misma ficha puede ir la del intervalo de
+    # Wilson corregido por sujeto (Kish, `intervalo_por_filas`), con otro umbral (10 sujetos) y otro método.
     "estricto_intervalo_aproximado": {
-        "es": "intervalo aproximado: con menos de {umbral} sujetos de prueba el remuestreo por sujeto se queda corto de su "
-              "nivel del {nominal} %",
-        "en": "approximate interval: with fewer than {umbral} test subjects the resampling by subject falls short of its "
-              "{nominal}% level",
+        "es": "intervalo aproximado (el de la nota, por remuestreo de sujetos): con menos de {umbral} sujetos de prueba ese "
+              "remuestreo se queda corto de su nivel del {nominal} %",
+        "en": "approximate interval (the score's, by resampling subjects): with fewer than {umbral} test subjects that "
+              "resampling falls short of its {nominal}% level",
     },
 }
 
