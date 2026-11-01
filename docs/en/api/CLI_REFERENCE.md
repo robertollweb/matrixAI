@@ -1032,7 +1032,7 @@ it was trained is claimed.
 ```
 matrixai attest <model.onnx> --data <eval.csv> [--metric accuracy]
                 [--target-column <name>] [--key <hex>] [--in-toto]
-                [--sigstore] [-o <file>]
+                [--sigstore] [--ed25519-key <pem>] [-o <file>]
 ```
 
 | Flag | Default | Description |
@@ -1045,6 +1045,7 @@ matrixai attest <model.onnx> --data <eval.csv> [--metric accuracy]
 | `--key` / `--key-id` | — | Hex key to sign the receipt. Without it the receipt is **A0 / UNSIGNED**, and says so |
 | `--in-toto` | — | Also emit the receipt as an in-toto Statement. Needs `--key`: a Statement nobody signed does not say whose it is. The native envelope is **not** withdrawn — both are emitted and each says which it is |
 | `--sigstore` | — | Sign with Sigstore instead of HMAC. Needs the `sigstore` library and an OIDC identity; if either is missing it says **which** and does not fall back to HMAC in silence. It does **not** raise the assurance level: A0–A4 describe what was checked, not how strong the signature is |
+| `--ed25519-key` | — | PEM file with an Ed25519 **private** key (PKCS#8, unencrypted): adds a **second**, asymmetric signature next to the HMAC one. Needs `pip install 'matrixai[firma]'`. It does **not** raise the assurance level: with it alone the receipt stays **A0**, and says so without calling it unsigned. It combines with `--key`, `--key-id` and `--in-toto`, not with `--sigstore` (exit 2). An unreadable key stops the command before anything is written, and the message never carries the key |
 | `-o` | — | Write the receipt to this file. Extra envelopes go next to it (`<file>.in_toto.json`). Without `-o` everything goes to stdout |
 
 The receipt states what it does **not** attest, and records the model's
@@ -1169,13 +1170,51 @@ Verify a receipt's signature and content, and report what could not be
 checked.
 
 ```
-matrixai receipt verify <file> [--key <hex|utf-8>] [--offline]
+matrixai receipt [--json] verify <file> [--key <hex|utf-8>] [--pubkey <file>]
+                 [--locale es|en] [--offline]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--key` | — | Hex or utf-8 key to check the signature with |
+| `--key` | — | Hex or utf-8 key to check the signature with (the HMAC one, the only one that counts for level A1) |
+| `--pubkey` | — | Ed25519 **public** key to check the Ed25519 signature with: a PEM, or its 32 bytes in hex or base64. Needs `pip install 'matrixai[firma]'`. Without it, a receipt carrying an Ed25519 signature reports it as "could not be checked", never as valid |
+| `--locale` | `en` | Language of the Ed25519 signature line (`es` or `en`). The rest of the report stays as is |
 | `--offline` | — | Do not reach the network for trust material (today: always offline) |
+
+The Ed25519 line has exactly three phrases: *valid signature*, *the signature
+does not match* and *could not be checked*. A valid one says the file is the one
+that was signed and that nobody touched it afterwards; it does **not** say the
+model is right, who signed (compare the key's fingerprint through another
+channel), nor when, and there is no revocation.
+
+Exit code: `0` everything that had to be checked was checked and came out right;
+`1` a file could not be read; `2` something **failed** (the signature does not
+match, a broken schema); `3` it could not be checked (no key, or the key does
+not read) — not a pass, and not an accusation.
+
+`--json` belongs to `receipt` and goes **before** the subcommand
+(`matrixai receipt --json verify …`); after it, it is rejected.
+
+### matrixai receipt pubkey
+
+Show the fingerprint and the **public** key of an Ed25519 key file. The file can
+be the private key (PEM) or the public one: only the public key is ever printed.
+
+```
+matrixai receipt [--json] pubkey <file>
+```
+
+```
+algorithm:   ed25519
+fingerprint: f8201d5847bc4c54cb4358ea139a756ffc557864a761facef3b7f1120ee8f0fa
+(SHA-256 of the 32 raw bytes of the public key; compare it through ANOTHER channel before trusting it)
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEALBFrAx9hAtnqly+hVXB/QnwCE5CsYOTH+RuTgGGEUgw=
+-----END PUBLIC KEY-----
+```
+
+With `--json`: `algorithm`, `fingerprint` and `public_key_pem`. A file that is not an
+Ed25519 key, or does not exist, exits with `1`.
 
 ### matrixai receipt compare
 
