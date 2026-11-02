@@ -80,6 +80,16 @@ def test_un_escalon_de_retroceso_conocido():
     assert (r.valor, r.a, r.b) == (0.25, 1, 2)
 
 
+def test_los_empates_del_retroceso_se_resuelven_por_el_primer_punto():
+    # El docstring lo promete «para que dos ejecuciones den el mismo contraejemplo». Meseta en el máximo
+    # (j=1 y j=2) y meseta en la caída (j=3 y j=4): a es el PRIMER máximo y b la PRIMERA caída. Con `>=`
+    # en cualquiera de las dos comparaciones el contraejemplo se desplaza (sabotaje del supervisor, 02-11).
+    r = retroceso_de_una_curva([0.0, 0.5, 0.5, 0.25, 0.25], "sube")
+    assert (r.valor, r.a, r.b) == (0.25, 1, 3)
+    r = retroceso_de_una_curva([1.0, 0.5, 0.5, 0.75, 0.75], "baja")
+    assert (r.valor, r.a, r.b) == (0.25, 1, 3)
+
+
 def test_baja_es_el_espejo_de_sube():
     # «baja»: el mayor ASCENSO respecto del mínimo corrido. Mínimo 0,5 en j=1, sube a 0,75 en j=2.
     r = retroceso_de_una_curva([1.0, 0.5, 0.75, 0.0], "baja")
