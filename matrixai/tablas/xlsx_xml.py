@@ -42,7 +42,7 @@ from .errores import TablaRechazada, rechazar
 
 __all__ = ["mapa_de_hojas", "estilos_del_libro", "Estilos", "explorar_hoja", "Geometria",
            "Hallazgos", "indice_de_columna", "letras_de_columna", "referencia",
-           "cadenas_compartidas", "es_fecha_1904"]
+           "cadenas_compartidas", "es_fecha_1904", "pide_recalcular_al_abrir"]
 
 _TROZO = 1 << 20
 _MAX_XML_PEQUENO = 64 << 20
@@ -209,6 +209,17 @@ def es_fecha_1904(zf: zipfile.ZipFile) -> bool:
     return False
 
 
+def pide_recalcular_al_abrir(zf: zipfile.ZipFile) -> bool:
+    """`<calcPr fullCalcOnLoad="1"/>` en `workbook.xml`: el libro pide recalcular TODAS sus
+    fórmulas al abrirse, y lo que guarda en cada `<v>` no es el resultado (XlsxWriter guarda 0).
+    I-R1 de 150-C1."""
+    wb = _parsear(_leer_pequeno(zf, "xl/workbook.xml"))
+    for el in wb.iter():
+        if _local(el.tag) == "calcPr":
+            return (el.get("fullCalcOnLoad") or "").strip().lower() in ("1", "true")
+    return False
+
+
 def cadenas_compartidas(zf: zipfile.ZipFile) -> int:
     """Bytes descomprimidos de la tabla de textos compartidos (`sharedStrings.xml`) que calamine
     carga ENTERA en memoria al abrir el libro, la use una hoja o no."""
@@ -332,6 +343,7 @@ class _Marcas:
 
     def __init__(self):
         self.fsv_f, self.fsv_c = array.array("l"), array.array("l")       # fórmula sin valor
+        self.frm_f, self.frm_c = array.array("l"), array.array("l")       # toda fórmula
         self.err_f, self.err_c, self.err_t = array.array("l"), array.array("l"), array.array("l")
         self.tipos_error: list[str] = []
         self.pct_f, self.pct_c = array.array("l"), array.array("l")
@@ -360,6 +372,8 @@ class Hallazgos:
     """Las marcas de las filas que se piden, ya contadas."""
     formulas_sin_valor: int = 0
     celdas_sin_valor: list[str] = field(default_factory=list)       # hasta 10, `D7`
+    formulas: int = 0                                               # con o sin valor guardado
+    celdas_con_formula: list[str] = field(default_factory=list)     # hasta 10
     errores_por_columna: dict[int, Counter] = field(default_factory=dict)  # col → texto → n
     porcentajes_por_columna: Counter = field(default_factory=Counter)      # col → n
     ceros_por_columna: dict[int, dict] = field(default_factory=dict)       # col → {n, cifras, codigo, ejemplo}
@@ -444,6 +458,11 @@ class Geometria:
                 h.formulas_sin_valor += 1
                 if len(h.celdas_sin_valor) < 10:
                     h.celdas_sin_valor.append(referencia(f, c))
+        for f, c in zip(m.frm_f, m.frm_c):
+            if formula_incluida is None or formula_incluida(f):
+                h.formulas += 1
+                if len(h.celdas_con_formula) < 10:
+                    h.celdas_con_formula.append(referencia(f, c))
         ok = dato_incluido or (lambda _f: True)
         for f, c, t in zip(m.err_f, m.err_c, m.err_t):
             if ok(f):
@@ -651,6 +670,8 @@ class _Explorador:
         tiene_valor = tiene_is or (v is not None and (v != "" or t == "str"))
         if tiene_f:
             g.n_formulas += 1
+            m.frm_f.append(f)
+            m.frm_c.append(c)
             if not tiene_valor:
                 m.fsv_f.append(f)
                 m.fsv_c.append(c)

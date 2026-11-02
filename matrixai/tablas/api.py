@@ -113,6 +113,7 @@ class _Libro:
         self.descomprimido = 0
         self.bytes_de_cadenas = 0
         self.epoca_1904 = False
+        self.recalcular_al_abrir = False
         self._estilos = None
         self.formato = self._clasificar()
         self.hojas = self._listar_hojas()
@@ -151,6 +152,7 @@ class _Libro:
         self.bytes_de_cadenas = xlsx_xml.cadenas_compartidas(self.zf)
         comprobar_cadenas_compartidas(self.bytes_de_cadenas, self.topes)
         self.epoca_1904 = xlsx_xml.es_fecha_1904(self.zf)
+        self.recalcular_al_abrir = xlsx_xml.pide_recalcular_al_abrir(self.zf)
         return "xlsm" if self.macros else "xlsx"
 
     # -- hojas ------------------------------------------------------------------------------
@@ -453,6 +455,9 @@ def _inspeccionar_hoja(libro: _Libro, meta: dict) -> dict:
         if hz.formulas_sin_valor:
             avisos.append(declarar("formulas_sin_valor", cuantas=hz.formulas_sin_valor,
                                    celdas=hz.celdas_sin_valor))
+        if libro.recalcular_al_abrir and hz.formulas:
+            avisos.append(declarar("formulas_a_recalcular", cuantas=hz.formulas,
+                                   celdas=hz.celdas_con_formula))
         _avisos_de_hallazgos(hz, letras_de_columna, avisos)
     if cab:
         nombres = _nombres_propuestos(h, cab)
@@ -678,6 +683,10 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         if hzf.formulas_sin_valor:
             raise rechazar("formula_sin_valor", cuantas=hzf.formulas_sin_valor,
                            celdas=hzf.celdas_sin_valor)
+        # I-R1: el libro pide recalcular al abrir (XlsxWriter): el valor guardado es un relleno.
+        if libro.recalcular_al_abrir and hzf.formulas:
+            raise rechazar("formula_sin_valor", variante="recalcular", cuantas=hzf.formulas,
+                           celdas=hzf.celdas_con_formula, recalcular_al_abrir=True)
     # Series con formato de fecha que no son una fecha (29-02-1900, ≤ 0, > 9999-12-31): lo que
     # calamine da para ellas es OTRA cosa (una hora, el 28-02, el número): quedan vacías y se
     # declaran, celda a celda.

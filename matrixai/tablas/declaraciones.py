@@ -176,6 +176,11 @@ TIPOS: dict[str, tuple] = {
                      "{n} celdas tienen fórmula pero ningún valor guardado (" + _lista(d['detalle'].get('celdas')) + "): esta hoja no se podrá convertir hasta que se guarde en Excel."),
         lambda d: _p(d['cuantas'], f"1 cell has a formula but no saved value ({_lista(d['detalle'].get('celdas'))}): this sheet cannot be converted until it is saved in Excel.",
                      "{n} cells have a formula but no saved value (" + _lista(d['detalle'].get('celdas')) + "): this sheet cannot be converted until it is saved in Excel.")),
+    "formulas_a_recalcular": (     # I-R1 de 150-C1: `<calcPr fullCalcOnLoad="1"/>` (XlsxWriter)
+        lambda d: _p(d['cuantas'], f"1 celda tiene fórmula ({_lista(d['detalle'].get('celdas'))}) y el libro pide recalcular al abrirlo: su valor guardado no es el resultado y esta hoja no se podrá convertir hasta que se abra y se guarde en Excel o LibreOffice.",
+                     "{n} celdas tienen fórmula (" + _lista(d['detalle'].get('celdas')) + ") y el libro pide recalcular al abrirlo: su valor guardado no es el resultado y esta hoja no se podrá convertir hasta que se abra y se guarde en Excel o LibreOffice."),
+        lambda d: _p(d['cuantas'], f"1 cell has a formula ({_lista(d['detalle'].get('celdas'))}) and the workbook asks to be recalculated when opened: its saved value is not the result and this sheet cannot be converted until it is opened and saved in Excel or LibreOffice.",
+                     "{n} cells have a formula (" + _lista(d['detalle'].get('celdas')) + ") and the workbook asks to be recalculated when opened: their saved values are not the result and this sheet cannot be converted until it is opened and saved in Excel or LibreOffice.")),
     "posible_cabecera_de_dos_filas": (
         lambda d: f"La fila {d['detalle'].get('fila')} y la siguiente parecen una cabecera de dos filas (grupo y subcolumna).",
         lambda d: f"Row {d['detalle'].get('fila')} and the next one look like a two-row header (group and sub-column)."),

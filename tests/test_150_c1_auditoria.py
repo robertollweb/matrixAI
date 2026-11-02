@@ -763,3 +763,58 @@ def test_un_libro_de_openpyxl_sin_lxml_con_formulas_sin_calcular_se_rechaza(tmp_
     assert b"<v />" in zipfile.ZipFile(io.BytesIO(datos)).read("xl/worksheets/sheet1.xml")
     e = _rechazo(convertir, datos, "o.xlsx", fila_de_cabecera=1)
     assert e.codigo == "formula_sin_valor" and e.detalle["cuantas"] == 3
+
+
+# ── I-R1 (2.ª re-auditoría): un libro que pide recalcular al abrir ─────────────────────────
+# DECISIÓN DEL SUPERVISOR (revocable por Roberto, escrita en el contrato): XlsxWriter guarda
+# `<f>…</f><v>0</v>` con `<calcPr fullCalcOnLoad="1"/>`; el 0 es un relleno, no el resultado.
+def _wb_con_calcpr(valor: str) -> str:
+    return (f'<?xml version="1.0" encoding="UTF-8"?><workbook {_NS}><workbookPr/><sheets>'
+            '<sheet name="Hoja1" sheetId="1" r:id="rId1"/></sheets>'
+            f'<calcPr calcId="124519" fullCalcOnLoad="{valor}"/></workbook>')
+
+
+_CON_CERO = ('<row r="1"><c r="A1" t="inlineStr"><is><t>a</t></is></c><c r="B1" t="inlineStr"><is><t>b</t></is></c></row>'
+             '<row r="2"><c r="A2"><v>10</v></c><c r="B2"><f>A2*2</f><v>0</v></c></row>'
+             '<row r="3"><c r="A3"><v>20</v></c><c r="B3"><v>7</v></c></row>'
+             '<row r="4"><c r="A4" t="inlineStr"><is><t>TOTAL</t></is></c><c r="B4"><f>SUM(B2:B3)</f><v>0</v></c></row>')
+
+
+@requiere_calamine
+@pytest.mark.parametrize("valor", ["1", "true"])
+def test_un_libro_que_pide_recalcular_al_abrir_con_formulas_se_rechaza(valor):
+    libro = _libro(_hoja(_CON_CERO), wb=_wb_con_calcpr(valor))
+    e = _rechazo(convertir, libro, "xw.xlsx", fila_de_cabecera=1)
+    assert e.codigo == "formula_sin_valor"
+    assert e.detalle["cuantas"] == 2 and e.detalle["celdas"] == ["B2", "B4"]
+    assert "recalcular" in e.motivo_es and "LibreOffice" in e.motivo_es
+    assert "recalculated" in e.motivo_en and "LibreOffice" in e.motivo_en
+    avisos = [a for a in inspeccionar(libro, "xw.xlsx")["hojas"][0]["avisos"]
+              if a["tipo"] == "formulas_a_recalcular"]
+    assert len(avisos) == 1 and avisos[0]["cuantas"] == 2
+    # la fila TOTAL fuera: queda B2, y sigue rechazándose
+    assert _rechazo(convertir, libro, "xw.xlsx", fila_de_cabecera=1,
+                    filas_a_excluir=[4]).detalle["celdas"] == ["B2"]
+
+
+@requiere_calamine
+def test_pedir_recalcular_sin_formulas_en_lo_convertido_no_rechaza():
+    sin_f = _CON_CERO.replace("<f>A2*2</f>", "")
+    t = convertir(_libro(_hoja(sin_f), wb=_wb_con_calcpr("1")), "xw.xlsx", fila_de_cabecera=1,
+                  filas_a_excluir=[4])
+    assert _csv(t)[1] == ["10", "0"]
+    # sin calcPr el 0 guardado es el valor (control: la regla es la del atributo)
+    t = convertir(_libro(_hoja(_CON_CERO)), "x.xlsx", fila_de_cabecera=1)
+    assert _csv(t)[1] == ["10", "0"]
+    t = convertir(_libro(_hoja(_CON_CERO), wb=_wb_con_calcpr("0")), "x.xlsx", fila_de_cabecera=1)
+    assert _csv(t)[1] == ["10", "0"]
+
+
+def test_la_variante_recalcular_tiene_singular_y_plural_en_los_dos_idiomas():
+    from matrixai.tablas.errores import VARIANTES, rechazar
+    assert ("formula_sin_valor", "recalcular") in VARIANTES
+    uno = rechazar("formula_sin_valor", variante="recalcular", cuantas=1, celdas=["B2"])
+    dos = rechazar("formula_sin_valor", variante="recalcular", cuantas=2, celdas=["B2", "B3"])
+    assert uno.codigo == dos.codigo == "formula_sin_valor"
+    assert "Hay 1 celda con" in uno.motivo_es and "There is 1 cell with" in uno.motivo_en
+    assert "Hay 2 celdas con" in dos.motivo_es and "There are 2 cells with" in dos.motivo_en

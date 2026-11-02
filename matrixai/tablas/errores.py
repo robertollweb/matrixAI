@@ -9,7 +9,7 @@ escritos en español y en inglés. Ninguna excepción de una biblioteca (`BadZip
 """
 from __future__ import annotations
 
-__all__ = ["TablaRechazada", "rechazar", "CODIGOS"]
+__all__ = ["TablaRechazada", "rechazar", "CODIGOS", "VARIANTES"]
 
 #: código → (motivo en español, motivo en inglés). Las llaves `{x}` salen de `detalle`.
 CODIGOS: dict[str, tuple[str, str]] = {
@@ -103,6 +103,7 @@ CODIGOS: dict[str, tuple[str, str]] = {
         "{there} {n_celdas} with a formula but no saved value (for example {celdas}). The "
         "workbook was written by another tool without calculating the formulas, and they are "
         "never calculated here: open it in Excel, save it and upload it again."),
+    # (la variante «recalcular» de `formula_sin_valor` va en `VARIANTES`, con el mismo código)
     "falta_lector": (
         "Falta el lector de Excel. Instálalo con: pip install \"matrixai-core[tablas]\".",
         "The Excel reader is missing. Install it with: pip install \"matrixai-core[tablas]\"."),
@@ -180,8 +181,26 @@ def _plural(n, es_uno: str, es_varios: str, en_uno: str, en_varios: str) -> tupl
             (f"1 {en_uno}" if n == 1 else f"{n} {en_varios}"))
 
 
-def rechazar(codigo: str, **detalle) -> TablaRechazada:
-    """Construye la excepción con el motivo del catálogo (`raise rechazar("vacio")`).
+#: (código, variante) → (es, en): el MISMO código estable con otro motivo para quien lee.
+VARIANTES: dict[tuple[str, str], tuple[str, str]] = {
+    # I-R1 de 150-C1 (decisión del supervisor, revocable por Roberto): XlsxWriter guarda cada
+    # fórmula con un valor 0 de relleno y `<calcPr fullCalcOnLoad="1"/>`; el 0 NO es el
+    # resultado, así que se rechaza igual que una fórmula sin valor.
+    ("formula_sin_valor", "recalcular"): (
+        "Hay {n_celdas} con una fórmula (por ejemplo {celdas}) y el libro pide recalcular todas "
+        "sus fórmulas al abrirlo: el valor guardado no es el resultado (quien lo escribió dejó un "
+        "relleno, normalmente 0) y aquí no se calculan nunca. Ábrelo en Excel o LibreOffice, "
+        "guárdalo y vuelve a subirlo.",
+        "{there} {n_celdas} with a formula (for example {celdas}) and the workbook asks for all "
+        "its formulas to be recalculated when it is opened: the saved value is not the result "
+        "(the tool that wrote it left a placeholder, usually 0) and they are never calculated "
+        "here. Open it in Excel or LibreOffice, save it and upload it again."),
+}
+
+
+def rechazar(codigo: str, *, variante: str | None = None, **detalle) -> TablaRechazada:
+    """Construye la excepción con el motivo del catálogo (`raise rechazar("vacio")`); con
+    `variante`, el motivo de `VARIANTES[(codigo, variante)]` y el mismo código.
 
     Los recuentos se escriben con singular/plural en cada idioma (`n_filas`, `n_columnas`,
     `n_celdas`): ningún motivo dice «1 filas»."""
@@ -196,7 +215,7 @@ def rechazar(codigo: str, **detalle) -> TablaRechazada:
             es[nombre], en[nombre] = _plural(n, a, b, c, d)
             if clave == "cuantas":
                 en["there"] = "There is" if n == 1 else "There are"
-    msg_es, msg_en = CODIGOS[codigo]
+    msg_es, msg_en = CODIGOS[codigo] if variante is None else VARIANTES[(codigo, variante)]
     return TablaRechazada(codigo, msg_es.format(**es), msg_en.format(**en), detalle)
 
 
