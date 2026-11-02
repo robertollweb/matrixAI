@@ -98,10 +98,25 @@ se generaliza a «las redes»: se escribe como esa red en ese conjunto.
   cuente es el del camino crudo.
 * **Tiempo.** ms por fila perturbada de cada camino en `us_crime` (122 columnas, LightGBM) con 5 columnas × 200 filas
   × 25 puntos; se declara también el ahorro (crudo / preparado-una-vez).
-* **Escala de regresión.** El p90−p10 del objetivo de entrenamiento calculado a mano con las filas que entrenaron
-  debe ser **igual** al que trae `reparto_del_objetivo_en_el_entrenamiento` del estudio (`us_crime`).
+* **Escala de regresión.** El sobre del estudio (`us_crime`) trae `objetivo_del_entrenamiento` con `p10` y `p90` finitos
+  y `p90 > p10` (la escala sale de ahí, no de otro cálculo). Se publica al lado el p90−p10 de TODAS las filas de
+  desarrollo, solo para ver la diferencia (el sobre no dice qué ids entrenaron, así que «igual a mano» no se puede
+  comprobar desde fuera; ver la enmienda).
 * **122 columnas, solo para tiempos:** ningún veredicto sale de `us_crime`.
 
 ## Lo que esta medición NO contesta
 
 Datos reales con verdad desconocida; XGBoost y CatBoost; multiclase; la densa propia; estudios de 51.000×100.
+
+## Enmienda (la hora está en el commit que la añade)
+
+Hecha DESPUÉS de una prueba de humo del guion a tamaño mínimo (500 filas, 1 semilla, solo LightGBM, 2 épocas de red;
+sin cifras que se usen aquí) y ANTES de cualquier medición de tamaño completo. Cambia dos cosas y ningún umbral:
+
+1. La cláusula de la escala de regresión (arriba): el sobre no guarda los ids que entrenaron, y la comprobación «igual
+   a mano» que se había escrito no se puede hacer; queda la que sí se puede (valores finitos, `p90 > p10`).
+2. El guion añade, solo para el par (G, m) central, la **fracción de filas base que violan** a cada ε. Es **exploratoria**:
+   NO entra en la regla ni en ninguna de las decisiones de arriba. Existe porque el veredicto de C1 es «con
+   contraejemplos» en cuanto UNA fila supera la tolerancia, y con m = 100–500 filas eso puede dar «ningún ε cumple»;
+   si ocurre, esa fracción es lo que permitiría al supervisor plantear otra regla en un corte posterior, declarada como
+   post hoc.
