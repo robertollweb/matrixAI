@@ -69,8 +69,20 @@ TOPES_DE_FABRICA = Topes()
 # Como en la guarda de los CSV, se usa el MÍNIMO medido redondeado hacia abajo (solo se rechaza lo
 # que no cabría NI EN EL MEJOR CASO), y cada cota cubre un caso distinto: el rectángulo que
 # calamine reserva aunque esté vacío (40 B/celda) y el contenido que de verdad hay (x3 el XML).
+#
+# Y RE-MEDIDO el 2026-11-02 (23:10, 2.ª re-auditoría, I-R3): desde B2 calamine lee en un proceso
+# HIJO y la tabla viaja al padre, así que gastan LOS DOS. Pico del padre (`VmHWM` desde después de
+# importar) + pico del hijo, procesos limpios, con techo `systemd-run -p MemoryMax=3G`:
+#
+#   generar.grande 50.000 x 30   45,1 MB de XML -> padre +158..165 + hijo 159..190 = 324..348 MB (x7,2..7,7)
+#   generar.grande 100.000 x 10  31,4 MB de XML -> padre +118 + hijo 117 = 235 MB                 (x7,5)
+#   generar.grande 200.000 x 10  64,3 MB de XML -> padre +228 + hijo 286 = 514 MB                 (x8,0)
+#
+# Con x3 la estimación se quedaba en 0,37–0,42 de lo gastado. La cota del XML pasa a x9 (el MÁXIMO
+# medido de la suma, redondeado hacia arriba: ya no es «el mejor caso», es lo que gastan los dos
+# procesos). La cota del rectángulo (40 B/celda) es del hijo y no se re-midió (deuda en el contrato).
 BYTES_POR_CELDA_DEL_RANGO = 40
-FACTOR_RAM_POR_BYTE_DE_XML = 3
+FACTOR_RAM_POR_BYTE_DE_XML = 9
 #: Los textos compartidos se SUMAN (calamine los tiene todos a la vez que la hoja). Cota inferior:
 #: cada byte de XML de un texto es al menos un byte en memoria (medido 3,4 B/B con textos de una
 #: letra, el peor caso; con textos largos tiende a 1).
