@@ -57,11 +57,11 @@ CODIGOS: dict[str, tuple[str, str]] = {
         "The workbook would take {descomprimido} once uncompressed (the file is {original}) "
         "and the limit is {tope}. It is not opened: it could exhaust this machine's memory."),
     "demasiadas_filas": (
-        "La hoja «{hoja}» tiene {filas} filas y el tope es {tope}.",
-        "Sheet «{hoja}» has {filas} rows and the limit is {tope}."),
+        "La hoja «{hoja}» tiene {n_filas} y el tope es {tope}.",
+        "Sheet «{hoja}» has {n_filas} and the limit is {tope}."),
     "demasiadas_columnas": (
-        "La hoja «{hoja}» tiene {columnas} columnas y el tope es {tope}.",
-        "Sheet «{hoja}» has {columnas} columns and the limit is {tope}."),
+        "La hoja «{hoja}» tiene {n_columnas} y el tope es {tope}.",
+        "Sheet «{hoja}» has {n_columnas} and the limit is {tope}."),
     "memoria_insuficiente": (
         "Leer la hoja «{hoja}» necesita unos {necesario} de memoria y este equipo tiene "
         "{disponible} disponibles. No es un tope que se pueda cambiar: copia los datos a un "
@@ -95,10 +95,10 @@ CODIGOS: dict[str, tuple[str, str]] = {
         "Debajo de la cabecera no queda ninguna fila de datos (cabecera en la fila {fila}).",
         "No data rows are left below the header (header in row {fila})."),
     "formula_sin_valor": (
-        "{cuantas} celdas tienen una fórmula pero ningún valor guardado (por ejemplo {celdas}). "
+        "Hay {n_celdas} con una fórmula pero ningún valor guardado (por ejemplo {celdas}). "
         "El libro lo escribió otra herramienta sin calcular las fórmulas y aquí no se calculan "
         "nunca: ábrelo en Excel, guárdalo y vuelve a subirlo.",
-        "{cuantas} cells have a formula but no saved value (for example {celdas}). The "
+        "{there} {n_celdas} with a formula but no saved value (for example {celdas}). The "
         "workbook was written by another tool without calculating the formulas, and they are "
         "never calculated here: open it in Excel, save it and upload it again."),
     "falta_lector": (
@@ -135,11 +135,29 @@ class TablaRechazada(Exception):
                 "detalle": self.detalle}
 
 
+def _plural(n, es_uno: str, es_varios: str, en_uno: str, en_varios: str) -> tuple[str, str]:
+    return ((f"1 {es_uno}" if n == 1 else f"{n} {es_varios}"),
+            (f"1 {en_uno}" if n == 1 else f"{n} {en_varios}"))
+
+
 def rechazar(codigo: str, **detalle) -> TablaRechazada:
-    """Construye la excepción con el motivo del catálogo (`raise rechazar("vacio")`)."""
-    es, en = CODIGOS[codigo]
-    contexto = {k: _a_texto(v) for k, v in detalle.items()}
-    return TablaRechazada(codigo, es.format(**contexto), en.format(**contexto), detalle)
+    """Construye la excepción con el motivo del catálogo (`raise rechazar("vacio")`).
+
+    Los recuentos se escriben con singular/plural en cada idioma (`n_filas`, `n_columnas`,
+    `n_celdas`): ningún motivo dice «1 filas»."""
+    base = {k: _a_texto(v) for k, v in detalle.items()}
+    es, en = dict(base), dict(base)
+    for clave, (a, b, c, d) in {"filas": ("fila", "filas", "row", "rows"),
+                                "columnas": ("columna", "columnas", "column", "columns"),
+                                "cuantas": ("celda", "celdas", "cell", "cells")}.items():
+        if isinstance(detalle.get(clave), int):
+            n = detalle[clave]
+            nombre = "n_celdas" if clave == "cuantas" else f"n_{clave}"
+            es[nombre], en[nombre] = _plural(n, a, b, c, d)
+            if clave == "cuantas":
+                en["there"] = "There is" if n == 1 else "There are"
+    msg_es, msg_en = CODIGOS[codigo]
+    return TablaRechazada(codigo, msg_es.format(**es), msg_en.format(**en), detalle)
 
 
 def _a_texto(v) -> str:

@@ -1008,6 +1008,65 @@ def test_los_textos_de_las_declaraciones_estan_en_los_dos_idiomas():
         assert "{" not in d["texto"]["es"] + d["texto"]["en"], tipo
 
 
+# ── Singular y plural ───────────────────────────────────────────────────────────────────
+_SUSTANTIVOS_ES = "celdas|filas|columnas|fechas|valores|rangos|hojas|horas|duraciones"
+_SUSTANTIVOS_EN = "cells|rows|columns|dates|values|ranges|sheets|times|durations"
+_SINGULARES_ES = "celda|fila|columna|fecha|valor|rango|hoja"
+_SINGULARES_EN = "cell|row|column|date|value|range|sheet"
+_DETALLE_PLURAL = dict(extension=".xlsx", formato=".ods", descomprimido="1 GB", original="1 KB",
+                       tope="1 GB", hoja="H", necesario="1 GB", disponible="1 MB",
+                       hojas=["A", "B"], fila=1, primera=1, ultima=2, parametro="p",
+                       celdas=["A1"], tipo="X")
+_DETALLE_DECLARACION = dict(letras=["A"], letra="A", original="o", grupo="g", sub="s", filas=[1],
+                            textos=["t"], rangos=["A1:A2"], tipos=["#N/A"], hoja="H", que=["q"],
+                            celdas=["A1"], nombres=["n"], fila=1)
+
+
+def _textos_con_n(n: int):
+    """Todos los textos que el módulo redacta con un recuento `n`: (origen, idioma, texto)."""
+    from matrixai.tablas.declaraciones import TIPOS, declarar
+    from matrixai.tablas.errores import rechazar
+    for tipo in TIPOS:
+        d = declarar(tipo, columna="C", cuantas=n, **_DETALLE_DECLARACION)
+        for idioma in ("es", "en"):
+            yield f"declaración {tipo}", idioma, d["texto"][idioma]
+    for codigo in CODIGOS:
+        e = rechazar(codigo, filas=n, columnas=n, cuantas=n, **_DETALLE_PLURAL)
+        yield f"rechazo {codigo}", "es", e.motivo_es
+        yield f"rechazo {codigo}", "en", e.motivo_en
+
+
+def test_ningun_texto_dice_1_celdas_ni_2_celda_en_es_ni_en_en():
+    """Recorre TODAS las declaraciones y TODOS los códigos de rechazo con n=1 y n=2: el singular con
+    el 1 y el plural con lo demás, en español y en inglés."""
+    import re
+    mal_uno = {"es": re.compile(rf"(?<![\d.,])1 ({_SUSTANTIVOS_ES})\b"),
+               "en": re.compile(rf"(?<![\d.,])1 ({_SUSTANTIVOS_EN})\b")}
+    mal_dos = {"es": re.compile(rf"(?<![\d.,])2 ({_SINGULARES_ES})\b"),
+               "en": re.compile(rf"(?<![\d.,])2 ({_SINGULARES_EN})\b")}
+    vistos = 0
+    for n, mal in ((1, mal_uno), (2, mal_dos)):
+        for origen, idioma, texto in _textos_con_n(n):
+            vistos += 1
+            assert not mal[idioma].search(texto), f"{origen} [{idioma}] n={n}: {texto!r}"
+    assert vistos >= 2 * 2 * (len(CODIGOS) + 28)
+
+
+def test_los_textos_con_recuento_cambian_de_forma_entre_1_y_2():
+    """El singular no es el plural con otro número: si ningún texto cambiara de forma, la prueba de
+    arriba no estaría mirando nada."""
+    import re
+    uno = {(o, i): t for o, i, t in _textos_con_n(1)}
+    dos = {(o, i): t for o, i, t in _textos_con_n(2)}
+    cambian = [k for k in uno if re.sub(r"\d+", "#", uno[k]) != re.sub(r"\d+", "#", dos[k])]
+    esperados = {"declaración filas_excluidas", "declaración celdas_combinadas_vacias",
+                 "declaración formulas_sin_valor", "rechazo formula_sin_valor",
+                 "rechazo demasiadas_filas", "rechazo demasiadas_columnas",
+                 "declaración columnas_vacias_quitadas", "declaración hay_celdas_combinadas"}
+    assert esperados <= {o for o, _ in cambian}
+    assert all((o, "es") in cambian and (o, "en") in cambian for o in esperados)
+
+
 # ── Seguridad del XML ───────────────────────────────────────────────────────────────────
 @requiere_calamine
 def test_un_xml_con_entidades_se_rechaza_en_vez_de_expandirse():
