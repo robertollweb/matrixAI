@@ -34,6 +34,19 @@ def _col(d: dict) -> str:
     return d.get("columna") or ""
 
 
+_MOTIVOS_FECHA = {
+    "anterior_a_la_epoca": ("anterior al primer día de Excel; Excel enseña ####", "before Excel's first day; Excel shows ####"),
+    "29_02_1900": ("el 29-02-1900, un día que no existió", "29-02-1900, a day that never existed"),
+    "posterior_a_9999": ("posterior a 9999-12-31; Excel enseña ####", "after 9999-12-31; Excel shows ####"),
+}
+
+
+def _motivos_fecha(d: dict, idioma: str) -> str:
+    i = 0 if idioma == "es" else 1
+    return ", ".join(f"{_MOTIVOS_FECHA.get(k, (k, k))[i]}: {n}"
+                     for k, n in sorted((d["detalle"].get("motivos") or {}).items()))
+
+
 # tipo → (función que da el texto en español, función que da el texto en inglés)
 TIPOS: dict[str, tuple] = {
     "columnas_vacias_quitadas": (
@@ -113,6 +126,21 @@ TIPOS: dict[str, tuple] = {
                      f"«{_col(d)}» tiene formato de porcentaje en " + "{n} celdas: se guarda el valor (0,153 es 15,3 %), sin el símbolo."),
         lambda d: _p(d['cuantas'], f"«{_col(d)}» has percentage format in 1 cell: the stored value is kept (0.153 is 15.3 %), without the symbol.",
                      f"«{_col(d)}» has percentage format in " + "{n} cells: the stored value is kept (0.153 is 15.3 %), without the symbol.")),
+    "formato_con_ceros": (
+        lambda d: _p(d['cuantas'], f"En «{_col(d)}», 1 celda tiene un formato con ceros a la izquierda ({d['detalle'].get('codigo')}): Excel la enseña distinta (p. ej. {d['detalle'].get('ejemplo')} se ve {d['detalle'].get('visible')}) y el CSV lleva el valor guardado ({d['detalle'].get('ejemplo')}). Si es un código (postal, de cliente…), guarda la columna como texto en Excel.",
+                     f"En «{_col(d)}», " + "{n} celdas tienen un formato con ceros a la izquierda (" + str(d['detalle'].get('codigo')) + f"): Excel las enseña distintas (p. ej. {d['detalle'].get('ejemplo')} se ve {d['detalle'].get('visible')}) y el CSV lleva el valor guardado ({d['detalle'].get('ejemplo')}). Si es un código (postal, de cliente…), guarda la columna como texto en Excel."),
+        lambda d: _p(d['cuantas'], f"In «{_col(d)}», 1 cell has a leading-zeros format ({d['detalle'].get('codigo')}): Excel shows it differently (e.g. {d['detalle'].get('ejemplo')} shows as {d['detalle'].get('visible')}) and the CSV has the stored value ({d['detalle'].get('ejemplo')}). If it is a code (postal, customer…), store the column as text in Excel.",
+                     f"In «{_col(d)}», " + "{n} cells have a leading-zeros format (" + str(d['detalle'].get('codigo')) + f"): Excel shows them differently (e.g. {d['detalle'].get('ejemplo')} shows as {d['detalle'].get('visible')}) and the CSV has the stored value ({d['detalle'].get('ejemplo')}). If it is a code (postal, customer…), store the column as text in Excel.")),
+    "entero_no_exacto": (
+        lambda d: _p(d['cuantas'], f"En «{_col(d)}», 1 número entero tiene más de 15 cifras: Excel no lo guarda exacto, así que el CSV lleva el valor del fichero ({_lista(d['detalle'].get('ejemplos'), 3)}), que puede no ser el que se tecleó. Si es un identificador, guárdalo como texto en Excel.",
+                     f"En «{_col(d)}», " + "{n} números enteros tienen más de 15 cifras: Excel no los guarda exactos, así que el CSV lleva el valor del fichero (" + _lista(d['detalle'].get('ejemplos'), 3) + "), que puede no ser el que se tecleó. Si son identificadores, guárdalos como texto en Excel."),
+        lambda d: _p(d['cuantas'], f"In «{_col(d)}», 1 whole number has more than 15 digits: Excel does not store it exactly, so the CSV has the file's value ({_lista(d['detalle'].get('ejemplos'), 3)}), which may not be what was typed. If it is an identifier, store it as text in Excel.",
+                     f"In «{_col(d)}», " + "{n} whole numbers have more than 15 digits: Excel does not store them exactly, so the CSV has the file's values (" + _lista(d['detalle'].get('ejemplos'), 3) + "), which may not be what was typed. If they are identifiers, store them as text in Excel.")),
+    "fecha_no_valida": (
+        lambda d: _p(d['cuantas'], f"En «{_col(d)}», 1 celda con formato de fecha guarda un número que no es una fecha ({_motivos_fecha(d, 'es')}; {_lista(d['detalle'].get('celdas'))}): queda vacía.",
+                     f"En «{_col(d)}», " + "{n} celdas con formato de fecha guardan un número que no es una fecha (" + _motivos_fecha(d, 'es') + "; " + _lista(d['detalle'].get('celdas')) + "): quedan vacías."),
+        lambda d: _p(d['cuantas'], f"In «{_col(d)}», 1 cell with a date format holds a number that is not a date ({_motivos_fecha(d, 'en')}; {_lista(d['detalle'].get('celdas'))}): it is left empty.",
+                     f"In «{_col(d)}», " + "{n} cells with a date format hold a number that is not a date (" + _motivos_fecha(d, 'en') + "; " + _lista(d['detalle'].get('celdas')) + "): they are left empty.")),
     "columna_mixta": (
         lambda d: f"«{_col(d)}» mezcla tipos de valor ({_tipos(d['detalle'].get('tipos'))}).",
         lambda d: f"«{_col(d)}» mixes value types ({_tipos(d['detalle'].get('tipos'))})."),

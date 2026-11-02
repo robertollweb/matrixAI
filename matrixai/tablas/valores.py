@@ -17,18 +17,33 @@ import datetime as dt
 import io
 import math
 
-__all__ = ["VACIO", "valor_a_texto", "tipo_de_valor", "escribir_csv", "numero_a_texto"]
+__all__ = ["VACIO", "valor_a_texto", "tipo_de_valor", "escribir_csv", "numero_a_texto",
+           "entero_no_exacto", "DOS_A_LA_53"]
 
 VACIO = ""
 
 
+#: Hasta aquí un `float` guarda un entero EXACTO (2^53 = 9.007.199.254.740.992). Excel guarda 15
+#: cifras significativas: un entero de más cifras que eso no es necesariamente el que se tecleó.
+DOS_A_LA_53 = 2 ** 53
+
+
 def numero_a_texto(v: int | float) -> str:
-    """La representación más corta que vuelve a dar el mismo número; `10.0` → `10`."""
+    """La representación más corta que vuelve a dar el mismo número; `10.0` → `10`, y un entero
+    nunca sale con `.0`: `1234567890123456.0` → `1234567890123456` (el `repr` de un `float`
+    entero es `N.0` hasta 1e16 y `Ne+XX` desde ahí, que ya es lo más corto)."""
     if isinstance(v, int):
         return str(v)
-    if abs(v) < 1e15 and v == int(v):
-        return str(int(v))
-    return repr(v)
+    if v == 0:
+        return "0"          # también -0.0
+    r = repr(v)
+    return r[:-2] if r.endswith(".0") else r
+
+
+def entero_no_exacto(v) -> bool:
+    """Un `float` entero por encima de 2^53: el valor del CSV es el del fichero, pero no tiene por
+    qué ser el número que se tecleó (se DECLARA, no se redondea en silencio)."""
+    return isinstance(v, float) and v.is_integer() and abs(v) >= DOS_A_LA_53
 
 
 def tipo_de_valor(v) -> str:
@@ -50,7 +65,8 @@ def tipo_de_valor(v) -> str:
 
 def valor_a_texto(v) -> tuple[str, str | None]:
     """`(texto, suceso)`. `suceso` dice qué se tocó y hay que DECLARAR: `fecha_truncada`
-    (se descartaron fracciones de segundo), `no_finito` (NaN/inf → vacío), o `None`."""
+    (se descartaron fracciones de segundo), `no_finito` (NaN/inf → vacío), `entero_no_exacto`
+    (un entero de más de 2^53), o `None`."""
     if v is None or v == "":
         return VACIO, None
     if isinstance(v, bool):
@@ -58,7 +74,7 @@ def valor_a_texto(v) -> tuple[str, str | None]:
     if isinstance(v, (int, float)):
         if isinstance(v, float) and not math.isfinite(v):
             return VACIO, "no_finito"
-        return numero_a_texto(v), None
+        return numero_a_texto(v), ("entero_no_exacto" if entero_no_exacto(v) else None)
     if isinstance(v, dt.datetime):
         return v.strftime("%Y-%m-%d %H:%M:%S"), ("fecha_truncada" if v.microsecond else None)
     if isinstance(v, dt.date):

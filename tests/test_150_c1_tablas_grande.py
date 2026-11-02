@@ -55,7 +55,9 @@ def test_el_pico_de_memoria_no_baja_del_factor_que_la_guarda_declara(libro_grand
     """El factor de la guarda (x3 el XML) es el MÍNIMO medido: si el pico real de una hoja densa
     bajara de ahí, la guarda rechazaría lo que sí cabe; si se disparara muy por encima, dejaría
     pasar lo que no. Se mide en un proceso LIMPIO y con `VmHWM` (el `ru_maxrss` de un hijo hereda el máximo del
-    padre a través de fork+exec y diría 0)."""
+    padre a través de fork+exec y diría 0). Desde la auditoría (B2) calamine lee en un proceso
+    HIJO: el pico es el mayor de los dos (el del hijo lo da el propio hijo, `aislado.ULTIMO_HIJO`),
+    y el techo de memoria del hijo queda por ENCIMA de ese pico."""
     import subprocess
     import zipfile
     libro = tmp_path / "grande.xlsx"
@@ -68,12 +70,15 @@ def test_el_pico_de_memoria_no_baja_del_factor_que_la_guarda_declara(libro_grand
         "        if l.startswith('VmHWM:'):\n"
         "            return int(l.split()[1]) * 1024\n"
         f"sys.path[:0] = {[p for p in sys.path if p]!r}\n"
-        "from matrixai.tablas import convertir\n"
+        "from matrixai.tablas import convertir, aislado\n"
         f"b = open({str(libro)!r}, 'rb').read()\n"
         "base = hwm()\n"
         "convertir(b, 'g.xlsx', hoja='Datos', fila_de_cabecera=1)\n"
-        "print(hwm() - base)\n")
+        "print(hwm() - base, aislado.ULTIMO_HIJO['hwm'])\n")
     out = subprocess.run([sys.executable, "-c", codigo], capture_output=True, text=True, timeout=600)
     assert out.returncode == 0, out.stderr[-500:]
-    delta = int(out.stdout.strip().splitlines()[-1])
-    assert FACTOR_RAM_POR_BYTE_DE_XML * xml <= delta <= 10 * xml, (delta / xml)
+    padre, hijo = (int(x) for x in out.stdout.strip().splitlines()[-1].split())
+    pico = max(padre, hijo)
+    assert FACTOR_RAM_POR_BYTE_DE_XML * xml <= pico <= 10 * xml, (padre / xml, hijo / xml)
+    from matrixai.tablas.topes import TOPES_DE_FABRICA, ram_estimada_de_una_hoja, techo_del_lector
+    assert hijo < techo_del_lector(ram_estimada_de_una_hoja(0, xml), len(libro_grande), TOPES_DE_FABRICA)

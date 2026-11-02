@@ -522,7 +522,19 @@ def todos() -> dict[str, bytes]:
         "cifrado.xlsx": ole_cifrado(),
     }
     d["truncado.xlsx"] = d["oficina_con_valor.xlsx"][: len(d["oficina_con_valor.xlsx"]) // 2]
+    d["hostil_xls_aborta.xls"] = xls_que_aborta()
     return d
+
+
+def xls_que_aborta() -> bytes:
+    """`antiguo.xls` con UN byte cambiado (el 1627, de 0 a 121): calamine 0.9.0 pide entonces
+    181.193.933.040 bytes de golpe y Rust ABORTA el proceso (`memory allocation of … failed`,
+    SIGABRT, no capturable). Lo encontró el fuzz de la auditoría de 150-C1 (`z2_fuzz_xls.py`,
+    semilla 150). Se deriva del original, así que es reproducible."""
+    b = bytearray((AQUI / "antiguo.xls").read_bytes())
+    assert b[1627] == 0
+    b[1627] = 121
+    return bytes(b)
 
 
 def escribir(destino: pathlib.Path = AQUI) -> list[str]:

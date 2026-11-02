@@ -18,11 +18,14 @@ from .errores import rechazar
 from .topes import Topes
 
 __all__ = ["detectar_formato", "abrir_zip_de_excel", "es_ole_de_excel", "FIRMA_ZIP",
-           "FIRMA_OLE", "FIRMA_PARQUET"]
+           "FIRMA_OLE", "FIRMA_PARQUET", "FIRMA_PDF"]
 
 FIRMA_ZIP = b"PK\x03\x04"
 FIRMA_OLE = bytes.fromhex("D0CF11E0A1B11AE1")
 FIRMA_PARQUET = b"PAR1"
+FIRMA_PDF = b"%PDF-"
+_MARCAS_HTML = ("<html", "<!doctype html", "<table", "<head", "<body", "<meta", "<div", "<span",
+                "<p>", "<p ", "<tr", "<td", "<br", "<style", "<script", "<title", "<a ", "<img")
 
 #: Los nombres de los dos flujos que Excel crea al proteger un .xlsx con contraseña (OLE2 los
 #: guarda en UTF-16LE en su directorio).
@@ -34,8 +37,9 @@ def detectar_formato(bytes_iniciales: bytes) -> str:
     """Familia del fichero según sus primeros bytes.
 
     Devuelve `"vacio"`, `"xlsx"` (cualquier zip: xlsx/xlsm; si de verdad es un libro lo dice
-    `abrir_zip_de_excel`), `"ole"` (`.xls` antiguo u OLE cifrado), `"parquet"`, `"html"`, `"xml_excel"` (SpreadsheetML 2003),
-    `"texto"` (un CSV con la extensión cambiada) o `"desconocido"`.
+    `abrir_zip_de_excel`), `"ole"` (`.xls` antiguo u OLE cifrado), `"parquet"`, `"pdf"`, `"html"`,
+    `"xml_excel"` (SpreadsheetML 2003), `"xml"` (otro XML), `"texto"` (un CSV con la extensión
+    cambiada) o `"desconocido"`.
     """
     b = bytes(bytes_iniciales[:4096])
     if not b:
@@ -46,16 +50,19 @@ def detectar_formato(bytes_iniciales: bytes) -> str:
         return "ole"
     if b.startswith(FIRMA_PARQUET):
         return "parquet"
+    if b.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(FIRMA_PDF):
+        return "pdf"
     texto = _como_texto(b)
     if texto is None:
         return "desconocido"
-    bajo = texto.lstrip("﻿ \t\r\n").lower()
+    bajo = texto.lstrip("\ufeff \t\r\n").lower()
     if bajo.startswith("<"):
         if "urn:schemas-microsoft-com:office:spreadsheet" in bajo[:4096]:
             return "xml_excel"
-        if any(m in bajo[:2048] for m in ("<html", "<!doctype html", "<table", "<head", "<body",
-                                           "<meta", "<?xml")):
+        if any(m in bajo[:2048] for m in _MARCAS_HTML):
             return "html"
+        if bajo.startswith("<?xml") or (len(bajo) > 1 and (bajo[1].isalpha() or bajo[1] in "!_")):
+            return "xml"
     return "texto"
 
 
@@ -96,11 +103,21 @@ def abrir_zip_de_excel(datos: bytes, topes: Topes) -> tuple[zipfile.ZipFile, dic
     """
     try:
         zf = zipfile.ZipFile(io.BytesIO(datos))
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, OSError, ValueError, EOFError):
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, OSError, ValueError, EOFError,
+            NotImplementedError, UnicodeDecodeError, struct.error, IndexError, KeyError,
+            OverflowError):
         raise rechazar("zip_danado") from None
     infos = zf.infolist()
     if any(i.flag_bits & 0x1 for i in infos):
         raise rechazar("protegido")
+    # Un nombre repetido en el directorio es ambiguo: `zipfile` y el lector de calamine podrían
+    # leer miembros DISTINTOS (la geometría de uno y los valores de otro). Excel no los escribe.
+    if len({i.filename for i in infos}) != len(infos):
+        raise rechazar("zip_danado")
+    # Una versión de ZIP o un método que `zipfile` no sabe leer lanza NotImplementedError al
+    # abrir el miembro (cazado por el fuzz del auditor): un Excel de verdad no los usa.
+    if any(i.extract_version > zipfile.MAX_EXTRACT_VERSION or i.flag_bits & 0x60 for i in infos):
+        raise rechazar("zip_danado")
     total = sum(i.file_size for i in infos)
     if total > topes.max_descomprimido:
         raise rechazar("bomba", descomprimido=limits.human_bytes(total),
