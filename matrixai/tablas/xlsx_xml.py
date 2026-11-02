@@ -500,8 +500,12 @@ class _Explorador:
         """`(inicio, fin)` para el analizador `p`. El texto de un `<v>` solo se recoge en las
         celdas que lo necesitan (errores y estilos de fecha, porcentaje o ceros: se activa el
         manejador de texto para ESE `<v>`); en las demás basta saber si el `<v>` está vacío, y eso
-        lo dice la posición en bytes de su etiqueta de cierre. El rectángulo vive en variables
-        locales y se escribe en `Geometria` al cerrar (`fijar`)."""
+        lo dice si `expat` entrega ALGÚN dato de caracteres entre su inicio y su fin (`hay`). NO
+        la posición en bytes de la etiqueta de cierre: en una autocerrada (`<v/>`, `<v />`, que
+        escribe openpyxl sin lxml) `expat` da en el cierre la posición de DESPUÉS de la etiqueta y
+        un `<v/>` parecía tener texto; y en una hoja UTF-16 los bytes no son caracteres (150-C1,
+        B-R1). El rectángulo vive en variables locales y se escribe en `Geometria` al cerrar
+        (`fijar`)."""
         g, hoja = self.g, self.hoja
         clase_de = self.estilos.de
         necesitan = FECHA | CEROS | PORCENTAJE
@@ -512,7 +516,6 @@ class _Explorador:
         col = 0             # la última columna vista en la fila en curso
         en_celda = en_v = tiene_f = tiene_is = texto_v = False
         vbuf: list[str] | None = None
-        v_desde = v_largo = 0
         t = st = None
         cf = cc = 0
         f0 = f1 = c0 = c1 = None
@@ -522,9 +525,13 @@ class _Explorador:
         def datos(texto):
             vbuf.append(texto)
 
+        def hay(_texto):
+            # `expat` no llama con cadenas vacías: cualquier llamada es texto dentro del `<v>`.
+            nonlocal vbuf
+            vbuf = _NO_VACIO
+
         def inicio(nombre, attrs):
             nonlocal fila, col, en_celda, en_v, tiene_f, tiene_is, texto_v, vbuf, t, st, cf, cc
-            nonlocal v_desde, v_largo
             loc = locales.get(nombre) or _local_nuevo(locales, nombre)
             if loc == "c":
                 en_celda = True
@@ -557,10 +564,7 @@ class _Explorador:
                     en_v = True
                     vbuf = []
                     texto_v = t == "e" or (st is not None and bool(clase_de(st) & necesitan))
-                    if texto_v:
-                        p.CharacterDataHandler = datos
-                    else:
-                        v_desde, v_largo = p.CurrentByteIndex, len(nombre) + 2
+                    p.CharacterDataHandler = datos if texto_v else hay
             elif loc == "f":
                 if en_celda:
                     tiene_f = True
@@ -594,10 +598,7 @@ class _Explorador:
             if loc == "v":
                 if en_v:
                     en_v = False
-                    if texto_v:
-                        p.CharacterDataHandler = None
-                    elif p.CurrentByteIndex - v_desde > v_largo:
-                        vbuf = _NO_VACIO       # hay texto, y no hace falta cuál
+                    p.CharacterDataHandler = None
                 return
             if loc != "c" or not en_celda:
                 return

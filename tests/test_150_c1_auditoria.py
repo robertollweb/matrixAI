@@ -450,6 +450,7 @@ def test_el_tope_de_fabrica_de_textos_compartidos_para_la_bomba_de_900_mb():
     assert topes.MAX_CADENAS_COMPARTIDAS_DE_FABRICA < 900 << 20
 
 
+@requiere_calamine
 def test_los_textos_compartidos_entran_en_la_estimacion_de_memoria(monkeypatch):
     """I1: la memoria que se pide a la guarda incluye los textos compartidos."""
     from matrixai import limits
@@ -484,7 +485,11 @@ def test_una_version_de_zip_desconocida_no_saca_notimplementederror(version):
         assert _rechazo(f).codigo == "zip_danado"
 
 
-@pytest.mark.parametrize("parte", ["xl/workbook.xml", "xl/worksheets/sheet1.xml", "xl/styles.xml"])
+# workbook.xml se lee ANTES de llegar a calamine; la hoja y los estilos, en el camino que la
+# necesita (sin el extra `tablas` se rechaza antes con «falta el lector»: I-R2 de 150-C1).
+@pytest.mark.parametrize("parte", ["xl/workbook.xml",
+                                   pytest.param("xl/worksheets/sheet1.xml", marks=requiere_calamine),
+                                   pytest.param("xl/styles.xml", marks=requiere_calamine)])
 def test_una_codificacion_xml_que_no_existe_es_xml_mal_formado(parte):
     """I2, cazado por el fuzz de la reparación: `encoding="yes"` hacía que expat lanzara
     `LookupError` (salía como `error_interno`)."""
@@ -689,3 +694,72 @@ def test_los_motivos_de_formato_dicen_lo_que_es(datos, codigo):
     assert e.codigo == codigo
     assert ".xlsx" in e.motivo_es or codigo == "html_no_excel"
     assert detectar_formato(datos) in ("pdf", "html", "xml")
+
+
+# ── B-R1 (2.ª re-auditoría): un `<v>` autocerrado NO tiene texto ─────────────────────────
+# El explorador decidía «vacío o no» por la posición en bytes del cierre del `<v>`; en una
+# etiqueta autocerrada `expat` da la de DESPUÉS de la etiqueta, y `<v/>` contaba como «con
+# texto»: la fórmula sin valor salía como una celda vacía, sin rechazo. openpyxl sin lxml (su
+# modo por omisión) escribe justo `<f>A2*2</f><v />`.
+_V_VACIOS = ["<v/>", "<v />", '<v xml:space="preserve"></v>', "<v></v>"]
+
+
+def _con_formula(v: str) -> str:
+    return ('<row r="1"><c r="A1" t="inlineStr"><is><t>a</t></is></c><c r="B1" t="inlineStr"><is><t>b</t></is></c></row>'
+            f'<row r="2"><c r="A2"><v>1</v></c><c r="B2"><f>A2*2</f>{v}</c></row>'
+            '<row r="3"><c r="A3"><v>3</v></c><c r="B3"><v>4</v></c></row>')
+
+
+@requiere_calamine
+@pytest.mark.parametrize("v", _V_VACIOS)
+def test_una_formula_con_v_autocerrado_o_vacio_se_rechaza_sin_valor(v):
+    e = _rechazo(convertir, _libro(_hoja(_con_formula(v))), "f.xlsx", fila_de_cabecera=1)
+    assert e.codigo == "formula_sin_valor" and e.detalle["celdas"] == ["B2"], v
+    # control: con su valor guardado, la misma hoja se convierte
+    t = convertir(_libro(_hoja(_con_formula("<v>2</v>"))), "f.xlsx", fila_de_cabecera=1)
+    assert _csv(t)[1] == ["1", "2"]
+
+
+@pytest.mark.parametrize("v", _V_VACIOS)
+def test_la_geometria_ve_sin_valor_el_v_vacio_tambien_en_una_hoja_utf16(v):
+    """En UTF-16 los bytes no son caracteres: `<v></v>` ocupa 2 bytes por carácter y la cuenta
+    por posiciones lo daba «con texto». Se mira en la geometría (el oráculo es la marca)."""
+    for codif, enc in (("UTF-8", "utf-8"), ("UTF-16", "utf-16")):
+        xml = _hoja(_con_formula(v)).replace('encoding="UTF-8"', f'encoding="{codif}"')
+        zf = zipfile.ZipFile(io.BytesIO(_libro(xml.encode(enc))))
+        g = xlsx_xml.explorar_hoja(zf, "xl/worksheets/sheet1.xml", xlsx_xml.estilos_del_libro(zf))
+        assert g.hallazgos().celdas_sin_valor == ["B2"], (v, codif)
+        xml = _hoja(_con_formula("<v>2</v>")).replace('encoding="UTF-8"', f'encoding="{codif}"')
+        zf = zipfile.ZipFile(io.BytesIO(_libro(xml.encode(enc))))
+        g = xlsx_xml.explorar_hoja(zf, "xl/worksheets/sheet1.xml", xlsx_xml.estilos_del_libro(zf))
+        assert g.hallazgos().formulas_sin_valor == 0 and g.n_formulas == 1, codif
+
+
+@requiere_calamine
+@pytest.mark.parametrize("v", ["<v/>", "<v />", "<v xml:space=\"preserve\"/>"])
+def test_la_geometria_con_v_autocerrado_da_el_rectangulo_de_calamine(v):
+    """Una celda cuyo único contenido es `<v/>` no la cuenta calamine: tampoco la geometría
+    (la re-auditoría vio 777 formas distintas de 3.000 con `<v/>` en la mezcla)."""
+    datos = ('<row r="1"><c r="A1"><v>1</v></c><c r="B1"><v>2</v></c></row>'
+             f'<row r="2"><c r="A2"><v>3</v></c><c r="D5">{v}</c></row>')
+    libro = _libro(_hoja(datos))
+    assert _rect(_geo(libro)) == _rect_de_calamine(libro) == (1, 1, 2, 2)
+
+
+@requiere_calamine
+def test_un_libro_de_openpyxl_sin_lxml_con_formulas_sin_calcular_se_rechaza(tmp_path):
+    """Un libro REAL de openpyxl en su modo por omisión (sin lxml: `<v />`). En un proceso
+    aparte para fijar `OPENPYXL_LXML=False` antes de importarlo."""
+    pytest.importorskip("openpyxl")
+    import subprocess
+    import sys
+    ruta = tmp_path / "o.xlsx"
+    codigo = ("import openpyxl,sys\nassert not openpyxl.LXML\nwb=openpyxl.Workbook();ws=wb.active\n"
+              "ws.append(['importe','doble'])\n"
+              "for i in range(1,4): ws.append([i*10, f'=A{i+1}*2'])\nwb.save(sys.argv[1])\n")
+    subprocess.run([sys.executable, "-c", codigo, str(ruta)], check=True,
+                   env={**os.environ, "OPENPYXL_LXML": "False"}, timeout=60)
+    datos = ruta.read_bytes()
+    assert b"<v />" in zipfile.ZipFile(io.BytesIO(datos)).read("xl/worksheets/sheet1.xml")
+    e = _rechazo(convertir, datos, "o.xlsx", fila_de_cabecera=1)
+    assert e.codigo == "formula_sin_valor" and e.detalle["cuantas"] == 3

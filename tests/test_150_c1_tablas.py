@@ -292,6 +292,7 @@ def test_una_bomba_que_miente_en_su_tamano_se_rechaza_sin_abrirla(monkeypatch):
     assert e.codigo == "zip_danado"
 
 
+@requiere_calamine
 def test_el_directorio_con_mas_filas_que_excel_se_rechaza_sin_leer_las_celdas(monkeypatch):
     """La bomba del inventario (20,7 MB → 309 MB, 2,5 M de filas): declara más filas de las que
     Excel admite. Se rechaza por la cabecera de la hoja, sin recorrer las celdas."""
