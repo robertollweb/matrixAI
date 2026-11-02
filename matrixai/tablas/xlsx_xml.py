@@ -157,7 +157,8 @@ def _parsear(b: bytes) -> ET.Element:
     try:
         p.Parse(b, True)
         return tb.close()
-    except expat.ExpatError:
+    except (expat.ExpatError, LookupError, ValueError, UnicodeError):
+        # LookupError: una declaración `encoding="…"` que no existe (cazado por el fuzz).
         raise rechazar("lector_fallo", tipo="xml mal formado") from None
 
 
@@ -719,7 +720,8 @@ def explorar_hoja(zf: zipfile.ZipFile, ruta: str, estilos: Estilos | None = None
             p.Parse(trozo, not trozo)
             if not trozo:
                 break
-    except expat.ExpatError:
+    except (expat.ExpatError, LookupError, ValueError, UnicodeError):
+        # LookupError: una declaración `encoding="…"` que no existe (cazado por el fuzz).
         raise rechazar("lector_fallo", tipo="xml mal formado") from None
     except TablaRechazada:
         raise

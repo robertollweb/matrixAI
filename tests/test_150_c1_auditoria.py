@@ -484,6 +484,25 @@ def test_una_version_de_zip_desconocida_no_saca_notimplementederror(version):
         assert _rechazo(f).codigo == "zip_danado"
 
 
+@pytest.mark.parametrize("parte", ["xl/workbook.xml", "xl/worksheets/sheet1.xml", "xl/styles.xml"])
+def test_una_codificacion_xml_que_no_existe_es_xml_mal_formado(parte):
+    """I2, cazado por el fuzz de la reparación: `encoding="yes"` hacía que expat lanzara
+    `LookupError` (salía como `error_interno`)."""
+    zf = zipfile.ZipFile(io.BytesIO(_libro(_hoja(_BASE))))
+    miembros = {i.filename: zf.read(i) for i in zf.infolist()}
+    miembros[parte] = miembros[parte].replace(b'encoding="UTF-8"', b'encoding="yes"', 1)
+    assert b'encoding="yes"' in miembros[parte]
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, "w", zipfile.ZIP_DEFLATED) as z:
+        for k, v in miembros.items():
+            z.writestr(k, v)
+    for f in (lambda: inspeccionar(b.getvalue(), "e.xlsx"), lambda: convertir(b.getvalue(), "e.xlsx", fila_de_cabecera=1)):
+        try:
+            f()
+        except TablaRechazada as e:
+            assert e.codigo == "lector_fallo", e.codigo
+
+
 def test_un_nombre_repetido_en_el_zip_se_rechaza():
     """El directorio con la hoja DOS veces: `zipfile` y calamine podrían leer miembros distintos."""
     import warnings
