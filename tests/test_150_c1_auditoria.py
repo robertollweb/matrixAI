@@ -531,9 +531,12 @@ def test_1500_filas_ocultas_se_declaran_1500_no_1000():
 def test_columnas_ocultas_solapadas_se_cuentan_una_vez():
     """I3: `<col 1-1 hidden>` y `<col 1-2 hidden>` son A y B, no A, A y B."""
     cols = '<cols><col min="1" max="1" hidden="1"/><col min="1" max="2" hidden="1"/></cols>'
-    t = convertir(_libro(_hoja(_BASE, antes=cols)), "c.xlsx", fila_de_cabecera=1)
+    libro = _libro(_hoja(_BASE, antes=cols))
+    t = convertir(libro, "c.xlsx", fila_de_cabecera=1)
     d = _decl(t, "columnas_ocultas")[0]
     assert d["cuantas"] == 2 and d["detalle"]["letras"] == ["A", "B"]
+    aviso = [a for a in inspeccionar(libro, "c.xlsx")["hojas"][0]["avisos"] if a["tipo"] == "columnas_ocultas"]
+    assert aviso[0]["cuantas"] == 2 and aviso[0]["detalle"]["letras"] == ["A", "B"]
 
 
 @requiere_calamine
