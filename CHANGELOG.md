@@ -7,7 +7,112 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
-## [Unreleased]
+## [1.21.0] — 2026-11-02
+
+A receipt can now carry a second, asymmetric signature (Ed25519) that anyone holding the public key can check without any
+shared secret; a study can be examined strictly "by subject and forward in time" (no subject on both sides, the test
+always after the cut), with the intervals of that design corrected for repeated subjects and their measured coverage
+declared; and the clinical dossier says the engine delivered in words and the calibration the study measured. Two figures
+the core gives change: the assurance level of a receipt no longer promises more than the verification does (a receipt whose
+signature was not checked is A0), and the intervals of conformal coverage, decision bands and sensitivity are corrected by
+subject when several rows share one.
+
+### Added
+- **Ed25519 asymmetric signature of a receipt** (`matrixai.pipelines.firma_asimetrica`, contract 145-C1): a SECOND DSSE
+  signature next to the HMAC one, over the same `PAE(payloadType, payload)` (the payload is not re-canonicalised for it).
+  `generar_par`, `firmar`, `comprobar`, `cargar_clave_privada` / `cargar_clave_publica`, `clave_publica_pem` and
+  `huella_de_clave_publica`: the fingerprint is the SHA-256 of the 32 raw bytes of the public key (hex, 64 characters;
+  anchored to vector 1 of RFC 8032), so the same pair gives the same fingerprint however it was stored and it is computed
+  the same way in WebCrypto (tested against Node's `crypto.subtle` in both directions). The signature carries
+  `alg: "ed25519"` and `keyid` = the fingerprint; on checking, the `keyid` is NOT trusted (nothing signs it): the
+  fingerprint shown is that of the key the receipt was checked with. Three states and only three: `valida`,
+  `no_coincide`, `no_se_pudo_comprobar` ("valid signature" / "the signature does not match" / "could not be checked",
+  in `VOCABULARIO` es/en, never "verified", "authentic" or "certified" on their own).
+  - `firmar_recibo(..., clave_privada=)` and `sobre_in_toto(..., clave_privada=)` (the HMAC `clave` / `key_id` become
+    optional: either one, or both); `verificar_recibo(..., clave_publica=)` returns `firmas` with the state of each
+    signature and `verificar_sobre(..., clave_publica=)` adds `signature_ed25519` (`estado`, `motivo`, `huella`). With
+    two signatures over the same bytes one valid signature is enough to call the receipt fully checked; with either one
+    bad, `problems` is not empty.
+  - **The assurance level does not rise because of it**: only HMAC signatures count for A1, so an envelope with only an
+    Ed25519 signature stays A0. A valid one does not say who the signer is, that the model is right or when it was
+    signed, and there is no revocation.
+  - New optional extra `matrixai[firma]` (`cryptography>=41`). Without it nothing else changes: signing with Ed25519
+    raises `FirmaNoDisponible` with its reason and checking says "could not be checked: `cryptography` is missing".
+  - CLI: `matrixai attest --ed25519-key <pem>` (adds the second signature; it does not combine with `--sigstore`, which
+    is refused with exit 2), `matrixai receipt verify --pubkey <file> [--locale es|en]` (PEM, or the 32 bytes in hex or
+    base64) and `matrixai receipt [--json] pubkey <file>` (fingerprint and PUBLIC key of a PEM; the private key is
+    never printed). `docs/en|es/api/CLI_REFERENCE.md` document the three, copied from `--help` and real runs.
+- **Strict validation "by subject and by time"** (`matrixai.training.particion_por_diseno_grupos_y_tiempo`, contract
+  140b-C1): `proponer_particion_estricta` / `repartir_estricto` (`RepartoEstricto`, `PropuestaEstricta`,
+  `IntervaloDeclarado`). A cut in time (the quantile `q` of the rows, with a gap `g`): the development rows are those
+  before `c − g/2` and the test rows those after `c + g/2`; the test subjects are chosen among those with rows after the
+  cut and play only with those; the rest of the subjects play only with the earlier ones. **No subject is on both sides**.
+  The rows that end up with no role (the earlier rows of the test subjects, the later ones of the others, the gap) are
+  DECLARED with their count and percentage. Minimums of the test (rejected with their numbers if not met): 5 subjects,
+  50 rows, each class in at least 2 test subjects; the development has the same 5 subjects and 50 rows. By default
+  30 % of the subjects at the 0.7 quantile; if that does not meet the minimums a ladder relaxes the least (more test
+  subjects up to 50 %, an earlier cut down to 0.4) and keeps the FIRST rung that works. Folds by subject × the last
+  30 % of the development rows (falling back to folds by subject only, and saying so, with fewer than 300 rows). It is
+  ADDITIVE: `proponer_particion(split_type="groups_and_time")` still gives the published split bit for bit.
+  - The interval of the test is the bootstrap by unit of `groups`, declared as conditional on that time window (it does
+    not include changes between periods) and with its MEASURED coverage for its number of test subjects
+    (`COBERTURA_MEDIDA_DEL_INTERVALO`, one table; `cobertura_medida_del_intervalo`): "with 8 test subjects an interval
+    like this is right about 83 times out of 100, not 95", and the mark "approximate" below 50 test subjects
+    (`SUJETOS_PARA_QUE_NO_SEA_APROXIMADO`).
+  - `matrixai.estudio.perfil_clinico.diseno_de_remuestreo`: the design a partition is resampled with
+    (`groups_and_time` → `groups`), read by the profile and the Studio.
+  - `benchmarks/cobertura_140b/`: the pre-registered protocol (`c0/PROTOCOLO.md`, with its `.sha256`), the simulations
+    and their outputs, and the measurement of the Kish correction (`kish/medir_kish.py` and `medir_kish.json`, which a
+    test compares number by number with the table in the code).
+- **Intervals corrected by subject** (`matrixai.estudio.intervalo_por_filas`: `correccion_por_sujetos`,
+  `correccion_de_recuentos`, `CorreccionPorSujetos`, `COBERTURA_MEDIDA_POR_SUJETOS`): a Wilson interval counts ROWS, and
+  with a split by subject the rows of the test come from a few subjects, each with its own rate, so the "95 %" covers
+  less. The correction is the Kish design effect: the intraclass correlation is estimated by one-way ANOVA (truncated
+  at 0), `deff = 1 + (Σmᵢ²/n − 1)·ICC`, `n_eff = n/deff`, and the interval is Wilson's with `n_eff`. Next to it, the
+  coverage of that interval MEASURED by simulation for the number of subjects (the worst of five shapes of rows per
+  subject; 0.870 with 2 subjects, 0.923 with 10, 0.938 with 100) and the mark "approximate" below
+  `SUJETOS_PARA_QUE_NO_SEA_APROXIMADO` subjects or when one subject holds more than half of the rows
+  (`FRACCION_DOMINANTE`). Rare cases are declared: all rows equal (no variance to estimate the ICC: the cautious choice,
+  as if ICC = 1), a single subject with several rows (they count as one). Without `units` or with one subject per row
+  it returns `None` and the JSON gains not one key.
+- **A warning when subjects are written alike** (`limite_de_sujetos_que_se_escriben_igual`, `escritura_normalizada`):
+  `7` and `007` (what Excel does when sheets are joined), `7.0`, `P-007` and `P7`, or differing in case or spaces are
+  two subjects to a split by subject and can fall on both sides. `proponer_particion` (`groups`) and the strict split now add a `Limite` with
+  its numbers when that happens. They are not merged — nobody's data is mapped automatically — and what it does not see
+  (decimal comma, `P.007`, other dashes, full-width digits) is declared in the function.
+- **`study.delivered_engine_name`** (`manifiesto_de_estudio(..., nombre_del_motor_entregado={es, en})`): the delivered
+  engine in words, written by whoever knows the names (the Studio; the core carries no list). Optional, and only with
+  `motor_del_modelo_entregado`.
+- **`study.split.strict`** in the manifest (`reparto_del_estudio.estricto`, 140b-C2): the cut and its readable form,
+  the gap, the subject fraction and the quantile (`requested` / `used` / `realized`), `cuts_tried`, the rows of each
+  role and **`discarded_rows` / `discarded_percentage`**, the units, `fold_type`, `folds`, `last_stretch_start` and the
+  `interval` with its measured coverage and texts in Spanish and English. Validated, not copied: a percentage that does
+  not follow from its rows, an interval with other test subjects than the split, a measured coverage that is not the
+  table's, or a closed key that is unknown is not published. `groups_and_time` now belongs to `DISENOS_DEL_REPARTO` (and
+  then it REQUIRES `strict`, `unit_id_field` and `time_column`; `strict` in any other design is refused).
+- **`decisiones_de_la_matriz`** (`matrixai.estudio.metricas`): the decision row by row with which the confusion matrix
+  counts, apart so that whoever needs the hit of each row uses the same decision and not a copy.
+
+### Changed
+- **The assurance level of a receipt does not promise more than the verification does** (`nivel_del_recibo` /
+  `verificar_recibo` in the entry under Fixed): `receipt verify` without `--key` now says `assurance_level: A0`, with
+  `assurance_if_signature_holds` apart; with an Ed25519 signature in the envelope the line says that "the HMAC signature
+  has not been checked" (and the Ed25519 one goes on its own line). `verificar_recibo` and `verificar_sobre` return one
+  more key (`firmas` / `signature_ed25519`), and the `clave` of both is optional.
+- **Intervals corrected by subject where rows share a subject** (140b, Kish): the observed coverage of the conformal
+  sets and intervals (`conforme.medir_cobertura`), the accuracy of each decision band (`bandas.medir_bandas`, whose
+  margin decides whether a band is shown) and the sensitivity of the confusion matrix at the threshold (new
+  `matriz.sensibilidad_por_sujetos` in the curves) use the corrected interval when the test has `units` with repeated
+  subjects, and carry `unidades` and `por_sujetos` (with the coverage measured for it). Without repeated subjects
+  (`iid`, `temporal`, one subject per row) the JSON is the one of before, byte by byte.
+- **The clinical dossier, the TRIPOD card and the PROBAST map** read the strict split and the engine name: the engine
+  is written "<name> (<id>)" when the study brought a name (the bare id otherwise: no name is invented here); a
+  `groups_and_time` study says the design with its subject and time columns, the cut, the test subjects "N of M" (what
+  there was, and what was requested only if it differs), the folds, the interval conditional on its window with its
+  measured coverage and the "approximate" mark; and the dataset-rows line stops saying "development + holdout test" and
+  is followed by a new **rows without a role** line.
+- The header of `matrixai.export.attest` no longer says "today with HMAC": the level comes from the HMAC signature and an
+  Ed25519 one does not raise it.
 
 ### Fixed
 - **`nivel_del_recibo` no promete más que `verificar_recibo`.** It used to look at whether the envelope *carried* signatures,

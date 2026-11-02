@@ -66,6 +66,18 @@ matrixai --help
   how the rows were split, which engine was delivered, how its calibration and threshold were chosen
   and, for a network, which epochs were fixed, so the TRIPOD card and the PROBAST map come out of what
   the study measured
+- **A second, asymmetric signature on a receipt** (Ed25519, optional extra `matrixai[firma]`):
+  `matrixai attest --ed25519-key key.pem` adds it next to the HMAC one, and anyone holding the
+  public key checks it with `matrixai receipt verify --pubkey` — no shared secret. `matrixai receipt
+  pubkey` shows the fingerprint to compare through another channel. A valid signature says the bytes
+  are the ones that were signed; it does not say who signed, nor that the model is right, and it
+  does **not** raise the assurance level
+- **Strict validation by subject and forward in time** (`proponer_particion_estricta`): no subject
+  on both sides and the test always after the cut; the rows left with no role are counted and
+  declared, and the interval says it is conditional on its time window and how often an interval
+  like it was actually right for that many test subjects (measured, not assumed). Intervals of
+  conformal coverage, decision bands and sensitivity are corrected by subject when several rows
+  share one (Kish design effect), and the clinical dossier writes the delivered engine in words
 - **The curves of an evaluation** (`curvas_de_la_evaluacion`): ROC, precision-recall, reliability
   before and after recalibration, the confusion matrix at the chosen threshold and, for regression,
   predicted against real by bands — aggregates only, a band with fewer than 30 rows without a figure,
@@ -343,7 +355,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 10704 passed, 130 skipped
+# 11074 passed, 130 skipped
 ```
 
 ---
