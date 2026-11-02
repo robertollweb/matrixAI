@@ -52,17 +52,30 @@ class TestNormalizeCsvDelimiter:
     def test_noop_for_empty_text(self):
         assert normalize_csv_delimiter("") == ""
 
-    def test_decimal_comma_value_stays_quoted_not_corrupted(self):
-        """Límite documentado: la reescritura es estructuralmente segura
-        (usa csv.reader/writer, no str.replace) — un valor con coma decimal
-        queda entrecomillado, sin partirse en dos columnas."""
+    def test_decimal_comma_column_is_converted_not_split(self):
+        """150-C2 (antes `..._stays_quoted_not_corrupted`, que FIJABA el límite
+        «el decimal con coma queda entrecomillado y el análisis lo ve como
+        texto»). La intención se conserva: la reescritura es estructuralmente
+        segura (usa csv.reader/writer, no str.replace) y un `12,5` nunca se
+        parte en dos columnas. Lo que cambia es el resultado: una columna cuyas
+        celdas son TODAS decimales con coma pasa a punto decimal."""
         out = normalize_csv_delimiter("a;b\n1;12,5\n")
-        assert out == 'a,b\n1,"12,5"\n'
-        # y ese valor se re-lee como UNA sola celda, no dos
+        assert out == "a,b\n1,12.5\n"
+        # y se re-lee como UNA sola celda por columna, no dos
         import csv
         import io
         rows = list(csv.reader(io.StringIO(out)))
-        assert rows == [["a", "b"], ["1", "12,5"]]
+        assert rows == [["a", "b"], ["1", "12.5"]]
+
+    def test_a_comma_inside_a_text_value_stays_quoted_not_corrupted(self):
+        """La otra mitad de la intención del test de arriba, que el decimal no
+        debe tapar: una celda de TEXTO con coma sigue entrecomillada, y la
+        columna (no es un número) no se convierte."""
+        out = normalize_csv_delimiter("a;b\n1;hola, mundo\n2;12,5\n")
+        assert out == 'a,b\n1,"hola, mundo"\n2,"12,5"\n'
+        import csv
+        import io
+        assert list(csv.reader(io.StringIO(out))) == [["a", "b"], ["1", "hola, mundo"], ["2", "12,5"]]
 
     def test_single_column_semicolon_free_csv_untouched(self):
         # una sola columna, sin ';' en la cabecera -> nada que normalizar

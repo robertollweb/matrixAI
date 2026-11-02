@@ -1,0 +1,10 @@
+{
+  "etapas": {
+    "R1": "INCOMPARABLE",
+    "R3": "NOT_RUN",
+    "manifest": "PASS",
+    "training": "INCOMPARABLE"
+  },
+  "prepared_sha256": "47d2ffb6e139be87dea106bdc4e574f04980e7f76def772f563b29e8a0d1dd2a",
+  "raw_sha256_del_csv_semicolon": "9baea512fd56bf07cc9c654135d94fd915a4af4632a19408d7f4e3751bdbdd32"
+}
