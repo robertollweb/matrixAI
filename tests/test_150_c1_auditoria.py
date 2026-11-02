@@ -881,3 +881,12 @@ def test_el_hijo_arranca_aislado_con_menos_I(monkeypatch):
     with pytest.raises(TablaRechazada):
         aislado.Lectura(b"x", {"op": "hojas"}, memoria=None, segundos=1)
     assert vistos and vistos[0][1] == "-I" and vistos[0][2] == "-c", vistos
+
+
+@requiere_calamine
+def test_el_hijo_muere_con_su_padre_pdeathsig():
+    """El hijo pone `PR_SET_PDEATHSIG = SIGKILL` y lo comprueba con `PR_GET_PDEATHSIG` (lo que
+    quedó puesto, medido en el hijo, no la intención): si el padre muere, el kernel lo mata."""
+    import signal
+    aislado.listar_hojas(_libro(_hoja(_BASE)), memoria=None, segundos=30)
+    assert aislado.ULTIMO_HIJO.get("pdeathsig") == signal.SIGKILL, aislado.ULTIMO_HIJO

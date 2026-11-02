@@ -55,6 +55,20 @@ try:
         resource.setrlimit(resource.RLIMIT_CPU, (args["cpu"], args["cpu"] + 5))
 except Exception:
     pass
+# Si el padre muere (un `kill -9`, el OOM), el hijo muere con él: sin esto seguía leyendo solo,
+# con su techo de memoria, hasta acabar (menor de la 2.ª re-auditoría de 150-C1).
+PDEATHSIG = None
+try:
+    import ctypes, os, signal
+    _libc = ctypes.CDLL(None, use_errno=True)
+    if _libc.prctl(1, signal.SIGKILL) == 0:              # PR_SET_PDEATHSIG
+        _v = ctypes.c_int(0)
+        if _libc.prctl(2, ctypes.byref(_v)) == 0:       # PR_GET_PDEATHSIG: lo que quedó puesto
+            PDEATHSIG = _v.value
+    if args.get("padre") and os.getppid() != args["padre"]:
+        os._exit(1)                                      # el padre ya había muerto
+except Exception:
+    pass
 sys.path[:0] = args["rutas"]
 salida = sys.stdout.buffer
 def hwm():
@@ -66,6 +80,7 @@ def hwm():
         return None
 def responder(obj):
     obj["hwm"] = hwm()
+    obj["pdeathsig"] = PDEATHSIG
     pickle.dump(obj, salida, protocol=4)
     salida.flush()
 try:
@@ -160,7 +175,7 @@ class Lectura:
         if not sys.executable:
             raise rechazar("lector_fallo", tipo="no se encuentra el intérprete de Python")
         self.memoria, self.segundos = memoria, segundos
-        args = dict(args, rutas=rutas, memoria=int(memoria) if memoria else 0,
+        args = dict(args, rutas=rutas, padre=os.getpid(), memoria=int(memoria) if memoria else 0,
                     cpu=int(segundos) + 5 if segundos else 0)
         self.t0 = time.monotonic()
         try:
@@ -231,7 +246,8 @@ def _interpretar(out: bytes, err: bytes, rc: int | None, dt: float, memoria: int
             resultado = None
     cola = (err or b"")[-4000:].decode("utf-8", "replace")
     ULTIMO_HIJO.clear()
-    ULTIMO_HIJO.update(segundos=dt, rc=rc, hwm=(resultado or {}).get("hwm") if isinstance(resultado, dict) else None)
+    ULTIMO_HIJO.update(segundos=dt, rc=rc, hwm=(resultado or {}).get("hwm") if isinstance(resultado, dict) else None,
+                       pdeathsig=resultado.get("pdeathsig") if isinstance(resultado, dict) else None)
     if isinstance(resultado, dict) and rc == 0:
         if resultado.get("ok"):
             ULTIMO_HIJO["codigo"] = "ok"
