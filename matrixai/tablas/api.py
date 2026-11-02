@@ -524,7 +524,7 @@ def _como_lo_ensena_excel(v: str, codigo: str) -> str:
     except (TypeError, ValueError):
         return "con ceros delante"
     plano = xlsx_xml._RE_LITERAL.sub("", codigo.split(";", 1)[0])
-    if not plano or any(ch not in "0#-/ ,()" for ch in plano) or "," in plano:
+    if not plano or any(ch not in "0#-/ ()" for ch in plano):
         return "con ceros delante"
     n = int(abs(x) + 0.5)
     cifras = list(str(n).zfill(plano.count("0")))
