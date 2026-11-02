@@ -209,7 +209,7 @@ class Lectura:
         if self._fallo == "lector_tiempo":
             ULTIMO_HIJO.clear()
             ULTIMO_HIJO.update(segundos=time.monotonic() - self.t0, codigo="lector_tiempo", hwm=None)
-            raise rechazar("lector_tiempo", segundos=int(self.segundos))
+            raise rechazar("lector_tiempo", segundos=_segundos_legibles(self.segundos))
         if isinstance(self._fallo, BaseException):
             raise rechazar("lector_fallo", tipo=type(self._fallo).__name__)
         out, err = self._salida
@@ -259,13 +259,29 @@ def _interpretar(out: bytes, err: bytes, rc: int | None, dt: float, memoria: int
                    or "out of memory" in cola.lower() or rc == 70)
     if rc is not None and rc < 0 and -rc == getattr(signal, "SIGXCPU", -1):
         ULTIMO_HIJO["codigo"] = "lector_tiempo"
-        raise rechazar("lector_tiempo", segundos=int(segundos))
+        raise rechazar("lector_tiempo", segundos=_segundos_legibles(segundos))
     if sin_memoria:
         ULTIMO_HIJO["codigo"] = "lector_sin_memoria"
         raise rechazar("lector_sin_memoria", techo=_techo_legible(memoria))
     ULTIMO_HIJO["codigo"] = "lector_abortado"
     como = _nombre_de_senal(-rc) if rc is not None and rc < 0 else f"código {rc}"
+    if rc is not None and rc < 0 and -rc in _SENALES_DE_FUERA:
+        # SIGKILL/SIGTERM/SIGINT/SIGHUP no las da un fichero dañado: las manda otro proceso o el
+        # sistema (el OOM del kernel, un `kill`, el apagado). Decir «fichero dañado» era falso.
+        raise rechazar("lector_abortado", variante="desde_fuera", como=como)
     raise rechazar("lector_abortado", como=como)
+
+
+_SENALES_DE_FUERA = {getattr(signal, n) for n in ("SIGKILL", "SIGTERM", "SIGINT", "SIGHUP")
+                     if hasattr(signal, n)}
+
+
+def _segundos_legibles(s) -> str:
+    """`120` → «120»; `0.5` → «0,5» (con `int()` un tope por debajo de 1 s decía «más de 0 s»)."""
+    s = float(s or 0)
+    if s >= 1 and s.is_integer():
+        return str(int(s))
+    return f"{s:.3g}".replace(".", ",")
 
 
 def _techo_legible(memoria: int | None) -> str:

@@ -818,3 +818,66 @@ def test_la_variante_recalcular_tiene_singular_y_plural_en_los_dos_idiomas():
     assert uno.codigo == dos.codigo == "formula_sin_valor"
     assert "Hay 1 celda con" in uno.motivo_es and "There is 1 cell with" in uno.motivo_en
     assert "Hay 2 celdas con" in dos.motivo_es and "There are 2 cells with" in dos.motivo_en
+
+
+# ── Menores de la 2.ª re-auditoría ─────────────────────────────────────────────────────
+@requiere_calamine
+@pytest.mark.parametrize("excluir", [[2.5], ["3"], [3.0], [99], [3, 40]])
+def test_filas_a_excluir_que_no_son_enteros_o_no_existen_se_rechazan(excluir):
+    """`int(2.5)` quitaba la fila 2 y declaraba «se quitó 1 fila»; una fila que la hoja no tiene
+    se declaraba quitada sin quitar nada."""
+    e = _rechazo(convertir, _libro(_hoja(_BASE)), "x.xlsx", fila_de_cabecera=1, filas_a_excluir=excluir)
+    assert e.codigo == "parametro_invalido", excluir
+    if excluir in ([99], [3, 40]):
+        assert "no existe" in e.motivo_es and "3" in e.motivo_es
+    t = convertir(_libro(_hoja(_BASE)), "x.xlsx", fila_de_cabecera=1, filas_a_excluir=[3])
+    assert _csv(t)[1:] == [["1", "2"]] and _decl(t, "filas_excluidas")[0]["cuantas"] == 1
+
+
+def test_el_texto_de_entero_no_exacto_dice_desde_donde_salta():
+    """Salta desde 2^53 (16 cifras): decir «más de 15 cifras» describía otro umbral."""
+    from matrixai.tablas.declaraciones import declarar
+    from matrixai.tablas.valores import DOS_A_LA_53, entero_no_exacto
+    assert entero_no_exacto(float(DOS_A_LA_53)) and not entero_no_exacto(float(DOS_A_LA_53 - 1))
+    d = declarar("entero_no_exacto", columna="id", cuantas=1, ejemplos=["9007199254740992"])
+    assert "2^53" in d["texto"]["es"] and "2^53" in d["texto"]["en"]
+    assert "más de 15 cifras" not in d["texto"]["es"] and "more than 15 digits" not in d["texto"]["en"]
+
+
+def test_un_tope_de_tiempo_por_debajo_de_un_segundo_no_dice_mas_de_0_s():
+    import signal
+    with pytest.raises(TablaRechazada) as e:
+        aislado._interpretar(b"", b"", -signal.SIGXCPU, 0.6, None, 0.5)
+    assert e.value.codigo == "lector_tiempo"
+    assert "más de 0,5 s" in e.value.motivo_es and "0 s" not in e.value.motivo_es.replace("0,5 s", "")
+    with pytest.raises(TablaRechazada) as e:
+        aislado._interpretar(b"", b"", -signal.SIGXCPU, 121, None, 120.0)
+    assert "más de 120 s" in e.value.motivo_es
+
+
+def test_un_hijo_matado_desde_fuera_no_se_da_por_fichero_danado():
+    import signal
+    for senal in (signal.SIGKILL, signal.SIGTERM):
+        with pytest.raises(TablaRechazada) as e:
+            aislado._interpretar(b"", b"", -senal, 1.0, None, 120.0)
+        assert e.value.codigo == "lector_abortado"
+        assert "dañado" in e.value.motivo_es and "No indica" in e.value.motivo_es, senal
+        assert "does not mean" in e.value.motivo_en and senal.name in e.value.motivo_es
+    with pytest.raises(TablaRechazada) as e:      # control: un aborto de Rust SÍ apunta al fichero
+        aislado._interpretar(b"", b"", -signal.SIGABRT, 1.0, None, 120.0)
+    assert "puede estar dañado" in e.value.motivo_es and "No indica" not in e.value.motivo_es
+
+
+def test_el_hijo_arranca_aislado_con_menos_I(monkeypatch):
+    """`-I`: sin variables de entorno ni `site` del usuario ni el directorio actual en `sys.path`
+    (un `json.py` plantado al lado no se importa). Si alguien lo quita, esto se pone rojo."""
+    vistos = []
+
+    def popen(args, **k):
+        vistos.append(list(args))
+        raise OSError("no arranca: es la prueba")
+    monkeypatch.setattr(aislado, "_rutas_de_calamine", lambda: ["/nada"])
+    monkeypatch.setattr(aislado.subprocess, "Popen", popen)
+    with pytest.raises(TablaRechazada):
+        aislado.Lectura(b"x", {"op": "hojas"}, memoria=None, segundos=1)
+    assert vistos and vistos[0][1] == "-I" and vistos[0][2] == "-c", vistos

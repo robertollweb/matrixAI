@@ -195,6 +195,13 @@ VARIANTES: dict[tuple[str, str], tuple[str, str]] = {
         "its formulas to be recalculated when it is opened: the saved value is not the result "
         "(the tool that wrote it left a placeholder, usually 0) and they are never calculated "
         "here. Open it in Excel or LibreOffice, save it and upload it again."),
+    ("lector_abortado", "desde_fuera"): (
+        "El lector de Excel se detuvo leyendo el libro porque lo paró otro proceso o el sistema "
+        "({como}; por ejemplo, la máquina se quedó sin memoria). No indica que el fichero esté "
+        "dañado: vuelve a intentarlo.",
+        "The Excel reader was stopped while reading the workbook by another process or by the "
+        "system ({como}; for example, the machine ran out of memory). It does not mean the file "
+        "is damaged: try again."),
 }
 
 

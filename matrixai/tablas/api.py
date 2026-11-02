@@ -651,10 +651,15 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
     if filas_de_cabecera not in (1, 2) or isinstance(filas_de_cabecera, bool):
         raise rechazar("parametro_invalido", parametro="filas_de_cabecera debe ser 1 o 2")
     try:
-        excluir = sorted({int(f) for f in filas_a_excluir if not isinstance(f, bool)})
-    except (TypeError, ValueError):
+        lista_excluir = list(filas_a_excluir)
+    except TypeError:
         raise rechazar("parametro_invalido", parametro="filas_a_excluir debe ser una lista de números de fila") from None
-    if len(excluir) != len(set(filas_a_excluir)) or any(f < 1 or f > _MAX_FILAS_FISICAS for f in excluir):
+    # Solo enteros: `2.5` o `"3"` se convertían con `int()` y se quitaba OTRA fila (o una que no
+    # se pidió así), declarando «se quitó 1 fila» (menor de la 2.ª re-auditoría).
+    if any(isinstance(f, bool) or not isinstance(f, int) for f in lista_excluir):
+        raise rechazar("parametro_invalido", parametro="filas_a_excluir debe ser una lista de números de fila enteros")
+    excluir = sorted(set(lista_excluir))
+    if any(f < 1 or f > _MAX_FILAS_FISICAS for f in excluir):
         raise rechazar("parametro_invalido", parametro="filas_a_excluir debe ser una lista de números de fila")
 
     libro = _Libro(datos, nombre, topes or TOPES_DE_FABRICA)
@@ -673,6 +678,10 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
     if any(f < fd for f in excluir):
         raise rechazar("parametro_invalido",
                        parametro=f"filas_a_excluir {[f for f in excluir if f < fd]} está en la cabecera o por encima")
+    if any(f > fin for f in excluir):
+        # Una fila que la hoja no tiene no se «quita»: declararla quitada sería mentir.
+        raise rechazar("parametro_invalido",
+                       parametro=f"filas_a_excluir {[f for f in excluir if f > fin]} no existe en la hoja (la última fila es la {fin})")
     excluidas = set(excluir)
 
     # Fórmulas sin valor: se comprueban sobre lo que SE CONVIERTE, cabecera incluida (la fila
