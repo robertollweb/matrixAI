@@ -186,7 +186,7 @@ class _Libro:
         if not self.hojas:
             raise rechazar("sin_hojas")
         if hoja is None:
-            visibles = [h for h in self.hojas if h["estado"] == "visible"]
+            visibles = [h for h in self.hojas if h["estado"] == "visible" and not h.get("grafico")]
             if len(visibles) == 1:
                 return visibles[0]
             raise rechazar("hoja_requerida", hojas=[h["nombre"] for h in (visibles or self.hojas)])
@@ -385,7 +385,7 @@ def _sin_excepciones_ajenas(f):
 def inspeccionar(datos: bytes, nombre: str = "", *, topes: Topes | None = None) -> dict:
     """Qué hay en el libro, sin convertir nada. Propone la hoja, la cabecera y los totales."""
     libro = _Libro(datos, nombre, topes or TOPES_DE_FABRICA)
-    visibles = [h for h in libro.hojas if h["estado"] == "visible"]
+    visibles = [h for h in libro.hojas if h["estado"] == "visible" and not h.get("grafico")]
     hojas = [_inspeccionar_hoja(libro, m) for m in libro.hojas]
     avisos_globales = []
     if libro.macros:
@@ -440,8 +440,10 @@ def _inspeccionar_hoja(libro: _Libro, meta: dict) -> dict:
     entrada["filas_candidatas_a_total"] = _candidatas_a_total(h, (cab + 1) if cab else h.fila0)
     avisos = entrada["avisos"]
     if h.combinadas:
-        avisos.append(declarar("hay_celdas_combinadas", cuantas=len(h.combinadas),
-                               rangos=[_rango_a1(*m[:2], *m[2:]) for m in h.combinadas[:10]]))
+        # Un rango repetido en `<mergeCells>` es UN rango (como al convertir: `set`).
+        distintas = sorted(set(h.combinadas))
+        avisos.append(declarar("hay_celdas_combinadas", cuantas=len(distintas),
+                               rangos=[_rango_a1(*m[:2], *m[2:]) for m in distintas[:10]]))
     geom = h.geom
     if geom is not None:
         ocultas = geom.filas_ocultas_en(h.fila0, h.ultima_fila)

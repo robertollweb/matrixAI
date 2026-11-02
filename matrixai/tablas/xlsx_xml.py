@@ -186,7 +186,9 @@ def mapa_de_hojas(zf: zipfile.ZipFile) -> list[dict]:
     """
     nombres = set(zf.namelist())
     wb = _parsear(_leer_pequeno(zf, "xl/workbook.xml"))
-    objetivos = {rid: ruta for rid, _t, ruta in _relaciones(zf, nombres)}
+    rels = _relaciones(zf, nombres)
+    objetivos = {rid: ruta for rid, _t, ruta in rels}
+    graficos = {rid for rid, t, _r in rels if (t or "").rsplit("/", 1)[-1].lower() == "chartsheet"}
     hojas = []
     for el in wb.iter():
         if _local(el.tag) != "sheet":
@@ -197,7 +199,9 @@ def mapa_de_hojas(zf: zipfile.ZipFile) -> list[dict]:
                 rid = v
         ruta = objetivos.get(rid)
         hojas.append({"nombre": el.get("name") or "", "estado": el.get("state") or "visible",
-                      "ruta": ruta if ruta in nombres else None})
+                      "ruta": ruta if ruta in nombres else None,
+                      # una hoja de GRÁFICO no es una hoja de datos: no cuenta al elegir
+                      "grafico": rid in graficos})
     return hojas
 
 

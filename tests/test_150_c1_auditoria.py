@@ -890,3 +890,48 @@ def test_el_hijo_muere_con_su_padre_pdeathsig():
     import signal
     aislado.listar_hojas(_libro(_hoja(_BASE)), memoria=None, segundos=30)
     assert aislado.ULTIMO_HIJO.get("pdeathsig") == signal.SIGKILL, aislado.ULTIMO_HIJO
+
+
+@requiere_calamine
+def test_un_rango_combinado_repetido_cuenta_una_vez_al_inspeccionar():
+    comb = '<mergeCells count="3"><mergeCell ref="A2:A3"/><mergeCell ref="A2:A3"/><mergeCell ref="B2:B3"/></mergeCells>'
+    libro = _libro(_hoja(_BASE, despues=comb))
+    avisos = [a for a in inspeccionar(libro, "c.xlsx")["hojas"][0]["avisos"] if a["tipo"] == "hay_celdas_combinadas"]
+    assert len(avisos) == 1 and avisos[0]["cuantas"] == 2, avisos
+    assert avisos[0]["detalle"]["rangos"] == ["A2:A3", "B2:B3"]
+
+
+def _libro_con_grafico() -> bytes:
+    """Un libro con una hoja de datos y una hoja de GRÁFICO (`chartsheet`), las dos visibles."""
+    wb = (f'<?xml version="1.0" encoding="UTF-8"?><workbook {_NS}><workbookPr/><sheets>'
+          '<sheet name="Datos" sheetId="1" r:id="rId1"/><sheet name="Grafico1" sheetId="2" r:id="rId9"/>'
+          '</sheets></workbook>')
+    rels = _WBRELS.replace("</Relationships>",
+                           '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chartsheet" '
+                           'Target="chartsheets/sheet1.xml"/></Relationships>')
+    graf = (f'<?xml version="1.0" encoding="UTF-8"?><chartsheet {_NS}><sheetViews><sheetView workbookViewId="0"/>'
+            '</sheetViews></chartsheet>')
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", _CT.replace("</Types>",
+                   '<Override PartName="/xl/chartsheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.chartsheet+xml"/></Types>'))
+        z.writestr("_rels/.rels", _RELS)
+        z.writestr("xl/workbook.xml", wb)
+        z.writestr("xl/_rels/workbook.xml.rels", rels)
+        z.writestr("xl/styles.xml", _STYLES)
+        z.writestr("xl/sharedStrings.xml", _SST_VACIA)
+        z.writestr("xl/worksheets/sheet1.xml", _hoja(_BASE))
+        z.writestr("xl/chartsheets/sheet1.xml", graf)
+    return b.getvalue()
+
+
+@requiere_calamine
+def test_una_hoja_de_grafico_no_cuenta_como_hoja_de_datos():
+    """Con una hoja de datos y una de gráfico, sin decir la hoja: se elige la de datos (antes,
+    «hay varias hojas, di cuál»)."""
+    libro = _libro_con_grafico()
+    zf = zipfile.ZipFile(io.BytesIO(libro))
+    assert [(h["nombre"], h["grafico"]) for h in xlsx_xml.mapa_de_hojas(zf)] == [("Datos", False), ("Grafico1", True)]
+    assert inspeccionar(libro, "g.xlsx")["hoja_propuesta"] == "Datos"
+    t = convertir(libro, "g.xlsx", fila_de_cabecera=1)
+    assert _csv(t) == [["a", "b"], ["1", "2"], ["3", "4"]]
