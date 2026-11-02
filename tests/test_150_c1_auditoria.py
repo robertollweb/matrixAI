@@ -672,11 +672,15 @@ def test_series_de_fecha_que_no_son_una_fecha_quedan_vacias_y_declaradas(fecha19
         assert (salida["2"], salida["3"], salida["4"]) == ("1900-02-28", "", "1900-03-01")
         assert salida["5"] == salida["6"] == salida["7"] == "" and salida["8"] == "2023-03-15"
         assert d["cuantas"] == 4
-        assert d["detalle"]["motivos"] == {"29_02_1900": 1, "anterior_a_la_epoca": 2, "posterior_a_9999": 1}
+        # 0 es el «día 0» (Excel enseña 00/01/1900), -5 es anterior (####): motivos distintos
+        assert d["detalle"]["motivos"] == {"29_02_1900": 1, "anterior_a_la_epoca": 1,
+                                           "dia_cero_1900": 1, "posterior_a_9999": 1}
         assert d["detalle"]["celdas"] == ["B3", "B5", "B6", "B7"]
     else:
-        assert salida["3"] == "1904-03-01" and salida["5"] == salida["6"] == salida["7"] == ""
-        assert d["detalle"]["motivos"] == {"anterior_a_la_epoca": 2, "posterior_a_9999": 1}
+        # en 1904 la serie 0 ES una fecha (1904-01-01): ya no se anula (2.ª re-auditoría)
+        assert salida["3"] == "1904-03-01" and salida["5"] == "1904-01-01"
+        assert salida["6"] == salida["7"] == ""
+        assert d["detalle"]["motivos"] == {"anterior_a_la_epoca": 1, "posterior_a_9999": 1}
     assert "29-02-1900" in d["texto"]["es"] or fecha1904
     assert ":" not in "".join(salida.values()).replace("00:00:00", "")
 
@@ -935,3 +939,32 @@ def test_una_hoja_de_grafico_no_cuenta_como_hoja_de_datos():
     assert inspeccionar(libro, "g.xlsx")["hoja_propuesta"] == "Datos"
     t = convertir(libro, "g.xlsx", fila_de_cabecera=1)
     assert _csv(t) == [["a", "b"], ["1", "2"], ["3", "4"]]
+
+
+@requiere_calamine
+def test_en_la_epoca_1904_la_serie_0_es_el_1_de_enero_de_1904_con_su_hora():
+    """calamine da solo la HORA para 0 ≤ serie < 1, y en 1904 eso es el 1904-01-01: Excel lo
+    enseña así. Antes se anulaba («anterior al primer día de Excel; Excel enseña ####», falso)."""
+    filas = ['<row r="1"><c r="A1" t="inlineStr"><is><t>k</t></is></c><c r="B1" t="inlineStr"><is><t>f</t></is></c></row>']
+    for i, (v, s_) in enumerate([("0", 1), ("0.25", 2), ("1", 1), ("-1", 1)], start=2):
+        filas.append(f'<row r="{i}"><c r="A{i}"><v>{i}</v></c><c r="B{i}" s="{s_}"><v>{v}</v></c></row>')
+    t = convertir(_libro(_hoja("".join(filas)), fecha1904=True), "f.xlsx", fila_de_cabecera=1)
+    salida = {r[0]: r[1] for r in _csv(t)[1:]}
+    # la columna lleva una fecha con hora: todas se escriben con hora (regla de la columna)
+    assert salida["2"] == "1904-01-01 00:00:00" and salida["3"] == "1904-01-01 06:00:00"
+    assert salida["4"] == "1904-01-02 00:00:00" and salida["5"] == ""
+    solo_cero = convertir(_libro(_hoja(filas[0] + filas[1]), fecha1904=True), "f.xlsx", fila_de_cabecera=1)
+    assert _csv(solo_cero)[1] == ["2", "1904-01-01"]
+    assert _decl(t, "fecha_no_valida", "f")[0]["detalle"]["motivos"] == {"anterior_a_la_epoca": 1}
+
+
+@requiere_calamine
+def test_en_la_epoca_1900_una_serie_entre_0_y_1_dice_dia_cero_no_almohadillas():
+    filas = ('<row r="1"><c r="A1" t="inlineStr"><is><t>k</t></is></c><c r="B1" t="inlineStr"><is><t>f</t></is></c></row>'
+             '<row r="2"><c r="A2"><v>1</v></c><c r="B2" s="2"><v>0.5</v></c></row>'
+             '<row r="3"><c r="A3"><v>2</v></c><c r="B3" s="1"><v>45000</v></c></row>')
+    t = convertir(_libro(_hoja(filas)), "f.xlsx", fila_de_cabecera=1)
+    d = _decl(t, "fecha_no_valida", "f")[0]
+    assert d["detalle"]["motivos"] == {"dia_cero_1900": 1} and _csv(t)[1] == ["1", ""]
+    assert "00/01/1900" in d["texto"]["es"] and "####" not in d["texto"]["es"]
+    assert "00/01/1900" in d["texto"]["en"] and "####" not in d["texto"]["en"]

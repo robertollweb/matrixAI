@@ -37,6 +37,8 @@ def _col(d: dict) -> str:
 _MOTIVOS_FECHA = {
     "anterior_a_la_epoca": ("anterior al primer día de Excel; Excel enseña ####", "before Excel's first day; Excel shows ####"),
     "29_02_1900": ("el 29-02-1900, un día que no existió", "29-02-1900, a day that never existed"),
+    "dia_cero_1900": ("el día 0 de Excel, que no es una fecha; Excel enseña 00/01/1900",
+                      "Excel's day 0, which is not a date; Excel shows 00/01/1900"),
     "posterior_a_9999": ("posterior a 9999-12-31; Excel enseña ####", "after 9999-12-31; Excel shows ####"),
 }
 

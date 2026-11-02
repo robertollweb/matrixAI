@@ -17,6 +17,7 @@ Reglas que no se negocian (invariantes del contrato 150):
 from __future__ import annotations
 
 import bisect
+import datetime as _dt
 import functools
 import hashlib
 import re
@@ -703,6 +704,7 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
     # declaran, celda a celda.
     anuladas = (geom.fechas_no_validas(lambda r: r >= fd and r not in excluidas)
                 if geom is not None else set())
+    dias_cero = geom.dias_cero_1904() if geom is not None else set()
 
     ancho = h.ancho
     col0 = h.col0
@@ -756,6 +758,10 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
                 continue
             if anuladas and (r, col0 + j) in anuladas:
                 continue
+            if dias_cero and type(v) is _dt.time and (r, col0 + j) in dias_cero:
+                # 1904-01-01 (con su hora): calamine dio solo la hora
+                v = (_dt.date(1904, 1, 1) if v == _dt.time(0) else
+                     _dt.datetime.combine(_dt.date(1904, 1, 1), v))
             t = type(v)
             if t is str:
                 texto, suceso = v, None

@@ -319,7 +319,11 @@ _RE_REF = re.compile(r"([A-Za-z]+)([0-9]+)")
 _RE_DIMENSION = re.compile(r"[A-Za-z]+([0-9]+)$")
 
 #: Clases de serie de fecha que NO son una fecha (lo que calamine escribiría es otra cosa).
-FECHA_ANTES_DE_1900 = "anterior_a_la_epoca"     # serie < 1 (1900) o < 0 (1904): Excel enseña ####
+FECHA_ANTES_DE_1900 = "anterior_a_la_epoca"     # serie < 0: Excel enseña ####
+FECHA_DIA_CERO_1900 = "dia_cero_1900"            # 0 ≤ serie < 1 en 1900: Excel enseña 00/01/1900
+#: 0 ≤ serie < 1 en la época 1904 SÍ es una fecha (1904-01-01, con su hora), pero calamine da
+#: solo la HORA: no se anula, se corrige al convertir (menor de la 2.ª re-auditoría de 150-C1).
+FECHA_DIA_CERO_1904 = "dia_cero_1904"
 FECHA_29_FEBRERO_1900 = "29_02_1900"              # serie 60 en 1900: un día que no existió
 FECHA_DESPUES_DE_9999 = "posterior_a_9999"        # Excel enseña ####
 _FIN_DE_EXCEL_1900 = 2_958_466      # 10000-01-01
@@ -328,13 +332,17 @@ _FIN_DE_EXCEL_1904 = 2_958_466 - 1_462
 
 def _clase_de_fecha(x: float, epoca_1904: bool) -> str | None:
     if epoca_1904:
-        if x < 1:        # calamine escribe una HORA donde Excel enseña 1904-01-01 (o ####)
+        if x < 0:
             return FECHA_ANTES_DE_1900
+        if x < 1:        # calamine escribe una HORA donde Excel enseña 1904-01-01
+            return FECHA_DIA_CERO_1904
         if x >= _FIN_DE_EXCEL_1904:
             return FECHA_DESPUES_DE_9999
         return None
-    if x < 1:
+    if x < 0:
         return FECHA_ANTES_DE_1900
+    if x < 1:
+        return FECHA_DIA_CERO_1900
     if 60 <= x < 61:
         return FECHA_29_FEBRERO_1900
     if x >= _FIN_DE_EXCEL_1900:
@@ -354,6 +362,7 @@ class _Marcas:
         self.cer_f, self.cer_c, self.cer_s = array.array("l"), array.array("l"), array.array("l")
         self.cer_v: dict[int, str] = {}       # columna → el primer valor (para el ejemplo)
         self.fec_f, self.fec_c, self.fec_k = array.array("l"), array.array("l"), array.array("l")
+        self.d04_f, self.d04_c = array.array("l"), array.array("l")       # día 0 de 1904
 
     def tipo_de_error(self, texto: str) -> int:
         texto = texto.strip() or "#ERROR"
@@ -368,7 +377,8 @@ class _Marcas:
             return len(self.tipos_error) - 1
 
 
-_CLASES_FECHA = (FECHA_ANTES_DE_1900, FECHA_29_FEBRERO_1900, FECHA_DESPUES_DE_9999)
+_CLASES_FECHA = (FECHA_ANTES_DE_1900, FECHA_29_FEBRERO_1900, FECHA_DESPUES_DE_9999,
+                 FECHA_DIA_CERO_1900)
 
 
 @dataclass
@@ -489,6 +499,11 @@ class Geometria:
                 if len(lista) < 10:
                     lista.append(referencia(f, c))
         return h
+
+    def dias_cero_1904(self) -> set[tuple[int, int]]:
+        """`(fila, columna)` de cada serie 0 ≤ x < 1 con formato de fecha en la época 1904."""
+        m = self.marcas
+        return set(zip(m.d04_f, m.d04_c))
 
     def fechas_no_validas(self, incluida=None) -> set[tuple[int, int]]:
         """`(fila, columna)` de cada serie con formato de fecha que no es una fecha."""
@@ -702,7 +717,10 @@ class _Explorador:
                 return
             if clase & FECHA:
                 k = _clase_de_fecha(x, self.epoca_1904)
-                if k is not None:
+                if k is FECHA_DIA_CERO_1904:
+                    m.d04_f.append(f)
+                    m.d04_c.append(c)
+                elif k is not None:
                     m.fec_f.append(f)
                     m.fec_c.append(c)
                     m.fec_k.append(_CLASES_FECHA.index(k))
