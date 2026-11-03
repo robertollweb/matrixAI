@@ -1,0 +1,25 @@
+MODEL RegressorProject.mxai
+
+DATASET RegressorTrainingSet
+  SOURCE csv("regressor.train.csv")
+  INPUT Input FROM COLUMNS [centigrados]
+  TARGET predicted_value: Scalar
+  SPLIT train=0.8 validation=0.2 seed=42
+  BATCH size=8
+END
+
+LOSS RegressorLoss
+  TYPE mse
+  PREDICTION Regressor
+  TARGET predicted_value
+END
+
+OPTIMIZER RegressorOptimizer
+  TYPE sgd
+  LEARNING_RATE 0.01
+  UPDATE Regressor.*
+END
+
+RUN
+  EPOCHS 50
+END

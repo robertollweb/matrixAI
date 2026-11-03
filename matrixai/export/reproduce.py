@@ -280,7 +280,15 @@ def cifra_de_otro_dataset(metrica: dict[str, Any], esperados: set[str]) -> bool:
 #: captura comprobada y una sin comprobar producían bloques `provenance`
 #: idénticos, y el veredicto vivía solo en la respuesta HTTP de train-start —
 #: que no acompaña al paquete, el mismo patrón que este fichero ya reprocha.
-_RUN_PROVENANCE_SCHEMA_VERSIONS = ("1.0", "1.1", "1.2")
+#: "1.3" (150-C4) es ADITIVA sobre "1.2" y SOLO la escribe el core cuando el run lleva `origen_del_fichero` (un Excel
+#: convertido, o un CSV `;` al que la entrada canónica le pasó el decimal a punto): una captura sin él sigue siendo
+#: "1.2" con los mismos bytes, y el digest de un paquete que no tiene nada que ver con un Excel no se mueve. Una
+#: captura "1.0"–"1.2" que traiga la clave se RECHAZA: un lector de esas versiones la publicaría como parámetro de
+#: generación, y la versión existe justo para que eso no pase.
+_RUN_PROVENANCE_SCHEMA_VERSIONS = ("1.0", "1.1", "1.2", "1.3")
+
+#: La versión de una captura que NO lleva `origen_del_fichero` (la última de antes de 150-C4).
+_RUN_PROVENANCE_SCHEMA_VERSION_SIN_ORIGEN = "1.2"
 
 #: Lo que la captura declara y el manifiesto publica como parámetro efectivo.
 #: Son las mismas claves que `build_generation_block` normaliza: la captura es
@@ -331,6 +339,11 @@ _RUN_PROVENANCE_CORE_KEYS = (
     # ver `_WEIGHTS_SOURCES`), pero se reconoce como clave de la captura para
     # que no se cuele en `generation` como si fuera un parámetro del run.
     "weights_source",
+    # 150-C4: el ORIGEN del fichero (un Excel convertido, un CSV con decimal español pasado a punto). No es un
+    # parámetro de generación: viaja a `artifacts.dataset.origen_del_fichero`, informativo. Sin esta alta saldría
+    # publicado como parámetro de generación (el comentario de arriba: «todo lo demás que traiga se trata como
+    # parámetro efectivo»), y R1 lo contrastaría como si fuera uno.
+    "origen_del_fichero",
 )
 
 # `\Z` y NO `$`: en Python `$` casa TAMBIÉN antes de un salto de línea
@@ -1212,6 +1225,7 @@ def capturar_run(
     warm_start: Any = None,
     recipe_verification: dict[str, Any] | None = None,
     mode: str | None = None,
+    origen_del_fichero: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """La captura de un run, construida por quien ENTRENA.
 
@@ -1230,7 +1244,9 @@ def capturar_run(
     es una respuesta legítima y un valor inventado no.
     """
     captura: dict[str, Any] = {
-        "schema_version": _RUN_PROVENANCE_SCHEMA_VERSIONS[-1],
+        # La versión sube a 1.3 SOLO con un origen (150-C4): sin él, la captura es la de siempre, byte a byte.
+        "schema_version": (_RUN_PROVENANCE_SCHEMA_VERSIONS[-1] if origen_del_fichero
+                           else _RUN_PROVENANCE_SCHEMA_VERSION_SIN_ORIGEN),
         "mxai_sha256": hashlib.sha256(mxai_text.strip().encode("utf-8")).hexdigest(),
         "mxtrain_sha256": hashlib.sha256(mxtrain_text.encode("utf-8")).hexdigest(),
         "mxtrain_text": mxtrain_text,
@@ -1269,6 +1285,10 @@ def capturar_run(
         # entrena es quien puede comprobarlo, y el core publica el veredicto
         # tal cual. Sin esto, la receta viaja como una promesa.
         captura["recipe_verification"] = recipe_verification
+    if origen_del_fichero:
+        # 150-C4: DE QUÉ FICHERO salió el dataset (un Excel, un CSV con decimal español). La huella del CSV derivado
+        # sigue siendo `dataset_sha256_raw`; la del original es informativa.
+        captura["origen_del_fichero"] = origen_del_fichero
     # La captura se valida con el MISMO validador que la leerá después: si esto
     # no pasa por ahí, no vale de nada haberla escrito.
     _normalize_run_provenance(captura)
@@ -1303,6 +1323,21 @@ def _normalize_run_provenance(raw: Any) -> dict[str, Any] | None:
     for clave in ("mxai_sha256", "mxtrain_sha256"):
         _require_full_sha256(cap.get(clave), f"run_provenance.{clave}")
     _require_text(cap.get("mxtrain_text"), "run_provenance.mxtrain_text")
+
+    # 150-C4: el origen del fichero. Solo una captura "1.3" puede llevarlo, y se valida con la función de quien lo
+    # define (no una segunda copia de sus reglas). Un `null` explícito se trata como ausente y se quita: no hay
+    # «origen vacío».
+    if cap.get("origen_del_fichero") is None:
+        cap.pop("origen_del_fichero", None)
+    else:
+        if version != _RUN_PROVENANCE_SCHEMA_VERSIONS[-1]:
+            raise ReproduceManifestError(
+                f"run_provenance carries origen_del_fichero but declares schema_version {version!r}: only "
+                f"{_RUN_PROVENANCE_SCHEMA_VERSIONS[-1]!r} can carry it, and a reader of an older version would publish "
+                f"it as a generation parameter")
+        from matrixai.export.origen_del_fichero import normalizar_origen_del_fichero  # noqa: PLC0415
+        cap["origen_del_fichero"] = normalizar_origen_del_fichero(
+            cap["origen_del_fichero"], campo="run_provenance.origen_del_fichero")
 
     # ¿Se COMPROBÓ que esa receta y esa semilla regeneran el dataset? El
     # vocabulario del código no se define aquí: es el de quien comprueba (el
@@ -1689,7 +1724,8 @@ def build_reproduce_manifest(
         esperados_ds = {d for d in (capture.get("dataset_sha256_raw"),
                                     capture.get("dataset_sha256_prepared")) if d}
         if (esperados_ds or capture.get("dataset_rows") is not None
-                or capture.get("dataset_rows_used") is not None):
+                or capture.get("dataset_rows_used") is not None
+                or capture.get("origen_del_fichero") is not None):
             dataset = {
                 "sha256": capture.get("dataset_sha256_raw"),
                 "sha256_prepared": capture.get("dataset_sha256_prepared"),
@@ -1703,6 +1739,12 @@ def build_reproduce_manifest(
                 "rows": capture.get("dataset_rows"),
                 "rows_used": capture.get("dataset_rows_used"),
             }
+            if capture.get("origen_del_fichero") is not None:
+                # 150-C4: DE QUÉ FICHERO salió este CSV. INFORMATIVO: `sha256` de arriba sigue siendo el del CSV derivado
+                # y es el único contra el que compara R1; la huella del original no entra en ningún R1–R3. Va SOLO si
+                # la captura lo trae: un CSV sin conversión no lleva el bloque (no se inventa un origen).
+                from matrixai.export.origen_del_fichero import bloque_del_manifiesto  # noqa: PLC0415
+                dataset["origen_del_fichero"] = bloque_del_manifiesto(capture["origen_del_fichero"])
 
     metrics_block = _normalize_metrics(metrics)
 

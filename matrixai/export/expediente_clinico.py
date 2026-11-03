@@ -67,6 +67,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from matrixai.export.origen_del_fichero import ROTULO as _ROTULO_DEL_ORIGEN
+from matrixai.export.origen_del_fichero import texto_del_origen as _texto_del_origen
+
 __all__ = [
     "DECLARADO",
     "ESTADOS",
@@ -325,7 +328,7 @@ class ExpedienteClinico:
         va si el modo los dejó: en el completo no hay ninguno, y «falta» sería un
         hueco inventado."""
         if not self.es_de_estudio:
-            return INVENTARIO
+            return self._con_el_origen(INVENTARIO)
         estudio = self._contenido["reproduce.json"]["study"]
         lineas: list[Evidencia] = []
         for evidencia in INVENTARIO:
@@ -358,7 +361,26 @@ class ExpedienteClinico:
                     # Auditoría de Roberto del 139 (P3-5): una red que cayó al pliegue 0 (su ajuste de selección ES el
                     # entregado) dice cómo terminó su entrenamiento, también si su plazo la cortó.
                     lineas.append(ENTRENAMIENTO_DEL_ENTREGADO)
-        return tuple(lineas)
+        return self._con_el_origen(tuple(lineas))
+
+    @property
+    def origen_del_fichero(self) -> dict[str, Any] | None:
+        """`artifacts.dataset.origen_del_fichero` del manifiesto (150-C4), o `None`: un CSV sin conversión no lo lleva."""
+        manifiesto = self._contenido.get("reproduce.json")
+        dataset = ((manifiesto or {}).get("artifacts") or {}).get("dataset") if isinstance(manifiesto, dict) else None
+        bloque = dataset.get("origen_del_fichero") if isinstance(dataset, dict) else None
+        return bloque if isinstance(bloque, dict) and bloque else None
+
+    def _con_el_origen(self, lineas: tuple["Evidencia", ...]) -> tuple["Evidencia", ...]:
+        """La línea del origen del fichero, justo detrás de la huella del dataset, SOLO si el paquete lo declara."""
+        if self.origen_del_fichero is None:
+            return lineas
+        salida: list[Evidencia] = []
+        for evidencia in lineas:
+            salida.append(evidencia)
+            if evidencia.clave == "huella_del_dataset":
+                salida.append(ORIGEN_DEL_FICHERO)
+        return tuple(salida)
 
     @property
     def entrenamiento_de_la_red(self) -> dict[str, Any] | None:
@@ -842,6 +864,18 @@ INVENTARIO: tuple[Evidencia, ...] = (
 
 #: Índice por clave, para que nadie tenga que recorrer la tupla a mano.
 POR_CLAVE: dict[str, Evidencia] = {e.clave: e for e in INVENTARIO}
+
+#: 150-C4 — DE QUÉ FICHERO salió el CSV (un Excel convertido, un CSV con decimal español pasado a punto). Va junto a la
+#: huella del dataset y SOLO en un paquete que lo declara (`inventario()`): un CSV sin conversión no tiene origen, y
+#: «falta» sería un hueco inventado. La huella que se verifica es la de arriba (la del CSV derivado); la del original es
+#: informativa y la línea lo dice.
+ORIGEN_DEL_FICHERO = _e(
+    "origen_del_fichero", "participantes", "reproduce.json#artifacts.dataset.origen_del_fichero",
+    _ROTULO_DEL_ORIGEN["es"], _ROTULO_DEL_ORIGEN["en"],
+    "el manifiesto no registra de qué fichero salió el dataset",
+    "the manifest records no file the dataset came from",
+    "origen_del_fichero")
+
 
 # ---------------------------------------------------------------------------
 # Lo que cambia cuando el paquete es de un ESTUDIO (reparación de 138-C1..C3)
@@ -1531,6 +1565,8 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
         return _texto_del_entrenamiento_de_la_red(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "entrenamiento_del_entregado" and isinstance(valor, dict):
         return _texto_del_entrenamiento_del_entregado(valor, "es" if locale == "es" else "en")
+    if evidencia.resumen == "origen_del_fichero" and isinstance(valor, dict):
+        return _texto_del_origen(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "modo" and isinstance(valor, str):
         return _NOMBRE_DEL_MODO["es" if locale == "es" else "en"].get(valor, valor)
     if evidencia.resumen == "booleano":

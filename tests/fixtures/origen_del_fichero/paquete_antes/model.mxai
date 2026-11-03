@@ -1,0 +1,21 @@
+PROJECT RegressorProject
+
+VECTOR Input[1]
+  centigrados: Scalar
+END
+
+NETWORK Regressor
+  INPUT Input
+  LAYER Dense units=32 activation=relu
+  LAYER Dense units=16 activation=relu
+  LAYER Dense units=1 activation=linear
+  OUTPUT predicted_value: Scalar
+END
+
+GRAPH
+  Input -> Regressor
+END
+
+AUDIT
+  EXPLAIN Input -> Regressor
+END

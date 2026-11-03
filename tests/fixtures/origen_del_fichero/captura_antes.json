@@ -1,0 +1,29 @@
+{
+  "dataset_rows": 30,
+  "dataset_rows_used": 30,
+  "dataset_sha256_prepared": "8d54ef95f3dd93c48105c33a32b78c38465c67ad7d1da9a2298bae44be50b5ce",
+  "dataset_sha256_raw": "8d54ef95f3dd93c48105c33a32b78c38465c67ad7d1da9a2298bae44be50b5ce",
+  "epochs_effective": 50,
+  "epochs_ran": 50,
+  "field_ranges": {
+    "centigrados": [
+      0.0,
+      29.0
+    ]
+  },
+  "mode": "coherent",
+  "mxai_sha256": "f7bca069c90804fccd07cdeb2b3e3305fdac421d41ea7e4a1c201da96a41c32b",
+  "mxtrain_sha256": "4b547271597b9f36264ebcb263d71c44251873e9a09ea5d1ab39738bd4440289",
+  "mxtrain_text": "MODEL RegressorProject.mxai\n\nDATASET RegressorTrainingSet\n  SOURCE csv(\"regressor.train.csv\")\n  INPUT Input FROM COLUMNS [centigrados]\n  TARGET predicted_value: Scalar\n  SPLIT train=0.8 validation=0.2 seed=42\n  BATCH size=8\nEND\n\nLOSS RegressorLoss\n  TYPE mse\n  PREDICTION Regressor\n  TARGET predicted_value\nEND\n\nOPTIMIZER RegressorOptimizer\n  TYPE sgd\n  LEARNING_RATE 0.01\n  UPDATE Regressor.*\nEND\n\nRUN\n  EPOCHS 50\nEND\n",
+  "recipe_sha256": "4bd13c006f3c77b4cc1d00bc6763b850f09a268941ffe5e652f8e696792f1713",
+  "recipe_text": "regenerable\n",
+  "recipe_verification": {
+    "code": "regenera_el_dataset",
+    "verified": true
+  },
+  "schema_version": "1.2",
+  "seeds": {
+    "dataset": 7
+  },
+  "warm_start": false
+}

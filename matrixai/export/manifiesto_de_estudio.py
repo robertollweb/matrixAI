@@ -125,6 +125,7 @@ from matrixai.export.reproduce import (
     build_problem_block,
     manifest_digest,
 )
+from matrixai.export.origen_del_fichero import bloque_del_manifiesto, normalizar_origen_del_fichero
 
 __all__ = ["manifiesto_de_estudio", "escribir_manifiesto_de_estudio",
            "MOTIVO_NO_REPRODUCIBLE", "METODOS_DE_CALIBRACION", "DISENOS_DEL_REPARTO"]
@@ -772,6 +773,7 @@ def manifiesto_de_estudio(
     reparto_del_estudio: Mapping[str, Any] | None = None,
     entrenamiento_del_entregado: Mapping[str, Any] | None = None,
     curvas_de_la_evaluacion: Mapping[str, Any] | None = None,
+    origen_del_fichero: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """El manifiesto de un estudio, con SOLO lo que el estudio sabe.
 
@@ -799,6 +801,10 @@ def manifiesto_de_estudio(
       (no entrenan; con una red de épocas fijas tampoco deciden nada). Con `filas_que_entrenaron_el_modelo` no pueden pasar de las de desarrollo.
     * `curvas_de_la_evaluacion` (Ola 2): el campo del mismo nombre del sobre de selección (141); de él se lee SOLO la calibración
       (`study.evaluation_calibration`). Sin curvas (`None`, `{disponible: false}`), el bloque no se escribe.
+    * `origen_del_fichero` (150-C4): DE QUÉ FICHERO salió el CSV (el `origen` de un libro de Excel convertido, o el de un CSV
+      `;` al que la entrada canónica le pasó el decimal a punto; ver `matrixai.export.origen_del_fichero`). Va en
+      `artifacts.dataset.origen_del_fichero`, INFORMATIVO: `artifacts.dataset.sha256` sigue siendo el del CSV derivado, que es lo
+      que vio el estudio. `None` (un CSV sin conversión ni declaración): el bloque no se escribe, no se inventa un origen.
     * `motor_del_modelo_entregado` (139-C2): el motor del modelo entregado (`candidate_engine` de la selección).
     * `nombre_del_motor_entregado` (Ola 2): el nombre EN PALABRAS de ese motor, `{es, en}` (las dos claves, texto no vacío), tal
       cual lo escribe quien lo conoce (el Studio): el núcleo no lleva una lista de nombres. Va en `study.delivered_engine_name`
@@ -926,13 +932,19 @@ def manifiesto_de_estudio(
     if calibracion_medida is not None:
         estudio["evaluation_calibration"] = calibracion_medida
 
+    origen: dict[str, Any] | None = None
+    if origen_del_fichero is not None:
+        origen = normalizar_origen_del_fichero(origen_del_fichero, campo="origen_del_fichero")
+
     dataset: dict[str, Any] | None = None
-    if filas is not None or huella_del_dataset is not None:
+    if filas is not None or huella_del_dataset is not None or origen is not None:
         dataset = {}
         if huella_del_dataset is not None:
             dataset["sha256"] = huella_del_dataset
         if filas is not None:
             dataset["rows"] = filas
+        if origen is not None:
+            dataset["origen_del_fichero"] = bloque_del_manifiesto(origen)
 
     generation: dict[str, Any] = {}
     if field_types is not None:
