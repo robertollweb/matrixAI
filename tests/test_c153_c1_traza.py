@@ -48,9 +48,24 @@ def _comprobar(lineas, ancla=None, esperar_genesis=False):
     return T.comprobar_traza(lineas, ancla, esperar_genesis)
 
 
+def _expandir(x):
+    """Una línea de los vectores: texto, o `{"base", "rellenar_con_espacios_hasta"}` (los casos de los topes; mismo criterio en el JS)."""
+    if isinstance(x, str):
+        return x
+    return x["base"] + " " * (x["rellenar_con_espacios_hasta"] - len(x["base"].encode("utf-8")))
+
+
+def _comprobar_caso(c):
+    """Un caso de los vectores, por la entrada que trae: los BYTES del fichero (`fichero_b64`, `fichero_de_espacios`) o las líneas."""
+    if "fichero_b64" in c:
+        return T.comprobar_fichero(base64.b64decode(c["fichero_b64"]), c.get("ancla"), c.get("esperar_genesis", False))
+    if "fichero_de_espacios" in c:
+        return T.comprobar_fichero(b" " * c["fichero_de_espacios"], c.get("ancla"), c.get("esperar_genesis", False))
+    return _comprobar([_expandir(x) for x in c["lineas"]], c.get("ancla"), c.get("esperar_genesis", False))
+
+
 def _caso(nombre):
-    c = CASOS[nombre]
-    return _comprobar(c["lineas"], c.get("ancla"), c.get("esperar_genesis", False))
+    return _comprobar_caso(CASOS[nombre])
 
 
 def _firmado_con(clave, bloque):
@@ -77,7 +92,7 @@ def test_los_vectores_son_los_que_el_generador_produce_y_son_muchos():
     gen = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gen)
     assert gen.texto_de_los_vectores() == (FIXTURES / "vectores_traza_v1.json").read_text(encoding="utf-8")
-    assert len(CASOS) >= 60 and len(CASOS) == len(VECTORES["casos"])
+    assert len(CASOS) >= 110 and len(CASOS) == len(VECTORES["casos"])
 
 
 def test_las_claves_de_prueba_son_de_prueba_y_el_fichero_no_lleva_ninguna_pem():
@@ -408,9 +423,14 @@ def test_cli_trace_verify_huella_y_desde_genesis(tmp_path):
     assert mala.returncode == 1 and "huella" in mala.stderr and mala.stdout == ""
 
 
-def test_cli_trace_verify_un_fichero_que_no_existe_sale_con_1(tmp_path):
-    r = _cli("trace", "verify", str(tmp_path / "no-existe.jsonl"))
-    assert r.returncode == 1 and "no se pudo leer" in r.stderr
+def test_cli_trace_verify_un_fichero_que_no_existe_sale_con_1_y_lo_dice_en_su_idioma(tmp_path):
+    """rep-c1 (menor 4): el error de stderr respeta `--locale` (antes salía en castellano bajo una CLI en inglés)."""
+    en = _cli("trace", "verify", str(tmp_path / "no-existe.jsonl"))
+    assert en.returncode == 1 and "could not read" in en.stderr and "no se pudo" not in en.stderr
+    es = _cli("trace", "verify", str(tmp_path / "no-existe.jsonl"), "--locale", "es")
+    assert es.returncode == 1 and "no se pudo leer" in es.stderr
+    mala = _cli("trace", "verify", _fichero(tmp_path, "ok.jsonl", CADENA), "--huella", "zz")
+    assert mala.returncode == 1 and "fingerprint" in mala.stderr and "huella es" not in mala.stderr
 
 
 def test_cli_trace_verify_un_fichero_con_los_bytes_rotos_no_lanza(tmp_path):
@@ -442,11 +462,14 @@ def test_paridad_js_el_corredor_de_vectores_de_node_da_cero_fallos():
 
 
 def test_paridad_js_mismo_estado_motivo_y_bloque_en_cada_vector():
-    casos = [{"lineas": c["lineas"], "ancla": c.get("ancla"), "esperar_genesis": c.get("esperar_genesis", False)} for c in VECTORES["casos"]]
-    js = _node({"modo": "comprobar", "casos": casos})["resultados"]
+    """Todos los vectores (los 65 de C1 y los de la reparación), por la misma entrada en los dos: líneas o BYTES del fichero.
+    Y las `cadenas` de un resultado válido, iguales."""
+    js = _node({"modo": "comprobar", "casos": VECTORES["casos"]})["resultados"]
+    assert len(js) == len(VECTORES["casos"])
     for c, j in zip(VECTORES["casos"], js):
-        p = _comprobar(c["lineas"], c.get("ancla"), c.get("esperar_genesis", False))
+        p = _comprobar_caso(c)
         assert (p["estado"], p["motivo"], p["bloque"]) == (j["estado"], j["motivo"], j["bloque"]), c["nombre"]
+        assert p.get("cadenas") == j["cadenas"], c["nombre"]
 
 
 def _valor_jcs_al_azar(rng, profundidad=0):
@@ -550,3 +573,248 @@ def test_paridad_js_600_trazas_estropeadas_al_azar_dan_el_mismo_veredicto_en_pyt
     # que el banco tenga dientes: salen de todo, no solo de «la firma no coincide»
     assert {("valida", None), ("no_coincide", "firma"), ("no_coincide", "cadena"), ("no_se_pudo_comprobar", "formato")} <= set(estados), estados
     assert estados.get(("no_se_pudo_comprobar", "formato"), 0) > 20 and estados.get(("no_coincide", "cadena"), 0) > 5, estados
+
+
+# ───────────────────────────────────────────────────────────────── reparación de la auditoría de C1 (rep-c1)
+# B1 (reinicios), I1 (claves de orden pequeño), I2 (topes de tamaño) y los menores. Cada prueba mata un sabotaje con su nombre.
+
+_REP_B1 = [n for n in CASOS if n.startswith("B1_")]
+_REP_I1 = [n for n in CASOS if n.startswith("I1_")]
+
+
+def test_B1_un_bloque_repetido_en_el_fichero_es_cadena_rota_aunque_vaya_tras_un_reinicio():
+    """Arreglo (a): el hash de cada bloque, una sola vez por fichero. Antes, duplicar una cadena de reinicio daba «firma válida»."""
+    for nombre in ("B1_cadena_de_reinicio_duplicada", "B1_bloque_de_reinicio_duplicado_al_final", "B1_solo_una_cadena_de_reinicio_dos_veces",
+                   "B1_bloque_duplicado_con_otro_formato", "B1_bloque_de_ventana_vacia_duplicado"):
+        r = _caso(nombre)
+        assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_COINCIDE, "cadena", CASOS[nombre]["esperado"]["bloque"]), nombre
+        assert "repetido" in r["detalle"]["es"] and "repeated" in r["detalle"]["en"], nombre
+
+
+def test_B1_las_cadenas_de_una_misma_clave_van_en_el_orden_de_sus_ventanas_firmadas():
+    """Arreglo (b): una cadena nueva de una clave no puede empezar antes de que acabe la anterior de ESA clave. No es la hora
+    (DS11): es el orden de lo que la propia clave firmó. Igual (desde == hasta) vale; claves distintas no se ordenan."""
+    for nombre in ("B1_cadenas_intercambiadas", "B1_cadenas_intercambiadas_con_ancla", "B1_reinicio_que_se_solapa_con_la_anterior"):
+        r = _caso(nombre)
+        assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_COINCIDE, "cadena", CASOS[nombre]["esperado"]["bloque"]), nombre
+        assert "antes de que acabe" in r["detalle"]["es"], nombre
+    for nombre in ("B1_tres_cadenas_legitimas", "B1_reinicio_que_empieza_justo_cuando_acaba_la_anterior",
+                   "B1_cadena_de_otra_clave_antes_y_fuera_de_hora_NO_se_detecta_sin_ancla"):
+        assert _caso(nombre)["estado"] == A.VALIDA, nombre
+
+
+def test_B1_las_sondas_del_auditor_borrar_reordenar_y_duplicar_cadenas():
+    """Las ocho manipulaciones de `p1_cadenas.py` del auditor, reconstruidas con los vectores: lo detectable sale `cadena`, y lo que
+    no se puede detectar (borrar ANTES de un reinicio) sigue «válida» y está dicho en el §4."""
+    a0, a1, a2 = CASOS["B1_tres_cadenas_legitimas"]["lineas"][:3], CASOS["B1_tres_cadenas_legitimas"]["lineas"][3:5], CASOS["B1_tres_cadenas_legitimas"]["lineas"][5:]
+    h = CLAVE_A["huella"]
+    esperado = {
+        "legitimo": (a0 + a1 + a2, A.VALIDA),
+        "borrar_cola_antes_del_reinicio": (a0[:2] + a1 + a2, A.VALIDA),  # no detectable: §4
+        "borrar_una_cadena_entera": (a0 + a2, A.VALIDA),                 # no detectable: §4
+        "reordenar_cadenas": (a0 + a2 + a1, A.NO_COINCIDE),
+        "duplicar_la_ultima": (a0 + a1 + a2 + a2, A.NO_COINCIDE),
+        "duplicar_una_entera": (a0 + a1 + a1 + a2, A.NO_COINCIDE),
+        "reinicio_al_principio": (a2 + a0 + a1, A.NO_COINCIDE),
+        "solo_una_dos_veces": (a1 + a1, A.NO_COINCIDE),
+    }
+    for nombre, (lineas, estado) in esperado.items():
+        for ancla in (None, h):
+            r = _comprobar(lineas, ancla)
+            assert r["estado"] == estado, (nombre, ancla, r)
+            if estado == A.NO_COINCIDE:
+                assert r["motivo"] == "cadena", (nombre, r)
+
+
+def test_B1_lo_que_no_demuestra_y_describir_dicen_que_en_un_reinicio_pueden_faltar_los_bloques_de_antes():
+    """Arreglo (c): el §4 (es/en) dice que en cada reinicio pueden faltar los bloques anteriores y que borrar o reordenar solo se
+    detecta DENTRO de una cadena; `describir` lista las cadenas (menor 2) y lo repite donde hay reinicios."""
+    assert T.AVISO_REINICIO["es"] in T.LO_QUE_NO_DEMUESTRA["es"] and T.AVISO_REINICIO["en"] in T.LO_QUE_NO_DEMUESTRA["en"]
+    assert "DENTRO" in T.AVISO_REINICIO["es"] and "INSIDE" in T.AVISO_REINICIO["en"]
+    assert "reinicio" in T.AVISO_REINICIO["es"] and "restart" in T.AVISO_REINICIO["en"]
+    r = _caso("B1_tres_cadenas_legitimas")
+    es, en = "\n".join(T.describir(r, "es")), "\n".join(T.describir(r, "en"))
+    assert "3 cadenas (reinicio sin_previo en las líneas 4, 6)" in es and "3 chains (sin_previo restart at lines 4, 6)" in en
+    assert "- líneas 1–3: seq 0–2" in es and "- líneas 4–5: seq 0–1" in es and "- lines 6–6: seq 0–0" in en
+    assert "En cada reinicio pueden faltar los bloques de antes" in es and "At each restart the earlier blocks may be missing" in en
+    sin = "\n".join(T.describir(_caso("cadena_valida"), "es"))
+    assert "cadenas (" not in sin and "En cada reinicio" not in sin  # sin reinicios no se habla de cadenas
+    for texto in T.LO_QUE_NO_DEMUESTRA["es"] + T.LO_QUE_NO_DEMUESTRA["en"]:
+        assert not re.search(r"verificad|verified|garantiz|guarantee", texto, re.I), texto
+
+
+def test_B1_las_cadenas_del_resultado_valido_dicen_inicio_fin_seq_y_huella():
+    r = _caso("B1_cadena_de_otra_clave_antes_y_fuera_de_hora_NO_se_detecta_sin_ancla")
+    assert r["cadenas"] == CASOS["B1_cadena_de_otra_clave_antes_y_fuera_de_hora_NO_se_detecta_sin_ancla"]["esperado"]["cadenas"]
+    assert _caso("cadena_valida")["cadenas"] == [{"inicio": 0, "fin": 2, "seq_inicial": 0, "seq_final": 2, "huella": CLAVE_A["huella"]}]
+
+
+def test_menor_7_el_primer_bloque_incoherente_es_cadena_y_el_de_otro_dia_es_valido():
+    """Decisión de rep-c1: sin `reinicio`, seq 0 lleva prev de ceros y ningún otro lo lleva. Un fichero que EMPIEZA con seq 0 y un
+    prev real, o con seq > 0 y prev de ceros, es `cadena` en su línea 1; el fichero de otro día (seq 2 con el prev del 1) sigue valiendo."""
+    for nombre in ("primer_bloque_seq_0_con_prev_que_no_es_de_ceros", "primer_bloque_seq_2_con_prev_de_ceros"):
+        r = _caso(nombre)
+        assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_COINCIDE, "cadena", 0), nombre
+        assert "incoherente" in r["detalle"]["es"], nombre
+    assert _caso("primer_bloque_seq_2_con_prev_real")["estado"] == A.VALIDA
+
+
+# ───── I1
+
+def _edwards():
+    """Una suma de Edwards de juguete (lenta, solo para las pruebas) para comprobar la lista de puntos de orden pequeño."""
+    p, d = T._P, T._D
+
+    def recuperar(y, signo):
+        u, v = (y * y - 1) % p, (d * y * y + 1) % p
+        x2 = u * pow(v, -1, p) % p
+        x = pow(x2, (p + 3) // 8, p)
+        if (x * x - x2) % p:
+            x = x * pow(2, (p - 1) // 4, p) % p
+        if (x * x - x2) % p:
+            return None
+        return (x if x % 2 == signo else (-x) % p, y)
+
+    def sumar(P1, P2):
+        (x1, y1), (x2, y2) = P1, P2
+        t = d * x1 * x2 * y1 * y2
+        return ((x1 * y2 + y1 * x2) * pow(1 + t, -1, p) % p, (y1 * y2 + x1 * x2) * pow(1 - t, -1, p) % p)
+
+    return recuperar, sumar
+
+
+def test_I1_la_lista_de_puntos_de_orden_pequeno_son_los_8_y_solo_esos():
+    """Las 5 coordenadas y de `_Y_DE_ORDEN_PEQUENO` dan, con los dos signos, exactamente los 8 puntos P con 8·P = identidad."""
+    recuperar, sumar = _edwards()
+    puntos = set()
+    for y in T._Y_DE_ORDEN_PEQUENO:
+        for signo in (0, 1):
+            P = recuperar(y, signo)
+            assert P is not None
+            Q = (0, 1)
+            for _ in range(8):
+                Q = sumar(Q, P)
+            assert Q == (0, 1), hex(y)
+            puntos.add(P)
+    assert len(puntos) == 8
+    pub_a = bytes.fromhex(CLAVE_A["publica_hex"])
+    assert T._clave_publica_utilizable(pub_a) and T._clave_publica_utilizable(bytes.fromhex(CLAVE_B["publica_hex"]))
+
+
+def test_I1_una_clave_de_orden_pequeno_o_no_canonica_es_clave_antes_de_verificar(monkeypatch):
+    """Con la clave identidad y R = identidad, S = 0, OpenSSL da por buena cualquier firma (medido por la auditoría: 10 «válidas»).
+    Ahora es `clave`, ANTES de llamar a la biblioteca: aunque esta aceptara todo, sigue siendo `clave`."""
+    for nombre in _REP_I1:
+        if nombre.startswith("I1_clave_"):
+            assert (_caso(nombre)["estado"], _caso(nombre)["motivo"]) == (A.NO_COINCIDE, "clave"), nombre
+    assert len([n for n in _REP_I1 if n.startswith("I1_clave_")]) >= 13
+    monkeypatch.setattr(A, "comprobar", lambda *a, **k: True)  # una biblioteca que no rechazara nada
+    for nombre in _REP_I1:
+        if nombre.startswith("I1_clave_"):
+            assert _caso(nombre)["motivo"] == "clave", nombre
+    r = _caso("I1_clave_identidad")
+    assert "orden pequeño" in r["detalle"]["es"] and "small order" in r["detalle"]["en"]
+
+
+def test_I1_R_de_orden_pequeno_y_S_mayor_o_igual_que_L_no_son_firma_aunque_la_biblioteca_los_aceptara(monkeypatch):
+    """S >= L (S + L sobre una firma buena) y R = identidad son `firma`; se miran en el comprobador, no solo en la biblioteca."""
+    for nombre in ("I1_firma_con_S_mas_L", "I1_firma_R_identidad_con_clave_buena"):
+        assert (_caso(nombre)["motivo"], _caso(nombre)["bloque"]) == ("firma", 1), nombre
+    monkeypatch.setattr(A, "comprobar", lambda *a, **k: True)
+    for nombre in ("I1_firma_con_S_mas_L", "I1_firma_R_identidad_con_clave_buena"):
+        assert (_caso(nombre)["motivo"], _caso(nombre)["bloque"]) == ("firma", 1), nombre
+    assert _caso("cadena_valida")["estado"] == A.VALIDA  # el parche no estropea lo bueno
+
+
+def test_I1_en_javascript_tambien_con_una_plataforma_que_acepta_cualquier_firma():
+    casos = [CASOS[n] for n in _REP_I1]
+    for js, c in zip(_node({"modo": "comprobar", "casos": casos, "acepta_todo": True})["resultados"], casos):
+        assert (js["estado"], js["motivo"]) == (c["esperado"]["estado"], c["esperado"]["motivo"]), c["nombre"]
+
+
+# ───── I2
+
+def test_I2_los_topes_son_los_mismos_en_python_y_en_javascript_y_cubren_un_ano_de_bloques():
+    js = _node({"modo": "topes"})
+    assert (js["TOPE_LINEA"], js["TOPE_FICHERO"]) == (T.TOPE_LINEA, T.TOPE_FICHERO) == (1 << 20, 64 << 20)
+    # un año de bloques horarios con 42 columnas pesa 41,5 MB (medido en rep-c1, `anio.py`): cabe con un 60 % de holgura
+    assert T.TOPE_FICHERO > 1.5 * 41_537_810
+
+
+def test_I2_los_topes_se_miran_antes_de_leer_el_json(monkeypatch):
+    """Una línea de más de 1 MiB, o un fichero de más de 64 MiB, es `formato` SIN llegar a `json.loads` (que con 100 MB usaba
+    ×11 la memoria) y sin decodificar los bytes."""
+    llamadas = []
+    monkeypatch.setattr(T.json, "loads", lambda *a, **k: llamadas.append(1) or (_ for _ in ()).throw(AssertionError("se leyó el JSON")))
+    r = _comprobar([" " * (T.TOPE_LINEA + 1)])
+    assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_SE_PUDO_COMPROBAR, "formato", 0) and "1 MiB" in r["detalle"]["es"]
+    r = T.comprobar_fichero(b"[" * (T.TOPE_FICHERO + 1))
+    assert (r["motivo"], r["bloque"]) == ("formato", None) and "64 MiB" in r["detalle"]["es"] and "64 MiB" in r["detalle"]["en"]
+    r = _comprobar(["ñ" * (T.TOPE_LINEA // 2 + 1)])  # 524.289 caracteres, 1 MiB + 2 bytes: se cuentan BYTES, no caracteres
+    assert (r["motivo"], r["bloque"]) == ("formato", 0)
+    assert llamadas == []
+    for nombre in ("I2_linea_de_1_MiB_mas_1_byte", "I2_linea_de_basura_de_20_MiB", "I2_fichero_de_64_MiB_mas_1_byte", "I2_fichero_en_bytes_de_64_MiB_mas_1"):
+        r = _caso(nombre)
+        assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_SE_PUDO_COMPROBAR, "formato", CASOS[nombre]["esperado"]["bloque"]), nombre
+
+
+def test_I2_justo_en_los_topes_cabe():
+    assert _caso("I2_linea_de_1_MiB_justo")["estado"] == A.VALIDA
+    r = _caso("I2_fichero_de_64_MiB_justo")
+    assert (r["estado"], r["bloques"]) == (A.VALIDA, 64)
+
+
+def test_I2_la_cli_no_lee_mas_alla_del_tope(tmp_path):
+    f = tmp_path / "grande.jsonl"
+    with open(f, "wb") as fh:
+        fh.truncate(T.TOPE_FICHERO + 10)  # disperso: no gasta disco
+    r = _cli("trace", "verify", str(f), "--locale", "es")
+    assert r.returncode == 3 and "64 MiB" in r.stdout and "Traceback" not in r.stderr
+
+
+def test_I2_el_lector_de_javascript_no_construye_cadenas_caracter_a_caracter():
+    """En JS, `s += c` con una cadena de millones de caracteres crea millones de cadenas; el lector usa `slice`."""
+    fuente = (FIXTURES / "comprobar_traza.mjs").read_text(encoding="utf-8")
+    lector = fuente[fuente.index("function leerJSON"):fuente.index("// ───────────────────────── JCS")]
+    assert "s += c;" not in lector and "texto.slice(ini, i)" in lector
+
+
+# ───── menores
+
+def test_menor_1_por_bytes_el_BOM_y_el_UTF8_invalido_son_formato_igual_en_los_dos():
+    for nombre in ("bytes_con_BOM", "bytes_utf8_invalido", "bytes_utf8_sobrelargo", "bytes_sustituto_codificado"):
+        r = _caso(nombre)
+        assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_SE_PUDO_COMPROBAR, "formato", CASOS[nombre]["esperado"]["bloque"]), nombre
+    assert _caso("bytes_cadena_valida")["estado"] == A.VALIDA
+    fuente = (FIXTURES / "comprobar_traza.mjs").read_text(encoding="utf-8")
+    assert "new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })" in fuente
+
+
+def test_menor_4_la_cli_con_json_lleva_lo_que_no_demuestra_y_el_aviso_de_la_cola(tmp_path):
+    f = _fichero(tmp_path, "ok.jsonl", CADENA)
+    en = json.loads(_cli("trace", "verify", f, "--json").stdout)
+    assert en["lo_que_no_demuestra"] == T.LO_QUE_NO_DEMUESTRA["en"] and en["aviso_cola"] == T.AVISO_COLA["en"]
+    es = json.loads(_cli("trace", "verify", f, "--json", "--locale", "es").stdout)
+    assert es["lo_que_no_demuestra"] == T.LO_QUE_NO_DEMUESTRA["es"] and es["aviso_cola"] == T.AVISO_COLA["es"]
+    assert es["estado"] == "valida" and es["cadenas"][0]["seq_final"] == 2
+
+
+def test_menor_3_el_consejo_de_cotejar_la_cola_dice_con_que():
+    """El consejo «compara el último bloque» se queda porque C3 se obliga (anotado en el contrato) a anunciar `ultimo_seq` y
+    `ultimo_hash` en `/health`: el texto dice qué comparar y dónde."""
+    assert "/health" in T.AVISO_COLA["es"] and "seq y hash" in T.AVISO_COLA["es"]
+    assert "/health" in T.AVISO_COLA["en"] and "seq and hash" in T.AVISO_COLA["en"]
+
+
+def test_menor_5_cli_reference_no_promete_de_mas():
+    """CLI_REFERENCE (es/en) ya no dice que un bloque borrado o reordenado sale siempre «no coincide»: dice DENTRO de una cadena,
+    y que en un reinicio pueden faltar bloques; y su ejemplo es la salida de hoy."""
+    for idioma, dentro, reinicio in (("es", "dentro de una cadena", "reinicio"), ("en", "inside a chain", "restart")):
+        texto = (RAIZ / "docs" / idioma / "api" / "CLI_REFERENCE.md").read_text(encoding="utf-8")
+        seccion = texto[texto.index("### matrixai trace verify"):]
+        seccion = seccion[:seccion.index("\n---")]
+        plano = " ".join(seccion.replace("**", "").split())
+        assert dentro in plano and reinicio in plano, idioma
+        assert "64 MiB" in seccion and "1 MiB" in seccion, idioma
+        for frase in T.LO_QUE_NO_DEMUESTRA[idioma]:
+            assert frase in seccion, (idioma, frase[:40])

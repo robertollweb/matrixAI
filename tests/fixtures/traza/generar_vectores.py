@@ -218,8 +218,9 @@ def construir():
     pub_malo = "ff" * 32
     m = copy.deepcopy(b1)
     m["servicio"]["clave_publica"], m["servicio"]["huella_clave"] = pub_malo, hashlib.sha256(bytes.fromhex(pub_malo)).hexdigest()
-    caso("clave_publica_que_no_es_un_punto", "32 bytes que no son una clave Ed25519 (con su huella bien calculada): ninguna firma cuadra",
-         [linea(m)], {"estado": "no_coincide", "motivo": "firma", "bloque": 0})
+    # (rep-c1, I1) 0xff…ff tiene y = 2^255-1 >= p: NO es canónica, y desde la reparación se rechaza como `clave` antes de verificar
+    caso("clave_publica_que_no_es_un_punto", "32 bytes 0xff (y >= p, no canónica; huella bien calculada): la clave no vale, antes de verificar",
+         [linea(m)], {"estado": "no_coincide", "motivo": "clave", "bloque": 0})
     # --- LO QUE NO SE DETECTA ---
     caso("TRUNCADA_LA_COLA", "Se borra el bloque 2: NO se detecta (el fichero parece completo). Solo se ve ultimo_seq=1", L[:2],
          {"estado": "valida", "motivo": None, "bloques": 2, "empieza_en": 0, "ultimo_seq": 1, "huellas": [hA]})
@@ -342,6 +343,8 @@ def construir():
     caso("misma_cadena_con_crlf", "Líneas acabadas en \\r (fichero de Windows): el espacio en blanco al final es JSON válido",
          [x + "\r" for x in L], {"estado": "valida", "bloques": 3, "ultimo_seq": 2})
 
+    casos_de_la_reparacion(caso, kA, pubA, hA, kB, pubB, hB, L, b0, b1, b2)
+
     todas = cadena + [g0, g1]
     return {
         "formato_de_vectores": "matrixai.traza.vectores/v1",
@@ -358,6 +361,171 @@ def construir():
             for b in todas]},
         "casos": casos,
     }
+
+
+# ─────────────── reparación de la auditoría de C1 (rep-c1): B1 reinicios, I1 claves, I2 topes, menores ───────────────
+P = 2 ** 255 - 19
+Y8 = 0x7A03AC9277FDC74EC6CC392CFA53202A0F67100D760B3CBA4FD84D3D706A17C7
+TOPE_LINEA = 1 << 20     # declarados AQUÍ otra vez, a propósito (como el prefijo): si el comprobador cambia los suyos, se ve
+TOPE_FICHERO = 64 << 20
+
+
+def cadena_de(k, pub, h, n, hora, rng, reinicio="sin_previo", seq0=0, prev0=GENESIS):
+    """n bloques horarios desde las `hora`:00 del 2026-11-02 (pasan de día si hace falta); el primero con `reinicio`."""
+    import datetime as dt
+    t0 = dt.datetime(2026, 11, 2, tzinfo=dt.timezone.utc) + dt.timedelta(hours=hora)
+    hh = lambda x: (t0 + dt.timedelta(hours=x)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    out, prev = [], prev0
+    for j in range(n):
+        b = bloque(k, pub, h, seq0 + j, prev, hh(j), hh(j + 1), rng, 30 + j, 0.0, reinicio=reinicio if j == 0 else None)
+        out.append(b)
+        prev = hash_de_bloque(b)
+    return out
+
+
+def enc(y, signo=0):
+    return (y | (signo << 255)).to_bytes(32, "little")
+
+
+def con_clave_y_firma(b, crudo, firma64):
+    """El bloque con OTRA clave pública (y su huella bien calculada) y una firma de 64 bytes dada, sin firmar de verdad."""
+    import base64
+    m = copy.deepcopy(b)
+    m["servicio"]["clave_publica"], m["servicio"]["huella_clave"] = crudo.hex(), hashlib.sha256(crudo).hexdigest()
+    m["firma"]["valor"] = base64.b64encode(firma64).decode("ascii")
+    return m
+
+
+def casos_de_la_reparacion(caso, kA, pubA, hA, kB, pubB, hB, L, b0, b1, b2):
+    import base64
+    rng = random.Random(1531)
+    # Tres cadenas de la clave A en un fichero, como el de un servicio que se reinició dos veces sin poder leer su última línea:
+    # A0 (génesis, 10-13 h), A1 (reinicio, 14-16 h), A2 (reinicio, 18 h).
+    A0 = cadena_de(kA, pubA, hA, 3, 10, rng, reinicio=None)
+    A1 = cadena_de(kA, pubA, hA, 2, 14, rng)
+    A2 = cadena_de(kA, pubA, hA, 1, 18, rng)
+    LA0, LA1, LA2 = [linea(b) for b in A0], [linea(b) for b in A1], [linea(b) for b in A2]
+
+    def cad(inicio, fin, si, sf, h=hA):
+        return {"inicio": inicio, "fin": fin, "seq_inicial": si, "seq_final": sf, "huella": h}
+
+    tres = [cad(0, 2, 0, 2), cad(3, 4, 0, 1), cad(5, 5, 0, 0)]
+    caso("B1_tres_cadenas_legitimas", "Génesis y dos reinicios sin_previo de la MISMA clave, en orden: válida, y dice las tres cadenas",
+         LA0 + LA1 + LA2, {"estado": "valida", "bloques": 6, "reinicios": [3, 5], "cadenas": tres, "huellas": [hA]})
+    caso("B1_tres_cadenas_legitimas_con_ancla", "Lo mismo con la huella anclada", LA0 + LA1 + LA2,
+         {"estado": "valida", "bloques": 6, "reinicios": [3, 5], "cadenas": tres}, ancla=hA)
+    # lo que NO se detecta (y la salida lo dice): borrar ANTES de un reinicio
+    caso("B1_borrada_la_cola_antes_de_un_reinicio_NO_se_detecta",
+         "Se borra el último bloque de A0, justo antes del reinicio: el reinicio dice «no hay anterior» y nada lo enlaza. NO se detecta; el §4 lo dice",
+         LA0[:2] + LA1 + LA2, {"estado": "valida", "bloques": 5, "reinicios": [2, 4]}, ancla=hA)
+    caso("B1_borrada_una_cadena_entera_NO_se_detecta", "Se borra la cadena A1 entera: NO se detecta (el §4 lo dice)",
+         LA0 + LA2, {"estado": "valida", "bloques": 4, "reinicios": [3]}, ancla=hA)
+    # lo que SÍ (B1, arreglo b: la ventana firmada de cadenas de la misma clave, en orden; la hora NO se comprueba)
+    caso("B1_cadenas_intercambiadas", "A2 antes que A1: la cadena A1 empieza (14 h) antes de que acabe A2 (19 h), misma clave",
+         LA0 + LA2 + LA1, {"estado": "no_coincide", "motivo": "cadena", "bloque": 4})
+    caso("B1_cadenas_intercambiadas_con_ancla", "Lo mismo con la huella anclada: la cadena se mira antes que el ancla",
+         LA0 + LA2 + LA1, {"estado": "no_coincide", "motivo": "cadena", "bloque": 4}, ancla=hA)
+    caso("B1_una_cadena_de_reinicio_puesta_al_principio", "A1 antes que el génesis: el génesis aparece tras una cadena, sin reinicio",
+         LA1 + LA0 + LA2, {"estado": "no_coincide", "motivo": "cadena", "bloque": 2})
+    # (arreglo a: un bloque repetido en el fichero es `cadena`)
+    caso("B1_cadena_de_reinicio_duplicada", "A1 dos veces seguidas: su primer bloque se repite",
+         LA0 + LA1 + LA1 + LA2, {"estado": "no_coincide", "motivo": "cadena", "bloque": 5})
+    caso("B1_bloque_de_reinicio_duplicado_al_final", "La cadena de un solo bloque A2, dos veces al final",
+         LA0 + LA1 + LA2 + LA2, {"estado": "no_coincide", "motivo": "cadena", "bloque": 6}, ancla=hA)
+    caso("B1_solo_una_cadena_de_reinicio_dos_veces", "A1 + A1 y nada más", LA1 + LA1,
+         {"estado": "no_coincide", "motivo": "cadena", "bloque": 2})
+    caso("B1_bloque_duplicado_dentro_de_la_cadena", "El bloque 1 repetido justo después de sí mismo", [L[0], L[1], L[1], L[2]],
+         {"estado": "no_coincide", "motivo": "cadena", "bloque": 2})
+    caso("B1_bloque_duplicado_con_otro_formato", "El génesis repetido al final reescrito con espacios: es el MISMO bloque (el hash es del canónico)",
+         L + [json.dumps(json.loads(L[0]), separators=(", ", ": "), ensure_ascii=False)], {"estado": "no_coincide", "motivo": "cadena", "bloque": 3})
+    # el que SOLO caza el hash repetido: una cadena de reinicio de un bloque con la ventana vacía (desde == hasta, p. ej. un
+    # servicio que se apaga en el mismo segundo en que arranca) duplicada: el orden de ventanas no la ve (19:00 >= 19:00)
+    V = bloque(kA, pubA, hA, 0, GENESIS, "2026-11-02T19:00:00Z", "2026-11-02T19:00:00Z", rng, 5, 0.0, incompleto=True, reinicio="sin_previo")
+    caso("B1_bloque_de_ventana_vacia_duplicado", "Un reinicio de un solo bloque con desde == hasta, dos veces: solo lo ve el hash repetido",
+         LA0 + LA1 + LA2 + [linea(V), linea(V)], {"estado": "no_coincide", "motivo": "cadena", "bloque": 7})
+    caso("B1_bloque_de_ventana_vacia_una_vez", "El mismo bloque una sola vez: válido", LA0 + LA1 + LA2 + [linea(V)],
+         {"estado": "valida", "bloques": 7, "reinicios": [3, 5, 6]})
+    # el límite del orden: una cadena que empieza justo cuando acaba la anterior (desde == hasta) vale
+    E = cadena_de(kA, pubA, hA, 1, 13, rng)  # A0 acaba a las 13:00
+    caso("B1_reinicio_que_empieza_justo_cuando_acaba_la_anterior", "desde de la cadena nueva == hasta de la anterior: en orden, válida",
+         LA0 + [linea(E[0])], {"estado": "valida", "bloques": 4, "reinicios": [3]})
+    E = cadena_de(kA, pubA, hA, 1, 12, rng)  # empieza a las 12:00, cuando A0 acaba a las 13:00
+    caso("B1_reinicio_que_se_solapa_con_la_anterior", "La cadena nueva de la misma clave empieza una hora antes de que acabe la anterior",
+         LA0 + [linea(E[0])], {"estado": "no_coincide", "motivo": "cadena", "bloque": 3})
+    # cadenas de claves DISTINTAS: su orden no se puede exigir (otro servicio, otra hora); sin ancla no se detecta, con ancla sí
+    rB = random.Random(1532)
+    B0 = cadena_de(kB, pubB, hB, 2, 8, rB)
+    LB0 = [linea(b) for b in B0]
+    caso("B1_cadena_de_otra_clave_antes_y_fuera_de_hora_NO_se_detecta_sin_ancla",
+         "Una cadena de la clave B (8-10 h) después de A1 (14-16 h): claves distintas, el orden no se exige; sin ancla es válida y salen dos huellas",
+         LA0 + LA1 + LB0, {"estado": "valida", "huellas": [hA, hB], "reinicios": [3, 5],
+                           "cadenas": [cad(0, 2, 0, 2), cad(3, 4, 0, 1), cad(5, 6, 0, 1, hB)]})
+    caso("B1_cadena_de_otra_clave_con_ancla", "Lo mismo con la huella A anclada: la cadena B se ve", LA0 + LA1 + LB0,
+         {"estado": "no_coincide", "motivo": "ancla", "bloque": 5}, ancla=hA)
+    # (menor 7) el primer bloque del fichero, incoherente
+    m = copy.deepcopy(b0); m["prev"] = hash_de_bloque(b2)
+    caso("primer_bloque_seq_0_con_prev_que_no_es_de_ceros", "seq 0 sin reinicio y con un prev real: el génesis lleva ceros; incoherente",
+         [linea(firmado(kA, m)), L[1]], {"estado": "no_coincide", "motivo": "cadena", "bloque": 0})
+    m = copy.deepcopy(b2); m["prev"] = GENESIS
+    caso("primer_bloque_seq_2_con_prev_de_ceros", "seq 2 sin reinicio y con prev de ceros: solo el génesis los lleva; incoherente",
+         [linea(firmado(kA, m))], {"estado": "no_coincide", "motivo": "cadena", "bloque": 0})
+    caso("primer_bloque_seq_2_con_prev_real", "El caso legítimo de al lado: un fichero de otro día empieza en seq 2 con el prev del 1",
+         [L[2]], {"estado": "valida", "empieza_en": 2})
+
+    # I1: claves públicas que «firman» cualquier cosa, con firmas que lo aprovechan (R = identidad, S = 0, etc.)
+    firma_id = enc(1) + b"\x00" * 32
+    malas = {
+        "identidad": enc(1), "identidad_con_signo": enc(1, 1), "ceros_orden_4": enc(0), "orden_4_con_signo": enc(0, 1),
+        "orden_2": enc(P - 1), "orden_2_con_signo": enc(P - 1, 1), "orden_8_a": enc(Y8), "orden_8_a_con_signo": enc(Y8, 1),
+        "orden_8_b": enc(P - Y8), "orden_8_b_con_signo": enc(P - Y8, 1), "y_igual_a_p_no_canonica": enc(P),
+        "y_p_mas_1_no_canonica_identidad": enc(P + 1), "fuera_de_la_curva_y_2": enc(2),
+    }
+    for nombre, crudo in malas.items():
+        caso(f"I1_clave_{nombre}", f"Clave pública {nombre} con su huella bien calculada y firma R=identidad, S=0: `clave`, antes de verificar",
+             [linea(con_clave_y_firma(b0, crudo, firma_id))], {"estado": "no_coincide", "motivo": "clave", "bloque": 0})
+    caso("I1_clave_identidad_y_firma_R_de_orden_4", "Clave identidad con R = (y=0), S = 0", [linea(con_clave_y_firma(b0, enc(1), enc(0) + b"\x00" * 32))],
+         {"estado": "no_coincide", "motivo": "clave", "bloque": 0})
+    sig = base64.b64decode(b1["firma"]["valor"])
+    L_ORDEN = 2 ** 252 + 27742317777372353535851937790883648493
+    S = int.from_bytes(sig[32:], "little")
+    m = copy.deepcopy(b1); m["firma"]["valor"] = base64.b64encode(sig[:32] + (S + L_ORDEN).to_bytes(32, "little")).decode("ascii")
+    caso("I1_firma_con_S_mas_L", "La firma buena del bloque 1 con S + L (otra firma «equivalente»): S >= L no es una firma", [L[0], linea(m), L[2]],
+         {"estado": "no_coincide", "motivo": "firma", "bloque": 1})
+    m = copy.deepcopy(b1); m["firma"]["valor"] = base64.b64encode(enc(1) + b"\x00" * 32).decode("ascii")
+    caso("I1_firma_R_identidad_con_clave_buena", "Clave A buena y firma R = identidad, S = 0", [L[0], linea(m), L[2]],
+         {"estado": "no_coincide", "motivo": "firma", "bloque": 1})
+
+    # I2: topes, ANTES de leer el JSON. Las líneas largas van como {"base", "rellenar_con_espacios_hasta"} (espacio al final: JSON válido)
+    caso("I2_linea_de_1_MiB_justo", "El bloque 0 relleno con espacios hasta 1 MiB exacto: cabe y es válido",
+         [{"base": L[0], "rellenar_con_espacios_hasta": TOPE_LINEA}, L[1], L[2]], {"estado": "valida", "bloques": 3})
+    caso("I2_linea_de_1_MiB_mas_1_byte", "El bloque 1 relleno hasta 1 MiB + 1 byte: `formato` en esa línea, sin leer su JSON",
+         [L[0], {"base": L[1], "rellenar_con_espacios_hasta": TOPE_LINEA + 1}, L[2]], {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 1})
+    caso("I2_linea_de_basura_de_20_MiB", "Una línea de 20 MiB (no JSON): `formato` en esa línea; antes, Node se quedaba sin memoria con 100 MB",
+         [L[0], {"base": "[", "rellenar_con_espacios_hasta": 20 << 20}], {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 1})
+    rT = random.Random(1533)
+    larga = cadena_de(kA, pubA, hA, 64, 0, rT, reinicio=None)
+    LL = [linea(b) for b in larga]
+    assert len(LL) == 64
+    justo = [{"base": x, "rellenar_con_espacios_hasta": TOPE_LINEA - 1} for x in LL]  # 64 × (1 MiB − 1 + el salto) = 64 MiB
+    caso("I2_fichero_de_64_MiB_justo", "64 bloques encadenados, cada línea de 1 MiB − 1 byte: con sus saltos, 64 MiB exactos; cabe",
+         justo, {"estado": "valida", "bloques": 64, "ultimo_seq": 63})
+    caso("I2_fichero_de_64_MiB_mas_1_byte", "Lo mismo con un espacio más en la última línea: 64 MiB + 1; `formato` del fichero, sin línea",
+         justo[:-1] + [{"base": LL[-1], "rellenar_con_espacios_hasta": TOPE_LINEA}], {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": None})
+    caso("I2_fichero_en_bytes_de_64_MiB_mas_1", "Los BYTES de un fichero de 64 MiB + 1 (espacios): `formato` antes de decodificar",
+         [], {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": None}, fichero_de_espacios=TOPE_FICHERO + 1)
+
+    # menor 1: por BYTES, UTF-8 estricto, como en Python (`TextDecoder` con fatal e ignoreBOM en el JS)
+    texto = ("\n".join(L) + "\n").encode("utf-8")
+    b64 = lambda x: base64.b64encode(x).decode("ascii")
+    caso("bytes_cadena_valida", "La cadena válida pasada como BYTES de fichero", [], {"estado": "valida", "bloques": 3}, fichero_b64=b64(texto))
+    caso("bytes_con_BOM", "El mismo fichero con BOM UTF-8 delante: la primera línea deja de ser JSON (no se quita en silencio)", [],
+         {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 0}, fichero_b64=b64(b"\xef\xbb\xbf" + texto))
+    caso("bytes_utf8_invalido", "Un byte 0xff en medio del id: no es UTF-8", [],
+         {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": None}, fichero_b64=b64(texto.replace("ñandú".encode(), b"\xff", 1)))
+    caso("bytes_utf8_sobrelargo", "La «/» escrita en 2 bytes (0xc0 0xaf, UTF-8 sobrelargo): no es UTF-8", [],
+         {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": None}, fichero_b64=b64(texto.replace(b"ed25519", b"ed\xc0\xaf25519", 1)))
+    caso("bytes_sustituto_codificado", "Un sustituto UTF-16 codificado en UTF-8 (0xed 0xa0 0x80): no es UTF-8", [],
+         {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": None}, fichero_b64=b64(texto.replace("ñ".encode(), b"\xed\xa0\x80", 1)))
 
 
 def base64_igual(a, b):

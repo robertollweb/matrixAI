@@ -19,10 +19,13 @@ bloque anterior CON su firma; el génesis lleva 64 ceros. La firma y la huella s
 **Tres estados, y solo tres** (145-D11): `valida` («firma válida»), `no_coincide` («la firma no
 coincide») y `no_se_pudo_comprobar`. Nunca «verificado». Se devuelve el PRIMER fallo, en este orden:
 
+0. TAMAÑO: 1 MiB por línea, 64 MiB el fichero    -> `no_se_pudo_comprobar` (`formato`), antes de leer JSON
 1. lectura y FORMA de cada línea                  -> `no_se_pudo_comprobar` (`formato` | `version`)
-2. TODAS las firmas, bloque a bloque              -> `no_coincide` (`clave` | `firma`)
+2. TODAS las firmas, bloque a bloque              -> `no_coincide` (`clave` | `firma`); una clave de orden
+   pequeño o no canónica es `clave` antes de verificar (con ella, cualquier contenido «estaría firmado»)
 3. coherencia (sumas, k)                          -> `no_se_pudo_comprobar` (`formato`)
-4. cadena, de un bloque al siguiente              -> `no_coincide` (`cadena`)
+4. cadena, de un bloque al siguiente, y entre    -> `no_coincide` (`cadena`)
+   cadenas: un bloque repetido, o una cadena nueva que empieza antes de que acabe la anterior de la misma clave
 5. ancla (la huella que quien comprueba esperaba) -> `no_coincide` (`ancla`)
 
 «La firma no coincide» es una propiedad de UN bloque (su contenido no es lo que firmó su clave);
@@ -32,8 +35,10 @@ miran todas antes que la cadena, y las sumas después de las firmas: un bloque e
 
 **Lo que una firma válida NO demuestra** (§4 del contrato; `LO_QUE_NO_DEMUESTRA`): que el servicio
 sea el tuyo si no cotejaste la huella, que las horas sean ciertas (las pone el reloj del servicio),
-que no falten los últimos bloques (truncar la cola NO se detecta), ni que el modelo acierte más o
-menos. No hay revocación.
+que no falten los últimos bloques (truncar la cola NO se detecta), que no falten bloques antes de un
+reinicio `sin_previo` (borrar o reordenar se detecta DENTRO de una cadena; entre cadenas, solo un bloque
+repetido o una cadena de la misma clave fuera de orden), ni que el modelo acierte más o menos. No hay
+revocación.
 
 `cryptography` es opcional (extra `[firma]`): sin ella el estado es `no_se_pudo_comprobar` con el
 motivo `falta_cryptography`.
@@ -43,6 +48,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import codecs
 import hashlib
 import json
 import re
@@ -55,8 +61,8 @@ from matrixai.pipelines.firma_asimetrica import (
 )
 
 __all__ = [
-    "FORMATO", "GENESIS", "K_MINIMO_POR_DEFECTO", "LO_QUE_NO_DEMUESTRA", "MOTIVOS", "PREFIJO_FIRMA",
-    "SALIDAS", "TrazaIlegible", "comprobar_fichero", "comprobar_traza", "describir", "firmar_bloque",
+    "AVISO_COLA", "AVISO_REINICIO", "FORMATO", "GENESIS", "K_MINIMO_POR_DEFECTO", "LO_QUE_NO_DEMUESTRA", "MOTIVOS", "PREFIJO_FIRMA",
+    "SALIDAS", "TOPE_FICHERO", "TOPE_LINEA", "TrazaIlegible", "comprobar_fichero", "comprobar_traza", "describir", "firmar_bloque",
     "hash_de_bloque", "leer_bloques", "lineas_de_texto", "mensaje_firmado",
 ]
 
@@ -67,6 +73,14 @@ GENESIS = "0" * 64
 #: DS2/DS9: el umbral por omisión del escritor; cada bloque graba el SUYO en `k_minimo`.
 K_MINIMO_POR_DEFECTO = 20
 MAX_ENTERO = 2 ** 53 - 1  # lo que JavaScript representa exacto: Python y JS no pueden discrepar
+#: Topes de tamaño (153-C1, I2), los MISMOS en el JS, comprobados ANTES de leer el JSON. MEDIDO (rep-c1, `~/.agentes/153/rep-c1/`):
+#: un bloque pesa 1,2 KB con 6 columnas y 4,7 KB con 42; un AÑO de bloques horarios con 42 columnas, en un solo fichero, 41,5 MB
+#: (el §7 del contrato estimaba ~33). La línea de 1 MiB es ~200 bloques de 42 columnas; el fichero de 64 MiB, 1,6 veces ese año (y
+#: el servicio escribe un fichero por día, DR5). Con estos topes y la lectura por líneas: ese año, 122 MB y 26 s en Python (antes,
+#: 381 MB); el peor fichero de 64 MiB, 193 MB (antes, 630 MB); y 74 MB, que antes costaban 1,1 GB y 43 s, son «formato» en 0,4 s.
+#: En Node, una línea de 100 MB era «sin memoria» a los 16 s; ahora, «formato» en 0,1 s.
+TOPE_LINEA = 1 << 20      # bytes UTF-8 de una línea, sin su `\n`
+TOPE_FICHERO = 64 << 20   # bytes del fichero; con líneas sueltas, la suma de (bytes de cada línea + 1)
 
 #: Códigos de salida de `matrixai trace verify`: los mismos que `receipt verify` y `verify` (82-C2).
 SALIDAS = {VALIDA: 0, NO_COINCIDE: 2, NO_SE_PUDO_COMPROBAR: 3}
@@ -86,21 +100,44 @@ def _t(es: str, en: str) -> dict[str, str]:
 MOTIVOS: dict[str, dict[str, str]] = {
     "firma": _t("el contenido de un bloque no es lo que firmó su clave (editado o firma estropeada)",
                 "a block's content is not what its key signed (edited, or the signature is damaged)"),
-    "clave": _t("la huella de un bloque no es la de la clave pública que lleva",
-                "a block's key fingerprint is not the one of the public key it carries"),
-    "cadena": _t("las firmas son buenas pero los bloques no encajan entre sí (falta, sobra o está "
-                 "cambiado de sitio alguno)",
-                 "the signatures are good but the blocks do not fit each other (one is missing, "
-                 "extra or out of place)"),
+    "clave": _t("la clave pública de un bloque no vale: su huella no es la suya, o no es una clave Ed25519 utilizable "
+                "(no canónica, fuera de la curva o de orden pequeño, que «firmaría» cualquier contenido)",
+                "a block's public key is not usable: its fingerprint is not its own, or it is not a usable Ed25519 key "
+                "(non-canonical, off the curve or of small order, which would \"sign\" any content)"),
+    "cadena": _t("las firmas son buenas pero los bloques no encajan entre sí (dentro de una cadena falta, sobra o está "
+                 "cambiado de sitio alguno; o un bloque está repetido; o una cadena empieza antes de que acabe la anterior de "
+                 "la misma clave)",
+                 "the signatures are good but the blocks do not fit each other (inside a chain one is missing, extra or "
+                 "out of place; or a block is repeated; or a chain starts before the previous one of the same key ends)"),
     "ancla": _t("la huella de la clave no es la que se esperaba (otro servicio u otra clave)",
                 "the key fingerprint is not the expected one (another service or another key)"),
-    "formato": _t("una línea no se pudo leer como un bloque de matrixai.traza/v1",
-                  "a line could not be read as a matrixai.traza/v1 block"),
+    "formato": _t("el fichero o una de sus líneas no se pudo leer como matrixai.traza/v1 (o pasa del tope de tamaño)",
+                  "the file or one of its lines could not be read as matrixai.traza/v1 (or it is over the size limit)"),
     "version": _t("el fichero es de una versión del formato que este programa no sabe leer",
                   "the file is from a format version this program cannot read"),
     "falta_cryptography": _t("falta cryptography, que la firma Ed25519 necesita "
                              "(pip install 'matrixai[firma]')",
                              "cryptography is missing and Ed25519 needs it (pip install 'matrixai[firma]')"),
+}
+
+#: El aviso de la COLA (§4): lo dicen `describir`, la CLI (también con `--json`) y el Studio. El cotejo con lo que anuncia el
+#: servicio es una OBLIGACIÓN de C3: `/health` y `/modelo` dan `ultimo_seq` y `ultimo_hash` (anotado en el contrato).
+AVISO_COLA: dict[str, str] = {
+    "es": "Que no falten los últimos bloques: si alguien borra el final del fichero, sigue saliendo «firma válida». "
+          "Compara el último bloque (seq y hash) con el que anuncia el servicio en su /health.",
+    "en": "That no trailing blocks are missing: if someone deletes the end of the file it still reads \"valid signature\". "
+          "Compare the last block (seq and hash) with the one the service announces on its /health.",
+}
+#: Lo que NO demuestra en un REINICIO (B1 de la auditoría de C1): `sin_previo` dice «no hay bloque anterior», así que nada enlaza
+#: la cadena nueva con lo que hubo antes.
+AVISO_REINICIO: dict[str, str] = {
+    "es": "Que no falten bloques antes de un reinicio: una cadena nueva («sin_previo») no enlaza con lo anterior, así que pueden "
+          "faltar los últimos bloques de la cadena de antes, o una cadena entera. Borrar o reordenar bloques se detecta DENTRO "
+          "de una cadena; entre cadenas, solo un bloque repetido o una cadena de la misma clave que empieza antes de que acabe "
+          "la anterior.",
+    "en": "That no blocks are missing before a restart: a new chain (\"sin_previo\") does not link to what came before, so the "
+          "last blocks of the previous chain, or a whole chain, may be missing. Deleting or reordering blocks is detected INSIDE "
+          "a chain; across chains, only a repeated block or a chain of the same key that starts before the previous one ends.",
 }
 
 #: §4 del contrato, texto fijo (es/en) para Seguimiento, /verificar y el README. Sin «garantiza»
@@ -109,16 +146,16 @@ LO_QUE_NO_DEMUESTRA: dict[str, list[str]] = {
     "es": [
         "Que el servicio sea el tuyo, si no cotejaste la huella de la clave por otro canal.",
         "Que las horas sean ciertas: las pone el reloj del servicio.",
-        "Que no falten los últimos bloques: si alguien borra el final del fichero, sigue saliendo "
-        "«firma válida». Compara el último bloque con el que anuncia el servicio.",
+        AVISO_COLA["es"],
+        AVISO_REINICIO["es"],
         "Que el modelo acierte más o menos: la traza mide entradas y salidas, no aciertos.",
         "No hay revocación de claves.",
     ],
     "en": [
         "That the service is yours, if you did not compare the key fingerprint through another channel.",
         "That the times are true: the service's own clock sets them.",
-        "That no trailing blocks are missing: if someone deletes the end of the file it still reads "
-        "\"valid signature\". Compare the last block with the one the service announces.",
+        AVISO_COLA["en"],
+        AVISO_REINICIO["en"],
         "That the model is right more or less often: the trace measures inputs and outputs, not hits.",
         "There is no key revocation.",
     ],
@@ -325,6 +362,42 @@ def _base64_canonico(texto: str) -> bool:
     return len(crudo) == 64 and base64.b64encode(crudo).decode("ascii") == texto
 
 
+# ───────────────────────────── claves y firmas Ed25519 que no valen (I1) ─────────────────────────────
+#
+# OpenSSL (y por tanto `cryptography` y `node:crypto`) acepta claves públicas de ORDEN PEQUEÑO y codificaciones no canónicas: con
+# la clave identidad (`01 00…`) y la firma R = identidad, S = 0, la ecuación de Ed25519 se cumple para CUALQUIER mensaje. Medido
+# por la auditoría de C1: 10 combinaciones de clave y firma así daban «firma válida». Aquí se decide ANTES de verificar, con
+# aritmética propia (la misma en el JS), para no depender de lo que acepte cada biblioteca ni cada navegador (C6, WebCrypto).
+
+_P = 2 ** 255 - 19
+_D = (-121665 * pow(121666, -1, _P)) % _P
+_L = 2 ** 252 + 27742317777372353535851937790883648493  # el orden del grupo: S < L (RFC 8032 §5.1.7)
+_Y8 = 0x7A03AC9277FDC74EC6CC392CFA53202A0F67100D760B3CBA4FD84D3D706A17C7
+#: Las coordenadas y de los 8 puntos de orden pequeño (orden 1, 2, 4 y 8). Con los dos signos de x salen los 8 puntos; los de
+#: x = 0 (y = ±1) con el bit de signo puesto son además codificaciones no canónicas. Todos se rechazan.
+_Y_DE_ORDEN_PEQUENO = frozenset({0, 1, _P - 1, _Y8, _P - _Y8})
+
+
+def _y_de(crudo32: bytes) -> int:
+    return int.from_bytes(crudo32, "little") & ((1 << 255) - 1)
+
+
+def _clave_publica_utilizable(crudo32: bytes) -> bool:
+    """¿Son estos 32 bytes una clave Ed25519 que solo firma quien tiene su privada? `y` canónico (< p), que no sea de un punto de
+    orden pequeño, y que exista el punto (x² = (y²−1)/(d·y²+1) es un cuadrado módulo p)."""
+    y = _y_de(crudo32)
+    if y >= _P or y in _Y_DE_ORDEN_PEQUENO:
+        return False
+    x2 = (y * y - 1) * pow(_D * y * y + 1, -1, _P) % _P
+    return x2 == 0 or pow(x2, (_P - 1) // 2, _P) == 1  # x2 == 0 solo con y = ±1, ya fuera
+
+
+def _firma_bien_formada(firma64: bytes) -> bool:
+    """R con su y canónico y no de orden pequeño; S < L. Lo que no cumpla no es una firma, la acepte o no la biblioteca."""
+    y_r = _y_de(firma64[:32])
+    return y_r < _P and y_r not in _Y_DE_ORDEN_PEQUENO and int.from_bytes(firma64[32:], "little") < _L
+
+
 def _res(estado: str, motivo: str | None = None, bloque: int | None = None,
          detalle: dict[str, str] | None = None, **extra: Any) -> dict[str, Any]:
     r = {"estado": estado, "motivo": motivo, "bloque": bloque, "detalle": detalle}
@@ -344,27 +417,92 @@ def lineas_de_texto(texto: str) -> list[str]:
     return partes
 
 
+def _bytes_utf8(linea: str) -> int:
+    """Lo que pesa la línea en UTF-8. Un sustituto suelto cuenta 3 bytes, como en el JS (luego el lector lo rechaza)."""
+    if len(linea) > TOPE_LINEA:  # los puntos de código nunca son más que los bytes: no hace falta codificar 100 MB
+        return len(linea)
+    return len(linea.encode("utf-8", "surrogatepass"))
+
+
+def _fuera_de_tope(lineas: list, tamano=None) -> dict[str, Any] | None:
+    """El tope de línea, en orden, y luego el del fichero: ANTES de leer ningún JSON (I2). Igual en el JS. `tamano`: cómo se
+    mide cada línea (por omisión, texto en UTF-8; con las líneas en bytes, su `len`)."""
+    tamano = tamano or _bytes_utf8
+    total = 0
+    for i, linea in enumerate(lineas):
+        n = tamano(linea)
+        if n > TOPE_LINEA:
+            return _res(NO_SE_PUDO_COMPROBAR, "formato", i,
+                        _t(f"la línea pesa más de {TOPE_LINEA >> 20} MiB, el tope de un bloque",
+                           f"the line is over {TOPE_LINEA >> 20} MiB, the limit for one block"))
+        total += n + 1
+    if total > TOPE_FICHERO:
+        return _res(NO_SE_PUDO_COMPROBAR, "formato", None, _TEXTO_FICHERO_GRANDE)
+    return None
+
+
+_TEXTO_FICHERO_GRANDE = _t(f"el fichero pesa más de {TOPE_FICHERO >> 20} MiB, el tope de una traza (el servicio escribe un "
+                           "fichero por día: compruébalos por separado)",
+                           f"the file is over {TOPE_FICHERO >> 20} MiB, the limit for one trace (the service writes one file "
+                           "per day: check them one by one)")
+
+
+def _leer_linea(linea: str, i: int) -> dict:
+    """Un bloque leído con el criterio estricto del formato y su FORMA comprobada; `TrazaIlegible` si no."""
+    try:
+        b = json.loads(linea, object_pairs_hook=_sin_duplicados, parse_float=_no_float,
+                       parse_constant=_no_constante, parse_int=_entero_json)
+        _recorrer(b)
+        _estructura(b)
+    except _Formato as e:
+        raise TrazaIlegible(e.motivo, i, e.detalle) from None
+    except RecursionError:
+        raise TrazaIlegible("formato", i, _t("anidación excesiva", "nesting too deep")) from None
+    except (ValueError, TypeError) as e:  # JSON mal formado (incluye un entero de miles de cifras)
+        raise TrazaIlegible("formato", i, _t(f"no es JSON: {e}", f"not JSON: {e}")) from None
+    return b
+
+
 def leer_bloques(lineas: Iterable[str]) -> list[dict]:
     """Los bloques de las líneas, leídos con el criterio estricto del formato (sin claves duplicadas, solo
-    enteros, forma de v1) y SIN comprobar firmas. `TrazaIlegible` si una línea no se puede leer."""
-    bloques = []
-    for i, linea in enumerate(lineas):
-        try:
-            b = json.loads(linea, object_pairs_hook=_sin_duplicados, parse_float=_no_float,
-                           parse_constant=_no_constante, parse_int=_entero_json)
-            _recorrer(b)
-            _estructura(b)
-        except _Formato as e:
-            raise TrazaIlegible(e.motivo, i, e.detalle) from None
-        except RecursionError:
-            raise TrazaIlegible("formato", i, _t("anidación excesiva", "nesting too deep")) from None
-        except (ValueError, TypeError) as e:  # JSON mal formado (incluye un entero de miles de cifras)
-            raise TrazaIlegible("formato", i, _t(f"no es JSON: {e}", f"not JSON: {e}")) from None
-        bloques.append(b)
-    return bloques
+    enteros, forma de v1) y SIN comprobar firmas. `TrazaIlegible` si una línea no se puede leer o pasa del tope."""
+    lineas = list(lineas)
+    fuera = _fuera_de_tope(lineas)
+    if fuera is not None:
+        raise TrazaIlegible(fuera["motivo"], fuera["bloque"], fuera["detalle"])
+    return [_leer_linea(linea, i) for i, linea in enumerate(lineas)]
 
 
 # ───────────────────────────── el comprobador ─────────────────────────────
+
+def _fallo_de_firma(b: dict, utilizables: dict[str, bool] | None = None) -> tuple[str, dict[str, str]] | None:
+    """`None` si la firma del bloque es buena; si no, `(motivo, detalle)` con motivo `clave` o `firma`. `utilizables`: lo ya
+    sabido de cada clave pública (todos los bloques de una cadena llevan la misma)."""
+    s = b["servicio"]
+    crudo = bytes.fromhex(s["clave_publica"])
+    if hashlib.sha256(crudo).hexdigest() != s["huella_clave"]:
+        return "clave", _t("la huella no es la de la clave pública que lleva el bloque",
+                           "the fingerprint is not the one of the public key the block carries")
+    if utilizables is None:
+        utilizables = {}
+    if s["clave_publica"] not in utilizables:
+        utilizables[s["clave_publica"]] = _clave_publica_utilizable(crudo)
+    if not utilizables[s["clave_publica"]]:
+        return "clave", _t("la clave pública no es una clave Ed25519 utilizable (no canónica, fuera de la curva o de orden "
+                           "pequeño): con ella cualquier contenido parecería firmado",
+                           "the public key is not a usable Ed25519 key (non-canonical, off the curve or of small order): with "
+                           "it any content would look signed")
+    valor = b["firma"]["valor"]
+    buena = False
+    if _base64_canonico(valor) and _firma_bien_formada(base64.b64decode(valor)):
+        try:
+            buena = _asim.comprobar(crudo, mensaje_firmado(b), valor)
+        except _asim.ClaveInvalida:  # 32 bytes que la biblioteca no acepta: no firmó nada
+            buena = False
+    if not buena:
+        return "firma", _t("la firma no coincide con el contenido del bloque", "the signature does not match the block's content")
+    return None
+
 
 def comprobar_traza(lineas: Iterable[str], huella_anclada: str | None = None,
                     esperar_genesis: bool = False) -> dict[str, Any]:
@@ -374,90 +512,158 @@ def comprobar_traza(lineas: Iterable[str], huella_anclada: str | None = None,
 
     Devuelve `{estado, motivo, bloque, detalle, ...}`: `bloque` es el índice de la línea (desde 0) del primer
     fallo; `detalle` es `{"es", "en"}`. Si `estado == "valida"` lleva además `bloques, empieza_en, ultimo_seq,
-    ultimo_hash, huellas, reinicios, anclada`. **Que sea válida NO dice que no falten los últimos bloques** (§4):
-    `ultimo_seq` y `ultimo_hash` están para cotejarlos con lo que el servicio anuncia o con una importación
-    anterior.
+    ultimo_hash, huellas, reinicios, cadenas, anclada` (`cadenas`: `{inicio, fin, seq_inicial, seq_final, huella}` por
+    cadena, con los índices de línea desde 0). **Que sea válida NO dice que no falten los últimos bloques ni los de antes
+    de un reinicio** (§4): `ultimo_seq` y `ultimo_hash` están para cotejarlos con lo que el servicio anuncia o con una
+    importación anterior.
+
+    Cada bloque se lee y se comprueba UNA vez y de él se guarda solo lo que la cadena necesita (no el bloque entero:
+    I2, la memoria). El orden en que se informa del primer fallo es el de arriba, como si se hicieran pasadas.
 
     `ValueError` solo si `huella_anclada` no es una huella (64 hex minúscula): eso es un error de quien llama.
     """
+    _huella_valida(huella_anclada)
+    lineas = list(lineas)
+    return _comprobar(lineas, _fuera_de_tope(lineas), str, huella_anclada, esperar_genesis)
+
+
+def _huella_valida(huella_anclada: Any) -> None:
     if huella_anclada is not None and not (isinstance(huella_anclada, str) and _HEX64.match(huella_anclada)):
         raise ValueError("la huella anclada es SHA-256 en hexadecimal minúscula (64 caracteres)")
-    lineas = list(lineas)
-    try:
-        bloques = leer_bloques(lineas)
-    except TrazaIlegible as e:
-        return _res(NO_SE_PUDO_COMPROBAR, e.motivo, e.bloque, e.detalle)
-    if not bloques:
-        return _res(NO_SE_PUDO_COMPROBAR, "formato", None, _t("fichero sin bloques", "file without blocks"))
-    if not _asim.disponible():
-        return _res(NO_SE_PUDO_COMPROBAR, "falta_cryptography", None, MOTIVOS["falta_cryptography"])
-    for i, b in enumerate(bloques):
-        s = b["servicio"]
-        crudo = bytes.fromhex(s["clave_publica"])
-        if hashlib.sha256(crudo).hexdigest() != s["huella_clave"]:
-            return _res(NO_COINCIDE, "clave", i, _t("la huella no es la de la clave pública que lleva el bloque",
-                                                    "the fingerprint is not the one of the public key the block carries"))
+
+
+def _comprobar(lineas: list, fuera: dict[str, Any] | None, texto_de, huella_anclada: str | None,
+               esperar_genesis: bool) -> dict[str, Any]:
+    """El comprobador sobre líneas ya medidas (`fuera`: el resultado de los topes). `texto_de` da el texto de cada línea: con
+    bytes, se decodifica AL LEERLA y se suelta (un fichero con un carácter astral ocupa en CPython 4 bytes por carácter: decodificado
+    entero, 64 MiB eran 256 MB)."""
+    if fuera is not None:
+        return fuera
+    con_firma = _asim.disponible()
+    utilizables: dict[str, bool] = {}  # la comprobación de la clave, una vez por clave y no por bloque
+    # (seq, prev, hash, huella, reinicio, desde, hasta, fallo_de_firma, fallo_de_coherencia)
+    registros: list[tuple] = []
+    for i, linea in enumerate(lineas):
         try:
-            buena = _base64_canonico(b["firma"]["valor"]) and _asim.comprobar(crudo, mensaje_firmado(b), b["firma"]["valor"])
-        except _asim.ClaveInvalida:  # 32 bytes que no son un punto de la curva: no firmó nada
-            buena = False
-        if not buena:
-            return _res(NO_COINCIDE, "firma", i, _t("la firma no coincide con el contenido del bloque",
-                                                    "the signature does not match the block's content"))
-    for i, b in enumerate(bloques):
+            b = _leer_linea(texto_de(linea), i)
+        except TrazaIlegible as e:
+            return _res(NO_SE_PUDO_COMPROBAR, e.motivo, e.bloque, e.detalle)
         try:
             _estructura(b, coherencia=True)
+            coherencia = None
         except _Formato as e:
-            return _res(NO_SE_PUDO_COMPROBAR, e.motivo, i, e.detalle)
-    reinicios: list[int] = []
-    for i, b in enumerate(bloques):
-        if i == 0 and esperar_genesis and not (b["seq"] == 0 and b["prev"] == GENESIS):
+            coherencia = (e.motivo, e.detalle)
+        registros.append((b["seq"], b["prev"], hash_de_bloque(b), b["servicio"]["huella_clave"], b["reinicio"],
+                          b["ventana"]["desde"], b["ventana"]["hasta"], _fallo_de_firma(b, utilizables) if con_firma else None,
+                          coherencia))
+    if not registros:
+        return _res(NO_SE_PUDO_COMPROBAR, "formato", None, _t("fichero sin bloques", "file without blocks"))
+    if not con_firma:
+        return _res(NO_SE_PUDO_COMPROBAR, "falta_cryptography", None, MOTIVOS["falta_cryptography"])
+    for i, r in enumerate(registros):
+        if r[7] is not None:
+            return _res(NO_COINCIDE, r[7][0], i, r[7][1])
+    for i, r in enumerate(registros):
+        if r[8] is not None:
+            return _res(NO_SE_PUDO_COMPROBAR, r[8][0], i, r[8][1])
+    fallo = _fallo_de_cadena(registros, esperar_genesis)
+    if fallo is not None:
+        return fallo
+    huellas: list[str] = []
+    for r in registros:
+        if r[3] not in huellas:
+            huellas.append(r[3])
+    if huella_anclada is not None:
+        for i, r in enumerate(registros):
+            if r[3] != huella_anclada:
+                return _res(NO_COINCIDE, "ancla", i, _t("la huella de este bloque no es la anclada", "this block's fingerprint is not the anchored one"))
+    reinicios = [i for i, r in enumerate(registros) if r[4] == "sin_previo"]
+    inicios = sorted({0, *reinicios})
+    cadenas = [{"inicio": a, "fin": z, "seq_inicial": registros[a][0], "seq_final": registros[z][0], "huella": registros[a][3]}
+               for a, z in zip(inicios, [x - 1 for x in inicios[1:]] + [len(registros) - 1])]
+    return _res(VALIDA, None, None, None, bloques=len(registros), empieza_en=registros[0][0],
+                ultimo_seq=registros[-1][0], ultimo_hash=registros[-1][2],
+                huellas=huellas, reinicios=reinicios, cadenas=cadenas, anclada=huella_anclada is not None)
+
+
+def _fallo_de_cadena(registros: list[tuple], esperar_genesis: bool) -> dict[str, Any] | None:
+    """La cadena, de un bloque al siguiente, y entre cadenas (B1): un bloque repetido, o una cadena nueva de una clave que
+    empieza ANTES de que acabe la anterior de esa misma clave, es `cadena`. La hora no se comprueba (DS11): solo el ORDEN de
+    las ventanas firmadas de una misma clave."""
+    vistos: set[str] = set()
+    ultimo_hasta: dict[str, str] = {}  # huella -> `hasta` del último bloque visto de esa clave
+    for i, (seq, prev, h, huella, reinicio, desde, hasta, _f, _c) in enumerate(registros):
+        if i == 0 and esperar_genesis and not (seq == 0 and prev == GENESIS):
             return _res(NO_COINCIDE, "cadena", 0, _t("se esperaba el bloque génesis (seq 0, prev de ceros) y el fichero empieza más tarde",
                                                      "the genesis block (seq 0, prev of zeros) was expected and the file starts later"))
-        if b["reinicio"] == "sin_previo":
-            if not (b["seq"] == 0 and b["prev"] == GENESIS):
+        if h in vistos:
+            return _res(NO_COINCIDE, "cadena", i, _t("este bloque ya estaba antes en el fichero (repetido)",
+                                                     "this block was already earlier in the file (repeated)"))
+        vistos.add(h)
+        if reinicio == "sin_previo":
+            if not (seq == 0 and prev == GENESIS):
                 return _res(NO_COINCIDE, "cadena", i, _t("un reinicio sin_previo debe tener seq 0 y prev de ceros",
                                                          "a sin_previo restart must have seq 0 and a prev of zeros"))
-            reinicios.append(i)
+            if huella in ultimo_hasta and desde < ultimo_hasta[huella]:
+                return _res(NO_COINCIDE, "cadena", i, _t(
+                    f"esta cadena nueva empieza ({desde}) antes de que acabe la anterior de la misma clave ({ultimo_hasta[huella]}): "
+                    "cadenas cambiadas de orden o repetidas",
+                    f"this new chain starts ({desde}) before the previous one of the same key ends ({ultimo_hasta[huella]}): "
+                    "chains out of order or repeated"))
+        elif (seq == 0) != (prev == GENESIS):
+            return _res(NO_COINCIDE, "cadena", i, _t(
+                "bloque incoherente: el génesis (seq 0) lleva prev de ceros y ningún otro lo lleva",
+                "incoherent block: the genesis block (seq 0) has a prev of zeros and no other block has one"))
         elif i > 0:
-            a = bloques[i - 1]
-            if b["seq"] != a["seq"] + 1:
-                return _res(NO_COINCIDE, "cadena", i, _t(f"seq {b['seq']} no sigue a {a['seq']}", f"seq {b['seq']} does not follow {a['seq']}"))
-            if b["prev"] != hash_de_bloque(a):
+            a = registros[i - 1]
+            if seq != a[0] + 1:
+                return _res(NO_COINCIDE, "cadena", i, _t(f"seq {seq} no sigue a {a[0]}", f"seq {seq} does not follow {a[0]}"))
+            if prev != a[2]:
                 return _res(NO_COINCIDE, "cadena", i, _t("prev no es el SHA-256 del bloque anterior", "prev is not the SHA-256 of the previous block"))
-            if b["servicio"]["huella_clave"] != a["servicio"]["huella_clave"]:
+            if huella != a[3]:
                 return _res(NO_COINCIDE, "cadena", i, _t("la clave cambia dentro de la cadena sin un reinicio sin_previo",
                                                          "the key changes inside the chain without a sin_previo restart"))
-    huellas: list[str] = []
-    for b in bloques:
-        h = b["servicio"]["huella_clave"]
-        if h not in huellas:
-            huellas.append(h)
-    if huella_anclada is not None:
-        for i, b in enumerate(bloques):
-            if b["servicio"]["huella_clave"] != huella_anclada:
-                return _res(NO_COINCIDE, "ancla", i, _t("la huella de este bloque no es la anclada", "this block's fingerprint is not the anchored one"))
-    return _res(VALIDA, None, None, None, bloques=len(bloques), empieza_en=bloques[0]["seq"],
-                ultimo_seq=bloques[-1]["seq"], ultimo_hash=hash_de_bloque(bloques[-1]),
-                huellas=huellas, reinicios=reinicios, anclada=huella_anclada is not None)
+        ultimo_hasta[huella] = hasta
+    return None
 
 
 def comprobar_fichero(contenido: bytes | str, huella_anclada: str | None = None,
                       esperar_genesis: bool = False) -> dict[str, Any]:
-    """Como `comprobar_traza`, sobre el contenido de un fichero `.jsonl` (bytes UTF-8 o texto)."""
-    if isinstance(contenido, (bytes, bytearray)):
-        try:
-            contenido = bytes(contenido).decode("utf-8")
-        except UnicodeDecodeError:
-            return _res(NO_SE_PUDO_COMPROBAR, "formato", None, _t("el fichero no es UTF-8", "the file is not UTF-8"))
-    return comprobar_traza(lineas_de_texto(contenido), huella_anclada, esperar_genesis)
+    """Como `comprobar_traza`, sobre el contenido de un fichero `.jsonl` (bytes UTF-8 o texto). Con bytes, el tope del
+    fichero se mira ANTES de decodificar, un BOM o un UTF-8 inválido son `formato` (como en el JS, `TextDecoder` estricto), y
+    cada línea se decodifica al leerla, no el fichero entero."""
+    _huella_valida(huella_anclada)
+    if not isinstance(contenido, (bytes, bytearray, memoryview)):
+        return comprobar_traza(lineas_de_texto(contenido), huella_anclada, esperar_genesis)
+    if len(contenido) > TOPE_FICHERO:
+        return _res(NO_SE_PUDO_COMPROBAR, "formato", None, _TEXTO_FICHERO_GRANDE)
+    contenido = bytes(contenido)
+    if not _es_utf8(contenido):
+        return _res(NO_SE_PUDO_COMPROBAR, "formato", None, _t("el fichero no es UTF-8", "the file is not UTF-8"))
+    lineas = contenido.split(b"\n")
+    if lineas and lineas[-1] == b"":
+        lineas.pop()
+    return _comprobar(lineas, _fuera_de_tope(lineas, len), lambda x: x.decode("utf-8"), huella_anclada, esperar_genesis)
+
+
+def _es_utf8(contenido: bytes) -> bool:
+    """UTF-8 estricto (sin sobrelargos ni sustitutos) sin crear el texto entero: a trozos de 1 MiB."""
+    dec = codecs.getincrementaldecoder("utf-8")("strict")
+    try:
+        for i in range(0, len(contenido), 1 << 20):
+            dec.decode(contenido[i:i + (1 << 20)])
+        dec.decode(b"", final=True)
+    except UnicodeDecodeError:
+        return False
+    return True
 
 
 # ───────────────────────────── lo que se le dice a quien lee ─────────────────────────────
 
 def describir(resultado: dict[str, Any], idioma: str = "es") -> list[str]:
     """Las líneas de pantalla para un resultado, en `es` o `en`, con el vocabulario cerrado de 145-D11. Si es
-    válida, lleva el último bloque y lo que NO demuestra (que falten los últimos bloques, la primera cosa)."""
+    válida, lleva el último bloque, las cadenas si hay reinicios, y lo que NO demuestra (§4: que falten los últimos
+    bloques o los de antes de un reinicio, entre otras)."""
     idioma = "es" if idioma == "es" else "en"
     es = idioma == "es"
     estado = resultado["estado"]
@@ -472,8 +678,12 @@ def describir(resultado: dict[str, Any], idioma: str = "es") -> list[str]:
         if resultado.get("detalle"):
             lineas.append(resultado["detalle"][idioma])
         return lineas
-    lineas.append((f"{resultado['bloques']} bloques, del seq {resultado['empieza_en']} al {resultado['ultimo_seq']}" if es
-                   else f"{resultado['bloques']} blocks, from seq {resultado['empieza_en']} to {resultado['ultimo_seq']}"))
+    if resultado["reinicios"]:  # «del seq 0 al 0» con tres cadenas no diría nada: las cadenas se listan abajo
+        lineas.append((f"{resultado['bloques']} bloques en {len(resultado['cadenas'])} cadenas" if es
+                       else f"{resultado['bloques']} blocks in {len(resultado['cadenas'])} chains"))
+    else:
+        lineas.append((f"{resultado['bloques']} bloques, del seq {resultado['empieza_en']} al {resultado['ultimo_seq']}" if es
+                       else f"{resultado['bloques']} blocks, from seq {resultado['empieza_en']} to {resultado['ultimo_seq']}"))
     lineas.append(("Huella de la clave: " if es else "Key fingerprint: ") + ", ".join(resultado["huellas"]))
     lineas.append((f"Último bloque visto: seq {resultado['ultimo_seq']}, hash {resultado['ultimo_hash']}" if es
                    else f"Last block seen: seq {resultado['ultimo_seq']}, hash {resultado['ultimo_hash']}"))
@@ -485,8 +695,16 @@ def describir(resultado: dict[str, Any], idioma: str = "es") -> list[str]:
         lineas.append(("El fichero no empieza en el génesis: los bloques anteriores no están aquí." if es
                        else "The file does not start at the genesis block: the earlier blocks are not here."))
     if resultado["reinicios"]:
-        lineas.append((f"Cadena nueva (reinicio sin_previo) en las líneas: {[i + 1 for i in resultado['reinicios']]}" if es
-                       else f"New chain (sin_previo restart) at lines: {[i + 1 for i in resultado['reinicios']]}"))
+        lineas.append((f"{len(resultado['cadenas'])} cadenas (reinicio sin_previo en las líneas "
+                       f"{', '.join(str(i + 1) for i in resultado['reinicios'])}):" if es else
+                       f"{len(resultado['cadenas'])} chains (sin_previo restart at lines "
+                       f"{', '.join(str(i + 1) for i in resultado['reinicios'])}):"))
+        for c in resultado["cadenas"]:
+            lineas.append((f"- líneas {c['inicio'] + 1}–{c['fin'] + 1}: seq {c['seq_inicial']}–{c['seq_final']}, clave {c['huella'][:16]}…"
+                           if es else
+                           f"- lines {c['inicio'] + 1}–{c['fin'] + 1}: seq {c['seq_inicial']}–{c['seq_final']}, key {c['huella'][:16]}…"))
+        lineas.append(("En cada reinicio pueden faltar los bloques de antes: una cadena nueva no enlaza con la anterior." if es
+                       else "At each restart the earlier blocks may be missing: a new chain does not link to the previous one."))
     if len(resultado["huellas"]) > 1:
         lineas.append(("Hay más de una clave en el fichero." if es else "There is more than one key in the file."))
     lineas.append(("Lo que esto NO demuestra:" if es else "What this does NOT show:"))

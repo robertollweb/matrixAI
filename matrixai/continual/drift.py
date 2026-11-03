@@ -56,6 +56,14 @@ def compute_psi(
     return psi
 
 
+def _es_nan(v) -> bool:
+    """NaN de Python, de numpy (``np.float32`` no es un ``float``) o de cualquier número que ``math.isnan`` entienda."""
+    try:
+        return math.isnan(v)
+    except TypeError:
+        return False
+
+
 def recuentos_en_casillas(
     valores: list[float | None],
     minimo: float,
@@ -67,7 +75,7 @@ def recuentos_en_casillas(
 
     Es la MISMA asignación de casilla que ``compute_psi`` (``int((v - min) / span * bins)``
     apretada a ``[0, bins - 1]``): un valor fuera de la referencia cae en la casilla 0 o en la
-    última y además suma en ``fuera_de_rango``. Un faltante (``None`` o ``NaN``) NO entra en las
+    última y además suma en ``fuera_de_rango``. Un faltante (``None`` o ``NaN``, también el de numpy) NO entra en las
     casillas: ``compute_psi`` revienta con un ``NaN``, y un faltante no es un valor.
     Una referencia constante (``maximo == minimo``) no define casillas: ``ValueError``.
     """
@@ -78,7 +86,7 @@ def recuentos_en_casillas(
     faltantes = 0
     fuera = 0
     for v in valores:
-        if v is None or (isinstance(v, float) and math.isnan(v)):
+        if v is None or _es_nan(v):
             faltantes += 1
             continue
         if v < minimo:

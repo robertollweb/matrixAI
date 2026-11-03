@@ -144,3 +144,13 @@ def test_psi_desde_recuentos_rechaza_lo_que_no_son_recuentos():
                      ([True] * 10, [1] * 10), (["1"] * 10, [1] * 10)):
         with pytest.raises(ValueError):
             psi_desde_recuentos(ref, obs)
+
+
+def test_recuentos_en_casillas_un_nan_de_numpy_es_un_faltante_no_un_error():
+    """rep-c1 (menor 6): `np.float32('nan')` no es un `float` de Python; antes llegaba a `int(nan)` y lanzaba. Ahora es un
+    faltante, como el NaN de Python y el `np.float64`, y no entra en ninguna casilla."""
+    np = pytest.importorskip("numpy")
+    casillas, faltantes, fuera = recuentos_en_casillas(
+        [np.float32("nan"), np.float64("nan"), float("nan"), None, np.float32(0.55), np.int64(0)], 0.0, 1.0)
+    assert (faltantes, fuera, sum(casillas)) == (4, 0, 2)
+    assert casillas[5] == 1 and casillas[0] == 1

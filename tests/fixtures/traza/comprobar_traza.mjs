@@ -20,6 +20,10 @@ export const FORMATO = 'matrixai.traza/v1';
 export const PREFIJO_FIRMA = 'matrixai.traza.firma/v1\n';
 export const GENESIS = '0'.repeat(64);
 export const MAX_ENTERO = Number.MAX_SAFE_INTEGER; // 2^53 - 1
+// Los MISMOS topes que `traza.py` (I2), comprobados ANTES de leer el JSON: 1 MiB por línea (bytes UTF-8, sin su `\n`) y 64 MiB el
+// fichero (con líneas sueltas, la suma de bytes + 1 de cada una). Sin ellos, una línea de 100 MB dejaba a Node sin memoria.
+export const TOPE_LINEA = 1 << 20;
+export const TOPE_FICHERO = 64 << 20;
 const PROFUNDIDAD_MAXIMA = 64;
 const MAX_CIFRAS = 4300; // el límite de int() de Python: un entero más largo es «formato» en los dos
 const CAMPOS = ['formato', 'seq', 'prev', 'servicio', 'ventana', 'n', 'k_minimo', 'incompleto', 'reinicio', 'salida', 'columnas', 'firma'];
@@ -40,31 +44,40 @@ const t = (es, en) => ({ es, en });
 
 function leerJSON(texto) {
   let i = 0;
-  const WS = ' \t\n\r';
-  const ws = () => { while (i < texto.length && WS.includes(texto[i])) i++; };
+  const ws = () => {
+    for (;;) {
+      const u = texto.charCodeAt(i);
+      if (u === 0x20 || u === 0x09 || u === 0x0a || u === 0x0d) i++; else return;
+    }
+  };
   const fallo = (m) => mal(`no es JSON: ${m}`, `not JSON: ${m}`);
 
+  const SIMPLE = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
   function cadena() {
     i++; // "
-    let s = '';
+    // Los tramos sin escapes se copian con `slice` (no carácter a carácter con `s += c`, que con una cadena de
+    // millones de caracteres crea millones de cadenas intermedias).
+    const trozos = [];
+    let ini = i;
     for (;;) {
       if (i >= texto.length) throw fallo('cadena sin cerrar');
-      const c = texto[i];
-      if (c === '"') { i++; break; }
-      if (c.charCodeAt(0) < 0x20) throw fallo('carácter de control sin escapar');
-      if (c === '\\') {
+      const u = texto.charCodeAt(i);
+      if (u === 0x22) { trozos.push(texto.slice(ini, i)); i++; break; }
+      if (u < 0x20) throw fallo('carácter de control sin escapar');
+      if (u === 0x5c) {
+        trozos.push(texto.slice(ini, i));
         const e = texto[i + 1];
-        const simple = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
-        if (e in simple) { s += simple[e]; i += 2; continue; }
+        if (e !== undefined && Object.prototype.hasOwnProperty.call(SIMPLE, e)) { trozos.push(SIMPLE[e]); i += 2; ini = i; continue; }
         if (e === 'u') {
           const h = texto.slice(i + 2, i + 6);
           if (!/^[0-9a-fA-F]{4}$/.test(h)) throw fallo('escape \\u incorrecto');
-          s += String.fromCharCode(parseInt(h, 16)); i += 6; continue;
+          trozos.push(String.fromCharCode(parseInt(h, 16))); i += 6; ini = i; continue;
         }
         throw fallo('escape desconocido');
       }
-      s += c; i++;
+      i++;
     }
+    const s = trozos.join('');
     for (let k = 0; k < s.length; k++) { // un sustituto UTF-16 suelto no tiene UTF-8 que firmar
       const u = s.charCodeAt(k);
       if (u >= 0xd800 && u <= 0xdbff && s.charCodeAt(k + 1) >= 0xdc00 && s.charCodeAt(k + 1) <= 0xdfff) k++;
@@ -278,6 +291,59 @@ export const hashDeBloque = async (b, p = plataformaNode) => p.sha256(jcsBytes(b
 
 const res = (estado, motivo = null, bloque = null, detalle = null, extra = {}) => ({ estado, motivo, bloque, detalle, ...extra });
 
+// ───────────────────────── claves y firmas Ed25519 que no valen (I1), como en `traza.py` ─────────────────────────
+// OpenSSL acepta claves de ORDEN PEQUEÑO y codificaciones no canónicas: con la clave identidad y R = identidad, S = 0, cualquier
+// mensaje «está firmado». Se decide ANTES de verificar, con aritmética propia (BigInt), para no depender de la biblioteca ni del
+// navegador (C6, WebCrypto).
+const P = 2n ** 255n - 19n;
+const L_ORDEN = 2n ** 252n + 27742317777372353535851937790883648493n;
+const potencia = (b, e, m) => { let r = 1n; b %= m; while (e > 0n) { if (e & 1n) r = (r * b) % m; b = (b * b) % m; e >>= 1n; } return r; };
+const inverso = (a) => potencia(((a % P) + P) % P, P - 2n, P);
+const D = ((-121665n * inverso(121666n)) % P + P) % P;
+const Y8 = 0x7a03ac9277fdc74ec6cc392cfa53202a0f67100d760b3cba4fd84d3d706a17c7n;
+const Y_DE_ORDEN_PEQUENO = new Set([0n, 1n, P - 1n, Y8, P - Y8].map(String));
+const enteroLE = (u8) => { let x = 0n; for (let k = u8.length - 1; k >= 0; k--) x = (x << 8n) | BigInt(u8[k]); return x; };
+const yDe = (crudo32) => enteroLE(crudo32) & ((1n << 255n) - 1n);
+
+export function clavePublicaUtilizable(crudo32) {
+  const y = yDe(crudo32);
+  if (y >= P || Y_DE_ORDEN_PEQUENO.has(String(y))) return false;
+  const x2 = ((y * y - 1n) * inverso(D * y * y + 1n)) % P;
+  return x2 === 0n || potencia(x2, (P - 1n) / 2n, P) === 1n;
+}
+export function firmaBienFormada(firma64) {
+  const yR = yDe(firma64.slice(0, 32));
+  return yR < P && !Y_DE_ORDEN_PEQUENO.has(String(yR)) && enteroLE(firma64.slice(32)) < L_ORDEN;
+}
+
+// ───────────────────────── topes de tamaño (I2) ─────────────────────────
+
+/** Bytes UTF-8 de una línea; un sustituto suelto cuenta 3 (como `surrogatepass` en Python). */
+function bytesUtf8(s) {
+  if (s.length > TOPE_LINEA) return s.length; // las unidades UTF-16 nunca son más que los bytes
+  let n = 0;
+  for (let k = 0; k < s.length; k++) {
+    const u = s.charCodeAt(k);
+    if (u < 0x80) n += 1;
+    else if (u < 0x800) n += 2;
+    else if (u >= 0xd800 && u <= 0xdbff && k + 1 < s.length && s.charCodeAt(k + 1) >= 0xdc00 && s.charCodeAt(k + 1) <= 0xdfff) { n += 4; k++; }
+    else n += 3;
+  }
+  return n;
+}
+const FICHERO_GRANDE = t(`el fichero pesa más de ${TOPE_FICHERO >> 20} MiB, el tope de una traza (el servicio escribe un fichero por día: compruébalos por separado)`,
+  `the file is over ${TOPE_FICHERO >> 20} MiB, the limit for one trace (the service writes one file per day: check them one by one)`);
+function fueraDeTope(lineas) {
+  let total = 0;
+  for (let i = 0; i < lineas.length; i++) {
+    const n = bytesUtf8(lineas[i]);
+    if (n > TOPE_LINEA) return res(NO_SE_PUDO_COMPROBAR, 'formato', i, t(`la línea pesa más de ${TOPE_LINEA >> 20} MiB, el tope de un bloque`, `the line is over ${TOPE_LINEA >> 20} MiB, the limit for one block`));
+    total += n + 1;
+  }
+  if (total > TOPE_FICHERO) return res(NO_SE_PUDO_COMPROBAR, 'formato', null, FICHERO_GRANDE);
+  return null;
+}
+
 // ───────────────────────── el comprobador ─────────────────────────
 
 export function lineasDeTexto(texto) {
@@ -286,64 +352,130 @@ export function lineasDeTexto(texto) {
   return partes;
 }
 
-/** Mismo contrato que `comprobar_traza` del núcleo. `lineas`: textos; `opciones`: {huellaAnclada, esperarGenesis}. */
+async function falloDeFirma(b, plataforma, utilizables = new Map()) {
+  const s = b.servicio;
+  const crudo = deHex(s.clave_publica);
+  if (plataforma.sha256(crudo) !== s.huella_clave) return ['clave', t('la huella no es la de la clave pública que lleva el bloque', 'the fingerprint is not the one of the public key the block carries')];
+  if (!utilizables.has(s.clave_publica)) utilizables.set(s.clave_publica, clavePublicaUtilizable(crudo)); // una vez por clave
+  if (!utilizables.get(s.clave_publica)) {
+    return ['clave', t('la clave pública no es una clave Ed25519 utilizable (no canónica, fuera de la curva o de orden pequeño): con ella cualquier contenido parecería firmado',
+      'the public key is not a usable Ed25519 key (non-canonical, off the curve or of small order): with it any content would look signed')];
+  }
+  const firma = firmaDeBase64(b.firma.valor);
+  if (firma === null || !firmaBienFormada(firma) || !(await plataforma.ed25519(crudo, mensajeFirmado(b), firma))) {
+    return ['firma', t('la firma no coincide con el contenido del bloque', 'the signature does not match the block\'s content')];
+  }
+  return null;
+}
+
+/** Mismo contrato que `comprobar_traza` del núcleo. `lineas`: textos; `opciones`: {huellaAnclada, esperarGenesis}.
+ *  Cada bloque se lee una vez y de él se guarda solo lo que la cadena necesita; el orden de los fallos es el de Python. */
 export async function comprobarTraza(lineas, { huellaAnclada = null, esperarGenesis = false } = {}, plataforma = plataformaNode) {
   if (huellaAnclada !== null && !HEX64.test(huellaAnclada)) throw new Error('la huella anclada es SHA-256 en hexadecimal minúscula (64 caracteres)');
-  const bloques = [];
+  const fuera = fueraDeTope(lineas);
+  if (fuera) return fuera;
+  const registros = [];
+  const utilizables = new Map();
   for (let i = 0; i < lineas.length; i++) {
+    let b;
     try {
-      const b = leerJSON(lineas[i]);
+      b = leerJSON(lineas[i]);
       estructura(b);
-      bloques.push(b);
     } catch (e) {
       if (e instanceof Formato) return res(NO_SE_PUDO_COMPROBAR, e.motivo, i, e.detalle);
       throw e;
     }
-  }
-  if (!bloques.length) return res(NO_SE_PUDO_COMPROBAR, 'formato', null, t('fichero sin bloques', 'file without blocks'));
-  for (let i = 0; i < bloques.length; i++) {
-    const b = bloques[i];
-    const s = b.servicio;
-    const crudo = deHex(s.clave_publica);
-    if (plataforma.sha256(crudo) !== s.huella_clave) {
-      return res(NO_COINCIDE, 'clave', i, t('la huella no es la de la clave pública que lleva el bloque', 'the fingerprint is not the one of the public key the block carries'));
+    let coherencia = null;
+    try { estructura(b, true); } catch (e) {
+      if (!(e instanceof Formato)) throw e;
+      coherencia = [e.motivo, e.detalle];
     }
-    const firma = firmaDeBase64(b.firma.valor);
-    if (firma === null || !(await plataforma.ed25519(crudo, mensajeFirmado(b), firma))) {
-      return res(NO_COINCIDE, 'firma', i, t('la firma no coincide con el contenido del bloque', 'the signature does not match the block\'s content'));
-    }
+    registros.push({ seq: b.seq, prev: b.prev, hash: await hashDeBloque(b, plataforma), huella: b.servicio.huella_clave, reinicio: b.reinicio,
+      desde: b.ventana.desde, hasta: b.ventana.hasta, firma: await falloDeFirma(b, plataforma, utilizables), coherencia });
   }
-  for (let i = 0; i < bloques.length; i++) {
-    try { estructura(bloques[i], true); } catch (e) {
-      if (e instanceof Formato) return res(NO_SE_PUDO_COMPROBAR, e.motivo, i, e.detalle);
-      throw e;
+  if (!registros.length) return res(NO_SE_PUDO_COMPROBAR, 'formato', null, t('fichero sin bloques', 'file without blocks'));
+  for (let i = 0; i < registros.length; i++) if (registros[i].firma) return res(NO_COINCIDE, registros[i].firma[0], i, registros[i].firma[1]);
+  for (let i = 0; i < registros.length; i++) if (registros[i].coherencia) return res(NO_SE_PUDO_COMPROBAR, registros[i].coherencia[0], i, registros[i].coherencia[1]);
+  const fallo = falloDeCadena(registros, esperarGenesis);
+  if (fallo) return fallo;
+  const huellas = [];
+  for (const r of registros) if (!huellas.includes(r.huella)) huellas.push(r.huella);
+  if (huellaAnclada !== null) {
+    for (let i = 0; i < registros.length; i++) {
+      if (registros[i].huella !== huellaAnclada) return res(NO_COINCIDE, 'ancla', i, t('la huella de este bloque no es la anclada', 'this block\'s fingerprint is not the anchored one'));
     }
   }
   const reinicios = [];
-  for (let i = 0; i < bloques.length; i++) {
-    const b = bloques[i];
+  registros.forEach((r, i) => { if (r.reinicio === 'sin_previo') reinicios.push(i); });
+  const inicios = [...new Set([0, ...reinicios])].sort((a, b) => a - b);
+  const cadenas = inicios.map((a, k) => {
+    const z = k + 1 < inicios.length ? inicios[k + 1] - 1 : registros.length - 1;
+    return { inicio: a, fin: z, seq_inicial: registros[a].seq, seq_final: registros[z].seq, huella: registros[a].huella };
+  });
+  const ultimo = registros[registros.length - 1];
+  return res(VALIDA, null, null, null, { bloques: registros.length, empieza_en: registros[0].seq, ultimo_seq: ultimo.seq, ultimo_hash: ultimo.hash, huellas, reinicios, cadenas, anclada: huellaAnclada !== null });
+}
+
+function falloDeCadena(registros, esperarGenesis) {
+  const vistos = new Set();
+  const ultimoHasta = new Map(); // huella -> `hasta` del último bloque visto de esa clave
+  for (let i = 0; i < registros.length; i++) {
+    const b = registros[i];
     if (i === 0 && esperarGenesis && !(b.seq === 0 && b.prev === GENESIS)) {
       return res(NO_COINCIDE, 'cadena', 0, t('se esperaba el bloque génesis (seq 0, prev de ceros) y el fichero empieza más tarde', 'the genesis block (seq 0, prev of zeros) was expected and the file starts later'));
     }
+    if (vistos.has(b.hash)) return res(NO_COINCIDE, 'cadena', i, t('este bloque ya estaba antes en el fichero (repetido)', 'this block was already earlier in the file (repeated)'));
+    vistos.add(b.hash);
     if (b.reinicio === 'sin_previo') {
       if (!(b.seq === 0 && b.prev === GENESIS)) return res(NO_COINCIDE, 'cadena', i, t('un reinicio sin_previo debe tener seq 0 y prev de ceros', 'a sin_previo restart must have seq 0 and a prev of zeros'));
-      reinicios.push(i);
+      if (ultimoHasta.has(b.huella) && b.desde < ultimoHasta.get(b.huella)) {
+        const h = ultimoHasta.get(b.huella);
+        return res(NO_COINCIDE, 'cadena', i, t(`esta cadena nueva empieza (${b.desde}) antes de que acabe la anterior de la misma clave (${h}): cadenas cambiadas de orden o repetidas`,
+          `this new chain starts (${b.desde}) before the previous one of the same key ends (${h}): chains out of order or repeated`));
+      }
+    } else if ((b.seq === 0) !== (b.prev === GENESIS)) {
+      return res(NO_COINCIDE, 'cadena', i, t('bloque incoherente: el génesis (seq 0) lleva prev de ceros y ningún otro lo lleva', 'incoherent block: the genesis block (seq 0) has a prev of zeros and no other block has one'));
     } else if (i > 0) {
-      const a = bloques[i - 1];
+      const a = registros[i - 1];
       if (b.seq !== a.seq + 1) return res(NO_COINCIDE, 'cadena', i, t(`seq ${b.seq} no sigue a ${a.seq}`, `seq ${b.seq} does not follow ${a.seq}`));
-      if (b.prev !== await hashDeBloque(a, plataforma)) return res(NO_COINCIDE, 'cadena', i, t('prev no es el SHA-256 del bloque anterior', 'prev is not the SHA-256 of the previous block'));
-      if (b.servicio.huella_clave !== a.servicio.huella_clave) return res(NO_COINCIDE, 'cadena', i, t('la clave cambia dentro de la cadena sin un reinicio sin_previo', 'the key changes inside the chain without a sin_previo restart'));
+      if (b.prev !== a.hash) return res(NO_COINCIDE, 'cadena', i, t('prev no es el SHA-256 del bloque anterior', 'prev is not the SHA-256 of the previous block'));
+      if (b.huella !== a.huella) return res(NO_COINCIDE, 'cadena', i, t('la clave cambia dentro de la cadena sin un reinicio sin_previo', 'the key changes inside the chain without a sin_previo restart'));
     }
+    ultimoHasta.set(b.huella, b.hasta);
   }
-  const huellas = [];
-  for (const b of bloques) if (!huellas.includes(b.servicio.huella_clave)) huellas.push(b.servicio.huella_clave);
-  if (huellaAnclada !== null) {
-    for (let i = 0; i < bloques.length; i++) {
-      if (bloques[i].servicio.huella_clave !== huellaAnclada) return res(NO_COINCIDE, 'ancla', i, t('la huella de este bloque no es la anclada', 'this block\'s fingerprint is not the anchored one'));
-    }
+  return null;
+}
+
+/** Como `comprobar_fichero` del núcleo, sobre los BYTES del fichero: el tope antes de decodificar y UTF-8 estricto (un BOM no
+ *  se quita: la primera línea deja de ser JSON y es `formato`, como en Python). */
+export async function comprobarFichero(bytes, opciones = {}, plataforma = plataformaNode) {
+  if (opciones.huellaAnclada != null && !HEX64.test(opciones.huellaAnclada)) throw new Error('la huella anclada es SHA-256 en hexadecimal minúscula (64 caracteres)');
+  if (bytes.length > TOPE_FICHERO) return res(NO_SE_PUDO_COMPROBAR, 'formato', null, FICHERO_GRANDE);
+  let texto;
+  try { texto = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch {
+    return res(NO_SE_PUDO_COMPROBAR, 'formato', null, t('el fichero no es UTF-8', 'the file is not UTF-8'));
   }
-  const ultimo = bloques[bloques.length - 1];
-  return res(VALIDA, null, null, null, { bloques: bloques.length, empieza_en: bloques[0].seq, ultimo_seq: ultimo.seq, ultimo_hash: await hashDeBloque(ultimo, plataforma), huellas, reinicios, anclada: huellaAnclada !== null });
+  return comprobarTraza(lineasDeTexto(texto), opciones, plataforma);
+}
+
+// ───────────────────────── los casos de los vectores que no caben escritos ─────────────────────────
+// Una línea puede venir como {"base": <línea>, "rellenar_con_espacios_hasta": N}: la línea más espacios hasta N bytes UTF-8
+// (JSON válido: el espacio al final lo es). Y un caso puede traer el FICHERO en vez de las líneas: {"fichero_b64": …} o
+// {"fichero_de_espacios": N}. Así caben en el JSON los casos de los topes sin que pese megas. Igual en las pruebas de Python.
+export function expandirLinea(x) {
+  if (typeof x === 'string') return x;
+  return x.base + ' '.repeat(x.rellenar_con_espacios_hasta - bytesUtf8(x.base));
+}
+export function bytesDelCaso(caso) {
+  if (caso.fichero_b64 !== undefined) return Uint8Array.from(atob(caso.fichero_b64), (c) => c.charCodeAt(0));
+  if (caso.fichero_de_espacios !== undefined) return new Uint8Array(caso.fichero_de_espacios).fill(0x20);
+  return null;
+}
+export async function comprobarCaso(caso, plataforma = plataformaNode) {
+  const opciones = { huellaAnclada: caso.ancla ?? null, esperarGenesis: caso.esperar_genesis ?? false };
+  const bytes = bytesDelCaso(caso);
+  if (bytes !== null) return comprobarFichero(bytes, opciones, plataforma);
+  return comprobarTraza(caso.lineas.map(expandirLinea), opciones, plataforma);
 }
 
 // ───────────────────────── corredor de vectores ─────────────────────────
@@ -364,7 +496,7 @@ async function main(argv) {
     if (await hashDeBloque(b) !== c.hash_del_bloque) fallos.push(`hash del bloque ${b.seq} distinto`);
   }
   for (const caso of v.casos) {
-    const r = await comprobarTraza(caso.lineas, { huellaAnclada: caso.ancla ?? null, esperarGenesis: caso.esperar_genesis ?? false });
+    const r = await comprobarCaso(caso);
     const malos = Object.entries(caso.esperado).filter(([k, x]) => JSON.stringify(r[k] ?? null) !== JSON.stringify(x));
     console.log(`${malos.length ? 'MAL' : 'ok '} ${caso.nombre.padEnd(46)} ${r.estado.padEnd(22)} ${String(r.motivo).padEnd(8)} bloque=${r.bloque}`);
     if (malos.length) fallos.push(`${caso.nombre}: ${JSON.stringify(malos.map(([k, x]) => [k, x, r[k]]))}`);
