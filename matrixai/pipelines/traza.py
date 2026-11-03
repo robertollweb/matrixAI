@@ -81,8 +81,11 @@ MAX_ENTERO = 2 ** 53 - 1  # lo que JavaScript representa exacto: Python y JS no 
 #: FALSO (re-auditoría): 64 MiB de líneas diminutas (`ab\n`, `\n`) gastaban 535–1.284 MB en Python y 502–1.013 MB en Node, por partir
 #: el fichero entero. Remate (`~/.agentes/153/remate-c1/`, RSS máximo bajo `MemoryMax=3G`, sin swap): ya no se crea la lista; esas
 #: líneas diminutas, 85 MB en Python (64 de ellos, el propio fichero) y «formato» en 0,1 s; el PEOR caso es ahora 64 MiB de bloques
-#: VÁLIDOS mínimos (100.029 incompletos de 672 bytes): 141 MB y 50 s en Python, 308 MB y 36 s en Node (antes, 222 y 369 MB). El año
-#: de 42 columnas, 74 MB en Python y 188 MB en Node. No hace falta tope de número de líneas: una línea que no es un bloque para la
+#: VÁLIDOS mínimos, CADA UNO CON SU PROPIA CLAVE (99.420 incompletos de 675 bytes, 99.420 huellas distintas; 153-C2, con la máquina
+#: cargada, loadavg 5–12): **204 MB y 78 s en Python, 414 MB y 97 s en Node** (antes de pasar `huellas` de una lista con `not in` a un
+#: dict/Set, 176 s y 203 MB en Python y 118 s y 407 MB en Node). Con una sola clave los mismos bloques eran 141 MB y 50 s en Python y
+#: 308 MB y 36 s en Node (C1, remate): una clave por bloque es el peor caso, y la cifra de arriba la sustituye. El año de 42 columnas,
+#: 74 MB en Python y 188 MB en Node. No hace falta tope de número de líneas: una línea que no es un bloque para la
 #: lectura ahí, y más de ~100.000 bloques no caben en 64 MiB.
 TOPE_LINEA = 1 << 20      # bytes UTF-8 de una línea, sin su `\n`
 TOPE_FICHERO = 64 << 20   # bytes del fichero; con líneas sueltas, la suma de (bytes de cada línea + 1)
@@ -616,10 +619,7 @@ def _comprobar(lineas: Iterable[str], fuera: dict[str, Any] | None, huella_ancla
     fallo = _fallo_de_cadena(registros, esperar_genesis)
     if fallo is not None:
         return fallo
-    huellas: list[str] = []
-    for r in registros:
-        if r[3] not in huellas:
-            huellas.append(r[3])
+    huellas: list[str] = list(dict.fromkeys(r[3] for r in registros))  # sin repetir, en orden de aparición (un dict, no `not in` sobre una lista: era cuadrático)
     if huella_anclada is not None:
         for i, r in enumerate(registros):
             if r[3] != huella_anclada:

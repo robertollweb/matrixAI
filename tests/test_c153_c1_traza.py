@@ -981,3 +981,49 @@ def test_remate_cosmetico_describir_concuerda_en_singular():
     assert not re.search(r"\b1 (bloques|cadenas|blocks|chains)\b", es + en)
     tres = "\n".join(T.describir(_caso("B1_tres_cadenas_legitimas"), "es"))
     assert "6 bloques en 3 cadenas" in tres and "en las líneas 4, 6" in tres
+
+
+def test_c2_menor_las_huellas_salen_sin_repetir_y_en_orden_de_aparicion_en_python_y_en_js():
+    """153-C2, menor de la 3.ª auditoría de C1: `huellas` se arma con un dict/Set (era un `not in` sobre una lista, cuadrático: 77 s
+    de 173 con 64 MiB de bloques con una clave cada uno). Pero el ORDEN de `huellas` es parte de la salida: la primera aparición de
+    cada clave, sin repetir. Se comprueba contra una cuenta independiente (leyendo la huella de cada línea) en TODOS los vectores
+    válidos, y el JS da la misma lista."""
+    validos = [c for c in VECTORES["casos"] if _comprobar_caso(c)["estado"] == A.VALIDA]
+    assert len(validos) >= 10
+    js = _node({"modo": "comprobar", "casos": validos})["resultados"]
+    varias_claves = 0
+    for c, j in zip(validos, js):
+        r = _comprobar_caso(c)
+        if any(k in c for k in ("fichero_b64", "fichero_de_espacios", "fichero_de_lineas")):
+            continue  # entran por los bytes del fichero, no por una lista de líneas
+        lineas = [_expandir(x) for x in c["lineas"]]
+        esperado = []
+        for linea in lineas:
+            h = json.loads(linea)["servicio"]["huella_clave"]
+            if h not in esperado:
+                esperado.append(h)
+        assert r["huellas"] == esperado == j["huellas"], c["nombre"]
+        varias_claves += len(esperado) > 1
+    assert varias_claves >= 1, "ningún vector válido mezcla claves: la prueba no mide el orden"
+
+
+def test_c2_menor_el_orden_es_el_de_la_primera_aparicion_no_el_alfabetico_ni_con_repetidos():
+    """El orden de `huellas` tiene que distinguirse de `sorted` (con las claves de los vectores el orden de aparición coincide con el
+    alfabético y un `sorted` pasaba): se construye una traza con la clave de huella MAYOR primero, luego la menor, y la mayor otra vez
+    (tres cadenas, `sin_previo`). Salen las dos huellas, una vez cada una, la mayor delante; igual en JS."""
+    mayor, menor = sorted((CLAVE_A, CLAVE_B), key=lambda k: k["huella"], reverse=True)
+    base = json.loads(CADENA[0])
+
+    def bloque(clave, desde, primero):
+        b = {k: v for k, v in base.items() if k != "firma"}
+        b["servicio"] = {**base["servicio"], "huella_clave": clave["huella"], "clave_publica": clave["publica_hex"]}
+        b.update(seq=0, prev=T.GENESIS, ventana={"desde": desde, "hasta": desde}, n=1, incompleto=True, salida=None, columnas=None,
+                 reinicio=None if primero else "sin_previo")
+        return _linea(_firmado_con(clave, b))
+
+    lineas = [bloque(mayor, "2026-11-02T10:00:00Z", True), bloque(menor, "2026-11-02T11:00:00Z", False),
+              bloque(mayor, "2026-11-02T12:00:00Z", False)]
+    r = _comprobar(lineas)
+    assert r["estado"] == A.VALIDA, r.get("detalle")
+    assert r["huellas"] == [mayor["huella"], menor["huella"]] != sorted(r["huellas"])
+    assert _node({"modo": "comprobar", "casos": [{"lineas": lineas}]})["resultados"][0]["huellas"] == r["huellas"]

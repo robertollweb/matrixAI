@@ -1,7 +1,7 @@
 // 153-C1 · Ayudante de las pruebas de paridad Python<->JS. Lee un JSON de la entrada estándar y escribe otro.
 //   {"modo":"jcs","valores":[...]}                       -> {"hex":[<JCS en hex de cada valor>]}
 //   {"modo":"comprobar","casos":[{lineas|fichero_b64|fichero_de_espacios,ancla,esperar_genesis}...]}
-//                                                       -> {"resultados":[{estado,motivo,bloque,cadenas}...]}
+//                                                       -> {"resultados":[{estado,motivo,bloque,cadenas,huellas}...]}
 //   (con "acepta_todo": true, el Ed25519 de la plataforma acepta cualquier firma)
 //   {"modo":"topes"}                                     -> {"TOPE_LINEA","TOPE_FICHERO"}
 import { readFileSync } from 'node:fs';
@@ -18,7 +18,7 @@ if (entrada.modo === 'jcs') {
   const resultados = [];
   for (const c of entrada.casos) {
     const r = await comprobarCaso(c, plataforma);
-    resultados.push({ estado: r.estado, motivo: r.motivo, bloque: r.bloque, cadenas: r.cadenas ?? null });
+    resultados.push({ estado: r.estado, motivo: r.motivo, bloque: r.bloque, cadenas: r.cadenas ?? null, huellas: r.huellas ?? null });
   }
   process.stdout.write(JSON.stringify({ resultados }));
 } else if (entrada.modo === 'topes') {

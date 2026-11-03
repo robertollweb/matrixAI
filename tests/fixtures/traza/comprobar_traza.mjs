@@ -442,8 +442,7 @@ async function comprobar(lineas, fuera, huellaAnclada, esperarGenesis, plataform
   if (primeraCoherencia) return res(NO_SE_PUDO_COMPROBAR, primeraCoherencia[1], primeraCoherencia[0], primeraCoherencia[2]);
   const fallo = falloDeCadena(registros, esperarGenesis);
   if (fallo) return fallo;
-  const huellas = [];
-  for (const r of registros) if (!huellas.includes(r.huella)) huellas.push(r.huella);
+  const huellas = [...new Set(registros.map((r) => r.huella))]; // sin repetir, en orden de aparición (un Set, no `includes` sobre un array: era cuadrático)
   if (huellaAnclada !== null) {
     for (let i = 0; i < registros.length; i++) {
       if (registros[i].huella !== huellaAnclada) return res(NO_COINCIDE, 'ancla', i, t('la huella de este bloque no es la anclada', 'this block\'s fingerprint is not the anchored one'));
