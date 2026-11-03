@@ -238,10 +238,10 @@ def rechazar(codigo: str, *, variante: str | None = None, **detalle) -> TablaRec
 
     Un valor que se escribe distinto en inglés va con el sufijo `_en` (`parametro=…, parametro_en=…`): el motivo
     inglés usa ese y el español el otro (M4 de la auditoría de 150-C3: «Invalid parameter: … debe ser 1 o 2»)."""
-    base = {k: _a_texto(v) for k, v in detalle.items()}
-    es, en = dict(base), dict(base)
-    for clave in [k for k in base if k.endswith("_en")]:
-        en[clave[:-3]] = base[clave]
+    es = {k: _a_texto(v, "es") for k, v in detalle.items()}
+    en = {k: _a_texto(v, "en") for k, v in detalle.items()}
+    for clave in [k for k in en if k.endswith("_en")]:
+        en[clave[:-3]] = en[clave]
     for clave, (a, b, c, d) in {"filas": ("fila", "filas", "row", "rows"),
                                 "columnas": ("columna", "columnas", "column", "columns"),
                                 "cuantas": ("celda", "celdas", "cell", "cells")}.items():
@@ -255,7 +255,24 @@ def rechazar(codigo: str, *, variante: str | None = None, **detalle) -> TablaRec
     return TablaRechazada(codigo, msg_es.format(**es), msg_en.format(**en), detalle)
 
 
-def _a_texto(v) -> str:
+#: Cuántos elementos de una lista caben en el TEXTO de un motivo. El resto se cuenta («y 39.990 más»): una lista que la
+#: persona manda (`filas_a_excluir`: decenas de miles de filas) no se enumera entera en una frase que va a una pantalla
+#: (menor 2 de la re-auditoría de 150-C3). El dato completo, si hace falta, vive en el `detalle` de la excepción.
+MAX_ELEMENTOS_EN_UN_MOTIVO = 10
+
+
+def lista_para_texto(valores, idioma: str = "es") -> str:
+    """`1, 2, 3` o, pasados `MAX_ELEMENTOS_EN_UN_MOTIVO`, `1, 2, … y N más` / `… and N more` (sin separador de miles:
+    el mismo número en los dos idiomas)."""
+    valores = list(valores)
+    if len(valores) <= MAX_ELEMENTOS_EN_UN_MOTIVO:
+        return ", ".join(str(x) for x in valores)
+    resto = len(valores) - MAX_ELEMENTOS_EN_UN_MOTIVO
+    primeros = ", ".join(str(x) for x in valores[:MAX_ELEMENTOS_EN_UN_MOTIVO])
+    return f"{primeros} y {resto} más" if idioma == "es" else f"{primeros}, and {resto} more"
+
+
+def _a_texto(v, idioma: str = "es") -> str:
     if isinstance(v, (list, tuple)):
-        return ", ".join(str(x) for x in v)
+        return lista_para_texto(v, idioma)
     return str(v)

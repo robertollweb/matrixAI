@@ -21,6 +21,10 @@ from matrixai.tablas import TablaRechazada, convertir, inspeccionar
 from matrixai.tablas import topes
 from matrixai.tablas.errores import rechazar
 
+import pathlib
+
+FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures" / "tablas"
+
 pytestmark = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="RLIMIT_AS y /proc: Linux")
 
 
@@ -143,3 +147,34 @@ def test_I1_leer_pasa_a_cada_guarda_la_memoria_de_ANTES_de_empezar(monkeypatch):
     monkeypatch.setattr(api_tablas, "memoria_virtual_del_proceso", lambda: 123_456_789)
     convertir(G.xlsx([G.Hoja("H", [["a", "b"], [1, 2]])]), "x.xlsx", fila_de_cabecera=1)
     assert len(vistos) >= 2 and set(vistos) == {123_456_789}, vistos
+
+
+# ── remate de 150-C3 (re-auditoría): una lista de la persona no se enumera entera en un motivo ──────────────────────────
+def test_menor2_una_lista_larga_se_recorta_en_el_texto_del_motivo_y_dice_cuantas_faltan():
+    from matrixai.tablas.errores import MAX_ELEMENTOS_EN_UN_MOTIVO, lista_para_texto
+    n = MAX_ELEMENTOS_EN_UN_MOTIVO
+    assert lista_para_texto(range(1, n + 1)) == ", ".join(str(i) for i in range(1, n + 1))        # justo en el tope: entera
+    assert lista_para_texto(range(1, n + 2), "es").endswith(" y 1 más")
+    assert lista_para_texto(range(1, n + 2), "en").endswith(", and 1 more")
+    largo = lista_para_texto(range(1, 40_001), "es")
+    assert largo.endswith(" y 39990 más") and len(largo) < 100
+    # por `rechazar` (cualquier motivo con una lista), cada idioma con el suyo
+    e = rechazar("formula_sin_valor", variante="recalcular", cuantas=40_000, celdas=[f"B{i}" for i in range(2, 40_002)])
+    assert "y 39990 más" in e.motivo_es and "and 39990 more" in e.motivo_en and "y 39990" not in e.motivo_en
+    assert len(e.motivo_es) < 2_000 and len(e.motivo_en) < 2_000
+
+
+def test_menor2_el_rechazo_de_filas_a_excluir_no_las_enumera_todas_ni_fuera_de_la_hoja_ni_en_la_cabecera():
+    """La ruta real (`convertir`): el motivo cita las primeras y cuenta el resto, en cada idioma y en las DOS ramas."""
+    pytest.importorskip("python_calamine", reason="falta python-calamine (extra `tablas`)")
+    datos = (FIXTURES / "cabecera_en_fila_15.xlsx").read_bytes()
+    with pytest.raises(TablaRechazada) as e:                   # 40.000 filas que la hoja no tiene
+        convertir(datos, "x.xlsx", fila_de_cabecera=15, filas_a_excluir=list(range(100_000, 140_000)))
+    assert e.value.codigo == "parametro_invalido" and "no existe" in e.value.motivo_es
+    assert "100009 y 39990 más]" in e.value.motivo_es and "100009, and 39990 more]" in e.value.motivo_en
+    assert "100010" not in e.value.motivo_es and len(e.value.motivo_es) < 300 and len(e.value.motivo_en) < 300
+    with pytest.raises(TablaRechazada) as e:                   # 14 filas por encima de la cabecera (la 15)
+        convertir(datos, "x.xlsx", fila_de_cabecera=15, filas_a_excluir=list(range(1, 15)))
+    assert e.value.codigo == "parametro_invalido" and "cabecera" in e.value.motivo_es
+    assert "10 y 4 más]" in e.value.motivo_es and "10, and 4 more]" in e.value.motivo_en
+    assert "11" not in e.value.motivo_es

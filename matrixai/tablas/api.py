@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 from . import aislado
 from .declaraciones import declarar
-from .errores import TablaRechazada, rechazar
+from .errores import TablaRechazada, lista_para_texto, rechazar
 from .formato import abrir_zip_de_excel, detectar_formato, es_ole_de_excel
 from .topes import (TOPES_DE_FABRICA, Topes, comprobar_cadenas_compartidas, comprobar_memoria,
                     memoria_virtual_del_proceso,
@@ -697,13 +697,13 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         raise rechazar("sin_filas_de_datos", fila=fh)
     if any(f < fd for f in excluir):
         raise rechazar("parametro_invalido",
-                       parametro=f"filas_a_excluir {[f for f in excluir if f < fd]} está en la cabecera o por encima",
-                       parametro_en=f"filas_a_excluir {[f for f in excluir if f < fd]} is in the header or above it")
+                       parametro=f"filas_a_excluir [{lista_para_texto([f for f in excluir if f < fd])}] está en la cabecera o por encima",
+                       parametro_en=f"filas_a_excluir [{lista_para_texto([f for f in excluir if f < fd], 'en')}] is in the header or above it")
     if any(f > fin for f in excluir):
         # Una fila que la hoja no tiene no se «quita»: declararla quitada sería mentir.
         raise rechazar("parametro_invalido",
-                       parametro=f"filas_a_excluir {[f for f in excluir if f > fin]} no existe en la hoja (la última fila es la {fin})",
-                       parametro_en=f"filas_a_excluir {[f for f in excluir if f > fin]} does not exist in the sheet (the last row is {fin})")
+                       parametro=f"filas_a_excluir [{lista_para_texto([f for f in excluir if f > fin])}] no existe en la hoja (la última fila es la {fin})",
+                       parametro_en=f"filas_a_excluir [{lista_para_texto([f for f in excluir if f > fin], 'en')}] does not exist in the sheet (the last row is {fin})")
     excluidas = set(excluir)
 
     # Fórmulas sin valor: se comprueban sobre lo que SE CONVIERTE, cabecera incluida (la fila
