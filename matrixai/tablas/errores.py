@@ -195,6 +195,30 @@ VARIANTES: dict[tuple[str, str], tuple[str, str]] = {
         "its formulas to be recalculated when it is opened: the saved value is not the result "
         "(the tool that wrote it left a placeholder, usually 0) and they are never calculated "
         "here. Open it in Excel or LibreOffice, save it and upload it again."),
+    # I1 de la auditoría de 150-C3: el proceso que convierte tiene un techo propio (`RLIMIT_AS`) por debajo de lo que el
+    # equipo tiene libre; lo que no cabe es el libro en ESE techo, y se dice con las dos cifras.
+    ("memoria_insuficiente", "techo_del_proceso"): (
+        "Leer la hoja «{hoja}» necesita que el proceso que convierte el libro use unos {necesario} de memoria, y solo "
+        "puede usar {disponible} más (su techo es {techo}). No indica que el fichero esté dañado: copia los datos a un "
+        "libro más pequeño.",
+        "Reading sheet «{hoja}» needs the process converting the workbook to use about {necesario} of memory, and it "
+        "can only use {disponible} more (its limit is {techo}). It does not mean the file is damaged: copy the data to "
+        "a smaller workbook."),
+    # M5 de la auditoría de 150-C3: sin nombre (o sin punto) no hay extensión que citar, y «(sin extensión)» se colaba
+    # en el texto inglés.
+    ("pdf_no_excel", "sin_extension"): (
+        "Esto es un PDF, no un libro de Excel. Las tablas de un PDF no se leen: exporta los datos a Excel o a CSV "
+        "desde donde salió el PDF.",
+        "This is a PDF, not an Excel workbook. Tables inside a PDF are not read: export the data to Excel or CSV from "
+        "wherever the PDF came from."),
+    ("xml_no_excel", "sin_extension"): (
+        "Esto es un fichero XML, no un libro de Excel. Ábrelo en Excel y guárdalo como «Libro de Excel (.xlsx)».",
+        "This is an XML file, not an Excel workbook. Open it in Excel and save it as «Excel Workbook (.xlsx)»."),
+    ("texto_no_excel", "sin_extension"): (
+        "Esto es un fichero de texto (parece un CSV), no un libro de Excel. Si es un CSV, súbelo con su extensión "
+        ".csv.",
+        "This is a text file (it looks like a CSV), not an Excel workbook. If it is a CSV, upload it with its .csv "
+        "extension."),
     ("lector_abortado", "desde_fuera"): (
         "El lector de Excel se detuvo leyendo el libro porque lo paró otro proceso o el sistema "
         "({como}; por ejemplo, la máquina se quedó sin memoria). No indica que el fichero esté "
@@ -210,9 +234,14 @@ def rechazar(codigo: str, *, variante: str | None = None, **detalle) -> TablaRec
     `variante`, el motivo de `VARIANTES[(codigo, variante)]` y el mismo código.
 
     Los recuentos se escriben con singular/plural en cada idioma (`n_filas`, `n_columnas`,
-    `n_celdas`): ningún motivo dice «1 filas»."""
+    `n_celdas`): ningún motivo dice «1 filas».
+
+    Un valor que se escribe distinto en inglés va con el sufijo `_en` (`parametro=…, parametro_en=…`): el motivo
+    inglés usa ese y el español el otro (M4 de la auditoría de 150-C3: «Invalid parameter: … debe ser 1 o 2»)."""
     base = {k: _a_texto(v) for k, v in detalle.items()}
     es, en = dict(base), dict(base)
+    for clave in [k for k in base if k.endswith("_en")]:
+        en[clave[:-3]] = base[clave]
     for clave, (a, b, c, d) in {"filas": ("fila", "filas", "row", "rows"),
                                 "columnas": ("columna", "columnas", "column", "columns"),
                                 "cuantas": ("celda", "celdas", "cell", "cells")}.items():

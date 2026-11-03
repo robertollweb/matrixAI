@@ -22,7 +22,8 @@ from .errores import rechazar
 
 __all__ = ["Topes", "TOPES_DE_FABRICA", "BYTES_POR_CELDA_DEL_RANGO", "FACTOR_RAM_POR_BYTE_DE_XML",
            "FACTOR_RAM_POR_BYTE_DE_CADENAS", "comprobar_memoria", "ram_estimada_de_una_hoja",
-           "techo_del_lector", "comprobar_cadenas_compartidas"]
+           "techo_del_lector", "comprobar_cadenas_compartidas", "hueco_bajo_el_techo_del_proceso",
+           "memoria_virtual_del_proceso"]
 
 #: Un libro cuyo contenido descomprimido pasa de esto no se abre. 1 GiB: una hoja de 1.048.576
 #: filas × 30 columnas de números ocupa ~0,9 GB de XML, así que no recorta un caso legítimo; la
@@ -102,6 +103,13 @@ FACTOR_RAM_POR_BYTE_DE_XML = 9
 #: texto se paga en calamine, en el hijo, en el padre y en el CSV (x10 medido, arriba).
 FACTOR_RAM_POR_BYTE_DE_CADENAS = 10
 
+#: Qué parte de `ram_estimada_de_una_hoja` (la SUMA de este proceso y el hijo de calamine) gasta, como poco, el proceso
+#: que llama: es la que cuenta contra SU techo (`hueco_bajo_el_techo_del_proceso`). El padre medido arriba se lleva
+#: entre el 35 % (100.000 x 10 de 20 car.: 141 de 406) y el 51 % de lo GASTADO, y la estimación pasa de lo gastado
+#: (x1,08..x1,82): un tercio de la estimación es el mejor caso, redondeado hacia abajo. Es RSS y el techo cuenta memoria
+#: virtual, que es mayor: sigue siendo una cota por abajo.
+FRACCION_DEL_PROCESO_QUE_LLAMA = 1 / 3
+
 #: El techo del proceso lector: lo estimado ×4 (la estimación es el MEJOR caso medido; el peor
 #: medido es ×1,7) más un margen fijo para el intérprete, calamine y la copia de los bytes del
 #: fichero; nunca menos de 1 GiB.
@@ -139,18 +147,67 @@ def comprobar_cadenas_compartidas(n_bytes: int, topes: "Topes") -> None:
                        tope=limits.human_bytes(topes.max_cadenas_compartidas), bytes=n_bytes)
 
 
-def comprobar_memoria(necesario: int, hoja: str) -> None:
+def comprobar_memoria(necesario: int, hoja: str, *, usado_al_empezar: int | None = None) -> None:
     """Rechaza si esta máquina no tiene `necesario` bytes libres. Reutiliza la guarda de los CSV.
 
     `limits.memoria_insuficiente(csv_bytes)` multiplica por `FACTOR_RAM_POR_BYTE_DE_CSV`; se le
     pasan los bytes de CSV que EQUIVALDRÍAN a `necesario`, y de su respuesta solo se usa la
     decisión y los números (el texto es de un CSV y aquí hablamos de una hoja). Honra
     `MATRIXAI_GUARDIA_MEMORIA` y devuelve `None` (no opina) donde no se puede medir la RAM.
+
+    `usado_al_empezar`: la memoria virtual de este proceso ANTES de empezar a leer la hoja (`memoria_virtual_del_proceso`).
+    Lo que la lectura ya ha gastado entre una comprobación y la siguiente es parte de `necesario`: medir el hueco con lo
+    de ahora lo contaría dos veces.
     """
     equivalente = math.ceil(necesario / limits.FACTOR_RAM_POR_BYTE_DE_CSV)
     p = limits.memoria_insuficiente(equivalente)
-    if p is None:
+    if p is not None:
+        raise rechazar("memoria_insuficiente", hoja=hoja,
+                       necesario=limits.human_bytes(p["necesario_estimado"]),
+                       disponible=limits.human_bytes(p["disponible"]))
+    # Y lo que ESTE proceso puede pedir: con un techo propio (`RLIMIT_AS`, el que pone el Studio a su proceso de
+    # conversión o un `ulimit -v`) la memoria del equipo no es la que cuenta. Sin esto, un libro sano que no cabe en el
+    # techo empezaba a leerse y acababa en un `MemoryError` que el lector dice como «fichero dañado» (I1 de la
+    # auditoría de 150-C3). Es `min(disponible, techo)`: la de arriba ya rechazó si el equipo tiene menos.
+    #
+    # Pero el techo es de ESTE proceso y `necesario` es la suma de los dos (este y el hijo de calamine, que tiene el
+    # suyo): se compara SU parte en el mejor caso medido, para no rechazar lo que cabe. Medido el 03-11 con la guarda
+    # apagada: `generar.grande(200_000, 10)` (606,5 MB estimados) SÍ se convierte con 300 MiB de techo y no con 180.
+    if not limits.guarda_de_memoria_activa():
         return
-    raise rechazar("memoria_insuficiente", hoja=hoja,
-                   necesario=limits.human_bytes(p["necesario_estimado"]),
-                   disponible=limits.human_bytes(p["disponible"]))
+    techo = hueco_bajo_el_techo_del_proceso(usado_al_empezar)
+    if techo is None:
+        return
+    tope, hueco = techo
+    propio = int(necesario * FRACCION_DEL_PROCESO_QUE_LLAMA)
+    if propio > hueco:
+        raise rechazar("memoria_insuficiente", variante="techo_del_proceso", hoja=hoja,
+                       necesario=limits.human_bytes(propio), disponible=limits.human_bytes(hueco),
+                       techo=limits.human_bytes(tope))
+
+
+def memoria_virtual_del_proceso() -> int | None:
+    """`VmSize` de este proceso (lo que cuenta `RLIMIT_AS`), o `None` si no se puede medir."""
+    try:
+        with open("/proc/self/status", encoding="ascii") as fh:
+            for linea in fh:
+                if linea.startswith("VmSize:"):
+                    return int(linea.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def hueco_bajo_el_techo_del_proceso(usado: int | None = None) -> tuple[int, int] | None:
+    """`(techo, hueco)`: el `RLIMIT_AS` blando de este proceso y lo que le queda por debajo (el techo menos `usado`, o
+    su `VmSize` de ahora). `None` si no tiene techo o no se puede medir (no opina)."""
+    try:
+        import resource  # noqa: PLC0415 — no existe en Windows
+        blando = resource.getrlimit(resource.RLIMIT_AS)[0]
+    except (ImportError, ValueError, OSError):
+        return None
+    if blando == resource.RLIM_INFINITY or blando <= 0:
+        return None
+    if usado is None:
+        usado = memoria_virtual_del_proceso() or 0
+    return int(blando), max(0, int(blando) - int(usado))

@@ -29,6 +29,7 @@ from .declaraciones import declarar
 from .errores import TablaRechazada, rechazar
 from .formato import abrir_zip_de_excel, detectar_formato, es_ole_de_excel
 from .topes import (TOPES_DE_FABRICA, Topes, comprobar_cadenas_compartidas, comprobar_memoria,
+                    memoria_virtual_del_proceso,
                     ram_estimada_de_una_hoja, techo_del_lector)
 from .valores import DOS_A_LA_53, escribir_csv, numero_a_texto, tipo_de_valor, valor_a_texto
 from . import xlsx_xml
@@ -123,16 +124,17 @@ class _Libro:
     def _clasificar(self) -> str:
         familia = detectar_formato(self.datos[:4096])
         extension = ("." + self.nombre.rsplit(".", 1)[-1].lower()) if "." in self.nombre else "(sin extensión)"
+        sin_ext = {"variante": "sin_extension"} if "." not in self.nombre else {}
         if familia == "vacio":
             raise rechazar("vacio")
         if familia == "html":
             raise rechazar("html_no_excel")
         if familia == "pdf":
-            raise rechazar("pdf_no_excel", extension=extension)
+            raise rechazar("pdf_no_excel", extension=extension, **sin_ext)
         if familia == "xml":
-            raise rechazar("xml_no_excel", extension=extension)
+            raise rechazar("xml_no_excel", extension=extension, **sin_ext)
         if familia == "texto":
-            raise rechazar("texto_no_excel", extension=extension)
+            raise rechazar("texto_no_excel", extension=extension, **sin_ext)
         if familia == "xml_excel":
             raise rechazar("formato_no_soportado", formato="XML de Excel 2003")
         if familia == "parquet":
@@ -211,13 +213,16 @@ class _Libro:
         nombre = meta["nombre"]
         _importar_calamine()
         segundos = self.topes.max_segundos_lector
+        # Lo que este proceso ocupa ANTES de leer la hoja: la guarda compara lo que la lectura va a pedir con el techo
+        # del proceso menos esto (no menos lo de cada momento, que ya incluye parte de lo pedido).
+        al_empezar = memoria_virtual_del_proceso()
 
         def techo(necesario: int) -> int:
             return techo_del_lector(necesario, len(self.datos), self.topes)
 
         if self.zf is None:
             necesario = ram_estimada_de_una_hoja(_CELDAS_MAXIMAS_DE_UN_XLS)
-            comprobar_memoria(necesario, nombre)
+            comprobar_memoria(necesario, nombre, usado_al_empezar=al_empezar)
             r = aislado.leer_hoja(self.datos, nombre, memoria=techo(necesario), segundos=segundos)
         else:
             ruta = meta["ruta"]
@@ -225,7 +230,7 @@ class _Libro:
             # La cota que se sabe SIN recorrer la hoja (su XML y los textos compartidos): si ni
             # eso cabe, no se abre nada.
             provisional = ram_estimada_de_una_hoja(0, tam, self.bytes_de_cadenas)
-            comprobar_memoria(provisional, nombre)
+            comprobar_memoria(provisional, nombre, usado_al_empezar=al_empezar)
             lectura = None
             if geom is None and ruta is not None:
                 # calamine (en su hijo, con el techo provisional) y la geometría (aquí) A LA VEZ:
@@ -242,7 +247,7 @@ class _Libro:
                     if not geom.exacta:   # alguna referencia no se entiende: el rectángulo es una cota
                         celdas = max(celdas, tam // 20)
                 necesario = ram_estimada_de_una_hoja(celdas, tam, self.bytes_de_cadenas)
-                comprobar_memoria(necesario, nombre)
+                comprobar_memoria(necesario, nombre, usado_al_empezar=al_empezar)
             except BaseException:
                 if lectura is not None:
                     lectura.cancelar()
@@ -657,20 +662,25 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
     son números de fila de la hoja, y SOLO se quitan esas.
     """
     if isinstance(fila_de_cabecera, bool) or not isinstance(fila_de_cabecera, int) or fila_de_cabecera < 1:
-        raise rechazar("parametro_invalido", parametro="fila_de_cabecera debe ser un entero ≥ 1")
+        raise rechazar("parametro_invalido", parametro="fila_de_cabecera debe ser un entero ≥ 1",
+                       parametro_en="fila_de_cabecera must be an integer ≥ 1")
     if filas_de_cabecera not in (1, 2) or isinstance(filas_de_cabecera, bool):
-        raise rechazar("parametro_invalido", parametro="filas_de_cabecera debe ser 1 o 2")
+        raise rechazar("parametro_invalido", parametro="filas_de_cabecera debe ser 1 o 2",
+                       parametro_en="filas_de_cabecera must be 1 or 2")
     try:
         lista_excluir = list(filas_a_excluir)
     except TypeError:
-        raise rechazar("parametro_invalido", parametro="filas_a_excluir debe ser una lista de números de fila") from None
+        raise rechazar("parametro_invalido", parametro="filas_a_excluir debe ser una lista de números de fila",
+                       parametro_en="filas_a_excluir must be a list of row numbers") from None
     # Solo enteros: `2.5` o `"3"` se convertían con `int()` y se quitaba OTRA fila (o una que no
     # se pidió así), declarando «se quitó 1 fila» (menor de la 2.ª re-auditoría).
     if any(isinstance(f, bool) or not isinstance(f, int) for f in lista_excluir):
-        raise rechazar("parametro_invalido", parametro="filas_a_excluir debe ser una lista de números de fila enteros")
+        raise rechazar("parametro_invalido", parametro="filas_a_excluir debe ser una lista de números de fila enteros",
+                       parametro_en="filas_a_excluir must be a list of integer row numbers")
     excluir = sorted(set(lista_excluir))
     if any(f < 1 or f > _MAX_FILAS_FISICAS for f in excluir):
-        raise rechazar("parametro_invalido", parametro="filas_a_excluir debe ser una lista de números de fila")
+        raise rechazar("parametro_invalido", parametro="filas_a_excluir debe ser una lista de números de fila",
+                       parametro_en="filas_a_excluir must be a list of row numbers")
 
     libro = _Libro(datos, nombre, topes or TOPES_DE_FABRICA)
     meta = libro.elegir(hoja)
@@ -687,11 +697,13 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         raise rechazar("sin_filas_de_datos", fila=fh)
     if any(f < fd for f in excluir):
         raise rechazar("parametro_invalido",
-                       parametro=f"filas_a_excluir {[f for f in excluir if f < fd]} está en la cabecera o por encima")
+                       parametro=f"filas_a_excluir {[f for f in excluir if f < fd]} está en la cabecera o por encima",
+                       parametro_en=f"filas_a_excluir {[f for f in excluir if f < fd]} is in the header or above it")
     if any(f > fin for f in excluir):
         # Una fila que la hoja no tiene no se «quita»: declararla quitada sería mentir.
         raise rechazar("parametro_invalido",
-                       parametro=f"filas_a_excluir {[f for f in excluir if f > fin]} no existe en la hoja (la última fila es la {fin})")
+                       parametro=f"filas_a_excluir {[f for f in excluir if f > fin]} no existe en la hoja (la última fila es la {fin})",
+                       parametro_en=f"filas_a_excluir {[f for f in excluir if f > fin]} does not exist in the sheet (the last row is {fin})")
     excluidas = set(excluir)
 
     # Fórmulas sin valor: se comprueban sobre lo que SE CONVIERTE, cabecera incluida (la fila
