@@ -242,6 +242,9 @@ def main():
     ap.add_argument("--salida", default=str(AQUI / "resultados"))
     args = ap.parse_args()
     salida = Path(args.salida)
+    print(time.strftime("%H:%M:%S"), "AVISO: desde 149-C1-bis el núcleo ya no es el que midió este guion (`comportamiento_sha256` "
+          "cambia); su veredicto V(ε, q) sale de `veredicto_bis` sobre los retrocesos y el efecto del núcleo, que no cambian, pero un "
+          "`.veredicto` del núcleo ya es V'(ε, q) por amplitud: no comparar con los archivados sin mirar ese sha.", flush=True)
     salida.mkdir(parents=True, exist_ok=True)
     t_inicio = time.perf_counter()
     regla = AQUI / "REGLA_DE_ELECCION_BIS.md"

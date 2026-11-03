@@ -489,6 +489,9 @@ def main():
     ap.add_argument("--sin-reales", action="store_true", help="omitir P4 (estudios reales)")
     args = ap.parse_args()
     cfg = CONFIG[args.tam]
+    registrar("AVISO: desde 149-C1-bis el veredicto del núcleo (`.veredicto` de `con_epsilon`) es V'(ε, q) por amplitud y fracción "
+              "de filas, no el de una sola fila que midió este guion; con este núcleo ya NO reproduce sus resultados archivados "
+              "(mirar `comportamiento_sha256` de ellos). Sus cifras de retroceso y de efecto no cambian.")
     salida = Path(args.salida)
     salida.mkdir(parents=True, exist_ok=True)
     # Los estudios reales rápidos van FUERA del worktree: la cola copia al resultado todo lo que el trabajo deja sin

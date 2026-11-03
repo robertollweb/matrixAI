@@ -73,9 +73,10 @@ from matrixai.estudio.comportamiento_textos import (
     cifra,
     motivo,
     porcentaje,
+    porcentajes_de_la_lectura,
 )
 from matrixai.estudio.errores import EsquemaInvalido
-from matrixai.estudio.validacion import digest_canonico, exigir_entero, exigir_real, exigir_texto
+from matrixai.estudio.validacion import digest_canonico, exigir_booleano, exigir_entero, exigir_real, exigir_texto
 from matrixai.estudio.vocabulario import TAREAS, exigir_opcion
 
 __all__ = [
@@ -192,7 +193,7 @@ class EscalaDeLaSalida:
     clave_del_motivo: str | None = None
 
     def a_json(self) -> dict[str, Any]:
-        return {"tarea": self.tarea, "valor": self.valor,
+        return {"tarea": self.tarea, "valor": self.valor, "clave_de_la_escala": self.clave_de_la_escala,
                 "descripcion": motivo(self.clave_de_la_escala) if self.clave_de_la_escala else None,
                 "clave_del_motivo": self.clave_del_motivo, "motivo": self.motivo}
 
@@ -283,6 +284,7 @@ class MonotoniaDeUnaColumna:
     k: int
     clave_de_no_comprobar: str | None = None   # por qué no hay curvas (antes de mirar ninguna fila)
     motivo_de_no_comprobar: Mapping[str, str] | None = None
+    motor_de_arboles: bool | None = None       # ¿el modelo es de árboles? None = no se sabe. Solo decide qué avisa el documento
 
     # ---- lo calculado ------------------------------------------------------------------------
     @property
@@ -338,9 +340,13 @@ class MonotoniaDeUnaColumna:
         #    una columna plana con un par de filas ruidosas no es «con contraejemplos».
         amplitud = self.amplitud_tipica
         if amplitud is None or not amplitud > eps:
+            # Qué PASÓ: cuántas filas sí se mueven más que la tolerancia (la mediana puede ser plana con un subgrupo que se mueve).
+            mueven = sum(1 for a in self.amplitudes if a is not None and a > eps)
+            huecos = dict(amplitud=cifra(amplitud if amplitud is not None else 0.0), tolerancia=cifra(eps),
+                          filas=self.filas_comprobadas)
             return ("no_se_pudo_comprobar", "amplitud_no_distingue",
-                    motivo("amplitud_no_distingue", amplitud=cifra(amplitud if amplitud is not None else 0.0),
-                           tolerancia=cifra(eps)))
+                    motivo("amplitud_no_distingue_con_filas_que_se_mueven", mueven=mueven, **huecos) if mueven
+                    else motivo("amplitud_no_distingue", **huecos))
         # 2. LA FRACCIÓN: al menos el q de las filas comprobadas retroceden más que ε. Aritmética exacta (decimal contra
         #    racional): `v/n >= q` en coma flotante falla en el borde (0,07·100 = 7,000000000000001).
         if Fraction(self.filas_con_violacion, self.filas_comprobadas) >= Fraction(repr(self.q_relativo)):
@@ -356,10 +362,21 @@ class MonotoniaDeUnaColumna:
         """Los guardados que superan la tolerancia ACTUAL (hasta K) —y SOLO si el veredicto es «con contraejemplos»:
         listar contraejemplos bajo un «sin contraejemplos» (unas pocas filas por debajo de q) se leería como una
         contradicción. Los K peores siguen enteros en `para_recalcular`."""
-        eps = self.epsilon_absoluto
-        if eps is None or self.veredicto != "con_contraejemplos":
+        if self.veredicto != "con_contraejemplos":
             return ()
-        return tuple(c for c in self.peores if c["retroceso"] > eps)
+        return self._peores_sobre_la_tolerancia()
+
+    def _peores_sobre_la_tolerancia(self) -> tuple[Mapping[str, Any], ...]:
+        eps = self.epsilon_absoluto
+        return () if eps is None else tuple(c for c in self.peores if c["retroceso"] > eps)
+
+    @property
+    def filas_que_retroceden(self) -> tuple[Mapping[str, Any], ...]:
+        """Decisión del supervisor (remate del C1-bis): bajo «sin contraejemplos», las filas (hasta K) que retroceden más que
+        la tolerancia pero no llegan al q del veredicto. Se enseñan APARTE y con otro rótulo —no son «contraejemplos» de un
+        veredicto que no los tiene, pero esconderlas sería no decir lo que pasó—. Vacío con cualquier otro veredicto (con
+        contraejemplos ya están en `contraejemplos`)."""
+        return self._peores_sobre_la_tolerancia() if self.veredicto == "sin_contraejemplos" else ()
 
     def con_tolerancia(self, epsilon_relativo: float | None = None, q_relativo: float | None = None) -> "MonotoniaDeUnaColumna":
         """El mismo resultado con OTRA tolerancia (ε, q), sin volver a predecir (I7). `None` = conservar el actual."""
@@ -380,10 +397,12 @@ class MonotoniaDeUnaColumna:
             lectura = motivo("lectura_sin_comprobar")
         else:
             eps = self.epsilon_absoluto
+            # La cifra escrita no puede contradecir al veredicto (hallazgo I1): nada de `round(fraccion, 3)`.
+            fraccion, minimo = porcentajes_de_la_lectura(self.filas_con_violacion, filas, self.q_relativo)
             lectura = motivo(
                 "lectura_con_contraejemplos" if clave == "con_contraejemplos" else "lectura_sin_contraejemplos",
                 violadoras=self.filas_con_violacion, filas=filas,
-                fraccion=porcentaje(round(self.fraccion_con_violacion, 3)), minimo=porcentaje(self.q_relativo),
+                fraccion=fraccion, minimo=minimo,
                 tolerancia=cifra(eps), retroceso=cifra(max(r for r in self.retrocesos if r is not None)),
                 direccion=PorIdioma(motivo("direccion_" + self.direccion)), amplitud=cifra(self.amplitud_tipica))
         return {"clave": clave, "texto": motivo(CLAVES_DE_VEREDICTO[clave]), "lectura": lectura,
@@ -395,12 +414,20 @@ class MonotoniaDeUnaColumna:
         sin_prediccion = len(self.ids) - self.filas_comprobadas
         avisos = ([{"clave": "filas_sin_prediccion", "texto": motivo("filas_sin_prediccion", sin=sin_prediccion, total=len(self.ids))}]
                   if sin_prediccion and self.filas_comprobadas else [])
-        # En binaria la tolerancia de partida es ALTA a propósito (149-C0-ter): lo dice el documento, no solo el contrato.
+        # En binaria la tolerancia de partida es ALTA a propósito (149-C0-ter): lo dice el documento, no solo el contrato. Lo que
+        # dice depende de DOS hechos (hallazgo I2): si lo usado ES lo de partida y si el motor es de árboles (lo medido).
         base = TOLERANCIA_POR_OMISION.get(self.escala.tarea)
+        por_omision = (self.epsilon_relativo, self.q_relativo) == base
         if (self.escala.tarea == "binary_classification" and base is not None and self.escala.valor is not None
                 and self.filas_comprobadas and self.epsilon_relativo is not None and self.epsilon_relativo >= base[0]):
+            arboles = self.motor_de_arboles is True
+            if por_omision:
+                clave_del_aviso = "tolerancia_alta_en_binaria" if arboles else "tolerancia_alta_en_binaria_otro_motor"
+            else:
+                clave_del_aviso = ("tolerancia_alta_en_binaria_no_de_partida" if arboles
+                                   else "tolerancia_alta_en_binaria_no_de_partida_otro_motor")
             avisos.append({"clave": "tolerancia_alta_en_binaria",
-                           "texto": motivo("tolerancia_alta_en_binaria", tolerancia=porcentaje(self.epsilon_relativo))})
+                           "texto": motivo(clave_del_aviso, tolerancia=porcentaje(self.epsilon_relativo))})
         return {
             "version": VERSION_DEL_COMPORTAMIENTO,
             "columna": self.columna, "direccion": self.direccion,
@@ -411,7 +438,7 @@ class MonotoniaDeUnaColumna:
                            "fraccion_minima": {"relativa": self.q_relativo,
                                                "texto": None if self.q_relativo is None else porcentaje(self.q_relativo)},
                            # ¿es la de partida de la tarea (medida en C0-ter)? Lo dice el valor, no cómo se pasó.
-                           "por_omision": (self.epsilon_relativo, self.q_relativo) == TOLERANCIA_POR_OMISION.get(self.escala.tarea),
+                           "por_omision": por_omision,
                            "escala": self.escala.a_json()},
             "filas": {"pedidas": len(self.ids), "comprobadas": self.filas_comprobadas, "sin_prediccion": sin_prediccion,
                       "ids": list(self.ids)},
@@ -421,13 +448,53 @@ class MonotoniaDeUnaColumna:
             "retroceso_maximo": max((r for r in self.retrocesos if r is not None), default=None),
             "filas_con_violacion": self.filas_con_violacion,
             "contraejemplos": [dict(c) for c in self.contraejemplos],
+            # Bajo «sin contraejemplos»: las filas que retroceden más que la tolerancia sin llegar al q, APARTE y con su rótulo.
+            "filas_que_retroceden": {"rotulo": motivo("rotulo_filas_que_retroceden"),
+                                     "filas": [dict(c) for c in self.filas_que_retroceden]},
+            "motor_de_arboles": self.motor_de_arboles,
             "avisos": avisos,
             "veredicto": self._veredicto_json(),
             # Lo que NO depende de ε: con esto `con_epsilon` rehace el veredicto sin predecir (I7).
             "para_recalcular": {"k": self.k, "retrocesos": list(self.retrocesos), "efectos": list(self.efectos),
-                                     "amplitudes": list(self.amplitudes),
-                                "peores": [dict(c) for c in self.peores]},
+                                "amplitudes": list(self.amplitudes), "peores": [dict(c) for c in self.peores],
+                                "clave_de_no_comprobar": self.clave_de_no_comprobar,
+                                "motivo_de_no_comprobar": None if self.motivo_de_no_comprobar is None
+                                else dict(self.motivo_de_no_comprobar)},
         }
+
+    @classmethod
+    def desde_json(cls, documento: Mapping[str, Any]) -> "MonotoniaDeUnaColumna":
+        """El resultado de `a_json()` (leído de `comportamiento.json`) vuelto a un objeto, para re-evaluarlo con
+        `con_tolerancia` sin predecir: quien lo pinte (C3a) NO reescribe la regla del veredicto. Solo se lee lo que no depende
+        de la tolerancia (`para_recalcular`) y la tolerancia usada; el veredicto, la lectura y los avisos del documento se
+        RECALCULAN, no se creen. Un documento de otra versión, o con listas desalineadas, es un `EsquemaInvalido`."""
+        if not isinstance(documento, Mapping):
+            raise EsquemaInvalido("falta_campo", campo="documento")
+        if documento.get("version") != VERSION_DEL_COMPORTAMIENTO:
+            raise EsquemaInvalido("version_no_legible", campo="version", valor=repr(documento.get("version")),
+                                  opciones=VERSION_DEL_COMPORTAMIENTO)
+        try:
+            tol, esc, rec = documento["tolerancia"], documento["tolerancia"]["escala"], documento["para_recalcular"]
+            ids = tuple(documento["filas"]["ids"])
+            medido = documento["medido_sobre"]
+            escala = EscalaDeLaSalida(esc["tarea"], esc["valor"], esc["clave_de_la_escala"], esc["motivo"],
+                                      esc["clave_del_motivo"])
+            largos = {len(rec[campo]) for campo in ("retrocesos", "efectos", "amplitudes")}
+            if largos != {len(ids)}:
+                raise EsquemaInvalido("filas_desalineadas", campo="para_recalcular", valor=sorted(largos), opciones=len(ids))
+            malla = tuple(float(x) for x in documento["rejilla"]["valores"])
+            _con_signo(documento["direccion"])
+            return cls(
+                exigir_texto(documento["columna"], "columna"), documento["direccion"], malla, escala,
+                None if tol["relativa"] is None else _epsilon(tol["relativa"]),
+                None if tol["fraccion_minima"]["relativa"] is None else _q(tol["fraccion_minima"]["relativa"]),
+                _medido_sobre(medido["clave"], medido["semilla"], medido["filas_pedidas"]), ids,
+                tuple(rec["retrocesos"]), tuple(rec["efectos"]), tuple(rec["amplitudes"]),
+                tuple(dict(c) for c in rec["peores"]), exigir_entero(rec["k"], "k", minimo=1),
+                rec["clave_de_no_comprobar"], None if rec["motivo_de_no_comprobar"] is None else dict(rec["motivo_de_no_comprobar"]),
+                documento.get("motor_de_arboles"))
+        except (KeyError, TypeError) as error:
+            raise EsquemaInvalido("falta_campo", campo=f"documento ({error!r})") from None
 
     def digest(self) -> str:
         return digest_canonico(self.a_json())
@@ -477,24 +544,27 @@ def _peores(retrocesos: Sequence[float | None], curvas: Sequence[Sequence[float]
 
 def _sin_curvas(columna: str, direccion: str, malla: Sequence[float], escala: EscalaDeLaSalida, epsilon_relativo: float | None,
                 q_relativo: float | None, medido: dict[str, Any], clave: str, texto: dict[str, str],
-                k: int) -> MonotoniaDeUnaColumna:
+                k: int, motor_de_arboles: bool | None = None) -> MonotoniaDeUnaColumna:
     return MonotoniaDeUnaColumna(columna, direccion, tuple(malla), escala, epsilon_relativo, q_relativo, medido, (), (), (), (),
-                                 (), k, clave, texto)
+                                 (), k, clave, texto, motor_de_arboles)
 
 
 def monotonia_desde_curvas(columna: str, direccion: str, malla: Sequence[float],
                            curvas: Sequence[Sequence[float | None]], ids: Sequence[Any], *,
                            escala: EscalaDeLaSalida, medido_sobre: str, semilla: int,
                            epsilon_relativo: float | None = None, q_relativo: float | None = None,
-                           k: int = K_PEORES_POR_OMISION) -> MonotoniaDeUnaColumna:
+                           k: int = K_PEORES_POR_OMISION, motor_de_arboles: bool | None = None) -> MonotoniaDeUnaColumna:
     """La prueba C sobre curvas YA calculadas: `curvas[i][j]` es la salida del modelo en la fila `i` con la
     columna puesta en `malla[j]` (`None` = sin predicción). Es lo que llama `monotonia_en_rejilla` y lo que
     usan las pruebas con curvas construidas a mano. `epsilon_relativo` y `q_relativo`: `None` = los de partida
-    de la tarea (`TOLERANCIA_POR_OMISION`)."""
+    de la tarea (`TOLERANCIA_POR_OMISION`). `motor_de_arboles`: ¿el modelo es de árboles? (`None` = no se sabe): solo decide
+    qué dice el aviso de la tolerancia alta en binaria, que cita una medición hecha con árboles."""
     exigir_texto(columna, "columna")
     _con_signo(direccion)
     eps_rel, q_rel = _tolerancia(escala, epsilon_relativo, q_relativo)
     exigir_entero(k, "k", minimo=1)
+    if motor_de_arboles is not None:
+        exigir_booleano(motor_de_arboles, "motor_de_arboles")
     if len(curvas) != len(ids):
         raise EsquemaInvalido("filas_desalineadas", campo="ids", valor=len(ids), opciones=len(curvas))
     malla = tuple(float(x) for x in malla)
@@ -507,13 +577,18 @@ def monotonia_desde_curvas(columna: str, direccion: str, malla: Sequence[float],
     limpias: list[list[float] | None] = []
     signo = _con_signo(direccion)
     for i, curva in enumerate(curvas):
+        if curva is None:
+            # Una fila SIN curva (el llamante no tiene nada que darle) es una fila sin predicción, como los huecos: se excluye
+            # y se cuenta; no es una curva plana ni revienta.
+            retrocesos.append(None); efectos.append(None); amplitudes.append(None); limpias.append(None)
+            continue
         if len(curva) != len(malla):
             raise EsquemaInvalido("filas_desalineadas", campo=f"curvas[{i}]", valor=len(curva), opciones=len(malla))
         try:
             valores = [_numero_o_none(v) for v in curva]
         except _SalidaNoNumerica:
             return _sin_curvas(columna, direccion, malla, escala, eps_rel, q_rel, medido, "salida_no_numerica",
-                               motivo("salida_no_numerica"), k)
+                               motivo("salida_no_numerica"), k, motor_de_arboles)
         if any(v is None for v in valores):
             # Una curva a medias NO se completa ni se toma por plana: la fila no cuenta.
             retrocesos.append(None); efectos.append(None); amplitudes.append(None); limpias.append(None)
@@ -524,7 +599,7 @@ def monotonia_desde_curvas(columna: str, direccion: str, malla: Sequence[float],
         limpias.append(valores)
     return MonotoniaDeUnaColumna(
         columna, direccion, malla, escala, eps_rel, q_rel, medido, tuple(ids), tuple(retrocesos), tuple(efectos),
-        tuple(amplitudes), _peores(retrocesos, limpias, ids, direccion, malla, k), k)
+        tuple(amplitudes), _peores(retrocesos, limpias, ids, direccion, malla, k), k, motor_de_arboles=motor_de_arboles)
 
 
 def monotonia_en_rejilla(columna: str, direccion: str, filas: Sequence[Mapping[str, Any]],
@@ -532,7 +607,8 @@ def monotonia_en_rejilla(columna: str, direccion: str, filas: Sequence[Mapping[s
                          minimo: float | None, maximo: float | None, puntos: int, filas_m: int, semilla: int,
                          escala: EscalaDeLaSalida, medido_sobre: str,
                          epsilon_relativo: float | None = None, q_relativo: float | None = None,
-                         ids: Sequence[Any] | None = None, k: int = K_PEORES_POR_OMISION) -> MonotoniaDeUnaColumna:
+                         ids: Sequence[Any] | None = None, k: int = K_PEORES_POR_OMISION,
+                         motor_de_arboles: bool | None = None) -> MonotoniaDeUnaColumna:
     """La prueba C de una columna. Elige `filas_m` filas con la semilla, y para cada una recorre
     `puntos` valores de la rejilla entre `minimo` y `maximo` DE LO VISTO, con el resto de la fila fijo
     (curvas ICE). `puntuar` recibe TODAS las filas perturbadas de una vez (fila-mayor: fila 0 con los G
@@ -542,7 +618,8 @@ def monotonia_en_rejilla(columna: str, direccion: str, filas: Sequence[Mapping[s
     que traiga la columna (un hueco, `NA`, un texto), se sobrescribe: el ICE recorre la rejilla.
 
     `epsilon_relativo` y `q_relativo` (ε como fracción de la escala; q como fracción mínima de filas): `None` = los de
-    partida de la tarea de la escala (`TOLERANCIA_POR_OMISION`); multiclase no los tiene y no comprueba nada."""
+    partida de la tarea de la escala (`TOLERANCIA_POR_OMISION`); multiclase no los tiene y no comprueba nada.
+    `motor_de_arboles`: ver `monotonia_desde_curvas`."""
     exigir_texto(columna, "columna")
     _con_signo(direccion)
     eps_rel, q_rel = _tolerancia(escala, epsilon_relativo, q_relativo)
@@ -554,7 +631,7 @@ def monotonia_en_rejilla(columna: str, direccion: str, filas: Sequence[Mapping[s
     medido = _medido_sobre(medido_sobre, semilla, len(elegidas))
 
     def sin_comprobar(clave: str, texto: dict[str, str], malla: Sequence[float] = ()) -> MonotoniaDeUnaColumna:
-        return _sin_curvas(columna, direccion, malla, escala, eps_rel, q_rel, medido, clave, texto, k)
+        return _sin_curvas(columna, direccion, malla, escala, eps_rel, q_rel, medido, clave, texto, k, motor_de_arboles)
 
     if escala.valor is None:
         return sin_comprobar(escala.clave_del_motivo or "escala_no_valida", dict(escala.motivo or {}))
@@ -574,7 +651,8 @@ def monotonia_en_rejilla(columna: str, direccion: str, filas: Sequence[Mapping[s
         raise EsquemaInvalido("filas_desalineadas", campo="salidas", valor=len(salidas), opciones=len(perturbadas))
     curvas = [salidas[j * puntos:(j + 1) * puntos] for j in range(len(elegidas))]
     return monotonia_desde_curvas(columna, direccion, malla, curvas, ids_elegidos, epsilon_relativo=eps_rel,
-                                  q_relativo=q_rel, escala=escala, medido_sobre=medido_sobre, semilla=semilla, k=k)
+                                  q_relativo=q_rel, escala=escala, medido_sobre=medido_sobre, semilla=semilla, k=k,
+                                  motor_de_arboles=motor_de_arboles)
 
 
 # ---------------------------------------------------------------------------

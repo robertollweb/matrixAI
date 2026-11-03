@@ -20,15 +20,17 @@ reutiliza quien pinte (el Studio barre su DOM con ella): una lista en cada sitio
 
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
+from fractions import Fraction
 
 from matrixai.estudio.calibracion import _cifra
 from matrixai.estudio.textos import PorIdioma
 
 __all__ = [
     "CLAVES_DE_VEREDICTO", "CLAVE_DE_LOS_LIMITES", "IDIOMAS", "MOTIVOS", "PorIdioma",
-    "cifra", "huecos_de", "motivo", "palabras_prohibidas", "porcentaje",
+    "cifra", "huecos_de", "motivo", "palabras_prohibidas", "porcentaje", "porcentajes_de_la_lectura",
 ]
 
 IDIOMAS = ("es", "en")
@@ -90,16 +92,45 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "curve of a row moves {amplitud} between its lowest and its highest value. Declared "
               "direction: {direccion}.",
     },
-    # En binaria la tolerancia de partida es ALTA, y por qué (149-C0-ter). Sin «garantía» ni «seguro» (I3).
+    # En binaria la tolerancia de partida es ALTA (149-C0-ter). CUATRO redacciones, porque dos cosas distintas deciden lo que es
+    # verdad (remate del C1-bis, hallazgo I2 de la auditoría): «es la de partida» solo si lo usado ES lo de partida, y lo
+    # MEDIDO (columnas que no influyen, árboles LightGBM y HGB, ~2.000 filas, 10-15 % de la probabilidad) solo se cita como
+    # propio del modelo si el motor es de árboles; con otro motor se dice que no se midió, o no se dice nada de la medición.
+    # Sin «garantía» ni «seguro» (I3).
     "tolerancia_alta_en_binaria": {
-        "es": "La tolerancia usada es alta: {tolerancia} de la probabilidad. Es la de partida en "
-              "clasificación binaria, a propósito: las curvas de los modelos de árboles avanzan a "
-              "escalones de entre el 10 % y el 15 % de la probabilidad con unas 2.000 filas, y con una "
-              "tolerancia menor esos escalones se contarían como retrocesos.",
+        "es": "La tolerancia usada es alta: {tolerancia} de la probabilidad. Es la de partida en clasificación "
+              "binaria, a propósito: al medirlo, con modelos de árboles (LightGBM y HGB) y unas 2.000 filas, las "
+              "columnas que no influyen movían la probabilidad entre un 10 % y un 15 %, y con una tolerancia "
+              "menor ese movimiento podría contarse como retrocesos.",
         "en": "The tolerance in use is high: {tolerancia} of the probability. It is the starting one for "
-              "binary classification, on purpose: the curves of tree models move in steps of between "
-              "10% and 15% of the probability with about 2,000 rows, and with a lower tolerance those "
-              "steps would be counted as steps back.",
+              "binary classification, on purpose: when measured, with tree models (LightGBM and HGB) and about "
+              "2,000 rows, the columns with no influence moved the probability by between 10% and 15%, and with "
+              "a lower tolerance that movement could be counted as steps back.",
+    },
+    "tolerancia_alta_en_binaria_otro_motor": {
+        "es": "La tolerancia usada es alta: {tolerancia} de la probabilidad. Es la de partida en clasificación "
+              "binaria; se fijó midiendo modelos de árboles (LightGBM y HGB) y con otros motores no se ha medido.",
+        "en": "The tolerance in use is high: {tolerancia} of the probability. It is the starting one for "
+              "binary classification; it was set by measuring tree models (LightGBM and HGB) and it has not "
+              "been measured with other engines.",
+    },
+    "tolerancia_alta_en_binaria_no_de_partida": {
+        "es": "La tolerancia usada es alta: {tolerancia} de la probabilidad. Al medir, con modelos de árboles "
+              "(LightGBM y HGB) y unas 2.000 filas, las columnas que no influyen movían la probabilidad entre "
+              "un 10 % y un 15 %.",
+        "en": "The tolerance in use is high: {tolerancia} of the probability. When measured, with tree models "
+              "(LightGBM and HGB) and about 2,000 rows, the columns with no influence moved the probability by "
+              "between 10% and 15%.",
+    },
+    "tolerancia_alta_en_binaria_no_de_partida_otro_motor": {
+        "es": "La tolerancia usada es alta: {tolerancia} de la probabilidad.",
+        "en": "The tolerance in use is high: {tolerancia} of the probability.",
+    },
+    # Decisión del supervisor (remate del C1-bis): bajo «sin contraejemplos» las filas que retroceden más que la tolerancia (por
+    # debajo del q) se enseñan APARTE, con este rótulo; la palabra «contraejemplos» queda para el veredicto que los tiene.
+    "rotulo_filas_que_retroceden": {
+        "es": "filas que retroceden más que la tolerancia, por debajo del mínimo que pide el veredicto",
+        "en": "rows that go back by more than the tolerance, below the minimum the verdict asks for",
     },
     "lectura_sin_comprobar": {
         "es": "No hay lectura de esta columna: ver el motivo.",
@@ -108,13 +139,28 @@ MOTIVOS: dict[str, dict[str, str]] = {
     "direccion_sube": {"es": "sube", "en": "goes up"},
     "direccion_baja": {"es": "baja", "en": "goes down"},
     # ---- por qué no se pudo comprobar: un valor ausente NO es un cero (I8) -----------------------
+    # Dos redacciones (remate del C1-bis): la mediana puede quedarse en la tolerancia con una parte de las filas moviéndose
+    # CLARAMENTE (una columna que solo pesa en un subgrupo), y entonces el motivo dice cuántas, no «no distingue» a secas.
     "amplitud_no_distingue": {
-        "es": "la curva típica de una fila se mueve {amplitud} entre su valor más bajo y el más alto, y eso "
-              "no supera la tolerancia ({tolerancia}): la prueba no distingue una dirección de la "
-              "contraria, y «sin contraejemplos» aquí no diría nada",
-        "en": "the typical curve of a row moves {amplitud} between its lowest and its highest value, and "
-              "that does not exceed the tolerance ({tolerancia}): the check cannot tell one direction "
-              "from the opposite, and \"no counterexamples\" would say nothing here",
+        "es": "la curva típica de una fila (la mediana) se mueve {amplitud} entre su valor más bajo y el más alto, y "
+              "eso no supera la tolerancia ({tolerancia}): ninguna de las filas comprobadas ({filas}) mueve la "
+              "salida más que la tolerancia, así que la prueba no distingue una dirección de la contraria, y "
+              "«sin contraejemplos» aquí no diría nada",
+        "en": "the typical curve of a row (the median) moves {amplitud} between its lowest and its highest value, "
+              "and that does not exceed the tolerance ({tolerancia}): none of the rows checked ({filas}) moves "
+              "the output by more than the tolerance, so the check cannot tell one direction from the opposite, "
+              "and \"no counterexamples\" would say nothing here",
+    },
+    "amplitud_no_distingue_con_filas_que_se_mueven": {
+        "es": "la curva típica de una fila (la mediana) se mueve {amplitud} entre su valor más bajo y el más alto, y "
+              "eso no supera la tolerancia ({tolerancia}): en al menos la mitad de las filas la columna no mueve "
+              "la salida más que la tolerancia. Hay filas que sí la mueven más ({mueven} de {filas}), pero no son "
+              "la mayoría, y sin una mayoría de filas que se muevan «sin contraejemplos» aquí no diría nada",
+        "en": "the typical curve of a row (the median) moves {amplitud} between its lowest and its highest value, "
+              "and that does not exceed the tolerance ({tolerancia}): in at least half of the rows the column does "
+              "not move the output by more than the tolerance. Some rows do move it by more ({mueven} of "
+              "{filas}), but they are not the majority, and without a majority of rows that move, \"no "
+              "counterexamples\" would say nothing here",
     },
     "sin_prediccion": {
         "es": "el modelo no dio predicción en ninguna de las {filas} filas de esta columna",
@@ -229,6 +275,33 @@ def porcentaje(fraccion: float) -> PorIdioma:
     declara y se edita."""
     texto = _cifra(float(fraccion) * 100.0, decimales=3)
     return PorIdioma(es=f"{texto['es']} %", en=f"{texto['en']}%")
+
+
+def porcentajes_de_la_lectura(violadoras: int, filas: int, minimo: float) -> tuple[PorIdioma, PorIdioma]:
+    """`(fracción, mínimo)` en porcentaje para la lectura, de modo que lo ESCRITO no contradiga al veredicto: si
+    `violadoras/filas < minimo` la cifra de la fracción se lee MENOR que la del mínimo, y si es ≥, nunca menor.
+    Redondear la fracción a tres decimales ponía «el 5 % (5 de 101) … por debajo del 5 %»: 4,95 % sale «5 %» con dos
+    cifras y 4,9996 % con tres. Se redondea al más cercano (que conserva el orden: lo ≥ nunca se lee menor) con TRES
+    decimales de porcentaje y, si lo que es menor se leería igual que el mínimo, se redondea esa cifra hacia abajo y, si aun
+    así empata, se añaden decimales a las dos. Aritmética exacta (`Fraction`)."""
+    f = Fraction(violadoras, filas) * 100
+    q = Fraction(repr(float(minimo))) * 100
+    for d in range(3, 13):
+        paso = Fraction(1, 10 ** d)
+        cerca = lambda x: math.floor(x / paso + Fraction(1, 2))          # noqa: E731 - al más cercano, mitad hacia arriba
+        rf, rq = cerca(f), cerca(q)                                       # en unidades de `paso`
+        if f < q and rf >= rq:
+            rf = math.floor(f / paso)
+        if f >= q or rf < rq or d == 12:
+            break
+    return _porcentaje_exacto(rf, d), _porcentaje_exacto(rq, d)
+
+
+def _porcentaje_exacto(unidades: int, decimales: int) -> PorIdioma:
+    """`unidades · 10^-decimales` como porcentaje, sin ceros de cola y sin pasar por coma flotante."""
+    cifras = f"{unidades:0{decimales + 1}d}"
+    texto = (cifras[:-decimales] + "." + cifras[-decimales:]).rstrip("0").rstrip(".")
+    return PorIdioma(es=f"{texto.replace('.', ',')} %", en=f"{texto}%")
 
 
 # ---------------------------------------------------------------------------

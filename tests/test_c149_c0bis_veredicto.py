@@ -166,3 +166,25 @@ def test_las_planas_no_cuentan_como_monotonas_ni_como_no_monotonas():
             celda["plana"][c].update(con=6, sin=0, nsc=0)
     t = bis.tasas(acum, GRUPOS, 5, 5)
     assert t["a|x"]["FA"] == 0.1 and t["a|x"]["POT"] == 0.8 and t["a|x"]["n_mon"] == 10
+
+
+def _lo_que_dice_al_arrancar(guion, capsys, monkeypatch, tmp_path):
+    """Arranca el `main()` de un guion de la medición con una salida IMPOSIBLE (dentro de un fichero): escribe su aviso y revienta
+    al crear la carpeta, antes de medir nada ni tocar ningún resultado."""
+    (tmp_path / "fichero").write_text("x")
+    monkeypatch.setattr(sys, "argv", [guion.__file__, "--salida", str(tmp_path / "fichero" / "x")])
+    try:
+        guion.main()
+    except (NotADirectoryError, FileExistsError, OSError):
+        pass
+    return capsys.readouterr().out
+
+
+def test_los_guiones_del_c0_y_c0bis_dicen_al_arrancar_que_con_el_nucleo_nuevo_ya_no_reproducen_lo_archivado(capsys, monkeypatch, tmp_path):
+    """Remate del C1-bis: desde que el núcleo da V'(ε, q) por amplitud, estos guiones (que llaman a su `.veredicto` / dependen de
+    su `comportamiento_sha256`) ya no reproducen sus resultados archivados, y NADA lo avisaba. Una línea al arrancar."""
+    c0 = bis.c0
+    dicho = _lo_que_dice_al_arrancar(c0, capsys, monkeypatch, tmp_path)
+    assert "AVISO" in dicho and "149-C1-bis" in dicho and "NO reproduce" in dicho and "comportamiento_sha256" in dicho
+    dicho = _lo_que_dice_al_arrancar(bis, capsys, monkeypatch, tmp_path)
+    assert "AVISO" in dicho and "149-C1-bis" in dicho and "comportamiento_sha256" in dicho

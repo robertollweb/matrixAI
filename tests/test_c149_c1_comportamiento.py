@@ -67,12 +67,12 @@ REGRESION_100 = escala_de_la_salida("regression", amplitud_p90_p10=100.0)    # �
 UNA_FILA_BASTA = 0.01          # q: con menos de 100 filas comprobadas, UNA fila violadora llega a q (el veredicto del C1)
 
 
-def curvas(*cs, direccion="sube", eps=0.1, q=UNA_FILA_BASTA, escala=BINARIA, ids=None, k=5):
+def curvas(*cs, direccion="sube", eps=0.1, q=UNA_FILA_BASTA, escala=BINARIA, ids=None, k=5, motor=None):
     ids = list(ids) if ids is not None else [f"f{i}" for i in range(len(cs))]
     puntos = len(cs[0]) if cs else 4
     return monotonia_desde_curvas("x", direccion, [float(j) for j in range(puntos)], list(cs), ids,
                                   epsilon_relativo=eps, q_relativo=q, escala=escala,
-                                  medido_sobre="muestra_de_desarrollo", semilla=3, k=k)
+                                  medido_sobre="muestra_de_desarrollo", semilla=3, k=k, motor_de_arboles=motor)
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +647,12 @@ def _todos_los_veredictos():
                                     list(range(20)), escala=REGRESION_100, medido_sobre="muestra_de_desarrollo", semilla=3),
              monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [[0.0, 0.5, 0.25, 1.0]] * 3 + [_CRECIENTE] * 17,
                                     list(range(20)), escala=BINARIA, medido_sobre="muestra_de_desarrollo", semilla=3)]
+    # remate del C1-bis: las cuatro redacciones del aviso de binaria, el motivo con filas que se mueven, una fila sin curva y un NaN
+    docs += [curvas(_CRECIENTE, eps=0.2, q=0.2, motor=True), curvas(_CRECIENTE, eps=0.2, q=0.2, motor=False),
+             curvas(_CRECIENTE, eps=0.3, q=0.2, motor=True), curvas(_CRECIENTE, eps=0.3, q=0.1, motor=None),
+             curvas(*([[1.0, 0.66, 0.33, 0.0]] * 4 + [[0.5] * 4] * 6), eps=0.25, q=0.2), _con_violadoras(3, 20, 0.2, eps=0.2),
+             monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [None, _CRECIENTE, [0.0, float("nan"), 0.5, 1.0]], ["a", "b", "c"],
+                                    escala=BINARIA, epsilon_relativo=0.1, q_relativo=0.1, medido_sobre="muestra_de_desarrollo", semilla=3)]
     for malo in (escala_de_la_salida("binary_classification", pendiente_de_la_recalibracion=-1.0),
                  escala_de_la_salida("regression", amplitud_p90_p10=0.0), escala_de_la_salida("multiclass_classification")):
         docs.append(monotonia_en_rejilla("x", "baja", [{"x": 1.0}], _no_debe_predecir, minimo=0.0, maximo=1.0, puntos=5,
@@ -665,6 +671,10 @@ def test_cada_clave_de_veredicto_de_los_documentos_de_la_batería_aparece():
     assert claves == set(VEREDICTOS)
     assert {"amplitud_no_distingue", "salida_no_numerica", "sin_filas", "sin_prediccion"} <= motivos
     assert "tolerancia_alta_en_binaria" in avisos
+    textos_es = [a["texto"]["es"] for r in _todos_los_veredictos() for a in r.a_json()["avisos"] if a["clave"] == "tolerancia_alta_en_binaria"]
+    for trozo in ("a propósito: al medirlo", "se fijó midiendo", "Al medir, con modelos"):
+        assert any(trozo in t for t in textos_es), trozo
+    assert any(t.endswith("de la probabilidad.") and "partida" not in t and "medir" not in t for t in textos_es)
 
 
 def test_la_frase_de_limites_va_pegada_a_cada_veredicto():
@@ -1006,26 +1016,80 @@ def test_multiclase_no_tiene_tolerancia_de_partida_y_no_se_inventa_una():
     assert ok.veredicto == SIN
 
 
+def _aviso_de_tolerancia(r):
+    avisos = [a for a in r.a_json()["avisos"] if a["clave"] == "tolerancia_alta_en_binaria"]
+    assert len(avisos) <= 1
+    return avisos[0]["texto"] if avisos else None
+
+
 def test_en_binaria_el_documento_dice_que_la_tolerancia_de_partida_es_alta_y_por_que():
+    """Con la tolerancia de partida y un motor de árboles: es alta, es la de partida y lo MEDIDO (columnas que no influyen,
+    árboles, ~2.000 filas, 10–15 % de la probabilidad). Remate del C1-bis: ya no dice que «las curvas avanzan a escalones»."""
     binaria = monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [_CRECIENTE] * 5, list(range(5)), escala=BINARIA,
-                                     medido_sobre="muestra_de_desarrollo", semilla=3)
-    avisos = [a for a in binaria.a_json()["avisos"] if a["clave"] == "tolerancia_alta_en_binaria"]
-    assert len(avisos) == 1
-    es, en = avisos[0]["texto"]["es"], avisos[0]["texto"]["en"]
-    for trozo in ("alta", "20 % de la probabilidad", "10 %", "15 %", "2.000 filas", "escalones"):
+                                     medido_sobre="muestra_de_desarrollo", semilla=3, motor_de_arboles=True)
+    texto = _aviso_de_tolerancia(binaria)
+    es, en = texto["es"], texto["en"]
+    for trozo in ("alta", "20 % de la probabilidad", "de partida", "árboles (LightGBM y HGB)", "unas 2.000 filas", "no influyen",
+                  "entre un 10 % y un 15 %"):
         assert trozo in es, trozo
-    for trozo in ("high", "20% of the probability", "10%", "15%", "2,000 rows", "steps"):
+    for trozo in ("high", "20% of the probability", "starting", "tree models (LightGBM and HGB)", "about 2,000 rows",
+                  "no influence", "between 10% and 15%"):
         assert trozo in en, trozo
-    for idioma, texto in (("es", es), ("en", en)):
-        assert palabras_prohibidas(texto, idioma) == [], idioma               # sin «garantiza», «seguro», «robusto»…
+    for idioma, t in (("es", es), ("en", en)):
+        assert palabras_prohibidas(t, idioma) == [], idioma               # sin «garantiza», «seguro», «robusto»…
+        assert "escalon" not in t and "avanzan" not in t and "steps" not in t.replace("steps back", "")
     # no sale en regresión, ni en binaria con una tolerancia menor que la de partida, ni sin filas comprobadas
-    assert not [a for a in curvas(_CRECIENTE, eps=0.1, q=0.2).a_json()["avisos"] if a["clave"] == "tolerancia_alta_en_binaria"]
+    assert _aviso_de_tolerancia(curvas(_CRECIENTE, eps=0.1, q=0.2)) is None
     reg = monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [[0.0, 25.0, 50.0, 100.0]], ["a"], escala=REGRESION_100,
                                  medido_sobre="muestra_de_desarrollo", semilla=3)
     assert reg.a_json()["avisos"] == []
     assert curvas([None] * 4, eps=0.2, q=0.2).a_json()["avisos"] == []
     # con una tolerancia MAYOR sigue siendo alta
     assert [a["clave"] for a in curvas(_CRECIENTE, eps=0.3, q=0.2).a_json()["avisos"]] == ["tolerancia_alta_en_binaria"]
+
+
+def test_el_aviso_de_binaria_solo_dice_que_es_la_de_partida_si_lo_usado_es_la_de_partida():
+    """Hallazgo I2(a): con ε 30 % o 50 % —o con el ε de partida y otro q— el aviso decía «es la de partida» y era falso
+    (`por_omision` False en el mismo documento)."""
+    for eps, q in ((0.3, 0.2), (0.5, 0.2), (0.2, 0.1), (0.2, 0.5)):
+        for motor in (True, False, None):
+            r = curvas(_CRECIENTE, eps=eps, q=q, motor=motor)
+            assert r.a_json()["tolerancia"]["por_omision"] is False
+            t = _aviso_de_tolerancia(r)
+            assert "partida" not in t["es"] and "starting" not in t["en"], (eps, q, motor)
+            assert f"{round(eps * 100)} % de la probabilidad" in t["es"] and f"{round(eps * 100)}% of the probability" in t["en"]
+    for motor in (True, False, None):
+        r = curvas(_CRECIENTE, eps=0.2, q=0.2, motor=motor)
+        assert r.a_json()["tolerancia"]["por_omision"] is True
+        t = _aviso_de_tolerancia(r)
+        assert "Es la de partida" in t["es"] and "It is the starting one" in t["en"], motor
+
+
+def test_el_aviso_de_binaria_cita_la_medicion_de_los_arboles_solo_si_el_motor_es_de_arboles():
+    """Hallazgo I2(b): lo medido (LightGBM y HGB, ~2.000 filas, columnas sin efecto, 10–15 %) NO se aplica a lineales ni a redes,
+    que no se midieron: con un motor que no es de árboles —o que no se sabe— el aviso no afirma nada de la probabilidad de las
+    columnas sin efecto. Con la de partida dice que se fijó con árboles y que con otros no se midió."""
+    for eps, q in ((0.2, 0.2), (0.3, 0.2)):
+        for motor in (False, None):
+            t = _aviso_de_tolerancia(curvas(_CRECIENTE, eps=eps, q=q, motor=motor))
+            for trozo in ("10 %", "15 %", "2.000", "no influyen", "movían"):
+                assert trozo not in t["es"], (eps, motor, trozo)
+            for trozo in ("10%", "15%", "2,000", "no influence", "moved"):
+                assert trozo not in t["en"], (eps, motor, trozo)
+        de_arboles = _aviso_de_tolerancia(curvas(_CRECIENTE, eps=eps, q=q, motor=True))
+        assert "entre un 10 % y un 15 %" in de_arboles["es"] and "between 10% and 15%" in de_arboles["en"]
+    partida_otro = _aviso_de_tolerancia(curvas(_CRECIENTE, eps=0.2, q=0.2, motor=False))
+    assert "con otros motores no se ha medido" in partida_otro["es"] and "has not been measured with other engines" in partida_otro["en"]
+    # y NINGUNA redacción del catálogo vuelve a generalizar «las curvas de los árboles avanzan a escalones»
+    for clave, redaccion in MOTIVOS.items():
+        assert "escalones" not in redaccion["es"] and "avanzan" not in redaccion["es"], clave
+        assert "tree models move in steps" not in redaccion["en"] and "curves of tree" not in redaccion["en"], clave
+
+
+@pytest.mark.parametrize("malo", ["si", 1, 0.5])
+def test_motor_de_arboles_es_un_booleano_o_nada(malo):
+    with pytest.raises(EsquemaInvalido):
+        curvas(_CRECIENTE, motor=malo)
 
 
 def test_el_documento_lleva_la_amplitud_la_fraccion_y_las_amplitudes_por_fila():
@@ -1041,3 +1105,202 @@ def test_el_documento_lleva_la_amplitud_la_fraccion_y_las_amplitudes_por_fila():
     assert "1 entre su valor más bajo y el más alto" in lectura["es"]
     sin = _con_violadoras(1, 20, 0.2).a_json()["veredicto"]["lectura"]
     assert "por debajo del 20 %" in sin["es"] and "below the 20%" in sin["en"]
+
+
+# ---------------------------------------------------------------------------
+# 149-C1-bis, REMATE — lo que la auditoría Opus encontró (I1, I2, filas que retroceden, motivo falso, menores)
+# ---------------------------------------------------------------------------
+
+from fractions import Fraction                                   # noqa: E402
+from decimal import Decimal                                      # noqa: E402
+
+from matrixai.estudio.comportamiento import MonotoniaDeUnaColumna                      # noqa: E402
+from matrixai.estudio.comportamiento_textos import porcentajes_de_la_lectura           # noqa: E402
+
+_TABLA_DE_Q = (0.01, 0.05, 0.07, 0.1, 0.2, 0.25, 1 / 3, 0.5, 1.0)
+
+
+def _numero(texto):
+    """`«4,95 %»` / `«4.95%»` -> Decimal('4.95')."""
+    return Decimal(re.sub(r"[^0-9,.]", "", texto).replace(",", "."))
+
+
+def _coherente(v, n, q):
+    """La cifra escrita de la fracción NO contradice al veredicto: < q si es menor, ≥ q si no (leyendo SOLO los textos)."""
+    fraccion, minimo = porcentajes_de_la_lectura(v, n, q)
+    es_menor = Fraction(v, n) < Fraction(repr(float(q)))
+    for idioma in IDIOMAS:
+        f, m = _numero(fraccion[idioma]), _numero(minimo[idioma])
+        assert (f < m) if es_menor else (f >= m), (v, n, q, fraccion, minimo)
+    return fraccion, minimo
+
+
+def test_la_lectura_no_redondea_la_fraccion_hasta_contradecir_al_veredicto():
+    """Hallazgo I1: `round(f, 3)` escribía «El 5 % de las filas (5 de 101) … por debajo del 5 % que pide». Tres casos del informe."""
+    for v, n, q, esperado in ((5, 101, 0.05, "4,95 %"), (99, 2000, 0.05, "4,95 %"), (399, 2000, 0.2, "19,95 %")):
+        r = _con_violadoras(v, n, q, eps=0.25)
+        assert r.veredicto == SIN, (v, n)
+        lectura = r.a_json()["veredicto"]["lectura"]
+        assert lectura["es"].startswith(f"El {esperado} de las filas ({v} de {n})"), lectura["es"]
+        assert f"por debajo del {round(q * 100)} %" in lectura["es"]
+        assert lectura["en"].startswith(f"{esperado.replace(',', '.').replace(' %', '%')} of the rows ({v} of {n})")
+    # y se sigue redondeando AL MÁS CERCANO a tres decimales (no se trunca): 2/3 = 66,6666… -> 66,667; 1/7 = 14,2857… -> 14,286
+    assert _con_violadoras(2, 3, 0.5).a_json()["veredicto"]["lectura"]["es"].startswith("El 66,667 % de las filas (2 de 3)")
+    assert _con_violadoras(1, 7, 0.1).a_json()["veredicto"]["lectura"]["en"].startswith("14.286% of the rows (1 of 7)")
+    # el borde contrario: justo en q sigue siendo «el 5 %», y un poco por encima, nunca menos
+    assert _con_violadoras(1, 20, 0.05).a_json()["veredicto"]["lectura"]["es"].startswith("El 5 % de las filas (1 de 20)")
+
+
+def test_una_fraccion_que_con_tres_decimales_se_leeria_como_el_minimo_se_escribe_menor():
+    """1.000 de 20.001 es el 4,99975 %: a tres decimales sale «5» (= q) y la frase diría «5 % … por debajo del 5 %». Se baja la
+    cifra (4,999) y, si aun así empatara con el mínimo, se añaden decimales."""
+    r = _con_violadoras(1000, 20001, 0.05)
+    assert r.veredicto == SIN
+    lectura = r.a_json()["veredicto"]["lectura"]
+    assert lectura["es"].startswith("El 4,999 % de las filas (1000 de 20001)") and "por debajo del 5 %" in lectura["es"]
+    assert lectura["en"].startswith("4.999% of the rows (1000 of 20001)")
+    # con un q que no cabe en tres decimales: 1/3 = 33,333…; 33,3333 % de las filas por debajo del 33,3333… -> decimales de más
+    fraccion, minimo = _coherente(3333333, 10000000, 1 / 3)
+    assert fraccion["es"] != minimo["es"]
+
+
+def test_barrido_coherencia_texto_veredicto_n_1_a_400_y_la_tabla_de_q():
+    """Para cada n de 1 a 400 y cada q de la tabla, las filas violadoras de la vecindad del borde (donde el redondeo muerde) y
+    los extremos: la cifra escrita y el mínimo escrito dicen LO MISMO que el veredicto."""
+    cuentas = 0
+    for n in range(1, 401):
+        for q in _TABLA_DE_Q:
+            borde = math_ceil_fraccion(n, q)
+            for v in {0, n, borde - 2, borde - 1, borde, borde + 1}:
+                if 0 <= v <= n:
+                    _coherente(v, n, q)
+                    cuentas += 1
+    assert cuentas > 15000
+
+
+def math_ceil_fraccion(n, q):
+    return -((-n * Fraction(repr(float(q)))).__floor__())
+
+
+def test_barrido_de_la_lectura_del_documento_con_los_q_de_la_tabla_para_n_1_a_400():
+    """Lo mismo pero por el DOCUMENTO: el veredicto sale de la regla y la cifra, del texto de su `lectura` en castellano."""
+    for n in range(1, 401):
+        for q in (0.05, 0.2):
+            borde = math_ceil_fraccion(n, q)
+            for v in sorted({borde - 1, borde}):
+                if not 0 <= v <= n:
+                    continue
+                r = _con_violadoras(v, n, q, eps=0.25)
+                lectura = r.a_json()["veredicto"]["lectura"]["es"]
+                m = re.match(r"El ([\d,]+) % de las filas \((\d+) de (\d+)\).*?(?:por debajo del |al menos el )([\d,]+) %", lectura)
+                assert m, lectura
+                f, minimo = _numero(m.group(1)), _numero(m.group(4))
+                assert (f >= minimo) if r.veredicto == CON else (f < minimo), (n, v, q, lectura)
+                assert r.veredicto == (CON if Fraction(v, n) >= Fraction(repr(q)) else SIN)
+
+
+def test_bajo_sin_contraejemplos_las_filas_que_retroceden_se_ensenan_aparte_con_su_rotulo():
+    """Decisión del supervisor: 3 de 20 filas retroceden 0,5 con ε = q = 20 %. El veredicto es «sin contraejemplos» y los
+    `contraejemplos` siguen vacíos, pero las tres filas NO se esconden: `filas_que_retroceden`, con su rótulo."""
+    r = _con_violadoras(3, 20, 0.2, eps=0.2)
+    j = r.a_json()
+    assert r.veredicto == SIN and j["contraejemplos"] == []
+    assert [f["fila"] for f in j["filas_que_retroceden"]["filas"]] == ["f0", "f1", "f2"]
+    assert all(f["retroceso"] == 0.5 for f in j["filas_que_retroceden"]["filas"])
+    assert j["filas_que_retroceden"]["rotulo"] == {
+        "es": "filas que retroceden más que la tolerancia, por debajo del mínimo que pide el veredicto",
+        "en": "rows that go back by more than the tolerance, below the minimum the verdict asks for"}
+    for idioma in IDIOMAS:
+        assert "contraejemplo" not in j["filas_que_retroceden"]["rotulo"][idioma] and "counterexample" not in j["filas_que_retroceden"]["rotulo"][idioma]
+    # con contraejemplos están en `contraejemplos` y NO se repiten aparte; sin filas que retrocedan (o sin comprobar), vacías
+    con = _con_violadoras(4, 20, 0.2, eps=0.2).a_json()
+    assert con["veredicto"]["clave"] == CON and len(con["contraejemplos"]) == 4 and con["filas_que_retroceden"]["filas"] == []
+    assert curvas(_CRECIENTE, _CRECIENTE).a_json()["filas_que_retroceden"]["filas"] == []
+    assert curvas([0.5] * 4).a_json()["filas_que_retroceden"]["filas"] == [] and curvas().a_json()["filas_que_retroceden"]["filas"] == []
+    # son un dato del documento, no de la tolerancia: con otra q vuelven a ser contraejemplos y salen de aquí
+    assert r.con_tolerancia(q_relativo=0.1).a_json()["filas_que_retroceden"]["filas"] == []
+    assert len(r.con_tolerancia(q_relativo=0.1).a_json()["contraejemplos"]) == 3
+
+
+def test_el_motivo_de_amplitud_dice_cuantas_filas_si_se_mueven_cuando_la_mediana_es_plana():
+    """Hallazgo del informe: 40 de 100 filas claramente al revés y 60 planas -> mediana 0 -> «no se pudo comprobar» (la regla
+    decidida se queda), pero el motivo ya no dice que la prueba «no distingue una dirección de la contraria» (falso para ese
+    40 %): dice que en al menos la mitad la columna no mueve la salida y cuántas filas SÍ la mueven."""
+    al_reves, plana = [1.0, 0.66, 0.33, 0.0], [0.5] * 4
+    r = curvas(*([al_reves] * 40 + [plana] * 60), eps=0.25, q=0.2)
+    j = r.a_json()["veredicto"]
+    assert r.veredicto == NSC and r.amplitud_tipica == 0.0 and r.filas_con_violacion == 40
+    assert j["clave_del_motivo"] == "amplitud_no_distingue"
+    es, en = j["motivo"]["es"], j["motivo"]["en"]
+    assert "40 de 100" in es and "al menos la mitad de las filas" in es and "no distingue una dirección de la contraria" not in es
+    assert "40 of 100" in en and "at least half of the rows" in en and "cannot tell one direction" not in en
+    # y si NINGUNA fila se mueve, sí es la frase de siempre, con las filas comprobadas
+    plano = curvas(*([plana] * 5), eps=0.25, q=0.2).a_json()["veredicto"]["motivo"]
+    assert "ninguna de las filas comprobadas (5)" in plano["es"] and "no distingue una dirección de la contraria" in plano["es"]
+    assert "none of the rows checked (5)" in plano["en"]
+
+
+def test_una_fila_sin_curva_no_revienta_y_cuenta_como_sin_prediccion():
+    """Menor: una curva `None` ENTERA (no una lista con huecos) era un `TypeError` en `len(None)`. Es una fila sin predicción."""
+    r = monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [None, _CRECIENTE, _VIOLADORA, None], ["a", "b", "c", "d"],
+                               escala=BINARIA, epsilon_relativo=0.25, q_relativo=0.5, medido_sobre="muestra_de_desarrollo", semilla=3)
+    assert r.retrocesos == (None, 0.0, 0.5, None) and r.efectos[0] is None and r.amplitudes[3] is None
+    assert r.filas_comprobadas == 2 and r.veredicto == CON
+    j = r.a_json()
+    assert j["filas"] == {"pedidas": 4, "comprobadas": 2, "sin_prediccion": 2, "ids": ["a", "b", "c", "d"]}
+    assert j["avisos"][0]["clave"] == "filas_sin_prediccion"
+    todas = monotonia_desde_curvas("x", "sube", [0.0, 1.0], [None, None], ["a", "b"], escala=BINARIA, epsilon_relativo=0.1,
+                                   q_relativo=0.1, medido_sobre="muestra_de_desarrollo", semilla=3)
+    assert todas.veredicto == NSC and todas.a_json()["veredicto"]["clave_del_motivo"] == "sin_prediccion"
+    assert todas.a_json()["amplitud_tipica"] is None and todas.a_json()["fraccion_con_violacion"] is None
+
+
+@pytest.mark.parametrize("malo", [float("nan"), float("inf"), float("-inf")])
+def test_una_curva_con_nan_o_inf_excluye_la_fila_y_no_envenena_la_amplitud(malo):
+    """Menor: el guion `amplitud_de_curvas` solo descartaba `None` y un NaN entraba en la mediana; el núcleo EXCLUYE la fila (como
+    un hueco): ni retroceso ni amplitud, se cuenta aparte y el documento sigue siendo JSON estricto."""
+    r = curvas([0.0, malo, 0.5, 1.0], _CRECIENTE, _CRECIENTE, _VIOLADORA, eps=0.25, q=0.5)
+    assert r.retrocesos[0] is None and r.amplitudes[0] is None and r.efectos[0] is None
+    assert r.filas_comprobadas == 3 and r.amplitud_tipica == 1.0
+    j = r.a_json()
+    json.dumps(j, allow_nan=False)
+    assert j["filas"]["sin_prediccion"] == 1 and j["avisos"][0]["clave"] == "filas_sin_prediccion"
+    assert curvas([0.0, malo, 0.5, 1.0], [malo] * 4).veredicto == NSC
+
+
+def _ida_y_vuelta(r):
+    return MonotoniaDeUnaColumna.desde_json(json.loads(json.dumps(r.a_json(), allow_nan=False)))
+
+
+def test_el_documento_se_carga_desde_json_y_se_reevalua_sin_reescribir_la_regla():
+    """C3a lee `comportamiento.json` y tiene que poder reevaluarlo con otra tolerancia SIN copiar la regla al Studio:
+    a_json -> JSON -> `desde_json` -> `con_tolerancia` da el MISMO documento y el MISMO digest que construirlo desde cero."""
+    for r in _todos_los_veredictos():
+        vuelta = _ida_y_vuelta(r)
+        assert vuelta.a_json() == r.a_json() and vuelta.digest() == r.digest()
+        for eps, q in ((0.05, 0.05), (0.2, 0.2), (0.4, 0.6)):
+            if r.escala.valor is not None:
+                assert vuelta.con_tolerancia(eps, q).digest() == r.con_tolerancia(eps, q).digest()
+    filas = [{"x": 0.0, "i": i} for i in range(10)]
+    kw = dict(minimo=0.0, maximo=3.0, puntos=4, filas_m=10, semilla=1, escala=BINARIA, medido_sobre="muestra_de_desarrollo")
+    puntuar = lambda fs: [(1.0 if (f["x"] == 1.0 and f["i"] < 2) else 0.0) + f["x"] / 4 for f in fs]      # noqa: E731
+    base = monotonia_en_rejilla("x", "sube", filas, puntuar, epsilon_relativo=0.1, q_relativo=0.3, motor_de_arboles=True, **kw)
+    cargado = _ida_y_vuelta(base)
+    assert cargado.motor_de_arboles is True and cargado.ids == base.ids
+    otro = monotonia_en_rejilla("x", "sube", filas, puntuar, epsilon_relativo=0.1, q_relativo=0.2, motor_de_arboles=True, **kw)
+    assert cargado.con_tolerancia(q_relativo=0.2).digest() == otro.digest() != base.digest()
+    assert cargado.con_epsilon(0.5).a_json() == base.con_epsilon(0.5).a_json()
+
+
+def test_desde_json_rechaza_lo_que_no_entiende():
+    j = curvas(_CRECIENTE, _VIOLADORA, eps=0.25, q=0.5).a_json()
+    cargar = lambda doc: MonotoniaDeUnaColumna.desde_json(json.loads(json.dumps(doc)))        # noqa: E731
+    cargar(j)
+    for roto in (dict(j, version="1.0.0"), {k: v for k, v in j.items() if k != "para_recalcular"},
+                 dict(j, para_recalcular=dict(j["para_recalcular"], retrocesos=[0.0])),
+                 dict(j, direccion="diagonal"), dict(j, tolerancia=dict(j["tolerancia"], relativa=-1.0)),
+                 dict(j, medido_sobre=dict(j["medido_sobre"], clave="prueba_reservada"))):
+        with pytest.raises(EsquemaInvalido):
+            cargar(roto)
+    with pytest.raises(EsquemaInvalido):
+        MonotoniaDeUnaColumna.desde_json([])
