@@ -170,11 +170,13 @@ def test_un_csv_punto_y_coma_con_decimal_coma_lleva_su_origen_con_la_huella_del_
 
 def test_un_libro_convertido_con_declaraciones_de_entrada_las_lleva_aparte_y_cuenta_las_dos():
     entrada = [_declaracion("decimal_coma_convertido", 5, "precio")]
-    origen = odf.origen_para_el_estudio(_origen_a_mano(), texto_recibido="a,b\n", declaraciones_de_entrada=entrada)
+    # (reparación I1) el origen tiene que ser de ESTE CSV: lleva la huella del que devolvió la conversión
+    del_csv = {"sha256_del_csv": odf.huella_del_texto("a,b\n")}
+    origen = odf.origen_para_el_estudio(_origen_a_mano(**del_csv), texto_recibido="a,b\n", declaraciones_de_entrada=entrada)
     assert origen["declaraciones_de_entrada"] == entrada
     assert len(origen["declaraciones"]) == 3 and odf.numero_de_declaraciones(origen) == 4
     # sin lo que decir al entrar, el origen del libro pasa tal cual (sin clave vacía)
-    solo = odf.origen_para_el_estudio(_origen_a_mano(), texto_recibido="a,b\n", declaraciones_de_entrada=[])
+    solo = odf.origen_para_el_estudio(_origen_a_mano(**del_csv), texto_recibido="a,b\n", declaraciones_de_entrada=[])
     assert "declaraciones_de_entrada" not in solo
 
 
@@ -185,10 +187,13 @@ def test_el_origen_para_el_estudio_rechaza_un_origen_mal_formado_en_vez_de_calla
 
 def test_el_texto_del_origen_en_espanol_y_en_ingles_dice_lo_que_dice_el_contrato():
     origen = _origen_a_mano()
+    # (reparación I1) detrás de la huella va el VÍNCULO con este dataset; este origen no lo declara: «no consta»
     assert odf.texto_del_origen(origen, "es").startswith(
-        f"Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}`, 3 declaraciones")
+        f"Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (vínculo sin comprobar: no consta "
+        f"que este dataset salga de ese fichero), 3 declaraciones")
     assert odf.texto_del_origen(origen, "en").startswith(
-        f"Excel `ventas.xlsx`, sheet `Pedidos`, digest of the original `{_SHA_ORIGINAL}`, 3 declarations")
+        f"Excel `ventas.xlsx`, sheet `Pedidos`, digest of the original `{_SHA_ORIGINAL}` (link not checked: nothing "
+        f"records that this dataset came from that file), 3 declarations")
     # singular y cero
     assert ", 1 declaración" in odf.texto_del_origen(_origen_a_mano(declaraciones=[_declaracion("x")]), "es")
     assert ", 1 declaration" in odf.texto_del_origen(_origen_a_mano(declaraciones=[_declaracion("x")]), "en")
@@ -206,11 +211,12 @@ def test_lo_que_el_origen_no_sabe_se_omite_y_no_se_rellena_en_el_texto():
     origen = _origen_a_mano()
     del origen["nombre"], origen["hoja"]
     es = odf.texto_del_origen(origen, "es")
-    assert es.startswith(f"Excel, huella del original `{_SHA_ORIGINAL}`, 3 declaraciones")
+    assert es.startswith(f"Excel, huella del original `{_SHA_ORIGINAL}` (vínculo sin comprobar")
     assert "None" not in es and "``" not in es
     csv = odf.origen_de_un_csv("a;b\n1,5;x\n", [_declaracion("decimal_coma_convertido", 1, "a")])
-    assert odf.texto_del_origen(csv, "es").startswith("CSV, huella del original `")
-    assert odf.texto_del_origen(csv, "en").startswith("CSV, digest of the original `")
+    # (reparación I2) la de un CSV es la del TEXTO RECIBIDO, y así se llama
+    assert odf.texto_del_origen(csv, "es").startswith("CSV, huella del texto recibido (")
+    assert odf.texto_del_origen(csv, "en").startswith("CSV, digest of the received text (")
 
 
 def test_el_bloque_del_manifiesto_dice_que_es_informativo_y_por_que_en_es_y_en():
@@ -480,12 +486,14 @@ def test_la_ficha_tripod_enseña_el_origen_junto_a_la_huella_del_dataset_en_es_y
     i = next(n for n, l in enumerate(es) if l.startswith("- **Huella del dataset (sha256)**"))
     assert es[i].startswith(f"- **Huella del dataset (sha256)**: {derivado}")
     assert es[i + 1].startswith(
-        f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}`, 3 declaraciones")
+        f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (vínculo")
+    assert ", 3 declaraciones" in es[i + 1]
     assert es[i + 1].endswith(f" · {ruta}") and "informativo" in es[i + 1]
     en = ficha_tripod(d, locale="en").splitlines()
     j = next(n for n, l in enumerate(en) if l.startswith("- **Dataset digest (sha256)**"))
     assert en[j + 1].startswith(
-        f"- **Origin**: Excel `ventas.xlsx`, sheet `Pedidos`, digest of the original `{_SHA_ORIGINAL}`, 3 declarations")
+        f"- **Origin**: Excel `ventas.xlsx`, sheet `Pedidos`, digest of the original `{_SHA_ORIGINAL}` (link")
+    assert ", 3 declarations" in en[j + 1]
     assert "informative" in en[j + 1] and en[j + 1].endswith(f" · {ruta}")
 
 
@@ -508,7 +516,7 @@ def test_el_expediente_y_probast_incluyen_el_origen_solo_si_el_paquete_lo_declar
     assert [c for c in claves_con if c != "origen_del_fichero"] == claves_sin
     # un CSV sin origen no recibe un hueco «sin origen» en PROBAST: no es una laguna, es que no hubo conversión
     assert "**Origen**" not in huecos_probast(_paquete_regenerable(), locale="es")
-    assert f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}`, 3 declaraciones" in \
+    assert f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (vínculo" in \
         huecos_probast(_paquete_regenerable(origen=_origen_a_mano()), locale="es")
 
 
@@ -547,7 +555,7 @@ def test_la_ficha_de_un_estudio_con_origen_lo_lleva_tambien():
                               origen_del_fichero=_origen_a_mano())
     (d / "reproduce.json").write_text(json.dumps(m, indent=2), encoding="utf-8")
     ficha = ficha_tripod(d, locale="es")
-    assert f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}`, 3 declaraciones" in ficha
+    assert f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (vínculo" in ficha
     sin = pathlib.Path(tempfile.mkdtemp(prefix="c150c4-estudio-"))
     (sin / "reproduce.json").write_text(json.dumps(manifiesto_de_estudio(
         filas=40, huella_del_dataset=hashlib.sha256(b"a,b\n1,2\n").hexdigest(), modo="rapido"), indent=2), encoding="utf-8")
@@ -579,7 +587,8 @@ def test_el_entrenamiento_con_origen_lo_guarda_en_la_captura_1_3_y_la_captura_se
     assert sub["ok"], sub
     prov = job["run_provenance"]
     assert prov["schema_version"] == "1.3" and prov["origen_del_fichero"]["sha256"] == _SHA_ORIGINAL
-    assert prov["origen_del_fichero"] == odf.normalizar_origen_del_fichero(_origen_a_mano())
+    # (reparación I1) el núcleo le añade el VÍNCULO con el CSV que llegó: este origen no declara su CSV
+    assert prov["origen_del_fichero"] == {**odf.normalizar_origen_del_fichero(_origen_a_mano()), "vinculo": "no_comprobado"}
     # la huella que ata los pesos es la del CSV que entró (derivado), no la del libro
     assert prov["dataset_sha256_raw"] != _SHA_ORIGINAL and prov["dataset_sha256_prepared"] != _SHA_ORIGINAL
     assert rp._normalize_run_provenance(prov)["origen_del_fichero"]["hoja"] == "Pedidos"
@@ -599,3 +608,245 @@ def test_el_entrenamiento_con_un_origen_mal_formado_se_rechaza_antes_de_crear_el
     sub, job = _entrenar(origen_del_fichero=_origen_a_mano(sha256="corta"))
     assert sub["ok"] is False and sub["clave"] == "origen_del_fichero_no_valido" and job is None
     assert set(_training_jobs) == antes  # no hay trabajo a medias
+
+
+# ══ REPARACIÓN tras la auditoría de 150-C4 (I1–I3, M1, M2) ═══════════════════════════════════════
+# Sabotajes de cada una, en `~/.agentes/150/rep-c4/`.
+
+def _origen_de(csv_text: str, **cambios) -> dict:
+    """Un origen a mano ATADO a `csv_text`, como el que devuelve hoy la conversión."""
+    return _origen_a_mano(sha256_del_csv=odf.huella_del_texto(csv_text), **cambios)
+
+
+# ── I1: el origen está atado al CSV ──────────────────────────────────────────────────────────────
+
+@requiere_calamine
+def test_I1_la_conversion_declara_la_huella_del_csv_que_devuelve():
+    from matrixai.tablas import convertir
+    tabla = convertir((FIXTURES / "erp_totales.xlsx").read_bytes(), "erp_totales.xlsx", fila_de_cabecera=1,
+                      filas_a_excluir=[4, 7, 9, 10])
+    assert tabla.origen["sha256_del_csv"] == hashlib.sha256(tabla.csv_bytes).hexdigest()
+    # y es la misma que la del texto que viaja por la API (`csv_text`), que es lo que el estudio compara
+    assert tabla.origen["sha256_del_csv"] == odf.huella_del_texto(tabla.csv_text)
+    assert tabla.origen["sha256_del_csv"] != tabla.origen["sha256"]
+
+
+def test_I1_un_origen_de_otro_csv_se_rechaza_en_el_estudio_con_su_clave_en_es_y_en():
+    mio, otro = "a,b\n1,2\n", "a,b\n9,9\n"
+    with pytest.raises(odf.OrigenDeOtroCsv) as caso:
+        odf.origen_para_el_estudio(_origen_de(otro), texto_recibido=mio, declaraciones_de_entrada=[])
+    assert caso.value.clave == "origen_del_fichero_no_es_de_este_csv"
+    assert caso.value.motivo["es"].startswith("el origen del fichero es de otro CSV")
+    assert caso.value.motivo["en"].startswith("the file origin belongs to another CSV")
+    # un origen sin la huella de su CSV tampoco se puede atar: se rechaza, con su propio motivo
+    with pytest.raises(odf.OrigenDeOtroCsv) as sin:
+        odf.origen_para_el_estudio(_origen_a_mano(), texto_recibido=mio, declaraciones_de_entrada=[])
+    assert "sha256_del_csv" in sin.value.motivo["es"] and "sha256_del_csv" in sin.value.motivo["en"]
+    # el suyo sí entra, y con el vínculo COMPROBADO
+    bueno = odf.origen_para_el_estudio(_origen_de(mio), texto_recibido=mio, declaraciones_de_entrada=[])
+    assert bueno["vinculo"] == "comprobado"
+
+
+def test_I1_el_vinculo_lo_escribe_el_nucleo_y_el_del_cliente_se_descarta():
+    mio = "a,b\n1,2\n"
+    # el cliente dice «comprobado» de un origen que NO es de su CSV: en train-start no se rechaza, pero no se le cree
+    atado = odf.atar_al_csv(_origen_de("otro\n", vinculo="comprobado"), mio, exigir=False)
+    assert atado["vinculo"] == "no_comprobado"
+    # y dice «no_comprobado» de uno que sí lo es: tampoco manda él
+    assert odf.atar_al_csv(_origen_de(mio, vinculo="no_comprobado"), mio, exigir=False)["vinculo"] == "comprobado"
+    with pytest.raises(ReproduceManifestError):
+        odf.normalizar_origen_del_fichero(_origen_a_mano(vinculo="verificado"))
+
+
+def _csv_del_entrenamiento() -> str:
+    from matrixai.training.dataset_project import generate_project_from_dataset
+    filas = "".join(f"{c},{c + 273.15}\n" for c in range(100))
+    return generate_project_from_dataset(
+        "centigrados,prediccionKelvin\n" + filas, "prediccionKelvin",
+        column_type_overrides={"centigrados": "number"}, column_range_overrides={"centigrados": (0.0, 99.0)})["csv_text"]
+
+
+def test_I1_train_start_graba_el_vinculo_comprobado_o_no_y_no_rechaza():
+    sub, job = _entrenar(origen_del_fichero=_origen_de(_csv_del_entrenamiento()))
+    assert sub["ok"], sub
+    assert job["run_provenance"]["origen_del_fichero"]["vinculo"] == "comprobado"
+    assert rp._normalize_run_provenance(job["run_provenance"])["origen_del_fichero"]["vinculo"] == "comprobado"
+    sub, job = _entrenar(origen_del_fichero=_origen_de("un CSV que ya no es este\n"))
+    assert sub["ok"], sub  # el CSV pudo prepararse después: no se rechaza, se dice
+    assert job["run_provenance"]["origen_del_fichero"]["vinculo"] == "no_comprobado"
+
+
+def test_I1_la_ficha_dice_el_vinculo_en_es_y_en():
+    sha = _SHA_ORIGINAL
+    casos = {
+        "comprobado": (
+            f"huella del original `{sha}` (vínculo comprobado: este dataset es el CSV que devolvió la conversión)",
+            f"digest of the original `{sha}` (link checked: this dataset is the CSV the conversion returned)"),
+        "no_comprobado": (
+            f"huella del original `{sha}` (vínculo sin comprobar: este dataset no es, byte a byte, el CSV que devolvió "
+            f"la conversión; pudo prepararse después)",
+            f"digest of the original `{sha}` (link not checked: this dataset is not, byte for byte, the CSV the "
+            f"conversion returned; it may have been prepared afterwards)"),
+    }
+    for vinculo, (es, en) in casos.items():
+        origen = _origen_de("a,b\n", vinculo=vinculo)
+        assert es in odf.texto_del_origen(origen, "es")
+        assert en in odf.texto_del_origen(origen, "en")
+    # por la ficha de un paquete de verdad
+    d = _paquete_regenerable(origen=_origen_de("a,b\n", vinculo="comprobado"))
+    assert "(vínculo comprobado: este dataset es el CSV que devolvió la conversión)" in ficha_tripod(d, locale="es")
+    assert "(link checked: this dataset is the CSV the conversion returned)" in ficha_tripod(d, locale="en")
+
+
+# ── I2: la huella de un CSV es la del TEXTO RECIBIDO, y así se llama ─────────────────────────────
+
+#: `~/.agentes/150/aud-c4/bom_es.csv` del auditor, tal cual: UTF-8 con BOM, `;`, decimal coma y CRLF.
+_BOM_ES = b"\xef\xbb\xbfid;peso;riesgo\r\n1;64,3;alto\r\n2;70,1;bajo\r\n"
+
+
+def test_I2_un_csv_con_bom_dice_huella_del_texto_recibido_y_no_del_original_en_es_y_en():
+    from matrixai.training.data import normalize_csv_text_declarando
+    recibido = _BOM_ES.decode("utf-8-sig")  # lo que entrega el navegador (TextDecoder quita el BOM)
+    _, declaraciones = normalize_csv_text_declarando(recibido)
+    origen = odf.origen_para_el_estudio(None, texto_recibido=recibido, declaraciones_de_entrada=declaraciones,
+                                        nombre="bom_es.csv")
+    sha = origen["sha256"]
+    assert sha == hashlib.sha256(recibido.encode("utf-8")).hexdigest() != hashlib.sha256(_BOM_ES).hexdigest()
+    es, en = odf.texto_del_origen(origen, "es"), odf.texto_del_origen(origen, "en")
+    assert es.startswith(f"CSV `bom_es.csv`, huella del texto recibido (decodificado como UTF-8; puede no coincidir con "
+                         f"la del fichero) `{sha}`, 1 declaración")
+    assert en.startswith(f"CSV `bom_es.csv`, digest of the received text (decoded as UTF-8; may not match the file's) "
+                         f"`{sha}`, 1 declaration")
+    assert "del original" not in es and "of the original" not in en
+    # y por la ficha de un paquete de estudio
+    d = pathlib.Path(tempfile.mkdtemp(prefix="c150c4-bom-"))
+    m = manifiesto_de_estudio(filas=2, huella_del_dataset=hashlib.sha256(b"x").hexdigest(), modo="rapido",
+                              origen_del_fichero=origen)
+    (d / "reproduce.json").write_text(json.dumps(m, indent=2), encoding="utf-8")
+    assert "huella del texto recibido (decodificado como UTF-8; puede no coincidir con la del fichero)" in \
+        ficha_tripod(d, locale="es")
+    assert "digest of the received text (decoded as UTF-8; may not match the file's)" in ficha_tripod(d, locale="en")
+
+
+# ── I3: formato cerrado, nombre y hoja escapados, sin controles bidireccionales ─────────────────
+
+@pytest.mark.parametrize("formato", ["**VERIFICADO**", "XLSX", "ods", "csv ", "Excel", "parquet"])
+def test_I3_un_formato_fuera_de_la_lista_cerrada_se_rechaza(formato):
+    with pytest.raises(ReproduceManifestError, match="formato"):
+        odf.normalizar_origen_del_fichero(_origen_a_mano(formato=formato))
+
+
+def test_I3_la_lista_cerrada_es_la_que_produce_la_conversion():
+    assert odf.FORMATOS == ("xlsx", "xls", "xlsm", "csv")
+    for formato in odf.FORMATOS:
+        assert odf.normalizar_origen_del_fichero(_origen_a_mano(formato=formato))["formato"] == formato
+    # «xlsm» lo produce `Libro._clasificar` (con macros) y «xls» por firma OLE: mirado en el fuente, no supuesto
+    fuente = (RAIZ / "matrixai" / "tablas" / "api.py").read_text(encoding="utf-8")
+    assert 'return "xlsm" if self.macros else "xlsx"' in fuente and 'return "xls"' in fuente
+
+
+@pytest.mark.parametrize("cp", [0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069])
+@pytest.mark.parametrize("clave", ["nombre", "hoja"])
+def test_I3_un_control_bidireccional_en_nombre_u_hoja_se_rechaza(cp, clave):
+    with pytest.raises(ReproduceManifestError, match="bidirectional"):
+        odf.normalizar_origen_del_fichero(_origen_a_mano(**{clave: f"ventas{chr(cp)}xlsx.exe"}))
+
+
+def test_I3_un_nombre_en_hebreo_o_arabe_sin_controles_entra():
+    o = odf.normalizar_origen_del_fichero(_origen_a_mano(nombre="נתונים.xlsx", hoja="بيانات"))
+    assert o["nombre"] == "נתונים.xlsx" and o["hoja"] == "بيانات"
+
+
+_HOSTILES = [
+    "Datos `2024`",
+    "`empieza",
+    "a``b```c",
+    "ventas.xlsx` — **comprobado por MatrixAI** [ver](javascript:alert(1)) `x",
+    "<img src=x onerror=alert(1)>",
+    "H`<script>alert(2)</script>`",
+    "[clic](javascript:alert(1))",
+    " espacios ",
+]
+
+
+def _quitar_codigo(linea: str) -> tuple[str, list[str]]:
+    """Los códigos en línea de una línea (regla de CommonMark: misma longitud de delimitador, relleno de un espacio)."""
+    import re
+    dentro: list[str] = []
+
+    def uno(m):
+        c = m.group(2)
+        if c.startswith(" ") and c.endswith(" ") and c.strip():
+            c = c[1:-1]
+        dentro.append(c)
+        return "\x00"
+    return re.sub(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", uno, linea), dentro
+
+
+@pytest.mark.parametrize("valor", _HOSTILES)
+def test_I3_un_nombre_o_una_hoja_hostiles_salen_enteros_dentro_de_su_codigo_y_nada_fuera(valor):
+    for idioma in ("es", "en"):
+        texto = odf.texto_del_origen(_origen_a_mano(nombre=valor, hoja=valor), idioma)
+        fuera, dentro = _quitar_codigo(texto)
+        assert dentro[:2] == [valor, valor], (texto, dentro)
+        for peligro in ("<", "javascript", "](", "**", "`"):
+            assert peligro not in fuera, (peligro, fuera)
+
+
+def test_I3_una_hoja_Datos_2024_sale_bien_en_la_ficha():
+    """El caso de uso NORMAL: una hoja con comillas invertidas en el nombre."""
+    d = _paquete_regenerable(origen=_origen_a_mano(hoja="Datos `2024`"))
+    linea = next(l for l in ficha_tripod(d, locale="es").splitlines() if l.startswith("- **Origen**"))
+    assert ", hoja `` Datos `2024` ``, " in linea
+    linea_en = next(l for l in ficha_tripod(d, locale="en").splitlines() if l.startswith("- **Origin**"))
+    assert ", sheet `` Datos `2024` ``, " in linea_en
+
+
+@pytest.mark.parametrize("valor", _HOSTILES)
+def test_I3_renderizada_con_un_lector_commonmark_la_linea_no_lleva_html_ni_enlaces(valor):
+    mdit = pytest.importorskip("markdown_it")
+    import html
+    d = _paquete_regenerable(origen=_origen_a_mano(nombre=valor, hoja=valor))
+    linea = next(l for l in ficha_tripod(d, locale="es").splitlines() if l.startswith("- **Origen**"))
+    salida = mdit.MarkdownIt("commonmark").render(linea)
+    assert "<img" not in salida and "<script" not in salida and "<a " not in salida, salida
+    assert salida.count(f"<code>{html.escape(valor, quote=False)}</code>") == 2, salida
+
+
+# ── M1: lo que dice el núcleo no lo dice el cliente ──────────────────────────────────────────────
+
+def test_M1_un_informativo_false_o_una_nota_del_cliente_siempre_pierden():
+    mentira = {"informativo": False, "nota": {"es": "esta huella SÍ se verifica", "en": "this digest IS verified"}}
+    bloque = odf.bloque_del_manifiesto(_origen_a_mano(**mentira))
+    assert bloque["informativo"] is True and bloque["nota"] == odf._NOTA
+    # por los dos caminos que escriben el manifiesto
+    m = manifiesto_de_estudio(filas=40, huella_del_dataset=hashlib.sha256(b"x").hexdigest(),
+                              origen_del_fichero=_origen_a_mano(**mentira))
+    assert m["artifacts"]["dataset"]["origen_del_fichero"]["informativo"] is True
+    assert m["artifacts"]["dataset"]["origen_del_fichero"]["nota"] == odf._NOTA
+    b = _manifiesto(_paquete_regenerable(origen=_origen_a_mano(**mentira)))["artifacts"]["dataset"]["origen_del_fichero"]
+    assert b["informativo"] is True and b["nota"] == odf._NOTA
+    # y al entrar por el estudio ni siquiera llegan
+    entra = odf.origen_para_el_estudio(_origen_de("a,b\n", **mentira), texto_recibido="a,b\n", declaraciones_de_entrada=[])
+    assert "informativo" not in entra and "nota" not in entra
+
+
+# ── M2: la huella del original no entra en R3 ────────────────────────────────────────────────────
+
+def test_M2_una_cifra_medida_sobre_el_original_no_se_contrasta_en_R3():
+    """R3 solo contrasta las cifras medidas sobre ESTE dataset (los dos digests del CSV derivado). Una que dice
+    haberse medido sobre la huella del ORIGINAL es de otro dataset: no se compara y se nombra. Si R3 contase la huella
+    del original como del paquete, la compararía y daría PASS con cifras que no son de este dataset."""
+    import test_c136_r3_decide_con_su_catalogo as c136
+    m = c136._tres()
+    derivado = "c" * 64
+    m["artifacts"] = {"dataset": {"sha256": derivado, "sha256_prepared": c136._SHA,
+                                  "origen_del_fichero": odf.bloque_del_manifiesto(_origen_a_mano())}}
+    honestas = {"mae": 316.7, "rmse": 400.0, "final_train_loss": 0.4}
+    # control: medidas sobre el derivado, se comparan y cuadran
+    assert c136.base_r3(c136._con_en(m, ("mae", "rmse"), dataset_sha256=derivado), dict(honestas))["status"] == "PASS"
+    sobre_el_original = c136._con_en(m, ("mae", "rmse"), dataset_sha256=_SHA_ORIGINAL)
+    for locale in ("es", "en"):
+        r3 = c136.base_r3(sobre_el_original, dict(honestas), locale=locale)
+        assert r3["status"] == "INCOMPARABLE", r3
+        assert r3["other_dataset"] == ["mae", "rmse"] and r3["checked"] == ["final_train_loss"], r3

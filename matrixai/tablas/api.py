@@ -982,5 +982,9 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         "filas_excluidas": filas_excluidas,
         "conversor": libro.conversor(),
         "declaraciones": declaraciones,
+        # 150-C4 (I1): la huella del CSV que ESTA conversión devuelve. Ata el origen a su CSV: el estudio la compara
+        # con el texto que recibe y rechaza un origen que no es de él (sin esto, el origen de un libro se podía
+        # adjuntar a cualquier CSV y la ficha lo afirmaba).
+        "sha256_del_csv": hashlib.sha256(csv_bytes).hexdigest(),
     }
     return TablaConvertida(csv_bytes=csv_bytes, origen=origen)

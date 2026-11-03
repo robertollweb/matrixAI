@@ -24,6 +24,20 @@ TRES REGLAS (las que el contrato fija y este módulo SOSTIENE, cada una con su p
 3. **Forma cerrada.** Una captura del run que lo lleva es de la versión `1.3`; un núcleo que no la conoce la
    rechaza en vez de publicarlo como «parámetro de generación» (que es lo que hace con una clave que no tiene
    dada de alta en `_RUN_PROVENANCE_CORE_KEYS`).
+
+Y TRES MÁS, de la reparación tras la auditoría (150-C4, I1–I3 y M1):
+
+4. **El origen está ATADO al CSV.** La conversión declara la huella del CSV que devuelve (`sha256_del_csv`); el
+   estudio la compara con el texto que recibe y RECHAZA un origen que no es de ese CSV
+   (`origen_del_fichero_no_es_de_este_csv`): sin eso, cualquiera podía adjuntar a su CSV el origen de un libro
+   ajeno y la ficha lo afirmaba. Donde el CSV puede llegar preparado (`train-start`), no se rechaza: se graba
+   `vinculo` («comprobado» / «no_comprobado») y la ficha lo dice.
+5. **Lo que la ficha cita no puede reescribirla.** `formato` es una lista cerrada; `nombre` y `hoja` van en código
+   en línea con un delimitador más largo que cualquier racha de comillas invertidas que lleven (una hoja
+   «Datos `2024`» sale entera), y se rechazan los caracteres de control bidireccionales (U+202A–U+202E,
+   U+2066–U+2069), que reordenan lo que se lee sin cambiar lo que se guarda.
+6. **Lo que dice el servidor no lo dice el cliente.** `informativo`, `nota` y `vinculo` los escribe el núcleo: lo
+   que traiga el cliente con esos nombres se descarta al entrar y, en el manifiesto, lo del núcleo va DESPUÉS.
 """
 from __future__ import annotations
 
@@ -39,9 +53,10 @@ from matrixai.export.reproduce import (
 )
 
 __all__ = [
-    "CLAVE", "VERSION_DE_LA_CAPTURA_CON_ORIGEN", "TOPE_DE_BYTES_DEL_ORIGEN",
-    "normalizar_origen_del_fichero", "numero_de_declaraciones", "origen_de_un_csv",
-    "origen_para_el_estudio", "bloque_del_manifiesto", "texto_del_origen", "ROTULO",
+    "CLAVE", "VERSION_DE_LA_CAPTURA_CON_ORIGEN", "TOPE_DE_BYTES_DEL_ORIGEN", "FORMATOS", "VINCULOS",
+    "OrigenDeOtroCsv", "normalizar_origen_del_fichero", "numero_de_declaraciones", "origen_de_un_csv",
+    "origen_para_el_estudio", "atar_al_csv", "huella_del_texto", "bloque_del_manifiesto", "texto_del_origen",
+    "codigo_en_linea", "ROTULO",
 ]
 
 #: El nombre de la clave: en la captura del run, en el sobre del estudio y en `artifacts.dataset`.
@@ -61,7 +76,24 @@ TOPE_DE_BYTES_DEL_ORIGEN = 1_048_576
 _ESQUEMA_QUE_SE_SABE_LEER = 1
 
 _FORMATOS_DE_EXCEL = ("xlsx", "xls", "xlsm")
+
+#: Los formatos que un origen puede declarar: los que de verdad produce `matrixai.tablas.convertir`
+#: (`Libro._clasificar`: «xls» por firma OLE, «xlsx» o «xlsm» —con macros— por el ZIP) y el «csv» que compone
+#: `origen_de_un_csv` (150-C2). Lista CERRADA (I3): antes era texto libre y la ficha imprimía, en mayúsculas,
+#: lo que mandase el cliente («**VERIFICADO**»).
+FORMATOS = (*_FORMATOS_DE_EXCEL, "csv")
+
+#: Lo que `vinculo` puede decir (I1): «comprobado» = el CSV que entrenó es, byte a byte, el que declaró la
+#: conversión (`sha256_del_csv`); «no_comprobado» = no lo es o no se pudo saber (el CSV pudo prepararse después).
+VINCULOS = ("comprobado", "no_comprobado")
+
+#: Las claves que escribe el NÚCLEO, nunca el cliente (M1): lo que llegue con estos nombres se descarta al entrar.
+_CLAVES_DEL_NUCLEO = ("informativo", "nota", "vinculo")
+
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+#: Controles bidireccionales (I3): incrustaciones y anulaciones (U+202A–U+202E) y aislamientos (U+2066–U+2069). Un
+#: U+202E en el nombre de una hoja hace que la ficha SE LEA distinta de lo que guarda («xslx.exe» como «exe.xlsx»).
+_BIDI = re.compile("[\u202a-\u202e\u2066-\u2069]")
 
 #: Cómo se llama la línea en cada idioma (la ficha y el expediente la rotulan igual: los dos leen de aquí).
 ROTULO = {"es": "Origen", "en": "Origin"}
@@ -102,9 +134,18 @@ def normalizar_origen_del_fichero(crudo: Any, *, campo: str = CLAVE) -> dict[str
                 f"this core can read), got {esquema!r}: an origin it does not know how to read is not interpreted half-way")
 
     _require_text(origen.get("formato"), f"{campo}.formato")
-    if len(origen["formato"]) > 32 or _CONTROL.search(origen["formato"]):
-        raise ReproduceManifestError(f"{campo}.formato is not a format name, got {origen['formato']!r}")
+    if origen["formato"] not in FORMATOS:
+        raise ReproduceManifestError(
+            f"{campo}.formato must be one of {', '.join(FORMATOS)} (the formats the conversion produces), "
+            f"got {origen['formato']!r}")
     _require_full_sha256(origen.get("sha256"), f"{campo}.sha256")
+    if origen.get("sha256_del_csv") is not None:
+        _require_full_sha256(origen["sha256_del_csv"], f"{campo}.sha256_del_csv")
+    if origen.get("vinculo") is not None and origen["vinculo"] not in VINCULOS:
+        raise ReproduceManifestError(
+            f"{campo}.vinculo must be one of {', '.join(VINCULOS)}, got {origen['vinculo']!r}")
+    if origen.get("huella_de") is not None and origen["huella_de"] != "texto_recibido":
+        raise ReproduceManifestError(f"{campo}.huella_de must be 'texto_recibido' or absent, got {origen['huella_de']!r}")
 
     for clave in ("nombre", "hoja"):
         valor = origen.get(clave)
@@ -114,6 +155,10 @@ def normalizar_origen_del_fichero(crudo: Any, *, campo: str = CLAVE) -> dict[str
         if len(valor) > 255 or _CONTROL.search(valor):
             raise ReproduceManifestError(
                 f"{campo}.{clave} must be a text of at most 255 characters with no control characters, got {valor!r}")
+        if _BIDI.search(valor):
+            raise ReproduceManifestError(
+                f"{campo}.{clave} carries a bidirectional control character (U+202A–U+202E, U+2066–U+2069), which "
+                f"makes the receipt read differently from what it records, got {valor!r}")
     octetos = origen.get("bytes")
     if octetos is not None and (type(octetos) is not int or octetos < 0):
         raise ReproduceManifestError(f"{campo}.bytes must be a non-negative integer or null, got {octetos!r}")
@@ -147,7 +192,7 @@ def origen_de_un_csv(texto_recibido: str, declaraciones: Sequence[Mapping[str, A
     `texto_recibido` es el texto TAL COMO LLEGÓ al estudio, antes de normalizarlo: es lo único del original que el
     estudio ve (si el navegador decodificó o quitó un BOM, ese cambio ya estaba hecho), y `huella_de` lo dice.
     """
-    octetos = texto_recibido.encode("utf-8")
+    octetos = texto_recibido.encode("utf-8", "surrogatepass")
     origen: dict[str, Any] = {
         "esquema": _ESQUEMA_QUE_SE_SABE_LEER,
         "formato": "csv",
@@ -173,7 +218,8 @@ def origen_para_el_estudio(origen_recibido: Any, *, texto_recibido: str,
     """
     entrada = [dict(d) for d in (declaraciones_de_entrada or [])]
     if origen_recibido is not None:
-        origen = normalizar_origen_del_fichero(origen_recibido)
+        # I1: el origen tiene que ser de ESTE CSV (el texto tal como llegó, que es lo que devolvió la conversión).
+        origen = atar_al_csv(normalizar_origen_del_fichero(origen_recibido), texto_recibido, exigir=True)
         if entrada:
             origen["declaraciones_de_entrada"] = _lista_de_declaraciones(entrada, "declaraciones_de_entrada")
             return normalizar_origen_del_fichero(origen)
@@ -181,6 +227,53 @@ def origen_para_el_estudio(origen_recibido: Any, *, texto_recibido: str,
     if entrada:
         return origen_de_un_csv(texto_recibido, entrada, nombre=nombre)
     return None
+
+
+class OrigenDeOtroCsv(ReproduceManifestError):
+    """El origen no es del CSV que llega (I1). Lleva su `clave` y su `motivo` en es/en: lo redacta el núcleo."""
+
+    clave = "origen_del_fichero_no_es_de_este_csv"
+
+    def __init__(self, declarada: str | None, recibida: str):
+        self.declarada, self.recibida = declarada, recibida
+        if declarada is None:
+            self.motivo = {
+                "es": ("el origen del fichero no declara la huella del CSV que devolvió la conversión "
+                       "(`sha256_del_csv`), así que no se puede comprobar que sea de este CSV"),
+                "en": ("the file origin does not declare the digest of the CSV the conversion returned "
+                       "(`sha256_del_csv`), so it cannot be checked to belong to this CSV")}
+        else:
+            self.motivo = {
+                "es": (f"el origen del fichero es de otro CSV: la conversión devolvió uno con huella "
+                       f"{declarada[:12]}… y el que llega tiene {recibida[:12]}…"),
+                "en": (f"the file origin belongs to another CSV: the conversion returned one with digest "
+                       f"{declarada[:12]}… and the one received has {recibida[:12]}…")}
+        super().__init__(self.motivo["en"])
+
+
+def huella_del_texto(texto: str) -> str:
+    """El sha256 de un texto como UTF-8: el mismo que `TablaConvertida.csv_bytes` cuando el texto es su `csv_text`."""
+    return hashlib.sha256(texto.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def atar_al_csv(origen: Mapping[str, Any], texto_csv: str, *, exigir: bool) -> dict[str, Any]:
+    """El origen (ya validado) con su `vinculo` al CSV que de verdad llega, escrito por el NÚCLEO (I1).
+
+    Lo que traiga el cliente como `informativo`, `nota` o `vinculo` se descarta (M1): eso lo dice el núcleo.
+    * `exigir=True` (el estudio, que recibe el CSV tal cual lo devolvió la conversión): si `sha256_del_csv` falta o
+      no es la huella de `texto_csv`, lanza `OrigenDeOtroCsv`; si cuadra, `vinculo = "comprobado"`.
+    * `exigir=False` (`train-start`, donde el CSV puede llegar preparado): nunca rechaza; `vinculo` dice si cuadró.
+    """
+    limpio = {k: v for k, v in origen.items() if k not in _CLAVES_DEL_NUCLEO}
+    declarada = limpio.get("sha256_del_csv")
+    recibida = huella_del_texto(texto_csv)
+    if declarada == recibida:
+        limpio["vinculo"] = "comprobado"
+    elif exigir:
+        raise OrigenDeOtroCsv(declarada, recibida)
+    else:
+        limpio["vinculo"] = "no_comprobado"
+    return limpio
 
 
 #: Lo que se dice junto al origen en el manifiesto: la huella del original NO es lo que se verifica.
@@ -195,7 +288,10 @@ _NOTA = {
 
 
 def bloque_del_manifiesto(origen: Mapping[str, Any]) -> dict[str, Any]:
-    """Lo que `artifacts.dataset.origen_del_fichero` publica: el origen más su carácter informativo, dicho."""
+    """Lo que `artifacts.dataset.origen_del_fichero` publica: el origen más su carácter informativo, dicho.
+
+    M1: `informativo` y `nota` van DESPUÉS del origen a propósito: si el origen trajera las suyas (un
+    `informativo: false`, una nota que dice «esta huella SÍ se verifica»), siempre pierden."""
     return {**origen, "informativo": True, "nota": dict(_NOTA)}
 
 
@@ -205,22 +301,66 @@ def _pl(n: int, idioma: str) -> str:
     return f"{n} declaration" if n == 1 else f"{n} declarations"
 
 
+def codigo_en_linea(texto: str) -> str:
+    """`texto` como código en línea de Markdown (CommonMark), sin que nada de dentro se interprete (I3).
+
+    El delimitador es una racha de comillas invertidas MÁS LARGA que la más larga que lleve el texto, y si el
+    texto empieza o acaba con una (o empieza y acaba con un espacio), se rodea de un espacio, que CommonMark quita.
+    Dentro de un código en línea no hay enlaces, ni énfasis, ni HTML: `javascript:`, `<img onerror>` o `<script>`
+    salen como texto. Una hoja «Datos `2024`» sale «`` Datos `2024` ``», que se lee «Datos `2024`»."""
+    racha = max((len(m) for m in re.findall(r"`+", texto)), default=0)
+    delimitador = "`" * (racha + 1)
+    relleno = " " if (texto.startswith("`") or texto.endswith("`")
+                      or (texto.startswith(" ") and texto.endswith(" ") and texto.strip())) else ""
+    return f"{delimitador}{relleno}{texto}{relleno}{delimitador}"
+
+
+#: Lo que dice la ficha del VÍNCULO entre el origen y este dataset (I1), en cada idioma.
+_VINCULO = {
+    "comprobado": {
+        "es": "vínculo comprobado: este dataset es el CSV que devolvió la conversión",
+        "en": "link checked: this dataset is the CSV the conversion returned"},
+    "no_comprobado": {
+        "es": ("vínculo sin comprobar: este dataset no es, byte a byte, el CSV que devolvió la conversión; "
+               "pudo prepararse después"),
+        "en": ("link not checked: this dataset is not, byte for byte, the CSV the conversion returned; "
+               "it may have been prepared afterwards")},
+    "no_consta": {
+        "es": "vínculo sin comprobar: no consta que este dataset salga de ese fichero",
+        "en": "link not checked: nothing records that this dataset came from that file"},
+}
+
+
 def texto_del_origen(origen: Mapping[str, Any], idioma: str) -> str:
-    """«Excel `ventas.xlsx`, hoja `Datos`, huella del original `<sha256>`, 3 declaraciones» (+ lo que NO es).
+    """«Excel `ventas.xlsx`, hoja `Datos`, huella del original `<sha256>` (vínculo …), 3 declaraciones» (+ lo que NO es).
 
     Una sola redacción para la ficha TRIPOD+AI y para el expediente: dos sitios declarando lo mismo acaban
-    divergiendo. Lo que el origen no sabe (nombre, hoja) se omite, no se rellena."""
+    divergiendo. Lo que el origen no sabe (nombre, hoja) se omite, no se rellena. `nombre` y `hoja` van en
+    `codigo_en_linea` (I3). Para un CSV cuya huella es la del TEXTO RECIBIDO (I2) no se llama «del original»: es
+    la del texto ya decodificado como UTF-8 (sin BOM, si el navegador lo quitó), que puede no ser la del fichero."""
     es = idioma == "es"
+    lengua = "es" if es else "en"
     formato = str(origen.get("formato") or "")
     etiqueta = "Excel" if formato in _FORMATOS_DE_EXCEL else formato.upper()
-    piezas = [etiqueta + (f" `{origen['nombre']}`" if origen.get("nombre") else "")]
+    piezas = [etiqueta + (f" {codigo_en_linea(origen['nombre'])}" if origen.get("nombre") else "")]
     if origen.get("hoja"):
-        piezas.append((f"hoja `{origen['hoja']}`" if es else f"sheet `{origen['hoja']}`"))
-    piezas.append((f"huella del original `{origen.get('sha256')}`" if es
-                   else f"digest of the original `{origen.get('sha256')}`"))
+        piezas.append(("hoja " if es else "sheet ") + codigo_en_linea(origen["hoja"]))
+    huella = codigo_en_linea(str(origen.get("sha256")))
+    if origen.get("huella_de") == "texto_recibido":
+        piezas.append((f"huella del texto recibido (decodificado como UTF-8; puede no coincidir con la del fichero) "
+                       f"{huella}") if es else
+                      (f"digest of the received text (decoded as UTF-8; may not match the file's) {huella}"))
+    else:
+        vinculo = origen.get("vinculo")
+        if vinculo == "no_comprobado" and not origen.get("sha256_del_csv"):
+            vinculo = "no_consta"
+        dice = _VINCULO.get(vinculo if vinculo in VINCULOS else "no_consta", _VINCULO["no_consta"])[lengua]
+        piezas.append((f"huella del original {huella} ({dice})" if es
+                       else f"digest of the original {huella} ({dice})"))
     piezas.append(_pl(numero_de_declaraciones(origen), "es" if es else "en"))
-    cola = (" (informativo: lo que se verifica es la huella del dataset derivado, la de arriba; la del original no "
-            "entra en la verificación)" if es else
+    recibido = origen.get("huella_de") == "texto_recibido"
+    cola = (" (informativo: lo que se verifica es la huella del dataset derivado, la de arriba; la "
+            + ("del texto recibido" if recibido else "del original") + " no entra en la verificación)" if es else
             " (informative: what is verified is the digest of the derived dataset, the one above; the digest of "
-            "the original takes no part in verification)")
+            + ("the received text" if recibido else "the original") + " takes no part in verification)")
     return ", ".join(piezas) + cola

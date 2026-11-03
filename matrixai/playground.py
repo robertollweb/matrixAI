@@ -4761,7 +4761,11 @@ def _submit_training_job(
         # NO lleva la clave —ni `None`—, así que su captura es la de siempre. La huella que ata estos pesos sigue siendo
         # la de arriba (`dataset_sha256_raw`/`_prepared`, la del CSV derivado); la del original va DENTRO del bloque,
         # informativa.
-        job["run_provenance"]["origen_del_fichero"] = origen_del_fichero
+        # I1 (reparación de 150-C4): aquí el CSV puede llegar PREPARADO (la pantalla aplica pasos tras convertir), así
+        # que un origen que no es de este CSV no se rechaza: se graba si el CSV que llega es, byte a byte, el que
+        # devolvió la conversión (`vinculo`), y la ficha lo dice. El `vinculo` del cliente, si lo trae, se descarta.
+        from matrixai.export.origen_del_fichero import atar_al_csv  # noqa: PLC0415
+        job["run_provenance"]["origen_del_fichero"] = atar_al_csv(origen_del_fichero, csv_text_crudo, exigir=False)
 
     # DE QUIÉN ES ESTE ENTRENAMIENTO.
     #
