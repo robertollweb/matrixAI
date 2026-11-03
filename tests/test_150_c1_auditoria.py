@@ -1057,3 +1057,16 @@ def test_pedir_recalcular_no_rechaza_por_una_formula_sin_valor_fuera_del_rango()
         '<c r="B3"><v>4</v></c>', '<c r="B3"><f>A3*2</f><v>4</v></c>')), wb=_wb_con_calcpr("1"))
     e = _rechazo(convertir, dentro, "t.xlsx", fila_de_cabecera=1)
     assert e.codigo == "formula_sin_valor" and e.detalle["celdas"] == ["B3"]
+
+
+@requiere_calamine
+def test_una_columna_de_formulas_con_cabecera_sin_valor_sigue_rechazando():
+    """Control del recuadro: con una cabecera en C1 la columna C ES del rango (calamine cuenta
+    la celda con texto) y sus fórmulas sin valor rechazan; sin cabecera (la prueba de la
+    columna a la derecha) quedan fuera y se declaran."""
+    d = _libro(_hoja(_datos_a_b().replace(
+        '<c r="B1" t="inlineStr"><is><t>b</t></is></c>',
+        '<c r="B1" t="inlineStr"><is><t>b</t></is></c><c r="C1" t="inlineStr"><is><t>suma</t></is></c>').replace(
+        '<c r="B2"><v>2</v></c>', '<c r="B2"><v>2</v></c><c r="C2"><f>A2+B2</f></c>')))
+    e = _rechazo(convertir, d, "t.xlsx", fila_de_cabecera=1)
+    assert e.codigo == "formula_sin_valor" and e.detalle["celdas"] == ["C2"]

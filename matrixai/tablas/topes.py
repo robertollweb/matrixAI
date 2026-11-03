@@ -78,15 +78,29 @@ TOPES_DE_FABRICA = Topes()
 #   generar.grande 100.000 x 10  31,4 MB de XML -> padre +118 + hijo 117 = 235 MB                 (x7,5)
 #   generar.grande 200.000 x 10  64,3 MB de XML -> padre +228 + hijo 286 = 514 MB                 (x8,0)
 #
-# Con x3 la estimación se quedaba en 0,37–0,42 de lo gastado. La cota del XML pasa a x9 (el MÁXIMO
-# medido de la suma, redondeado hacia arriba: ya no es «el mejor caso», es lo que gastan los dos
-# procesos). La cota del rectángulo (40 B/celda) es del hijo y no se re-midió (deuda en el contrato).
+# Con x3 la estimación se quedaba en 0,37–0,42 de lo gastado. La cota del XML pasa a x9: es el
+# máximo medido de la suma (x7,2..8,0) para hojas de NÚMEROS y textos CORTOS (`generar.grande`),
+# redondeado hacia arriba. NO es el máximo de toda hoja: con textos largos el texto no está en el
+# XML de la hoja sino en `sharedStrings.xml`, y por byte de XML de la hoja se gasta mucho más (x36
+# en el primer caso de abajo); esos se cubren con el factor de los textos compartidos.
+# La cota del rectángulo (40 B/celda) es del hijo y no se re-midió (deuda en el contrato).
 BYTES_POR_CELDA_DEL_RANGO = 40
 FACTOR_RAM_POR_BYTE_DE_XML = 9
-#: Los textos compartidos se SUMAN (calamine los tiene todos a la vez que la hoja). Cota inferior:
-#: cada byte de XML de un texto es al menos un byte en memoria (medido 3,4 B/B con textos de una
-#: letra, el peor caso; con textos largos tiende a 1).
-FACTOR_RAM_POR_BYTE_DE_CADENAS = 1
+# Y RE-MEDIDO el 2026-11-03 (3.ª auditoría, I2) con HOJAS DE TEXTOS CASI TODOS DISTINTOS
+# (`~/.agentes/150/aud3-c1/mem_textos.py`, mismo método: padre + hijo, `systemd-run MemoryMax=3G`
+# sin swap). Con el factor de los textos compartidos en x1 la estimación era 0,16–0,38 de lo
+# gastado (los textos pasan de la tabla de calamine a la del hijo, a la del padre y al CSV):
+#
+#   20.000 x 30 de 100 car.  hoja 22,5 MB, textos 73,3 MB -> padre +331..396 + hijo 404 = 734..800 MB (x10,0..10,9 los textos)
+#   50.000 x 10 de 200 car.  hoja 20,0 MB, textos 113,7 MB -> padre +365 + hijo 571 = 936 MB          (x8,2)
+#   10.000 x 20 de 500 car.  hoja  7,4 MB, textos 108,7 MB -> padre +550 + hijo 521 = 1.071 MB        (x9,9)
+#   100.000 x 10 de 20 car.  hoja 40,2 MB, textos  37,8 MB -> padre +141 + hijo 265 = 406 MB          (x10,7 con la hoja incluida)
+#
+# Con x10 la estimada queda entre x1,08 y x1,82 de lo gastado en los cuatro. Con x9 el de 500
+# caracteres se quedaba corto (0,97), y con x12 el de 20 caracteres pasaba de x2: x10 es el hueco.
+#: Los textos compartidos se SUMAN (calamine los tiene todos a la vez que la hoja), y cada byte de
+#: texto se paga en calamine, en el hijo, en el padre y en el CSV (x10 medido, arriba).
+FACTOR_RAM_POR_BYTE_DE_CADENAS = 10
 
 #: El techo del proceso lector: lo estimado ×4 (la estimación es el MEJOR caso medido; el peor
 #: medido es ×1,7) más un margen fijo para el intérprete, calamine y la copia de los bytes del

@@ -50,18 +50,14 @@ def test_50000_por_30_se_inspecciona_y_se_convierte_completo(libro_grande):
     assert convertir(libro_grande, "grande.xlsx", hoja="Datos", fila_de_cabecera=1).csv_bytes == t.csv_bytes
 
 
-@pytest.mark.parametrize("filas,columnas", [(FILAS, COLUMNAS), (100_000, 10)])
-def test_la_estimacion_de_memoria_cubre_padre_mas_hijo_en_dos_tamanos(filas, columnas, libro_grande, tmp_path):
-    """I-R3 de la 2.ª re-auditoría: los factores se midieron con calamine EN el proceso, y desde B2
-    lee un HIJO: gastan los dos (medido ×2,4–2,7 lo estimado con los factores viejos). La guarda
-    tiene que cubrir la SUMA de los dos picos, medidos en un proceso LIMPIO con `VmHWM` (el
-    `ru_maxrss` de un hijo hereda el máximo del padre a través de fork+exec). Y no pasarse de ×2,
-    que rechazaría lo que sí cabe. El techo del hijo queda por ENCIMA de su pico."""
+def _estimada_y_picos(datos: bytes, tmp_path):
+    """`(estimada, padre, hijo)`: la estimación del producto para este libro y los picos MEDIDOS
+    de `convertir` en un proceso LIMPIO (`VmHWM`: el `ru_maxrss` de un hijo hereda el máximo del
+    padre a través de fork+exec), restando el de arranque."""
     import subprocess
     import zipfile
     from matrixai.tablas import xlsx_xml
-    from matrixai.tablas.topes import TOPES_DE_FABRICA, ram_estimada_de_una_hoja, techo_del_lector
-    datos = libro_grande if (filas, columnas) == (FILAS, COLUMNAS) else G.grande(filas, columnas)
+    from matrixai.tablas.topes import ram_estimada_de_una_hoja
     libro = tmp_path / "grande.xlsx"
     libro.write_bytes(datos)
     zf = zipfile.ZipFile(libro)
@@ -82,8 +78,30 @@ def test_la_estimacion_de_memoria_cubre_padre_mas_hijo_en_dos_tamanos(filas, col
         "base = hwm()\n"
         "convertir(b, 'g.xlsx', fila_de_cabecera=1)\n"
         "print(hwm() - base, aislado.ULTIMO_HIJO['hwm'])\n")
-    out = subprocess.run([sys.executable, "-c", codigo], capture_output=True, text=True, timeout=600)
+    out = subprocess.run([sys.executable, "-c", codigo], capture_output=True, text=True, timeout=900)
     assert out.returncode == 0, out.stderr[-500:]
     padre, hijo = (int(x) for x in out.stdout.strip().splitlines()[-1].split())
+    return estimada, padre, hijo
+
+
+@pytest.mark.parametrize("filas,columnas", [(FILAS, COLUMNAS), (100_000, 10)])
+def test_la_estimacion_de_memoria_cubre_padre_mas_hijo_en_dos_tamanos(filas, columnas, libro_grande, tmp_path):
+    """I-R3 de la 2.ª re-auditoría: los factores se midieron con calamine EN el proceso, y desde B2
+    lee un HIJO: gastan los dos (medido ×2,4–2,7 lo estimado con los factores viejos). La guarda
+    tiene que cubrir la SUMA de los dos picos, medidos en un proceso LIMPIO. Y no pasarse de ×2,
+    que rechazaría lo que sí cabe. El techo del hijo queda por ENCIMA de su pico."""
+    from matrixai.tablas.topes import TOPES_DE_FABRICA, techo_del_lector
+    datos = libro_grande if (filas, columnas) == (FILAS, COLUMNAS) else G.grande(filas, columnas)
+    estimada, padre, hijo = _estimada_y_picos(datos, tmp_path)
     assert padre + hijo <= estimada <= 2 * (padre + hijo), (estimada >> 20, padre >> 20, hijo >> 20)
     assert hijo < techo_del_lector(estimada, len(datos), TOPES_DE_FABRICA)
+
+
+@pytest.mark.parametrize("filas,columnas,largo", [(20_000, 30, 100), (50_000, 10, 200)])
+def test_la_estimacion_de_memoria_cubre_padre_mas_hijo_con_textos_largos(filas, columnas, largo, tmp_path):
+    """I2 de la 3.ª auditoría: en una hoja de TEXTOS LARGOS casi todos distintos el factor de los
+    textos compartidos (×1) dejaba la estimación en ~1/3 de lo gastado (20.000×30 de 100
+    caracteres: estimada 276 MB, gastado 800 MB; 50.000×10 de 200: 293 frente a 937). Con la
+    misma regla que la prueba de arriba: padre + hijo ≤ estimada ≤ 2 × (padre + hijo)."""
+    estimada, padre, hijo = _estimada_y_picos(G.grande_de_textos(filas, columnas, largo), tmp_path)
+    assert padre + hijo <= estimada <= 2 * (padre + hijo), (estimada >> 20, padre >> 20, hijo >> 20)

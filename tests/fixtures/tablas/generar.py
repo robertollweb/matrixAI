@@ -333,6 +333,20 @@ def grande(filas: int, columnas: int, semilla: int = 1) -> bytes:
     return xlsx([Hoja("Datos", datos)])
 
 
+def grande_de_textos(filas: int, columnas: int, largo: int, semilla: int = 1) -> bytes:
+    """Una hoja densa de TEXTOS LARGOS y casi todos distintos (descripciones, comentarios): la
+    que más memoria gasta por byte de XML, porque el texto vive en la tabla de textos compartidos
+    y de ahí pasa a la tabla del hijo, a la del padre y al CSV."""
+    import random
+    import string
+    r = random.Random(semilla)
+    alfabeto = string.ascii_letters + " áéñ"
+    datos = [[f"c{j}" for j in range(columnas)]]
+    for _ in range(filas):
+        datos.append(["".join(r.choices(alfabeto, k=largo)) for _ in range(columnas)])
+    return xlsx([Hoja("Datos", datos)])
+
+
 def ole_cifrado() -> bytes:
     """Un contenedor OLE2 (CFB v3) con los dos flujos que Excel crea al proteger un libro con
     contraseña: `EncryptionInfo` y `EncryptedPackage`. Vacíos: solo importa su NOMBRE en el
