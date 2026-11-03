@@ -462,18 +462,31 @@ class Geometria:
             salida.extend(range(max(lo, desde), min(hi, hasta) + 1))
         return salida
 
-    def hallazgos(self, formula_incluida=None, dato_incluido=None) -> Hallazgos:
+    def hallazgos(self, formula_incluida=None, dato_incluido=None, recuadro=None) -> Hallazgos:
         """Cuenta las marcas. Las fórmulas sin valor, en las filas para las que
-        `formula_incluida(fila)`; errores, porcentajes, ceros y fechas no válidas, en las de
-        `dato_incluido(fila)` (todas si es `None`)."""
+        `formula_incluida(fila)` Y dentro de `recuadro` = `(fila_desde, fila_hasta, col_desde,
+        col_hasta)` (todo el libro si es `None`); errores, porcentajes, ceros y fechas no
+        válidas, en las de `dato_incluido(fila)` (todas si es `None`).
+
+        El recuadro es el rectángulo que SE CONVIERTE: una fórmula sin valor fuera de él (una
+        fila de total suelta tras una fila vacía, una columna a la derecha) no es de lo
+        convertido, y la guarda de fórmulas (DA3) no la mira (3.ª auditoría de C1, I1)."""
         m, h = self.marcas, Hallazgos()
+        if recuadro is None:
+            def dentro(_f, _c):
+                return True
+        else:
+            f0, f1, c0, c1 = recuadro
+
+            def dentro(f, c):
+                return f0 <= f <= f1 and c0 <= c <= c1
         for f, c in zip(m.fsv_f, m.fsv_c):
-            if formula_incluida is None or formula_incluida(f):
+            if (formula_incluida is None or formula_incluida(f)) and dentro(f, c):
                 h.formulas_sin_valor += 1
                 if len(h.celdas_sin_valor) < 10:
                     h.celdas_sin_valor.append(referencia(f, c))
         for f, c in zip(m.frm_f, m.frm_c):
-            if formula_incluida is None or formula_incluida(f):
+            if (formula_incluida is None or formula_incluida(f)) and dentro(f, c):
                 h.formulas += 1
                 if len(h.celdas_con_formula) < 10:
                     h.celdas_con_formula.append(referencia(f, c))
@@ -499,6 +512,19 @@ class Geometria:
                 if len(lista) < 10:
                     lista.append(referencia(f, c))
         return h
+
+    def formulas_sin_valor_fuera(self, recuadro) -> tuple[int, list[str]]:
+        """Cuántas fórmulas sin valor caen FUERA de `recuadro` (`fila_desde, fila_hasta,
+        col_desde, col_hasta`), y hasta 10 de sus celdas: lo que no se convierte pero tampoco
+        debe callarse."""
+        f0, f1, c0, c1 = recuadro
+        m, n, celdas = self.marcas, 0, []
+        for f, c in zip(m.fsv_f, m.fsv_c):
+            if not (f0 <= f <= f1 and c0 <= c <= c1):
+                n += 1
+                if len(celdas) < 10:
+                    celdas.append(referencia(f, c))
+        return n, celdas
 
     def dias_cero_1904(self) -> set[tuple[int, int]]:
         """`(fila, columna)` de cada serie 0 ≤ x < 1 con formato de fecha en la época 1904."""

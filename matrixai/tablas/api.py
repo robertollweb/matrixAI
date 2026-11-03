@@ -454,7 +454,14 @@ def _inspeccionar_hoja(libro: _Libro, meta: dict) -> dict:
         if col_ocultas:
             avisos.append(declarar("columnas_ocultas", cuantas=len(col_ocultas),
                                    letras=[letras_de_columna(c) for c in col_ocultas[:10]]))
-        hz = geom.hallazgos()
+        # Lo mismo que `convertir`: solo las del rango de la hoja leída cuentan como «de la
+        # hoja»; las de fuera (no se pueden convertir ni excluir) se declaran aparte.
+        recuadro = (h.fila0, h.ultima_fila, h.col0, h.col0 + h.ancho - 1)
+        hz = geom.hallazgos(recuadro=recuadro)
+        fuera_n, fuera_celdas = geom.formulas_sin_valor_fuera(recuadro)
+        if fuera_n:
+            avisos.append(declarar("formulas_sin_valor_fuera", cuantas=fuera_n,
+                                   celdas=fuera_celdas, rango=entrada["rango"]))
         if hz.formulas_sin_valor:
             avisos.append(declarar("formulas_sin_valor", cuantas=hz.formulas_sin_valor,
                                    celdas=hz.celdas_sin_valor))
@@ -690,8 +697,15 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
     # Fórmulas sin valor: se comprueban sobre lo que SE CONVIERTE, cabecera incluida (la fila
     # TOTAL que la persona quita no rechaza). Nunca se calcula una fórmula.
     geom = h.geom
+    # SOLO las del rectángulo que se convierte (filas `fh..fin` y las columnas leídas): una
+    # fórmula sin valor fuera (una fila de total suelta tras una fila vacía, una columna a la
+    # derecha) no se puede excluir —no está en la hoja que se lee— y rechazar el libro por ella
+    # iría contra «celda del rango convertido» (DA3). Se DECLARA, con su celda (3.ª auditoría, I1).
+    recuadro = (fh, fin, h.col0, h.col0 + h.ancho - 1)
+    formulas_fuera: tuple[int, list[str]] = (0, [])
     if geom is not None and geom.hay_formulas:
-        hzf = geom.hallazgos(lambda r: r >= fh and r not in excluidas, lambda r: False)
+        formulas_fuera = geom.formulas_sin_valor_fuera(recuadro)
+        hzf = geom.hallazgos(lambda r: r not in excluidas, lambda r: False, recuadro)
         if hzf.formulas_sin_valor:
             raise rechazar("formula_sin_valor", cuantas=hzf.formulas_sin_valor,
                            celdas=hzf.celdas_sin_valor)
@@ -911,6 +925,9 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         if col_ocultas:
             declaraciones.append(declarar("columnas_ocultas", cuantas=len(col_ocultas),
                                           letras=[letras_de_columna(c) for c in col_ocultas[:10]]))
+    if formulas_fuera[0]:
+        declaraciones.append(declarar("formulas_sin_valor_fuera", cuantas=formulas_fuera[0],
+                                      celdas=formulas_fuera[1], rango=_rango_a1(fh, h.col0, fin, h.col0 + h.ancho - 1)))
     if libro.formato == "xls":
         declaraciones.append(declarar("no_comprobable_en_xls", que=_NO_COMPROBABLE_EN_XLS))
     if libro.macros:

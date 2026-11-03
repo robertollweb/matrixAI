@@ -968,3 +968,92 @@ def test_en_la_epoca_1900_una_serie_entre_0_y_1_dice_dia_cero_no_almohadillas():
     assert d["detalle"]["motivos"] == {"dia_cero_1900": 1} and _csv(t)[1] == ["1", ""]
     assert "00/01/1900" in d["texto"]["es"] and "####" not in d["texto"]["es"]
     assert "00/01/1900" in d["texto"]["en"] and "####" not in d["texto"]["en"]
+
+
+# ── I1 (3.ª auditoría): una fórmula sin valor FUERA del rango que se convierte ──────────────────
+# La guarda de fórmulas (DA3, criterio 6) es sobre «una celda del rango convertido». Se filtraba
+# por filas (`>= cabecera`, sin la última) y nada por columnas: un `=SUM(B2:B6)` suelto en la
+# fila 8 tras una fila vacía, o una celda en una columna a la derecha, RECHAZABA el libro y no
+# había forma de excluirla (calamine no la cuenta: «no existe en la hoja»). Ahora solo mira el
+# rectángulo que se convierte, y lo de fuera se DECLARA con su celda.
+def _datos_a_b(*extra: str) -> str:
+    filas = ['<row r="1"><c r="A1" t="inlineStr"><is><t>a</t></is></c>'
+             '<c r="B1" t="inlineStr"><is><t>b</t></is></c></row>']
+    filas += [f'<row r="{i + 1}"><c r="A{i + 1}"><v>{i}</v></c><c r="B{i + 1}"><v>{i * 2}</v></c></row>'
+              for i in range(1, 6)]
+    return "".join(filas) + "".join(extra)
+
+
+_SUELTA_SIN_VALOR = '<row r="8"><c r="B8"><f>SUM(B2:B6)</f></c></row>'
+
+
+@requiere_calamine
+def test_una_formula_sin_valor_en_una_fila_suelta_tras_una_vacia_no_rechaza_y_se_declara():
+    d = _libro(_hoja(_datos_a_b(_SUELTA_SIN_VALOR)))
+    t = convertir(d, "t.xlsx", fila_de_cabecera=1)
+    assert _csv(t)[0] == ["a", "b"] and len(_csv(t)) == 6      # nada de la fila 8 en el CSV
+    fuera = _decl(t, "formulas_sin_valor_fuera")
+    assert len(fuera) == 1 and fuera[0]["cuantas"] == 1
+    assert fuera[0]["detalle"]["celdas"] == ["B8"] and fuera[0]["detalle"]["rango"] == "A1:B6"
+    assert "B8" in fuera[0]["texto"]["es"] and "B8" in fuera[0]["texto"]["en"]
+    assert "outside" in fuera[0]["texto"]["en"] and "fuera" in fuera[0]["texto"]["es"]
+    # `inspeccionar` dice lo mismo: es de fuera, no «de la hoja»
+    tipos = [a["tipo"] for a in inspeccionar(d, "t.xlsx")["hojas"][0]["avisos"]]
+    assert "formulas_sin_valor_fuera" in tipos and "formulas_sin_valor" not in tipos
+
+
+@requiere_calamine
+def test_una_formula_sin_valor_en_una_columna_a_la_derecha_del_rango_no_rechaza_y_se_declara():
+    d = _libro(_hoja(_datos_a_b().replace(
+        '<c r="B2"><v>2</v></c>', '<c r="B2"><v>2</v></c><c r="E2"><f>A2+B2</f></c>')))
+    # control: calamine no cuenta la celda sin valor: el rango sigue siendo A:B
+    assert _rect_de_calamine(d) == (1, 1, 6, 2)
+    t = convertir(d, "t.xlsx", fila_de_cabecera=1)
+    assert _csv(t)[0] == ["a", "b"]
+    fuera = _decl(t, "formulas_sin_valor_fuera")
+    assert len(fuera) == 1 and fuera[0]["detalle"]["celdas"] == ["E2"]
+    tipos = [a["tipo"] for a in inspeccionar(d, "t.xlsx")["hojas"][0]["avisos"]]
+    assert "formulas_sin_valor_fuera" in tipos and "formulas_sin_valor" not in tipos
+
+
+@requiere_calamine
+def test_una_formula_sin_valor_por_encima_de_la_cabecera_se_declara_fuera_y_no_rechaza():
+    previa = '<row r="1"><c r="A1" t="inlineStr"><is><t>titulo</t></is></c></row><row r="2"><c r="C2"><f>1+1</f></c></row>'
+    filas = _datos_a_b()
+    for i in range(6, 0, -1):
+        filas = filas.replace(f'r="{i}"', f'r="{i + 2}"').replace(f'r="A{i}"', f'r="A{i + 2}"').replace(
+            f'r="B{i}"', f'r="B{i + 2}"')
+    t = convertir(_libro(_hoja(previa + filas)), "t.xlsx", fila_de_cabecera=3)
+    assert _csv(t)[0] == ["a", "b"]
+    assert _decl(t, "formulas_sin_valor_fuera")[0]["detalle"]["celdas"] == ["C2"]
+
+
+@requiere_calamine
+def test_una_formula_sin_valor_DENTRO_del_rango_sigue_rechazando_aunque_haya_otra_fuera():
+    """La guarda no se aflojó: la de dentro rechaza, y solo ella sale en el rechazo."""
+    dentro = _datos_a_b().replace('<c r="B3"><v>4</v></c>', '<c r="B3"><f>A3*2</f></c>')
+    d = _libro(_hoja(dentro + _SUELTA_SIN_VALOR))
+    e = _rechazo(convertir, d, "t.xlsx", fila_de_cabecera=1)
+    assert e.codigo == "formula_sin_valor" and e.detalle["cuantas"] == 1
+    assert e.detalle["celdas"] == ["B3"]
+    # y excluyendo la fila 3 deja de rechazar (la de fuera se declara)
+    t = convertir(d, "t.xlsx", fila_de_cabecera=1, filas_a_excluir=[3])
+    assert _decl(t, "formulas_sin_valor_fuera")[0]["detalle"]["celdas"] == ["B8"]
+    # `inspeccionar`: la de dentro es «de la hoja», la de fuera aparte
+    avisos = {a["tipo"]: a for a in inspeccionar(d, "t.xlsx")["hojas"][0]["avisos"]}
+    assert avisos["formulas_sin_valor"]["detalle"]["celdas"] == ["B3"]
+    assert avisos["formulas_sin_valor_fuera"]["detalle"]["celdas"] == ["B8"]
+
+
+@requiere_calamine
+def test_pedir_recalcular_no_rechaza_por_una_formula_sin_valor_fuera_del_rango():
+    """DA3-bis mira lo mismo que DA3: lo que se convierte (la fórmula sin valor de fuera no
+    cuenta como «fórmula en lo convertido»)."""
+    d = _libro(_hoja(_datos_a_b(_SUELTA_SIN_VALOR)), wb=_wb_con_calcpr("1"))
+    t = convertir(d, "t.xlsx", fila_de_cabecera=1)
+    assert len(_csv(t)) == 6 and _decl(t, "formulas_sin_valor_fuera")
+    # control: con una fórmula DENTRO sí rechaza por «recalcular»
+    dentro = _libro(_hoja(_datos_a_b(_SUELTA_SIN_VALOR).replace(
+        '<c r="B3"><v>4</v></c>', '<c r="B3"><f>A3*2</f><v>4</v></c>')), wb=_wb_con_calcpr("1"))
+    e = _rechazo(convertir, dentro, "t.xlsx", fila_de_cabecera=1)
+    assert e.codigo == "formula_sin_valor" and e.detalle["celdas"] == ["B3"]

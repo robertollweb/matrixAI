@@ -178,6 +178,11 @@ TIPOS: dict[str, tuple] = {
                      "{n} celdas tienen fórmula pero ningún valor guardado (" + _lista(d['detalle'].get('celdas')) + "): esta hoja no se podrá convertir hasta que se guarde en Excel."),
         lambda d: _p(d['cuantas'], f"1 cell has a formula but no saved value ({_lista(d['detalle'].get('celdas'))}): this sheet cannot be converted until it is saved in Excel.",
                      "{n} cells have a formula but no saved value (" + _lista(d['detalle'].get('celdas')) + "): this sheet cannot be converted until it is saved in Excel.")),
+    "formulas_sin_valor_fuera": (   # 3.ª auditoría de C1, I1: fuera del rango que se convierte
+        lambda d: _p(d['cuantas'], f"1 celda fuera del rango que se convierte ({d['detalle'].get('rango')}) tiene fórmula pero ningún valor guardado ({_lista(d['detalle'].get('celdas'))}): no entra en el CSV y no se calcula.",
+                     "{n} celdas fuera del rango que se convierte (" + str(d['detalle'].get('rango')) + ") tienen fórmula pero ningún valor guardado (" + _lista(d['detalle'].get('celdas')) + "): no entran en el CSV y no se calculan."),
+        lambda d: _p(d['cuantas'], f"1 cell outside the converted range ({d['detalle'].get('rango')}) has a formula but no saved value ({_lista(d['detalle'].get('celdas'))}): it is not in the CSV and is not calculated.",
+                     "{n} cells outside the converted range (" + str(d['detalle'].get('rango')) + ") have a formula but no saved value (" + _lista(d['detalle'].get('celdas')) + "): they are not in the CSV and are not calculated.")),
     "formulas_a_recalcular": (     # I-R1 de 150-C1: `<calcPr fullCalcOnLoad="1"/>` (XlsxWriter)
         lambda d: _p(d['cuantas'], f"1 celda tiene fórmula ({_lista(d['detalle'].get('celdas'))}) y el libro pide recalcular al abrirlo: su valor guardado no es el resultado y esta hoja no se podrá convertir hasta que se abra y se guarde en Excel o LibreOffice.",
                      "{n} celdas tienen fórmula (" + _lista(d['detalle'].get('celdas')) + ") y el libro pide recalcular al abrirlo: su valor guardado no es el resultado y esta hoja no se podrá convertir hasta que se abra y se guarde en Excel o LibreOffice."),
