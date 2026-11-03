@@ -52,7 +52,7 @@ import codecs
 import hashlib
 import json
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 from matrixai.pipelines import firma_asimetrica as _asim
 from matrixai.pipelines.canonical import jcs_bytes
@@ -76,9 +76,14 @@ MAX_ENTERO = 2 ** 53 - 1  # lo que JavaScript representa exacto: Python y JS no 
 #: Topes de tamaño (153-C1, I2), los MISMOS en el JS, comprobados ANTES de leer el JSON. MEDIDO (rep-c1, `~/.agentes/153/rep-c1/`):
 #: un bloque pesa 1,2 KB con 6 columnas y 4,7 KB con 42; un AÑO de bloques horarios con 42 columnas, en un solo fichero, 41,5 MB
 #: (el §7 del contrato estimaba ~33). La línea de 1 MiB es ~200 bloques de 42 columnas; el fichero de 64 MiB, 1,6 veces ese año (y
-#: el servicio escribe un fichero por día, DR5). Con estos topes y la lectura por líneas: ese año, 122 MB y 26 s en Python (antes,
-#: 381 MB); el peor fichero de 64 MiB, 193 MB (antes, 630 MB); y 74 MB, que antes costaban 1,1 GB y 43 s, son «formato» en 0,4 s.
-#: En Node, una línea de 100 MB era «sin memoria» a los 16 s; ahora, «formato» en 0,1 s.
+#: el servicio escribe un fichero por día, DR5); y 74 MB, que antes costaban 1,1 GB y 43 s, son «formato» en 0,4 s. En Node, una
+#: línea de 100 MB era «sin memoria» a los 16 s; ahora, «formato» en 0,1 s. Lo que aquí decía «el peor fichero de 64 MiB, 193 MB» era
+#: FALSO (re-auditoría): 64 MiB de líneas diminutas (`ab\n`, `\n`) gastaban 535–1.284 MB en Python y 502–1.013 MB en Node, por partir
+#: el fichero entero. Remate (`~/.agentes/153/remate-c1/`, RSS máximo bajo `MemoryMax=3G`, sin swap): ya no se crea la lista; esas
+#: líneas diminutas, 85 MB en Python (64 de ellos, el propio fichero) y «formato» en 0,1 s; el PEOR caso es ahora 64 MiB de bloques
+#: VÁLIDOS mínimos (100.029 incompletos de 672 bytes): 141 MB y 50 s en Python, 308 MB y 36 s en Node (antes, 222 y 369 MB). El año
+#: de 42 columnas, 74 MB en Python y 188 MB en Node. No hace falta tope de número de líneas: una línea que no es un bloque para la
+#: lectura ahí, y más de ~100.000 bloques no caben en 64 MiB.
 TOPE_LINEA = 1 << 20      # bytes UTF-8 de una línea, sin su `\n`
 TOPE_FICHERO = 64 << 20   # bytes del fichero; con líneas sueltas, la suma de (bytes de cada línea + 1)
 
@@ -424,18 +429,48 @@ def _bytes_utf8(linea: str) -> int:
     return len(linea.encode("utf-8", "surrogatepass"))
 
 
-def _fuera_de_tope(lineas: list, tamano=None) -> dict[str, Any] | None:
-    """El tope de línea, en orden, y luego el del fichero: ANTES de leer ningún JSON (I2). Igual en el JS. `tamano`: cómo se
-    mide cada línea (por omisión, texto en UTF-8; con las líneas en bytes, su `len`)."""
-    tamano = tamano or _bytes_utf8
+def _tramos(contenido: bytes | str, salto: bytes | str) -> Iterator[tuple[int, int]]:
+    """`(inicio, fin)` de cada línea del contenido, SIN crear la lista de líneas (I2 de la re-auditoría: `split` de 64 MiB de
+    líneas diminutas eran 22 millones de objetos, 535–1.284 MB). Las mismas líneas que `split` quitando la última vacía."""
+    n, i = len(contenido), 0
+    while i < n:
+        j = contenido.find(salto, i)
+        if j < 0:
+            yield i, n
+            return
+        yield i, j
+        i = j + 1
+
+
+def _linea_grande(i: int) -> dict[str, Any]:
+    return _res(NO_SE_PUDO_COMPROBAR, "formato", i, _t(f"la línea pesa más de {TOPE_LINEA >> 20} MiB, el tope de un bloque",
+                                                       f"the line is over {TOPE_LINEA >> 20} MiB, the limit for one block"))
+
+
+def _fuera_de_tope(tamanos: Iterable[int]) -> dict[str, Any] | None:
+    """El tope de línea, en orden, y luego el del fichero: ANTES de leer ningún JSON (I2). Igual en el JS. `tamanos`: lo que
+    pesa cada línea en bytes UTF-8 (un iterable: no hace falta tener las líneas a la vez)."""
     total = 0
-    for i, linea in enumerate(lineas):
-        n = tamano(linea)
+    for i, n in enumerate(tamanos):
         if n > TOPE_LINEA:
-            return _res(NO_SE_PUDO_COMPROBAR, "formato", i,
-                        _t(f"la línea pesa más de {TOPE_LINEA >> 20} MiB, el tope de un bloque",
-                           f"the line is over {TOPE_LINEA >> 20} MiB, the limit for one block"))
+            return _linea_grande(i)
         total += n + 1
+    if total > TOPE_FICHERO:
+        return _res(NO_SE_PUDO_COMPROBAR, "formato", None, _TEXTO_FICHERO_GRANDE)
+    return None
+
+
+def _fuera_de_tope_en_bytes(contenido: bytes) -> dict[str, Any] | None:
+    """`_fuera_de_tope` sobre las líneas de unos bytes, sin mirarlas una a una: una línea pasa del tope si y solo si hay
+    `TOPE_LINEA + 1` bytes seguidos sin `\n`, así que se salta de ventana en ventana al ÚLTIMO salto de cada una (64 pasos
+    para 64 MiB, tengan las líneas el tamaño que tengan). El índice de la línea son los saltos de antes. Mismo veredicto."""
+    n, pos = len(contenido), 0
+    while n - pos > TOPE_LINEA:
+        j = contenido.rfind(b"\n", pos, pos + TOPE_LINEA + 1)
+        if j < 0:  # TOPE_LINEA + 1 bytes sin salto desde el principio de una línea
+            return _linea_grande(contenido.count(b"\n", 0, pos))
+        pos = j + 1
+    total = n + (1 if n and contenido[n - 1] != 0x0A else 0)  # cada línea, más su `\n` (la última puede no llevarlo)
     if total > TOPE_FICHERO:
         return _res(NO_SE_PUDO_COMPROBAR, "formato", None, _TEXTO_FICHERO_GRANDE)
     return None
@@ -467,7 +502,7 @@ def leer_bloques(lineas: Iterable[str]) -> list[dict]:
     """Los bloques de las líneas, leídos con el criterio estricto del formato (sin claves duplicadas, solo
     enteros, forma de v1) y SIN comprobar firmas. `TrazaIlegible` si una línea no se puede leer o pasa del tope."""
     lineas = list(lineas)
-    fuera = _fuera_de_tope(lineas)
+    fuera = _fuera_de_tope(_bytes_utf8(linea) for linea in lineas)
     if fuera is not None:
         raise TrazaIlegible(fuera["motivo"], fuera["bloque"], fuera["detalle"])
     return [_leer_linea(linea, i) for i, linea in enumerate(lineas)]
@@ -508,7 +543,7 @@ def comprobar_traza(lineas: Iterable[str], huella_anclada: str | None = None,
                     esperar_genesis: bool = False) -> dict[str, Any]:
     """Comprueba una traza (una línea de texto por bloque) y dice QUÉ pasa, sin lanzar por culpa del
     contenido. `huella_anclada`: la huella de clave (64 hex) que quien comprueba esperaba, o `None`.
-    `esperar_genesis`: exigir que el fichero empiece en el génesis (primera importación).
+    `esperar_genesis`: exigir que la primera línea sea el génesis (seq 0, prev de ceros y SIN reinicio: primera importación).
 
     Devuelve `{estado, motivo, bloque, detalle, ...}`: `bloque` es el índice de la línea (desde 0) del primer
     fallo; `detalle` es `{"es", "en"}`. Si `estado == "valida"` lleva además `bloques, empieza_en, ultimo_seq,
@@ -523,8 +558,8 @@ def comprobar_traza(lineas: Iterable[str], huella_anclada: str | None = None,
     `ValueError` solo si `huella_anclada` no es una huella (64 hex minúscula): eso es un error de quien llama.
     """
     _huella_valida(huella_anclada)
-    lineas = list(lineas)
-    return _comprobar(lineas, _fuera_de_tope(lineas), str, huella_anclada, esperar_genesis)
+    lineas = lineas if isinstance(lineas, (list, tuple)) else list(lineas)
+    return _comprobar(lineas, _fuera_de_tope(_bytes_utf8(linea) for linea in lineas), huella_anclada, esperar_genesis)
 
 
 def _huella_valida(huella_anclada: Any) -> None:
@@ -532,40 +567,52 @@ def _huella_valida(huella_anclada: Any) -> None:
         raise ValueError("la huella anclada es SHA-256 en hexadecimal minúscula (64 caracteres)")
 
 
-def _comprobar(lineas: list, fuera: dict[str, Any] | None, texto_de, huella_anclada: str | None,
+def _comprobar(lineas: Iterable[str], fuera: dict[str, Any] | None, huella_anclada: str | None,
                esperar_genesis: bool) -> dict[str, Any]:
-    """El comprobador sobre líneas ya medidas (`fuera`: el resultado de los topes). `texto_de` da el texto de cada línea: con
-    bytes, se decodifica AL LEERLA y se suelta (un fichero con un carácter astral ocupa en CPython 4 bytes por carácter: decodificado
-    entero, 64 MiB eran 256 MB)."""
+    """El comprobador sobre líneas ya medidas (`fuera`: el resultado de los topes). `lineas` puede ser un generador: con un
+    fichero, cada línea se decodifica AL LEERLA y se suelta (I2). Del primer fallo de firma y del primero de coherencia se
+    guarda solo ese: tras uno de firma ya solo puede cambiar el veredicto un `formato` más abajo (no se verifica ni se guarda
+    nada más), y tras uno de coherencia, una firma rota más abajo (no se guarda la cadena)."""
     if fuera is not None:
         return fuera
     con_firma = _asim.disponible()
     utilizables: dict[str, bool] = {}  # la comprobación de la clave, una vez por clave y no por bloque
-    # (seq, prev, hash, huella, reinicio, desde, hasta, fallo_de_firma, fallo_de_coherencia)
+    huellas_vistas: dict[str, str] = {}  # una sola copia de cada huella en los registros
+    # (seq, prev, hash, huella, reinicio, desde, hasta): solo lo que la cadena necesita
     registros: list[tuple] = []
+    primera_firma = primera_coherencia = None  # (índice, motivo, detalle)
+    vistas = 0
     for i, linea in enumerate(lineas):
         try:
-            b = _leer_linea(texto_de(linea), i)
+            b = _leer_linea(linea, i)
         except TrazaIlegible as e:
             return _res(NO_SE_PUDO_COMPROBAR, e.motivo, e.bloque, e.detalle)
+        vistas += 1
+        if primera_firma is not None or not con_firma:
+            continue
+        fallo = _fallo_de_firma(b, utilizables)
+        if fallo is not None:
+            primera_firma = (i, *fallo)
+            registros = []
+            continue
+        if primera_coherencia is not None:
+            continue
         try:
             _estructura(b, coherencia=True)
-            coherencia = None
         except _Formato as e:
-            coherencia = (e.motivo, e.detalle)
-        registros.append((b["seq"], b["prev"], hash_de_bloque(b), b["servicio"]["huella_clave"], b["reinicio"],
-                          b["ventana"]["desde"], b["ventana"]["hasta"], _fallo_de_firma(b, utilizables) if con_firma else None,
-                          coherencia))
-    if not registros:
+            primera_coherencia = (i, e.motivo, e.detalle)
+            registros = []
+            continue
+        huella = huellas_vistas.setdefault(b["servicio"]["huella_clave"], b["servicio"]["huella_clave"])
+        registros.append((b["seq"], b["prev"], hash_de_bloque(b), huella, b["reinicio"], b["ventana"]["desde"], b["ventana"]["hasta"]))
+    if not vistas:
         return _res(NO_SE_PUDO_COMPROBAR, "formato", None, _t("fichero sin bloques", "file without blocks"))
     if not con_firma:
         return _res(NO_SE_PUDO_COMPROBAR, "falta_cryptography", None, MOTIVOS["falta_cryptography"])
-    for i, r in enumerate(registros):
-        if r[7] is not None:
-            return _res(NO_COINCIDE, r[7][0], i, r[7][1])
-    for i, r in enumerate(registros):
-        if r[8] is not None:
-            return _res(NO_SE_PUDO_COMPROBAR, r[8][0], i, r[8][1])
+    if primera_firma is not None:
+        return _res(NO_COINCIDE, primera_firma[1], primera_firma[0], primera_firma[2])
+    if primera_coherencia is not None:
+        return _res(NO_SE_PUDO_COMPROBAR, primera_coherencia[1], primera_coherencia[0], primera_coherencia[2])
     fallo = _fallo_de_cadena(registros, esperar_genesis)
     if fallo is not None:
         return fallo
@@ -592,10 +639,14 @@ def _fallo_de_cadena(registros: list[tuple], esperar_genesis: bool) -> dict[str,
     las ventanas firmadas de una misma clave."""
     vistos: set[str] = set()
     ultimo_hasta: dict[str, str] = {}  # huella -> `hasta` del último bloque visto de esa clave
-    for i, (seq, prev, h, huella, reinicio, desde, hasta, _f, _c) in enumerate(registros):
-        if i == 0 and esperar_genesis and not (seq == 0 and prev == GENESIS):
-            return _res(NO_COINCIDE, "cadena", 0, _t("se esperaba el bloque génesis (seq 0, prev de ceros) y el fichero empieza más tarde",
-                                                     "the genesis block (seq 0, prev of zeros) was expected and the file starts later"))
+    for i, (seq, prev, h, huella, reinicio, desde, hasta) in enumerate(registros):
+        # remate-c1 (menor 2): un fichero que EMPIEZA en un reinicio también tiene seq 0 y prev de ceros, pero delante pudo estar la
+        # cadena desde el génesis entera: esperar el génesis es exigir además que no sea un reinicio (el escritor de C3 escribe el
+        # génesis sin `reinicio`; `sin_previo` es solo cuando HABÍA traza y su última línea no se puede leer).
+        if i == 0 and esperar_genesis and not (seq == 0 and prev == GENESIS and reinicio is None):
+            return _res(NO_COINCIDE, "cadena", 0, _t(
+                "se esperaba el bloque génesis (seq 0, prev de ceros, sin reinicio) y el fichero empieza más tarde o en un reinicio sin_previo",
+                "the genesis block (seq 0, prev of zeros, no restart) was expected and the file starts later or at a sin_previo restart"))
         if h in vistos:
             return _res(NO_COINCIDE, "cadena", i, _t("este bloque ya estaba antes en el fichero (repetido)",
                                                      "this block was already earlier in the file (repeated)"))
@@ -633,17 +684,17 @@ def comprobar_fichero(contenido: bytes | str, huella_anclada: str | None = None,
     fichero se mira ANTES de decodificar, un BOM o un UTF-8 inválido son `formato` (como en el JS, `TextDecoder` estricto), y
     cada línea se decodifica al leerla, no el fichero entero."""
     _huella_valida(huella_anclada)
-    if not isinstance(contenido, (bytes, bytearray, memoryview)):
-        return comprobar_traza(lineas_de_texto(contenido), huella_anclada, esperar_genesis)
+    if not isinstance(contenido, (bytes, bytearray, memoryview)):  # texto: las mismas líneas que `lineas_de_texto`, sin la lista
+        texto = contenido
+        return _comprobar((texto[a:z] for a, z in _tramos(texto, "\n")),
+                          _fuera_de_tope(_bytes_utf8(texto[a:z]) for a, z in _tramos(texto, "\n")), huella_anclada, esperar_genesis)
     if len(contenido) > TOPE_FICHERO:
         return _res(NO_SE_PUDO_COMPROBAR, "formato", None, _TEXTO_FICHERO_GRANDE)
     contenido = bytes(contenido)
     if not _es_utf8(contenido):
         return _res(NO_SE_PUDO_COMPROBAR, "formato", None, _t("el fichero no es UTF-8", "the file is not UTF-8"))
-    lineas = contenido.split(b"\n")
-    if lineas and lineas[-1] == b"":
-        lineas.pop()
-    return _comprobar(lineas, _fuera_de_tope(lineas, len), lambda x: x.decode("utf-8"), huella_anclada, esperar_genesis)
+    return _comprobar((contenido[a:z].decode("utf-8") for a, z in _tramos(contenido, b"\n")),
+                      _fuera_de_tope_en_bytes(contenido), huella_anclada, esperar_genesis)
 
 
 def _es_utf8(contenido: bytes) -> bool:
@@ -678,12 +729,14 @@ def describir(resultado: dict[str, Any], idioma: str = "es") -> list[str]:
         if resultado.get("detalle"):
             lineas.append(resultado["detalle"][idioma])
         return lineas
+    nb, nc = resultado["bloques"], len(resultado["cadenas"])
+    bloques = (f"{nb} bloque{'' if nb == 1 else 's'}" if es else f"{nb} block{'' if nb == 1 else 's'}")
+    cadenas = (f"{nc} cadena{'' if nc == 1 else 's'}" if es else f"{nc} chain{'' if nc == 1 else 's'}")
     if resultado["reinicios"]:  # «del seq 0 al 0» con tres cadenas no diría nada: las cadenas se listan abajo
-        lineas.append((f"{resultado['bloques']} bloques en {len(resultado['cadenas'])} cadenas" if es
-                       else f"{resultado['bloques']} blocks in {len(resultado['cadenas'])} chains"))
+        lineas.append((f"{bloques} en {cadenas}" if es else f"{bloques} in {cadenas}"))
     else:
-        lineas.append((f"{resultado['bloques']} bloques, del seq {resultado['empieza_en']} al {resultado['ultimo_seq']}" if es
-                       else f"{resultado['bloques']} blocks, from seq {resultado['empieza_en']} to {resultado['ultimo_seq']}"))
+        lineas.append((f"{bloques}, del seq {resultado['empieza_en']} al {resultado['ultimo_seq']}" if es
+                       else f"{bloques}, from seq {resultado['empieza_en']} to {resultado['ultimo_seq']}"))
     lineas.append(("Huella de la clave: " if es else "Key fingerprint: ") + ", ".join(resultado["huellas"]))
     lineas.append((f"Último bloque visto: seq {resultado['ultimo_seq']}, hash {resultado['ultimo_hash']}" if es
                    else f"Last block seen: seq {resultado['ultimo_seq']}, hash {resultado['ultimo_hash']}"))
@@ -695,10 +748,10 @@ def describir(resultado: dict[str, Any], idioma: str = "es") -> list[str]:
         lineas.append(("El fichero no empieza en el génesis: los bloques anteriores no están aquí." if es
                        else "The file does not start at the genesis block: the earlier blocks are not here."))
     if resultado["reinicios"]:
-        lineas.append((f"{len(resultado['cadenas'])} cadenas (reinicio sin_previo en las líneas "
-                       f"{', '.join(str(i + 1) for i in resultado['reinicios'])}):" if es else
-                       f"{len(resultado['cadenas'])} chains (sin_previo restart at lines "
-                       f"{', '.join(str(i + 1) for i in resultado['reinicios'])}):"))
+        donde = ", ".join(str(i + 1) for i in resultado["reinicios"])
+        una = len(resultado["reinicios"]) == 1
+        lineas.append((f"{cadenas} (reinicio sin_previo en {'la línea' if una else 'las líneas'} {donde}):" if es else
+                       f"{cadenas} (sin_previo restart at {'line' if una else 'lines'} {donde}):"))
         for c in resultado["cadenas"]:
             lineas.append((f"- líneas {c['inicio'] + 1}–{c['fin'] + 1}: seq {c['seq_inicial']}–{c['seq_final']}, clave {c['huella'][:16]}…"
                            if es else

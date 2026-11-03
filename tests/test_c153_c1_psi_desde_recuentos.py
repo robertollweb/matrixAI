@@ -154,3 +154,25 @@ def test_recuentos_en_casillas_un_nan_de_numpy_es_un_faltante_no_un_error():
         [np.float32("nan"), np.float64("nan"), float("nan"), None, np.float32(0.55), np.int64(0)], 0.0, 1.0)
     assert (faltantes, fuera, sum(casillas)) == (4, 0, 2)
     assert casillas[5] == 1 and casillas[0] == 1
+
+
+def test_recuentos_en_casillas_pd_NA_y_pd_NaT_son_faltantes_no_un_TypeError():
+    """remate-c1 (menor 3 de la re-auditoría): una columna de pandas con `pd.NA` (Int64, string) o `pd.NaT` llegaba a
+    `v < minimo` y lanzaba `TypeError` («boolean value of NA is ambiguous»). Son faltantes, sin importar pandas en `drift`."""
+    pd = pytest.importorskip("pandas")
+    casillas, faltantes, fuera = recuentos_en_casillas([pd.NA, pd.NaT, 0.55, pd.NA, None, 1.0], 0.0, 1.0)
+    assert (faltantes, fuera, sum(casillas)) == (4, 0, 2)
+    assert casillas[5] == 1 and casillas[9] == 1
+    # y desde una Serie de verdad, que es como llega
+    s = pd.Series([1, None, 3], dtype="Int64")
+    assert recuentos_en_casillas(list(s), 0.0, 4.0)[1] == 1
+
+
+def test_recuentos_en_casillas_un_objeto_que_se_llama_NAType_fuera_de_pandas_no_es_faltante():
+    """El reconocimiento es por tipo Y por módulo: una clase cualquiera con ese nombre no se cuela como faltante."""
+    class NAType:  # noqa: N801 - el nombre es la prueba
+        def __lt__(self, o):
+            raise TypeError("no comparable")
+        __gt__ = __lt__
+    with pytest.raises(TypeError):
+        recuentos_en_casillas([NAType()], 0.0, 1.0)

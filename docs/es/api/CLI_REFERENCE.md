@@ -1270,15 +1270,18 @@ En cada reinicio pueden faltar los bloques de antes: una cadena nueva no enlaza 
 
 - `--huella H`: la huella de la clave que esperabas (SHA-256 de los 32 bytes de la pública, 64 hex; la de
   `matrixai receipt pubkey`). Un fichero firmado por otra clave sale «la firma no coincide».
-- `--desde-genesis`: exige que el fichero empiece en el bloque génesis (primera importación). Sin ella,
-  un fichero de otro día (rotación diaria) es válido y se dice desde qué `seq` empieza.
+- `--desde-genesis`: exige que la primera línea sea el bloque génesis: `seq` 0, `prev` de ceros y **sin**
+  reinicio (primera importación). Un fichero que empieza en un reinicio `sin_previo` no pasa («la firma no
+  coincide»): delante podría haber estado la cadena desde el génesis. Sin ella, un fichero de otro día (rotación
+  diaria) es válido y se dice desde qué `seq` empieza.
 - Qué sale «la firma no coincide» (código `2`): un bloque editado; un bloque borrado o reordenado **dentro de una
   cadena**; un bloque repetido en el fichero; una cadena de la misma clave que empieza antes de que acabe la
   anterior; una clave pública que no vale (no canónica o de orden pequeño); otra clave sin reinicio, o distinta de
   `--huella`.
 - Qué **no** se detecta: que falten los últimos bloques del fichero, ni los de justo antes de un reinicio, ni una
-  cadena entera entre dos reinicios (el reinicio dice «no hay anterior»). Para la cola, compara el último bloque
-  (`seq` y `hash`) con el que anuncia el servicio.
+  cadena entera entre dos reinicios, ni la cadena entera de antes del primer reinicio cuando el fichero empieza en
+  él (el reinicio dice «no hay anterior»; esto último sí lo caza `--desde-genesis`). Para la cola, compara el
+  último bloque (`seq` y `hash`) con el que anuncia el servicio.
 - Códigos de salida: `0` firma válida; `2` la firma no coincide; `3` no se pudo comprobar (no es JSON ni UTF-8,
   versión desconocida, una línea de más de 1 MiB o un fichero de más de 64 MiB, falta `cryptography`);
   `1` el fichero no se puede leer o `--huella` no es una huella (en stderr, en el idioma de `--locale`).

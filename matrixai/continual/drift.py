@@ -64,6 +64,15 @@ def _es_nan(v) -> bool:
         return False
 
 
+def _es_faltante(v) -> bool:
+    """``None``, un ``NaN`` (``_es_nan``) o el faltante de pandas (``pd.NA``, ``pd.NaT``), sin importar pandas: se reconocen
+    por su tipo. Sin esto, ``pd.NA`` reventaba al compararlo (``TypeError``) en vez de contar como faltante."""
+    if v is None or _es_nan(v):
+        return True
+    t = type(v)
+    return t.__name__ in ("NAType", "NaTType") and t.__module__.split(".")[0] == "pandas"
+
+
 def recuentos_en_casillas(
     valores: list[float | None],
     minimo: float,
@@ -75,7 +84,7 @@ def recuentos_en_casillas(
 
     Es la MISMA asignación de casilla que ``compute_psi`` (``int((v - min) / span * bins)``
     apretada a ``[0, bins - 1]``): un valor fuera de la referencia cae en la casilla 0 o en la
-    última y además suma en ``fuera_de_rango``. Un faltante (``None`` o ``NaN``, también el de numpy) NO entra en las
+    última y además suma en ``fuera_de_rango``. Un faltante (``None``, ``NaN`` —también el de numpy— o ``pd.NA``/``pd.NaT``) NO entra en las
     casillas: ``compute_psi`` revienta con un ``NaN``, y un faltante no es un valor.
     Una referencia constante (``maximo == minimo``) no define casillas: ``ValueError``.
     """
@@ -86,7 +95,7 @@ def recuentos_en_casillas(
     faltantes = 0
     fuera = 0
     for v in valores:
-        if v is None or _es_nan(v):
+        if _es_faltante(v):
             faltantes += 1
             continue
         if v < minimo:

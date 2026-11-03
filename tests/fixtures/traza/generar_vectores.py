@@ -420,6 +420,13 @@ def casos_de_la_reparacion(caso, kA, pubA, hA, kB, pubB, hB, L, b0, b1, b2):
          LA0[:2] + LA1 + LA2, {"estado": "valida", "bloques": 5, "reinicios": [2, 4]}, ancla=hA)
     caso("B1_borrada_una_cadena_entera_NO_se_detecta", "Se borra la cadena A1 entera: NO se detecta (el §4 lo dice)",
          LA0 + LA2, {"estado": "valida", "bloques": 4, "reinicios": [3]}, ancla=hA)
+    # remate-c1 (menor 2): borrada la cadena del génesis, el fichero empieza en un reinicio (seq 0 y prev de ceros también)
+    caso("B1_borrada_la_cadena_del_genesis_NO_se_detecta_sin_esperar_genesis",
+         "Se borra A0 entera y el fichero empieza en el reinicio de A1: sin exigir el génesis NO se detecta (el §4 lo dice)",
+         LA1 + LA2, {"estado": "valida", "bloques": 3, "reinicios": [0, 2], "cadenas": [cad(0, 1, 0, 1), cad(2, 2, 0, 0)]}, ancla=hA)
+    caso("B1_borrada_la_cadena_del_genesis_esperando_genesis",
+         "Lo mismo exigiendo el génesis: un reinicio sin_previo no es el génesis aunque tenga seq 0 y prev de ceros: SÍ se ve",
+         LA1 + LA2, {"estado": "no_coincide", "motivo": "cadena", "bloque": 0}, ancla=hA, esperar_genesis=True)
     # lo que SÍ (B1, arreglo b: la ventana firmada de cadenas de la misma clave, en orden; la hora NO se comprueba)
     caso("B1_cadenas_intercambiadas", "A2 antes que A1: la cadena A1 empieza (14 h) antes de que acabe A2 (19 h), misma clave",
          LA0 + LA2 + LA1, {"estado": "no_coincide", "motivo": "cadena", "bloque": 4})
@@ -491,6 +498,10 @@ def casos_de_la_reparacion(caso, kA, pubA, hA, kB, pubB, hB, L, b0, b1, b2):
     m = copy.deepcopy(b1); m["firma"]["valor"] = base64.b64encode(sig[:32] + (S + L_ORDEN).to_bytes(32, "little")).decode("ascii")
     caso("I1_firma_con_S_mas_L", "La firma buena del bloque 1 con S + L (otra firma «equivalente»): S >= L no es una firma", [L[0], linea(m), L[2]],
          {"estado": "no_coincide", "motivo": "firma", "bloque": 1})
+    m = copy.deepcopy(b1); m["firma"]["valor"] = base64.b64encode(sig[:32] + L_ORDEN.to_bytes(32, "little")).decode("ascii")
+    caso("I1_firma_con_S_igual_a_L", "La R buena del bloque 1 con S = L exacto (remate-c1, menor 1): el borde, S < L estricto; con "
+         "`<=` en vez de `<` una biblioteca que lo aceptara lo daría por firmado", [L[0], linea(m), L[2]],
+         {"estado": "no_coincide", "motivo": "firma", "bloque": 1})
     m = copy.deepcopy(b1); m["firma"]["valor"] = base64.b64encode(enc(1) + b"\x00" * 32).decode("ascii")
     caso("I1_firma_R_identidad_con_clave_buena", "Clave A buena y firma R = identidad, S = 0", [L[0], linea(m), L[2]],
          {"estado": "no_coincide", "motivo": "firma", "bloque": 1})
@@ -513,6 +524,39 @@ def casos_de_la_reparacion(caso, kA, pubA, hA, kB, pubB, hB, L, b0, b1, b2):
          justo[:-1] + [{"base": LL[-1], "rellenar_con_espacios_hasta": TOPE_LINEA}], {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": None})
     caso("I2_fichero_en_bytes_de_64_MiB_mas_1", "Los BYTES de un fichero de 64 MiB + 1 (espacios): `formato` antes de decodificar",
          [], {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": None}, fichero_de_espacios=TOPE_FICHERO + 1)
+    # remate-c1: el comprobador ya no guarda un fallo por bloque, solo el PRIMERO de firma y el primero de coherencia. Una firma
+    # rota DESPUÉS de un bloque incoherente (bien firmado) sigue ganando: las firmas van antes que la coherencia.
+    incoherente = bloque(kA, pubA, hA, 0, GENESIS, "2026-11-02T10:00:00Z", "2026-11-02T11:00:00Z", random.Random(15304), 5, 0.0)
+    rota = json.loads(L[1]); rota["n"] += 1
+    caso("orden_coherencia_rota_antes_y_firma_rota_despues", "Bloque 0 bien firmado pero completo con n < k_minimo (coherencia), bloque 1 "
+         "editado (firma): gana la firma, aunque venga después", [linea(incoherente), linea(rota)],
+         {"estado": "no_coincide", "motivo": "firma", "bloque": 1})
+    # remate-c1 (I2): los mismos topes por BYTES, donde el fichero ya no se parte en una lista y se salta de ventana en ventana.
+    # `fichero_de_lineas`: las líneas (con relleno) unidas por `\n`, más uno al final si `salto_final`.
+    caso("I2_bytes_linea_de_1_MiB_justo", "Por bytes: el bloque 0 de 1 MiB exacto; cabe", [], {"estado": "valida", "bloques": 3},
+         fichero_de_lineas=[{"base": L[0], "rellenar_con_espacios_hasta": TOPE_LINEA}, L[1], L[2]], salto_final=True)
+    caso("I2_bytes_linea_de_1_MiB_mas_1_byte", "Por bytes: el bloque 1 de 1 MiB + 1: `formato` en la línea 1", [],
+         {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 1},
+         fichero_de_lineas=[L[0], {"base": L[1], "rellenar_con_espacios_hasta": TOPE_LINEA + 1}, L[2]], salto_final=True)
+    caso("I2_bytes_ultima_linea_de_1_MiB_mas_1_sin_salto", "Por bytes: la ÚLTIMA línea, sin `\\n`, de 1 MiB + 1: `formato` en esa línea", [],
+         {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 2},
+         fichero_de_lineas=[L[0], L[1], {"base": L[2], "rellenar_con_espacios_hasta": TOPE_LINEA + 1}], salto_final=False)
+    caso("I2_bytes_ultima_linea_de_1_MiB_justo_sin_salto", "Por bytes: la última línea, sin `\\n`, de 1 MiB exacto: cabe", [],
+         {"estado": "valida", "bloques": 3},
+         fichero_de_lineas=[L[0], L[1], {"base": L[2], "rellenar_con_espacios_hasta": TOPE_LINEA}], salto_final=False)
+    caso("I2_bytes_linea_larga_tras_3000_cortas", "Por bytes: 3.000 líneas vacías y luego una de 1 MiB + 1: los topes van antes que el JSON, "
+         "así que es `formato` en la línea 3000 (el índice se cuenta, no se lee)", [], {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 3000},
+         fichero_de_lineas=[""] * 3000 + [{"base": "[", "rellenar_con_espacios_hasta": TOPE_LINEA + 1}], salto_final=True)
+    caso("I2_bytes_dos_lineas_largas_la_primera_cuenta", "Por bytes: líneas de 1 MiB + 1 en la 1 y en la 3: la primera", [],
+         {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 1},
+         fichero_de_lineas=["x", {"base": "[", "rellenar_con_espacios_hasta": TOPE_LINEA + 1}, "y",
+                            {"base": "[", "rellenar_con_espacios_hasta": TOPE_LINEA + 1}], salto_final=True)
+    caso("I2_bytes_64_MiB_justo", "Por bytes: los 64 bloques de 1 MiB − 1 con su salto: 64 MiB exactos; cabe", [],
+         {"estado": "valida", "bloques": 64, "ultimo_seq": 63}, fichero_de_lineas=justo, salto_final=True)
+    caso("I2_bytes_64_MiB_justo_sin_salto_final_cuenta_uno_mas", "Por bytes: 64 MiB exactos SIN `\\n` final (la última línea, 1 MiB): la "
+         "última línea cuenta su salto aunque no lo lleve, como en las líneas sueltas: 64 MiB + 1, `formato` del fichero", [],
+         {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": None},
+         fichero_de_lineas=justo[:-1] + [{"base": LL[-1], "rellenar_con_espacios_hasta": TOPE_LINEA}], salto_final=False)
 
     # menor 1: por BYTES, UTF-8 estricto, como en Python (`TextDecoder` con fatal e ignoreBOM en el JS)
     texto = ("\n".join(L) + "\n").encode("utf-8")

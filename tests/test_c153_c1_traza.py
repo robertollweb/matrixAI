@@ -61,6 +61,9 @@ def _comprobar_caso(c):
         return T.comprobar_fichero(base64.b64decode(c["fichero_b64"]), c.get("ancla"), c.get("esperar_genesis", False))
     if "fichero_de_espacios" in c:
         return T.comprobar_fichero(b" " * c["fichero_de_espacios"], c.get("ancla"), c.get("esperar_genesis", False))
+    if "fichero_de_lineas" in c:
+        datos = ("\n".join(_expandir(x) for x in c["fichero_de_lineas"]) + ("\n" if c["salto_final"] else "")).encode("utf-8")
+        return T.comprobar_fichero(datos, c.get("ancla"), c.get("esperar_genesis", False))
     return _comprobar([_expandir(x) for x in c["lineas"]], c.get("ancla"), c.get("esperar_genesis", False))
 
 
@@ -818,3 +821,163 @@ def test_menor_5_cli_reference_no_promete_de_mas():
         assert "64 MiB" in seccion and "1 MiB" in seccion, idioma
         for frase in T.LO_QUE_NO_DEMUESTRA[idioma]:
             assert frase in seccion, (idioma, frase[:40])
+
+
+# ───── remate de C1 (re-auditoría: I2 y menores 1, 2 y el cosmético)
+
+@pytest.mark.parametrize("patron", [b"ab\n", b"\n", b"abcdefg\n"])
+def test_remate_I2_un_fichero_de_lineas_diminutas_no_crea_la_lista_de_lineas(patron):
+    """Re-auditoría, I2: 64 MiB de líneas diminutas gastaban 535–1.284 MB en Python porque se partía el fichero entero (`split`)
+    antes de mirar los topes: 22 millones de objetos `bytes`. Ahora los topes saltan de ventana en ventana y cada línea se
+    decodifica al leerla. Con 8 MiB (2,8 millones de líneas), el pico de lo asignado por Python tiene que quedar POR DEBAJO del
+    tamaño del fichero (medido: ~2,5 MB, los trozos de 1 MiB de la comprobación de UTF-8; con `split`, 68–122 MB). Mismo veredicto."""
+    import tracemalloc
+    datos = patron * ((8 << 20) // len(patron))
+    tracemalloc.start()
+    try:
+        r = T.comprobar_fichero(datos)
+        _, pico = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_SE_PUDO_COMPROBAR, "formato", 0)
+    assert pico < 6 << 20, f"pico de {pico / 2**20:.1f} MiB con un fichero de 8 MiB: ¿se vuelve a crear la lista de líneas?"
+
+
+def test_remate_I2_un_fichero_valido_guarda_poco_por_bloque():
+    """Lo peor tras leer por líneas es un fichero de bloques VÁLIDOS lo más pequeños posible (incompletos, 672 bytes): de cada uno se
+    guarda solo lo que la cadena necesita. Medido con 64 MiB de ellos (100.029 bloques, `~/.agentes/153/remate-c1/`): 222 → 141 MB
+    en Python. Aquí, el pico por bloque con 600 bloques, con holgura sobre lo medido (~1,3 KB, con los trozos de UTF-8 dentro)."""
+    import tracemalloc
+    from matrixai.pipelines.firma_asimetrica import cargar_clave_privada, huella_de_clave_publica
+    k = cargar_clave_privada(hashlib.sha256(b"remate-c1 PRUEBA pico por bloque").digest())
+    pub = k.public_key().public_bytes_raw().hex()
+    prev, lineas = T.GENESIS, []
+    for seq in range(600):
+        b = {"formato": T.FORMATO, "seq": seq, "prev": prev,
+             "servicio": {"id": "s", "huella_clave": huella_de_clave_publica(k), "clave_publica": pub, "huella_modelo": "0" * 64},
+             "ventana": {"desde": "2026-11-03T00:00:00Z", "hasta": "2026-11-03T00:00:00Z"}, "n": 1, "k_minimo": 20,
+             "incompleto": True, "reinicio": None, "salida": None, "columnas": None}
+        b = T.firmar_bloque(k, b)
+        lineas.append(_linea(b)); prev = T.hash_de_bloque(b)
+    datos = ("\n".join(lineas) + "\n").encode("utf-8")
+    tracemalloc.start()
+    try:
+        r = T.comprobar_fichero(datos)
+        _, pico = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert (r["estado"], r["bloques"]) == (A.VALIDA, 600)
+    assert pico < (2 << 20) + 600 * 2048, f"{pico / 600:.0f} bytes por bloque"
+
+
+def test_remate_I2_los_topes_por_bytes_saltando_ventanas_dan_lo_mismo_que_mirar_cada_linea(monkeypatch):
+    """`_fuera_de_tope_en_bytes` (64 pasos para 64 MiB) contra la definición (cada línea de `split`, quitando la última vacía, más
+    su salto), con topes diminutos para que los bordes salgan a menudo: 4.000 contenidos al azar."""
+    monkeypatch.setattr(T, "TOPE_LINEA", 5)
+    monkeypatch.setattr(T, "TOPE_FICHERO", 24)
+    rng = random.Random(15301)
+    for _ in range(4000):
+        datos = bytes(rng.choice(b"\nab") if rng.random() < 0.5 else rng.choice(b"\n" + b"x" * 6) for _ in range(rng.randrange(0, 30)))
+        partes = datos.split(b"\n")
+        if partes and partes[-1] == b"":
+            partes.pop()
+        assert T._fuera_de_tope_en_bytes(datos) == T._fuera_de_tope(len(p) for p in partes), datos
+
+
+def test_remate_I2_paridad_js_los_topes_por_bytes_en_ficheros_al_azar():
+    """Los mismos topes por bytes en el JS (`fueraDeTopeEnBytes`, `lastIndexOf`): ficheros con líneas de 1 MiB ± 2 al azar
+    entre líneas cortas, mismo estado, motivo y bloque que Python."""
+    rng = random.Random(15302)
+    casos = []
+    for _ in range(24):
+        lineas = []
+        for _ in range(rng.randrange(1, 6)):
+            if rng.random() < 0.5:
+                lineas.append(rng.choice(["", "x", "[", CADENA[0]]))
+            else:
+                lineas.append({"base": rng.choice(["[", CADENA[0]]), "rellenar_con_espacios_hasta": T.TOPE_LINEA + rng.randrange(-2, 3)})
+        casos.append({"fichero_de_lineas": lineas, "salto_final": rng.random() < 0.5})
+    js = _node({"modo": "comprobar", "casos": casos})["resultados"]
+    vistos = set()
+    for c, j in zip(casos, js):
+        r = _comprobar_caso(c)
+        assert (j["estado"], j["motivo"], j["bloque"]) == (r["estado"], r["motivo"], r["bloque"]), c["fichero_de_lineas"]
+        vistos.add((r["motivo"], r["bloque"] is None))
+    assert ("formato", False) in vistos  # alguno cayó en el tope de línea
+
+
+def test_remate_I2_javascript_no_parte_el_fichero_ni_lo_decodifica_entero():
+    """Re-auditoría, I2 en Node: 64 MiB de líneas diminutas, 502–1.013 MB, por `TextDecoder.decode` del fichero entero y
+    `split('\\n')`. Un espía: ningún `split('\\n')` de más de 1 MiB, ningún `decode` de más de 1 MiB; y el veredicto, el de siempre."""
+    if _NODE is None:
+        pytest.skip("sin node") if os.environ.get("MATRIXAI_SIN_NODE") == "1" else pytest.fail("falta node")
+    guion = textwrap.dedent(f"""
+        const partir = String.prototype.split;
+        String.prototype.split = function (sep, ...r) {{
+          if (sep === '\\n' && this.length > (1 << 20)) throw new Error('split de ' + this.length);
+          return partir.call(this, sep, ...r);
+        }};
+        const decodificar = TextDecoder.prototype.decode;
+        TextDecoder.prototype.decode = function (x, ...r) {{
+          if (x && x.byteLength > (1 << 20)) throw new Error('decode de ' + x.byteLength);
+          return decodificar.call(this, x, ...r);
+        }};
+        const {{ comprobarFichero }} = await import({json.dumps((FIXTURES / "comprobar_traza.mjs").as_uri())});
+        const salida = [];
+        for (const p of ['ab\\n', '\\n', 'abcdefg\\n']) {{
+          const r = await comprobarFichero(new Uint8Array(Buffer.alloc(8 << 20, p)));
+          salida.push([r.estado, r.motivo, r.bloque]);
+        }}
+        const valida = new TextEncoder().encode({json.dumps(chr(10).join(CADENA) + chr(10))});
+        const r = await comprobarFichero(valida);
+        salida.push([r.estado, r.bloques]);
+        console.log(JSON.stringify(salida));
+    """)
+    p = subprocess.run([_NODE, "--input-type=module", "-e", guion], capture_output=True, text=True, cwd=RAIZ)
+    assert p.returncode == 0, p.stderr[-800:]
+    assert json.loads(p.stdout) == [["no_se_pudo_comprobar", "formato", 0]] * 3 + [["valida", 3]]
+
+
+def test_remate_menor_1_S_igual_a_L_exacto_no_es_firma_aunque_la_biblioteca_la_aceptara(monkeypatch):
+    """Re-auditoría, menor 1: S = L es el borde de S < L (RFC 8032 §5.1.7). Sin este vector, cambiar `<` por `<=` dejaba la
+    suite verde. Con una biblioteca que aceptara todo, sigue siendo `firma`, en Python y en JS."""
+    c = CASOS["I1_firma_con_S_igual_a_L"]
+    S = int.from_bytes(base64.b64decode(json.loads(c["lineas"][1])["firma"]["valor"])[32:], "little")
+    assert S == 2 ** 252 + 27742317777372353535851937790883648493  # el vector es lo que dice
+    assert (_caso(c["nombre"])["motivo"], _caso(c["nombre"])["bloque"]) == ("firma", 1)
+    monkeypatch.setattr(A, "comprobar", lambda *a, **k: True)
+    assert (_caso(c["nombre"])["motivo"], _caso(c["nombre"])["bloque"]) == ("firma", 1)
+    js = _node({"modo": "comprobar", "casos": [c], "acepta_todo": True})["resultados"][0]
+    assert (js["estado"], js["motivo"], js["bloque"]) == (A.NO_COINCIDE, "firma", 1)
+
+
+def test_remate_menor_2_desde_genesis_exige_que_la_primera_linea_no_sea_un_reinicio(tmp_path):
+    """Re-auditoría, menor 2: borrada la cadena del génesis entera, el fichero empieza en un reinicio `sin_previo` (seq 0, prev de
+    ceros) y `--desde-genesis --huella` decía «válida». Ahora el génesis es seq 0, prev de ceros y SIN reinicio."""
+    assert _caso("B1_borrada_la_cadena_del_genesis_NO_se_detecta_sin_esperar_genesis")["estado"] == A.VALIDA
+    r = _caso("B1_borrada_la_cadena_del_genesis_esperando_genesis")
+    assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_COINCIDE, "cadena", 0)
+    assert "reinicio" in r["detalle"]["es"] and "restart" in r["detalle"]["en"]
+    assert _caso("cadena_valida_esperando_genesis")["estado"] == A.VALIDA  # el génesis de verdad sigue pasando
+    tres = CASOS["B1_tres_cadenas_legitimas"]["lineas"]
+    sin_genesis = _fichero(tmp_path, "sin_genesis.jsonl", tres[3:])
+    huella = json.loads(tres[0])["servicio"]["huella_clave"]
+    assert _cli("trace", "verify", sin_genesis, "--huella", huella).returncode == 0
+    assert _cli("trace", "verify", sin_genesis, "--huella", huella, "--desde-genesis").returncode == 2
+    assert _cli("trace", "verify", _fichero(tmp_path, "tres.jsonl", tres), "--huella", huella, "--desde-genesis").returncode == 0
+    for idioma, frase in (("es", "antes del primer reinicio"), ("en", "before the first restart")):
+        assert frase in (RAIZ / "docs" / idioma / "api" / "CLI_REFERENCE.md").read_text(encoding="utf-8")
+
+
+def test_remate_cosmetico_describir_concuerda_en_singular():
+    """«1 bloques», «1 cadenas» y «en las líneas 1» con un solo bloque, una sola cadena o un solo reinicio."""
+    un = T.comprobar_traza(CADENA[:1])
+    es, en = T.describir(un, "es"), T.describir(un, "en")
+    assert "1 bloque, del seq 0 al 0" in es and "1 block, from seq 0 to 0" in en
+    reinicio = T.comprobar_traza(CASOS["B1_tres_cadenas_legitimas"]["lineas"][5:])  # la cadena A2: un bloque, un reinicio
+    es, en = "\n".join(T.describir(reinicio, "es")), "\n".join(T.describir(reinicio, "en"))
+    assert "1 bloque en 1 cadena\n" in es and "1 block in 1 chain\n" in en
+    assert "1 cadena (reinicio sin_previo en la línea 1):" in es and "1 chain (sin_previo restart at line 1):" in en
+    assert not re.search(r"\b1 (bloques|cadenas|blocks|chains)\b", es + en)
+    tres = "\n".join(T.describir(_caso("B1_tres_cadenas_legitimas"), "es"))
+    assert "6 bloques en 3 cadenas" in tres and "en las líneas 4, 6" in tres

@@ -267,7 +267,8 @@ def main() -> int:
                           help="The key fingerprint you expect (64 hex, SHA-256 of the raw public key): "
                                "a file signed by another key is then \"the signature does not match\"")
     t_verify.add_argument("--desde-genesis", action="store_true",
-                          help="Require the file to start at the genesis block (first import)")
+                          help="Require the first line to be the genesis block: seq 0, a prev of zeros and no restart (first "
+                               "import). A file that starts at a sin_previo restart does not pass")
     t_verify.add_argument("--locale", choices=["es", "en"], default="en", help="Language of the answer")
     t_verify.add_argument("--json", action="store_true", help="Print the result as JSON")
 

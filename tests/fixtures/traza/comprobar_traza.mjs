@@ -39,6 +39,7 @@ class Formato extends Error {
 }
 const mal = (es, en, motivo = 'formato') => new Formato(motivo, es, en);
 const t = (es, en) => ({ es, en });
+const plana = (s) => JSON.parse(JSON.stringify(s)); // una copia que no comparte memoria con la línea leída
 
 // ───────────────────────── lector JSON estricto ─────────────────────────
 
@@ -333,15 +334,45 @@ function bytesUtf8(s) {
 }
 const FICHERO_GRANDE = t(`el fichero pesa más de ${TOPE_FICHERO >> 20} MiB, el tope de una traza (el servicio escribe un fichero por día: compruébalos por separado)`,
   `the file is over ${TOPE_FICHERO >> 20} MiB, the limit for one trace (the service writes one file per day: check them one by one)`);
+const lineaGrande = (i) => res(NO_SE_PUDO_COMPROBAR, 'formato', i, t(`la línea pesa más de ${TOPE_LINEA >> 20} MiB, el tope de un bloque`, `the line is over ${TOPE_LINEA >> 20} MiB, the limit for one block`));
 function fueraDeTope(lineas) {
   let total = 0;
   for (let i = 0; i < lineas.length; i++) {
     const n = bytesUtf8(lineas[i]);
-    if (n > TOPE_LINEA) return res(NO_SE_PUDO_COMPROBAR, 'formato', i, t(`la línea pesa más de ${TOPE_LINEA >> 20} MiB, el tope de un bloque`, `the line is over ${TOPE_LINEA >> 20} MiB, the limit for one block`));
+    if (n > TOPE_LINEA) return lineaGrande(i);
     total += n + 1;
   }
   if (total > TOPE_FICHERO) return res(NO_SE_PUDO_COMPROBAR, 'formato', null, FICHERO_GRANDE);
   return null;
+}
+/** `fueraDeTope` sobre los BYTES de un fichero sin partirlo (I2 de la re-auditoría: `split` de 64 MiB de líneas diminutas eran
+ *  502–1.013 MB): una línea pasa del tope si y solo si hay TOPE_LINEA + 1 bytes seguidos sin `\n`, así que se salta de ventana en
+ *  ventana al ÚLTIMO salto de cada una. El índice de la línea son los saltos de antes. Como `_fuera_de_tope_en_bytes` en Python. */
+function fueraDeTopeEnBytes(bytes) {
+  const n = bytes.length;
+  let pos = 0;
+  while (n - pos > TOPE_LINEA) {
+    const j = bytes.lastIndexOf(0x0a, pos + TOPE_LINEA);
+    if (j < pos) { // TOPE_LINEA + 1 bytes sin salto desde el principio de una línea
+      let saltos = 0;
+      for (let k = 0; k < pos; k++) if (bytes[k] === 0x0a) saltos++;
+      return lineaGrande(saltos);
+    }
+    pos = j + 1;
+  }
+  const total = n + (n && bytes[n - 1] !== 0x0a ? 1 : 0); // cada línea, más su `\n` (la última puede no llevarlo)
+  if (total > TOPE_FICHERO) return res(NO_SE_PUDO_COMPROBAR, 'formato', null, FICHERO_GRANDE);
+  return null;
+}
+/** `(inicio, fin)` de cada línea, sin crear la lista: las mismas que `split('\n')` quitando la última vacía. */
+function* tramos(bytes) {
+  let i = 0;
+  while (i < bytes.length) {
+    const j = bytes.indexOf(0x0a, i);
+    if (j < 0) { yield [i, bytes.length]; return; }
+    yield [i, j];
+    i = j + 1;
+  }
 }
 
 // ───────────────────────── el comprobador ─────────────────────────
@@ -372,30 +403,43 @@ async function falloDeFirma(b, plataforma, utilizables = new Map()) {
  *  Cada bloque se lee una vez y de él se guarda solo lo que la cadena necesita; el orden de los fallos es el de Python. */
 export async function comprobarTraza(lineas, { huellaAnclada = null, esperarGenesis = false } = {}, plataforma = plataformaNode) {
   if (huellaAnclada !== null && !HEX64.test(huellaAnclada)) throw new Error('la huella anclada es SHA-256 en hexadecimal minúscula (64 caracteres)');
-  const fuera = fueraDeTope(lineas);
+  return comprobar(lineas, fueraDeTope(lineas), huellaAnclada, esperarGenesis, plataforma);
+}
+
+/** El comprobador sobre líneas ya medidas (`fuera`: los topes); `lineas`, cualquier iterable (con un fichero, un generador que
+ *  decodifica cada línea al leerla). Como `_comprobar` en Python: del primer fallo de firma y del de coherencia se guarda solo ese. */
+async function comprobar(lineas, fuera, huellaAnclada, esperarGenesis, plataforma) {
   if (fuera) return fuera;
-  const registros = [];
+  let registros = [];
   const utilizables = new Map();
-  for (let i = 0; i < lineas.length; i++) {
+  let primeraFirma = null, primeraCoherencia = null, vistas = 0, i = -1;
+  for (const linea of lineas) {
+    i++;
     let b;
     try {
-      b = leerJSON(lineas[i]);
+      b = leerJSON(linea);
       estructura(b);
     } catch (e) {
       if (e instanceof Formato) return res(NO_SE_PUDO_COMPROBAR, e.motivo, i, e.detalle);
       throw e;
     }
-    let coherencia = null;
+    vistas++;
+    if (primeraFirma) continue;
+    const firma = await falloDeFirma(b, plataforma, utilizables);
+    if (firma) { primeraFirma = [i, ...firma]; registros = []; continue; }
+    if (primeraCoherencia) continue;
     try { estructura(b, true); } catch (e) {
       if (!(e instanceof Formato)) throw e;
-      coherencia = [e.motivo, e.detalle];
+      primeraCoherencia = [i, e.motivo, e.detalle]; registros = []; continue;
     }
-    registros.push({ seq: b.seq, prev: b.prev, hash: await hashDeBloque(b, plataforma), huella: b.servicio.huella_clave, reinicio: b.reinicio,
-      desde: b.ventana.desde, hasta: b.ventana.hasta, firma: await falloDeFirma(b, plataforma, utilizables), coherencia });
+    // `plana`: el lector JSON saca las cadenas con `slice`, y en V8 un trozo retiene la línea entera: sin la copia, cada registro
+    // guardaba su línea (medido: 64 MiB de bloques mínimos, 409 MB; con la copia, 306 MB)
+    registros.push({ seq: b.seq, prev: plana(b.prev), hash: await hashDeBloque(b, plataforma), huella: plana(b.servicio.huella_clave),
+      reinicio: b.reinicio, desde: plana(b.ventana.desde), hasta: plana(b.ventana.hasta) });
   }
-  if (!registros.length) return res(NO_SE_PUDO_COMPROBAR, 'formato', null, t('fichero sin bloques', 'file without blocks'));
-  for (let i = 0; i < registros.length; i++) if (registros[i].firma) return res(NO_COINCIDE, registros[i].firma[0], i, registros[i].firma[1]);
-  for (let i = 0; i < registros.length; i++) if (registros[i].coherencia) return res(NO_SE_PUDO_COMPROBAR, registros[i].coherencia[0], i, registros[i].coherencia[1]);
+  if (!vistas) return res(NO_SE_PUDO_COMPROBAR, 'formato', null, t('fichero sin bloques', 'file without blocks'));
+  if (primeraFirma) return res(NO_COINCIDE, primeraFirma[1], primeraFirma[0], primeraFirma[2]);
+  if (primeraCoherencia) return res(NO_SE_PUDO_COMPROBAR, primeraCoherencia[1], primeraCoherencia[0], primeraCoherencia[2]);
   const fallo = falloDeCadena(registros, esperarGenesis);
   if (fallo) return fallo;
   const huellas = [];
@@ -421,8 +465,8 @@ function falloDeCadena(registros, esperarGenesis) {
   const ultimoHasta = new Map(); // huella -> `hasta` del último bloque visto de esa clave
   for (let i = 0; i < registros.length; i++) {
     const b = registros[i];
-    if (i === 0 && esperarGenesis && !(b.seq === 0 && b.prev === GENESIS)) {
-      return res(NO_COINCIDE, 'cadena', 0, t('se esperaba el bloque génesis (seq 0, prev de ceros) y el fichero empieza más tarde', 'the genesis block (seq 0, prev of zeros) was expected and the file starts later'));
+    if (i === 0 && esperarGenesis && !(b.seq === 0 && b.prev === GENESIS && b.reinicio === null)) {
+      return res(NO_COINCIDE, 'cadena', 0, t('se esperaba el bloque génesis (seq 0, prev de ceros, sin reinicio) y el fichero empieza más tarde o en un reinicio sin_previo', 'the genesis block (seq 0, prev of zeros, no restart) was expected and the file starts later or at a sin_previo restart'));
     }
     if (vistos.has(b.hash)) return res(NO_COINCIDE, 'cadena', i, t('este bloque ya estaba antes en el fichero (repetido)', 'this block was already earlier in the file (repeated)'));
     vistos.add(b.hash);
@@ -451,17 +495,22 @@ function falloDeCadena(registros, esperarGenesis) {
 export async function comprobarFichero(bytes, opciones = {}, plataforma = plataformaNode) {
   if (opciones.huellaAnclada != null && !HEX64.test(opciones.huellaAnclada)) throw new Error('la huella anclada es SHA-256 en hexadecimal minúscula (64 caracteres)');
   if (bytes.length > TOPE_FICHERO) return res(NO_SE_PUDO_COMPROBAR, 'formato', null, FICHERO_GRANDE);
-  let texto;
-  try { texto = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch {
+  try { // UTF-8 estricto a trozos de 1 MiB, sin crear el texto entero (como `_es_utf8`)
+    const dec = new TextDecoder('utf-8', { fatal: true });
+    for (let k = 0; k < bytes.length; k += 1 << 20) dec.decode(bytes.subarray(k, k + (1 << 20)), { stream: true });
+    dec.decode();
+  } catch {
     return res(NO_SE_PUDO_COMPROBAR, 'formato', null, t('el fichero no es UTF-8', 'the file is not UTF-8'));
   }
-  return comprobarTraza(lineasDeTexto(texto), opciones, plataforma);
+  const lector = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }); // un BOM se queda: la línea deja de ser JSON
+  function* lineas() { for (const [a, z] of tramos(bytes)) yield lector.decode(bytes.subarray(a, z)); }
+  return comprobar(lineas(), fueraDeTopeEnBytes(bytes), opciones.huellaAnclada ?? null, opciones.esperarGenesis ?? false, plataforma);
 }
 
 // ───────────────────────── los casos de los vectores que no caben escritos ─────────────────────────
 // Una línea puede venir como {"base": <línea>, "rellenar_con_espacios_hasta": N}: la línea más espacios hasta N bytes UTF-8
-// (JSON válido: el espacio al final lo es). Y un caso puede traer el FICHERO en vez de las líneas: {"fichero_b64": …} o
-// {"fichero_de_espacios": N}. Así caben en el JSON los casos de los topes sin que pese megas. Igual en las pruebas de Python.
+// (JSON válido: el espacio al final lo es). Y un caso puede traer el FICHERO en vez de las líneas: {"fichero_b64": …},
+// {"fichero_de_espacios": N} o {"fichero_de_lineas": [<líneas como arriba>], "salto_final": bool} (unidas por `\n`). Así caben en el JSON los casos de los topes sin que pese megas. Igual en las pruebas de Python.
 export function expandirLinea(x) {
   if (typeof x === 'string') return x;
   return x.base + ' '.repeat(x.rellenar_con_espacios_hasta - bytesUtf8(x.base));
@@ -469,6 +518,7 @@ export function expandirLinea(x) {
 export function bytesDelCaso(caso) {
   if (caso.fichero_b64 !== undefined) return Uint8Array.from(atob(caso.fichero_b64), (c) => c.charCodeAt(0));
   if (caso.fichero_de_espacios !== undefined) return new Uint8Array(caso.fichero_de_espacios).fill(0x20);
+  if (caso.fichero_de_lineas !== undefined) return new TextEncoder().encode(caso.fichero_de_lineas.map(expandirLinea).join('\n') + (caso.salto_final ? '\n' : ''));
   return null;
 }
 export async function comprobarCaso(caso, plataforma = plataformaNode) {

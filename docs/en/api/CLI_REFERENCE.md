@@ -1267,14 +1267,17 @@ At each restart the earlier blocks may be missing: a new chain does not link to 
 
 - `--huella H`: the fingerprint of the key you expected (SHA-256 of the 32 raw bytes of the public key,
   64 hex; the one `matrixai receipt pubkey` prints). A file signed by another key reads "the signature does not match".
-- `--desde-genesis`: require the file to start at the genesis block (first import). Without it, a file from
-  another day (daily rotation) is valid and it says which `seq` it starts at.
+- `--desde-genesis`: require the first line to be the genesis block: `seq` 0, a `prev` of zeros and **no**
+  restart (first import). A file that starts at a `sin_previo` restart does not pass ("the signature does not
+  match"): the chain from the genesis block could have been in front of it. Without it, a file from another day
+  (daily rotation) is valid and it says which `seq` it starts at.
 - What reads "the signature does not match" (exit `2`): an edited block; a block deleted or reordered **inside a
   chain**; a block repeated in the file; a chain of the same key that starts before the previous one ends; a public
   key that is not usable (non-canonical or of small order); another key without a restart, or other than `--huella`.
-- What is **not** detected: missing trailing blocks, missing blocks right before a restart, or a whole chain missing
-  between two restarts (the restart says "there is no previous block"). For the tail, compare the last block (`seq`
-  and `hash`) with the one the service announces.
+- What is **not** detected: missing trailing blocks, missing blocks right before a restart, a whole chain missing
+  between two restarts, or the whole chain before the first restart when the file starts at it (the restart says
+  "there is no previous block"; `--desde-genesis` does catch the last one). For the tail, compare the last block
+  (`seq` and `hash`) with the one the service announces.
 - Exit codes: `0` valid signature; `2` the signature does not match; `3` could not be checked (not JSON or not
   UTF-8, unknown version, a line over 1 MiB or a file over 64 MiB, `cryptography` missing);
   `1` the file cannot be read or `--huella` is not a fingerprint (on stderr, in the `--locale` language).
