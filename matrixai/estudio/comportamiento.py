@@ -13,27 +13,41 @@ entregado, todas a demanda:
       Studio (138-C3), con la métrica del estudio; este módulo no mide una métrica.
   B — sensibilidad a cambios pequeños (`sensibilidad_de_una_columna`): fracción de filas cuya
       decisión cambia y distribución de |Δsalida|/δ, con las filas de mayor pendiente.
-  C — monotonía declarada (`monotonia_en_rejilla`): curvas ICE sobre una rejilla, retroceso, efecto
-      total y veredicto de TRES palabras.
+  C — monotonía declarada (`monotonia_en_rejilla`): curvas ICE sobre una rejilla, retroceso, amplitud
+      de la curva, fracción de filas que retroceden y veredicto de TRES palabras.
 
 I2 — DESCRIBIR. Los resultados de A y B no llevan NINGUNA clave de veredicto; solo C la lleva, y solo
 para la monotonía declarada. Una prueba recorre los dos documentos buscándola.
 
 I7 — LA TOLERANCIA ES DEL CÁLCULO, no de la declaración. El resultado de C guarda por fila el
-retroceso y el efecto, y los K peores contraejemplos, que NO dependen de ε. `con_epsilon()` rehace el
-veredicto con otra tolerancia sin volver a predecir, y el documento dice qué ε usó. Aquí NO hay ε por
-omisión: lo fija la medición C0 (`documentacion/149_C0_MEDICION.md`) y entra en el corte siguiente. El
-parámetro es obligatorio a propósito: un 0,01 escrito aquí sería la tolerancia inventada que C0 existe
-para evitar.
+retroceso, el efecto y la amplitud de la curva, y los K peores contraejemplos, que NO dependen de ε ni
+de q. `con_tolerancia(ε, q)` (y `con_epsilon(ε)`) rehace el veredicto con otra tolerancia sin volver a
+predecir, y el documento dice qué ε y qué q usó.
+
+LOS VALORES POR OMISIÓN SON MEDIDOS (149-C0-ter, `documentacion/149_C0_MEDICION.md` §4; regla en
+`benchmarks/c149/REGLA_DE_ELECCION_TER.md`, guion `medir_c0ter.py`): `TOLERANCIA_POR_OMISION`, por
+tarea. Regresión ε 5 % de la escala y q 5 %; binaria ε 20 % de la probabilidad y q 20 %. Multiclase no
+tiene (decisión del 02-11: sin clase declarada no se comprueba) y exige darlos. Quien llama puede pasar
+otros; no hay un 0,01 escrito en ningún otro sitio. El veredicto NO es el de una sola fila: el de este
+módulo es el V'(ε, q) medido, y `tests/test_c149_c1bis_paridad_con_la_medicion.py` lo compara con el guion.
+
+EL VEREDICTO (decidido por Roberto, 03-11, `149-veredicto`, opción A), en este orden:
+  1. AMPLITUD. La de la columna es la MEDIANA, sobre las filas comprobadas, de (máximo − mínimo) de la
+     curva de cada fila: sin signo y sin depender de los extremos (una U que acaba donde empezó se mueve
+     mucho). Si no pasa de ε (`>` estricto): «no se pudo comprobar». Se mira PRIMERO.
+  2. Si la fracción de filas con retroceso > ε es ≥ q: «con contraejemplos».
+  3. Si no: «sin contraejemplos».
 
 I8 — UN VALOR AUSENTE NO ES UN CERO. Sin predicción (columna sin rango, escala no válida, salida que no
 es un número) el veredicto es «no se pudo comprobar» con su motivo bilingüe, jamás un retroceso 0 ni
 «sin contraejemplos». Una fila sin predicción se EXCLUYE y se cuenta; no cuenta como una curva plana.
 
-I5 — «SIN CONTRAEJEMPLOS» NUNCA SALE SOLO. Va con el efecto total de la columna. Si ese efecto no supera
-la tolerancia (una columna plana, o que se mueve menos de lo que tolera la prueba), la prueba no
-distingue una dirección de la contraria —con efecto ≈ 0 la dirección «contraria» tiene tantos
-contraejemplos como la declarada— y el veredicto es «no se pudo comprobar» con ese motivo.
+I5 — «SIN CONTRAEJEMPLOS» NUNCA SALE SOLO. Va con la amplitud de la curva típica. Si esa amplitud no
+supera la tolerancia (una columna plana, o que se mueve menos de lo que tolera la prueba), la prueba no
+distingue una dirección de la contraria —con amplitud ≈ 0 la dirección «contraria» tiene tantos
+contraejemplos como la declarada— y el veredicto es «no se pudo comprobar» con ese motivo. (Hasta el
+C1-bis la puerta era el efecto de extremo a extremo y CON SIGNO: dejaba «sin comprobar» a una columna
+monótona declarada al revés y a las curvas en U; el efecto sigue en el documento, como dato.)
 
 I1 — SOLO DESARROLLO. El resultado declara `medido_sobre`; la prueba reservada NO es un valor admitido
 y se rechaza al construir, no al pintar.
@@ -48,6 +62,8 @@ import math
 import random
 import statistics
 from dataclasses import dataclass
+from fractions import Fraction
+from types import MappingProxyType
 from typing import Any, Callable, Mapping, Sequence
 
 from matrixai.estudio.comportamiento_textos import (
@@ -64,14 +80,17 @@ from matrixai.estudio.vocabulario import TAREAS, exigir_opcion
 
 __all__ = [
     "DIRECCIONES_DE_MONOTONIA", "EscalaDeLaSalida", "K_PEORES_POR_OMISION", "MEDIDO_SOBRE",
-    "MonotoniaDeUnaColumna", "Retroceso", "SensibilidadDeUnaColumna", "VERSION_DEL_COMPORTAMIENTO",
-    "VEREDICTOS", "bloques_por_prefijo", "caida_entre_pliegues", "elegir_filas",
-    "escala_de_la_salida", "k_mayores", "monotonia_en_rejilla", "ordenar_por_caida", "rejilla",
-    "retroceso_de_una_curva", "sensibilidad_de_una_columna",
+    "MonotoniaDeUnaColumna", "Retroceso", "SensibilidadDeUnaColumna", "TOLERANCIA_POR_OMISION",
+    "VERSION_DEL_COMPORTAMIENTO", "VEREDICTOS", "amplitud_de_una_curva", "bloques_por_prefijo",
+    "caida_entre_pliegues", "elegir_filas", "escala_de_la_salida", "k_mayores", "monotonia_desde_curvas",
+    "monotonia_en_rejilla", "ordenar_por_caida", "rejilla", "retroceso_de_una_curva",
+    "sensibilidad_de_una_columna", "tolerancia_por_omision",
 ]
 
 #: La versión del documento. Cambia con la FORMA (claves) o con la regla de una cifra.
-VERSION_DEL_COMPORTAMIENTO = "1.0.0"
+#: 2.0.0 (149-C1-bis): el veredicto es V'(ε, q) por amplitud y fracción de filas, y el documento lleva q, la
+#: amplitud y la fracción. La regla de «con contraejemplos» cambió (ya no basta una fila).
+VERSION_DEL_COMPORTAMIENTO = "2.0.0"
 
 DIRECCIONES_DE_MONOTONIA = ("sube", "baja")
 
@@ -84,6 +103,24 @@ MEDIDO_SOBRE = ("validacion_de_cada_pliegue", "muestra_de_desarrollo", "fila_tip
 
 #: Cuántos contraejemplos (los de mayor retroceso, independientes de ε) se guardan por columna.
 K_PEORES_POR_OMISION = 5
+
+#: La tolerancia de partida POR TAREA: `(ε relativo a la escala, q = fracción mínima de filas)`. MEDIDA en
+#: 149-C0-ter (regla `benchmarks/c149/REGLA_DE_ELECCION_TER.md`, medición `58f5e6d`, semillas 6-8): la regla
+#: elige el menor ε con falsa alarma ≤ 10 % y potencia ≥ 80 %, y con él el menor q.
+#:   · regresión: ε 5 %, q 5 % (margen amplio: cumple igual de ε 5 % a 15 %).
+#:   · binaria: ε 20 %, q 20 % —ALTA a propósito—: es el borde de la rejilla medida, sin margen (la amplitud de
+#:     una columna plana ronda el 10–15 % de la probabilidad con ~2.000 filas, por los escalones de los
+#:     árboles), y por eso el documento lo dice con un aviso.
+#: Multiclase no está: sin clase declarada no se comprueba (decisión del 02-11) y quien llame tiene que darlos.
+TOLERANCIA_POR_OMISION = MappingProxyType({
+    "regression": (0.05, 0.05),
+    "binary_classification": (0.20, 0.20),
+})
+
+
+def tolerancia_por_omision(tarea: str) -> tuple[float, float] | None:
+    """`(ε, q)` de partida de la tarea, o `None` si no tiene (multiclase)."""
+    return TOLERANCIA_POR_OMISION.get(exigir_opcion(tarea, "tarea", TAREAS))
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +171,14 @@ def retroceso_de_una_curva(curva: Sequence[float], direccion: str) -> Retroceso:
         if caida > peor:
             peor, a, b = caida, donde_el_mejor, j
     return Retroceso(peor, a, b)
+
+
+def amplitud_de_una_curva(curva: Sequence[float]) -> float:
+    """(máximo − mínimo) de la curva de UNA fila: sin signo y sin depender de los extremos (una U que acaba
+    donde empezó se mueve mucho; el efecto de extremo a extremo daría 0). Es la pieza de la puerta del veredicto."""
+    if len(curva) < 1:
+        raise EsquemaInvalido("falta_campo", campo="curva")
+    return max(curva) - min(curva)
 
 
 @dataclass(frozen=True)
@@ -222,16 +267,18 @@ class _SalidaNoNumerica(Exception):
 
 @dataclass(frozen=True)
 class MonotoniaDeUnaColumna:
-    """El resultado de la prueba C para UNA columna. Inmutable: `con_epsilon` devuelve otro."""
+    """El resultado de la prueba C para UNA columna. Inmutable: `con_tolerancia` devuelve otro."""
     columna: str
     direccion: str
     rejilla: tuple[float, ...]
     escala: EscalaDeLaSalida
-    epsilon_relativo: float
+    epsilon_relativo: float | None             # None solo si la tarea no tiene tolerancia y no se dio (escala no válida)
+    q_relativo: float | None                   # fracción mínima de filas que retroceden más que ε para «con contraejemplos»
     medido_sobre: Mapping[str, Any]
     ids: tuple[Any, ...]                       # una por fila pedida, en el orden de la muestra
     retrocesos: tuple[float | None, ...]       # None = esa fila no tuvo predicción (NO es un 0)
     efectos: tuple[float | None, ...]          # extremo a extremo, en la dirección declarada
+    amplitudes: tuple[float | None, ...]       # (máx − mín) de la curva de cada fila, sin signo
     peores: tuple[Mapping[str, Any], ...]      # los K de mayor retroceso, independientes de ε
     k: int
     clave_de_no_comprobar: str | None = None   # por qué no hay curvas (antes de mirar ninguna fila)
@@ -254,6 +301,13 @@ class MonotoniaDeUnaColumna:
         return statistics.fmean(validos) if validos else None
 
     @property
+    def amplitud_tipica(self) -> float | None:
+        """MEDIANA, sobre las filas comprobadas, de (máximo − mínimo) de la curva de cada fila. Sin signo y sin
+        depender de los extremos. `None` si ninguna fila tuvo predicción (un valor ausente no es un cero)."""
+        validas = [a for a in self.amplitudes if a is not None]
+        return statistics.median(validas) if validas else None
+
+    @property
     def filas_con_violacion(self) -> int | None:
         eps = self.epsilon_absoluto
         if eps is None or self.filas_comprobadas == 0:
@@ -261,6 +315,12 @@ class MonotoniaDeUnaColumna:
         # `>` y no `>=`: un retroceso IGUAL a la tolerancia es lo que la tolerancia deja pasar. (Una
         # prueba con retroceso == ε exacto lo fija.)
         return sum(1 for r in self.retrocesos if r is not None and r > eps)
+
+    @property
+    def fraccion_con_violacion(self) -> float | None:
+        """Las filas con retroceso > ε entre las comprobadas. `None` si no hay nada que comparar."""
+        v = self.filas_con_violacion
+        return None if v is None else v / self.filas_comprobadas
 
     def _clave_del_veredicto(self) -> tuple[str, str | None, dict[str, str] | None]:
         """`(veredicto, clave_del_motivo, motivo)`."""
@@ -273,14 +333,18 @@ class MonotoniaDeUnaColumna:
             clave = "sin_filas" if not self.ids else "sin_prediccion"
             return ("no_se_pudo_comprobar", clave,
                     motivo(clave) if clave == "sin_filas" else motivo(clave, filas=len(self.ids)))
-        if self.filas_con_violacion:
-            return "con_contraejemplos", None, None
-        efecto = self.efecto_total
-        if efecto is None or not efecto > eps:
-            # I5: la prueba no distingue. Es lo que pasa con una columna plana, y con ε grande.
-            return ("no_se_pudo_comprobar", "efecto_no_distingue",
-                    motivo("efecto_no_distingue", efecto=cifra(efecto if efecto is not None else 0.0),
+        # 1. LA AMPLITUD, PRIMERO (I5): si la curva típica no se mueve más que la tolerancia, la prueba no distingue una
+        #    dirección de la contraria. `>` estricto, como el guion medido (`veredicto_ter`). Va ANTES de contar filas:
+        #    una columna plana con un par de filas ruidosas no es «con contraejemplos».
+        amplitud = self.amplitud_tipica
+        if amplitud is None or not amplitud > eps:
+            return ("no_se_pudo_comprobar", "amplitud_no_distingue",
+                    motivo("amplitud_no_distingue", amplitud=cifra(amplitud if amplitud is not None else 0.0),
                            tolerancia=cifra(eps)))
+        # 2. LA FRACCIÓN: al menos el q de las filas comprobadas retroceden más que ε. Aritmética exacta (decimal contra
+        #    racional): `v/n >= q` en coma flotante falla en el borde (0,07·100 = 7,000000000000001).
+        if Fraction(self.filas_con_violacion, self.filas_comprobadas) >= Fraction(repr(self.q_relativo)):
+            return "con_contraejemplos", None, None
         return "sin_contraejemplos", None, None
 
     @property
@@ -289,15 +353,23 @@ class MonotoniaDeUnaColumna:
 
     @property
     def contraejemplos(self) -> tuple[Mapping[str, Any], ...]:
-        """Los guardados que superan la tolerancia ACTUAL (hasta K)."""
+        """Los guardados que superan la tolerancia ACTUAL (hasta K) —y SOLO si el veredicto es «con contraejemplos»:
+        listar contraejemplos bajo un «sin contraejemplos» (unas pocas filas por debajo de q) se leería como una
+        contradicción. Los K peores siguen enteros en `para_recalcular`."""
         eps = self.epsilon_absoluto
-        if eps is None:
+        if eps is None or self.veredicto != "con_contraejemplos":
             return ()
         return tuple(c for c in self.peores if c["retroceso"] > eps)
 
+    def con_tolerancia(self, epsilon_relativo: float | None = None, q_relativo: float | None = None) -> "MonotoniaDeUnaColumna":
+        """El mismo resultado con OTRA tolerancia (ε, q), sin volver a predecir (I7). `None` = conservar el actual."""
+        eps = self.epsilon_relativo if epsilon_relativo is None else _epsilon(epsilon_relativo)
+        q = self.q_relativo if q_relativo is None else _q(q_relativo)
+        return MonotoniaDeUnaColumna(**{**self.__dict__, "epsilon_relativo": eps, "q_relativo": q})
+
     def con_epsilon(self, epsilon_relativo: float) -> "MonotoniaDeUnaColumna":
-        """El mismo resultado con OTRA tolerancia, sin volver a predecir (I7)."""
-        return MonotoniaDeUnaColumna(**{**self.__dict__, "epsilon_relativo": _epsilon(epsilon_relativo)})
+        """Atajo de `con_tolerancia` que cambia solo ε (q se conserva)."""
+        return self.con_tolerancia(epsilon_relativo=epsilon_relativo)
 
     # ---- el documento -----------------------------------------------------------------------------
     def _veredicto_json(self) -> dict[str, Any]:
@@ -310,9 +382,10 @@ class MonotoniaDeUnaColumna:
             eps = self.epsilon_absoluto
             lectura = motivo(
                 "lectura_con_contraejemplos" if clave == "con_contraejemplos" else "lectura_sin_contraejemplos",
-                violadoras=self.filas_con_violacion, filas=filas, tolerancia=cifra(eps),
-                retroceso=cifra(max(r for r in self.retrocesos if r is not None)),
-                direccion=PorIdioma(motivo("direccion_" + self.direccion)), efecto=cifra(self.efecto_total))
+                violadoras=self.filas_con_violacion, filas=filas,
+                fraccion=porcentaje(round(self.fraccion_con_violacion, 3)), minimo=porcentaje(self.q_relativo),
+                tolerancia=cifra(eps), retroceso=cifra(max(r for r in self.retrocesos if r is not None)),
+                direccion=PorIdioma(motivo("direccion_" + self.direccion)), amplitud=cifra(self.amplitud_tipica))
         return {"clave": clave, "texto": motivo(CLAVES_DE_VEREDICTO[clave]), "lectura": lectura,
                 "clave_del_motivo": clave_motivo, "motivo": texto_motivo,
                 # I4: los límites van DENTRO del veredicto, no en un pie.
@@ -322,16 +395,29 @@ class MonotoniaDeUnaColumna:
         sin_prediccion = len(self.ids) - self.filas_comprobadas
         avisos = ([{"clave": "filas_sin_prediccion", "texto": motivo("filas_sin_prediccion", sin=sin_prediccion, total=len(self.ids))}]
                   if sin_prediccion and self.filas_comprobadas else [])
+        # En binaria la tolerancia de partida es ALTA a propósito (149-C0-ter): lo dice el documento, no solo el contrato.
+        base = TOLERANCIA_POR_OMISION.get(self.escala.tarea)
+        if (self.escala.tarea == "binary_classification" and base is not None and self.escala.valor is not None
+                and self.filas_comprobadas and self.epsilon_relativo is not None and self.epsilon_relativo >= base[0]):
+            avisos.append({"clave": "tolerancia_alta_en_binaria",
+                           "texto": motivo("tolerancia_alta_en_binaria", tolerancia=porcentaje(self.epsilon_relativo))})
         return {
             "version": VERSION_DEL_COMPORTAMIENTO,
             "columna": self.columna, "direccion": self.direccion,
             "medido_sobre": dict(self.medido_sobre),
             "rejilla": {"puntos": len(self.rejilla), "valores": list(self.rejilla)},
             "tolerancia": {"relativa": self.epsilon_relativo, "absoluta": self.epsilon_absoluto,
-                           "texto": porcentaje(self.epsilon_relativo), "escala": self.escala.a_json()},
+                           "texto": None if self.epsilon_relativo is None else porcentaje(self.epsilon_relativo),
+                           "fraccion_minima": {"relativa": self.q_relativo,
+                                               "texto": None if self.q_relativo is None else porcentaje(self.q_relativo)},
+                           # ¿es la de partida de la tarea (medida en C0-ter)? Lo dice el valor, no cómo se pasó.
+                           "por_omision": (self.epsilon_relativo, self.q_relativo) == TOLERANCIA_POR_OMISION.get(self.escala.tarea),
+                           "escala": self.escala.a_json()},
             "filas": {"pedidas": len(self.ids), "comprobadas": self.filas_comprobadas, "sin_prediccion": sin_prediccion,
                       "ids": list(self.ids)},
             "efecto_total": self.efecto_total,
+            "amplitud_tipica": self.amplitud_tipica,
+            "fraccion_con_violacion": self.fraccion_con_violacion,
             "retroceso_maximo": max((r for r in self.retrocesos if r is not None), default=None),
             "filas_con_violacion": self.filas_con_violacion,
             "contraejemplos": [dict(c) for c in self.contraejemplos],
@@ -339,6 +425,7 @@ class MonotoniaDeUnaColumna:
             "veredicto": self._veredicto_json(),
             # Lo que NO depende de ε: con esto `con_epsilon` rehace el veredicto sin predecir (I7).
             "para_recalcular": {"k": self.k, "retrocesos": list(self.retrocesos), "efectos": list(self.efectos),
+                                     "amplitudes": list(self.amplitudes),
                                 "peores": [dict(c) for c in self.peores]},
         }
 
@@ -348,6 +435,28 @@ class MonotoniaDeUnaColumna:
 
 def _epsilon(valor: Any) -> float:
     return exigir_real(valor, "epsilon_relativo", minimo=0.0)
+
+
+def _q(valor: Any) -> float:
+    """La fracción mínima de filas: en (0, 1]. Con q = 0 cualquier columna tendría contraejemplos (0 ≥ 0)."""
+    q = exigir_real(valor, "q_relativo", minimo=0.0, maximo=1.0)
+    if q == 0.0:
+        raise EsquemaInvalido("fuera_de_rango", campo="q_relativo", minimo="0 (excluido)", maximo=1.0, valor="0.0")
+    return q
+
+
+def _tolerancia(escala: EscalaDeLaSalida, epsilon_relativo: float | None,
+                q_relativo: float | None) -> tuple[float | None, float | None]:
+    """`(ε, q)` validados. Lo que no se da sale de `TOLERANCIA_POR_OMISION` de la tarea. Con una escala VÁLIDA y sin
+    valor para la tarea, FALLA ruidoso: no se inventa uno (la escala no válida ya no comprueba nada, y ahí `None` es honesto)."""
+    base = TOLERANCIA_POR_OMISION.get(escala.tarea)
+    eps = epsilon_relativo if epsilon_relativo is not None else (base[0] if base else None)
+    q = q_relativo if q_relativo is not None else (base[1] if base else None)
+    if escala.valor is not None:
+        for nombre, valor in (("epsilon_relativo", eps), ("q_relativo", q)):
+            if valor is None:
+                raise EsquemaInvalido("falta_campo", campo=nombre)
+    return (None if eps is None else _epsilon(eps)), (None if q is None else _q(q))
 
 
 def _peores(retrocesos: Sequence[float | None], curvas: Sequence[Sequence[float] | None], ids: Sequence[Any],
@@ -366,22 +475,25 @@ def _peores(retrocesos: Sequence[float | None], curvas: Sequence[Sequence[float]
                  for valor, i, ret in candidatos[:k])
 
 
-def _sin_curvas(columna: str, direccion: str, malla: Sequence[float], escala: EscalaDeLaSalida, epsilon_relativo: float,
-                medido: dict[str, Any], clave: str, texto: dict[str, str], k: int) -> MonotoniaDeUnaColumna:
-    return MonotoniaDeUnaColumna(columna, direccion, tuple(malla), escala, epsilon_relativo, medido, (), (), (), (), k,
-                                 clave, texto)
+def _sin_curvas(columna: str, direccion: str, malla: Sequence[float], escala: EscalaDeLaSalida, epsilon_relativo: float | None,
+                q_relativo: float | None, medido: dict[str, Any], clave: str, texto: dict[str, str],
+                k: int) -> MonotoniaDeUnaColumna:
+    return MonotoniaDeUnaColumna(columna, direccion, tuple(malla), escala, epsilon_relativo, q_relativo, medido, (), (), (), (),
+                                 (), k, clave, texto)
 
 
 def monotonia_desde_curvas(columna: str, direccion: str, malla: Sequence[float],
                            curvas: Sequence[Sequence[float | None]], ids: Sequence[Any], *,
-                           epsilon_relativo: float, escala: EscalaDeLaSalida, medido_sobre: str, semilla: int,
+                           escala: EscalaDeLaSalida, medido_sobre: str, semilla: int,
+                           epsilon_relativo: float | None = None, q_relativo: float | None = None,
                            k: int = K_PEORES_POR_OMISION) -> MonotoniaDeUnaColumna:
     """La prueba C sobre curvas YA calculadas: `curvas[i][j]` es la salida del modelo en la fila `i` con la
     columna puesta en `malla[j]` (`None` = sin predicción). Es lo que llama `monotonia_en_rejilla` y lo que
-    usan las pruebas con curvas construidas a mano."""
+    usan las pruebas con curvas construidas a mano. `epsilon_relativo` y `q_relativo`: `None` = los de partida
+    de la tarea (`TOLERANCIA_POR_OMISION`)."""
     exigir_texto(columna, "columna")
     _con_signo(direccion)
-    eps_rel = _epsilon(epsilon_relativo)
+    eps_rel, q_rel = _tolerancia(escala, epsilon_relativo, q_relativo)
     exigir_entero(k, "k", minimo=1)
     if len(curvas) != len(ids):
         raise EsquemaInvalido("filas_desalineadas", campo="ids", valor=len(ids), opciones=len(curvas))
@@ -391,6 +503,7 @@ def monotonia_desde_curvas(columna: str, direccion: str, malla: Sequence[float],
     medido = _medido_sobre(medido_sobre, semilla, len(curvas))
     retrocesos: list[float | None] = []
     efectos: list[float | None] = []
+    amplitudes: list[float | None] = []
     limpias: list[list[float] | None] = []
     signo = _con_signo(direccion)
     for i, curva in enumerate(curvas):
@@ -399,24 +512,26 @@ def monotonia_desde_curvas(columna: str, direccion: str, malla: Sequence[float],
         try:
             valores = [_numero_o_none(v) for v in curva]
         except _SalidaNoNumerica:
-            return _sin_curvas(columna, direccion, malla, escala, eps_rel, medido, "salida_no_numerica",
+            return _sin_curvas(columna, direccion, malla, escala, eps_rel, q_rel, medido, "salida_no_numerica",
                                motivo("salida_no_numerica"), k)
         if any(v is None for v in valores):
             # Una curva a medias NO se completa ni se toma por plana: la fila no cuenta.
-            retrocesos.append(None); efectos.append(None); limpias.append(None)
+            retrocesos.append(None); efectos.append(None); amplitudes.append(None); limpias.append(None)
             continue
         retrocesos.append(retroceso_de_una_curva(valores, direccion).valor)
         efectos.append(signo * (valores[-1] - valores[0]))
+        amplitudes.append(amplitud_de_una_curva(valores))
         limpias.append(valores)
     return MonotoniaDeUnaColumna(
-        columna, direccion, malla, escala, eps_rel, medido, tuple(ids), tuple(retrocesos), tuple(efectos),
-        _peores(retrocesos, limpias, ids, direccion, malla, k), k)
+        columna, direccion, malla, escala, eps_rel, q_rel, medido, tuple(ids), tuple(retrocesos), tuple(efectos),
+        tuple(amplitudes), _peores(retrocesos, limpias, ids, direccion, malla, k), k)
 
 
 def monotonia_en_rejilla(columna: str, direccion: str, filas: Sequence[Mapping[str, Any]],
                          puntuar: Callable[[Sequence[Mapping[str, Any]]], Sequence[float | None]], *,
                          minimo: float | None, maximo: float | None, puntos: int, filas_m: int, semilla: int,
-                         epsilon_relativo: float, escala: EscalaDeLaSalida, medido_sobre: str,
+                         escala: EscalaDeLaSalida, medido_sobre: str,
+                         epsilon_relativo: float | None = None, q_relativo: float | None = None,
                          ids: Sequence[Any] | None = None, k: int = K_PEORES_POR_OMISION) -> MonotoniaDeUnaColumna:
     """La prueba C de una columna. Elige `filas_m` filas con la semilla, y para cada una recorre
     `puntos` valores de la rejilla entre `minimo` y `maximo` DE LO VISTO, con el resto de la fila fijo
@@ -424,10 +539,13 @@ def monotonia_en_rejilla(columna: str, direccion: str, filas: Sequence[Mapping[s
     valores, fila 1…) y devuelve una salida por fila, en el mismo orden; una `None` = sin predicción.
 
     Las filas que recibe `puntuar` son copias: la muestra del llamante no se toca. Sea cual sea el valor
-    que traiga la columna (un hueco, `NA`, un texto), se sobrescribe: el ICE recorre la rejilla."""
+    que traiga la columna (un hueco, `NA`, un texto), se sobrescribe: el ICE recorre la rejilla.
+
+    `epsilon_relativo` y `q_relativo` (ε como fracción de la escala; q como fracción mínima de filas): `None` = los de
+    partida de la tarea de la escala (`TOLERANCIA_POR_OMISION`); multiclase no los tiene y no comprueba nada."""
     exigir_texto(columna, "columna")
     _con_signo(direccion)
-    eps_rel = _epsilon(epsilon_relativo)
+    eps_rel, q_rel = _tolerancia(escala, epsilon_relativo, q_relativo)
     exigir_entero(puntos, "puntos", minimo=2)
     elegidas = elegir_filas(len(filas), exigir_entero(filas_m, "filas_m", minimo=1), semilla)
     if ids is not None and len(ids) != len(filas):
@@ -436,7 +554,7 @@ def monotonia_en_rejilla(columna: str, direccion: str, filas: Sequence[Mapping[s
     medido = _medido_sobre(medido_sobre, semilla, len(elegidas))
 
     def sin_comprobar(clave: str, texto: dict[str, str], malla: Sequence[float] = ()) -> MonotoniaDeUnaColumna:
-        return _sin_curvas(columna, direccion, malla, escala, eps_rel, medido, clave, texto, k)
+        return _sin_curvas(columna, direccion, malla, escala, eps_rel, q_rel, medido, clave, texto, k)
 
     if escala.valor is None:
         return sin_comprobar(escala.clave_del_motivo or "escala_no_valida", dict(escala.motivo or {}))
@@ -456,7 +574,7 @@ def monotonia_en_rejilla(columna: str, direccion: str, filas: Sequence[Mapping[s
         raise EsquemaInvalido("filas_desalineadas", campo="salidas", valor=len(salidas), opciones=len(perturbadas))
     curvas = [salidas[j * puntos:(j + 1) * puntos] for j in range(len(elegidas))]
     return monotonia_desde_curvas(columna, direccion, malla, curvas, ids_elegidos, epsilon_relativo=eps_rel,
-                                  escala=escala, medido_sobre=medido_sobre, semilla=semilla, k=k)
+                                  q_relativo=q_rel, escala=escala, medido_sobre=medido_sobre, semilla=semilla, k=k)
 
 
 # ---------------------------------------------------------------------------

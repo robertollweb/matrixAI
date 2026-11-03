@@ -67,22 +67,39 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "guarantee: with other values, other combinations or other columns at once it may "
               "behave differently. The declared monotonicity was not imposed during training.",
     },
-    # ---- la lectura que acompaña al veredicto: SIEMPRE con el efecto total al lado (I5) ----------
+    # ---- la lectura que acompaña al veredicto: SIEMPRE con la amplitud al lado (I5) ---------------
+    # El veredicto es por FRACCIÓN de filas (149-C1-bis): «con contraejemplos» = al menos el q de las filas
+    # comprobadas retroceden más que la tolerancia. La frase dice la fracción y el mínimo que se exigía.
     "lectura_con_contraejemplos": {
-        "es": "{violadoras} de {filas} filas retroceden más que la tolerancia ({tolerancia}); el mayor "
-              "retroceso es {retroceso}. Efecto total de la columna, de un extremo de la rejilla al "
-              "otro y en la dirección declarada ({direccion}): {efecto}.",
-        "en": "{violadoras} of {filas} rows go back by more than the tolerance ({tolerancia}); the "
-              "largest step back is {retroceso}. Total effect of the column, from one end of the grid "
-              "to the other and in the declared direction ({direccion}): {efecto}.",
+        "es": "El {fraccion} de las filas ({violadoras} de {filas}) retroceden más de {tolerancia}, y el "
+              "veredicto pide al menos el {minimo}; el mayor retroceso es {retroceso}. La curva típica de "
+              "una fila se mueve {amplitud} entre su valor más bajo y el más alto. Dirección declarada: "
+              "{direccion}.",
+        "en": "{fraccion} of the rows ({violadoras} of {filas}) go back by more than {tolerancia}, and the "
+              "verdict asks for at least {minimo}; the largest step back is {retroceso}. The typical "
+              "curve of a row moves {amplitud} between its lowest and its highest value. Declared "
+              "direction: {direccion}.",
     },
     "lectura_sin_contraejemplos": {
-        "es": "ninguna de las {filas} filas retrocede más que la tolerancia ({tolerancia}); el mayor "
-              "retroceso es {retroceso}. Efecto total de la columna, de un extremo de la rejilla al "
-              "otro y en la dirección declarada ({direccion}): {efecto}.",
-        "en": "none of the {filas} rows goes back by more than the tolerance ({tolerancia}); the "
-              "largest step back is {retroceso}. Total effect of the column, from one end of the grid "
-              "to the other and in the declared direction ({direccion}): {efecto}.",
+        "es": "El {fraccion} de las filas ({violadoras} de {filas}) retroceden más de {tolerancia}, por "
+              "debajo del {minimo} que pide el veredicto; el mayor retroceso es {retroceso}. La curva "
+              "típica de una fila se mueve {amplitud} entre su valor más bajo y el más alto. Dirección "
+              "declarada: {direccion}.",
+        "en": "{fraccion} of the rows ({violadoras} of {filas}) go back by more than {tolerancia}, below "
+              "the {minimo} the verdict asks for; the largest step back is {retroceso}. The typical "
+              "curve of a row moves {amplitud} between its lowest and its highest value. Declared "
+              "direction: {direccion}.",
+    },
+    # En binaria la tolerancia de partida es ALTA, y por qué (149-C0-ter). Sin «garantía» ni «seguro» (I3).
+    "tolerancia_alta_en_binaria": {
+        "es": "La tolerancia usada es alta: {tolerancia} de la probabilidad. Es la de partida en "
+              "clasificación binaria, a propósito: las curvas de los modelos de árboles avanzan a "
+              "escalones de entre el 10 % y el 15 % de la probabilidad con unas 2.000 filas, y con una "
+              "tolerancia menor esos escalones se contarían como retrocesos.",
+        "en": "The tolerance in use is high: {tolerancia} of the probability. It is the starting one for "
+              "binary classification, on purpose: the curves of tree models move in steps of between "
+              "10% and 15% of the probability with about 2,000 rows, and with a lower tolerance those "
+              "steps would be counted as steps back.",
     },
     "lectura_sin_comprobar": {
         "es": "No hay lectura de esta columna: ver el motivo.",
@@ -91,13 +108,13 @@ MOTIVOS: dict[str, dict[str, str]] = {
     "direccion_sube": {"es": "sube", "en": "goes up"},
     "direccion_baja": {"es": "baja", "en": "goes down"},
     # ---- por qué no se pudo comprobar: un valor ausente NO es un cero (I8) -----------------------
-    "efecto_no_distingue": {
-        "es": "la columna mueve la salida {efecto} de un extremo a otro de la rejilla, y eso no supera "
-              "la tolerancia ({tolerancia}): la prueba no distingue una dirección de la contraria, y "
-              "«sin contraejemplos» aquí no diría nada",
-        "en": "the column moves the output {efecto} from one end of the grid to the other, and that does "
-              "not exceed the tolerance ({tolerancia}): the check cannot tell one direction from the "
-              "opposite, and \"no counterexamples\" would say nothing here",
+    "amplitud_no_distingue": {
+        "es": "la curva típica de una fila se mueve {amplitud} entre su valor más bajo y el más alto, y eso "
+              "no supera la tolerancia ({tolerancia}): la prueba no distingue una dirección de la "
+              "contraria, y «sin contraejemplos» aquí no diría nada",
+        "en": "the typical curve of a row moves {amplitud} between its lowest and its highest value, and "
+              "that does not exceed the tolerance ({tolerancia}): the check cannot tell one direction "
+              "from the opposite, and \"no counterexamples\" would say nothing here",
     },
     "sin_prediccion": {
         "es": "el modelo no dio predicción en ninguna de las {filas} filas de esta columna",

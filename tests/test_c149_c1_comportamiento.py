@@ -14,6 +14,11 @@ que lo haría Usar.
 Cada prueba que protege una línea que explica por qué NO hace lo obvio lleva el nombre de esa línea:
 `test_un_retroceso_igual_a_la_tolerancia_pasa` guarda el `>`; `test_la_rejilla_crece` guarda el orden;
 `test_una_columna_plana_no_dice_sin_contraejemplos` guarda el I5; `test_un_hueco_no_es_un_cero` el I8.
+
+149-C1-BIS: el veredicto es por FRACCIÓN de filas (q) y la puerta es la AMPLITUD, no el efecto con signo.
+Las pruebas del C1 que daban por hecho «una fila basta» llevan `q=UNA_FILA_BASTA` (0,01: una fila de hasta
+100) para CONSERVAR su intención —retroceso, desempates, huecos, ε— sin depender de que 1 de 2 filas pase
+de un q por casualidad; las del veredicto nuevo están al final del fichero, con sus curvas a mano.
 """
 from __future__ import annotations
 
@@ -29,8 +34,10 @@ from matrixai.estudio import comportamiento_textos as textos
 from matrixai.estudio.comportamiento import (
     DIRECCIONES_DE_MONOTONIA,
     MEDIDO_SOBRE,
+    TOLERANCIA_POR_OMISION,
     VERSION_DEL_COMPORTAMIENTO,
     VEREDICTOS,
+    EscalaDeLaSalida,
     bloques_por_prefijo,
     caida_entre_pliegues,
     elegir_filas,
@@ -42,6 +49,7 @@ from matrixai.estudio.comportamiento import (
     rejilla,
     retroceso_de_una_curva,
     sensibilidad_de_una_columna,
+    tolerancia_por_omision,
 )
 from matrixai.estudio.comportamiento_textos import (
     CLAVE_DE_LOS_LIMITES,
@@ -55,14 +63,16 @@ from matrixai.estudio.comportamiento_textos import (
 from matrixai.estudio.errores import EsquemaInvalido
 
 BINARIA = escala_de_la_salida("binary_classification")      # escala 1,0: ε relativo == ε absoluto
+REGRESION_100 = escala_de_la_salida("regression", amplitud_p90_p10=100.0)    # ε 5 % = 5 unidades
+UNA_FILA_BASTA = 0.01          # q: con menos de 100 filas comprobadas, UNA fila violadora llega a q (el veredicto del C1)
 
 
-def curvas(*cs, direccion="sube", eps=0.1, escala=BINARIA, ids=None, k=5):
+def curvas(*cs, direccion="sube", eps=0.1, q=UNA_FILA_BASTA, escala=BINARIA, ids=None, k=5):
     ids = list(ids) if ids is not None else [f"f{i}" for i in range(len(cs))]
     puntos = len(cs[0]) if cs else 4
     return monotonia_desde_curvas("x", direccion, [float(j) for j in range(puntos)], list(cs), ids,
-                                  epsilon_relativo=eps, escala=escala, medido_sobre="muestra_de_desarrollo",
-                                  semilla=3, k=k)
+                                  epsilon_relativo=eps, q_relativo=q, escala=escala,
+                                  medido_sobre="muestra_de_desarrollo", semilla=3, k=k)
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +174,8 @@ def test_creciente_sin_contraejemplos_y_con_su_efecto_total():
     j = r.a_json()
     assert j["efecto_total"] == 0.875 and j["filas_con_violacion"] == 0 and j["contraejemplos"] == []
     assert j["veredicto"]["clave"] == "sin_contraejemplos"
-    assert "0,875" in j["veredicto"]["lectura"]["es"] and "0.875" in j["veredicto"]["lectura"]["en"]   # I5: el efecto al lado
+    assert j["amplitud_tipica"] == 0.875
+    assert "0,875" in j["veredicto"]["lectura"]["es"] and "0.875" in j["veredicto"]["lectura"]["en"]   # I5: la amplitud al lado
 
 
 def test_con_un_escalon_de_retroceso_es_con_contraejemplos_y_lo_cuenta():
@@ -198,11 +209,11 @@ def test_una_columna_plana_no_dice_sin_contraejemplos():
         for eps in (0.0, 0.01, 0.5):
             r = curvas(plana, plana, direccion=direccion, eps=eps)
             assert r.veredicto == "no_se_pudo_comprobar", (direccion, eps)
-            assert r.a_json()["veredicto"]["clave_del_motivo"] == "efecto_no_distingue"
+            assert r.a_json()["veredicto"]["clave_del_motivo"] == "amplitud_no_distingue"
             assert r.filas_con_violacion == 0 and r.efecto_total == 0.0
 
 
-def test_un_efecto_que_no_supera_la_tolerancia_no_distingue():
+def test_una_amplitud_que_no_supera_la_tolerancia_no_distingue():
     casi_plana = [0.5, 0.5001, 0.4999, 0.5]
     r = curvas(casi_plana, eps=0.01)
     assert r.veredicto == "no_se_pudo_comprobar"
@@ -338,7 +349,8 @@ def test_con_otro_epsilon_el_veredicto_cambia_sin_volver_a_predecir():
         llamadas.append(len(filas))
         return modelo_de_la_gente(filas)
 
-    kw = dict(minimo=20.0, maximo=80.0, puntos=13, filas_m=5, semilla=2, escala=BINARIA, medido_sobre="muestra_de_desarrollo")
+    kw = dict(minimo=20.0, maximo=80.0, puntos=13, filas_m=5, semilla=2, escala=BINARIA, medido_sobre="muestra_de_desarrollo",
+              q_relativo=UNA_FILA_BASTA)
     estricto = monotonia_en_rejilla("edad_años", "sube", FILAS_DE_LA_GENTE, puntuar, epsilon_relativo=0.01, **kw)
     assert llamadas == [65]
     assert estricto.veredicto == "con_contraejemplos"
@@ -352,8 +364,11 @@ def test_con_otro_epsilon_el_veredicto_cambia_sin_volver_a_predecir():
     # cambiar ε cambia SOLO lo que depende de ε
     a, b = estricto.a_json(), flojo.a_json()
     cambian = {k for k in a if a[k] != b[k]}
-    assert cambian == {"tolerancia", "filas_con_violacion", "contraejemplos", "veredicto"}
+    # `avisos`: en binaria el aviso de «tolerancia alta» sale con ε >= la de partida (0,5 lo es, 0,01 no): depende de ε.
+    assert cambian == {"tolerancia", "filas_con_violacion", "fraccion_con_violacion", "contraejemplos", "veredicto", "avisos"}
+    assert [x["clave"] for x in a["avisos"]] == [] and [x["clave"] for x in b["avisos"]] == ["tolerancia_alta_en_binaria"]
     assert a["para_recalcular"] == b["para_recalcular"] and a["efecto_total"] == b["efecto_total"]
+    assert a["amplitud_tipica"] == b["amplitud_tipica"]
 
 
 def test_misma_semilla_misma_salida_bit_a_bit_y_otra_semilla_otras_filas():
@@ -438,10 +453,12 @@ def test_el_puntuar_que_devuelve_de_menos_se_rechaza():
                              epsilon_relativo=0.01, escala=BINARIA, medido_sobre="muestra_de_desarrollo")
 
 
-def test_el_epsilon_no_tiene_valor_por_omision_ni_acepta_negativos():
-    """Lo fija C0, no este módulo: sin parámetro no se llama, y un ε negativo no existe."""
-    assert inspect.signature(monotonia_en_rejilla).parameters["epsilon_relativo"].default is inspect.Parameter.empty
-    assert inspect.signature(monotonia_desde_curvas).parameters["epsilon_relativo"].default is inspect.Parameter.empty
+def test_la_tolerancia_por_omision_es_la_medida_por_tarea_y_un_epsilon_negativo_no_existe():
+    """ε y q por omisión son los de la MEDICIÓN (149-C0-ter), por tarea, en UNA tabla: ningún otro número escrito. Pasar
+    otros los cambia; un ε negativo no existe."""
+    for f in (monotonia_en_rejilla, monotonia_desde_curvas):
+        parametros = inspect.signature(f).parameters
+        assert parametros["epsilon_relativo"].default is None and parametros["q_relativo"].default is None
     with pytest.raises(EsquemaInvalido):
         curvas([0.0, 1.0], eps=-0.01)
 
@@ -624,6 +641,12 @@ def _todos_los_veredictos():
     """Un documento de cada clase de veredicto y de cada motivo de «no se pudo comprobar»."""
     docs = [curvas([0.0, 0.25, 0.5, 1.0]), curvas([0.0, 0.5, 0.25, 1.0]), curvas([0.5] * 4), curvas(), curvas([None] * 4),
             curvas([[0.1, 0.2]] * 4)]
+    # 149-C1-bis: por fracción (CON y SIN con filas violadoras), por amplitud, con la tolerancia de partida de cada tarea
+    docs += [_con_violadoras(1, 20, 0.05), _con_violadoras(1, 20, 0.2), curvas(*([_CRECIENTE] * 5), eps=0.2, q=None),
+             monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [[0.0, 50.0, 43.0, 100.0]] + [[0.0, 25.0, 50.0, 100.0]] * 19,
+                                    list(range(20)), escala=REGRESION_100, medido_sobre="muestra_de_desarrollo", semilla=3),
+             monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [[0.0, 0.5, 0.25, 1.0]] * 3 + [_CRECIENTE] * 17,
+                                    list(range(20)), escala=BINARIA, medido_sobre="muestra_de_desarrollo", semilla=3)]
     for malo in (escala_de_la_salida("binary_classification", pendiente_de_la_recalibracion=-1.0),
                  escala_de_la_salida("regression", amplitud_p90_p10=0.0), escala_de_la_salida("multiclass_classification")):
         docs.append(monotonia_en_rejilla("x", "baja", [{"x": 1.0}], _no_debe_predecir, minimo=0.0, maximo=1.0, puntos=5,
@@ -632,6 +655,16 @@ def _todos_los_veredictos():
     docs.append(monotonia_en_rejilla("x", "sube", [{"x": 1.0}], _no_debe_predecir, minimo=None, maximo=None, puntos=5, filas_m=1,
                                      semilla=1, epsilon_relativo=0.01, escala=BINARIA, medido_sobre="muestra_de_desarrollo"))
     return docs
+
+
+def test_cada_clave_de_veredicto_de_los_documentos_de_la_batería_aparece():
+    """La batería de arriba tiene que tocar las tres palabras y los dos motivos del C1-bis; si no, el barrido no los ve."""
+    claves = {r.a_json()["veredicto"]["clave"] for r in _todos_los_veredictos()}
+    motivos = {r.a_json()["veredicto"]["clave_del_motivo"] for r in _todos_los_veredictos()}
+    avisos = {a["clave"] for r in _todos_los_veredictos() for a in r.a_json()["avisos"]}
+    assert claves == set(VEREDICTOS)
+    assert {"amplitud_no_distingue", "salida_no_numerica", "sin_filas", "sin_prediccion"} <= motivos
+    assert "tolerancia_alta_en_binaria" in avisos
 
 
 def test_la_frase_de_limites_va_pegada_a_cada_veredicto():
@@ -788,3 +821,223 @@ def test_la_fila_tipica_es_un_ice_de_una_fila():
     j = r.a_json()
     assert j["medido_sobre"] == {"clave": "fila_tipica", "semilla": 9, "filas_pedidas": 1}
     assert j["filas"]["comprobadas"] == 1 and r.veredicto == "sin_contraejemplos"   # efecto 0,05 > 0,01
+
+
+# ---------------------------------------------------------------------------
+# 149-C1-bis — el veredicto V'(ε, q): AMPLITUD primero, después la FRACCIÓN de filas
+# (decidido por Roberto el 03-11, `149-veredicto`; regla medida en `benchmarks/c149/REGLA_DE_ELECCION_TER.md`).
+# Curvas a mano en binario exacto (escala 1,0; ε 0,25): la fila violadora retrocede 0,5 y la buena no retrocede.
+# ---------------------------------------------------------------------------
+
+SIN, CON, NSC = VEREDICTOS
+_CRECIENTE = [0.0, 0.25, 0.5, 1.0]          # amplitud 1,0 y retroceso 0
+_VIOLADORA = [0.0, 1.0, 0.5, 1.0]           # amplitud 1,0 y retroceso 0,5 (máximo corrido 1,0 en j=1, cae a 0,5 en j=2)
+
+
+def _con_violadoras(violadoras, n, q, eps=0.25, direccion="sube"):
+    return curvas(*([_VIOLADORA] * violadoras + [_CRECIENTE] * (n - violadoras)), eps=eps, q=q, direccion=direccion)
+
+
+def test_la_fraccion_justo_en_q_es_con_contraejemplos():
+    """`>=` en la fracción: 1 de 20 es el 5 % y q = 5 % pide «al menos» el 5 %. Un poco más de q, ya no llega."""
+    assert _con_violadoras(1, 20, 0.05).veredicto == CON
+    assert _con_violadoras(1, 20, 0.06).veredicto == SIN
+    assert _con_violadoras(2, 20, 0.10).veredicto == CON and _con_violadoras(2, 20, 0.11).veredicto == SIN
+    assert _con_violadoras(4, 20, 0.20).veredicto == CON and _con_violadoras(3, 20, 0.20).veredicto == SIN
+    r = _con_violadoras(1, 20, 0.05)
+    assert (r.filas_con_violacion, r.filas_comprobadas, r.fraccion_con_violacion) == (1, 20, 0.05)
+
+
+def test_la_fraccion_justo_en_q_no_se_pierde_por_la_coma_flotante():
+    """0,07 · 100 = 7,000000000000001 en coma flotante: una comparación `violadoras >= q * filas` diría que 7 de 100 NO llega
+    al 7 %. La comparación es exacta (decimal contra racional)."""
+    assert 0.07 * 100 > 7
+    assert _con_violadoras(7, 100, 0.07).veredicto == CON
+    assert _con_violadoras(6, 100, 0.07).veredicto == SIN
+    assert _con_violadoras(100, 100, 1.0).veredicto == CON and _con_violadoras(99, 100, 1.0).veredicto == SIN
+
+
+def test_una_fila_no_basta_si_q_pide_mas():
+    """Antes del C1-bis una sola fila decidía. Con q = 20 %, 1 de 20 filas violadoras NO es «con contraejemplos» (y 1 de 1 sí)."""
+    r = _con_violadoras(1, 20, 0.2)
+    assert r.veredicto == SIN and r.filas_con_violacion == 1
+    assert curvas(_VIOLADORA, eps=0.25, q=0.2).veredicto == CON
+    # q ES un parámetro: el mismo cálculo, otro q, otro veredicto, y el documento dice cuál usó.
+    assert r.a_json()["tolerancia"]["fraccion_minima"] == {"relativa": 0.2, "texto": {"es": "20 %", "en": "20%"}}
+
+
+def test_la_amplitud_justo_en_epsilon_no_distingue():
+    """`>` y no `>=` en la amplitud: una curva que se mueve EXACTAMENTE lo que tolera la prueba no distingue nada."""
+    c = [0.0, 0.125, 0.25, 0.25]                                     # monótona, amplitud 0,25
+    r = curvas(c, c, eps=0.25)
+    assert r.amplitud_tipica == 0.25 and r.epsilon_absoluto == 0.25
+    assert r.veredicto == NSC and r.a_json()["veredicto"]["clave_del_motivo"] == "amplitud_no_distingue"
+    assert curvas(c, c, eps=0.2499).veredicto == SIN
+
+
+def test_la_amplitud_se_mira_antes_que_la_fraccion():
+    """Una columna plana con UNA fila ruidosa (1 de 20 = 5 % = q) no es «con contraejemplos»: la curva típica no se mueve, y la
+    prueba no distingue. Si se contara primero la fracción saldría CON."""
+    plana, ruido = [0.5] * 4, [0.5, 1.0, 0.5, 0.5]                   # el ruido retrocede 0,5 > ε
+    r = curvas(*([plana] * 19 + [ruido]), eps=0.25, q=0.05)
+    assert (r.filas_con_violacion, r.fraccion_con_violacion) == (1, 0.05)       # la fracción SÍ llegaba a q
+    assert r.amplitud_tipica == 0.0
+    assert r.veredicto == NSC and r.a_json()["veredicto"]["clave_del_motivo"] == "amplitud_no_distingue"
+
+
+def test_la_amplitud_no_tiene_signo_ni_depende_de_los_extremos():
+    """Una U que acaba donde empezó (efecto 0) y una columna monótona declarada AL REVÉS (efecto negativo) se mueven mucho: son
+    los dos contraejemplos más claros, y con el efecto con signo salían «no se pudo comprobar» (los dos errores del C0-bis)."""
+    u = [0.5, 0.0, 0.0, 0.5]
+    r = curvas(u, u, eps=0.25, q=0.05)
+    assert r.efecto_total == 0.0 and r.amplitud_tipica == 0.5
+    assert r.veredicto == CON
+    al_reves = curvas(_CRECIENTE, _CRECIENTE, direccion="baja", eps=0.25, q=0.05)
+    assert al_reves.efecto_total == -1.0 and al_reves.amplitud_tipica == 1.0
+    assert al_reves.veredicto == CON
+    assert curvas(_CRECIENTE, _CRECIENTE, direccion="sube", eps=0.25, q=0.05).veredicto == SIN       # y la buena, sin contraejemplos
+
+
+def test_la_amplitud_de_la_columna_es_la_mediana_de_las_filas_no_la_media_ni_el_maximo():
+    plana, a = [0.5] * 4, [0.0, 0.1, 0.2, 0.3]
+    # amplitudes 0, 0, 0, 0, 1: mediana 0 (el máximo, 1, la haría pasar; la media, 0,2, tampoco la distingue)
+    r = curvas(plana, plana, plana, plana, _CRECIENTE, eps=0.1)
+    assert r.amplitud_tipica == 0.0 and r.veredicto == NSC
+    # amplitudes 0, 0, 0,3, 0,3, 0,3: mediana 0,3 > 0,2 pasa la puerta; la media (0,18) no la pasaría
+    r = curvas(plana, plana, a, a, a, eps=0.2)
+    assert r.amplitud_tipica == 0.3 and statistics.fmean(r.amplitudes) < 0.2
+    assert r.veredicto == SIN
+    # y un hueco no cuenta como una curva plana: ni en la mediana ni en las filas comprobadas
+    r = curvas(a, [None, 0.2, 0.3, 0.4], a, a, eps=0.2)
+    assert r.amplitudes[1] is None and r.amplitud_tipica == 0.3 and r.veredicto == SIN
+
+
+def test_los_contraejemplos_solo_se_enseñan_si_el_veredicto_es_con_contraejemplos():
+    """Una o dos filas por debajo de q no son «contraejemplos» bajo un «sin contraejemplos»; siguen en `para_recalcular`."""
+    sin = _con_violadoras(1, 20, 0.2)
+    assert sin.veredicto == SIN and sin.contraejemplos == () and sin.a_json()["contraejemplos"] == []
+    assert len(sin.a_json()["para_recalcular"]["peores"]) == 1
+    con = sin.con_tolerancia(q_relativo=0.05)
+    assert con.veredicto == CON and [c["fila"] for c in con.contraejemplos] == ["f0"]
+
+
+def test_con_tolerancia_cambia_q_sin_volver_a_predecir_y_el_documento_lo_dice():
+    llamadas = []
+
+    def puntuar(filas):
+        llamadas.append(len(filas))
+        return [(1.0 if (f["x"] == 1.0 and f["i"] < 2) else 0.0) + f["x"] / 4 for f in filas]     # 2 de 10 filas con un pico en x=1 (retroceso 0,75)
+
+    filas = [{"x": 0.0, "i": i} for i in range(10)]
+    kw = dict(minimo=0.0, maximo=3.0, puntos=4, filas_m=10, semilla=1, escala=BINARIA, medido_sobre="muestra_de_desarrollo")
+    exigente = monotonia_en_rejilla("x", "sube", filas, puntuar, epsilon_relativo=0.1, q_relativo=0.3, **kw)
+    assert llamadas == [40] and exigente.fraccion_con_violacion == 0.2 and exigente.veredicto == SIN
+    flojo = exigente.con_tolerancia(q_relativo=0.2)
+    assert llamadas == [40] and flojo.veredicto == CON                       # I7: ni una predicción más
+    desde_cero = monotonia_en_rejilla("x", "sube", filas, puntuar, epsilon_relativo=0.1, q_relativo=0.2, **kw)
+    assert flojo.a_json() == desde_cero.a_json() and flojo.digest() == desde_cero.digest()
+    assert flojo.digest() != exigente.digest()                                # q entra en el digest
+    assert flojo.a_json()["tolerancia"]["fraccion_minima"]["relativa"] == 0.2
+    assert flojo.con_tolerancia(0.5, None).q_relativo == 0.2 and flojo.con_epsilon(0.5).q_relativo == 0.2   # None = conservar
+
+
+@pytest.mark.parametrize("malo", [0.0, -0.1, 1.5, float("nan"), True, "0.1", None])
+def test_q_fuera_de_0_1_se_rechaza(malo):
+    """q = 0 haría que cualquier columna tuviera contraejemplos (0 filas ≥ 0 %). `None` no es un q: pide el de la tarea."""
+    if malo is None:
+        assert curvas(_CRECIENTE, q=None).q_relativo == 0.2                    # el de partida de binaria
+        with pytest.raises(EsquemaInvalido):
+            curvas(_CRECIENTE).con_tolerancia(q_relativo=0.0)
+        return
+    with pytest.raises(EsquemaInvalido):
+        curvas(_CRECIENTE, q=malo)
+    with pytest.raises(EsquemaInvalido):
+        curvas(_CRECIENTE).con_tolerancia(q_relativo=malo)
+
+
+def test_los_valores_por_omision_son_los_medidos_por_tarea():
+    """149-C0-ter: regresión ε 5 %, q 5 %; binaria ε 20 %, q 20 %; multiclase ninguno. Una sola tabla."""
+    assert dict(TOLERANCIA_POR_OMISION) == {"regression": (0.05, 0.05), "binary_classification": (0.20, 0.20)}
+    assert tolerancia_por_omision("regression") == (0.05, 0.05)
+    assert tolerancia_por_omision("binary_classification") == (0.20, 0.20)
+    assert tolerancia_por_omision("multiclass_classification") is None
+    with pytest.raises(EsquemaInvalido):
+        tolerancia_por_omision("ordinal")
+    with pytest.raises(TypeError):
+        TOLERANCIA_POR_OMISION["regression"] = (0.0, 0.0)                    # no se reescribe de pasada
+
+
+def test_sin_pasarlos_cada_tarea_usa_los_suyos_y_no_los_de_la_otra():
+    # Binaria (ε 20 %, q 20 %): 3 de 20 filas retroceden 0,25 > 0,2 -> 15 % < 20 %: SIN. Con los de REGRESIÓN (5 %, 5 %) saldría CON.
+    binaria = monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [[0.0, 0.5, 0.25, 1.0]] * 3 + [_CRECIENTE] * 17,
+                                     list(range(20)), escala=BINARIA, medido_sobre="muestra_de_desarrollo", semilla=3)
+    assert (binaria.epsilon_relativo, binaria.q_relativo, binaria.filas_con_violacion) == (0.2, 0.2, 3)
+    assert binaria.veredicto == SIN
+    # Regresión (ε 5 %, q 5 %) con escala 100: 1 de 20 filas retrocede 7 > 5 -> 5 % >= 5 %: CON. Con los de BINARIA (20 %) saldría SIN.
+    regresion = monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [[0.0, 50.0, 43.0, 100.0]] + [[0.0, 25.0, 50.0, 100.0]] * 19,
+                                       list(range(20)), escala=REGRESION_100, medido_sobre="muestra_de_desarrollo", semilla=3)
+    assert (regresion.epsilon_relativo, regresion.q_relativo, regresion.epsilon_absoluto) == (0.05, 0.05, 5.0)
+    assert regresion.veredicto == CON
+    # el documento dice que son los de partida; con otros, no
+    assert binaria.a_json()["tolerancia"]["por_omision"] is True and regresion.a_json()["tolerancia"]["por_omision"] is True
+    assert curvas(_CRECIENTE, eps=0.2, q=0.2).a_json()["tolerancia"]["por_omision"] is True
+    assert curvas(_CRECIENTE, eps=0.2, q=0.1).a_json()["tolerancia"]["por_omision"] is False
+    assert regresion.con_epsilon(0.2).a_json()["tolerancia"]["por_omision"] is False
+    # ε sin q (o q sin ε): lo que falta es lo de la tarea
+    solo_eps = monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [_CRECIENTE], ["a"], epsilon_relativo=0.1, escala=BINARIA,
+                                      medido_sobre="muestra_de_desarrollo", semilla=3)
+    assert (solo_eps.epsilon_relativo, solo_eps.q_relativo) == (0.1, 0.2)
+
+
+def test_multiclase_no_tiene_tolerancia_de_partida_y_no_se_inventa_una():
+    mc = escala_de_la_salida("multiclass_classification")
+    r = monotonia_en_rejilla("x", "sube", [{"x": 1.0}], _no_debe_predecir, minimo=0.0, maximo=1.0, puntos=5, filas_m=1, semilla=1,
+                             escala=mc, medido_sobre="muestra_de_desarrollo")
+    j = r.a_json()
+    assert r.veredicto == NSC and j["veredicto"]["clave_del_motivo"] == "multiclase_sin_clase_declarada"
+    assert j["tolerancia"]["relativa"] is None and j["tolerancia"]["texto"] is None and j["tolerancia"]["por_omision"] is False
+    json.dumps(j, allow_nan=False)
+    # una escala VÁLIDA de una tarea sin tolerancia de partida, sin dársela: falla ruidoso, no un número inventado
+    inventada = EscalaDeLaSalida("multiclass_classification", 1.0, "escala_de_probabilidad", None)
+    with pytest.raises(EsquemaInvalido):
+        monotonia_desde_curvas("x", "sube", [0.0, 1.0], [[0.0, 1.0]], ["a"], escala=inventada, medido_sobre="muestra_de_desarrollo", semilla=1)
+    ok = monotonia_desde_curvas("x", "sube", [0.0, 1.0], [[0.0, 1.0]], ["a"], escala=inventada, epsilon_relativo=0.1, q_relativo=0.1,
+                                medido_sobre="muestra_de_desarrollo", semilla=1)
+    assert ok.veredicto == SIN
+
+
+def test_en_binaria_el_documento_dice_que_la_tolerancia_de_partida_es_alta_y_por_que():
+    binaria = monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [_CRECIENTE] * 5, list(range(5)), escala=BINARIA,
+                                     medido_sobre="muestra_de_desarrollo", semilla=3)
+    avisos = [a for a in binaria.a_json()["avisos"] if a["clave"] == "tolerancia_alta_en_binaria"]
+    assert len(avisos) == 1
+    es, en = avisos[0]["texto"]["es"], avisos[0]["texto"]["en"]
+    for trozo in ("alta", "20 % de la probabilidad", "10 %", "15 %", "2.000 filas", "escalones"):
+        assert trozo in es, trozo
+    for trozo in ("high", "20% of the probability", "10%", "15%", "2,000 rows", "steps"):
+        assert trozo in en, trozo
+    for idioma, texto in (("es", es), ("en", en)):
+        assert palabras_prohibidas(texto, idioma) == [], idioma               # sin «garantiza», «seguro», «robusto»…
+    # no sale en regresión, ni en binaria con una tolerancia menor que la de partida, ni sin filas comprobadas
+    assert not [a for a in curvas(_CRECIENTE, eps=0.1, q=0.2).a_json()["avisos"] if a["clave"] == "tolerancia_alta_en_binaria"]
+    reg = monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [[0.0, 25.0, 50.0, 100.0]], ["a"], escala=REGRESION_100,
+                                 medido_sobre="muestra_de_desarrollo", semilla=3)
+    assert reg.a_json()["avisos"] == []
+    assert curvas([None] * 4, eps=0.2, q=0.2).a_json()["avisos"] == []
+    # con una tolerancia MAYOR sigue siendo alta
+    assert [a["clave"] for a in curvas(_CRECIENTE, eps=0.3, q=0.2).a_json()["avisos"]] == ["tolerancia_alta_en_binaria"]
+
+
+def test_el_documento_lleva_la_amplitud_la_fraccion_y_las_amplitudes_por_fila():
+    r = _con_violadoras(1, 20, 0.05)
+    j = r.a_json()
+    assert j["version"] == VERSION_DEL_COMPORTAMIENTO == "2.0.0"
+    assert j["amplitud_tipica"] == 1.0 and j["fraccion_con_violacion"] == 0.05
+    assert j["para_recalcular"]["amplitudes"] == [1.0] * 20 and len(j["para_recalcular"]["retrocesos"]) == 20
+    assert j["efecto_total"] == r.efecto_total                                  # el efecto sigue como DATO
+    lectura = j["veredicto"]["lectura"]
+    assert "5 % de las filas (1 de 20)" in lectura["es"] and "al menos el 5 %" in lectura["es"]       # «el 5 % de las filas retroceden…»
+    assert "5% of the rows (1 of 20)" in lectura["en"] and "at least 5%" in lectura["en"]
+    assert "1 entre su valor más bajo y el más alto" in lectura["es"]
+    sin = _con_violadoras(1, 20, 0.2).a_json()["veredicto"]["lectura"]
+    assert "por debajo del 20 %" in sin["es"] and "below the 20%" in sin["en"]

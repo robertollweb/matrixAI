@@ -83,8 +83,10 @@ def test_con_los_retrocesos_y_el_efecto_de_C1_y_no_con_los_del_veredicto_de_C1()
     assert bis.veredicto_de_c1(r, 5) == NSC
     # Con un efecto claro (E = 0,5) y 2 filas de 20 que retroceden 0,10: C1 dice «con», V(5 %, q) depende de q.
     curvas = [[0.0, 0.6, 0.5] if i < 2 else [0.0, 0.25, 0.5] for i in range(20)]
-    r = monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0], curvas, list(range(20)), epsilon_relativo=0.05, escala=escala,
-                               medido_sobre="muestra_de_desarrollo", semilla=3)
+    # (C1-bis: el veredicto del núcleo ya no es «una fila basta»; q = 0,01 con 20 filas es exactamente esa regla del C1, que
+    # es lo que `veredicto_de_c1` del guion reproduce. La intención de la prueba se conserva: C1 «con», V(ε, q) según q.)
+    r = monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0], curvas, list(range(20)), epsilon_relativo=0.05, q_relativo=0.01,
+                               escala=escala, medido_sobre="muestra_de_desarrollo", semilla=3)
     assert r.veredicto == CON and r.filas_con_violacion == 2
     assert bis.veredicto_de_c1(r, 10) == CON and bis.veredicto_de_c1(r, 20) == SIN
 
