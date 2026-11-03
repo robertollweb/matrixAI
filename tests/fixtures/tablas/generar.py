@@ -333,6 +333,20 @@ def grande(filas: int, columnas: int, semilla: int = 1) -> bytes:
     return xlsx([Hoja("Datos", datos)])
 
 
+def grande_de_textos(filas: int, columnas: int, largo: int, semilla: int = 1) -> bytes:
+    """Una hoja densa de TEXTOS LARGOS y casi todos distintos (descripciones, comentarios): la
+    que más memoria gasta por byte de XML, porque el texto vive en la tabla de textos compartidos
+    y de ahí pasa a la tabla del hijo, a la del padre y al CSV."""
+    import random
+    import string
+    r = random.Random(semilla)
+    alfabeto = string.ascii_letters + " áéñ"
+    datos = [[f"c{j}" for j in range(columnas)]]
+    for _ in range(filas):
+        datos.append(["".join(r.choices(alfabeto, k=largo)) for _ in range(columnas)])
+    return xlsx([Hoja("Datos", datos)])
+
+
 def ole_cifrado() -> bytes:
     """Un contenedor OLE2 (CFB v3) con los dos flujos que Excel crea al proteger un libro con
     contraseña: `EncryptionInfo` y `EncryptedPackage`. Vacíos: solo importa su NOMBRE en el
@@ -522,7 +536,19 @@ def todos() -> dict[str, bytes]:
         "cifrado.xlsx": ole_cifrado(),
     }
     d["truncado.xlsx"] = d["oficina_con_valor.xlsx"][: len(d["oficina_con_valor.xlsx"]) // 2]
+    d["hostil_xls_aborta.xls"] = xls_que_aborta()
     return d
+
+
+def xls_que_aborta() -> bytes:
+    """`antiguo.xls` con UN byte cambiado (el 1627, de 0 a 121): calamine 0.9.0 pide entonces
+    181.193.933.040 bytes de golpe y Rust ABORTA el proceso (`memory allocation of … failed`,
+    SIGABRT, no capturable). Lo encontró el fuzz de la auditoría de 150-C1 (`z2_fuzz_xls.py`,
+    semilla 150). Se deriva del original, así que es reproducible."""
+    b = bytearray((AQUI / "antiguo.xls").read_bytes())
+    assert b[1627] == 0
+    b[1627] = 121
+    return bytes(b)
 
 
 def escribir(destino: pathlib.Path = AQUI) -> list[str]:

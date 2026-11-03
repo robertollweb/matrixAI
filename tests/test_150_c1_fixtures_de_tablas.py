@@ -53,7 +53,7 @@ def test_el_xls_antiguo_es_un_ole_de_verdad():
 def test_los_xlsx_generados_son_zips_validos_y_el_generador_es_determinista():
     for nombre, b in G.todos().items():
         if nombre in {"html_como.xls", "csv_renombrado.xlsx", "vacio.xlsx", "cifrado.xlsx",
-                      "truncado.xlsx"}:
+                      "truncado.xlsx", "hostil_xls_aborta.xls"}:
             continue
         assert zipfile.ZipFile(__import__("io").BytesIO(b)).testzip() is None, nombre
     assert G.todos() == G.todos()

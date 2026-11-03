@@ -27,6 +27,7 @@ import pytest
 
 from matrixai.tablas import (CODIGOS, Topes, TablaRechazada, convertir, detectar_formato,
                              inspeccionar)
+from matrixai.tablas import aislado as aislado_tablas
 from matrixai.tablas import api as api_tablas
 from matrixai.tablas import formato as formato_tablas
 from matrixai.tablas import valores as valores_tablas
@@ -251,7 +252,8 @@ def _prohibir_abrir(monkeypatch):
         raise _NoAbrir("se abrió el libro antes de comprobar los topes")
     monkeypatch.setattr(api_tablas, "_importar_calamine", boom)
     monkeypatch.setattr(xlsx_xml, "explorar_hoja", boom)
-    monkeypatch.setattr(xlsx_xml, "hallazgos", boom)
+    monkeypatch.setattr(aislado_tablas, "leer_hoja", boom)
+    monkeypatch.setattr(aislado_tablas, "listar_hojas", boom)
 
 
 def test_bomba_de_kilobytes_que_declaran_gigabytes_se_rechaza_sin_leerla(monkeypatch):
@@ -290,6 +292,7 @@ def test_una_bomba_que_miente_en_su_tamano_se_rechaza_sin_abrirla(monkeypatch):
     assert e.codigo == "zip_danado"
 
 
+@requiere_calamine
 def test_el_directorio_con_mas_filas_que_excel_se_rechaza_sin_leer_las_celdas(monkeypatch):
     """La bomba del inventario (20,7 MB → 309 MB, 2,5 M de filas): declara más filas de las que
     Excel admite. Se rechaza por la cabecera de la hoja, sin recorrer las celdas."""
@@ -298,8 +301,12 @@ def test_el_directorio_con_mas_filas_que_excel_se_rechaza_sin_leer_las_celdas(mo
               b"</is></c></row></sheetData></worksheet>")
     libro = G.xlsx([G.Hoja("H", [["a"]])], sobreescribir={"xl/worksheets/sheet1.xml": cuerpo})
     vistas = []
-    original = xlsx_xml._procesar_trozo
-    monkeypatch.setattr(xlsx_xml, "_procesar_trozo", lambda *a, **k: vistas.append(1) or original(*a, **k))
+    original = xlsx_xml._Explorador.manejadores
+
+    def espiar(self, p):
+        inicio, fin, fijar = original(self, p)
+        return (lambda n, a: (vistas.append(n) if n.endswith("c") else None) or inicio(n, a)), fin, fijar
+    monkeypatch.setattr(xlsx_xml._Explorador, "manejadores", espiar)
     # inspeccionar lista el error en su hoja; convertir lo da entero
     hoja = inspeccionar(libro, "grande.xlsx")["hojas"][0]
     assert hoja["error"]["codigo"] == "demasiadas_filas" and hoja["filas"] is None
@@ -334,7 +341,7 @@ def test_la_guarda_de_memoria_es_la_que_ya_existe_no_una_segunda(monkeypatch):
                         lambda n: llamadas.append(n) or real(n))
     _prohibir_calamine = lambda *a, **k: (_ for _ in ()).throw(_NoAbrir("se cargó la hoja"))
     # la celda suelta en Z1048576 reserva 27 M de celdas: 1,1 GB > los 100 MB «disponibles»
-    monkeypatch.setattr(api_tablas._Libro, "calamine", _prohibir_calamine)
+    monkeypatch.setattr(aislado_tablas, "leer_hoja", _prohibir_calamine)
     e = rechazo(convertir, leer("celda_perdida.xlsx"), "v.xlsx", hoja="Enero", fila_de_cabecera=1)
     assert e.codigo == "memoria_insuficiente"
     assert llamadas, "no se consultó limits.memoria_insuficiente"
@@ -392,7 +399,7 @@ def test_la_geometria_cuenta_solo_celdas_con_valor():
     g = geo(leer("celda_perdida.xlsx"))
     assert (g.filas, g.columnas, g.celdas_con_valor) == (1_048_576, 26, 13)
     g = geo(leer("varias_hojas.xlsx"))
-    assert g.hay_formulas is False and g.n_filas_ocultas == 1 and g.columnas_ocultas == [2]
+    assert g.hay_formulas is False and g.n_filas_ocultas == 1 and g.columnas_ocultas == [(2, 2)]
     g = geo(leer("tipos_raros.xlsx"))
     assert g.hay_errores and not g.hay_formulas
     g = geo(leer("oficina_con_valor.xlsx"), 2)
@@ -989,7 +996,8 @@ def test_todo_codigo_de_rechazo_tiene_motivo_en_es_y_en():
     detalle = dict(extension=".xlsx", formato=".ods", descomprimido="1 GB", original="1 KB",
                    tope="1 GB", hoja="H", filas=1, columnas=1, necesario="1 GB", disponible="1 MB",
                    hojas=["A", "B"], fila=1, primera=1, ultima=2, parametro="p", cuantas=2,
-                   celdas=["A1"], tipo="X")
+                   celdas=["A1"], tipo="X", tamano="300 MB", techo="1 GB", segundos=120,
+                   como="SIGABRT")
     for codigo, (es, en) in CODIGOS.items():
         e = rechazar(codigo, **detalle)
         assert e.motivo_es and e.motivo_en and e.motivo_es != e.motivo_en, codigo
@@ -1016,10 +1024,13 @@ _SINGULARES_EN = "cell|row|column|date|value|range|sheet"
 _DETALLE_PLURAL = dict(extension=".xlsx", formato=".ods", descomprimido="1 GB", original="1 KB",
                        tope="1 GB", hoja="H", necesario="1 GB", disponible="1 MB",
                        hojas=["A", "B"], fila=1, primera=1, ultima=2, parametro="p",
-                       celdas=["A1"], tipo="X")
+                       celdas=["A1"], tipo="X", tamano="300 MB", techo="1 GB", segundos=120,
+                       como="SIGABRT")
 _DETALLE_DECLARACION = dict(letras=["A"], letra="A", original="o", grupo="g", sub="s", filas=[1],
                             textos=["t"], rangos=["A1:A2"], tipos=["#N/A"], hoja="H", que=["q"],
-                            celdas=["A1"], nombres=["n"], fila=1)
+                            celdas=["A1"], nombres=["n"], fila=1, codigo="00000", ejemplo="1001",
+                            visible="01001", ejemplos=["9007199254740992"],
+                            motivos={"29_02_1900": 1})
 
 
 def _textos_con_n(n: int):
