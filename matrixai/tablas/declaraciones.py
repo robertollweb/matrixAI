@@ -49,6 +49,14 @@ def _motivos_fecha(d: dict, idioma: str) -> str:
                      for k, n in sorted((d["detalle"].get("motivos") or {}).items()))
 
 
+_DONDE = {"nombre": ("nombre del fichero", "file name"), "hoja": ("nombre de la hoja", "sheet name")}
+
+
+def _donde(d: dict, i: int) -> str:
+    """De dónde se quitó (`detalle.que`: «nombre» o «hoja») en el idioma `i` (0 es, 1 en)."""
+    que = d["detalle"].get("que")
+    return _DONDE[que][i] if isinstance(que, str) and que in _DONDE else str(que)
+
 # tipo → (función que da el texto en español, función que da el texto en inglés)
 TIPOS: dict[str, tuple] = {
     "columnas_vacias_quitadas": (
@@ -63,8 +71,11 @@ TIPOS: dict[str, tuple] = {
         lambda d: f"La columna {d['detalle'].get('letra')} tiene datos pero no nombre: ahora es «{_col(d)}».",
         lambda d: f"Column {d['detalle'].get('letra')} has data but no name: it is now «{_col(d)}»."),
     "nombre_normalizado": (
-        lambda d: f"El nombre «{d['detalle'].get('original')}» se escribió «{_col(d)}» (espacios sobrantes quitados).",
-        lambda d: f"The name «{d['detalle'].get('original')}» was written as «{_col(d)}» (extra spaces removed)."),
+        lambda d: f"El nombre «{d['detalle'].get('original')}» se escribió «{_col(d)}» (espacios sobrantes o marca U+FEFF del principio quitados).",
+        lambda d: f"The name «{d['detalle'].get('original')}» was written as «{_col(d)}» (extra spaces or a leading U+FEFF mark removed)."),
+    "punto_y_coma_en_el_nombre": (   # remate de 150-C4: el CSV de la conversión no puede parecer un CSV `;`
+        lambda d: f"El nombre «{d['detalle'].get('original')}» se escribió «{_col(d)}»: con una sola columna, un punto y coma en la cabecera hace que el CSV se lea como separado por «;».",
+        lambda d: f"The name «{d['detalle'].get('original')}» was written as «{_col(d)}»: with a single column, a semicolon in the header makes the CSV read as semicolon-separated."),
     "cabecera_compuesta": (
         lambda d: f"La cabecera de dos filas se unió en un solo nombre: «{_col(d)}» (grupo «{d['detalle'].get('grupo')}», subcolumna «{d['detalle'].get('sub')}»).",
         lambda d: f"The two-row header was joined into a single name: «{_col(d)}» (group «{d['detalle'].get('grupo')}», sub-column «{d['detalle'].get('sub')}»)."),
@@ -199,6 +210,13 @@ TIPOS: dict[str, tuple] = {
     "hoja_sin_datos": (
         lambda d: "La hoja no tiene datos.",
         lambda d: "The sheet has no data."),
+    # Remate de 150-C4 (menor 2): lo que se quita del NOMBRE del fichero o de la HOJA al componer el origen (el que
+    # cita la ficha). `detalle.que` dice de cuál.
+    "texto_del_origen_saneado": (
+        lambda d: _p(d['cuantas'], f"Se quitó 1 carácter de control o de dirección del {_donde(d, 0)}, que reordena o ensucia lo que se lee en el recibo.",
+                     "Se quitaron {n} caracteres de control o de dirección del " + _donde(d, 0) + ", que reordenan o ensucian lo que se lee en el recibo."),
+        lambda d: _p(d['cuantas'], f"1 control or direction character was removed from the {_donde(d, 1)}, which reorders or dirties what the receipt reads.",
+                     "{n} control or direction characters were removed from the " + _donde(d, 1) + ", which reorder or dirty what the receipt reads.")),
 }
 
 

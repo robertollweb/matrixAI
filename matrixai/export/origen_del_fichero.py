@@ -27,15 +27,20 @@ TRES REGLAS (las que el contrato fija y este módulo SOSTIENE, cada una con su p
 
 Y TRES MÁS, de la reparación tras la auditoría (150-C4, I1–I3 y M1):
 
-4. **El origen está ATADO al CSV.** La conversión declara la huella del CSV que devuelve (`sha256_del_csv`); el
-   estudio la compara con el texto que recibe y RECHAZA un origen que no es de ese CSV
-   (`origen_del_fichero_no_es_de_este_csv`): sin eso, cualquiera podía adjuntar a su CSV el origen de un libro
-   ajeno y la ficha lo afirmaba. Donde el CSV puede llegar preparado (`train-start`), no se rechaza: se graba
-   `vinculo` («comprobado» / «no_comprobado») y la ficha lo dice.
+4. **El origen está ATADO al CSV — con lo que de verdad se comprueba, y nada más.** La conversión declara la huella
+   del CSV que devuelve (`sha256_del_csv`); el estudio la compara con el texto que recibe y RECHAZA un origen cuya
+   huella no es la de ese CSV (`origen_del_fichero_no_es_de_este_csv`): sin eso, cualquiera podía adjuntar a su CSV el
+   origen de un libro ajeno y la ficha lo afirmaba. Donde el CSV puede llegar preparado (`train-start`), no se
+   rechaza: se graba `vinculo` y la ficha lo dice. **Pero la huella la declara el propio CLIENTE** (el servidor no
+   guarda lo que devolvió la conversión ni la firma), así que `vinculo: "comprobado"` significa SOLO «el dataset
+   coincide con la huella que el origen declara para su CSV», y la ficha lo dice con esas palabras: nunca «es el CSV
+   que devolvió la conversión» (decisión del supervisor, remate de 150-C4). Un `vinculo: "comprobado"` sin
+   `sha256_del_csv` es imposible y el validador lo rechaza.
 5. **Lo que la ficha cita no puede reescribirla.** `formato` es una lista cerrada; `nombre` y `hoja` van en código
    en línea con un delimitador más largo que cualquier racha de comillas invertidas que lleven (una hoja
-   «Datos `2024`» sale entera), y se rechazan los caracteres de control bidireccionales (U+202A–U+202E,
-   U+2066–U+2069), que reordenan lo que se lee sin cambiar lo que se guarda.
+   «Datos `2024`» sale entera), y se rechazan los caracteres de control y de dirección (`matrixai.nombre_citable`:
+   C0, C1, U+2028/2029 y U+200E, U+200F, U+061C, U+202A–U+202E, U+2066–U+2069), que reordenan lo que se lee sin
+   cambiar lo que se guarda. La conversión de un libro QUITA esos mismos caracteres (y lo declara) con la misma regla.
 6. **Lo que dice el servidor no lo dice el cliente.** `informativo`, `nota` y `vinculo` los escribe el núcleo: lo
    que traiga el cliente con esos nombres se descarta al entrar y, en el manifiesto, lo del núcleo va DESPUÉS.
 """
@@ -45,6 +50,7 @@ import hashlib
 import re
 from typing import Any, Mapping, Sequence
 
+from matrixai import nombre_citable
 from matrixai.export.reproduce import (
     ReproduceManifestError,
     _require_full_sha256,
@@ -55,6 +61,7 @@ from matrixai.export.reproduce import (
 __all__ = [
     "CLAVE", "VERSION_DE_LA_CAPTURA_CON_ORIGEN", "TOPE_DE_BYTES_DEL_ORIGEN", "FORMATOS", "VINCULOS",
     "OrigenDeOtroCsv", "normalizar_origen_del_fichero", "numero_de_declaraciones", "origen_de_un_csv",
+    "es_origen_de_excel", "entrada_canonica_de",
     "origen_para_el_estudio", "atar_al_csv", "huella_del_texto", "bloque_del_manifiesto", "texto_del_origen",
     "codigo_en_linea", "ROTULO",
 ]
@@ -83,17 +90,19 @@ _FORMATOS_DE_EXCEL = ("xlsx", "xls", "xlsm")
 #: lo que mandase el cliente («**VERIFICADO**»).
 FORMATOS = (*_FORMATOS_DE_EXCEL, "csv")
 
-#: Lo que `vinculo` puede decir (I1): «comprobado» = el CSV que entrenó es, byte a byte, el que declaró la
-#: conversión (`sha256_del_csv`); «no_comprobado» = no lo es o no se pudo saber (el CSV pudo prepararse después).
+#: Lo que `vinculo` puede decir (I1): «comprobado» = el dataset coincide, byte a byte, con la huella que el origen declara
+#: para su CSV (`sha256_del_csv`, que la declara el cliente: el servidor no guarda lo que devolvió la conversión);
+#: «no_comprobado» = no coincide o no se pudo saber (el CSV pudo prepararse después).
 VINCULOS = ("comprobado", "no_comprobado")
 
 #: Las claves que escribe el NÚCLEO, nunca el cliente (M1): lo que llegue con estos nombres se descarta al entrar.
 _CLAVES_DEL_NUCLEO = ("informativo", "nota", "vinculo")
 
-_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
-#: Controles bidireccionales (I3): incrustaciones y anulaciones (U+202A–U+202E) y aislamientos (U+2066–U+2069). Un
-#: U+202E en el nombre de una hoja hace que la ficha SE LEA distinta de lo que guarda («xslx.exe» como «exe.xlsx»).
-_BIDI = re.compile("[\u202a-\u202e\u2066-\u2069]")
+#: Los caracteres que un nombre o una hoja citados no pueden llevar viven en `matrixai.nombre_citable` (UNA regla, que
+#: también aplica la conversión de un libro al componer el origen). Un U+202E en el nombre de una hoja hace que la ficha
+#: SE LEA distinta de lo que guarda («xslx.exe» como «exe.xlsx»).
+_CONTROL = nombre_citable.CONTROL
+_BIDI = nombre_citable.DIRECCION
 
 #: Cómo se llama la línea en cada idioma (la ficha y el expediente la rotulan igual: los dos leen de aquí).
 ROTULO = {"es": "Origen", "en": "Origin"}
@@ -144,6 +153,12 @@ def normalizar_origen_del_fichero(crudo: Any, *, campo: str = CLAVE) -> dict[str
     if origen.get("vinculo") is not None and origen["vinculo"] not in VINCULOS:
         raise ReproduceManifestError(
             f"{campo}.vinculo must be one of {', '.join(VINCULOS)}, got {origen['vinculo']!r}")
+    if origen.get("vinculo") == "comprobado" and not origen.get("sha256_del_csv"):
+        # Remate de 150-C4 (menor 3): «comprobado» es «coincide con la huella que el origen declara para su CSV»; sin esa
+        # huella no hay nada con lo que coincidir, y un sobre o un paquete editado a mano lo diría igualmente.
+        raise ReproduceManifestError(
+            f"{campo}.vinculo is 'comprobado' but {campo}.sha256_del_csv is missing: a link cannot be checked against a "
+            f"digest the origin does not declare")
     if origen.get("huella_de") is not None and origen["huella_de"] != "texto_recibido":
         raise ReproduceManifestError(f"{campo}.huella_de must be 'texto_recibido' or absent, got {origen['huella_de']!r}")
 
@@ -152,13 +167,13 @@ def normalizar_origen_del_fichero(crudo: Any, *, campo: str = CLAVE) -> dict[str
         if valor is None:
             continue
         _require_text(valor, f"{campo}.{clave}")
-        if len(valor) > 255 or _CONTROL.search(valor):
+        if len(valor) > nombre_citable.TOPE_DE_CARACTERES or _CONTROL.search(valor):
             raise ReproduceManifestError(
                 f"{campo}.{clave} must be a text of at most 255 characters with no control characters, got {valor!r}")
         if _BIDI.search(valor):
             raise ReproduceManifestError(
-                f"{campo}.{clave} carries a bidirectional control character (U+202A–U+202E, U+2066–U+2069), which "
-                f"makes the receipt read differently from what it records, got {valor!r}")
+                f"{campo}.{clave} carries a bidirectional control character (U+200E, U+200F, U+061C, U+202A–U+202E, "
+                f"U+2066–U+2069), which makes the receipt read differently from what it records, got {valor!r}")
     octetos = origen.get("bytes")
     if octetos is not None and (type(octetos) is not int or octetos < 0):
         raise ReproduceManifestError(f"{campo}.bytes must be a non-negative integer or null, got {octetos!r}")
@@ -227,6 +242,34 @@ def origen_para_el_estudio(origen_recibido: Any, *, texto_recibido: str,
     if entrada:
         return origen_de_un_csv(texto_recibido, entrada, nombre=nombre)
     return None
+
+
+def es_origen_de_excel(origen: Any) -> bool:
+    """¿Este origen (sin validar aún) dice que el CSV salió de la CONVERSIÓN de un libro de Excel?"""
+    return isinstance(origen, Mapping) and origen.get("formato") in _FORMATOS_DE_EXCEL
+
+
+def entrada_canonica_de(csv_text: str, origen_recibido: Any) -> tuple[str, list[dict]]:
+    """La entrada canónica del estudio (150-C2) para ESTE CSV: `(texto, declaraciones_de_entrada)`.
+
+    Un CSV que viene de `convertir` (origen de formato xlsx, xls o xlsm) **ya es canónico**: coma, punto decimal, sin BOM
+    propio, escrito por nuestro escritor. Ese CSV pasa TAL CUAL y sin declaraciones, y el estudio guarda exactamente lo que
+    devolvió la conversión (`dataset.sha256` = `sha256_del_csv`). Todo lo demás (un CSV `;` de verdad, con o sin origen propio)
+    se canoniza como en el C2.
+
+    Medido con dos libros (remate de 150-C4): volver a canonizarlo era PEOR que no hacerlo. Un Excel de una columna con la
+    cabecera `peso;altura` salía con la cabecera reescrita a `peso,altura` sobre filas de una columna (HTTP 500), y una
+    cabecera que empezaba por U+FEFF perdía el carácter, de modo que `dataset.sha256` dejaba de ser `sha256_del_csv`. Pero
+    saltarse la canonización AQUÍ no basta: el análisis del núcleo (`analyze_dataset_csv`) y el entrenamiento canonizan por su
+    cuenta. Por eso la conversión (`matrixai.tablas`) escribe un CSV que es un PUNTO FIJO de la entrada canónica (`peso_altura`,
+    sin U+FEFF; una prueba lo recorre en todos los libros de los fixtures) y esta función solo lo deja pasar sin tocarlo.
+
+    `normalize_csv_text_declarando` se importa aquí, no arriba: este módulo no necesita el entrenamiento para escribir un
+    recibo."""
+    if es_origen_de_excel(origen_recibido):
+        return csv_text, []
+    from matrixai.training.data import normalize_csv_text_declarando  # noqa: PLC0415
+    return normalize_csv_text_declarando(csv_text)
 
 
 class OrigenDeOtroCsv(ReproduceManifestError):
@@ -317,17 +360,22 @@ def codigo_en_linea(texto: str) -> str:
 
 #: Lo que dice la ficha del VÍNCULO entre el origen y este dataset (I1), en cada idioma.
 _VINCULO = {
+    # Lo que se COMPRUEBA y nada más: la huella del origen la declara el cliente, y el servidor no guarda lo que devolvió
+    # la conversión. Ninguna frase dice «comprobado» de que el dataset ES el CSV de la conversión.
     "comprobado": {
-        "es": "vínculo comprobado: este dataset es el CSV que devolvió la conversión",
-        "en": "link checked: this dataset is the CSV the conversion returned"},
+        "es": ("el dataset coincide con la huella que el origen declara para su CSV; el servidor no guarda lo que "
+               "devolvió la conversión"),
+        "en": ("the dataset matches the digest the origin declares for its CSV; the server does not keep what the "
+               "conversion returned")},
     "no_comprobado": {
-        "es": ("vínculo sin comprobar: este dataset no es, byte a byte, el CSV que devolvió la conversión; "
+        "es": ("sin comprobar: el dataset no coincide, byte a byte, con la huella que el origen declara para su CSV; "
                "pudo prepararse después"),
-        "en": ("link not checked: this dataset is not, byte for byte, the CSV the conversion returned; "
+        "en": ("not checked: the dataset does not match, byte for byte, the digest the origin declares for its CSV; "
                "it may have been prepared afterwards")},
     "no_consta": {
-        "es": "vínculo sin comprobar: no consta que este dataset salga de ese fichero",
-        "en": "link not checked: nothing records that this dataset came from that file"},
+        "es": "sin comprobar: el origen no declara la huella de su CSV, así que no consta que este dataset salga de ese fichero",
+        "en": ("not checked: the origin declares no digest for its CSV, so nothing records that this dataset came "
+               "from that file")},
 }
 
 

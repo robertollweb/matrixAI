@@ -189,11 +189,11 @@ def test_el_texto_del_origen_en_espanol_y_en_ingles_dice_lo_que_dice_el_contrato
     origen = _origen_a_mano()
     # (reparación I1) detrás de la huella va el VÍNCULO con este dataset; este origen no lo declara: «no consta»
     assert odf.texto_del_origen(origen, "es").startswith(
-        f"Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (vínculo sin comprobar: no consta "
-        f"que este dataset salga de ese fichero), 3 declaraciones")
+        f"Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (sin comprobar: el origen no declara "
+        f"la huella de su CSV, así que no consta que este dataset salga de ese fichero), 3 declaraciones")
     assert odf.texto_del_origen(origen, "en").startswith(
-        f"Excel `ventas.xlsx`, sheet `Pedidos`, digest of the original `{_SHA_ORIGINAL}` (link not checked: nothing "
-        f"records that this dataset came from that file), 3 declarations")
+        f"Excel `ventas.xlsx`, sheet `Pedidos`, digest of the original `{_SHA_ORIGINAL}` (not checked: the origin declares "
+        f"no digest for its CSV, so nothing records that this dataset came from that file), 3 declarations")
     # singular y cero
     assert ", 1 declaración" in odf.texto_del_origen(_origen_a_mano(declaraciones=[_declaracion("x")]), "es")
     assert ", 1 declaration" in odf.texto_del_origen(_origen_a_mano(declaraciones=[_declaracion("x")]), "en")
@@ -211,7 +211,7 @@ def test_lo_que_el_origen_no_sabe_se_omite_y_no_se_rellena_en_el_texto():
     origen = _origen_a_mano()
     del origen["nombre"], origen["hoja"]
     es = odf.texto_del_origen(origen, "es")
-    assert es.startswith(f"Excel, huella del original `{_SHA_ORIGINAL}` (vínculo sin comprobar")
+    assert es.startswith(f"Excel, huella del original `{_SHA_ORIGINAL}` (sin comprobar")
     assert "None" not in es and "``" not in es
     csv = odf.origen_de_un_csv("a;b\n1,5;x\n", [_declaracion("decimal_coma_convertido", 1, "a")])
     # (reparación I2) la de un CSV es la del TEXTO RECIBIDO, y así se llama
@@ -486,13 +486,13 @@ def test_la_ficha_tripod_enseña_el_origen_junto_a_la_huella_del_dataset_en_es_y
     i = next(n for n, l in enumerate(es) if l.startswith("- **Huella del dataset (sha256)**"))
     assert es[i].startswith(f"- **Huella del dataset (sha256)**: {derivado}")
     assert es[i + 1].startswith(
-        f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (vínculo")
+        f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (sin comprobar")
     assert ", 3 declaraciones" in es[i + 1]
     assert es[i + 1].endswith(f" · {ruta}") and "informativo" in es[i + 1]
     en = ficha_tripod(d, locale="en").splitlines()
     j = next(n for n, l in enumerate(en) if l.startswith("- **Dataset digest (sha256)**"))
     assert en[j + 1].startswith(
-        f"- **Origin**: Excel `ventas.xlsx`, sheet `Pedidos`, digest of the original `{_SHA_ORIGINAL}` (link")
+        f"- **Origin**: Excel `ventas.xlsx`, sheet `Pedidos`, digest of the original `{_SHA_ORIGINAL}` (not checked")
     assert ", 3 declarations" in en[j + 1]
     assert "informative" in en[j + 1] and en[j + 1].endswith(f" · {ruta}")
 
@@ -516,7 +516,7 @@ def test_el_expediente_y_probast_incluyen_el_origen_solo_si_el_paquete_lo_declar
     assert [c for c in claves_con if c != "origen_del_fichero"] == claves_sin
     # un CSV sin origen no recibe un hueco «sin origen» en PROBAST: no es una laguna, es que no hubo conversión
     assert "**Origen**" not in huecos_probast(_paquete_regenerable(), locale="es")
-    assert f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (vínculo" in \
+    assert f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (sin comprobar" in \
         huecos_probast(_paquete_regenerable(origen=_origen_a_mano()), locale="es")
 
 
@@ -555,7 +555,7 @@ def test_la_ficha_de_un_estudio_con_origen_lo_lleva_tambien():
                               origen_del_fichero=_origen_a_mano())
     (d / "reproduce.json").write_text(json.dumps(m, indent=2), encoding="utf-8")
     ficha = ficha_tripod(d, locale="es")
-    assert f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (vínculo" in ficha
+    assert f"- **Origen**: Excel `ventas.xlsx`, hoja `Pedidos`, huella del original `{_SHA_ORIGINAL}` (sin comprobar" in ficha
     sin = pathlib.Path(tempfile.mkdtemp(prefix="c150c4-estudio-"))
     (sin / "reproduce.json").write_text(json.dumps(manifiesto_de_estudio(
         filas=40, huella_del_dataset=hashlib.sha256(b"a,b\n1,2\n").hexdigest(), modo="rapido"), indent=2), encoding="utf-8")
@@ -677,16 +677,20 @@ def test_I1_train_start_graba_el_vinculo_comprobado_o_no_y_no_rechaza():
 
 
 def test_I1_la_ficha_dice_el_vinculo_en_es_y_en():
+    """Rescrita en el remate de 150-C4 (conservando su intención: la ficha dice el vínculo en los dos idiomas): la frase de
+    «comprobado» ya no afirma que el dataset ES el CSV de la conversión, sino lo único que se comprueba."""
     sha = _SHA_ORIGINAL
     casos = {
         "comprobado": (
-            f"huella del original `{sha}` (vínculo comprobado: este dataset es el CSV que devolvió la conversión)",
-            f"digest of the original `{sha}` (link checked: this dataset is the CSV the conversion returned)"),
+            f"huella del original `{sha}` (el dataset coincide con la huella que el origen declara para su CSV; "
+            f"el servidor no guarda lo que devolvió la conversión)",
+            f"digest of the original `{sha}` (the dataset matches the digest the origin declares for its CSV; "
+            f"the server does not keep what the conversion returned)"),
         "no_comprobado": (
-            f"huella del original `{sha}` (vínculo sin comprobar: este dataset no es, byte a byte, el CSV que devolvió "
-            f"la conversión; pudo prepararse después)",
-            f"digest of the original `{sha}` (link not checked: this dataset is not, byte for byte, the CSV the "
-            f"conversion returned; it may have been prepared afterwards)"),
+            f"huella del original `{sha}` (sin comprobar: el dataset no coincide, byte a byte, con la huella que el "
+            f"origen declara para su CSV; pudo prepararse después)",
+            f"digest of the original `{sha}` (not checked: the dataset does not match, byte for byte, the digest the "
+            f"origin declares for its CSV; it may have been prepared afterwards)"),
     }
     for vinculo, (es, en) in casos.items():
         origen = _origen_de("a,b\n", vinculo=vinculo)
@@ -694,8 +698,10 @@ def test_I1_la_ficha_dice_el_vinculo_en_es_y_en():
         assert en in odf.texto_del_origen(origen, "en")
     # por la ficha de un paquete de verdad
     d = _paquete_regenerable(origen=_origen_de("a,b\n", vinculo="comprobado"))
-    assert "(vínculo comprobado: este dataset es el CSV que devolvió la conversión)" in ficha_tripod(d, locale="es")
-    assert "(link checked: this dataset is the CSV the conversion returned)" in ficha_tripod(d, locale="en")
+    assert ("(el dataset coincide con la huella que el origen declara para su CSV; el servidor no guarda lo que "
+            "devolvió la conversión)") in ficha_tripod(d, locale="es")
+    assert ("(the dataset matches the digest the origin declares for its CSV; the server does not keep what the "
+            "conversion returned)") in ficha_tripod(d, locale="en")
 
 
 # ── I2: la huella de un CSV es la del TEXTO RECIBIDO, y así se llama ─────────────────────────────
@@ -850,3 +856,250 @@ def test_M2_una_cifra_medida_sobre_el_original_no_se_contrasta_en_R3():
         r3 = c136.base_r3(sobre_el_original, dict(honestas), locale=locale)
         assert r3["status"] == "INCOMPARABLE", r3
         assert r3["other_dataset"] == ["mae", "rmse"] and r3["checked"] == ["final_train_loss"], r3
+
+
+# ══ REMATE de 150-C4 (re-auditoría: un importante y cinco menores) ═══════════════════════════════
+# Sabotajes de cada uno, en `~/.agentes/150/remate-c4/`.
+
+def _generador_de_libros():
+    spec = importlib.util.spec_from_file_location("generar_tablas_150_c4_remate", FIXTURES / "generar.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["generar_tablas_150_c4_remate"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _convertir_hoja(nombre_del_libro, filas, *, hoja="Datos", **pedido):
+    from matrixai.tablas import convertir
+    G = _generador_de_libros()
+    return convertir(G.xlsx([G.Hoja(hoja, filas)]), nombre_del_libro, hoja=hoja, fila_de_cabecera=1, **pedido)
+
+
+# ── Importante: la ficha no afirma más de lo que se comprueba ────────────────────────────────────
+
+def test_R1_ninguna_frase_dice_comprobado_de_que_el_dataset_es_el_csv_de_la_conversion():
+    """La huella del origen (`sha256_del_csv`) la declara el CLIENTE y el servidor no guarda lo que devolvió la conversión:
+    lo único que se comprueba es que el dataset COINCIDE con esa huella. Las TRES frases (comprobado, no comprobado, no consta)
+    en los dos idiomas, tal cual, y ninguna afirma lo que no se mide."""
+    frases = {
+        ("comprobado", "es"): ("(el dataset coincide con la huella que el origen declara para su CSV; el servidor no "
+                               "guarda lo que devolvió la conversión)"),
+        ("comprobado", "en"): ("(the dataset matches the digest the origin declares for its CSV; the server does not "
+                               "keep what the conversion returned)"),
+        ("no_comprobado", "es"): ("(sin comprobar: el dataset no coincide, byte a byte, con la huella que el origen "
+                                  "declara para su CSV; pudo prepararse después)"),
+        ("no_comprobado", "en"): ("(not checked: the dataset does not match, byte for byte, the digest the origin "
+                                  "declares for its CSV; it may have been prepared afterwards)"),
+        ("no_consta", "es"): ("(sin comprobar: el origen no declara la huella de su CSV, así que no consta que este "
+                              "dataset salga de ese fichero)"),
+        ("no_consta", "en"): ("(not checked: the origin declares no digest for its CSV, so nothing records that this "
+                              "dataset came from that file)"),
+    }
+    for (vinculo, idioma), frase in frases.items():
+        if vinculo == "no_consta":
+            origen = _origen_a_mano(vinculo="no_comprobado")          # sin `sha256_del_csv`
+        else:
+            origen = _origen_de("a,b\n", vinculo=vinculo)
+        texto = odf.texto_del_origen(origen, idioma)
+        assert frase in texto, (vinculo, idioma)
+        for prohibida in ("vínculo comprobado", "es el CSV que devolvió", "link checked", "is the CSV the conversion returned"):
+            assert prohibida not in texto, (vinculo, idioma, prohibida)
+    # y solo la frase de «coincide» puede decir que coincide: las otras dos dicen que NO se comprueba
+    for idioma, coincide in (("es", "coincide con la huella"), ("en", "matches the digest")):
+        assert coincide not in odf.texto_del_origen(_origen_a_mano(vinculo="no_comprobado"), idioma)
+
+
+def test_R1_un_origen_sin_huella_de_su_csv_dice_que_no_consta_aunque_el_sobre_diga_no_comprobado():
+    """El caso «no consta» (sin `sha256_del_csv`) tiene SU frase, distinta de «no coincide» (con la huella y otro CSV)."""
+    sin = odf.texto_del_origen(_origen_a_mano(vinculo="no_comprobado"), "es")
+    con = odf.texto_del_origen(_origen_de("a,b\n", vinculo="no_comprobado"), "es")
+    assert "el origen no declara la huella de su CSV" in sin and "el dataset no coincide" not in sin
+    assert "el dataset no coincide, byte a byte" in con and "no declara la huella" not in con
+
+
+# ── Menor 3: el validador ────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("donde", ["sobre_o_paquete_editado", "origen_de_la_captura_del_run"])
+def test_R3_un_vinculo_comprobado_sin_huella_de_su_csv_se_rechaza(donde):
+    """Un sobre o un paquete editado a mano puede decir «comprobado» sin declarar la huella con la que coincidir."""
+    origen = _origen_a_mano(vinculo="comprobado")
+    assert "sha256_del_csv" not in origen
+    if donde == "sobre_o_paquete_editado":
+        with pytest.raises(ReproduceManifestError, match="sha256_del_csv"):
+            odf.normalizar_origen_del_fichero(origen)
+    else:
+        base = _provenance_minima()
+        prov = {"schema_version": "1.3", "origen_del_fichero": origen}
+        with pytest.raises(ReproduceManifestError, match="sha256_del_csv"):
+            rp._normalize_run_provenance({**base, **prov})
+        # control positivo: la MISMA captura con un origen que sí declara su huella se normaliza
+        bueno = {"schema_version": "1.3", "origen_del_fichero": _origen_de("a,b\n", vinculo="comprobado")}
+        assert rp._normalize_run_provenance({**base, **bueno})["origen_del_fichero"]["vinculo"] == "comprobado"
+    # con su huella, el mismo origen entra
+    assert odf.normalizar_origen_del_fichero(_origen_de("a,b\n", vinculo="comprobado"))["vinculo"] == "comprobado"
+
+
+def _provenance_minima() -> dict:
+    sub, job = _entrenar()
+    return {k: v for k, v in job["run_provenance"].items() if k != "origen_del_fichero"}
+
+
+@pytest.mark.parametrize("cp", [0x200E, 0x200F, 0x061C, 0x2028, 0x2029, 0x0085, 0x0009, 0x0000, 0x009F])
+@pytest.mark.parametrize("clave", ["nombre", "hoja"])
+def test_R3_los_controles_de_direccion_y_de_linea_que_faltaban_se_rechazan_en_nombre_y_hoja(cp, clave):
+    with pytest.raises(ReproduceManifestError):
+        odf.normalizar_origen_del_fichero(_origen_a_mano(**{clave: f"ventas{chr(cp)}xlsx"}))
+
+
+def test_R3_la_regla_de_los_textos_citados_es_una_sola_la_del_validador_y_la_de_la_conversion():
+    """Una sola función: lo que `saneado` deja pasa el validador, y lo que quita es justo lo que el validador rechaza."""
+    from matrixai import nombre_citable
+    todo = "".join(chr(c) for c in list(range(0x00, 0x20)) + list(range(0x7F, 0xA0)) +
+                   [0x2028, 0x2029, 0x200E, 0x200F, 0x061C] + list(range(0x202A, 0x202F)) + list(range(0x2066, 0x206A)))
+    limpio, quitados = nombre_citable.saneado("a" + todo + "b")
+    assert limpio == "ab" and quitados == len(todo)
+    odf.normalizar_origen_del_fichero(_origen_a_mano(nombre=limpio, hoja=limpio))
+    for c in todo:
+        with pytest.raises(ReproduceManifestError):
+            odf.normalizar_origen_del_fichero(_origen_a_mano(nombre=f"a{c}b"))
+    # lo legítimo no se toca: tildes, hebreo, árabe, emoji, espacios del interior
+    for ok in ("año ñandú.xlsx", "נתונים.xlsx", "بيانات", "datos 🙂 2024"):
+        assert nombre_citable.saneado(ok) == (ok, 0)
+    assert nombre_citable.saneado("  x  ") == ("x", 0)
+    assert nombre_citable.saneado("") == (None, 0) and nombre_citable.saneado("\t\u202a") == (None, 2)
+    assert nombre_citable.saneado(None) == (None, 0) and nombre_citable.saneado(5) == (None, 0)
+
+
+# ── Menor 2: la conversión devuelve un origen que el estudio acepta ──────────────────────────────
+
+@requiere_calamine
+@pytest.mark.parametrize("nombre", [None, "", "   ", "a\tb.xlsx", "ventas\u202e.xlsx", "x\u200f\u2028y.xlsx", "\u202a\t"])
+def test_R2_el_origen_de_la_conversion_pasa_siempre_el_validador_del_estudio_sea_cual_sea_el_nombre(nombre):
+    tabla = _convertir_hoja(nombre, [["a", "b"], [1, 2], [3, 4]])
+    origen = tabla.origen
+    validado = odf.normalizar_origen_del_fichero(origen)          # el MISMO validador que corre `estudio/iniciar`
+    atado = odf.origen_para_el_estudio(origen, texto_recibido=tabla.csv_text, declaraciones_de_entrada=[])
+    assert atado["vinculo"] == "comprobado" and validado["sha256"] == origen["sha256"]
+    limpio, quitados = __import__("matrixai.nombre_citable", fromlist=["saneado"]).saneado(nombre)
+    if limpio is None:
+        assert "nombre" not in origen                         # un nombre vacío es una AUSENCIA, no un ""
+    else:
+        assert origen["nombre"] == limpio
+    declaradas = [d for d in origen["declaraciones"] if d["tipo"] == "texto_del_origen_saneado"]
+    assert [d["cuantas"] for d in declaradas] == ([quitados] if quitados else [])
+    assert all(d["detalle"]["que"] == "nombre" for d in declaradas)
+
+
+@requiere_calamine
+def test_R2_una_hoja_con_un_control_de_direccion_se_cita_sin_el_y_se_declara():
+    tabla = _convertir_hoja("v.xlsx", [["a", "b"], [1, 2]], hoja="Dat\u202eos")
+    assert tabla.origen["hoja"] == "Datos"
+    odf.normalizar_origen_del_fichero(tabla.origen)
+    d = next(d for d in tabla.origen["declaraciones"] if d["tipo"] == "texto_del_origen_saneado")
+    assert d["detalle"]["que"] == "hoja" and d["cuantas"] == 1
+    assert "nombre de la hoja" in d["texto"]["es"] and "sheet name" in d["texto"]["en"]
+    assert d["texto"]["es"].startswith("Se quitó 1 carácter") and d["texto"]["en"].startswith("1 control or direction character")
+
+
+@requiere_calamine
+def test_R2_un_nombre_normal_no_declara_nada_de_mas():
+    tabla = _convertir_hoja("año ñandú.xlsx", [["a", "b"], [1, 2]])
+    assert tabla.origen["nombre"] == "año ñandú.xlsx" and tabla.origen["hoja"] == "Datos"
+    assert not [d for d in tabla.origen["declaraciones"] if d["tipo"] == "texto_del_origen_saneado"]
+
+
+# ── Menor 1: el CSV de la conversión es un punto fijo de la entrada canónica ─────────────────────
+
+@requiere_calamine
+def test_R4_un_excel_de_una_columna_con_cabecera_punto_y_coma_sale_como_punto_fijo_y_lo_declara():
+    """El defecto medido (libro `una_columna_punto_y_coma.xlsx`): cabecera `peso;altura` y filas `60,5;170`. La entrada
+    canónica del C2 reconocía un CSV `;` (cero comas, un `;` en la cabecera) y le reescribía la cabecera a `peso,altura` sobre
+    filas de UNA columna: el análisis y el estudio daban un 500. Ahora la conversión escribe `peso_altura` y lo declara."""
+    from matrixai.training.data import normalize_csv_text_declarando
+    filas = [["peso;altura"]] + [[f"{60 + i},5;{170 + i}"] for i in range(10)]
+    tabla = _convertir_hoja("una.xlsx", filas)
+    assert tabla.csv_text.splitlines()[0] == "peso_altura"
+    assert normalize_csv_text_declarando(tabla.csv_text) == (tabla.csv_text, [])
+    d = next(d for d in tabla.origen["declaraciones"] if d["tipo"] == "punto_y_coma_en_el_nombre")
+    assert d["columna"] == "peso_altura" and d["detalle"]["original"] == "peso;altura"
+    assert "peso;altura" in d["texto"]["es"] and "peso_altura" in d["texto"]["en"]
+    assert tabla.origen["sha256_del_csv"] == odf.huella_del_texto(tabla.csv_text)
+
+
+@requiere_calamine
+def test_R4_un_punto_y_coma_con_varias_columnas_no_se_toca_porque_la_cabecera_lleva_comas():
+    tabla = _convertir_hoja("v.xlsx", [["peso;kg", "altura"], [1, 2]])
+    assert tabla.csv_text.splitlines()[0] == "peso;kg,altura"
+    assert not [d for d in tabla.origen["declaraciones"] if d["tipo"] == "punto_y_coma_en_el_nombre"]
+
+
+@requiere_calamine
+def test_R4_una_cabecera_con_u_feff_sale_sin_el_y_el_csv_es_un_punto_fijo():
+    """Segundo defecto medido (`cabecera_con_bom.xlsx`): la entrada canónica quitaba el U+FEFF del principio, así que
+    `dataset.sha256` no era `sha256_del_csv`."""
+    from matrixai.training.data import normalize_csv_text_declarando
+    tabla = _convertir_hoja("bom.xlsx", [["\ufeffpaciente", "edad"], ["p1", 30], ["p2", 40]])
+    assert tabla.csv_text.startswith("paciente,edad\n") and "\ufeff" not in tabla.csv_text
+    assert normalize_csv_text_declarando(tabla.csv_text) == (tabla.csv_text, [])
+    d = next(d for d in tabla.origen["declaraciones"] if d["tipo"] == "nombre_normalizado")
+    assert d["columna"] == "paciente" and "U+FEFF" in d["texto"]["es"] and "U+FEFF" in d["texto"]["en"]
+
+
+@requiere_calamine
+def test_R4_toda_conversion_de_los_libros_de_prueba_es_un_punto_fijo_de_la_entrada_canonica():
+    """La propiedad que sostiene que NO se vuelva a canonizar: lo que escribe `convertir` ya es canónico. Recorre todos los
+    libros de los fixtures (con su hoja y su cabecera propuestas) y compara contra `normalize_csv_text`."""
+    from matrixai.tablas import convertir, inspeccionar
+    from matrixai.tablas.errores import TablaRechazada
+    from matrixai.training.data import normalize_csv_text_declarando
+    convertidos = 0
+    for ruta in sorted(FIXTURES.iterdir()):
+        if ruta.suffix not in (".xlsx", ".xlsm", ".xls"):
+            continue
+        datos = ruta.read_bytes()
+        try:
+            vista = inspeccionar(datos, ruta.name)
+        except TablaRechazada:
+            continue
+        for h in vista["hojas"]:
+            if not h.get("visible", True):
+                continue
+            try:
+                tabla = convertir(datos, ruta.name, hoja=h["nombre"], fila_de_cabecera=h.get("fila_de_cabecera_propuesta") or 1)
+            except TablaRechazada:
+                continue
+            convertidos += 1
+            assert normalize_csv_text_declarando(tabla.csv_text) == (tabla.csv_text, []), (ruta.name, h["nombre"])
+    assert convertidos >= 10, convertidos       # el recorrido no es vacío
+
+
+def test_R4_la_entrada_canonica_no_vuelve_a_canonizar_un_csv_de_la_conversion_de_un_excel_y_si_el_resto():
+    from matrixai.training.data import normalize_csv_text_declarando
+    ouro = "\ufeffa;b\n1,5;2\n"                       # un CSV `;` de verdad, con BOM y decimal coma
+    canonico = normalize_csv_text_declarando(ouro)
+    assert canonico[0] == "a,b\n1.5,2\n" and canonico[1]               # como en el C2
+    for formato in ("xlsx", "xls", "xlsm"):
+        assert odf.entrada_canonica_de(ouro, {"formato": formato}) == (ouro, [])      # tal cual, sin declaraciones
+    for origen in (None, {"formato": "csv"}, {"formato": "XLSX"}, "xlsx", {}, []):
+        assert odf.entrada_canonica_de(ouro, origen) == canonico, origen              # un `;` de verdad sigue como en el C2
+    assert odf.es_origen_de_excel({"formato": "xls"}) and not odf.es_origen_de_excel({"formato": "csv"})
+    assert not odf.es_origen_de_excel(None) and not odf.es_origen_de_excel("xlsx")
+
+
+@pytest.mark.parametrize("huella_de", ["original", "csv", "", 1, True, ["texto_recibido"]])
+def test_R5_huella_de_solo_admite_texto_recibido_o_ausente(huella_de):
+    """Sabotaje I del re-auditor (`huella_de` libre): el cliente podía poner cualquier texto en `huella_de` y la ficha, que
+    cambia su redacción con él, lo seguía. Solo `texto_recibido` (o nada) es una respuesta."""
+    with pytest.raises(ReproduceManifestError, match="huella_de"):
+        odf.normalizar_origen_del_fichero(_origen_a_mano(huella_de=huella_de))
+    assert odf.normalizar_origen_del_fichero(_origen_a_mano(huella_de="texto_recibido"))["huella_de"] == "texto_recibido"
+    assert "huella_de" not in odf.normalizar_origen_del_fichero(_origen_a_mano())
+
+
+def test_R5_la_huella_de_un_texto_recibido_no_se_llama_del_original_ni_con_vinculo():
+    """El origen de un CSV (`huella_de: texto_recibido`) no lleva vínculo con una conversión: su ficha no habla de «original»
+    ni del CSV que declaró nadie."""
+    o = odf.origen_de_un_csv("a;b\n1,5;2\n", [_declaracion("decimal_coma_convertido", 1, "a")])
+    for idioma, dice in (("es", "huella del texto recibido"), ("en", "digest of the received text")):
+        t = odf.texto_del_origen(o, idioma)
+        assert dice in t and "del original" not in t and "of the original" not in t and "coincide" not in t

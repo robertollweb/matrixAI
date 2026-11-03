@@ -24,6 +24,8 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
+from matrixai import nombre_citable
+
 from . import aislado
 from .declaraciones import declarar
 from .errores import TablaRechazada, lista_para_texto, rechazar
@@ -294,9 +296,14 @@ def _sin_tildes(s: str) -> str:
 
 
 def _texto(v) -> str:
-    """El texto de una celda para un nombre o una vista previa: sin espacios sobrantes."""
+    """El texto de una celda para un nombre o una vista previa: sin espacios sobrantes ni la marca U+FEFF del principio.
+
+    Remate de 150-C4: un nombre de columna que empezaba por U+FEFF (un BOM pegado en la celda) salía así en el CSV, y
+    la entrada canónica del análisis lo quita al principio del texto: la pantalla veía `paciente` y el estudio, que
+    recibe el CSV de la conversión tal cual, `\ufeffpaciente`. El CSV de la conversión es un punto fijo de esa entrada
+    canónica; si cambia el nombre, `nombre_normalizado` lo declara."""
     t = valor_a_texto(v)[0]
-    return " ".join(t.split())
+    return " ".join(t.lstrip("\ufeff").split())
 
 
 def _vacia(v) -> bool:
@@ -866,6 +873,13 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
             n = f"columna_{col0 + j}"
             finales[j] = n
             declaraciones.append(declarar("nombre_vacio_con_datos", columna=n, letra=letra))
+        elif len(conserva) == 1 and ";" in t and "," not in t:
+            # Remate de 150-C4: con UNA sola columna, un `;` en su nombre deja la cabecera del CSV sin comas y con un `;`, que es
+            # justo la señal con la que la entrada canónica (150-C2) reconoce un CSV `;` y le reescribe la cabecera: el análisis
+            # y el estudio leerían «peso,altura» sobre filas de una sola columna. El CSV de la conversión tiene que ser un punto
+            # fijo de esa entrada, así que el `;` se escribe `_` y se declara. (Con varias columnas hay comas: no pasa.)
+            finales[j] = t.replace(";", "_")
+            declaraciones.append(declarar("punto_y_coma_en_el_nombre", columna=finales[j], original=t))
         else:
             finales[j] = t
     # los nombres «reales» ocupan su sitio primero; luego los renombrados buscan hueco
@@ -969,13 +983,22 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
     csv_bytes = escribir_csv([finales[j] for j in conserva], filas_csv)
 
     primera_col, ultima_col = col0 + conserva[0], col0 + conserva[-1]
+    # Remate de 150-C4 (menor 2): el nombre y la hoja que el origen CITA pasan por la MISMA regla que el estudio aplica al
+    # recibirlo (`matrixai.nombre_citable`): sin ella, un nombre con un tabulador o un U+202A, o sin nombre, daba un
+    # origen que `estudio/iniciar` rechazaba entero. Se QUITA lo que no cabe y se declara; un nombre vacío es una
+    # ausencia (no hay clave), no un `""`.
+    nombre_citado, quitados_nombre = nombre_citable.saneado(libro.nombre)
+    hoja_citada, quitados_hoja = nombre_citable.saneado(meta["nombre"])
+    for que, quitados in (("nombre", quitados_nombre), ("hoja", quitados_hoja)):
+        if quitados:
+            declaraciones.append(declarar("texto_del_origen_saneado", cuantas=quitados, que=que))
     origen = {
         "esquema": ESQUEMA_DE_ORIGEN,
         "formato": libro.formato,
-        "nombre": libro.nombre,
+        **({"nombre": nombre_citado} if nombre_citado is not None else {}),
         "sha256": hashlib.sha256(libro.datos).hexdigest(),
         "bytes": len(libro.datos),
-        "hoja": meta["nombre"],
+        **({"hoja": hoja_citada} if hoja_citada is not None else {}),
         "fila_de_cabecera": fh,
         "filas_de_cabecera": nh,
         "rango": _rango_a1(fh, primera_col, fin, ultima_col),
