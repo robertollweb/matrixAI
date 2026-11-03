@@ -1227,6 +1227,39 @@ Compara dos recibos por CONTENIDO, no por los bytes del fichero.
 matrixai receipt compare <a> <b>
 ```
 
+### matrixai trace verify
+
+Comprueba la **traza firmada** de deriva que escribe un servicio exportado (`matrixai.traza/v1`, un
+bloque por línea, contrato 153): las firmas Ed25519 de todos los bloques, que la cadena (`prev`) encaje y,
+si se da, que la clave sea la que esperabas. Necesita `pip install 'matrixai[firma]'`.
+
+```
+matrixai trace verify <fichero.jsonl> [--huella H] [--desde-genesis] [--locale es|en] [--json]
+```
+
+```
+Traza: firma válida
+3 bloques, del seq 0 al 2
+Huella de la clave: 1662ca8a91e4b9f434825e4d6da661db3624b733a61be8e4581881f0201dc37f
+Último bloque visto: seq 2, hash 9d266f531d789dac086a5d8e8e5f32587844dae04277f8b061fdd554b9dc41cf
+Sin huella anclada: solo se comprobó que el fichero es coherente consigo mismo; la clave es la que el propio fichero dice.
+Lo que esto NO demuestra:
+- Que el servicio sea el tuyo, si no cotejaste la huella de la clave por otro canal.
+- Que las horas sean ciertas: las pone el reloj del servicio.
+- Que no falten los últimos bloques: si alguien borra el final del fichero, sigue saliendo «firma válida». Compara el último bloque con el que anuncia el servicio.
+- Que el modelo acierte más o menos: la traza mide entradas y salidas, no aciertos.
+- No hay revocación de claves.
+```
+
+- `--huella H`: la huella de la clave que esperabas (SHA-256 de los 32 bytes de la pública, 64 hex; la de
+  `matrixai receipt pubkey`). Un fichero firmado por otra clave sale «la firma no coincide».
+- `--desde-genesis`: exige que el fichero empiece en el bloque génesis (primera importación). Sin ella,
+  un fichero de otro día (rotación diaria) es válido y se dice desde qué `seq` empieza.
+- Códigos de salida: `0` firma válida; `2` la firma no coincide (un bloque editado, borrado, reordenado o
+  de otra clave); `3` no se pudo comprobar (no es JSON, versión desconocida, falta `cryptography`);
+  `1` el fichero no se puede leer o `--huella` no es una huella.
+- Con `--json`, el resultado entero (`estado`, `motivo`, `bloque`, `detalle` en es/en, `ultimo_seq`, `ultimo_hash`…).
+
 ---
 
 ## Variables de entorno

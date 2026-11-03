@@ -1224,6 +1224,39 @@ Diff two receipts by content, not by file bytes.
 matrixai receipt compare <a> <b>
 ```
 
+### matrixai trace verify
+
+Check the **signed drift trace** an exported service writes (`matrixai.traza/v1`, one block per line,
+contract 153): the Ed25519 signatures of every block, that the `prev` chain fits and, if given, that the
+key is the one you expected. Needs `pip install 'matrixai[firma]'`.
+
+```
+matrixai trace verify <file.jsonl> [--huella H] [--desde-genesis] [--locale es|en] [--json]
+```
+
+```
+Trace: valid signature
+3 blocks, from seq 0 to 2
+Key fingerprint: 1662ca8a91e4b9f434825e4d6da661db3624b733a61be8e4581881f0201dc37f
+Last block seen: seq 2, hash 9d266f531d789dac086a5d8e8e5f32587844dae04277f8b061fdd554b9dc41cf
+No anchored fingerprint: it only shows the file is consistent with itself; the key is whatever the file says.
+What this does NOT show:
+- That the service is yours, if you did not compare the key fingerprint through another channel.
+- That the times are true: the service's own clock sets them.
+- That no trailing blocks are missing: if someone deletes the end of the file it still reads "valid signature". Compare the last block with the one the service announces.
+- That the model is right more or less often: the trace measures inputs and outputs, not hits.
+- There is no key revocation.
+```
+
+- `--huella H`: the fingerprint of the key you expected (SHA-256 of the 32 raw bytes of the public key,
+  64 hex; the one `matrixai receipt pubkey` prints). A file signed by another key reads "the signature does not match".
+- `--desde-genesis`: require the file to start at the genesis block (first import). Without it, a file from
+  another day (daily rotation) is valid and it says which `seq` it starts at.
+- Exit codes: `0` valid signature; `2` the signature does not match (a block edited, deleted, reordered or
+  from another key); `3` could not be checked (not JSON, unknown version, `cryptography` missing);
+  `1` the file cannot be read or `--huella` is not a fingerprint.
+- With `--json`, the whole result (`estado`, `motivo`, `bloque`, `detalle` in es/en, `ultimo_seq`, `ultimo_hash`…).
+
 ---
 
 ## Environment variables
