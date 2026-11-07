@@ -286,6 +286,11 @@ def _estructura(b: Any, coherencia: bool = False) -> None:
             raise _mal(f"ventana.{campo} no es AAAA-MM-DDThh:mm:ssZ", f"ventana.{campo} is not YYYY-MM-DDThh:mm:ssZ")
     if v["desde"] > v["hasta"]:  # la HORA no se comprueba (DS11); solo que la ventana no esté al revés
         raise _mal("ventana.desde > ventana.hasta", "ventana.desde > ventana.hasta")
+    # 153-C4 (decisión de Roberto, 07-11, opción A): `desde` es el INICIO DE LA HORA UTC de la primera petición contada, nunca su segundo
+    # exacto (que sería la hora de la petición de una persona). El formato lo exige: un `desde` con minutos o segundos no es v1.
+    if not v["desde"].endswith(":00:00Z"):
+        raise _mal("ventana.desde no es el inicio de una hora UTC (AAAA-MM-DDThh:00:00Z): la hora exacta de la primera petición no se guarda",
+                   "ventana.desde is not the start of a UTC hour (YYYY-MM-DDThh:00:00Z): the exact time of the first request is not kept")
     if not isinstance(b["incompleto"], bool):
         raise _mal("incompleto no es booleano", "incompleto is not a boolean")
     if b["reinicio"] not in (None, "sin_previo"):

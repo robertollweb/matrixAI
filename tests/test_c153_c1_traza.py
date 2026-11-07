@@ -1027,3 +1027,39 @@ def test_c2_menor_el_orden_es_el_de_la_primera_aparicion_no_el_alfabetico_ni_con
     assert r["estado"] == A.VALIDA, r.get("detalle")
     assert r["huellas"] == [mayor["huella"], menor["huella"]] != sorted(r["huellas"])
     assert _node({"modo": "comprobar", "casos": [{"lineas": lineas}]})["resultados"][0]["huellas"] == r["huellas"]
+
+
+# ───────────────────────────────────────────────────────────────── 153-C4: `ventana.desde` es el inicio de una HORA UTC
+
+_DESDE_CON_HORA_EXACTA = ("ventana_desde_con_segundos", "ventana_desde_con_minutos", "ventana_desde_a_mitad_de_hora_sin_segundos")
+
+
+def test_c4_desde_que_no_es_el_inicio_de_una_hora_utc_no_es_v1_firmado_o_no():
+    """Decisión de Roberto (07-11, opción A): `ventana.desde` es el inicio de la hora UTC de la primera petición contada, nunca su segundo
+    exacto (la hora de la petición de UNA persona). Un bloque con minutos o segundos, aunque la clave buena lo firme, es `formato`."""
+    for nombre in _DESDE_CON_HORA_EXACTA:
+        r = _comprobar_caso(CASOS[nombre])
+        assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_SE_PUDO_COMPROBAR, "formato", 1), (nombre, r)
+        assert "inicio de una hora UTC" in r["detalle"]["es"] and "start of a UTC hour" in r["detalle"]["en"], r
+
+
+def test_c4_todos_los_desde_de_los_vectores_validos_estan_en_punto():
+    """El generador no produce ni un `desde` con minutos o segundos en los bloques que dan «válida»: lo que el escritor escribe y lo que el
+    comprobador acepta son la misma regla."""
+    visto = 0
+    for c in VECTORES["casos"]:
+        if c["esperado"].get("estado") != A.VALIDA:
+            continue
+        for linea in c["lineas"]:
+            if isinstance(linea, str) and linea.startswith("{"):
+                desde = json.loads(linea)["ventana"]["desde"]
+                assert desde.endswith(":00:00Z"), (c["nombre"], desde)
+                visto += 1
+    assert visto > 20
+
+
+def test_c4_paridad_js_los_desde_con_hora_exacta_dan_formato_tambien_en_javascript():
+    js = _node({"modo": "comprobar", "casos": [CASOS[n] for n in _DESDE_CON_HORA_EXACTA]})["resultados"]
+    assert len(js) == len(_DESDE_CON_HORA_EXACTA)
+    for nombre, r in zip(_DESDE_CON_HORA_EXACTA, js):
+        assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_SE_PUDO_COMPROBAR, "formato", 1), (nombre, r)

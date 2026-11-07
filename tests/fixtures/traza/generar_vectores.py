@@ -306,6 +306,12 @@ def construir():
     m = copy.deepcopy(b1); m["ventana"]["desde"], m["ventana"]["hasta"] = m["ventana"]["hasta"], m["ventana"]["desde"]
     caso("ventana_al_reves", "ventana.desde > ventana.hasta, firmado", [L[0], linea(firmado(kA, m)), L[2]],
          {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 1})
+    # 153-C4 (Roberto, 07-11, opción A): `desde` es el INICIO DE LA HORA UTC; el segundo exacto de la primera petición no es v1.
+    for nombre, desde in (("ventana_desde_con_segundos", "2026-11-02T11:00:07Z"), ("ventana_desde_con_minutos", "2026-11-02T11:30:00Z"),
+                          ("ventana_desde_a_mitad_de_hora_sin_segundos", "2026-11-02T11:59:59Z")):
+        m = copy.deepcopy(b1); m["ventana"]["desde"] = desde
+        caso(nombre, f"ventana.desde = {desde}, firmado: no es el inicio de una hora UTC", [L[0], linea(firmado(kA, m)), L[2]],
+             {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 1})
     m = copy.deepcopy(b1); m["servicio"]["huella_clave"] = hA.upper()
     caso("huella_en_mayusculas", "La huella en hex MAYÚSCULA: v1 la quiere en minúscula", [L[0], linea(m), L[2]],
          {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 1})

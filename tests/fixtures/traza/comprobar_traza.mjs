@@ -213,6 +213,8 @@ function estructura(b, coherencia = false) {
     if (typeof v[campo] !== 'string' || !FECHA.test(v[campo])) throw mal(`ventana.${campo} no es AAAA-MM-DDThh:mm:ssZ`, `ventana.${campo} is not YYYY-MM-DDThh:mm:ssZ`);
   }
   if (v.desde > v.hasta) throw mal('ventana.desde > ventana.hasta', 'ventana.desde > ventana.hasta');
+  // 153-C4 (decisión de Roberto, 07-11, opción A): `desde` es el inicio de una hora UTC, nunca el segundo exacto de la primera petición.
+  if (!v.desde.endsWith(':00:00Z')) throw mal('ventana.desde no es el inicio de una hora UTC (AAAA-MM-DDThh:00:00Z): la hora exacta de la primera petición no se guarda', 'ventana.desde is not the start of a UTC hour (YYYY-MM-DDThh:00:00Z): the exact time of the first request is not kept');
   if (typeof b.incompleto !== 'boolean') throw mal('incompleto no es booleano', 'incompleto is not a boolean');
   if (b.reinicio !== null && b.reinicio !== 'sin_previo') throw mal('reinicio: solo null o "sin_previo"', 'reinicio: only null or "sin_previo"');
   const f = b.firma;
