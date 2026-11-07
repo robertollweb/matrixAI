@@ -1244,7 +1244,7 @@ What this does NOT show:
 - That the service is yours, if you did not compare the key fingerprint through another channel.
 - That the times are true: the service's own clock sets them.
 - That no trailing blocks are missing: if someone deletes the end of the file it still reads "valid signature". Compare the last block (seq and hash) with the one the service announces on its /health.
-- That no blocks are missing before a restart: a new chain ("sin_previo") does not link to what came before, so the last blocks of the previous chain, or a whole chain, may be missing. Deleting or reordering blocks is detected INSIDE a chain; across chains, only a repeated block or a chain of the same key that starts before the previous one ends.
+- That no blocks are missing before a restart: a new chain ("sin_previo") does not link to what came before, so the last blocks of the previous chain, or a whole chain, may be missing. Deleting or reordering blocks is detected INSIDE a chain; across chains, only a repeated block or a chain of the same key that starts before the hour in which the previous one ends (two chains within the same hour cannot be put in order).
 - That the model is right more or less often: the trace measures inputs and outputs, not hits.
 - There is no key revocation.
 ```
@@ -1272,8 +1272,8 @@ At each restart the earlier blocks may be missing: a new chain does not link to 
   match"): the chain from the genesis block could have been in front of it. Without it, a file from another day
   (daily rotation) is valid and it says which `seq` it starts at.
 - What reads "the signature does not match" (exit `2`): an edited block; a block deleted or reordered **inside a
-  chain**; a block repeated in the file; a chain of the same key that starts before the previous one ends; a public
-  key that is not usable (non-canonical or of small order); another key without a restart, or other than `--huella`.
+  chain**; a block repeated in the file; a chain of the same key that starts before the hour in which the previous one
+  ends; a public key that is not usable (non-canonical, of small order or of mixed order); another key without a restart, or other than `--huella`.
 - What is **not** detected: missing trailing blocks, missing blocks right before a restart, a whole chain missing
   between two restarts, or the whole chain before the first restart when the file starts at it (the restart says
   "there is no previous block"; `--desde-genesis` does catch the last one). For the tail, compare the last block

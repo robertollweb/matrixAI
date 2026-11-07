@@ -4,8 +4,9 @@
 //                                                       -> {"resultados":[{estado,motivo,bloque,cadenas,huellas}...]}
 //   (con "acepta_todo": true, el Ed25519 de la plataforma acepta cualquier firma)
 //   {"modo":"topes"}                                     -> {"TOPE_LINEA","TOPE_FICHERO"}
+//   {"modo":"fechas","fechas":[...]}                    -> {"segundos":[<segundosUtc de cada una, o null>]}
 import { readFileSync } from 'node:fs';
-import { comprobarCaso, jcsBytes, plataformaNode, TOPE_FICHERO, TOPE_LINEA } from './comprobar_traza.mjs';
+import { comprobarCaso, jcsBytes, plataformaNode, segundosUtc, TOPE_FICHERO, TOPE_LINEA } from './comprobar_traza.mjs';
 
 const entrada = JSON.parse(readFileSync(0, 'utf8'));
 if (entrada.modo === 'jcs') {
@@ -21,6 +22,8 @@ if (entrada.modo === 'jcs') {
     resultados.push({ estado: r.estado, motivo: r.motivo, bloque: r.bloque, cadenas: r.cadenas ?? null, huellas: r.huellas ?? null });
   }
   process.stdout.write(JSON.stringify({ resultados }));
+} else if (entrada.modo === 'fechas') {
+  process.stdout.write(JSON.stringify({ segundos: entrada.fechas.map(segundosUtc) }));
 } else if (entrada.modo === 'topes') {
   process.stdout.write(JSON.stringify({ TOPE_LINEA, TOPE_FICHERO }));
 } else {

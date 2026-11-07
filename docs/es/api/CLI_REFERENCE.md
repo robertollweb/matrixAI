@@ -1247,7 +1247,7 @@ Lo que esto NO demuestra:
 - Que el servicio sea el tuyo, si no cotejaste la huella de la clave por otro canal.
 - Que las horas sean ciertas: las pone el reloj del servicio.
 - Que no falten los últimos bloques: si alguien borra el final del fichero, sigue saliendo «firma válida». Compara el último bloque (seq y hash) con el que anuncia el servicio en su /health.
-- Que no falten bloques antes de un reinicio: una cadena nueva («sin_previo») no enlaza con lo anterior, así que pueden faltar los últimos bloques de la cadena de antes, o una cadena entera. Borrar o reordenar bloques se detecta DENTRO de una cadena; entre cadenas, solo un bloque repetido o una cadena de la misma clave que empieza antes de que acabe la anterior.
+- Que no falten bloques antes de un reinicio: una cadena nueva («sin_previo») no enlaza con lo anterior, así que pueden faltar los últimos bloques de la cadena de antes, o una cadena entera. Borrar o reordenar bloques se detecta DENTRO de una cadena; entre cadenas, solo un bloque repetido o una cadena de la misma clave que empieza antes de la hora en que acaba la anterior (dos cadenas dentro de una misma hora no se pueden ordenar).
 - Que el modelo acierte más o menos: la traza mide entradas y salidas, no aciertos.
 - No hay revocación de claves.
 ```
@@ -1275,8 +1275,8 @@ En cada reinicio pueden faltar los bloques de antes: una cadena nueva no enlaza 
   coincide»): delante podría haber estado la cadena desde el génesis. Sin ella, un fichero de otro día (rotación
   diaria) es válido y se dice desde qué `seq` empieza.
 - Qué sale «la firma no coincide» (código `2`): un bloque editado; un bloque borrado o reordenado **dentro de una
-  cadena**; un bloque repetido en el fichero; una cadena de la misma clave que empieza antes de que acabe la
-  anterior; una clave pública que no vale (no canónica o de orden pequeño); otra clave sin reinicio, o distinta de
+  cadena**; un bloque repetido en el fichero; una cadena de la misma clave que empieza antes de la hora en que
+  acaba la anterior; una clave pública que no vale (no canónica, de orden pequeño o de orden mixto); otra clave sin reinicio, o distinta de
   `--huella`.
 - Qué **no** se detecta: que falten los últimos bloques del fichero, ni los de justo antes de un reinicio, ni una
   cadena entera entre dos reinicios, ni la cadena entera de antes del primer reinicio cuando el fichero empieza en

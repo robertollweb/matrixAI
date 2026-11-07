@@ -244,22 +244,22 @@ def construir():
     caso("genesis_en_medio_sin_reinicio", "seq 0 y prev de ceros en medio, sin marcar reinicio", [L[0], linea(firmado(kA, m))],
          {"estado": "no_coincide", "motivo": "cadena", "bloque": 1})
     # --- incompleto y k ---
-    i2 = bloque(kA, pubA, hA, 2, hash_de_bloque(b1), D + "12:00:00Z", D + "12:07:00Z", random.Random(5), 11, 0.0, incompleto=True)
+    i2 = bloque(kA, pubA, hA, 2, hash_de_bloque(b1), D + "12:00:00Z", D + "13:00:00Z", random.Random(5), 11, 0.0, incompleto=True)
     caso("incompleto_solo_n", "Bloque de apagado con n < k: salida y columnas null", [L[0], L[1], linea(i2)],
          {"estado": "valida", "bloques": 3, "ultimo_seq": 2})
     m = copy.deepcopy(i2); m["columnas"] = {}
     caso("incompleto_con_columnas", "incompleto:true pero con columnas (debe ir a null)", [L[0], L[1], linea(firmado(kA, m))],
          {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 2})
-    pequeno = bloque(kA, pubA, hA, 2, hash_de_bloque(b1), D + "12:00:00Z", D + "12:07:00Z", random.Random(5), 11, 0.0)
+    pequeno = bloque(kA, pubA, hA, 2, hash_de_bloque(b1), D + "12:00:00Z", D + "13:00:00Z", random.Random(5), 11, 0.0)
     caso("completo_con_n_menor_que_k", "Un bloque con histogramas y n=11 < k_minimo=20: DS2 no lo deja cerrar (la fila de una persona)",
          [L[0], L[1], linea(pequeno)], {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 2})
-    grande_incompleto = bloque(kA, pubA, hA, 2, hash_de_bloque(b1), D + "12:00:00Z", D + "12:07:00Z", random.Random(5), 25, 0.0, incompleto=True)
+    grande_incompleto = bloque(kA, pubA, hA, 2, hash_de_bloque(b1), D + "12:00:00Z", D + "13:00:00Z", random.Random(5), 25, 0.0, incompleto=True)
     caso("incompleto_con_n_mayor_o_igual_que_k", "incompleto:true con n=25 >= k_minimo=20: se habría cerrado entero",
          [L[0], L[1], linea(grande_incompleto)], {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 2})
     k0 = bloque(kA, pubA, hA, 2, hash_de_bloque(b1), D + "12:00:00Z", D + "13:00:00Z", random.Random(5), 47, 0.0, k_minimo=0)
     caso("k_minimo_cero", "k_minimo = 0: sin umbral no hay protección", [L[0], L[1], linea(k0)],
          {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 2})
-    k5 = bloque(kA, pubA, hA, 2, hash_de_bloque(b1), D + "12:00:00Z", D + "12:30:00Z", random.Random(5), 11, 0.0, k_minimo=5)
+    k5 = bloque(kA, pubA, hA, 2, hash_de_bloque(b1), D + "12:00:00Z", D + "13:00:00Z", random.Random(5), 11, 0.0, k_minimo=5)
     caso("k_minimo_propio_de_cada_bloque", "El umbral va grabado en cada bloque: n=11 con k_minimo=5 es un bloque completo válido",
          [L[0], L[1], linea(k5)], {"estado": "valida", "bloques": 3, "ultimo_seq": 2})
     m = copy.deepcopy(b1); del m["k_minimo"]
@@ -350,6 +350,7 @@ def construir():
          [x + "\r" for x in L], {"estado": "valida", "bloques": 3, "ultimo_seq": 2})
 
     casos_de_la_reparacion(caso, kA, pubA, hA, kB, pubB, hB, L, b0, b1, b2)
+    casos_del_remate_153(caso, kA, pubA, hA, L, b1)
 
     todas = cadena + [g0, g1]
     return {
@@ -451,19 +452,19 @@ def casos_de_la_reparacion(caso, kA, pubA, hA, kB, pubB, hB, L, b0, b1, b2):
          {"estado": "no_coincide", "motivo": "cadena", "bloque": 2})
     caso("B1_bloque_duplicado_con_otro_formato", "El génesis repetido al final reescrito con espacios: es el MISMO bloque (el hash es del canónico)",
          L + [json.dumps(json.loads(L[0]), separators=(", ", ": "), ensure_ascii=False)], {"estado": "no_coincide", "motivo": "cadena", "bloque": 3})
-    # el que SOLO caza el hash repetido: una cadena de reinicio de un bloque con la ventana vacía (desde == hasta, p. ej. un
-    # servicio que se apaga en el mismo segundo en que arranca) duplicada: el orden de ventanas no la ve (19:00 >= 19:00)
-    V = bloque(kA, pubA, hA, 0, GENESIS, "2026-11-02T19:00:00Z", "2026-11-02T19:00:00Z", rng, 5, 0.0, incompleto=True, reinicio="sin_previo")
-    caso("B1_bloque_de_ventana_vacia_duplicado", "Un reinicio de un solo bloque con desde == hasta, dos veces: solo lo ve el hash repetido",
+    # el que SOLO caza el hash repetido: una cadena de reinicio de un bloque (19-20 h, un servicio que se apaga en la misma hora en que
+    # arranca) duplicada: el orden de ventanas no la ve (153 remate: la copia empieza a las 19:00, en la hora en que acaba la primera)
+    V = bloque(kA, pubA, hA, 0, GENESIS, "2026-11-02T19:00:00Z", "2026-11-02T20:00:00Z", rng, 5, 0.0, incompleto=True, reinicio="sin_previo")
+    caso("B1_bloque_de_una_hora_duplicado", "Un reinicio de un solo bloque de una hora, dos veces: solo lo ve el hash repetido",
          LA0 + LA1 + LA2 + [linea(V), linea(V)], {"estado": "no_coincide", "motivo": "cadena", "bloque": 7})
-    caso("B1_bloque_de_ventana_vacia_una_vez", "El mismo bloque una sola vez: válido", LA0 + LA1 + LA2 + [linea(V)],
+    caso("B1_bloque_de_una_hora_una_vez", "El mismo bloque una sola vez: válido", LA0 + LA1 + LA2 + [linea(V)],
          {"estado": "valida", "bloques": 7, "reinicios": [3, 5, 6]})
     # el límite del orden: una cadena que empieza justo cuando acaba la anterior (desde == hasta) vale
     E = cadena_de(kA, pubA, hA, 1, 13, rng)  # A0 acaba a las 13:00
     caso("B1_reinicio_que_empieza_justo_cuando_acaba_la_anterior", "desde de la cadena nueva == hasta de la anterior: en orden, válida",
          LA0 + [linea(E[0])], {"estado": "valida", "bloques": 4, "reinicios": [3]})
-    E = cadena_de(kA, pubA, hA, 1, 12, rng)  # empieza a las 12:00, cuando A0 acaba a las 13:00
-    caso("B1_reinicio_que_se_solapa_con_la_anterior", "La cadena nueva de la misma clave empieza una hora antes de que acabe la anterior",
+    E = cadena_de(kA, pubA, hA, 1, 11, rng)  # empieza a las 11:00, antes de la hora (12-13) en que acaba A0
+    caso("B1_reinicio_que_se_solapa_con_la_anterior", "La cadena nueva de la misma clave empieza antes de la hora en que acaba la anterior (11:00; A0 acaba a las 13:00)",
          LA0 + [linea(E[0])], {"estado": "no_coincide", "motivo": "cadena", "bloque": 3})
     # cadenas de claves DISTINTAS: su orden no se puede exigir (otro servicio, otra hora); sin ancla no se detecta, con ancla sí
     rB = random.Random(1532)
@@ -576,6 +577,142 @@ def casos_de_la_reparacion(caso, kA, pubA, hA, kB, pubB, hB, L, b0, b1, b2):
          {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": None}, fichero_b64=b64(texto.replace(b"ed25519", b"ed\xc0\xaf25519", 1)))
     caso("bytes_sustituto_codificado", "Un sustituto UTF-16 codificado en UTF-8 (0xed 0xa0 0x80): no es UTF-8", [],
          {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": None}, fichero_b64=b64(texto.replace("ñ".encode(), b"\xed\xa0\x80", 1)))
+
+
+# ─────────────── remate de la auditoría de C4–C7 (07-11): `hasta` al final de su hora (Roberto, A) y claves de orden mixto (M4) ───────────────
+# Aritmética de Ed25519 propia, SOLO para fabricar las claves de orden mixto (afín: lenta y clara; no se usa para comprobar nada)
+_Pd = 2 ** 255 - 19
+_Dd = (-121665 * pow(121666, -1, _Pd)) % _Pd
+_Ld = 2 ** 252 + 27742317777372353535851937790883648493
+_Bd = (15112221349535400772501151409588531511454012693041857206046113283949847762202,
+       46316835694926478169428394003475163141307993866256225615783033603165251855960)
+
+
+def _sumar(p, q):
+    (x1, y1), (x2, y2) = p, q
+    t = _Dd * x1 * x2 * y1 * y2 % _Pd
+    return ((x1 * y2 + x2 * y1) * pow(1 + t, -1, _Pd) % _Pd, (y1 * y2 + x1 * x2) * pow(1 - t, -1, _Pd) % _Pd)
+
+
+def _por(k, p):
+    r = (0, 1)
+    while k:
+        if k & 1:
+            r = _sumar(r, p)
+        p = _sumar(p, p)
+        k >>= 1
+    return r
+
+
+def _codificar(p):
+    return (p[1] | ((p[0] & 1) << 255)).to_bytes(32, "little")
+
+
+def _orden_pequeno(t):
+    k, x = 1, t
+    while x != (0, 1):
+        x, k = _sumar(x, t), k + 1
+    return k
+
+
+def _torsion(orden):
+    """Un punto de orden `orden` (2, 4 u 8): los de orden 8 son las raíces de los de orden 4."""
+    i = pow(2, (_Pd - 1) // 4, _Pd)
+    if orden == 2:
+        return (0, _Pd - 1)
+    if orden == 4:
+        return (i, 0)
+    # (x, y) con 2·(x, y) = (i, 0): y² = x² y y² − x² = ... ; se busca entre los múltiplos [L]·P de puntos fijos
+    for semilla in range(1, 200):
+        y = int.from_bytes(hashlib.sha256(b"153 remate torsion %d" % semilla).digest(), "little") % _Pd
+        x2 = (y * y - 1) * pow(_Dd * y * y + 1, -1, _Pd) % _Pd
+        if pow(x2, (_Pd - 1) // 2, _Pd) != 1:
+            continue
+        x = pow(x2, (_Pd + 3) // 8, _Pd)
+        if (x * x - x2) % _Pd:
+            x = x * i % _Pd
+        t = _por(_Ld, (x, y))
+        if _orden_pequeno(t) == 8:
+            return t
+    raise AssertionError("sin punto de orden 8")
+
+
+def cadena_de_clave_mixta(orden, h_multiplo_de_8, rng):
+    """Dos bloques encadenados firmados con A' = [a]B + T (T de orden `orden`): firmas Ed25519 de verdad para A' (S = r + h·a), con
+    h = SHA-512(R ‖ A' ‖ M) mod L ≡ 0 (mod 8) en las dos si `h_multiplo_de_8` (entonces también vale SIN cofactor: OpenSSL dice
+    «válida»), o con h ≢ 0 en la segunda (solo vale CON cofactor: @noble dice «válida»)."""
+    import base64
+    a = rng.randrange(1, _Ld)
+    publica = _codificar(_sumar(_por(a, _Bd), _torsion(orden)))
+    huella = hashlib.sha256(publica).hexdigest()
+    out, prev = [], GENESIS
+    for seq, (desde, hasta, h0) in enumerate((("10:00", "11:00", True), ("11:00", "12:00", h_multiplo_de_8))):
+        kA, pubA, hA = clave(SEMILLA_A)
+        b = bloque(kA, pubA, hA, seq, prev, f"2026-11-02T{desde}:00Z", f"2026-11-02T{hasta}:00Z", rng, 30 + seq, 0.0)
+        b["servicio"]["clave_publica"], b["servicio"]["huella_clave"] = publica.hex(), huella
+        msg = mensaje_firmado(b)
+        while True:
+            r = rng.randrange(1, _Ld)
+            R = _codificar(_por(r, _Bd))
+            h = int.from_bytes(hashlib.sha512(R + publica + msg).digest(), "little") % _Ld
+            if (h % 8 == 0) == h0:
+                break
+        b["firma"] = {"alg": "ed25519", "valor": base64.b64encode(R + ((r + h * a) % _Ld).to_bytes(32, "little")).decode("ascii")}
+        out.append(b)
+        prev = hash_de_bloque(b)
+    if h_multiplo_de_8:   # el diente del vector: sin la comprobación de orden, OpenSSL (`cryptography`) la daría por buena
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        for b in out:
+            Ed25519PublicKey.from_public_bytes(publica).verify(base64.b64decode(b["firma"]["valor"]), mensaje_firmado(b))
+    return out
+
+
+def casos_del_remate_153(caso, kA, pubA, hA, L, b1):
+    rng = random.Random(15307)
+    # `hasta` es el FINAL de la hora UTC de la última petición: con minutos o segundos no es v1, y una ventana nunca está vacía
+    for nombre, hasta in (("ventana_hasta_con_minutos", "2026-11-02T12:30:00Z"), ("ventana_hasta_con_segundos", "2026-11-02T12:00:01Z"),
+                          ("ventana_vacia_desde_igual_a_hasta", "2026-11-02T11:00:00Z")):
+        m = copy.deepcopy(b1); m["ventana"]["hasta"] = hasta
+        caso(nombre, f"ventana.hasta = {hasta} (desde 11:00), firmado: no es el final de una hora o la ventana queda vacía",
+             [L[0], linea(firmado(kA, m)), L[2]], {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 1})
+    # fechas que casan con AAAA-MM-DDThh:mm:ssZ y no son del calendario (la aritmética de la regla entre cadenas las necesita reales)
+    for nombre, desde, hasta in (("ventana_30_de_febrero", "2026-02-30T10:00:00Z", "2026-02-30T11:00:00Z"),
+                                 ("ventana_hora_24", "2026-11-02T23:00:00Z", "2026-11-02T24:00:00Z"),
+                                 ("ventana_29_de_febrero_de_2100_no_es_bisiesto", "2100-02-28T23:00:00Z", "2100-02-29T00:00:00Z")):
+        m = copy.deepcopy(b1); m["ventana"] = {"desde": desde, "hasta": hasta}
+        caso(nombre, f"ventana {desde} – {hasta}, firmado: no es una fecha del calendario", [L[0], linea(firmado(kA, m)), L[2]],
+             {"estado": "no_se_pudo_comprobar", "motivo": "formato", "bloque": 1})
+    g = bloque(kA, pubA, hA, 0, GENESIS, "2028-02-29T23:00:00Z", "2028-03-01T00:00:00Z", rng, 25, 0.0)
+    caso("ventana_29_de_febrero_bisiesto", "Un bloque del 29 de febrero de 2028 (bisiesto) a medianoche: válido", [linea(g)],
+         {"estado": "valida", "bloques": 1})
+    # DS2: una ventana con menos de k peticiones sigue acumulando, así que un bloque puede durar varias horas
+    largo = bloque(kA, pubA, hA, 0, GENESIS, "2026-11-02T10:00:00Z", "2026-11-02T14:00:00Z", rng, 21, 0.0)
+    caso("ventana_de_varias_horas", "Un bloque de 10:00 a 14:00 (pocas peticiones por hora: no se cerró hasta llegar a k): válido",
+         [linea(largo)], {"estado": "valida", "bloques": 1})
+    # la regla entre cadenas con horas enteras: una cadena nueva puede empezar en la MISMA hora en que acaba la anterior, no antes
+    A0 = cadena_de(kA, pubA, hA, 3, 10, rng, reinicio=None)              # 10-13 h: su último bloque, 12-13 h
+    LA0 = [linea(b) for b in A0]
+    misma = cadena_de(kA, pubA, hA, 2, 12, rng)                           # empieza a las 12:00, en la hora en que acaba A0
+    caso("B1_reinicio_en_la_misma_hora_en_que_acaba_la_anterior",
+         "El servicio se cae a las 12:20 con la última línea a medias y vuelve a las 12:25: la cadena nueva empieza a las 12:00 y la anterior "
+         "acaba a las 13:00 (el final de su hora). Es honrado: válida", LA0 + [linea(b) for b in misma],
+         {"estado": "valida", "bloques": 5, "reinicios": [3]})
+    noche = cadena_de(kA, pubA, hA, 2, 22, rng, reinicio=None)            # 22-24 h: acaba a las 00:00 del día 3
+    LN = [linea(b) for b in noche]
+    for nombre, hora, esperado in (("B1_reinicio_en_la_misma_hora_pasada_la_medianoche", 23, {"estado": "valida", "bloques": 3, "reinicios": [2]}),
+                                   ("B1_reinicio_una_hora_antes_pasada_la_medianoche", 22, {"estado": "no_coincide", "motivo": "cadena", "bloque": 2})):
+        nueva = cadena_de(kA, pubA, hA, 1, hora, rng)
+        caso(nombre, f"La cadena anterior acaba a las 00:00 del día 3; la nueva empieza a las {hora}:00 del día 2: la cuenta cruza el día",
+             LN + [linea(nueva[0])], esperado)
+    # M4: claves de orden MIXTO, [L]A' ≠ identidad. `clave` en el primer bloque, antes de verificar: así núcleo, WebCrypto (de cualquier
+    # navegador) y @noble dicen lo mismo, sea cual sea su ecuación (con o sin cofactor)
+    for orden in (2, 4, 8):
+        caso(f"M4_clave_de_orden_mixto_{orden}_con_h_multiplo_de_8", f"A' = [a]B + T, T de orden {orden}, firmas con h ≡ 0 (mod 8): OpenSSL las da "
+             "por buenas sin la comprobación de orden. `clave`", [linea(b) for b in cadena_de_clave_mixta(orden, True, rng)],
+             {"estado": "no_coincide", "motivo": "clave", "bloque": 0})
+    caso("M4_clave_de_orden_mixto_8_con_h_no_multiplo_de_8_en_el_segundo", "A' = [a]B + T, T de orden 8; la segunda firma con h ≢ 0 (mod 8): solo la "
+         "acepta una comprobación CON cofactor (@noble). `clave`", [linea(b) for b in cadena_de_clave_mixta(8, False, rng)],
+         {"estado": "no_coincide", "motivo": "clave", "bloque": 0})
 
 
 def base64_igual(a, b):

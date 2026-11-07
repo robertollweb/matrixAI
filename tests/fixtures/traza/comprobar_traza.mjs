@@ -30,6 +30,22 @@ const CAMPOS = ['formato', 'seq', 'prev', 'servicio', 'ventana', 'n', 'k_minimo'
 const HEX64 = /^[0-9a-f]{64}$/;
 const FECHA = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$/;
 
+/** Segundos desde 1970-01-01T00:00:00Z de `AAAA-MM-DDThh:mm:ssZ` (ya casada con FECHA), o `null` si no es una fecha del calendario
+ *  (mes 13, 30 de febrero, hora 24, segundo 60). La MISMA aritmética que `segundos_utc` de `traza.py` (días del calendario civil):
+ *  ni `Date.parse` ni `datetime`, que no admiten las mismas fechas, deciden aquí. */
+export function segundosUtc(iso) {
+  const a = +iso.slice(0, 4), m = +iso.slice(5, 7), d = +iso.slice(8, 10), hh = +iso.slice(11, 13), mi = +iso.slice(14, 16), ss = +iso.slice(17, 19);
+  const bisiesto = a % 4 === 0 && (a % 100 !== 0 || a % 400 === 0);
+  const dias = [31, bisiesto ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (!(m >= 1 && m <= 12 && d >= 1 && d <= dias[m - 1] && hh <= 23 && mi <= 59 && ss <= 59)) return null;
+  const y = a - (m <= 2 ? 1 : 0);
+  const era = Math.floor(y / 400); // suelo, también con y = -1 (el año 0000 antes de marzo), como `//` en Python
+  const yoe = y - era * 400;
+  const doy = Math.floor((153 * (m > 2 ? m - 3 : m + 9) + 2) / 5) + d - 1;
+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  return (era * 146097 + doe - 719468) * 86400 + hh * 3600 + mi * 60 + ss;
+}
+
 export const VALIDA = 'valida';
 export const NO_COINCIDE = 'no_coincide';
 export const NO_SE_PUDO_COMPROBAR = 'no_se_pudo_comprobar';
@@ -211,10 +227,14 @@ function estructura(b, coherencia = false) {
   if (!esObjeto(v) || !mismasClaves(v, ['desde', 'hasta'])) throw mal('ventana: campos incorrectos', 'ventana: wrong fields');
   for (const campo of ['desde', 'hasta']) {
     if (typeof v[campo] !== 'string' || !FECHA.test(v[campo])) throw mal(`ventana.${campo} no es AAAA-MM-DDThh:mm:ssZ`, `ventana.${campo} is not YYYY-MM-DDThh:mm:ssZ`);
+    if (segundosUtc(v[campo]) === null) throw mal(`ventana.${campo} no es una fecha del calendario (mes, día, hora, minuto o segundo fuera de rango)`, `ventana.${campo} is not a calendar date (month, day, hour, minute or second out of range)`);
   }
   if (v.desde > v.hasta) throw mal('ventana.desde > ventana.hasta', 'ventana.desde > ventana.hasta');
   // 153-C4 (decisión de Roberto, 07-11, opción A): `desde` es el inicio de una hora UTC, nunca el segundo exacto de la primera petición.
   if (!v.desde.endsWith(':00:00Z')) throw mal('ventana.desde no es el inicio de una hora UTC (AAAA-MM-DDThh:00:00Z): la hora exacta de la primera petición no se guarda', 'ventana.desde is not the start of a UTC hour (YYYY-MM-DDThh:00:00Z): the exact time of the first request is not kept');
+  // 153 remate (decisión de Roberto, 07-11, A): y `hasta` es el FINAL de la hora UTC de la última petición contada; una ventana es de horas enteras y nunca vacía.
+  if (!v.hasta.endsWith(':00:00Z')) throw mal('ventana.hasta no es el final de una hora UTC (AAAA-MM-DDThh:00:00Z): la hora exacta de la última petición no se guarda', 'ventana.hasta is not the end of a UTC hour (YYYY-MM-DDThh:00:00Z): the exact time of the last request is not kept');
+  if (v.desde === v.hasta) throw mal('ventana vacía (desde == hasta): una ventana va del inicio de la hora de su primera petición al final de la de la última', 'empty window (desde == hasta): a window runs from the start of its first request\'s hour to the end of its last one\'s');
   if (typeof b.incompleto !== 'boolean') throw mal('incompleto no es booleano', 'incompleto is not a boolean');
   if (b.reinicio !== null && b.reinicio !== 'sin_previo') throw mal('reinicio: solo null o "sin_previo"', 'reinicio: only null or "sin_previo"');
   const f = b.firma;
@@ -308,11 +328,31 @@ const Y_DE_ORDEN_PEQUENO = new Set([0n, 1n, P - 1n, Y8, P - Y8].map(String));
 const enteroLE = (u8) => { let x = 0n; for (let k = u8.length - 1; k >= 0; k--) x = (x << 8n) | BigInt(u8[k]); return x; };
 const yDe = (crudo32) => enteroLE(crudo32) & ((1n << 255n) - 1n);
 
+const RAIZ_DE_MENOS_1 = potencia(2n, (P - 1n) / 4n, P);
+const md = (a) => ((a % P) + P) % P;
+/** Suma en coordenadas extendidas (X, Y, Z, T), a = −1, RFC 8032 §5.1.4: completa (dobla también y admite la identidad). */
+function sumaDePuntos([x1, y1, z1, t1], [x2, y2, z2, t2]) {
+  const a = md((y1 - x1) * (y2 - x2)), b = md((y1 + x1) * (y2 + x2)), c = md(2n * D * t1 * t2), d = md(2n * z1 * z2);
+  const e = b - a, f = d - c, g = d + c, h = b + a;
+  return [md(e * f), md(g * h), md(f * g), md(e * h)];
+}
+/** ¿[L]A = identidad? Una clave de orden MIXTO (A = [a]B + T, T de orden pequeño) la tratan distinto OpenSSL, WebCrypto de cada
+ *  navegador y @noble (con o sin cofactor): medido en la auditoría de C4–C7. Como `_de_orden_primo` de `traza.py`. */
+function deOrdenPrimo(x, y) {
+  let punto = [x, y, 1n, md(x * y)], r = [0n, 1n, 1n, 0n], k = L_ORDEN;
+  while (k > 0n) { if (k & 1n) r = sumaDePuntos(r, punto); punto = sumaDePuntos(punto, punto); k >>= 1n; }
+  return r[0] === 0n && r[1] === r[2];
+}
+
 export function clavePublicaUtilizable(crudo32) {
   const y = yDe(crudo32);
   if (y >= P || Y_DE_ORDEN_PEQUENO.has(String(y))) return false;
   const x2 = ((y * y - 1n) * inverso(D * y * y + 1n)) % P;
-  return x2 === 0n || potencia(x2, (P - 1n) / 2n, P) === 1n;
+  if (potencia(x2, (P - 1n) / 2n, P) !== 1n) return false; // x2 == 0 solo con y = ±1, ya fuera
+  let x = potencia(x2, (P + 3n) / 8n, P);
+  if ((x * x - x2) % P !== 0n) x = (x * RAIZ_DE_MENOS_1) % P;
+  if (Number(x & 1n) !== (crudo32[31] >> 7)) x = P - x; // el signo no cambia la respuesta, pero el punto es el de la clave
+  return deOrdenPrimo(x, y);
 }
 export function firmaBienFormada(firma64) {
   const yR = yDe(firma64.slice(0, 32));
@@ -391,8 +431,8 @@ async function falloDeFirma(b, plataforma, utilizables = new Map()) {
   if (plataforma.sha256(crudo) !== s.huella_clave) return ['clave', t('la huella no es la de la clave pública que lleva el bloque', 'the fingerprint is not the one of the public key the block carries')];
   if (!utilizables.has(s.clave_publica)) utilizables.set(s.clave_publica, clavePublicaUtilizable(crudo)); // una vez por clave
   if (!utilizables.get(s.clave_publica)) {
-    return ['clave', t('la clave pública no es una clave Ed25519 utilizable (no canónica, fuera de la curva o de orden pequeño): con ella cualquier contenido parecería firmado',
-      'the public key is not a usable Ed25519 key (non-canonical, off the curve or of small order): with it any content would look signed')];
+    return ['clave', t('la clave pública no es una clave Ed25519 utilizable (no canónica, fuera de la curva, de orden pequeño o de orden mixto): con ella cualquier contenido parecería firmado, o cada biblioteca diría una cosa',
+      'the public key is not a usable Ed25519 key (non-canonical, off the curve, of small order or of mixed order): with it any content would look signed, or each library would say something different')];
   }
   const firma = firmaDeBase64(b.firma.valor);
   if (firma === null || !firmaBienFormada(firma) || !(await plataforma.ed25519(crudo, mensajeFirmado(b), firma))) {
@@ -473,10 +513,12 @@ function falloDeCadena(registros, esperarGenesis) {
     vistos.add(b.hash);
     if (b.reinicio === 'sin_previo') {
       if (!(b.seq === 0 && b.prev === GENESIS)) return res(NO_COINCIDE, 'cadena', i, t('un reinicio sin_previo debe tener seq 0 y prev de ceros', 'a sin_previo restart must have seq 0 and a prev of zeros'));
-      if (ultimoHasta.has(b.huella) && b.desde < ultimoHasta.get(b.huella)) {
+      // 153 remate: con horas enteras, una cadena nueva honrada puede empezar en la MISMA hora en que acabó la anterior (caída a las 10:20,
+      // vuelta a las 10:25: `desde` 10:00 y el `hasta` de antes 11:00); no ANTES de esa hora. Dos cadenas dentro de una hora no se ordenan.
+      if (ultimoHasta.has(b.huella) && segundosUtc(b.desde) < segundosUtc(ultimoHasta.get(b.huella)) - 3600) {
         const h = ultimoHasta.get(b.huella);
-        return res(NO_COINCIDE, 'cadena', i, t(`esta cadena nueva empieza (${b.desde}) antes de que acabe la anterior de la misma clave (${h}): cadenas cambiadas de orden o repetidas`,
-          `this new chain starts (${b.desde}) before the previous one of the same key ends (${h}): chains out of order or repeated`));
+        return res(NO_COINCIDE, 'cadena', i, t(`esta cadena nueva empieza (${b.desde}) antes de la hora en que acaba la anterior de la misma clave (que acaba a las ${h}): cadenas cambiadas de orden o repetidas`,
+          `this new chain starts (${b.desde}) before the hour in which the previous one of the same key ends (it ends at ${h}): chains out of order or repeated`));
       }
     } else if ((b.seq === 0) !== (b.prev === GENESIS)) {
       return res(NO_COINCIDE, 'cadena', i, t('bloque incoherente: el génesis (seq 0) lleva prev de ceros y ningún otro lo lleva', 'incoherent block: the genesis block (seq 0) has a prev of zeros and no other block has one'));

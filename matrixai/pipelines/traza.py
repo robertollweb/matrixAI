@@ -22,10 +22,11 @@ coincide») y `no_se_pudo_comprobar`. Nunca «verificado». Se devuelve el PRIME
 0. TAMAÑO: 1 MiB por línea, 64 MiB el fichero    -> `no_se_pudo_comprobar` (`formato`), antes de leer JSON
 1. lectura y FORMA de cada línea                  -> `no_se_pudo_comprobar` (`formato` | `version`)
 2. TODAS las firmas, bloque a bloque              -> `no_coincide` (`clave` | `firma`); una clave de orden
-   pequeño o no canónica es `clave` antes de verificar (con ella, cualquier contenido «estaría firmado»)
+   pequeño, de orden MIXTO o no canónica es `clave` antes de verificar (con ella, cualquier contenido «estaría firmado»,
+   o cada biblioteca diría una cosa distinta)
 3. coherencia (sumas, k)                          -> `no_se_pudo_comprobar` (`formato`)
 4. cadena, de un bloque al siguiente, y entre    -> `no_coincide` (`cadena`)
-   cadenas: un bloque repetido, o una cadena nueva que empieza antes de que acabe la anterior de la misma clave
+   cadenas: un bloque repetido, o una cadena nueva que empieza antes de la hora en que acaba la anterior de la misma clave
 5. ancla (la huella que quien comprueba esperaba) -> `no_coincide` (`ancla`)
 
 «La firma no coincide» es una propiedad de UN bloque (su contenido no es lo que firmó su clave);
@@ -109,14 +110,16 @@ MOTIVOS: dict[str, dict[str, str]] = {
     "firma": _t("el contenido de un bloque no es lo que firmó su clave (editado o firma estropeada)",
                 "a block's content is not what its key signed (edited, or the signature is damaged)"),
     "clave": _t("la clave pública de un bloque no vale: su huella no es la suya, o no es una clave Ed25519 utilizable "
-                "(no canónica, fuera de la curva o de orden pequeño, que «firmaría» cualquier contenido)",
+                "(no canónica, fuera de la curva o de orden pequeño, que «firmaría» cualquier contenido, o de orden mixto, con la que "
+                "cada biblioteca diría una cosa)",
                 "a block's public key is not usable: its fingerprint is not its own, or it is not a usable Ed25519 key "
-                "(non-canonical, off the curve or of small order, which would \"sign\" any content)"),
+                "(non-canonical, off the curve or of small order, which would \"sign\" any content, or of mixed order, with which "
+                "each library would say something different)"),
     "cadena": _t("las firmas son buenas pero los bloques no encajan entre sí (dentro de una cadena falta, sobra o está "
-                 "cambiado de sitio alguno; o un bloque está repetido; o una cadena empieza antes de que acabe la anterior de "
-                 "la misma clave)",
+                 "cambiado de sitio alguno; o un bloque está repetido; o una cadena empieza antes de la hora en que acaba la "
+                 "anterior de la misma clave)",
                  "the signatures are good but the blocks do not fit each other (inside a chain one is missing, extra or "
-                 "out of place; or a block is repeated; or a chain starts before the previous one of the same key ends)"),
+                 "out of place; or a block is repeated; or a chain starts before the hour in which the previous one of the same key ends)"),
     "ancla": _t("la huella de la clave no es la que se esperaba (otro servicio u otra clave)",
                 "the key fingerprint is not the expected one (another service or another key)"),
     "formato": _t("el fichero o una de sus líneas no se pudo leer como matrixai.traza/v1 (o pasa del tope de tamaño)",
@@ -141,11 +144,12 @@ AVISO_COLA: dict[str, str] = {
 AVISO_REINICIO: dict[str, str] = {
     "es": "Que no falten bloques antes de un reinicio: una cadena nueva («sin_previo») no enlaza con lo anterior, así que pueden "
           "faltar los últimos bloques de la cadena de antes, o una cadena entera. Borrar o reordenar bloques se detecta DENTRO "
-          "de una cadena; entre cadenas, solo un bloque repetido o una cadena de la misma clave que empieza antes de que acabe "
-          "la anterior.",
+          "de una cadena; entre cadenas, solo un bloque repetido o una cadena de la misma clave que empieza antes de la hora "
+          "en que acaba la anterior (dos cadenas dentro de una misma hora no se pueden ordenar).",
     "en": "That no blocks are missing before a restart: a new chain (\"sin_previo\") does not link to what came before, so the "
           "last blocks of the previous chain, or a whole chain, may be missing. Deleting or reordering blocks is detected INSIDE "
-          "a chain; across chains, only a repeated block or a chain of the same key that starts before the previous one ends.",
+          "a chain; across chains, only a repeated block or a chain of the same key that starts before the hour in which the previous "
+          "one ends (two chains within the same hour cannot be put in order).",
 }
 
 #: §4 del contrato, texto fijo (es/en) para Seguimiento, /verificar y el README. Sin «garantiza»
@@ -232,6 +236,24 @@ def _recorrer(x: Any, profundidad: int = 0) -> None:
             _recorrer(v, profundidad + 1)
 
 
+def segundos_utc(iso: str) -> int | None:
+    """Los segundos desde 1970-01-01T00:00:00Z de una fecha `AAAA-MM-DDThh:mm:ssZ` (ya casada con `_FECHA`), o `None` si no es una
+    fecha del calendario (mes 13, 30 de febrero, hora 24, segundo 60). Aritmética propia —días del calendario civil, H. Hinnant—, la
+    MISMA en el JS: ni `datetime` ni `Date.parse`, que no admiten las mismas fechas, deciden aquí."""
+    a, m, d = int(iso[0:4]), int(iso[5:7]), int(iso[8:10])
+    hh, mi, ss = int(iso[11:13]), int(iso[14:16]), int(iso[17:19])
+    bisiesto = a % 4 == 0 and (a % 100 != 0 or a % 400 == 0)
+    if not (1 <= m <= 12 and 1 <= d <= (31, 29 if bisiesto else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)[m - 1]
+            and hh <= 23 and mi <= 59 and ss <= 59):
+        return None
+    y = a - (1 if m <= 2 else 0)
+    era = y // 400                                  # suelo (también con y = -1, el año 0000 antes de marzo); en el JS, Math.floor
+    yoe = y - era * 400
+    doy = (153 * (m - 3 if m > 2 else m + 9) + 2) // 5 + d - 1
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    return (era * 146097 + doe - 719468) * 86400 + hh * 3600 + mi * 60 + ss
+
+
 def _entero(x: Any, nombre: str) -> int:
     if isinstance(x, bool) or not isinstance(x, int) or x < 0 or x > MAX_ENTERO:
         raise _mal(f"{nombre} no es un entero 0..2^53-1", f"{nombre} is not an integer 0..2^53-1")
@@ -284,6 +306,9 @@ def _estructura(b: Any, coherencia: bool = False) -> None:
     for campo in ("desde", "hasta"):
         if not isinstance(v[campo], str) or not _FECHA.match(v[campo]):
             raise _mal(f"ventana.{campo} no es AAAA-MM-DDThh:mm:ssZ", f"ventana.{campo} is not YYYY-MM-DDThh:mm:ssZ")
+        if segundos_utc(v[campo]) is None:
+            raise _mal(f"ventana.{campo} no es una fecha del calendario (mes, día, hora, minuto o segundo fuera de rango)",
+                       f"ventana.{campo} is not a calendar date (month, day, hour, minute or second out of range)")
     if v["desde"] > v["hasta"]:  # la HORA no se comprueba (DS11); solo que la ventana no esté al revés
         raise _mal("ventana.desde > ventana.hasta", "ventana.desde > ventana.hasta")
     # 153-C4 (decisión de Roberto, 07-11, opción A): `desde` es el INICIO DE LA HORA UTC de la primera petición contada, nunca su segundo
@@ -291,6 +316,14 @@ def _estructura(b: Any, coherencia: bool = False) -> None:
     if not v["desde"].endswith(":00:00Z"):
         raise _mal("ventana.desde no es el inicio de una hora UTC (AAAA-MM-DDThh:00:00Z): la hora exacta de la primera petición no se guarda",
                    "ventana.desde is not the start of a UTC hour (YYYY-MM-DDThh:00:00Z): the exact time of the first request is not kept")
+    # 153 remate (decisión de Roberto, 07-11, A): y `hasta` es el FINAL de la hora UTC de la última petición contada (la hora en punto
+    # siguiente), por lo mismo: el segundo del cierre dice cuándo llegó la última petición. Así una ventana es de horas enteras y nunca vacía.
+    if not v["hasta"].endswith(":00:00Z"):
+        raise _mal("ventana.hasta no es el final de una hora UTC (AAAA-MM-DDThh:00:00Z): la hora exacta de la última petición no se guarda",
+                   "ventana.hasta is not the end of a UTC hour (YYYY-MM-DDThh:00:00Z): the exact time of the last request is not kept")
+    if v["desde"] == v["hasta"]:
+        raise _mal("ventana vacía (desde == hasta): una ventana va del inicio de la hora de su primera petición al final de la de la última",
+                   "empty window (desde == hasta): a window runs from the start of its first request's hour to the end of its last one's")
     if not isinstance(b["incompleto"], bool):
         raise _mal("incompleto no es booleano", "incompleto is not a boolean")
     if b["reinicio"] not in (None, "sin_previo"):
@@ -395,14 +428,51 @@ def _y_de(crudo32: bytes) -> int:
     return int.from_bytes(crudo32, "little") & ((1 << 255) - 1)
 
 
+_RAIZ_DE_MENOS_1 = pow(2, (_P - 1) // 4, _P)
+
+
+def _suma_de_puntos(p1: tuple, p2: tuple) -> tuple:
+    """Suma en coordenadas extendidas (X, Y, Z, T) de la curva de Edwards torcida de Ed25519 (a = −1), RFC 8032 §5.1.4. La fórmula es
+    completa (sirve también para doblar y con la identidad), así que no hay casos aparte."""
+    x1, y1, z1, t1 = p1
+    x2, y2, z2, t2 = p2
+    a = (y1 - x1) * (y2 - x2) % _P
+    b = (y1 + x1) * (y2 + x2) % _P
+    c = 2 * _D * t1 * t2 % _P
+    d = 2 * z1 * z2 % _P
+    e, f, g, h = b - a, d - c, d + c, b + a
+    return (e * f % _P, g * h % _P, f * g % _P, e * h % _P)
+
+
+def _de_orden_primo(x: int, y: int) -> bool:
+    """¿[L]A = identidad? Una clave A = [a]B + T con T de orden pequeño (orden MIXTO) es un punto de la curva, no es de orden pequeño, y
+    OpenSSL, WebCrypto de cada navegador y @noble la tratan distinto (comprobación con o sin cofactor): medido en la auditoría de C4–C7,
+    WebKit, Chromium y @noble decían cosas distintas de la misma traza. El escritor no las produce (`cryptography` da [a]B)."""
+    punto, r, k = (x, y, 1, x * y % _P), (0, 1, 1, 0), _L
+    while k:
+        if k & 1:
+            r = _suma_de_puntos(r, punto)
+        punto = _suma_de_puntos(punto, punto)
+        k >>= 1
+    return r[0] == 0 and r[1] == r[2]
+
+
 def _clave_publica_utilizable(crudo32: bytes) -> bool:
-    """¿Son estos 32 bytes una clave Ed25519 que solo firma quien tiene su privada? `y` canónico (< p), que no sea de un punto de
-    orden pequeño, y que exista el punto (x² = (y²−1)/(d·y²+1) es un cuadrado módulo p)."""
+    """¿Son estos 32 bytes una clave Ed25519 que solo firma quien tiene su privada y que todas las bibliotecas leen igual? `y` canónico
+    (< p), que no sea de un punto de orden pequeño, que exista el punto (x² = (y²−1)/(d·y²+1) es un cuadrado módulo p) y que sea de
+    orden primo ([L]A = identidad: sin parte de orden pequeño)."""
     y = _y_de(crudo32)
     if y >= _P or y in _Y_DE_ORDEN_PEQUENO:
         return False
     x2 = (y * y - 1) * pow(_D * y * y + 1, -1, _P) % _P
-    return x2 == 0 or pow(x2, (_P - 1) // 2, _P) == 1  # x2 == 0 solo con y = ±1, ya fuera
+    if pow(x2, (_P - 1) // 2, _P) != 1:      # x2 == 0 solo con y = ±1, ya fuera
+        return False
+    x = pow(x2, (_P + 3) // 8, _P)
+    if (x * x - x2) % _P:
+        x = x * _RAIZ_DE_MENOS_1 % _P
+    if (x & 1) != (crudo32[31] >> 7):        # el signo no cambia la respuesta ([L](−A) = −[L]A), pero el punto es el de la clave
+        x = _P - x
+    return _de_orden_primo(x, y)
 
 
 def _firma_bien_formada(firma64: bytes) -> bool:
@@ -531,10 +601,10 @@ def _fallo_de_firma(b: dict, utilizables: dict[str, bool] | None = None) -> tupl
     if s["clave_publica"] not in utilizables:
         utilizables[s["clave_publica"]] = _clave_publica_utilizable(crudo)
     if not utilizables[s["clave_publica"]]:
-        return "clave", _t("la clave pública no es una clave Ed25519 utilizable (no canónica, fuera de la curva o de orden "
-                           "pequeño): con ella cualquier contenido parecería firmado",
-                           "the public key is not a usable Ed25519 key (non-canonical, off the curve or of small order): with "
-                           "it any content would look signed")
+        return "clave", _t("la clave pública no es una clave Ed25519 utilizable (no canónica, fuera de la curva, de orden "
+                           "pequeño o de orden mixto): con ella cualquier contenido parecería firmado, o cada biblioteca diría una cosa",
+                           "the public key is not a usable Ed25519 key (non-canonical, off the curve, of small order or of mixed "
+                           "order): with it any content would look signed, or each library would say something different")
     valor = b["firma"]["valor"]
     buena = False
     if _base64_canonico(valor) and _firma_bien_formada(base64.b64decode(valor)):
@@ -640,7 +710,7 @@ def _comprobar(lineas: Iterable[str], fuera: dict[str, Any] | None, huella_ancla
 
 def _fallo_de_cadena(registros: list[tuple], esperar_genesis: bool) -> dict[str, Any] | None:
     """La cadena, de un bloque al siguiente, y entre cadenas (B1): un bloque repetido, o una cadena nueva de una clave que
-    empieza ANTES de que acabe la anterior de esa misma clave, es `cadena`. La hora no se comprueba (DS11): solo el ORDEN de
+    empieza ANTES de la hora en que acaba la anterior de esa misma clave, es `cadena`. La hora no se comprueba (DS11): solo el ORDEN de
     las ventanas firmadas de una misma clave."""
     vistos: set[str] = set()
     ultimo_hasta: dict[str, str] = {}  # huella -> `hasta` del último bloque visto de esa clave
@@ -660,12 +730,16 @@ def _fallo_de_cadena(registros: list[tuple], esperar_genesis: bool) -> dict[str,
             if not (seq == 0 and prev == GENESIS):
                 return _res(NO_COINCIDE, "cadena", i, _t("un reinicio sin_previo debe tener seq 0 y prev de ceros",
                                                          "a sin_previo restart must have seq 0 and a prev of zeros"))
-            if huella in ultimo_hasta and desde < ultimo_hasta[huella]:
+            # 153 remate: con `desde` y `hasta` en horas enteras, una cadena nueva HONRADA puede empezar en la MISMA hora en que acabó la
+            # anterior (el servicio se cae a las 10:20 con la última línea a medias y vuelve a las 10:25: `desde` 10:00, y el `hasta` de
+            # antes, 11:00). Lo que no puede es empezar ANTES de esa hora: `desde` >= `hasta` anterior − 1 h. Lo que eso deja sin ver:
+            # dos cadenas de la misma clave dentro de una misma hora se pueden intercambiar (su seq vuelve a 0 en cada una).
+            if huella in ultimo_hasta and segundos_utc(desde) < segundos_utc(ultimo_hasta[huella]) - 3600:
                 return _res(NO_COINCIDE, "cadena", i, _t(
-                    f"esta cadena nueva empieza ({desde}) antes de que acabe la anterior de la misma clave ({ultimo_hasta[huella]}): "
-                    "cadenas cambiadas de orden o repetidas",
-                    f"this new chain starts ({desde}) before the previous one of the same key ends ({ultimo_hasta[huella]}): "
-                    "chains out of order or repeated"))
+                    f"esta cadena nueva empieza ({desde}) antes de la hora en que acaba la anterior de la misma clave (que acaba a las "
+                    f"{ultimo_hasta[huella]}): cadenas cambiadas de orden o repetidas",
+                    f"this new chain starts ({desde}) before the hour in which the previous one of the same key ends (it ends at "
+                    f"{ultimo_hasta[huella]}): chains out of order or repeated"))
         elif (seq == 0) != (prev == GENESIS):
             return _res(NO_COINCIDE, "cadena", i, _t(
                 "bloque incoherente: el génesis (seq 0) lleva prev de ceros y ningún otro lo lleva",

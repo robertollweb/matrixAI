@@ -141,7 +141,7 @@ def test_sabotaje_editar_un_bloque_da_la_firma_no_coincide():
         antes = destino[ruta[-1]]
         destino[ruta[-1]] = "sin_previo" if ruta == ("reinicio",) else (antes + "x" if isinstance(antes, str) else antes + 1)
         if ruta == ("ventana", "hasta"):
-            destino[ruta[-1]] = "2026-11-02T23:59:59Z"
+            destino[ruta[-1]] = "2026-11-02T23:00:00Z"  # otra hora en punto: `hasta` va al final de una hora
         r = _comprobar([CADENA[0], _linea(m), CADENA[2]])
         assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_COINCIDE, "firma", 1), (ruta, r)
 
@@ -588,19 +588,20 @@ _REP_I1 = [n for n in CASOS if n.startswith("I1_")]
 def test_B1_un_bloque_repetido_en_el_fichero_es_cadena_rota_aunque_vaya_tras_un_reinicio():
     """Arreglo (a): el hash de cada bloque, una sola vez por fichero. Antes, duplicar una cadena de reinicio daba «firma válida»."""
     for nombre in ("B1_cadena_de_reinicio_duplicada", "B1_bloque_de_reinicio_duplicado_al_final", "B1_solo_una_cadena_de_reinicio_dos_veces",
-                   "B1_bloque_duplicado_con_otro_formato", "B1_bloque_de_ventana_vacia_duplicado"):
+                   "B1_bloque_duplicado_con_otro_formato", "B1_bloque_de_una_hora_duplicado"):
         r = _caso(nombre)
         assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_COINCIDE, "cadena", CASOS[nombre]["esperado"]["bloque"]), nombre
         assert "repetido" in r["detalle"]["es"] and "repeated" in r["detalle"]["en"], nombre
 
 
 def test_B1_las_cadenas_de_una_misma_clave_van_en_el_orden_de_sus_ventanas_firmadas():
-    """Arreglo (b): una cadena nueva de una clave no puede empezar antes de que acabe la anterior de ESA clave. No es la hora
-    (DS11): es el orden de lo que la propia clave firmó. Igual (desde == hasta) vale; claves distintas no se ordenan."""
+    """Arreglo (b): una cadena nueva de una clave no puede empezar antes de la HORA en que acaba la anterior de ESA clave (remate 153:
+    `hasta` es el final de una hora, así que en la misma hora vale). No es la hora (DS11): es el orden de lo que la propia clave firmó.
+    Igual (desde == hasta) vale; claves distintas no se ordenan."""
     for nombre in ("B1_cadenas_intercambiadas", "B1_cadenas_intercambiadas_con_ancla", "B1_reinicio_que_se_solapa_con_la_anterior"):
         r = _caso(nombre)
         assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_COINCIDE, "cadena", CASOS[nombre]["esperado"]["bloque"]), nombre
-        assert "antes de que acabe" in r["detalle"]["es"], nombre
+        assert "antes de la hora en que acaba" in r["detalle"]["es"] and "before the hour in which" in r["detalle"]["en"], nombre
     for nombre in ("B1_tres_cadenas_legitimas", "B1_reinicio_que_empieza_justo_cuando_acaba_la_anterior",
                    "B1_cadena_de_otra_clave_antes_y_fuera_de_hora_NO_se_detecta_sin_ancla"):
         assert _caso(nombre)["estado"] == A.VALIDA, nombre
@@ -855,7 +856,7 @@ def test_remate_I2_un_fichero_valido_guarda_poco_por_bloque():
     for seq in range(600):
         b = {"formato": T.FORMATO, "seq": seq, "prev": prev,
              "servicio": {"id": "s", "huella_clave": huella_de_clave_publica(k), "clave_publica": pub, "huella_modelo": "0" * 64},
-             "ventana": {"desde": "2026-11-03T00:00:00Z", "hasta": "2026-11-03T00:00:00Z"}, "n": 1, "k_minimo": 20,
+             "ventana": {"desde": "2026-11-03T00:00:00Z", "hasta": "2026-11-03T01:00:00Z"}, "n": 1, "k_minimo": 20,
              "incompleto": True, "reinicio": None, "salida": None, "columnas": None}
         b = T.firmar_bloque(k, b)
         lineas.append(_linea(b)); prev = T.hash_de_bloque(b)
@@ -1017,7 +1018,7 @@ def test_c2_menor_el_orden_es_el_de_la_primera_aparicion_no_el_alfabetico_ni_con
     def bloque(clave, desde, primero):
         b = {k: v for k, v in base.items() if k != "firma"}
         b["servicio"] = {**base["servicio"], "huella_clave": clave["huella"], "clave_publica": clave["publica_hex"]}
-        b.update(seq=0, prev=T.GENESIS, ventana={"desde": desde, "hasta": desde}, n=1, incompleto=True, salida=None, columnas=None,
+        b.update(seq=0, prev=T.GENESIS, ventana={"desde": desde, "hasta": desde[:11] + f"{int(desde[11:13]) + 1:02d}:00:00Z"}, n=1, incompleto=True, salida=None, columnas=None,
                  reinicio=None if primero else "sin_previo")
         return _linea(_firmado_con(clave, b))
 
@@ -1063,3 +1064,110 @@ def test_c4_paridad_js_los_desde_con_hora_exacta_dan_formato_tambien_en_javascri
     assert len(js) == len(_DESDE_CON_HORA_EXACTA)
     for nombre, r in zip(_DESDE_CON_HORA_EXACTA, js):
         assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_SE_PUDO_COMPROBAR, "formato", 1), (nombre, r)
+
+
+# ───────────────────────────────────────── remate de la auditoría de C4–C7: `hasta` al final de su hora (Roberto, 07-11, A) y M4
+
+_HASTA_QUE_NO_VALE = ("ventana_hasta_con_minutos", "ventana_hasta_con_segundos", "ventana_vacia_desde_igual_a_hasta")
+_FECHAS_QUE_NO_SON = ("ventana_30_de_febrero", "ventana_hora_24", "ventana_29_de_febrero_de_2100_no_es_bisiesto")
+_MIXTAS = ("M4_clave_de_orden_mixto_2_con_h_multiplo_de_8", "M4_clave_de_orden_mixto_4_con_h_multiplo_de_8",
+           "M4_clave_de_orden_mixto_8_con_h_multiplo_de_8", "M4_clave_de_orden_mixto_8_con_h_no_multiplo_de_8_en_el_segundo")
+
+
+def test_remate_hasta_que_no_es_el_final_de_una_hora_utc_no_es_v1_y_una_ventana_nunca_esta_vacia():
+    """Decisión de Roberto (07-11, A): `hasta` es el FINAL de la hora UTC de la última petición contada (la hora en punto siguiente). Con
+    minutos o segundos, aunque la clave buena lo firme, es `formato`; y como `desde` es el inicio de la hora de la primera, `desde == hasta`
+    no lo escribe nadie: también `formato`. En Python y en JS, el mismo bloque."""
+    js = _node({"modo": "comprobar", "casos": [CASOS[n] for n in _HASTA_QUE_NO_VALE]})["resultados"]
+    for nombre, r_js in zip(_HASTA_QUE_NO_VALE, js):
+        r = _comprobar_caso(CASOS[nombre])
+        assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_SE_PUDO_COMPROBAR, "formato", 1) == (r_js["estado"], r_js["motivo"], r_js["bloque"]), (nombre, r, r_js)
+    assert "final de una hora UTC" in _caso("ventana_hasta_con_minutos")["detalle"]["es"]
+    assert "end of a UTC hour" in _caso("ventana_hasta_con_segundos")["detalle"]["en"]
+    assert "ventana vacía" in _caso("ventana_vacia_desde_igual_a_hasta")["detalle"]["es"]
+
+
+def test_remate_todos_los_hasta_de_los_vectores_validos_estan_en_punto_y_por_delante_de_desde():
+    visto = 0
+    for c in VECTORES["casos"]:
+        if c["esperado"].get("estado") != A.VALIDA:
+            continue
+        for linea in c["lineas"]:
+            if isinstance(linea, str) and linea.startswith("{"):
+                v = json.loads(linea)["ventana"]
+                assert v["hasta"].endswith(":00:00Z") and T.segundos_utc(v["hasta"]) - T.segundos_utc(v["desde"]) >= 3600, (c["nombre"], v)
+                visto += 1
+    assert visto > 20
+
+
+def test_remate_una_cadena_nueva_puede_empezar_en_la_hora_en_que_acaba_la_anterior_y_no_antes():
+    """Con horas enteras, el servicio que se cae a las 12:20 (última línea a medias) y vuelve a las 12:25 abre una cadena con `desde` 12:00
+    cuando la anterior acaba a las 13:00: con la regla de antes (`desde` >= `hasta`) eso era «la firma no coincide» en una traza HONRADA.
+    La regla es `desde` >= `hasta` anterior − 1 h; también cruzando la medianoche (la cuenta es de fechas, no de texto)."""
+    for nombre in ("B1_reinicio_en_la_misma_hora_en_que_acaba_la_anterior", "B1_reinicio_en_la_misma_hora_pasada_la_medianoche"):
+        assert _caso(nombre)["estado"] == A.VALIDA, (nombre, _caso(nombre))
+    for nombre in ("B1_reinicio_una_hora_antes_pasada_la_medianoche", "B1_reinicio_que_se_solapa_con_la_anterior"):
+        r = _caso(nombre)
+        assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_COINCIDE, "cadena", CASOS[nombre]["esperado"]["bloque"]), (nombre, r)
+        assert "antes de la hora en que acaba" in r["detalle"]["es"], r
+    nombres = ("B1_reinicio_en_la_misma_hora_en_que_acaba_la_anterior", "B1_reinicio_en_la_misma_hora_pasada_la_medianoche",
+               "B1_reinicio_una_hora_antes_pasada_la_medianoche", "B1_reinicio_que_se_solapa_con_la_anterior")
+    js = _node({"modo": "comprobar", "casos": [CASOS[n] for n in nombres]})["resultados"]
+    assert [(r["estado"], r["motivo"]) for r in js] == [(A.VALIDA, None), (A.VALIDA, None), (A.NO_COINCIDE, "cadena"), (A.NO_COINCIDE, "cadena")]
+
+
+def test_remate_las_fechas_de_la_ventana_son_del_calendario_y_su_cuenta_es_la_misma_en_python_y_en_js():
+    """La regla entre cadenas resta una hora: necesita fechas reales. `segundos_utc` (Python) y `segundosUtc` (JS) son la misma aritmética
+    propia; aquí, contra `calendar.timegm` en 3.000 fechas al azar de 0000 a 9999 y en los bordes, y `None` en las que no existen."""
+    import calendar
+    rng = random.Random(15308)
+    fechas = ["0000-01-01T00:00:00Z", "0000-02-29T23:59:59Z", "1969-12-31T23:59:59Z", "1970-01-01T00:00:00Z", "2000-02-29T12:00:00Z",
+              "2028-02-29T23:00:00Z", "9999-12-31T23:59:59Z"]
+    for _ in range(3000):
+        a, m = rng.randrange(0, 10000), rng.randrange(1, 13)
+        d = rng.randrange(1, calendar.monthrange(max(a, 1) if a else 2000, m)[1] + 1)   # el año 0000 es bisiesto, como el 2000
+        fechas.append(f"{a:04d}-{m:02d}-{d:02d}T{rng.randrange(24):02d}:{rng.randrange(60):02d}:{rng.randrange(60):02d}Z")
+    malas = ["2026-02-29T00:00:00Z", "2100-02-29T00:00:00Z", "2026-13-01T00:00:00Z", "2026-00-10T00:00:00Z", "2026-04-31T00:00:00Z",
+             "2026-01-00T00:00:00Z", "2026-11-02T24:00:00Z", "2026-11-02T23:60:00Z", "2026-11-02T23:00:60Z", "2026-02-30T10:00:00Z"]
+    py = [T.segundos_utc(f) for f in fechas + malas]
+    for f, s in zip(fechas, py):
+        a = int(f[:4])
+        esperado = calendar.timegm((a if a else 2000, *map(int, (f[5:7], f[8:10], f[11:13], f[14:16], f[17:19])), 0, 0, 0))
+        if not a:   # timegm no admite el año 0: se compara con el 2000 (mismo ciclo de 400 años), restando 2000 años
+            esperado -= 146097 * 5 * 86400
+        assert s == esperado, (f, s, esperado)
+    assert py[len(fechas):] == [None] * len(malas)
+    assert _node({"modo": "fechas", "fechas": fechas + malas})["segundos"] == py
+    for nombre in _FECHAS_QUE_NO_SON:
+        r = _caso(nombre)
+        assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_SE_PUDO_COMPROBAR, "formato", 1), (nombre, r)
+        assert "fecha del calendario" in r["detalle"]["es"], r
+    assert _caso("ventana_29_de_febrero_bisiesto")["estado"] == A.VALIDA
+    assert _caso("ventana_de_varias_horas")["estado"] == A.VALIDA
+
+
+def test_M4_una_clave_de_orden_mixto_es_clave_antes_de_verificar_aunque_openssl_la_aceptara():
+    """M4 de la auditoría de C4–C7 (deuda del C6): con A' = [a]B + T (T de orden 2, 4 u 8), OpenSSL (Python, Node), WebCrypto de cada
+    navegador y @noble decían cosas distintas de la misma traza. Ahora `[L]A ≠ identidad` es `clave` en el primer bloque, ANTES de llamar a
+    la biblioteca. El diente: en los vectores con h ≡ 0 (mod 8) la biblioteca de aquí (OpenSSL) da la firma por buena."""
+    for nombre in _MIXTAS:
+        r = _caso(nombre)
+        assert (r["estado"], r["motivo"], r["bloque"]) == (A.NO_COINCIDE, "clave", 0), (nombre, r)
+        assert "orden mixto" in r["detalle"]["es"] and "mixed order" in r["detalle"]["en"], r
+        if "h_multiplo" in nombre:
+            b = json.loads(CASOS[nombre]["lineas"][0])
+            assert A.comprobar(bytes.fromhex(b["servicio"]["clave_publica"]), T.mensaje_firmado(b), b["firma"]["valor"]) is True, nombre
+    for acepta_todo in (False, True):
+        js = _node({"modo": "comprobar", "casos": [CASOS[n] for n in _MIXTAS], "acepta_todo": acepta_todo})["resultados"]
+        assert [(r["estado"], r["motivo"], r["bloque"]) for r in js] == [(A.NO_COINCIDE, "clave", 0)] * len(_MIXTAS), (acepta_todo, js)
+
+
+def test_M4_las_claves_de_verdad_siguen_valiendo():
+    """El otro lado: la comprobación de orden no rechaza una clave Ed25519 normal (las de `cryptography`, como la del escritor)."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+    for _ in range(64):
+        crudo = ed25519.Ed25519PrivateKey.generate().public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        assert T._clave_publica_utilizable(crudo), crudo.hex()
+    for c in (CLAVE_A, CLAVE_B):
+        assert T._clave_publica_utilizable(bytes.fromhex(c["publica_hex"]))
