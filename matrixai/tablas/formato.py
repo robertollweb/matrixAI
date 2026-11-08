@@ -93,6 +93,23 @@ def es_ole_de_excel(datos: bytes) -> bool:
     return any(f in datos for f in _FLUJOS_DE_LIBRO)
 
 
+def xls_con_contrasena(datos: bytes) -> bool:
+    """¿Es un .xls (BIFF) protegido con contraseña? (150-C7 H4: calamine solo dice «Cannot detect file format».)
+
+    Excel cifra un .xls poniendo un registro FILEPASS (0x002F) JUSTO detrás del BOF del flujo `Workbook`
+    (BOF 0x0809 de tipo «globals», 0x0005). Se busca ese par sin abrir el OLE; el BOF de globals empieza
+    el flujo, así que sus bytes son contiguos. Un libro sin contraseña no tiene FILEPASS tras el BOF."""
+    i = datos.find(b"\x09\x08")
+    while i >= 0:
+        if i + 8 <= len(datos):
+            largo = int.from_bytes(datos[i + 2:i + 4], "little")
+            tipo = int.from_bytes(datos[i + 6:i + 8], "little") if largo >= 4 else -1
+            if tipo == 0x0005 and 4 <= largo <= 32 and datos[i + 4 + largo:i + 6 + largo] == b"\x2f\x00":
+                return True
+        i = datos.find(b"\x09\x08", i + 1)
+    return False
+
+
 def abrir_zip_de_excel(datos: bytes, topes: Topes) -> tuple[zipfile.ZipFile, dict]:
     """Abre el zip SIN extraer nada y lo valida: es un libro, no está cifrado, no es una bomba.
 

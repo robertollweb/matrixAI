@@ -20,6 +20,7 @@ import bisect
 import datetime as _dt
 import functools
 import hashlib
+import csv
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -29,7 +30,7 @@ from matrixai import nombre_citable
 from . import aislado
 from .declaraciones import declarar
 from .errores import TablaRechazada, lista_para_texto, rechazar
-from .formato import abrir_zip_de_excel, detectar_formato, es_ole_de_excel
+from .formato import abrir_zip_de_excel, detectar_formato, es_ole_de_excel, xls_con_contrasena
 from .topes import (TOPES_DE_FABRICA, Topes, comprobar_cadenas_compartidas, comprobar_memoria,
                     memoria_virtual_del_proceso,
                     ram_estimada_de_una_hoja, techo_del_lector)
@@ -148,6 +149,8 @@ class _Libro:
                 raise rechazar("protegido")
             if not es_ole_de_excel(self.datos):
                 raise rechazar("no_es_excel")
+            if xls_con_contrasena(self.datos):
+                raise rechazar("protegido")
             return "xls"
         self.zf, info = abrir_zip_de_excel(self.datos, self.topes)
         self.macros = info["macros"]
@@ -324,6 +327,10 @@ def _primera_celda_de_texto(fila: list) -> str | None:
     return None
 
 
+#: Cuántas filas vacías seguidas se toleran entre la cabecera propuesta y sus datos.
+_VACIAS_TRAS_CABECERA = 3
+
+
 def _proponer_cabecera(h: _HojaLeida) -> int | None:
     """Primera fila con ≥2 textos distintos, bastante llena y seguida de filas con datos."""
     ventana = h.filas[:_ventana_cabecera]
@@ -335,8 +342,51 @@ def _proponer_cabecera(h: _HojaLeida) -> int | None:
         textos = {v.strip() for v in fila if isinstance(v, str) and v.strip()}
         if len(textos) < 2 or llenas[i] < max(2, 0.5 * referencia_):
             continue
-        if i + 1 < len(h.filas) and sum(1 for v in h.filas[i + 1] if not _vacia(v)) >= 2:
+        # 150-C7 H2: una cabecera con filas VACÍAS debajo sigue siendo cabecera si lo siguiente con contenido son
+        # datos (CTG «Raw Data»: cabecera en la fila 1, fila 2 vacía): saltarla proponía un dato como cabecera.
+        siguiente = next((f for f in h.filas[i + 1:i + 1 + _VACIAS_TRAS_CABECERA + 1]
+                          if any(not _vacia(v) for v in f)), None)
+        if siguiente is not None and sum(1 for v in siguiente if not _vacia(v)) >= 2:
             return h.fila0 + i
+    return None
+
+
+_SEPARADORES_PEGADOS = (("coma", ","), ("punto_y_coma", ";"), ("tabulador", "\t"))
+
+
+def _columna_unica_con_separadores(h: _HojaLeida) -> tuple[str, int] | None:
+    """150-C7 H1: ¿es la hoja un CSV pegado entero en una columna? -> `(separador, campos)` o `None`.
+
+    UNA columna de texto en la que ≥ 90 % de las celdas (de las primeras 500 con contenido, al menos 3) se parten con el
+    mismo separador en el MISMO número (≥ 2) de campos, leyendo las comillas como un CSV. Solo avisa: no parte nada."""
+    if h.ancho != 1:
+        return None
+    celdas = []
+    for f in h.filas:
+        v = f[0] if f else None
+        if _vacia(v):
+            continue
+        if not isinstance(v, str):
+            return None   # un número o una fecha en la columna: es una columna de datos, no un CSV pegado
+        celdas.append(v)
+        if len(celdas) >= 500:
+            break
+    if len(celdas) < 3:
+        return None
+    for clave, sep in _SEPARADORES_PEGADOS:
+        cuentas: dict[int, int] = {}
+        for c in celdas:
+            if sep not in c:
+                continue
+            try:
+                n = len(next(csv.reader([c], delimiter=sep)))
+            except (csv.Error, StopIteration):
+                continue
+            cuentas[n] = cuentas.get(n, 0) + 1
+        if cuentas:
+            n, veces = max(cuentas.items(), key=lambda kv: kv[1])
+            if n >= 3 and veces >= 0.9 * len(celdas):
+                return clave, n
     return None
 
 
@@ -452,6 +502,9 @@ def _inspeccionar_hoja(libro: _Libro, meta: dict) -> dict:
     entrada["fila_de_cabecera_propuesta"] = cab
     entrada["filas_candidatas_a_total"] = _candidatas_a_total(h, (cab + 1) if cab else h.fila0)
     avisos = entrada["avisos"]
+    pegado = _columna_unica_con_separadores(h)
+    if pegado:
+        avisos.append(declarar("columna_unica_con_separadores", separador=pegado[0], campos=pegado[1]))
     if h.combinadas:
         # Un rango repetido en `<mergeCells>` es UN rango (como al convertir: `set`).
         distintas = sorted(set(h.combinadas))

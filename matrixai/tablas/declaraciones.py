@@ -58,6 +58,21 @@ def _donde(d: dict, i: int) -> str:
     return _DONDE[que][i] if isinstance(que, str) and que in _DONDE else str(que)
 
 # tipo → (función que da el texto en español, función que da el texto en inglés)
+#: 150-C7 H3: lo que el núcleo redacta se traduce en el núcleo. `que` (detalle) queda en español, estable; el texto en inglés
+#: traduce cada elemento (uno desconocido sale tal cual, y la prueba de la lista completa lo caza).
+_NO_COMPROBABLE_EN_XLS_EN = {
+    "fórmulas sin valor guardado": "formulas without a saved value",
+    "errores de celda": "cell errors",
+    "formato de porcentaje": "percentage format",
+    "formato con ceros a la izquierda": "leading-zero format",
+    "fechas que no son fechas": "dates stored as plain numbers",
+    "filas y columnas ocultas": "hidden rows and columns",
+}
+
+#: separador (clave estable del detalle) -> (es, en)
+_SEPARADORES = {"coma": ("comas", "commas"), "punto_y_coma": ("puntos y coma", "semicolons"),
+                "tabulador": ("tabuladores", "tabs")}
+
 TIPOS: dict[str, tuple] = {
     "columnas_vacias_quitadas": (
         lambda d: _p(d['cuantas'], f"Se quitó 1 columna totalmente vacía ({_lista(d['detalle'].get('letras'))}).",
@@ -178,7 +193,7 @@ TIPOS: dict[str, tuple] = {
         lambda d: "The workbook contains macros (.xlsm): they are ignored, nothing is run."),
     "no_comprobable_en_xls": (
         lambda d: f"En un .xls antiguo no se puede comprobar: {_lista(d['detalle'].get('que'))}.",
-        lambda d: f"In an old .xls file this cannot be checked: {_lista(d['detalle'].get('que'))}."),
+        lambda d: f"In an old .xls file this cannot be checked: {_lista([_NO_COMPROBABLE_EN_XLS_EN.get(q, q) for q in (d['detalle'].get('que') or [])])}."),
     "hay_celdas_combinadas": (
         lambda d: _p(d['cuantas'], f"La hoja tiene 1 rango de celdas combinadas ({_lista(d['detalle'].get('rangos'))}): las celdas cubiertas llegan vacías.",
                      "La hoja tiene {n} rangos de celdas combinadas (" + _lista(d['detalle'].get('rangos')) + "): las celdas cubiertas llegan vacías."),
@@ -207,6 +222,16 @@ TIPOS: dict[str, tuple] = {
                      "La cabecera propuesta repite o deja sin nombre {n} columnas (" + _lista(d['detalle'].get('nombres')) + "): se renombrarán y se declarará."),
         lambda d: _p(d['cuantas'], f"The proposed header repeats or leaves unnamed 1 column ({_lista(d['detalle'].get('nombres'))}): it will be renamed and declared.",
                      "The proposed header repeats or leaves unnamed {n} columns (" + _lista(d['detalle'].get('nombres')) + "): they will be renamed and declared.")),
+    # 150-C7 H1 (solo el AVISO; partir la columna espera la decisión de Roberto): un CSV entero pegado en la columna A.
+    "columna_unica_con_separadores": (
+        lambda d: (f"La hoja tiene UNA sola columna y casi todas sus celdas llevan {d['detalle'].get('campos')} campos separados por "
+                   f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[0]}: parece un CSV pegado entero en la columna A, no una tabla. "
+                   "No se ha partido. Sube el fichero CSV original o, en Excel, usa «Datos > Texto en columnas» "
+                   f"({_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[0]}) y guarda el libro de nuevo."),
+        lambda d: (f"The sheet has a SINGLE column and almost every cell holds {d['detalle'].get('campos')} fields separated by "
+                   f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[1]}: it looks like a whole CSV pasted into column A, not a table. "
+                   "It was not split. Upload the original CSV file or, in Excel, use «Data > Text to Columns» "
+                   f"({_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[1]}) and save the workbook again.")),
     "hoja_sin_datos": (
         lambda d: "La hoja no tiene datos.",
         lambda d: "The sheet has no data."),

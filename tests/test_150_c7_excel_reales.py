@@ -148,20 +148,12 @@ def test_la_cabecera_propuesta_coincide_con_la_de_la_ficha(nombre, hoja):
     assert h["fila_de_cabecera_propuesta"] == FICHAS[nombre]["cabecera_esperada"][hoja]
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "HALLAZGO 150-C7 H2: CTG.xls «Raw Data» tiene la cabecera en la fila 1 y la fila 2 VACÍA; la propuesta salta a "
-    "la fila 3 (un dato: «Variab10.», 35400…) porque exige datos en la fila siguiente. Reproducción: "
-    "inspeccionar(CTG.xls)['hojas'][2]['fila_de_cabecera_propuesta'] == 3"))
 def test_ctg_raw_data_propone_la_cabecera_de_la_fila_1():
     v = inspeccionar(_libro("CTG.xls"), "CTG.xls")
     h = {x["nombre"]: x for x in v["hojas"]}["Raw Data"]
     assert h["fila_de_cabecera_propuesta"] == 1
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "HALLAZGO 150-C7 H1: los DOS libros de Roberto son un CSV entero pegado en la columna A (cada celda lleva la fila con "
-    "sus comas). inspeccionar no propone cabecera ni avisa, convertir da un CSV de UNA columna sin declarar nada, y el "
-    "analizador la ve como `identifier` sin objetivo posible. Debe avisarse/declararse (p. ej. `columna_unica_con_separadores`)."))
 @pytest.mark.parametrize("nombre", ["liga_espanola.xlsx", "lluvia_ENRIQUECIDO.xlsx"])
 def test_un_csv_pegado_en_una_columna_se_avisa_o_se_declara(nombre):
     datos = _libro(nombre)
@@ -189,3 +181,85 @@ def test_un_libro_vacio_se_rechaza_con_motivo_propio():
     with pytest.raises(TablaRechazada) as e:
         convertir(b"", "vacio.xlsx", hoja="x", fila_de_cabecera=1)
     assert e.value.codigo == "vacio"
+
+
+# ── 150-C7: los arreglos de lo que destapó la medida (H1-aviso, H2, H3, H4) ───────────────
+class _Hoja:
+    """Lo mínimo de `_HojaLeida` que mira la propuesta de cabecera."""
+    def __init__(self, filas, fila0=1):
+        self.filas, self.fila0 = filas, fila0
+        self.ancho = max((len(f) for f in filas), default=0)
+
+
+def test_h2_una_cabecera_con_filas_vacias_debajo_sigue_siendo_la_cabecera():
+    from matrixai.tablas.api import _proponer_cabecera
+    h = _Hoja([["id", "valor", "peso"], [], ["", "", ""], [1, 2.5, 3], [2, 3.5, 4]])
+    assert _proponer_cabecera(h) == 1
+
+
+def test_h2_pero_una_cabecera_sin_datos_detras_no_se_propone():
+    from matrixai.tablas.api import _proponer_cabecera
+    assert _proponer_cabecera(_Hoja([["id", "valor", "peso"], [], [], [], [], [], [9]])) is None
+
+
+@pytest.mark.parametrize("nombre", ["liga_espanola.xlsx", "lluvia_ENRIQUECIDO.xlsx"])
+def test_h1_la_vista_previa_dice_que_es_un_csv_pegado_con_su_separador_y_que_hacer(nombre):
+    avisos = {a["tipo"]: a for a in inspeccionar(_libro(nombre), nombre)["hojas"][0]["avisos"]}
+    a = avisos["columna_unica_con_separadores"]
+    assert a["detalle"]["separador"] == "coma" and a["detalle"]["campos"] >= 14
+    assert "comas" in a["texto"]["es"] and "Texto en columnas" in a["texto"]["es"] and "CSV" in a["texto"]["es"]
+    assert "commas" in a["texto"]["en"] and "Text to Columns" in a["texto"]["en"]
+    assert "comas" not in a["texto"]["en"] and "Datos" not in a["texto"]["en"]
+
+
+@pytest.mark.parametrize("nombre", ["CTG.xls", "table-multiple.xlsx"])
+def test_h1_un_libro_de_varias_columnas_no_lleva_ese_aviso(nombre):
+    for h in inspeccionar(_libro(nombre), nombre)["hojas"]:
+        assert "columna_unica_con_separadores" not in [a["tipo"] for a in h["avisos"]]
+
+
+def test_h1_una_lista_de_apellido_coma_nombre_no_es_un_csv_pegado():
+    from matrixai.tablas.api import _columna_unica_con_separadores
+    assert _columna_unica_con_separadores(_Hoja([["Perez, Ana"]] * 50)) is None
+    assert _columna_unica_con_separadores(_Hoja([[1.5]] * 50)) is None
+    assert _columna_unica_con_separadores(_Hoja([["a;b;c"]] * 50)) == ("punto_y_coma", 3)
+    assert _columna_unica_con_separadores(_Hoja([["a\tb\tc"]] * 50)) == ("tabulador", 3)
+    assert _columna_unica_con_separadores(_Hoja([['"x,y",b,c']] * 50)) == ("coma", 3)   # la coma entrecomillada no cuenta
+
+
+def test_h3_el_aviso_de_xls_en_ingles_no_lleva_elementos_en_espanol():
+    from matrixai.tablas.api import _NO_COMPROBABLE_EN_XLS
+    from matrixai.tablas.declaraciones import _NO_COMPROBABLE_EN_XLS_EN, declarar
+    assert set(_NO_COMPROBABLE_EN_XLS) == set(_NO_COMPROBABLE_EN_XLS_EN)   # un elemento nuevo sin traducir lo caza
+    d = declarar("no_comprobable_en_xls", que=_NO_COMPROBABLE_EN_XLS)
+    assert d["detalle"]["que"] == _NO_COMPROBABLE_EN_XLS                   # la clave estable sigue en español
+    for en in _NO_COMPROBABLE_EN_XLS_EN.values():
+        assert en in d["texto"]["en"]
+    for es in _NO_COMPROBABLE_EN_XLS:
+        assert es not in d["texto"]["en"]
+
+
+def _password_xls() -> bytes:
+    ruta = _CAL / "password.xls"
+    if not ruta.is_file():
+        (pytest.fail if EXIGIR else pytest.skip)(f"falta {ruta}")
+    return ruta.read_bytes()
+
+
+def test_h4_un_xls_con_contrasena_se_dice_protegido_y_no_danado():
+    if not HAY_CALAMINE:
+        (pytest.fail if EXIGIR else pytest.skip)("falta python-calamine")
+    for fn in (lambda d: inspeccionar(d, "password.xls"),
+               lambda d: convertir(d, "password.xls", hoja="Sheet1", fila_de_cabecera=1)):
+        with pytest.raises(TablaRechazada) as e:
+            fn(_password_xls())
+        assert e.value.codigo == "protegido"
+        assert "contraseña" in e.value.motivo_es and "password" in e.value.motivo_en
+        assert "dañado" not in e.value.motivo_es and "damaged" not in e.value.motivo_en
+
+
+def test_h4_un_xls_sin_contrasena_no_se_toma_por_protegido():
+    from matrixai.tablas.formato import xls_con_contrasena
+    antiguo = pathlib.Path(__file__).parent / "fixtures" / "tablas" / "antiguo.xls"
+    assert not xls_con_contrasena(antiguo.read_bytes())
+    assert xls_con_contrasena(_password_xls())
