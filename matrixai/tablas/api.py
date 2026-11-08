@@ -390,6 +390,50 @@ def _columna_unica_con_separadores(h: _HojaLeida) -> tuple[str, int] | None:
     return None
 
 
+_CARACTER_DE = {clave: sep for clave, sep in _SEPARADORES_PEGADOS}
+_CLAVE_DE = {sep: clave for clave, sep in _SEPARADORES_PEGADOS}
+_COLUMNAS_DE_LA_PARTIDA_PREVISTA = 12
+
+
+def _partir_filas(h: _HojaLeida, sep: str) -> list[list[str]]:
+    """150-C7 (H1, decidido por Roberto): LA regla de partir una columna única, en UN sitio (la vista previa y `convertir` la
+    comparten). Cada celda se lee con un lector CSV de verdad (comillas, separador dentro de comillas, comillas dobladas), no con
+    un `split`; el BOM del principio del texto se quita. Una celda vacía da una fila vacía; no se inventa nada."""
+    salida: list[list[str]] = []
+    primera = True
+    for f in h.filas:
+        v = f[0] if f else None
+        if _vacia(v):
+            salida.append([])
+            continue
+        texto = v if isinstance(v, str) else valor_a_texto(v)[0]
+        if primera:
+            texto = texto.lstrip("\ufeff")
+            primera = False
+        try:
+            campos = next(csv.reader([texto], delimiter=sep), [])
+        except csv.Error:
+            raise rechazar("parametro_invalido",
+                           parametro="una celda de la columna no se puede leer como CSV; no se parte",
+                           parametro_en="a cell in the column cannot be read as CSV; it is not split") from None
+        salida.append(campos)
+    return salida
+
+
+def _vista_de_la_partida(h: _HojaLeida, clave: str) -> dict:
+    """Cómo QUEDARÍA la hoja partida (sin partir nada): las primeras filas con sus campos, para que la persona lo vea antes de aceptar."""
+    partidas = _partir_filas(h, _CARACTER_DE[clave])
+    ancho = max((len(f) for f in partidas), default=0)
+    n = _COLUMNAS_DE_LA_PARTIDA_PREVISTA
+    filas = []
+    for i, f in enumerate(partidas):
+        if len(filas) >= _PREVISTA_PRIMERAS:
+            break
+        if f:
+            filas.append({"fila": h.fila0 + i, "celdas": f[:n]})
+    return {"separador": clave, "columnas": ancho, "columnas_mostradas": min(ancho, n), "primeras": filas}
+
+
 def _candidatas_a_total(h: _HojaLeida, desde: int) -> list[dict]:
     """Filas que PARECEN un total: la palabra, o ser de las últimas con la mitad de celdas vacías.
     Propone; la persona confirma."""
@@ -505,6 +549,8 @@ def _inspeccionar_hoja(libro: _Libro, meta: dict) -> dict:
     pegado = _columna_unica_con_separadores(h)
     if pegado:
         avisos.append(declarar("columna_unica_con_separadores", separador=pegado[0], campos=pegado[1]))
+        # Se OFRECE partirla: aquí solo se enseña cómo quedaría. Nada se parte sin que la persona lo acepte en `convertir`.
+        entrada["partida_ofrecida"] = _vista_de_la_partida(h, pegado[0])
     if h.combinadas:
         # Un rango repetido en `<mergeCells>` es UN rango (como al convertir: `set`).
         distintas = sorted(set(h.combinadas))
@@ -715,12 +761,20 @@ def _combinadas_en_lo_convertido(h: _HojaLeida, fd: int, fin: int, excluir: list
 @_sin_excepciones_ajenas
 def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: int,
               filas_de_cabecera: int = 1, filas_a_excluir=(), rellenar_combinadas: bool = False,
+              partir_columna_unica: str | None = None,
               topes: Topes | None = None) -> TablaConvertida:
     """El CSV canónico de una hoja, con lo que la persona confirmó y el `origen` que lo declara.
 
     `fila_de_cabecera` es el número de fila de la hoja (el que enseña Excel). `filas_a_excluir`
     son números de fila de la hoja, y SOLO se quitan esas.
+
+    `partir_columna_unica` (150-C7): `","`, `";"` o `"\\t"`. Solo lo manda quien ACEPTÓ la oferta que hace `inspeccionar` cuando la
+    hoja es un CSV pegado en una columna; parte cada celda con un lector CSV y lo declara. `None` (lo normal): nada se parte.
     """
+    if partir_columna_unica is not None and (not isinstance(partir_columna_unica, str)
+                                              or partir_columna_unica not in _CLAVE_DE):
+        raise rechazar("parametro_invalido", parametro="partir_columna_unica debe ser «,», «;» o un tabulador",
+                       parametro_en="partir_columna_unica must be «,», «;» or a tab")
     if isinstance(fila_de_cabecera, bool) or not isinstance(fila_de_cabecera, int) or fila_de_cabecera < 1:
         raise rechazar("parametro_invalido", parametro="fila_de_cabecera debe ser un entero ≥ 1",
                        parametro_en="fila_de_cabecera must be an integer ≥ 1")
@@ -792,6 +846,25 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
                 if geom is not None else set())
     dias_cero = geom.dias_cero_1904() if geom is not None else set()
 
+    partida = None
+    if partir_columna_unica is not None:
+        if h.ancho != 1:
+            raise rechazar("parametro_invalido",
+                           parametro="partir_columna_unica solo vale para una hoja de UNA columna",
+                           parametro_en="partir_columna_unica only applies to a single-column sheet")
+        # Se parte DESPUÉS de las comprobaciones de fórmulas y fechas (son de la columna A original). Las celdas partidas ya
+        # no son celdas de Excel: sus hallazgos por columna (errores, %, columnas ocultas) no se miran; los de FILA, sí.
+        sep = partir_columna_unica
+        filas_partidas = _partir_filas(h, sep)
+        partida = {"separador": _CLAVE_DE[sep], "campos": max((len(f) for f in filas_partidas), default=0)}
+        anuladas = set()
+        dias_cero = set()
+        h = _HojaLeida(nombre=h.nombre, fila0=h.fila0, col0=h.col0, filas=filas_partidas, combinadas=[],
+                       geom=h.geom, ancho_del_rango=partida["campos"])
+        if h.ancho < 2:
+            raise rechazar("parametro_invalido",
+                           parametro="la columna no tiene el separador pedido: no hay nada que partir",
+                           parametro_en="the column does not contain the requested separator: nothing to split")
     ancho = h.ancho
     col0 = h.col0
     vacias_por_columna, rangos_vacias, rellenadas_por_columna, rangos_rellenadas = \
@@ -995,18 +1068,22 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         # Errores, porcentajes, ceros y fechas anuladas: solo los de las filas que SALEN en el CSV
         # (ni la cabecera, ni las excluidas, ni las que se quitaron por vacías).
         quitadas_vacias = set(filas_vacias)
-        hz = geom.hallazgos(None, lambda r: r >= fd and r not in excluidas and r not in quitadas_vacias)
-        _avisos_de_hallazgos(hz, lambda c: finales.get(c - col0), declaraciones)
+        if partida is None:
+            hz = geom.hallazgos(None, lambda r: r >= fd and r not in excluidas and r not in quitadas_vacias)
+            _avisos_de_hallazgos(hz, lambda c: finales.get(c - col0), declaraciones)
         ocultas = geom.filas_ocultas_en(fd, fin, excluidas | quitadas_vacias)
         if ocultas:
             declaraciones.append(declarar("filas_ocultas", cuantas=len(ocultas), filas=ocultas[:10]))
-        col_ocultas = [col0 + j for j in conserva if geom.columna_oculta(col0 + j)]
+        col_ocultas = [col0 + j for j in conserva if geom.columna_oculta(col0 + j)] if partida is None else []
         if col_ocultas:
             declaraciones.append(declarar("columnas_ocultas", cuantas=len(col_ocultas),
                                           letras=[letras_de_columna(c) for c in col_ocultas[:10]]))
     if formulas_fuera[0]:
         declaraciones.append(declarar("formulas_sin_valor_fuera", cuantas=formulas_fuera[0],
                                       celdas=formulas_fuera[1], rango=_rango_a1(fh, h.col0, fin, h.col0 + h.ancho - 1)))
+    if partida is not None:
+        declaraciones.append(declarar("columna_unica_partida", cuantas=len(filas_csv) + 1,
+                                      separador=partida["separador"], campos=partida["campos"]))
     if libro.formato == "xls":
         declaraciones.append(declarar("no_comprobable_en_xls", que=_NO_COMPROBABLE_EN_XLS))
     if libro.macros:
@@ -1054,7 +1131,8 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         **({"hoja": hoja_citada} if hoja_citada is not None else {}),
         "fila_de_cabecera": fh,
         "filas_de_cabecera": nh,
-        "rango": _rango_a1(fh, primera_col, fin, ultima_col),
+        # Partida: el rango es el de la columna de la HOJA que se leyó (las columnas del CSV ya no son columnas de Excel).
+        "rango": _rango_a1(fh, col0, fin, col0) if partida is not None else _rango_a1(fh, primera_col, fin, ultima_col),
         "filas_excluidas": filas_excluidas,
         "conversor": libro.conversor(),
         "declaraciones": declaraciones,

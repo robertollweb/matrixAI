@@ -263,3 +263,106 @@ def test_h4_un_xls_sin_contrasena_no_se_toma_por_protegido():
     antiguo = pathlib.Path(__file__).parent / "fixtures" / "tablas" / "antiguo.xls"
     assert not xls_con_contrasena(antiguo.read_bytes())
     assert xls_con_contrasena(_password_xls())
+
+
+# ═══ 150-C7 (decidido por Roberto, 08-11): OFRECER partir un CSV pegado en una columna, con vista previa ═══════════════════
+# El núcleo: `inspeccionar` enseña cómo quedaría (`partida_ofrecida`) SIN partir; `convertir(partir_columna_unica=",")` parte con un
+# lector CSV de verdad y lo DECLARA (es/en). Sin esa opción, todo como antes.
+from test_150_c1_auditoria import _hoja as _hoja_xml, _libro as _libro_xml  # noqa: E402
+
+
+def _libro_de_una_columna(textos) -> bytes:
+    """Un libro de UNA columna (A) con un texto por celda (inlineStr)."""
+    from xml.sax.saxutils import escape
+    filas = "".join(f'<row r="{i}"><c r="A{i}" t="inlineStr"><is><t xml:space="preserve">{escape(t)}</t></is></c></row>'
+                    for i, t in enumerate(textos, 1))
+    return _libro_xml(_hoja_xml(filas))
+
+
+def _esperado_con_csv(ruta_libro_textos, sep=","):
+    ancho = max(len(f) for f in ruta_libro_textos)
+    return [f + [""] * (ancho - len(f)) for f in ruta_libro_textos]
+
+
+@pytest.mark.parametrize("nombre", ["liga_espanola.xlsx", "lluvia_ENRIQUECIDO.xlsx"])
+def test_partir_c7_los_libros_de_roberto_quedan_con_las_columnas_de_su_ficha_y_celda_a_celda_como_el_modulo_csv(nombre):
+    datos = _libro(nombre)
+    f = FICHAS[nombre]
+    hoja = next(iter(f["hojas"]))
+    esp = f["forma_que_la_persona_espera"]
+    # el texto de la columna A de la conversión SIN partir es el oráculo (la hoja ya salió celda a celda en las pruebas de arriba)
+    sin = list(csv.reader(io.StringIO(convertir(datos, nombre, hoja=hoja, fila_de_cabecera=1).csv_text)))
+    textos = [x[0] for x in sin]
+    oraculo = _esperado_con_csv([next(csv.reader([t])) for t in textos])
+    r = convertir(datos, nombre, hoja=hoja, fila_de_cabecera=1, partir_columna_unica=",")
+    filas = list(csv.reader(io.StringIO(r.csv_text)))
+    assert len(filas[0]) == esp["columnas"] and len(filas) == esp["filas_de_datos"] + 1
+    assert filas == oraculo
+    assert r.origen["fila_de_cabecera"] == esp["cabecera"]
+
+
+@pytest.mark.parametrize("nombre", ["liga_espanola.xlsx", "lluvia_ENRIQUECIDO.xlsx"])
+def test_partir_c7_se_declara_en_los_dos_idiomas_y_el_origen_ata_el_csv_partido(nombre):
+    datos = _libro(nombre)
+    hoja = next(iter(FICHAS[nombre]["hojas"]))
+    r = convertir(datos, nombre, hoja=hoja, fila_de_cabecera=1, partir_columna_unica=",")
+    d = [x for x in r.origen["declaraciones"] if x["tipo"] == "columna_unica_partida"]
+    assert len(d) == 1 and d[0]["detalle"]["separador"] == "coma"
+    assert d[0]["detalle"]["campos"] == FICHAS[nombre]["forma_que_la_persona_espera"]["columnas"]
+    assert "partido por «,» desde una columna" in d[0]["texto"]["es"] and "split by «,» from a single column" in d[0]["texto"]["en"]
+    assert "partido" not in d[0]["texto"]["en"] and "split" not in d[0]["texto"]["es"]
+    assert r.origen["sha256_del_csv"] == hashlib.sha256(r.csv_bytes).hexdigest()
+
+
+@pytest.mark.parametrize("nombre", ["liga_espanola.xlsx", "lluvia_ENRIQUECIDO.xlsx"])
+def test_partir_c7_la_vista_previa_enseña_como_quedaria_y_no_parte_nada(nombre):
+    datos = _libro(nombre)
+    hoja = inspeccionar(datos, nombre)["hojas"][0]
+    p = hoja["partida_ofrecida"]
+    esp = FICHAS[nombre]["forma_que_la_persona_espera"]
+    assert p["separador"] == "coma" and p["columnas"] == esp["columnas"]
+    assert p["primeras"][0]["fila"] == 1 and len(p["primeras"][0]["celdas"]) == p["columnas_mostradas"] <= 12
+    assert hoja["columnas"] == 1 and all(len(f["celdas"]) == 1 for f in hoja["primeras"])   # la hoja sigue siendo UNA columna
+    sin = convertir(datos, nombre, hoja=hoja["nombre"], fila_de_cabecera=1)
+    assert "columna_unica_partida" not in [x["tipo"] for x in sin.origen["declaraciones"]]   # sin aceptar, todo como antes
+    assert len(next(csv.reader(io.StringIO(sin.csv_text)))) == 1
+
+
+@pytest.mark.skipif(not HAY_CALAMINE, reason="falta python-calamine")
+def test_partir_c7_una_coma_entre_comillas_no_parte_el_campo_y_las_comillas_dobladas_se_leen():
+    textos = ["id,nombre,nota", '1,"Perez, Ana",7', '2,"dice ""hola, mundo""",8', '3,"",9']
+    r = convertir(_libro_de_una_columna(textos), "x.xlsx", fila_de_cabecera=1, partir_columna_unica=",")
+    filas = list(csv.reader(io.StringIO(r.csv_text)))
+    assert filas == [["id", "nombre", "nota"], ["1", "Perez, Ana", "7"], ["2", 'dice "hola, mundo"', "8"], ["3", "", "9"]]
+
+
+@pytest.mark.skipif(not HAY_CALAMINE, reason="falta python-calamine")
+def test_partir_c7_un_bom_al_principio_no_se_cuela_en_el_nombre_de_la_primera_columna():
+    r = convertir(_libro_de_una_columna(["﻿id,x,y", "1,2,3", "4,5,6"]), "x.xlsx", fila_de_cabecera=1, partir_columna_unica=",")
+    assert next(csv.reader(io.StringIO(r.csv_text)))[0] == "id"
+
+
+@pytest.mark.skipif(not HAY_CALAMINE, reason="falta python-calamine")
+def test_partir_c7_punto_y_coma_y_tabulador_con_su_separador():
+    for sep in (";", "\t"):
+        r = convertir(_libro_de_una_columna([f"a{sep}b{sep}c", f"1{sep}2{sep}3", f"4{sep}5{sep}6"]), "x.xlsx",
+                      fila_de_cabecera=1, partir_columna_unica=sep)
+        assert list(csv.reader(io.StringIO(r.csv_text))) == [["a", "b", "c"], ["1", "2", "3"], ["4", "5", "6"]]
+
+
+@pytest.mark.skipif(not HAY_CALAMINE, reason="falta python-calamine")
+def test_partir_c7_un_separador_que_la_columna_no_tiene_o_invalido_se_rechaza_no_se_inventa():
+    libro = _libro_de_una_columna(["a,b,c", "1,2,3", "4,5,6"])
+    with pytest.raises(TablaRechazada):
+        convertir(libro, "x.xlsx", fila_de_cabecera=1, partir_columna_unica="|")
+    with pytest.raises(TablaRechazada):   # la columna no lleva «;»: nada que partir
+        convertir(libro, "x.xlsx", fila_de_cabecera=1, partir_columna_unica=";")
+
+
+def test_partir_c7_el_ejemplo_de_roberto_con_otro_separador_no_cambia_el_aviso_de_la_vista():
+    # la regla de partir es UNA (`_partir_filas`): la vista previa y convertir la comparten
+    import inspect
+    from matrixai.tablas import api
+    assert inspect.getsource(api._vista_de_la_partida).count("_partir_filas(") == 1
+    assert inspect.getsource(api.convertir).count("_partir_filas(") == 1
+    assert "split(" not in inspect.getsource(api._partir_filas)

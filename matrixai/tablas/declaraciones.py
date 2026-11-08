@@ -73,6 +73,8 @@ _NO_COMPROBABLE_EN_XLS_EN = {
 _SEPARADORES = {"coma": ("comas", "commas"), "punto_y_coma": ("puntos y coma", "semicolons"),
                 "tabulador": ("tabuladores", "tabs")}
 
+_CARACTER = {"coma": ",", "punto_y_coma": ";", "tabulador": "tab"}
+
 TIPOS: dict[str, tuple] = {
     "columnas_vacias_quitadas": (
         lambda d: _p(d['cuantas'], f"Se quitó 1 columna totalmente vacía ({_lista(d['detalle'].get('letras'))}).",
@@ -232,6 +234,16 @@ TIPOS: dict[str, tuple] = {
                    f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[1]}: it looks like a whole CSV pasted into column A, not a table. "
                    "It was not split. Upload the original CSV file or, in Excel, use «Data > Text to Columns» "
                    f"({_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[1]}) and save the workbook again.")),
+    # 150-C7 (decidido por Roberto): la hoja era un CSV pegado en la columna A y la persona ACEPTÓ partirla, tras ver cómo quedaba.
+    "columna_unica_partida": (
+        lambda d: (f"La hoja era UNA columna con un CSV pegado; la persona aceptó partirla por "
+                   f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[0]} (partido por «{_CARACTER.get(d['detalle'].get('separador'), '?')}» desde una columna) "
+                   f"con un lector CSV (comillas y separadores entre comillas respetados): {d['detalle'].get('campos')} columnas, "
+                   f"{_p(d['cuantas'], '1 fila', '{n} filas')} (cabecera incluida)."),
+        lambda d: (f"The sheet was a SINGLE column holding a pasted CSV; the person accepted splitting it by "
+                   f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[1]} (split by «{_CARACTER.get(d['detalle'].get('separador'), '?')}» from a single column) "
+                   f"with a CSV reader (quotes and quoted separators respected): {d['detalle'].get('campos')} columns, "
+                   f"{_p(d['cuantas'], '1 row', '{n} rows')} (header included).")),
     "hoja_sin_datos": (
         lambda d: "La hoja no tiene datos.",
         lambda d: "The sheet has no data."),
