@@ -63,7 +63,7 @@ __all__ = [
     "OrigenDeOtroCsv", "normalizar_origen_del_fichero", "numero_de_declaraciones", "origen_de_un_csv",
     "es_origen_de_excel", "entrada_canonica_de",
     "origen_para_el_estudio", "atar_al_csv", "huella_del_texto", "bloque_del_manifiesto", "texto_del_origen",
-    "codigo_en_linea", "ROTULO",
+    "codigo_en_linea", "ROTULO", "frases_del_origen", "frases_bilingues_del_origen",
 ]
 
 #: El nombre de la clave: en la captura del run, en el sobre del estudio y en `artifacts.dataset`.
@@ -379,7 +379,30 @@ _VINCULO = {
 }
 
 
-def texto_del_origen(origen: Mapping[str, Any], idioma: str) -> str:
+def frases_bilingues_del_origen(origen: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Las frases de lo que se hizo al convertir (filas de total quitadas, nombres cambiados…), TAL COMO las redactó el núcleo
+    en `declaraciones` y `declaraciones_de_entrada` (`texto.es` / `texto.en`), una `{es, en}` por declaración. Una declaración
+    sin su frase se omite, no se inventa; si falta un idioma, se usa el otro (nunca un hueco)."""
+    frases: list[dict[str, str]] = []
+    for clave in ("declaraciones", "declaraciones_de_entrada"):
+        for d in origen.get(clave) or []:
+            texto = d.get("texto") if isinstance(d, Mapping) else None
+            if not isinstance(texto, Mapping):
+                continue
+            es, en = texto.get("es"), texto.get("en")
+            es = es.strip() if isinstance(es, str) else ""
+            en = en.strip() if isinstance(en, str) else ""
+            if es or en:
+                frases.append({"es": es or en, "en": en or es})
+    return frases
+
+
+def frases_del_origen(origen: Mapping[str, Any], idioma: str) -> list[str]:
+    """Esas frases en UN idioma."""
+    return [f["es" if idioma == "es" else "en"] for f in frases_bilingues_del_origen(origen)]
+
+
+def texto_del_origen(origen: Mapping[str, Any], idioma: str, *, plano: bool = False) -> str:
     """«Excel `ventas.xlsx`, hoja `Datos`, huella del original `<sha256>` (vínculo …), 3 declaraciones» (+ lo que NO es).
 
     Una sola redacción para la ficha TRIPOD+AI y para el expediente: dos sitios declarando lo mismo acaban
@@ -387,13 +410,16 @@ def texto_del_origen(origen: Mapping[str, Any], idioma: str) -> str:
     `codigo_en_linea` (I3). Para un CSV cuya huella es la del TEXTO RECIBIDO (I2) no se llama «del original»: es
     la del texto ya decodificado como UTF-8 (sin BOM, si el navegador lo quitó), que puede no ser la del fichero."""
     es = idioma == "es"
+    # `plano` (150-C5): para una pantalla o un HTML, donde no hay Markdown que interprete las comillas invertidas: el nombre y la
+    # hoja van entre comillas del idioma. La ficha y el expediente (Markdown) siguen con `codigo_en_linea`.
+    cod = (lambda x: f"«{x}»" if es else f"“{x}”") if plano else codigo_en_linea
     lengua = "es" if es else "en"
     formato = str(origen.get("formato") or "")
     etiqueta = "Excel" if formato in _FORMATOS_DE_EXCEL else formato.upper()
-    piezas = [etiqueta + (f" {codigo_en_linea(origen['nombre'])}" if origen.get("nombre") else "")]
+    piezas = [etiqueta + (f" {cod(origen['nombre'])}" if origen.get("nombre") else "")]
     if origen.get("hoja"):
-        piezas.append(("hoja " if es else "sheet ") + codigo_en_linea(origen["hoja"]))
-    huella = codigo_en_linea(str(origen.get("sha256")))
+        piezas.append(("hoja " if es else "sheet ") + cod(origen["hoja"]))
+    huella = cod(str(origen.get("sha256")))
     if origen.get("huella_de") == "texto_recibido":
         piezas.append((f"huella del texto recibido (decodificado como UTF-8; puede no coincidir con la del fichero) "
                        f"{huella}") if es else

@@ -61,6 +61,7 @@ from matrixai.export.expediente_clinico import (
     sin_veredicto_de_riesgo,
 )
 from matrixai.export.informe_de_puntuacion_textos import IDIOMAS, t
+from matrixai.export.origen_del_fichero import es_origen_de_excel, frases_del_origen, texto_del_origen
 from matrixai.export.tripod import NO_DISPONIBLE  # rótulos de lo que solo declara el autor
 
 __all__ = ["CLAVES_DEL_INVENTARIO_USADAS", "informe_html", "items_tripod", "resolver_ruta"]
@@ -774,6 +775,12 @@ def _entrada(inf: dict[str, Any], resultado: Any, f: _F, idioma: str) -> str:
     if nombre:
         kv.append((t("kv_fichero", idioma), _e(nombre)))
     kv.append((t("kv_huella", idioma), f'<code>{_e(en["huella_csv"])}</code>'))
+    origen = en.get("origen_del_fichero")
+    if origen:
+        # 150-C5, I2: de dónde salió el CSV y lo que se hizo al convertirlo, con las frases que redactó el núcleo.
+        kv.append((t("kv_origen", idioma), _e(texto_del_origen(origen, idioma, plano=True))))
+        for frase in frases_del_origen(origen, idioma):
+            kv.append(("", _e(frase)))
     kv.append((t("kv_lectura", idioma), _e(t("kv_lectura_valor", idioma, c=en["codificacion"],
                                              s=en["separador"], n=f.miles(en["filas_leidas"])))))
     kv.append((t("kv_desenlace", idioma),
@@ -944,7 +951,13 @@ def items_tripod(resultado: Any, idioma: str) -> list[_Item]:
 
     en, de = inf["entrada"], inf["desenlace"]
     # ---- participantes ----
-    if en.get("nombre_del_fichero"):
+    if en.get("nombre_del_fichero") and es_origen_de_excel(en.get("origen_del_fichero")):
+        add("fuente_de_los_datos", "participantes", DECLARADO,
+            t("vi_fuente_excel", idioma, f=en["nombre_del_fichero"], n=f.miles(en["filas_leidas"])) + ". "
+            + texto_del_origen(en["origen_del_fichero"], idioma, plano=True)
+            + "".join(f" {x}" for x in frases_del_origen(en["origen_del_fichero"], idioma)),
+            "informe#entrada.origen_del_fichero")
+    elif en.get("nombre_del_fichero"):
         add("fuente_de_los_datos", "participantes", DECLARADO,
             t("vi_fuente", idioma, f=en["nombre_del_fichero"], n=f.miles(en["filas_leidas"])),
             "informe#entrada.nombre_del_fichero")

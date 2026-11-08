@@ -387,6 +387,7 @@ TEXTOS: dict[str, dict[str, str]] = {
         "en": "{u} rows used · {f} without a score (left out)"},
     "decl_unidades": {"es": "{k} pacientes", "en": "{k} patients"},
     "kv_fichero": {"es": "Fichero", "en": "File"},
+    "kv_origen": {"es": "Origen del fichero", "en": "File origin"},
     "kv_huella": {"es": "Huella del CSV (sha256)", "en": "CSV digest (sha256)"},
     "kv_lectura": {"es": "Lectura del CSV", "en": "CSV reading"},
     "kv_lectura_valor": {"es": "codificación {c} · separador {s} · {n} filas leídas",
@@ -527,6 +528,8 @@ TEXTOS: dict[str, dict[str, str]] = {
     # valores de ítems
     "vi_fuente": {"es": "CSV aportado por quien evalúa: {f} ({n} filas leídas)",
                   "en": "CSV supplied by whoever evaluates: {f} ({n} rows read)"},
+    "vi_fuente_excel": {"es": "Libro de Excel aportado por quien evalúa y convertido a CSV: {f} ({n} filas leídas)",
+                        "en": "Excel workbook supplied by whoever evaluates and converted to CSV: {f} ({n} rows read)"},
     "vi_fuente_sin_nombre": {"es": "CSV aportado por quien evalúa, sin nombre de fichero ({n} filas leídas)",
                              "en": "CSV supplied by whoever evaluates, no file name ({n} rows read)"},
     "vi_tamano": {

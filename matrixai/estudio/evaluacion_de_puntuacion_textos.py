@@ -151,6 +151,10 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "signing the receipt needs an issue date (creado_en): this function does not "
               "read the clock, and a signed receipt without a date fails the schema",
     },
+    "origen_del_fichero_invalido": {
+        "es": "el origen del fichero (lo que devolvió la conversión del libro de Excel) no es válido: {detalle}",
+        "en": "the file origin (what the Excel workbook conversion returned) is not valid: {detalle}",
+    },
     # ---- avisos del informe ------------------------------------------------
     "direccion_posiblemente_mal_declarada": {
         "es": "{campo}: el AUROC sale {valor}, por debajo de 0,5. La dirección declarada "
