@@ -89,17 +89,40 @@ def _sensibilidad(doc: Mapping[str, Any]) -> dict[str, Any]:
             "filas_pedidas": _num((doc.get("filas") or {}).get("pedidas")), "pruebas": pruebas}
 
 
-def _tramos(documento: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _extremos_de_la_rejilla(documento: Mapping[str, Any], curva: Mapping[str, Any] | None) -> tuple[float, float] | None:
+    """(mínimo, máximo) de la rejilla donde se comprobó, o `None` si no se sabe. Se usa SOLO para pasar posiciones a relativas."""
+    rejilla = documento.get("rejilla") if isinstance(documento.get("rejilla"), Mapping) else {}
+    valores = rejilla.get("valores") or (curva or {}).get("x") or []
+    finitos = [float(v) for v in valores if _num(v) is not None and v == v and abs(v) != float("inf")]
+    if len(finitos) < 2 or max(finitos) <= min(finitos):
+        return None
+    return min(finitos), max(finitos)
+
+
+def _relativa(x: Any, extremos: tuple[float, float] | None) -> float | None:
+    """La posición `x` como fracción 0…1 de la rejilla (`None` si no se puede decir): sin el valor real ni los extremos reales."""
+    if extremos is None or _num(x) is None:
+        return None
+    return round((float(x) - extremos[0]) / (extremos[1] - extremos[0]), 6)
+
+
+def _tramos(documento: Mapping[str, Any], extremos: tuple[float, float] | None = None, relativa: bool = False) -> list[dict[str, Any]]:
     """Dónde de la rejilla hubo retroceso y cuánto: SIN la fila (`fila`) ni las salidas de esa fila (`y_a`, `y_b`)."""
     veredicto = documento.get("veredicto") if isinstance(documento.get("veredicto"), Mapping) else {}
     vistos = documento.get("contraejemplos") or (documento.get("filas_que_retroceden") or {}).get("filas") or []
     if veredicto.get("clave") not in ("con_contraejemplos", "sin_contraejemplos"):
         return []
+    if relativa:
+        # Recibo FIRMADO (decisión de Roberto, 149-C7): posiciones relativas 0…1 de la rejilla, ningún valor real de x.
+        return [{"posicion_a": _relativa(c.get("x_a"), extremos), "posicion_b": _relativa(c.get("x_b"), extremos),
+                 "retroceso": _num(c.get("retroceso"))} for c in vistos if isinstance(c, Mapping)]
     return [{"x_a": _num(c.get("x_a")), "x_b": _num(c.get("x_b")), "retroceso": _num(c.get("retroceso"))}
             for c in vistos if isinstance(c, Mapping)]
 
 
-def _monotonia(item: Mapping[str, Any]) -> dict[str, Any]:
+def _monotonia(item: Mapping[str, Any], relativa: bool = False) -> dict[str, Any]:
+    """`relativa=True` (el recibo firmado): la rejilla y los tramos en posiciones 0…1 de la rejilla comprobada, SIN el mínimo ni el
+    máximo reales ni ningún valor real de la columna. El paquete exportado usa `relativa=False` (sigue con su `rango_visto`)."""
     doc = item.get("documento") if isinstance(item.get("documento"), Mapping) else {}
     declaracion = item.get("declaracion") if isinstance(item.get("declaracion"), Mapping) else {}
     veredicto = doc.get("veredicto") if isinstance(doc.get("veredicto"), Mapping) else {}
@@ -108,6 +131,7 @@ def _monotonia(item: Mapping[str, Any]) -> dict[str, Any]:
     minima = tolerancia.get("fraccion_minima") if isinstance(tolerancia.get("fraccion_minima"), Mapping) else {}
     tipica = item.get("fila_tipica") if isinstance(item.get("fila_tipica"), Mapping) else None
     curva = tipica.get("curva") if tipica and isinstance(tipica.get("curva"), Mapping) else None
+    extremos = _extremos_de_la_rejilla(doc, curva)
     return {
         # La declaración sin su `id` (un identificador interno del Studio) y con la marca antes/después que puso el servidor.
         "declaracion": {"columna": str(declaracion.get("columna")), "direccion": str(declaracion.get("direccion")),
@@ -123,10 +147,12 @@ def _monotonia(item: Mapping[str, Any]) -> dict[str, Any]:
         "tolerancia": {"relativa": _num(tolerancia.get("relativa")), "absoluta": _num(tolerancia.get("absoluta")),
                        "fraccion_minima": _num(minima.get("relativa")), "por_omision": tolerancia.get("por_omision") is True},
         "rejilla_puntos": _num((doc.get("rejilla") or {}).get("puntos")),
-        "tramos_con_retroceso": _tramos(doc),
+        "tramos_con_retroceso": _tramos(doc, extremos, relativa),
         "fila_tipica": None if curva is None else {
             "medido_sobre": "fila_tipica", "de_donde": "valor_de_referencia_de_train",
-            "x": [_num(v) for v in curva.get("x") or []], "y": [_num(v) for v in curva.get("y") or []]},
+            **({"posiciones_relativas": [_relativa(v, extremos) for v in curva.get("x") or []]} if relativa
+               else {"x": [_num(v) for v in curva.get("x") or []]}),
+            "y": [_num(v) for v in curva.get("y") or []]},
     }
 
 

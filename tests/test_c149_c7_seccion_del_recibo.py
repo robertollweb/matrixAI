@@ -71,12 +71,15 @@ def test_sin_declaraciones_no_hay_seccion():
 def test_cada_columna_declarada_figura_con_su_estado_y_su_marca():
     s = seccion()
     assert [c["declaracion"]["columna"] for c in s["columnas"]] == ["edad", "oscila", "plana", "ciudad", "tarde"]
-    assert [c["estado"] for c in s["columnas"]] == ["comprobada", "comprobada", "comprobada", "no_aplica", "no_se_pudo_comprobar"]
+    assert [c["estado"] for c in s["columnas"]] == ["comprobada", "comprobada", "no_se_pudo_comprobar", "no_aplica", "no_se_pudo_comprobar"]
     assert all(c["estado"] in recibo.ESTADOS for c in s["columnas"])
     # la marca la puso el servidor; el `id` interno del Studio no viaja
     assert all(c["declaracion"]["momento"] == "antes" and "id" not in c["declaracion"] for c in s["columnas"])
-    veredictos = {c["declaracion"]["columna"]: c["veredicto"]["clave"] for c in s["columnas"] if c["estado"] == "comprobada"}
+    veredictos = {c["declaracion"]["columna"]: c["veredicto"]["clave"] for c in s["columnas"] if "veredicto" in c}
     assert veredictos == {"edad": "sin_contraejemplos", "oscila": "con_contraejemplos", "plana": "no_se_pudo_comprobar"}
+    # 149-C7 remate (a): estado y veredicto no se contradicen; lo medido se conserva y el motivo está
+    plana = next(c for c in s["columnas"] if c["declaracion"]["columna"] == "plana")
+    assert plana["estado"] == "no_se_pudo_comprobar" and plana["motivo"]["es"] and plana["motivo"]["en"]
 
 
 def test_lo_que_no_se_pudo_comprobar_dice_por_que_en_los_dos_idiomas():
@@ -123,7 +126,7 @@ def test_NINGUNA_fila_real_en_la_seccion_ni_su_id_ni_sus_valores():
 def test_una_composicion_que_dejase_pasar_una_fila_se_NIEGA_a_devolverla(monkeypatch):
     """La segunda cerradura: si la poda de `_monotonia` filtrase una clave de fila, `exigir_sin_filas` aborta y no sale sección."""
     real = recibo._monotonia
-    monkeypatch.setattr(recibo, "_monotonia", lambda item: {**real(item), "ids": ["FILA-REAL-1"]})
+    monkeypatch.setattr(recibo, "_monotonia", lambda item, **k: {**real(item, **k), "ids": ["FILA-REAL-1"]})
     with pytest.raises(paquete.BancoConFilas):
         seccion()
 

@@ -97,7 +97,16 @@ def seccion_del_recibo(*, declaraciones: Sequence[Mapping[str, Any]], resultado:
     for d in declaraciones:
         c = str(d.get("columna"))
         if c in monotonias:
-            doc = _monotonia(monotonias[c])
+            doc = _monotonia(monotonias[c], relativa=True)
+            veredicto = doc.get("veredicto") or {}
+            if veredicto.get("clave") == "no_se_pudo_comprobar":
+                # Remate del 149-C7 (menor a): una entrada «comprobada» con veredicto «no se pudo comprobar» se contradice (binaria,
+                # columna que oscila): el estado dice lo mismo que el veredicto, con el motivo del banco o el genérico.
+                # (se conserva lo medido —filas, curva, tolerancia—: es lo que explica por qué no se pudo)
+                columnas.append({"estado": "no_se_pudo_comprobar", **doc,
+                                 "motivo": (_bilingue(veredicto.get("motivo")) or _bilingue(veredicto.get("texto"))
+                                            or motivo_de_un_fallo())})
+                continue
             columnas.append({"estado": "comprobada", **doc})
             comprobadas.append(doc)
         elif c in no_aplica:
