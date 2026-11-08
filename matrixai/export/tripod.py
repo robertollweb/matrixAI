@@ -30,7 +30,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from matrixai.estudio.banco_en_el_paquete import partes_sin_calcular
 from matrixai.export.expediente_clinico import (
+    BANCO_DE_COMPORTAMIENTO,
     CALIBRACION_DEL_ESTUDIO,
     CALIBRACION_Y_UMBRAL,
     DOMINIOS,
@@ -94,6 +96,14 @@ _NO_DISPONIBLE: tuple[tuple[str | None, dict[str, tuple[str, str]]], ...] = (
         "en": ("Subgroup fairness",
                "this package ships no measured subgroup; it needs a team to "
                "predefine them")}),
+    # 149-C6: la parte del banco de comportamiento que ESTE paquete no calculó. A diferencia de las demás, no se imprime cuando falta el
+    # fichero entero (un paquete sin banco no tiene un hueco que contar: el expediente es el de antes); se imprime, con sus motivos, solo
+    # cuando el paquete trae el banco y algo de él no se calculó (`matrixai.estudio.banco_en_el_paquete.partes_sin_calcular`).
+    ("comportamiento", {
+        "es": ("Comportamiento del modelo: lo que el banco no calculó",
+               "el paquete trae el banco, pero no todas sus partes"),
+        "en": ("Model behaviour: what the bench did not compute",
+               "the package ships the bench, but not all of its parts")}),
     (None, {"es": ("Financiación", "es del autor del estudio, no del run"),
             "en": ("Funding", "belongs to a study's author, not to a run")}),
     (None, {"es": ("Conflictos de interés", "ídem"),
@@ -402,6 +412,9 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
         # inventario (PROBAST). Solo si el estudio lo declaró.
         if expediente.diseno_del_reparto is not None:
             _lineas_del_modo.insert(0, REPARTO_POR_DISENO)
+        # 149-C6: el banco de comportamiento, SOLO si el paquete lo trae (sin él, ni línea ni hueco: el expediente es el de antes).
+        if expediente.tiene("banco_de_comportamiento.json"):
+            _lineas_del_modo.append(BANCO_DE_COMPORTAMIENTO)
         for evidencia in _lineas_del_modo:
             if evidencia is CALIBRACION_DEL_ESTUDIO:
                 # ola 2: sus tres casos (medido / no medido o no aplica / no figura) llevan SU motivo, y la ruta es la de lo
@@ -468,6 +481,8 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
             filas.append(f"### {rotulo_de_dominio(dominio, idioma)}")
             filas.append("")
             for evidencia, campo in entradas:
+                if evidencia is BANCO_DE_COMPORTAMIENTO:
+                    continue  # 149-C6: ya escrita arriba, en «Modelo»; PROBAST+AI sí la lista por dominio
                 filas.append(linea_de_campo(evidencia, campo, idioma))
             filas.append("")
         if avisos:
@@ -500,6 +515,13 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
 
     filas.append(f"## {t['no_disponible']}")
     for clave, textos in _NO_DISPONIBLE:
+        if clave == "comportamiento":
+            # 149-C6: un hueco por cada parte del banco que el paquete no calculó, y NINGUNO si no hay banco o si lo trae entero.
+            if por_clave.get(clave) is not None and por_clave[clave].hay_dato:
+                rotulo, _motivo = textos[idioma]
+                for parte in partes_sin_calcular(por_clave[clave].valor, idioma):
+                    filas.append(f"- **{rotulo}**: {parte} · `{BANCO_DE_COMPORTAMIENTO.ruta}`")
+            continue
         # Lo que el paquete SÍ trae ya no falta, y decir que falta sería la
         # media verdad tranquilizadora al revés: un hueco inventado.
         if clave is not None and por_clave[clave].hay_dato:
