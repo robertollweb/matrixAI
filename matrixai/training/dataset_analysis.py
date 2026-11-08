@@ -64,6 +64,7 @@ from typing import Any
 
 from matrixai import limits as _limits
 from matrixai.training.dense_generator import _ONEHOT_MAX, parece_identificador
+from matrixai.training.textos_de_faltante import TEXTOS_DE_FALTANTE_GENERALES, textos_leidos_como_faltante
 
 # Tokens boolean — mismo vocabulario que `matrixai/export/predict_template.py`
 # (_TRUE/_FALSE), para que "lo que el usuario ve como booleano en un CSV" sea
@@ -94,7 +95,7 @@ _BOOLEANOS = _BOOL_TRUE | _BOOL_FALSE
 #
 # `tokens_de_ausencia` es esa forma: quien produce el CSV y SABE cómo marca la
 # ausencia lo declara, y entonces la heurística no se aplica. Ver `_is_null`.
-_NULL_TOKENS = {"", "na", "n/a", "null", "nan", "none", "-", "?"}
+_NULL_TOKENS = set(TEXTOS_DE_FALTANTE_GENERALES)   # la lista es UNA, en `textos_de_faltante` (ver allí)
 
 # Formatos de fecha/hora probados en orden — el primero que casa el 100% de
 # los valores no vacíos de la columna gana. ISO primero (inequívoco); luego
@@ -576,6 +577,14 @@ def _is_null(value: str | None, tokens_de_ausencia: set[str] | None = None) -> b
     return value.strip().lower() in _NULL_TOKENS
 
 
+def _es_numerico_o_fecha(valores: list[str]) -> bool:
+    """¿Estos valores (distintos, recortados, sin nulos) son una columna numérica o una fecha, con las MISMAS lecturas que
+    `_analyze_column` de abajo? Es el «sin ellos es numérica o fecha» de `textos_leidos_como_faltante`."""
+    if _detect_date_format(valores) is not None:
+        return True
+    return (not any(_has_significant_leading_zero(v) for v in valores)) and _numeric_kind(valores) is not None
+
+
 def _integer_run_density(values: list[str]) -> float:
     """Cuánto TRAMO ocupan estos enteros: distintos / (max - min + 1).
 
@@ -613,12 +622,30 @@ def _analyze_column(
             celdas_nulas += veces
         else:
             limpios.add(valor.strip())
+    # REPARACIÓN DEL HALLAZGO 11 (I4): «#N/A» (Excel) y «.» (SAS/Stata) dicen «no hay dato» en una columna que SIN ellos es
+    # numérica o fecha —la regla de la preparación, `textos_leidos_como_faltante`—; en una de texto siguen siendo un valor.
+    # Antes el análisis llamaba `identifier`/`categorical` a la columna que el estudio usaba como número. Solo con la
+    # heurística: quien DECLARA sus marcas de ausencia (`tokens_de_ausencia`) manda, como siempre.
+    textos_leidos: dict[str, int] = {}
+    if tokens_de_ausencia is None and limpios:
+        extra = textos_leidos_como_faltante(limpios, _es_numerico_o_fecha)
+        if extra:
+            for valor, veces in veces_por_valor.items():
+                if valor is not None and valor not in nulos and valor.strip() in extra:
+                    nulos.add(valor)
+                    celdas_nulas += veces
+                    textos_leidos[valor.strip()] = textos_leidos.get(valor.strip(), 0) + veces
+            limpios -= extra
     n_non_null = len(raw_values) - celdas_nulas
     null_count = rows_analyzed - n_non_null
     info: dict[str, Any] = {
         "null_count": null_count,
         "null_ratio": round(null_count / rows_analyzed, 4) if rows_analyzed else 0.0,
     }
+    if textos_leidos:
+        # Una clave AÑADIDA (quien no la conoce la ignora): qué textos se contaron como nulos por la regla de arriba, para
+        # que `dataset_project` los lea igual al preparar (sin ella, «must be numeric, got '#N/A'»).
+        info["textos_leidos_como_faltante"] = dict(sorted(textos_leidos.items()))
 
     if not n_non_null:
         info["type"] = "unknown"

@@ -59,6 +59,8 @@ from typing import Any, Mapping, Sequence
 from matrixai.training.fechas import (RecetaDeFecha, detectar_fechas, expandir_fila,
                                      variables_de_fecha)
 from matrixai.training.diagnostico import Limite
+from matrixai.training.textos_de_faltante import (es_texto_de_faltante, recuento_por_texto,
+                                                  textos_leidos_como_faltante)
 from matrixai.training.preparacion_textos import motivo
 
 
@@ -124,6 +126,35 @@ def _es_faltante(valor: Any) -> bool:
     if isinstance(valor, float) and valor != valor:  # NaN
         return True
     return False
+
+
+def es_faltante_en_una_numerica(valor: Any) -> bool:
+    """¿Es FALTANTE este valor en una columna NUMÉRICA de la política? Lo vacío, `None`, el NaN y los textos de faltante
+    («NA», «?», «#N/A»…, hallazgo 11). Es lo que lee `transformar_fila`, y quien replique sus valores (el Studio, 129-C4)
+    importa ESTA función: con `_es_faltante` solo, el indicador salía 0 con «NA» (auditoría del hallazgo 11, M3)."""
+    return _es_faltante(valor) or es_texto_de_faltante(valor)
+
+
+def _presentes_de_la_columna(valores: Sequence[Any]) -> tuple[list[Any], bool, frozenset[Any]]:
+    """`(presentes, es_numerica, textos leídos como faltante)` de UNA columna. Los textos de `TEXTOS_DE_FALTANTE` cuentan
+    como faltantes SOLO si, quitados, lo que queda es numérico y no vacío (`textos_leidos_como_faltante`, LA regla); si no,
+    son valores (una categoría «NA»)."""
+    presentes = [v for v in valores if not _es_faltante(v)]
+    textos = textos_leidos_como_faltante(set(presentes), lambda resto: all(_es_numerica(v) for v in resto))
+    if textos:
+        return [v for v in presentes if v not in textos], True, textos
+    return presentes, bool(presentes) and all(_es_numerica(v) for v in presentes), frozenset()
+
+
+def limite_de_textos_leidos_como_faltante(columna: str, por_texto: Mapping[str, int]) -> Limite:
+    """LA declaración de los textos leídos como faltante de UNA columna (`por_texto`: `{texto: celdas}`, de
+    `recuento_por_texto`), con su frase en los dos idiomas. La usan `ajustar_preparacion` y el estudio del Studio, que tipa
+    ANTES de ajustar (y entonces aquí ya llegan `None`): un solo sitio para la frase."""
+    celdas = sum(por_texto.values())
+    textos = ", ".join(f"«{t}»" if len(por_texto) == 1 else f"«{t}» ({n})" for t, n in por_texto.items())
+    return Limite(clave="textos_leidos_como_faltante", campo=columna,
+                  motivo=motivo("textos_leidos_como_faltante", campo=columna, celdas=celdas, textos=textos),
+                  medida={"textos": list(por_texto), "celdas": celdas, "por_texto": dict(por_texto)})
 
 
 def _es_numerica(valor: Any) -> bool:
@@ -302,7 +333,8 @@ class PoliticaDePreparacion:
 
 
 def tipar_columnas_numericas(filas: list[dict[str, Any]],
-                             columnas: Sequence[str]) -> tuple[str, ...]:
+                             columnas: Sequence[str], *,
+                             leidos_como_faltante: dict[str, dict[str, Any]] | None = None) -> tuple[str, ...]:
     """Convierte EN SITIO a `float` las columnas cuyo texto parsea entero, y
     devuelve cuáles tocó.
 
@@ -336,6 +368,13 @@ def tipar_columnas_numericas(filas: list[dict[str, Any]],
     de una columna no depende de qué filas le tocan a cada pliegue. Y una
     columna se convierte solo si TODOS sus valores no vacíos parsean; si no, es
     categórica de verdad y se deja tal cual.
+
+    **Los textos de faltante** (`TEXTOS_DE_FALTANTE`: «NA», «n/a», «?», «#N/A»…, hallazgo 11) no cuentan para
+    decidir: si, quitados, todo lo demás parsea, la columna ES numérica y esas celdas pasan a `None` (faltante),
+    no a categoría (la regla es `textos_de_faltante.textos_leidos_como_faltante`). Si se pasa `leidos_como_faltante`, se
+    rellena con `{columna: {"textos": [...], "celdas": n, "por_texto": {texto: celdas}}}`, cada texto UNA vez (recortado),
+    para que quien llama DIGA lo que se leyó así (`limite_de_textos_leidos_como_faltante`); lo vacío, los espacios y el NaN
+    no se declaran: ya eran faltantes.
     """
     # 10-10 (medido en el arranque de APSFailure, 76.000 × 171: 19,5 → 12,9 s, salida IDÉNTICA): cada columna se lee UNA
     # vez (`valores`), los vacíos se quitan sobre el CONJUNTO de valores distintos y no sobre cada fila, y se escribe con
@@ -349,17 +388,53 @@ def tipar_columnas_numericas(filas: list[dict[str, Any]],
         distintos.discard("")
         if not distintos:
             continue
-        try:
-            tipados = {v: float(v) for v in distintos}
-        except (TypeError, ValueError):
-            continue  # columna categórica de verdad -- se deja tal cual
+        # Los textos de faltante («NA», «?», «#N/A»…) no cuentan: si quitados todo parsea, la columna ES numérica y
+        # esas celdas pasan a `None` (faltante). Los que ya parseaban («nan») siguen igual que antes. Una columna SOLO de
+        # textos de faltante no tiene números que digan que es numérica: no se toca (la regla lo devuelve vacío).
+        tipados: dict[Any, float] = {}
+
+        def _el_resto_parsea(resto: list[Any]) -> bool:
+            try:
+                for v in resto:
+                    tipados[v] = float(v)
+            except (TypeError, ValueError):
+                return False
+            return True
+
+        textos = textos_leidos_como_faltante(distintos, _el_resto_parsea)
+        if not textos:
+            try:
+                tipados = {v: float(v) for v in distintos}
+            except (TypeError, ValueError):
+                continue  # columna categórica de verdad -- se deja tal cual
         if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in distintos):
             continue  # ya estaba tipada: no se toca ni se declara tocada
+        por_texto = recuento_por_texto(valores, {t for t in textos if t.strip() != ""})
+        if por_texto and leidos_como_faltante is not None:
+            leidos_como_faltante[columna] = {"textos": list(por_texto), "celdas": sum(por_texto.values()),
+                                             "por_texto": por_texto}
         for fila, valor in zip(filas, valores):
-            if valor is not None and valor != "":
+            if valor in textos:
+                fila[columna] = None
+            elif valor is not None and valor != "":
                 fila[columna] = tipados[valor]
         tocadas.append(columna)
     return tuple(tocadas)
+
+
+def textos_leidos_como_faltante_en_las_fechas(filas: Sequence[Mapping[str, Any]],
+                                              columnas: Sequence[str]) -> dict[str, dict[str, Any]]:
+    """Las columnas de `columnas` que la preparación leerá como FECHA con textos de faltante dentro («NA», «#N/A»…), con el
+    MISMO formato que `leidos_como_faltante` de `tipar_columnas_numericas` (reparación del hallazgo 11, I4). No toca las filas:
+    la fecha se expande al preparar. Es para quien tipa ANTES de ajustar (el estudio del Studio) y tiene que DECIR también
+    lo que se leyó así en una fecha; la regla es la de `detectar_fechas(..., con_textos_de_faltante=True)`."""
+    salida: dict[str, dict[str, Any]] = {}
+    for receta in detectar_fechas(filas, columnas, con_textos_de_faltante=True):
+        valores = [f.get(receta.columna) for f in filas]
+        por_texto = recuento_por_texto(valores, {v for v in valores if es_texto_de_faltante(v) and v.strip() != ""})
+        if por_texto:
+            salida[receta.columna] = {"textos": list(por_texto), "celdas": sum(por_texto.values()), "por_texto": por_texto}
+    return salida
 
 
 def ajustar_preparacion(filas: Sequence[Mapping[str, Any]], *, objetivo: str,
@@ -382,14 +457,20 @@ def ajustar_preparacion(filas: Sequence[Mapping[str, Any]], *, objetivo: str,
     propuestas: list[PropuestaDeColumna] = []
     limites: list[Limite] = []
     derivadas: list[PropuestaDeColumna] = []
-    recetas = {r.columna: r for r in detectar_fechas(con_objetivo, columnas)} if con_fechas else {}
+    recetas = ({r.columna: r for r in detectar_fechas(con_objetivo, columnas, con_textos_de_faltante=True)}
+               if con_fechas else {})
 
     for columna in columnas:
         valores = [f.get(columna) for f in con_objetivo]
         if columna in recetas:
             receta = recetas[columna]
-            presentes = [v for v in valores if not _es_faltante(v)]
+            # Reparación del hallazgo 11 (I4): la fecha se detectó SIN sus textos de faltante (la regla), así que en ella
+            # «NA», «?», «#N/A»… son faltantes: sus variables salen faltantes (`variables_de_fecha` no los lee) y se DECLARAN.
+            presentes = [v for v in valores if not _es_faltante(v) and not es_texto_de_faltante(v)]
             proporcion_faltante = (len(valores) - len(presentes)) / n if n else 0.0
+            por_texto = recuento_por_texto(valores, {v for v in valores if es_texto_de_faltante(v) and v.strip() != ""})
+            if por_texto:
+                limites.append(limite_de_textos_leidos_como_faltante(columna, por_texto))
             propuestas.append(PropuestaDeColumna(
                 columna=columna, tipo="fecha", admite_nativo=admite_faltantes,
                 proporcion_faltante=proporcion_faltante, formato_de_fecha=receta.formato))
@@ -409,11 +490,15 @@ def ajustar_preparacion(filas: Sequence[Mapping[str, Any]], *, objetivo: str,
                                   valor=f"{proporcion_faltante:.0%}"),
                     medida={"proporcion_faltante": proporcion_faltante}))
             continue
-        presentes = [v for v in valores if not _es_faltante(v)]
+        presentes, es_numerica, textos = _presentes_de_la_columna(valores)
         proporcion_faltante = (len(valores) - len(presentes)) / n if n else 0.0
-        es_numerica = bool(presentes) and all(_es_numerica(v) for v in presentes)
 
         if es_numerica:
+            # LOS TEXTOS LEÍDOS COMO FALTANTE SE DECLARAN (hallazgo 11): «NA», «?», «#N/A»… no son una categoría ni
+            # un cero, y la persona tiene que poder ver que se leyeron así. Lo vacío y el NaN no: esos ya eran faltantes.
+            por_texto = recuento_por_texto(valores, {t for t in textos if str(t).strip() != ""})
+            if por_texto:
+                limites.append(limite_de_textos_leidos_como_faltante(columna, por_texto))
             # UNA SOLA LISTA para los tres: mediana, mínimo y máximo salen de
             # los mismos valores presentes de las mismas filas de train. Que
             # sea la misma variable no es estilo -- es lo que impide que el
@@ -482,7 +567,7 @@ def transformar_fila(fila: Mapping[str, Any], politica: PoliticaDePreparacion) -
                 resultado[nombre_de_indicador(derivada.columna)] = 1.0 if faltante else 0.0
             continue
         if propuesta.tipo == "numerica":
-            faltante = _es_faltante(valor)
+            faltante = es_faltante_en_una_numerica(valor)   # «NA» en una numérica: faltante declarado
             if faltante:
                 resultado[propuesta.columna] = None if propuesta.admite_nativo else propuesta.mediana
             else:

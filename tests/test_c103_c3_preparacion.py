@@ -480,9 +480,11 @@ class TiparColumnasNumericasTest(unittest.TestCase):
         """«Todos o ninguno», no valor a valor: convertir la mitad dejaría una
         columna con floats y textos mezclados, que es peor que cualquiera de
         las dos cosas."""
-        filas = [{"a": "0"}, {"a": "1"}, {"a": "N/A"}]
+        # (Hasta el hallazgo 11 el «no numérico» del ejemplo era «N/A»: ese texto es un FALTANTE y la columna sí se tipa,
+        # ver `test_hallazgo11_textos_de_faltante.py`; la intención —un texto que NO es número ni faltante— es la misma.)
+        filas = [{"a": "0"}, {"a": "1"}, {"a": "abc"}]
         self.assertEqual(tipar_columnas_numericas(filas, ("a",)), ())
-        self.assertEqual([f["a"] for f in filas], ["0", "1", "N/A"])
+        self.assertEqual([f["a"] for f in filas], ["0", "1", "abc"])
 
     def test_los_huecos_no_cuentan_ni_se_rellenan(self):
         filas = [{"a": "0"}, {"a": ""}, {"a": None}, {"a": "2"}]

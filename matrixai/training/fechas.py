@@ -43,6 +43,7 @@ from datetime import datetime
 from typing import Any, Mapping, Sequence
 
 from matrixai.training.dataset_analysis import _DATE_FORMATS, _detect_date_format
+from matrixai.training.textos_de_faltante import textos_leidos_como_faltante
 
 #: Los formatos que se pueden confundir entre sí: día/mes y mes/día. Si una columna
 #: se lee ENTERA con los dos (todos los días ≤ 12), la detección no puede saber cuál
@@ -118,7 +119,7 @@ def _es_faltante(valor: Any) -> bool:
 
 
 def detectar_fechas(filas: Sequence[Mapping[str, Any]],
-                    columnas: Sequence[str]) -> tuple[RecetaDeFecha, ...]:
+                    columnas: Sequence[str], *, con_textos_de_faltante: bool = False) -> tuple[RecetaDeFecha, ...]:
     """Las columnas de `columnas` que son fechas, con su formato.
 
     Una columna es fecha si TODOS sus valores no vacíos son texto y se leen con
@@ -126,11 +127,16 @@ def detectar_fechas(filas: Sequence[Mapping[str, Any]],
     que el llamante elige: para no mirar el test, las de entrenamiento (el
     formato de una columna no depende del pliegue, pero la regla de la
     preparación es ajustar solo con lo que se entrena, y aquí no hay motivo
-    para saltársela)."""
+    para saltársela).
+
+    `con_textos_de_faltante` (reparación del hallazgo 11, la usa la PREPARACIÓN): «NA», «?», «#N/A»… no cuentan para
+    decidir si, quitados, lo demás es fecha (`textos_de_faltante.textos_leidos_como_faltante`, la misma regla que en una
+    numérica y que en el análisis, que llamaba `date` a la columna que la preparación hacía categórica). Por omisión NO: la
+    partición temporal convierte cada valor con el formato y un «NA» ahí es un rechazo, como siempre."""
     recetas: list[RecetaDeFecha] = []
     for columna in columnas:
-        formato = _formato_de(filas, columna)
-        if formato is not None and not _es_ambigua(filas, columna, formato):
+        formato = _formato_de(filas, columna, con_textos_de_faltante)
+        if formato is not None and not _es_ambigua(filas, columna, formato, con_textos_de_faltante):
             recetas.append(RecetaDeFecha(columna=columna, formato=formato))
     return tuple(recetas)
 
@@ -148,23 +154,30 @@ def fechas_ambiguas(filas: Sequence[Mapping[str, Any]],
     return tuple(salida)
 
 
-def _textos_de(filas: Sequence[Mapping[str, Any]], columna: str) -> list[str] | None:
+def _textos_de(filas: Sequence[Mapping[str, Any]], columna: str,
+               con_textos_de_faltante: bool = False) -> list[str] | None:
     no_vacios = [f.get(columna) for f in filas if not _es_faltante(f.get(columna))]
     if not no_vacios or not all(isinstance(v, str) for v in no_vacios):
         return None
-    return [v.strip() for v in no_vacios]
+    textos = [v.strip() for v in no_vacios]
+    if con_textos_de_faltante:
+        leidos = textos_leidos_como_faltante(set(textos), lambda resto: _detect_date_format(resto) is not None)
+        if leidos:
+            return [t for t in textos if t not in leidos]
+    return textos
 
 
-def _formato_de(filas: Sequence[Mapping[str, Any]], columna: str) -> str | None:
-    textos = _textos_de(filas, columna)
+def _formato_de(filas: Sequence[Mapping[str, Any]], columna: str, con_textos_de_faltante: bool = False) -> str | None:
+    textos = _textos_de(filas, columna, con_textos_de_faltante)
     return None if textos is None else _detect_date_format(textos)
 
 
-def _es_ambigua(filas: Sequence[Mapping[str, Any]], columna: str, formato: str) -> bool:
+def _es_ambigua(filas: Sequence[Mapping[str, Any]], columna: str, formato: str,
+                con_textos_de_faltante: bool = False) -> bool:
     if formato not in _CONFUNDIBLES:
         return False
     otro = next(f for f in _CONFUNDIBLES if f != formato)
-    textos = _textos_de(filas, columna) or []
+    textos = _textos_de(filas, columna, con_textos_de_faltante) or []
     try:
         for t in textos:
             datetime.strptime(t, otro)

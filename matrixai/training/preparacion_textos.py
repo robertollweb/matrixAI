@@ -39,6 +39,12 @@ MOTIVOS: dict[str, dict[str, str]] = {
               "warning, not a block: the column can still be useful with "
               "this limitation declared",
     },
+    "textos_leidos_como_faltante": {
+        "es": "{campo} es numérica y {celdas} de sus celdas dicen {textos}: se leen como valores faltantes "
+              "(no como categorías), con la misma imputación y el mismo indicador que una celda vacía",
+        "en": "{campo} is numeric and {celdas} of its cells say {textos}: they are read as missing values "
+              "(not as categories), with the same imputation and indicator as an empty cell",
+    },
     "pocas_filas_para_preparacion": {
         "es": "el train efectivo tiene {valor} filas: no es motivo para "
               "bloquear la recomendación por sí solo, pero las estadísticas "

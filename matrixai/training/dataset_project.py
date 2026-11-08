@@ -140,6 +140,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from matrixai.training.textos_de_faltante import es_texto_de_faltante
 from matrixai.training.dataset_analysis import (
     _BOOL_FALSE,
     _BOOL_TRUE,
@@ -2930,6 +2931,12 @@ def _valor_numerico_o_none(valor: str | None,
     del modelo lo rechaza con «must be numeric», que es la verdad.
     """
     if _is_null(valor, tokens_de_ausencia):
+        return None
+    # Reparación del hallazgo 11 (I4): en una columna NUMÉRICA —solo aquí se llama— «#N/A» (Excel) y «.» (SAS/Stata) también
+    # dicen «no hay dato», con la regla y la lista del núcleo (`textos_de_faltante`): el análisis ya la tipa numérica contándolos
+    # como nulos, y sin esto el verificador rechazaba el CSV preparado («must be numeric, got '#N/A'»). Con la ausencia
+    # DECLARADA (`tokens_de_ausencia`) manda la declaración, como siempre.
+    if tokens_de_ausencia is None and es_texto_de_faltante(valor):
         return None
     try:
         return float(str(valor).strip())
