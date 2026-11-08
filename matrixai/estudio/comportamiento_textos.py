@@ -98,33 +98,56 @@ MOTIVOS: dict[str, dict[str, str]] = {
     # propio del modelo si el motor es de árboles; con otro motor se dice que no se midió, o no se dice nada de la medición.
     # Sin «garantía» ni «seguro» (I3).
     "tolerancia_alta_en_binaria": {
-        "es": "La tolerancia usada es alta: {tolerancia} de la probabilidad. Es la de partida en clasificación "
+        "es": "La tolerancia usada es alta: {tolerancia} puntos de probabilidad (el {porcentaje} de la escala de 0 a 1). Es la de partida en clasificación "
               "binaria, a propósito: al medirlo, con modelos de árboles (LightGBM y HGB) y unas 2.000 filas, las "
               "columnas que no influyen movían la probabilidad entre un 10 % y un 15 %, y con una tolerancia "
               "menor ese movimiento podría contarse como retrocesos.",
-        "en": "The tolerance in use is high: {tolerancia} of the probability. It is the starting one for "
+        "en": "The tolerance in use is high: {tolerancia} probability points ({porcentaje} of the 0-to-1 scale). It is the starting one for "
               "binary classification, on purpose: when measured, with tree models (LightGBM and HGB) and about "
               "2,000 rows, the columns with no influence moved the probability by between 10% and 15%, and with "
               "a lower tolerance that movement could be counted as steps back.",
     },
     "tolerancia_alta_en_binaria_otro_motor": {
-        "es": "La tolerancia usada es alta: {tolerancia} de la probabilidad. Es la de partida en clasificación "
+        "es": "La tolerancia usada es alta: {tolerancia} puntos de probabilidad (el {porcentaje} de la escala de 0 a 1). Es la de partida en clasificación "
               "binaria; se fijó midiendo modelos de árboles (LightGBM y HGB) y con otros motores no se ha medido.",
-        "en": "The tolerance in use is high: {tolerancia} of the probability. It is the starting one for "
+        "en": "The tolerance in use is high: {tolerancia} probability points ({porcentaje} of the 0-to-1 scale). It is the starting one for "
               "binary classification; it was set by measuring tree models (LightGBM and HGB) and it has not "
               "been measured with other engines.",
     },
     "tolerancia_alta_en_binaria_no_de_partida": {
-        "es": "La tolerancia usada es alta: {tolerancia} de la probabilidad. Al medir, con modelos de árboles "
+        "es": "La tolerancia usada es alta: {tolerancia} puntos de probabilidad (el {porcentaje} de la escala de 0 a 1). Al medir, con modelos de árboles "
               "(LightGBM y HGB) y unas 2.000 filas, las columnas que no influyen movían la probabilidad entre "
               "un 10 % y un 15 %.",
-        "en": "The tolerance in use is high: {tolerancia} of the probability. When measured, with tree models "
+        "en": "The tolerance in use is high: {tolerancia} probability points ({porcentaje} of the 0-to-1 scale). When measured, with tree models "
               "(LightGBM and HGB) and about 2,000 rows, the columns with no influence moved the probability by "
               "between 10% and 15%.",
     },
     "tolerancia_alta_en_binaria_no_de_partida_otro_motor": {
-        "es": "La tolerancia usada es alta: {tolerancia} de la probabilidad.",
-        "en": "The tolerance in use is high: {tolerancia} of the probability.",
+        "es": "La tolerancia usada es alta: {tolerancia} puntos de probabilidad (el {porcentaje} de la escala de 0 a 1).",
+        "en": "The tolerance in use is high: {tolerancia} probability points ({porcentaje} of the 0-to-1 scale).",
+    },
+    # En regresión, una tolerancia MENOR que la de partida (149-C4, reparación de la auditoría, M7). Lo MEDIDO es del 149-C0-ter
+    # (`benchmarks/c149/resultados/c0ter_tabla.md`, «planas (x7, x10)», LightGBM y HGB juntos, 2.000 filas, semillas 6-8): con ε 2 %
+    # las dos columnas planas salieron «con contraejemplos» en 18 de 24 casos con q 5 % o 10 % y en 17 de 24 con q 20 %; con ε 5 %, en
+    # 0 de 24. Entre el 2 % y el 5 % no hay medición, y la frase lo dice. Dos redacciones, como en binaria: lo medido solo se cita si el
+    # motor es de árboles.
+    "tolerancia_baja_en_regresion": {
+        "es": "La tolerancia usada es baja: {tolerancia} de la escala, por debajo de la de partida en regresión ({partida}). Al "
+              "medirlo, con modelos de árboles (LightGBM y HGB) y unas 2.000 filas, con una tolerancia del 2 % las columnas que no "
+              "influyen salían «con contraejemplos» en 17 o 18 de 24 casos, y con el 5 % en ninguno; entre los dos no se midió. "
+              "Con esta tolerancia, un «con contraejemplos» puede ser ruido del modelo.",
+        "en": "The tolerance in use is low: {tolerancia} of the scale, below the starting one for regression ({partida}). When "
+              "measured, with tree models (LightGBM and HGB) and about 2,000 rows, with a tolerance of 2% the columns with no "
+              "influence came out \"with counterexamples\" in 17 or 18 of 24 cases, and with 5% in none; in between it was not "
+              "measured. With this tolerance, a \"with counterexamples\" may be noise from the model.",
+    },
+    "tolerancia_baja_en_regresion_otro_motor": {
+        "es": "La tolerancia usada es baja: {tolerancia} de la escala, por debajo de la de partida en regresión ({partida}), que "
+              "se fijó midiendo modelos de árboles (LightGBM y HGB); con otros motores no se ha medido. Con una tolerancia tan "
+              "baja, un «con contraejemplos» puede ser ruido del modelo.",
+        "en": "The tolerance in use is low: {tolerancia} of the scale, below the starting one for regression ({partida}), which "
+              "was set by measuring tree models (LightGBM and HGB); it has not been measured with other engines. With such a low "
+              "tolerance, a \"with counterexamples\" may be noise from the model.",
     },
     # Decisión del supervisor (remate del C1-bis): bajo «sin contraejemplos» las filas que retroceden más que la tolerancia (por
     # debajo del q) se enseñan APARTE, con este rótulo; la palabra «contraejemplos» queda para el veredicto que los tiene.

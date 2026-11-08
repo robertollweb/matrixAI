@@ -426,8 +426,18 @@ class MonotoniaDeUnaColumna:
             else:
                 clave_del_aviso = ("tolerancia_alta_en_binaria_no_de_partida" if arboles
                                    else "tolerancia_alta_en_binaria_no_de_partida_otro_motor")
+            # En PUNTOS de probabilidad (M4 de la auditoría del C4): «20 % de la probabilidad» se leía como relativo.
             avisos.append({"clave": "tolerancia_alta_en_binaria",
-                           "texto": motivo(clave_del_aviso, tolerancia=porcentaje(self.epsilon_relativo))})
+                           "texto": motivo(clave_del_aviso, tolerancia=cifra(self.epsilon_relativo),
+                                           porcentaje=porcentaje(self.epsilon_relativo))})
+        # En regresión, una tolerancia por DEBAJO de la de partida (M7 de la auditoría del C4): con ε 2 % las columnas planas
+        # salieron «con contraejemplos» en 17-18 de 24 casos del C0-ter; con 5 %, en ninguno. Lo dice el documento.
+        if (self.escala.tarea == "regression" and base is not None and self.escala.valor is not None
+                and self.filas_comprobadas and self.epsilon_relativo is not None and self.epsilon_relativo < base[0]):
+            avisos.append({"clave": "tolerancia_baja_en_regresion",
+                           "texto": motivo("tolerancia_baja_en_regresion" if self.motor_de_arboles is True
+                                           else "tolerancia_baja_en_regresion_otro_motor",
+                                           tolerancia=porcentaje(self.epsilon_relativo), partida=porcentaje(base[0]))})
         return {
             "version": VERSION_DEL_COMPORTAMIENTO,
             "columna": self.columna, "direccion": self.direccion,

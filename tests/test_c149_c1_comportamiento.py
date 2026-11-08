@@ -56,9 +56,11 @@ from matrixai.estudio.comportamiento_textos import (
     CLAVES_DE_VEREDICTO,
     IDIOMAS,
     MOTIVOS,
+    cifra,
     huecos_de,
     motivo,
     palabras_prohibidas,
+    porcentaje,
 )
 from matrixai.estudio.errores import EsquemaInvalido
 
@@ -674,7 +676,7 @@ def test_cada_clave_de_veredicto_de_los_documentos_de_la_batería_aparece():
     textos_es = [a["texto"]["es"] for r in _todos_los_veredictos() for a in r.a_json()["avisos"] if a["clave"] == "tolerancia_alta_en_binaria"]
     for trozo in ("a propósito: al medirlo", "se fijó midiendo", "Al medir, con modelos"):
         assert any(trozo in t for t in textos_es), trozo
-    assert any(t.endswith("de la probabilidad.") and "partida" not in t and "medir" not in t for t in textos_es)
+    assert any(t.endswith("de la escala de 0 a 1).") and "partida" not in t and "medir" not in t for t in textos_es)
 
 
 def test_la_frase_de_limites_va_pegada_a_cada_veredicto():
@@ -1029,10 +1031,10 @@ def test_en_binaria_el_documento_dice_que_la_tolerancia_de_partida_es_alta_y_por
                                      medido_sobre="muestra_de_desarrollo", semilla=3, motor_de_arboles=True)
     texto = _aviso_de_tolerancia(binaria)
     es, en = texto["es"], texto["en"]
-    for trozo in ("alta", "20 % de la probabilidad", "de partida", "árboles (LightGBM y HGB)", "unas 2.000 filas", "no influyen",
+    for trozo in ("alta", "0,2 puntos de probabilidad (el 20 % de la escala de 0 a 1)", "de partida", "árboles (LightGBM y HGB)", "unas 2.000 filas", "no influyen",
                   "entre un 10 % y un 15 %"):
         assert trozo in es, trozo
-    for trozo in ("high", "20% of the probability", "starting", "tree models (LightGBM and HGB)", "about 2,000 rows",
+    for trozo in ("high", "0.2 probability points (20% of the 0-to-1 scale)", "starting", "tree models (LightGBM and HGB)", "about 2,000 rows",
                   "no influence", "between 10% and 15%"):
         assert trozo in en, trozo
     for idioma, t in (("es", es), ("en", en)):
@@ -1057,7 +1059,8 @@ def test_el_aviso_de_binaria_solo_dice_que_es_la_de_partida_si_lo_usado_es_la_de
             assert r.a_json()["tolerancia"]["por_omision"] is False
             t = _aviso_de_tolerancia(r)
             assert "partida" not in t["es"] and "starting" not in t["en"], (eps, q, motor)
-            assert f"{round(eps * 100)} % de la probabilidad" in t["es"] and f"{round(eps * 100)}% of the probability" in t["en"]
+            assert f"el {round(eps * 100)} % de la escala de 0 a 1" in t["es"] and f"{round(eps * 100)}% of the 0-to-1 scale" in t["en"]
+            assert f"{cifra(eps)['es']} puntos de probabilidad" in t["es"] and f"{cifra(eps)['en']} probability points" in t["en"]
     for motor in (True, False, None):
         r = curvas(_CRECIENTE, eps=0.2, q=0.2, motor=motor)
         assert r.a_json()["tolerancia"]["por_omision"] is True
@@ -1304,3 +1307,65 @@ def test_desde_json_rechaza_lo_que_no_entiende():
             cargar(roto)
     with pytest.raises(EsquemaInvalido):
         MonotoniaDeUnaColumna.desde_json([])
+
+
+# ── 149-C4, reparación de la auditoría: la tolerancia en PUNTOS de probabilidad (M4) y el aviso de ε BAJO en regresión (M7) ──
+
+def test_M4_el_aviso_de_binaria_dice_la_tolerancia_en_puntos_de_probabilidad_y_no_como_un_porcentaje_de_la_probabilidad():
+    """«20 % de la probabilidad» se leía como relativo (un 20 % de 0,6 = 0,12). La tolerancia son PUNTOS de la escala 0–1: el aviso
+    dice «0,2 puntos de probabilidad (el 20 % de la escala de 0 a 1)», en las cuatro redacciones y en los dos idiomas."""
+    for eps, q, motor in ((0.2, 0.2, True), (0.2, 0.2, False), (0.3, 0.2, True), (0.3, 0.2, None)):
+        t = _aviso_de_tolerancia(curvas(_CRECIENTE, eps=eps, q=q, motor=motor))
+        assert "de la probabilidad" not in t["es"] and "of the probability" not in t["en"], (eps, motor)
+        assert f"{cifra(eps)['es']} puntos de probabilidad (el {round(eps * 100)} % de la escala de 0 a 1)" in t["es"]
+        assert f"{cifra(eps)['en']} probability points ({round(eps * 100)}% of the 0-to-1 scale)" in t["en"]
+    for clave, redaccion in MOTIVOS.items():
+        assert huecos_de(redaccion["es"]) == huecos_de(redaccion["en"]), clave
+
+
+def _regresion(eps, motor=True, q=0.05):
+    return monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [[0.0, 25.0, 50.0, 100.0]] * 4, list("abcd"),
+                                  epsilon_relativo=eps, q_relativo=q, escala=REGRESION_100, medido_sobre="muestra_de_desarrollo",
+                                  semilla=3, motor_de_arboles=motor)
+
+
+def test_M7_en_regresion_una_tolerancia_por_debajo_de_la_de_partida_lleva_su_aviso_con_lo_medido_en_el_C0ter():
+    """Medido por la auditoría del C4: con ε 1 % una columna de ruido puro sale «con contraejemplos» en regresión, y la pantalla no lo
+    advertía (el aviso de tolerancia solo existía en binaria y para la ALTA). El umbral es el MEDIDO del C0-ter (planas x7 y x10,
+    `c0ter_tabla.md`): con ε 2 % salían «con contraejemplos» en 17-18 de 24 casos; con 5 % (la de partida), en ninguno."""
+    for eps in (0.0, 0.01, 0.02, 0.049):
+        avisos = _regresion(eps).a_json()["avisos"]
+        assert [a["clave"] for a in avisos] == ["tolerancia_baja_en_regresion"], eps
+        es, en = avisos[0]["texto"]["es"], avisos[0]["texto"]["en"]
+        for trozo in (f"{porcentaje(eps)['es']} de la escala", "de partida en regresión (5 %)", "del 2 %", "17 o 18 de 24",
+                      "con el 5 % en ninguno", "entre los dos no se midió", "árboles (LightGBM y HGB)"):
+            assert trozo in es, (eps, trozo)
+        for trozo in (f"{porcentaje(eps)['en']} of the scale", "starting one for regression (5%)", "of 2%", "17 or 18 of 24",
+                      "with 5% in none", "in between it was not measured", "tree models (LightGBM and HGB)"):
+            assert trozo in en, (eps, trozo)
+        for idioma, t in (("es", es), ("en", en)):
+            assert palabras_prohibidas(t, idioma) == [], (idioma, palabras_prohibidas(t, idioma))
+    # en la de partida o por encima, ninguno; y nunca en binaria ni sin filas comprobadas
+    for eps in (0.05, 0.1, 0.5):
+        assert not any(a["clave"] == "tolerancia_baja_en_regresion" for a in _regresion(eps).a_json()["avisos"]), eps
+    assert not any(a["clave"] == "tolerancia_baja_en_regresion" for a in curvas(_CRECIENTE, eps=0.01, q=0.2).a_json()["avisos"])
+    sin_filas = monotonia_desde_curvas("x", "sube", [0.0, 1.0, 2.0, 3.0], [[None] * 4], ["a"], epsilon_relativo=0.01, q_relativo=0.05,
+                                       escala=REGRESION_100, medido_sobre="muestra_de_desarrollo", semilla=3)
+    assert sin_filas.a_json()["avisos"] == []
+
+
+def test_M7_el_aviso_de_regresion_solo_cita_lo_medido_si_el_motor_es_de_arboles():
+    for motor in (False, None):
+        t = _regresion(0.01, motor=motor).a_json()["avisos"][0]["texto"]
+        for trozo in ("17 o 18", "2.000", "no influyen", "salían"):
+            assert trozo not in t["es"], (motor, trozo)
+        assert "con otros motores no se ha medido" in t["es"] and "has not been measured with other engines" in t["en"]
+
+
+def test_M7_reevaluar_con_otra_tolerancia_pone_y_quita_el_aviso_sin_predecir():
+    """I7: el aviso depende de ε y se rehace con `con_tolerancia` (sin una sola predicción)."""
+    r = _regresion(0.05)
+    assert r.a_json()["avisos"] == []
+    baja = r.con_tolerancia(0.01, None)
+    assert [a["clave"] for a in baja.a_json()["avisos"]] == ["tolerancia_baja_en_regresion"]
+    assert baja.con_tolerancia(0.05, None).a_json() == r.a_json()
