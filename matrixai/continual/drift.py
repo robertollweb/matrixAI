@@ -56,6 +56,89 @@ def compute_psi(
     return psi
 
 
+def _es_nan(v) -> bool:
+    """NaN de Python, de numpy (``np.float32`` no es un ``float``) o de cualquier número que ``math.isnan`` entienda."""
+    try:
+        return math.isnan(v)
+    except TypeError:
+        return False
+
+
+def _es_faltante(v) -> bool:
+    """``None``, un ``NaN`` (``_es_nan``) o el faltante de pandas (``pd.NA``, ``pd.NaT``), sin importar pandas: se reconocen
+    por su tipo. Sin esto, ``pd.NA`` reventaba al compararlo (``TypeError``) en vez de contar como faltante."""
+    if v is None or _es_nan(v):
+        return True
+    t = type(v)
+    return t.__name__ in ("NAType", "NaTType") and t.__module__.split(".")[0] == "pandas"
+
+
+def recuentos_en_casillas(
+    valores: list[float | None],
+    minimo: float,
+    maximo: float,
+    bins: int = 10,
+) -> tuple[list[int], int, int]:
+    """Recuentos de ``valores`` en las ``bins`` casillas que definen ``[minimo, maximo]``
+    (153-C1). Devuelve ``(casillas, faltantes, fuera_de_rango)``.
+
+    Es la MISMA asignación de casilla que ``compute_psi`` (``int((v - min) / span * bins)``
+    apretada a ``[0, bins - 1]``): un valor fuera de la referencia cae en la casilla 0 o en la
+    última y además suma en ``fuera_de_rango``. Un faltante (``None``, ``NaN`` —también el de numpy— o ``pd.NA``/``pd.NaT``) NO entra en las
+    casillas: ``compute_psi`` revienta con un ``NaN``, y un faltante no es un valor.
+    Una referencia constante (``maximo == minimo``) no define casillas: ``ValueError``.
+    """
+    if not (math.isfinite(minimo) and math.isfinite(maximo)) or maximo <= minimo:
+        raise ValueError("la referencia no tiene amplitud: no define casillas (mínimo < máximo, finitos)")
+    span = maximo - minimo
+    cuenta = [0] * bins
+    faltantes = 0
+    fuera = 0
+    for v in valores:
+        if _es_faltante(v):
+            faltantes += 1
+            continue
+        if v < minimo:
+            fuera += 1
+            idx = 0
+        elif v > maximo:
+            fuera += 1
+            idx = bins - 1
+        else:
+            idx = max(0, min(int((v - minimo) / span * bins), bins - 1))
+        cuenta[idx] += 1
+    return cuenta, faltantes, fuera
+
+
+def psi_desde_recuentos(referencia: list[int], observados: list[int]) -> float | None:
+    """PSI calculado desde los RECUENTOS de dos distribuciones en las mismas casillas
+    (153-C1): idéntico, bit a bit, al de ``compute_psi`` sobre los datos de los que salen
+    (mismo suelo de 1e-10 por casilla, mismo orden de suma).
+
+    Devuelve ``None`` —NO ``0.0``— cuando no se puede medir: un lado sin ninguna muestra, o
+    una referencia degenerada (una sola casilla ocupada: la de una columna constante, que
+    ``compute_psi`` convierte en un ``0.0`` fabricado). Una referencia con amplitud siempre
+    ocupa la casilla 0 (su mínimo) y la última (su máximo). «Ausente no es cero».
+    """
+    if len(referencia) != len(observados) or not referencia:
+        raise ValueError("los recuentos tienen que ser dos listas no vacías de la misma longitud")
+    for cuenta in (*referencia, *observados):
+        if isinstance(cuenta, bool) or not isinstance(cuenta, int) or cuenta < 0:
+            raise ValueError("un recuento es un entero >= 0")
+    n_ref = sum(referencia)
+    n_obs = sum(observados)
+    if n_ref == 0 or n_obs == 0:
+        return None
+    if sum(1 for cuenta in referencia if cuenta) < 2:
+        return None
+    psi = 0.0
+    for rc, oc in zip(referencia, observados):
+        ref_pct = max(rc / n_ref, 1e-10)
+        obs_pct = max(oc / n_obs, 1e-10)
+        psi += (obs_pct - ref_pct) * math.log(obs_pct / ref_pct)
+    return psi
+
+
 def compute_ks_statistic(
     reference: list[float],
     observed: list[float],

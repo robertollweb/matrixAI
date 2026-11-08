@@ -255,6 +255,23 @@ def main() -> int:
     r_compare.add_argument("b")
     receipt_parser.add_argument("--json", action="store_true", help="Print the report as JSON")
 
+    trace_parser = subparsers.add_parser(
+        "trace", help="Check the signed drift trace of an exported service (153-C1)")
+    trace_sub = trace_parser.add_subparsers(dest="trace_command", required=True)
+    t_verify = trace_sub.add_parser(
+        "verify",
+        help="Check a matrixai.traza/v1 file (.jsonl): signatures, chain and, if given, the anchored key "
+             "fingerprint. Says what a valid signature does NOT show (needs `pip install 'matrixai[firma]'`)")
+    t_verify.add_argument("file")
+    t_verify.add_argument("--huella", metavar="H",
+                          help="The key fingerprint you expect (64 hex, SHA-256 of the raw public key): "
+                               "a file signed by another key is then \"the signature does not match\"")
+    t_verify.add_argument("--desde-genesis", action="store_true",
+                          help="Require the first line to be the genesis block: seq 0, a prev of zeros and no restart (first "
+                               "import). A file that starts at a sin_previo restart does not pass")
+    t_verify.add_argument("--locale", choices=["es", "en"], default="en", help="Language of the answer")
+    t_verify.add_argument("--json", action="store_true", help="Print the result as JSON")
+
     verify_parser = subparsers.add_parser(
         "verify",
         help="Verify a reproducible package (82-C2): manifest integrity, R1, training and R3",
@@ -1319,6 +1336,9 @@ def main() -> int:
     if args.command == "receipt":
         return _cmd_receipt(args)
 
+    if args.command == "trace":
+        return _cmd_trace(args)
+
     if args.command == "verify":
         return _cmd_verify(args)
 
@@ -1848,6 +1868,42 @@ def _cmd_receipt(args) -> int:
         for aviso in informe["disclaimers"]:
             print(f"note · {aviso}")
     return _salida_de_receipt(informe)
+
+
+def _cmd_trace(args) -> int:
+    """`matrixai trace verify <fichero> [--huella H] [--desde-genesis]` — 153-C1.
+
+    Código de salida como `receipt verify`: 0 «firma válida», 2 «la firma no coincide», 3 «no se pudo
+    comprobar». Una traza válida NO prueba que no falten los últimos bloques ni los de antes de un reinicio, y
+    la salida lo dice (también con `--json`: `lo_que_no_demuestra` y `aviso_cola`). Los errores de uso, en
+    stderr y en el idioma de `--locale`.
+    """
+    from matrixai.pipelines.traza import (  # noqa: PLC0415
+        AVISO_COLA, LO_QUE_NO_DEMUESTRA, SALIDAS, TOPE_FICHERO, comprobar_fichero, describir)
+
+    es = args.locale == "es"
+    try:
+        with open(args.file, "rb") as fh:
+            contenido = fh.read(TOPE_FICHERO + 1)  # lo que pase del tope no se lee: ya es «formato» (I2)
+    except OSError as exc:
+        print((f"trace: no se pudo leer {args.file}: {exc.strerror or exc}" if es
+               else f"trace: could not read {args.file}: {exc.strerror or exc}"), file=sys.stderr)
+        return 1
+    huella = args.huella.strip().lower() if args.huella else None
+    try:
+        informe = comprobar_fichero(contenido, huella_anclada=huella, esperar_genesis=args.desde_genesis)
+    except ValueError:  # la huella no es una huella: error de uso, no un veredicto
+        print(("trace: --huella: la huella es SHA-256 en hexadecimal (64 caracteres)" if es
+               else "trace: --huella: the fingerprint is a SHA-256 in hexadecimal (64 characters)"), file=sys.stderr)
+        return 1
+    if args.json:
+        idioma = "es" if es else "en"
+        print(json.dumps({**informe, "lo_que_no_demuestra": LO_QUE_NO_DEMUESTRA[idioma], "aviso_cola": AVISO_COLA[idioma]},
+                         indent=2, ensure_ascii=False))
+    else:
+        for linea in describir(informe, args.locale):
+            print(linea)
+    return SALIDAS[informe["estado"]]
 
 
 def _linea_ed25519(firma: dict | None, idioma: str) -> None:

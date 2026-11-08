@@ -1227,6 +1227,67 @@ Compara dos recibos por CONTENIDO, no por los bytes del fichero.
 matrixai receipt compare <a> <b>
 ```
 
+### matrixai trace verify
+
+Comprueba la **traza firmada** de deriva que escribe un servicio exportado (`matrixai.traza/v1`, un
+bloque por línea, contrato 153): las firmas Ed25519 de todos los bloques, que la cadena (`prev`) encaje y,
+si se da, que la clave sea la que esperabas. Necesita `pip install 'matrixai[firma]'`.
+
+```
+matrixai trace verify <fichero.jsonl> [--huella H] [--desde-genesis] [--locale es|en] [--json]
+```
+
+```
+Traza: firma válida
+3 bloques, del seq 0 al 2
+Huella de la clave: 1662ca8a91e4b9f434825e4d6da661db3624b733a61be8e4581881f0201dc37f
+Último bloque visto: seq 2, hash 9d266f531d789dac086a5d8e8e5f32587844dae04277f8b061fdd554b9dc41cf
+Sin huella anclada: solo se comprobó que el fichero es coherente consigo mismo; la clave es la que el propio fichero dice.
+Lo que esto NO demuestra:
+- Que el servicio sea el tuyo, si no cotejaste la huella de la clave por otro canal.
+- Que las horas sean ciertas: las pone el reloj del servicio.
+- Que no falten los últimos bloques: si alguien borra el final del fichero, sigue saliendo «firma válida». Compara el último bloque (seq y hash) con el que anuncia el servicio en su /health.
+- Que no falten bloques antes de un reinicio: una cadena nueva («sin_previo») no enlaza con lo anterior, así que pueden faltar los últimos bloques de la cadena de antes, o una cadena entera. Borrar o reordenar bloques se detecta DENTRO de una cadena; entre cadenas, solo un bloque repetido o una cadena de la misma clave que empieza antes de la hora en que acaba la anterior (dos cadenas dentro de una misma hora no se pueden ordenar).
+- Que el modelo acierte más o menos: la traza mide entradas y salidas, no aciertos.
+- No hay revocación de claves.
+```
+
+Un fichero con reinicios (`"reinicio": "sin_previo"`: el servicio abrió una cadena nueva) lista sus cadenas
+(aquí con `--huella`, por eso no sale el aviso de «sin huella anclada»; el resto de la salida, el mismo de arriba):
+
+```
+Traza: firma válida
+6 bloques en 3 cadenas
+Huella de la clave: 1662ca8a91e4b9f434825e4d6da661db3624b733a61be8e4581881f0201dc37f
+Último bloque visto: seq 0, hash 47f1a10b7aebc85527c9d42d0792cdbf5caebc196e6914d296abc22843ad5562
+3 cadenas (reinicio sin_previo en las líneas 4, 6):
+- líneas 1–3: seq 0–2, clave 1662ca8a91e4b9f4…
+- líneas 4–5: seq 0–1, clave 1662ca8a91e4b9f4…
+- líneas 6–6: seq 0–0, clave 1662ca8a91e4b9f4…
+En cada reinicio pueden faltar los bloques de antes: una cadena nueva no enlaza con la anterior.
+…
+```
+
+- `--huella H`: la huella de la clave que esperabas (SHA-256 de los 32 bytes de la pública, 64 hex; la de
+  `matrixai receipt pubkey`). Un fichero firmado por otra clave sale «la firma no coincide».
+- `--desde-genesis`: exige que la primera línea sea el bloque génesis: `seq` 0, `prev` de ceros y **sin**
+  reinicio (primera importación). Un fichero que empieza en un reinicio `sin_previo` no pasa («la firma no
+  coincide»): delante podría haber estado la cadena desde el génesis. Sin ella, un fichero de otro día (rotación
+  diaria) es válido y se dice desde qué `seq` empieza.
+- Qué sale «la firma no coincide» (código `2`): un bloque editado; un bloque borrado o reordenado **dentro de una
+  cadena**; un bloque repetido en el fichero; una cadena de la misma clave que empieza antes de la hora en que
+  acaba la anterior; una clave pública que no vale (no canónica, de orden pequeño o de orden mixto); otra clave sin reinicio, o distinta de
+  `--huella`.
+- Qué **no** se detecta: que falten los últimos bloques del fichero, ni los de justo antes de un reinicio, ni una
+  cadena entera entre dos reinicios, ni la cadena entera de antes del primer reinicio cuando el fichero empieza en
+  él (el reinicio dice «no hay anterior»; esto último sí lo caza `--desde-genesis`). Para la cola, compara el
+  último bloque (`seq` y `hash`) con el que anuncia el servicio.
+- Códigos de salida: `0` firma válida; `2` la firma no coincide; `3` no se pudo comprobar (no es JSON ni UTF-8,
+  versión desconocida, una línea de más de 1 MiB o un fichero de más de 64 MiB, falta `cryptography`);
+  `1` el fichero no se puede leer o `--huella` no es una huella (en stderr, en el idioma de `--locale`).
+- Con `--json`, el resultado entero (`estado`, `motivo`, `bloque`, `detalle` en es/en, `ultimo_seq`, `ultimo_hash`,
+  `reinicios`, `cadenas`…) y además `lo_que_no_demuestra` y `aviso_cola` en el idioma de `--locale`.
+
 ---
 
 ## Variables de entorno

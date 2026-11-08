@@ -1224,6 +1224,66 @@ Diff two receipts by content, not by file bytes.
 matrixai receipt compare <a> <b>
 ```
 
+### matrixai trace verify
+
+Check the **signed drift trace** an exported service writes (`matrixai.traza/v1`, one block per line,
+contract 153): the Ed25519 signatures of every block, that the `prev` chain fits and, if given, that the
+key is the one you expected. Needs `pip install 'matrixai[firma]'`.
+
+```
+matrixai trace verify <file.jsonl> [--huella H] [--desde-genesis] [--locale es|en] [--json]
+```
+
+```
+Trace: valid signature
+3 blocks, from seq 0 to 2
+Key fingerprint: 1662ca8a91e4b9f434825e4d6da661db3624b733a61be8e4581881f0201dc37f
+Last block seen: seq 2, hash 9d266f531d789dac086a5d8e8e5f32587844dae04277f8b061fdd554b9dc41cf
+No anchored fingerprint: it only shows the file is consistent with itself; the key is whatever the file says.
+What this does NOT show:
+- That the service is yours, if you did not compare the key fingerprint through another channel.
+- That the times are true: the service's own clock sets them.
+- That no trailing blocks are missing: if someone deletes the end of the file it still reads "valid signature". Compare the last block (seq and hash) with the one the service announces on its /health.
+- That no blocks are missing before a restart: a new chain ("sin_previo") does not link to what came before, so the last blocks of the previous chain, or a whole chain, may be missing. Deleting or reordering blocks is detected INSIDE a chain; across chains, only a repeated block or a chain of the same key that starts before the hour in which the previous one ends (two chains within the same hour cannot be put in order).
+- That the model is right more or less often: the trace measures inputs and outputs, not hits.
+- There is no key revocation.
+```
+
+A file with restarts (`"reinicio": "sin_previo"`: the service opened a new chain) lists its chains (here with
+`--huella`, which is why the "no anchored fingerprint" note is missing; the rest of the output is the same as above):
+
+```
+Trace: valid signature
+6 blocks in 3 chains
+Key fingerprint: 1662ca8a91e4b9f434825e4d6da661db3624b733a61be8e4581881f0201dc37f
+Last block seen: seq 0, hash 47f1a10b7aebc85527c9d42d0792cdbf5caebc196e6914d296abc22843ad5562
+3 chains (sin_previo restart at lines 4, 6):
+- lines 1–3: seq 0–2, key 1662ca8a91e4b9f4…
+- lines 4–5: seq 0–1, key 1662ca8a91e4b9f4…
+- lines 6–6: seq 0–0, key 1662ca8a91e4b9f4…
+At each restart the earlier blocks may be missing: a new chain does not link to the previous one.
+…
+```
+
+- `--huella H`: the fingerprint of the key you expected (SHA-256 of the 32 raw bytes of the public key,
+  64 hex; the one `matrixai receipt pubkey` prints). A file signed by another key reads "the signature does not match".
+- `--desde-genesis`: require the first line to be the genesis block: `seq` 0, a `prev` of zeros and **no**
+  restart (first import). A file that starts at a `sin_previo` restart does not pass ("the signature does not
+  match"): the chain from the genesis block could have been in front of it. Without it, a file from another day
+  (daily rotation) is valid and it says which `seq` it starts at.
+- What reads "the signature does not match" (exit `2`): an edited block; a block deleted or reordered **inside a
+  chain**; a block repeated in the file; a chain of the same key that starts before the hour in which the previous one
+  ends; a public key that is not usable (non-canonical, of small order or of mixed order); another key without a restart, or other than `--huella`.
+- What is **not** detected: missing trailing blocks, missing blocks right before a restart, a whole chain missing
+  between two restarts, or the whole chain before the first restart when the file starts at it (the restart says
+  "there is no previous block"; `--desde-genesis` does catch the last one). For the tail, compare the last block
+  (`seq` and `hash`) with the one the service announces.
+- Exit codes: `0` valid signature; `2` the signature does not match; `3` could not be checked (not JSON or not
+  UTF-8, unknown version, a line over 1 MiB or a file over 64 MiB, `cryptography` missing);
+  `1` the file cannot be read or `--huella` is not a fingerprint (on stderr, in the `--locale` language).
+- With `--json`, the whole result (`estado`, `motivo`, `bloque`, `detalle` in es/en, `ultimo_seq`, `ultimo_hash`,
+  `reinicios`, `cadenas`…) plus `lo_que_no_demuestra` and `aviso_cola` in the `--locale` language.
+
 ---
 
 ## Environment variables
