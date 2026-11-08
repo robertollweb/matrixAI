@@ -38,6 +38,7 @@ from matrixai.training.preparacion import (
     CATEGORIA_DESCONOCIDA,
     CATEGORIA_FALTANTE,
     PoliticaDePreparacion,
+    es_faltante_en_una_numerica,
     nombre_de_indicador,
     transformar_fila,
 )
@@ -249,4 +250,9 @@ def _derivada_de_dias(politica: PoliticaDePreparacion, propuesta: Any) -> Any:
 
 
 def _es_faltante_crudo(valor: Any) -> bool:
-    return valor is None or (isinstance(valor, str) and valor.strip() == "")
+    """¿Es FALTANTE este valor crudo de una FECHA? LA MISMA regla que en una numérica (`es_faltante_en_una_numerica`:
+    vacío, `None`, NaN y los textos de faltante «NA», «#N/A»…), no otra: la preparación los leyó como faltante al
+    entrenar y lo declaró (hallazgo 11, I4), y `transformar_fila` les da el mismo hueco que a una celda vacía. Con solo
+    «vacío», Probar fila decía ««NA» no se pudo leer como fecha» y el lote marcaba `fecha_ilegible` lo que la
+    preparación había declarado faltante (re-auditoría del hallazgo 11, I1)."""
+    return es_faltante_en_una_numerica(valor)

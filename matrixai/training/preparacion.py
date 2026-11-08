@@ -131,7 +131,8 @@ def _es_faltante(valor: Any) -> bool:
 def es_faltante_en_una_numerica(valor: Any) -> bool:
     """¿Es FALTANTE este valor en una columna NUMÉRICA de la política? Lo vacío, `None`, el NaN y los textos de faltante
     («NA», «?», «#N/A»…, hallazgo 11). Es lo que lee `transformar_fila`, y quien replique sus valores (el Studio, 129-C4)
-    importa ESTA función: con `_es_faltante` solo, el indicador salía 0 con «NA» (auditoría del hallazgo 11, M3)."""
+    importa ESTA función: con `_es_faltante` solo, el indicador salía 0 con «NA» (auditoría del hallazgo 11, M3). Y «lo
+    visto» de una FECHA la usa también (`lo_visto._es_faltante_crudo`): allí la preparación lee los mismos textos."""
     return _es_faltante(valor) or es_texto_de_faltante(valor)
 
 
@@ -146,14 +147,17 @@ def _presentes_de_la_columna(valores: Sequence[Any]) -> tuple[list[Any], bool, f
     return presentes, bool(presentes) and all(_es_numerica(v) for v in presentes), frozenset()
 
 
-def limite_de_textos_leidos_como_faltante(columna: str, por_texto: Mapping[str, int]) -> Limite:
+def limite_de_textos_leidos_como_faltante(columna: str, por_texto: Mapping[str, int], *,
+                                         en_una_fecha: bool = False) -> Limite:
     """LA declaración de los textos leídos como faltante de UNA columna (`por_texto`: `{texto: celdas}`, de
     `recuento_por_texto`), con su frase en los dos idiomas. La usan `ajustar_preparacion` y el estudio del Studio, que tipa
-    ANTES de ajustar (y entonces aquí ya llegan `None`): un solo sitio para la frase."""
+    ANTES de ajustar (y entonces aquí ya llegan `None`): un solo sitio para la frase. `en_una_fecha`: la columna es una
+    FECHA y la frase lo dice (re-auditoría del hallazgo 11, M1: decía «es numérica»); la clave es la misma."""
     celdas = sum(por_texto.values())
     textos = ", ".join(f"«{t}»" if len(por_texto) == 1 else f"«{t}» ({n})" for t, n in por_texto.items())
+    frase = "textos_leidos_como_faltante_en_una_fecha" if en_una_fecha else "textos_leidos_como_faltante"
     return Limite(clave="textos_leidos_como_faltante", campo=columna,
-                  motivo=motivo("textos_leidos_como_faltante", campo=columna, celdas=celdas, textos=textos),
+                  motivo=motivo(frase, campo=columna, celdas=celdas, textos=textos),
                   medida={"textos": list(por_texto), "celdas": celdas, "por_texto": dict(por_texto)})
 
 
@@ -470,7 +474,7 @@ def ajustar_preparacion(filas: Sequence[Mapping[str, Any]], *, objetivo: str,
             proporcion_faltante = (len(valores) - len(presentes)) / n if n else 0.0
             por_texto = recuento_por_texto(valores, {v for v in valores if es_texto_de_faltante(v) and v.strip() != ""})
             if por_texto:
-                limites.append(limite_de_textos_leidos_como_faltante(columna, por_texto))
+                limites.append(limite_de_textos_leidos_como_faltante(columna, por_texto, en_una_fecha=True))
             propuestas.append(PropuestaDeColumna(
                 columna=columna, tipo="fecha", admite_nativo=admite_faltantes,
                 proporcion_faltante=proporcion_faltante, formato_de_fecha=receta.formato))

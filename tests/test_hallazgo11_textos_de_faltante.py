@@ -197,8 +197,40 @@ def test_una_fecha_con_un_texto_de_faltante_sigue_siendo_fecha_en_el_analisis_y_
     assert p.proporcion_faltante == pytest.approx(30 / 150)
     (limite,) = [l for l in politica.limites if l.clave == "textos_leidos_como_faltante"]
     assert limite.campo == "f" and limite.medida["celdas"] == 30 and limite.medida["textos"] == [texto.strip()]
+    # Re-auditoría, M1: la frase de una FECHA dice que es una fecha (decía «f es numérica y 30 de sus celdas…»).
+    assert limite.motivo["es"].startswith("f es una fecha y 30 de sus celdas dicen ") and "numéric" not in limite.motivo["es"]
+    assert limite.motivo["en"].startswith("f is a date and 30 of its cells say ") and "numeric" not in limite.motivo["en"]
+    assert limite == limite_de_textos_leidos_como_faltante("f", limite.medida["por_texto"], en_una_fecha=True)
     fila = transformar_fila({"f": texto}, politica)
     assert fila == transformar_fila({"f": ""}, politica) and fila["f__anio__faltante"] == 1.0
+
+
+@pytest.mark.parametrize("texto", ["NA", "#N/A", " n/a ", ".", "?", "null"])
+def test_lo_visto_de_una_fecha_lee_el_texto_de_faltante_con_la_misma_regla_que_la_preparacion(texto):
+    """Re-auditoría del hallazgo 11, I1: la preparación lee «NA», «#N/A»… de una fecha como FALTANTE (y lo declara), pero
+    `comprobar_lo_visto` solo llamaba faltante a lo vacío: con «NA» marcaba `fecha_ilegible` y la fila salía «fuera de lo
+    visto» (Probar fila y el lote). Ahora la misma regla: un texto de faltante es lo que una celda vacía."""
+    entrenada = ajustar_preparacion(_fechas("NA"), objetivo="y", columnas=["f"], admite_categoricas=True,
+                                    admite_faltantes=True, con_fechas=True)
+    assert entrenada.columna("f").tipo == "fecha" and entrenada.columna("f").proporcion_faltante > 0
+    assert comprobar_lo_visto({"f": texto}, entrenada) == comprobar_lo_visto({"f": ""}, entrenada)
+    assert comprobar_lo_visto({"f": texto}, entrenada).dentro_de_lo_visto is True
+    # Si al entrenar la fecha nunca faltó, es un faltante NUNCA VISTO, como la celda vacía; no una fecha ilegible.
+    limpia = ajustar_preparacion([{"f": f"2024-{1 + i % 12:02d}-{1 + i % 28:02d}", "y": "ab"[i % 2]} for i in range(60)],
+                                 objetivo="y", columnas=["f"], admite_categoricas=True, admite_faltantes=True, con_fechas=True)
+    assert [m.tipo for m in comprobar_lo_visto({"f": texto}, limpia).marcas] == ["faltante_nunca_visto"]
+    # Lo que no es ni fecha ni faltante sigue ilegible.
+    assert [m.tipo for m in comprobar_lo_visto({"f": "abc"}, entrenada).marcas] == ["fecha_ilegible"]
+
+
+def test_la_declaracion_junta_NA_y_na_por_su_forma_normalizada():
+    """Re-auditoría, obs.: «NA» y «na» (de « na ») se declaraban como DOS textos. Son el mismo para la regla
+    (`es_texto_de_faltante` recorta y pasa a minúsculas): UNO, con la cuenta de los dos y el nombre de la forma más frecuente."""
+    filas = [{"x": v} for v in ["NA", " na ", "NA", "na", "NA", "1", "2", "#N/A", "#n/a", "3"]]
+    leidos: dict = {}
+    tipar_columnas_numericas(filas, ["x"], leidos_como_faltante=leidos)
+    assert leidos["x"] == {"textos": ["#N/A", "NA"], "celdas": 7, "por_texto": {"#N/A": 2, "NA": 5}}
+    assert "«#N/A» (2), «NA» (5)" in limite_de_textos_leidos_como_faltante("x", leidos["x"]["por_texto"]).motivo["es"]
 
 
 def test_una_columna_de_texto_que_no_es_fecha_con_NA_no_se_vuelve_fecha():

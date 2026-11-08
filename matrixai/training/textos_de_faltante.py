@@ -45,12 +45,17 @@ def textos_leidos_como_faltante(distintos: Iterable[Any], el_resto_es: Callable[
 
 
 def recuento_por_texto(valores: Iterable[Any], textos: Iterable[Any]) -> dict[str, int]:
-    """`{texto recortado: celdas}` de los `textos` leídos como faltante, sin repetir: «NA», « NA» y «NA » son UN texto, «NA»,
-    con tres celdas (auditoría del hallazgo 11, M1: se declaraban `['NA', 'NA', 'NA']`). Ordenado por el texto."""
+    """`{texto: celdas}` de los `textos` leídos como faltante, sin repetir: «NA», « NA» y «NA » son UN texto, «NA»,
+    con tres celdas (auditoría del hallazgo 11, M1: se declaraban `['NA', 'NA', 'NA']`). Y por su forma NORMALIZADA, la
+    misma con la que `es_texto_de_faltante` los reconoce (recortada y en minúsculas): «NA» y «na» son UN texto con la
+    cuenta de los dos (re-auditoría del hallazgo 11, obs.: se declaraban como dos). Se nombra con la forma más frecuente
+    tal como venía (recortada; a igualdad, la primera por orden). Ordenado por ese nombre."""
     leidos = set(textos)
-    cuenta: dict[str, int] = {}
+    formas: dict[str, dict[str, int]] = {}
     for v in valores:
         if v in leidos:
             t = str(v).strip()
-            cuenta[t] = cuenta.get(t, 0) + 1
+            de_esta = formas.setdefault(t.lower(), {})
+            de_esta[t] = de_esta.get(t, 0) + 1
+    cuenta = {min(f, key=lambda t: (-f[t], t)): sum(f.values()) for f in formas.values()}
     return dict(sorted(cuenta.items()))

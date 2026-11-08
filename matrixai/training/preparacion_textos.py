@@ -45,6 +45,13 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "{campo} is numeric and {celdas} of its cells say {textos}: they are read as missing values "
               "(not as categories), with the same imputation and indicator as an empty cell",
     },
+    # Re-auditoría del hallazgo 11 (M1): en una FECHA la frase de arriba decía «es numérica». La suya, aquí.
+    "textos_leidos_como_faltante_en_una_fecha": {
+        "es": "{campo} es una fecha y {celdas} de sus celdas dicen {textos}: se leen como valores faltantes "
+              "(no como fechas ilegibles ni como categorías), igual que una celda vacía",
+        "en": "{campo} is a date and {celdas} of its cells say {textos}: they are read as missing values "
+              "(not as unreadable dates or as categories), the same as an empty cell",
+    },
     "pocas_filas_para_preparacion": {
         "es": "el train efectivo tiene {valor} filas: no es motivo para "
               "bloquear la recomendación por sí solo, pero las estadísticas "
