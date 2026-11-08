@@ -228,11 +228,11 @@ TIPOS: dict[str, tuple] = {
     "columna_unica_con_separadores": (
         lambda d: (f"La hoja tiene UNA sola columna y casi todas sus celdas llevan {d['detalle'].get('campos')} campos separados por "
                    f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[0]}: parece un CSV pegado entero en la columna A, no una tabla. "
-                   "No se ha partido. Sube el fichero CSV original o, en Excel, usa «Datos > Texto en columnas» "
+                   "Todavía no se ha partido: puedes partirlo aquí, viendo antes cómo queda, subir el fichero CSV original o, en Excel, usar «Datos > Texto en columnas» "
                    f"({_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[0]}) y guarda el libro de nuevo."),
         lambda d: (f"The sheet has a SINGLE column and almost every cell holds {d['detalle'].get('campos')} fields separated by "
                    f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[1]}: it looks like a whole CSV pasted into column A, not a table. "
-                   "It was not split. Upload the original CSV file or, in Excel, use «Data > Text to Columns» "
+                   "It has not been split yet: you can split it here, seeing first how it looks, upload the original CSV file or, in Excel, use “Data > Text to Columns” "
                    f"({_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[1]}) and save the workbook again.")),
     # 150-C7 (decidido por Roberto): la hoja era un CSV pegado en la columna A y la persona ACEPTÓ partirla, tras ver cómo quedaba.
     "columna_unica_partida": (
@@ -241,7 +241,7 @@ TIPOS: dict[str, tuple] = {
                    f"con un lector CSV (comillas y separadores entre comillas respetados): {d['detalle'].get('campos')} columnas, "
                    f"{_p(d['cuantas'], '1 fila', '{n} filas')} (cabecera incluida)."),
         lambda d: (f"The sheet was a SINGLE column holding a pasted CSV; the person accepted splitting it by "
-                   f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[1]} (split by «{_CARACTER.get(d['detalle'].get('separador'), '?')}» from a single column) "
+                   f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[1]} (split by “{_CARACTER.get(d['detalle'].get('separador'), '?')}” from a single column) "
                    f"with a CSV reader (quotes and quoted separators respected): {d['detalle'].get('campos')} columns, "
                    f"{_p(d['cuantas'], '1 row', '{n} rows')} (header included).")),
     "hoja_sin_datos": (

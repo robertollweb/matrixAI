@@ -309,7 +309,7 @@ def test_partir_c7_se_declara_en_los_dos_idiomas_y_el_origen_ata_el_csv_partido(
     d = [x for x in r.origen["declaraciones"] if x["tipo"] == "columna_unica_partida"]
     assert len(d) == 1 and d[0]["detalle"]["separador"] == "coma"
     assert d[0]["detalle"]["campos"] == FICHAS[nombre]["forma_que_la_persona_espera"]["columnas"]
-    assert "partido por «,» desde una columna" in d[0]["texto"]["es"] and "split by «,» from a single column" in d[0]["texto"]["en"]
+    assert "partido por «,» desde una columna" in d[0]["texto"]["es"] and "split by “,” from a single column" in d[0]["texto"]["en"]
     assert "partido" not in d[0]["texto"]["en"] and "split" not in d[0]["texto"]["es"]
     assert r.origen["sha256_del_csv"] == hashlib.sha256(r.csv_bytes).hexdigest()
 
@@ -366,3 +366,12 @@ def test_partir_c7_el_ejemplo_de_roberto_con_otro_separador_no_cambia_el_aviso_d
     assert inspect.getsource(api._vista_de_la_partida).count("_partir_filas(") == 1
     assert inspect.getsource(api.convertir).count("_partir_filas(") == 1
     assert "split(" not in inspect.getsource(api._partir_filas)
+
+
+def test_el_aviso_del_csv_pegado_ofrece_partirlo_y_no_dice_que_no_se_puede():
+    """08-11 (conducción del C7): el aviso decía «No se ha partido. Sube el CSV…» cuando la vista previa ya ofrece partirlo ahí mismo."""
+    from matrixai.tablas.declaraciones import declarar
+    d = declarar("columna_unica_con_separadores", campos=4, separador=",")
+    es, en = d["texto"]["es"], d["texto"]["en"]
+    assert "puedes partirlo aquí" in es and "No se ha partido." not in es
+    assert "you can split it here" in en and "«" not in en and "»" not in en
