@@ -165,63 +165,76 @@ MOTIVOS: dict[str, dict[str, str]] = {
     # Dos redacciones (remate del C1-bis): la mediana puede quedarse en la tolerancia con una parte de las filas moviéndose
     # CLARAMENTE (una columna que solo pesa en un subgrupo), y entonces el motivo dice cuántas, no «no distingue» a secas.
     "amplitud_no_distingue": {
-        "es": "la curva típica de una fila (la mediana) se mueve {amplitud} entre su valor más bajo y el más alto, y "
+        "es": "La curva típica de una fila (la mediana) se mueve {amplitud} entre su valor más bajo y el más alto, y "
               "eso no supera la tolerancia ({tolerancia}): ninguna de las filas comprobadas ({filas}) mueve la "
-              "salida más que la tolerancia, así que la prueba no distingue una dirección de la contraria, y "
-              "«sin contraejemplos» aquí no diría nada",
-        "en": "the typical curve of a row (the median) moves {amplitud} between its lowest and its highest value, "
+              "salida más que la tolerancia. La prueba no distingue una dirección de la contraria, y un «sin "
+              "contraejemplos» no probaría nada aquí.",
+        "en": "The typical curve of a row (the median) moves {amplitud} between its lowest and its highest value, "
               "and that does not exceed the tolerance ({tolerancia}): none of the rows checked ({filas}) moves "
-              "the output by more than the tolerance, so the check cannot tell one direction from the opposite, "
-              "and \"no counterexamples\" would say nothing here",
+              "the output by more than the tolerance. The check cannot tell one direction from the opposite, "
+              "and a \"no counterexamples\" would mean nothing here.",
     },
     "amplitud_no_distingue_con_filas_que_se_mueven": {
-        "es": "la curva típica de una fila (la mediana) se mueve {amplitud} entre su valor más bajo y el más alto, y "
+        "es": "La curva típica de una fila (la mediana) se mueve {amplitud} entre su valor más bajo y el más alto, y "
               "eso no supera la tolerancia ({tolerancia}): en al menos la mitad de las filas la columna no mueve "
               "la salida más que la tolerancia. Hay filas que sí la mueven más ({mueven} de {filas}), pero no son "
-              "la mayoría, y sin una mayoría de filas que se muevan «sin contraejemplos» aquí no diría nada",
-        "en": "the typical curve of a row (the median) moves {amplitud} between its lowest and its highest value, "
+              "la mayoría. Sin una mayoría de filas que se muevan, un «sin contraejemplos» no probaría nada aquí.",
+        "en": "The typical curve of a row (the median) moves {amplitud} between its lowest and its highest value, "
               "and that does not exceed the tolerance ({tolerancia}): in at least half of the rows the column does "
               "not move the output by more than the tolerance. Some rows do move it by more ({mueven} of "
-              "{filas}), but they are not the majority, and without a majority of rows that move, \"no "
-              "counterexamples\" would say nothing here",
+              "{filas}), but they are not the majority. Without a majority of rows that move, a \"no "
+              "counterexamples\" would mean nothing here.",
+    },
+    # ---- dentro del recibo del estudio (149-C7): por qué una monotonía declarada no figura comprobada ----------------------------
+    "tope_de_tiempo_del_recibo": {
+        "es": "El cálculo agotó el tope de tiempo de {segundos} s que tiene dentro del estudio y esta columna no llegó a comprobarse. "
+              "Puedes pedir la comprobación completa, sin ese tope, desde Resultados.",
+        "en": "The calculation used up the {segundos} s time cap it has inside the study and this column was not checked. "
+              "You can ask for the full check, without that cap, from Results.",
+    },
+    "fallo_en_el_recibo": {
+        "es": "El cálculo de esta comprobación falló dentro del estudio y no hay resultado para esta columna. "
+              "Puedes volver a pedirla desde Resultados.",
+        "en": "The calculation of this check did not complete inside the study and there is no result for this column. "
+              "You can ask for it again from Results.",
     },
     "sin_prediccion": {
-        "es": "el modelo no dio predicción en ninguna de las {filas} filas de esta columna",
-        "en": "the model gave no prediction on any of the {filas} rows of this column",
+        "es": "El modelo no dio predicción en ninguna de las {filas} filas de esta columna.",
+        "en": "The model gave no prediction on any of the {filas} rows of this column.",
     },
     "sin_filas": {
-        "es": "no hay filas sobre las que comprobar esta columna",
-        "en": "there are no rows to check this column on",
+        "es": "No hay filas sobre las que comprobar esta columna.",
+        "en": "There are no rows to check this column on.",
     },
     "rejilla_sin_rango": {
-        "es": "de esta columna no se vio un rango (mínimo y máximo distintos) y no hay una rejilla que recorrer",
-        "en": "no range (distinct minimum and maximum) was seen for this column, so there is no grid to walk",
+        "es": "De esta columna no se vio un rango (mínimo y máximo distintos) y no hay una rejilla que recorrer.",
+        "en": "No range (distinct minimum and maximum) was seen for this column, so there is no grid to walk.",
     },
     "escala_de_regresion_no_valida": {
-        "es": "la amplitud p90−p10 del objetivo de entrenamiento es {valor}: sin una escala positiva no "
-              "hay tolerancia en unidades del objetivo",
-        "en": "the p90−p10 spread of the training target is {valor}: without a positive scale there is "
-              "no tolerance in units of the target",
+        "es": "La amplitud p90−p10 del objetivo de entrenamiento es {valor}: sin una escala positiva no "
+              "hay tolerancia en unidades del objetivo.",
+        "en": "The p90−p10 spread of the training target is {valor}: without a positive scale there is "
+              "no tolerance in units of the target.",
     },
     "recalibracion_no_conserva_el_orden": {
-        "es": "la recalibración del estudio tiene pendiente b = {valor}, que no es positiva: la "
+        "es": "La recalibración del estudio tiene pendiente b = {valor}, que no es positiva: la "
               "probabilidad que ve la persona no conserva el orden de la puntuación, y comprobar "
-              "la monotonía sobre ella no tendría sentido",
-        "en": "the study's recalibration has slope b = {valor}, which is not positive: the probability "
+              "la monotonía sobre ella no tendría sentido.",
+        "en": "The study's recalibration has slope b = {valor}, which is not positive: the probability "
               "the person sees does not keep the order of the score, and checking monotonicity on it "
-              "would make no sense",
+              "would make no sense.",
     },
     "multiclase_sin_clase_declarada": {
-        "es": "en multiclase la monotonía solo se comprueba para una clase declarada (al subir la "
-              "columna, sube la probabilidad de esa clase): la probabilidad máxima no vale",
-        "en": "in multiclass, monotonicity is only checked for a declared class (as the column goes up, "
-              "the probability of that class goes up): the maximum probability will not do",
+        "es": "En multiclase la monotonía solo se comprueba para una clase declarada (al subir la "
+              "columna, sube la probabilidad de esa clase): la probabilidad máxima no vale.",
+        "en": "In multiclass, monotonicity is only checked for a declared class (as the column goes up, "
+              "the probability of that class goes up): the maximum probability will not do.",
     },
     "salida_no_numerica": {
-        "es": "el modelo devolvió una salida que no es un único número por fila: la monotonía se "
-              "comprueba sobre una sola salida (una probabilidad o un valor)",
-        "en": "the model returned an output that is not a single number per row: monotonicity is "
-              "checked on a single output (a probability or a value)",
+        "es": "El modelo devolvió una salida que no es un único número por fila: la monotonía se "
+              "comprueba sobre una sola salida (una probabilidad o un valor).",
+        "en": "The model returned an output that is not a single number per row: monotonicity is "
+              "checked on a single output (a probability or a value).",
     },
     # ---- avisos y escalas ---------------------------------------------------------------------
     "filas_sin_prediccion": {

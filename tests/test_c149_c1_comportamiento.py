@@ -796,7 +796,8 @@ def test_una_clave_que_no_esta_en_el_catalogo_revienta():
 
 def test_cada_clave_del_catalogo_se_usa():
     """Una frase que nadie dice no se traduce ni se barre: o se usa o sobra."""
-    fuente = inspect.getsource(modulo)
+    from matrixai.estudio import comportamiento_en_el_recibo as en_el_recibo       # 149-C7: dos de las frases las dice este módulo
+    fuente = inspect.getsource(modulo) + inspect.getsource(en_el_recibo)
     usadas = {c for c in MOTIVOS if f'"{c}"' in fuente} | set(CLAVES_DE_VEREDICTO.values()) | {"direccion_sube", "direccion_baja", CLAVE_DE_LOS_LIMITES}
     assert set(MOTIVOS) - usadas == set(), set(MOTIVOS) - usadas
 
