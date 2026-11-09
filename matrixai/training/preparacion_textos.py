@@ -52,6 +52,14 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "{campo} is a date and {celdas} of its cells say {textos}: they are read as missing values "
               "(not as unreadable dates or as categories), the same as an empty cell",
     },
+    # Hallazgo 11, M3 (decisión A de Roberto, 09-11): en el OBJETIVO de una regresión esos textos dicen que la fila no trae
+    # objetivo. No se imputan (un objetivo nunca se inventa): la fila se queda fuera, y la frase dice cuáles y cuántas.
+    "textos_del_objetivo_sin_dato": {
+        "es": "{campo} es el objetivo, numérico, y {celdas} de sus celdas dicen {textos}: son filas sin objetivo y se "
+              "quedan fuera del estudio (ni se entrena ni se mide con ellas), igual que una celda vacía",
+        "en": "{campo} is the target, numeric, and {celdas} of its cells say {textos}: they are rows without a target and "
+              "are left out of the study (nothing is trained or measured on them), the same as an empty cell",
+    },
     "pocas_filas_para_preparacion": {
         "es": "el train efectivo tiene {valor} filas: no es motivo para "
               "bloquear la recomendación por sí solo, pero las estadísticas "

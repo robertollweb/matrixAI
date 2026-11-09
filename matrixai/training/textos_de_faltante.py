@@ -29,6 +29,26 @@ def es_texto_de_faltante(valor: Any) -> bool:
     return texto in TEXTOS_DE_FALTANTE and texto != "nan"
 
 
+def sin_dato_en_un_objetivo_numerico(valor: Any) -> bool:
+    """¿Esta celda del OBJETIVO de una REGRESIÓN dice «aquí no había dato»? Entonces la fila es una fila SIN objetivo: se quita
+    del estudio (y del CSV preparado) y se DECLARA, nunca se rellena ni se rechaza el CSV por ella (hallazgo 11, M3; decisión A
+    de Roberto, 09-11, tarjeta `h11-objetivo-con-na-de-excel`). Vacía, `None`, NaN, o cualquier texto de LA lista
+    (`TEXTOS_DE_FALTANTE`: «NA», «#N/A», «-», «.», « na »…, sin mayúsculas ni espacios), «nan» incluido: en una predictora
+    «nan» llega al modelo como NaN, pero un objetivo sin número no tiene nada que medir.
+
+    Solo para un objetivo NUMÉRICO: en una clasificación «NA» puede ser una clase (Norteamérica) y en un texto, un valor; ahí
+    sigue mandando el criterio de siempre (`dataset_analysis._is_null`). Antes de esto, «NA» se quitaba (era de la lista
+    general) y «#N/A» de Excel paraba el estudio entero con «no es un número»: eran dos reglas para la misma celda."""
+    if valor is None:
+        return True
+    if isinstance(valor, float):
+        return valor != valor  # NaN
+    if not isinstance(valor, str):
+        return False
+    texto = valor.strip().lower()
+    return texto == "" or texto in TEXTOS_DE_FALTANTE
+
+
 def textos_leidos_como_faltante(distintos: Iterable[Any], el_resto_es: Callable[[list[Any]], bool]) -> frozenset[Any]:
     """LA REGLA, en un solo sitio (reparación del hallazgo 11): de los valores DISTINTOS de una columna (sin los vacíos), los
     que son texto de faltante —y se leerán como faltante—, SOLO si quitados queda algo y ese resto `el_resto_es` (numérico,

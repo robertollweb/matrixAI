@@ -140,7 +140,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from matrixai.training.textos_de_faltante import es_texto_de_faltante
+from matrixai.training.textos_de_faltante import es_texto_de_faltante, sin_dato_en_un_objetivo_numerico
 from matrixai.training.dataset_analysis import (
     _BOOL_FALSE,
     _BOOL_TRUE,
@@ -451,8 +451,20 @@ def generate_project_from_dataset(
     # overrides (para recalcular rango si el usuario corrige el tipo a
     # number/integer, hallazgo 3) — antes se leía más abajo, solo para
     # target/features; movido aquí, un único `_read_rows`, reutilizado en
-    # todo el resto de la función (nunca se reasigna, es de solo lectura).
+    # todo el resto de la función (de solo lectura: solo se reasigna aquí
+    # mismo, una vez, para leer el objetivo numérico con su regla).
     rows = _read_rows(csv_text)
+    # HALLAZGO 11, M3 (decisión A de Roberto, 09-11): en un objetivo NUMÉRICO
+    # —el que hace de esto una regresión, con su tipo final— «#N/A», «.»,
+    # « na »… son filas SIN objetivo, como ya lo eran «NA» o la vacía. Aquí, una
+    # vez y antes de nada, para que TODO lo de abajo (partición de los rangos,
+    # política de faltantes, CSV preparado, `rows_dropped_null_target`) vea la
+    # misma fila sin objetivo. Sin esto el CSV preparado llevaba «#N/A» de
+    # objetivo y la validación lo rechazaba («must be numeric, got '#N/A'»).
+    tipo_del_objetivo = (column_type_overrides or {}).get(
+        target_column, (schema_inferred.get(target_column) or {}).get("type"))
+    if tipo_del_objetivo in _REGRESSION_TARGET_TYPES:
+        rows = _objetivo_numerico_sin_textos_de_faltante(rows, target_column, tokens_de_ausencia)
 
     columns: dict[str, dict[str, Any]] = {
         col: dict(info) for col, info in schema_inferred.items()
@@ -2035,6 +2047,13 @@ def prepare_dataset_from_provenance(
     present = set(rows[0].keys())
     feature_columns = list(spec["feature_columns"])
     target_column = spec["target_column"]
+    # Hallazgo 11, M3: el objetivo numérico se lee con la MISMA regla que al
+    # generar (`generate_project_from_dataset`), o re-preparar el mismo CSV
+    # escribiría las filas «#N/A» que el entrenamiento no tuvo.
+    if spec.get("task") == "regression":
+        rows = _objetivo_numerico_sin_textos_de_faltante(
+            rows, target_column,
+            set(spec["tokens_de_ausencia"]) if "tokens_de_ausencia" in spec else None)
 
     # Política de compatibilidad del contrato.
     missing = [c for c in feature_columns if c not in present]
@@ -2322,6 +2341,23 @@ def _distinct_non_null(rows: list[dict[str, str]], col: str,
             seen[v] = None
     return list(seen.keys())
 
+
+
+def _objetivo_numerico_sin_textos_de_faltante(
+    rows: list[dict[str, str]], target_column: str, tokens_de_ausencia: set[str] | None,
+) -> list[dict[str, str]]:
+    """Las filas con el objetivo NUMÉRICO leído con su regla (hallazgo 11, M3):
+    una celda que `sin_dato_en_un_objetivo_numerico` lee como «sin dato»
+    («#N/A», «.», « na »…) pasa a VACÍA, que es lo que todo este camino ya
+    trata como fila sin objetivo (`_tiene_objetivo`). Filas nuevas, no las
+    mismas tocadas. Con la ausencia DECLARADA (`tokens_de_ausencia`) manda la
+    declaración, como en el resto del camino: no se toca nada."""
+    if tokens_de_ausencia is not None:
+        return rows
+    return [({**row, target_column: ""}
+             if row.get(target_column) is not None
+             and sin_dato_en_un_objetivo_numerico(row.get(target_column)) else row)
+            for row in rows]
 
 
 def _tiene_objetivo(row: dict[str, str], target_column: str,

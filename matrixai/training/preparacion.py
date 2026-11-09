@@ -60,7 +60,7 @@ from matrixai.training.fechas import (RecetaDeFecha, detectar_fechas, expandir_f
                                      variables_de_fecha)
 from matrixai.training.diagnostico import Limite
 from matrixai.training.textos_de_faltante import (es_texto_de_faltante, recuento_por_texto,
-                                                  textos_leidos_como_faltante)
+                                                  sin_dato_en_un_objetivo_numerico, textos_leidos_como_faltante)
 from matrixai.training.preparacion_textos import motivo
 
 
@@ -158,6 +158,22 @@ def limite_de_textos_leidos_como_faltante(columna: str, por_texto: Mapping[str, 
     frase = "textos_leidos_como_faltante_en_una_fecha" if en_una_fecha else "textos_leidos_como_faltante"
     return Limite(clave="textos_leidos_como_faltante", campo=columna,
                   motivo=motivo(frase, campo=columna, celdas=celdas, textos=textos),
+                  medida={"textos": list(por_texto), "celdas": celdas, "por_texto": dict(por_texto)})
+
+
+def limite_de_textos_del_objetivo_sin_dato(objetivo: str, valores: Sequence[Any]) -> Limite | None:
+    """LA declaración de las filas que el OBJETIVO de una regresión trae sin dato ESCRITO («NA», «#N/A», «-», «.»…; la regla
+    es `sin_dato_en_un_objetivo_numerico`): cuántas y qué texto dice cada una, con su frase en los dos idiomas (hallazgo 11, M3;
+    decisión A de Roberto, 09-11). `valores`: las celdas CRUDAS del objetivo, antes de quitar nada. Las vacías no son un texto
+    y no se nombran aquí (las cuenta `filas_sin_objetivo`, como siempre). `None` si no hay ninguna: no hay nada que decir."""
+    textos = {v for v in valores if isinstance(v, str) and v.strip() != "" and sin_dato_en_un_objetivo_numerico(v)}
+    por_texto = recuento_por_texto(valores, textos)
+    if not por_texto:
+        return None
+    celdas = sum(por_texto.values())
+    lista = ", ".join(f"«{t}»" if len(por_texto) == 1 else f"«{t}» ({n})" for t, n in por_texto.items())
+    return Limite(clave="textos_del_objetivo_sin_dato", campo=objetivo,
+                  motivo=motivo("textos_del_objetivo_sin_dato", campo=objetivo, celdas=celdas, textos=lista),
                   medida={"textos": list(por_texto), "celdas": celdas, "por_texto": dict(por_texto)})
 
 
