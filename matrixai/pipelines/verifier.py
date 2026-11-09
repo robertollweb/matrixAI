@@ -131,7 +131,14 @@ def _ambiguedades(recibo: dict[str, Any]) -> list[str]:
         if not isinstance(paso, dict):
             problemas.append("hay un paso que no es un objeto")
             continue
-        pid = str(paso.get("id") or "")
+        # Hallazgo 12 (2026-11-09): los recibos `study_execution` (106-C2,
+        # `matrixai_engines.recibo_de_estudio`) identifican sus pasos con
+        # `nombre`, no con `id`. Este verificador solo leía `id` y daba
+        # ok=False con CUALQUIER recibo de estudio («paso sin id»), aunque
+        # `verificar_recibo` lo diera bueno. Los recibos ya emitidos y firmados
+        # llevan `nombre` y no se pueden reescribir: se lee `id` y, si no hay,
+        # `nombre`. Un paso sin ninguno de los dos sigue siendo un problema.
+        pid = str(paso.get("id") or paso.get("nombre") or "")
         if not pid:
             problemas.append("hay un paso sin id: no se puede hablar de él")
         elif pid in vistos:
