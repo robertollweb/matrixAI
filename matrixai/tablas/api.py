@@ -348,25 +348,56 @@ def _proponer_cabecera(h: _HojaLeida) -> int | None:
         # «Todas las edades» del INE) deja UNA sola celda con contenido entre la cabecera y los datos: no es un dato ni
         # cierra la búsqueda; se salta como las vacías. Sin esto la cabecera real se descartaba y se proponía el primer
         # dato (UK Home Office «Table 2b»: fila 6) o ninguna (INE población, «Table 4»).
-        siguiente, salto_de_una_celda = None, False
-        for f in h.filas[i + 1:i + 1 + _VACIAS_TRAS_CABECERA + 1]:
-            con_dato = sum(1 for v in f if not _vacia(v))
+        siguiente, salto_de_una_celda, k_sig = None, False, None
+        for k in range(i + 1, min(len(h.filas), i + 1 + _VACIAS_TRAS_CABECERA + 1)):
+            con_dato = sum(1 for v in h.filas[k] if not _vacia(v))
             if con_dato >= 2:
-                siguiente = f
+                siguiente, k_sig = h.filas[k], k
                 break
             salto_de_una_celda = salto_de_una_celda or con_dato == 1
         if siguiente is None:
             continue
-        # Auditoría del 150-C7 (I2): saltar una fila de UNA celda no puede convertir en cabecera lo que va ENCIMA de un título.
-        # Unos metadatos de dos textos («Empresa | ACME», «Fuente: INE | Unidad: personas»), luego un título de una celda y luego
-        # la cabecera de verdad: la «siguiente» tras el salto es esa cabecera, no un dato. Tras un salto, la candidata solo es
-        # cabecera si lo que viene detrás tiene MENOS textos que ella (datos, no otra cabecera): la banda del INE o de «Table
-        # 2b» va seguida de una etiqueta y números; una fila de datos de texto sobre una sección («Madrid | norte | 10», «SUR»,
-        # «Sevilla | sur | 9») tampoco es cabecera. Sin salto, la regla de siempre (lo que ya acertaba no cambia).
-        if salto_de_una_celda and _textos_distintos(siguiente) >= len(textos):
+        # Sin salto, la regla de siempre (lo que ya acertaba no cambia). Tras saltar una fila de UNA celda, ver
+        # `_lo_de_detras_del_salto_es_otra_cabecera`.
+        if salto_de_una_celda and _lo_de_detras_del_salto_es_otra_cabecera(h, len(textos), siguiente, k_sig):
             continue
         return h.fila0 + i
     return None
+
+
+def _es_un_nombre(v) -> bool:
+    """Un texto que podría ser un NOMBRE de columna: no vacío y que no es una marca de ausencia de las que el análisis lee como
+    vacío (`-`, `n/a`, `NA`…): una celda «-» en una fila de datos no la vuelve una fila de nombres."""
+    if not isinstance(v, str) or not v.strip():
+        return False
+    from matrixai.training.dataset_analysis import _NULL_TOKENS  # noqa: PLC0415 (las mismas marcas que el análisis)
+    return v.strip().lower() not in _NULL_TOKENS
+
+
+def _lo_de_detras_del_salto_es_otra_cabecera(h: _HojaLeida, textos_de_la_candidata: int, siguiente: list, k_sig: int) -> bool:
+    """¿La fila con datos que hay DETRÁS de una fila de una celda (un título, una banda) es la cabecera de verdad, y no los datos de
+    la candidata? Entonces la candidata no es la cabecera.
+
+    Re-auditoría del 150-C7 (I-R1). La regla del 1.er arreglo («lo de detrás tiene menos textos») fallaba por los dos lados:
+      * unos metadatos de TRES textos encima de un título y una cabecera de DOS («Empresa | ACME | T1 2024», «Ventas», «mes |
+        importe», «ene | 10»): lo de detrás tenía menos textos y se proponían los metadatos;
+      * una cabecera con su banda de 2.º nivel y datos que son TODO texto («nombre | ciudad | categoría», «Todas», «Ana | Madrid |
+        A»): lo de detrás tenía tantos textos y se proponía un dato.
+    La señal que separa los dos es la de los TIPOS, no la de contar textos:
+      1. Lo de detrás es TODO nombres y en la fila siguiente hay un número, una fecha o un booleano BAJO uno de esos nombres: es
+         una cabecera sobre sus datos (los metadatos y el título van encima). Un dato de texto no tiene un número debajo de él
+         en su misma columna porque sí; un nombre, sí.
+      2. Lo de detrás mezcla textos con datos tipados y tiene AL MENOS tantos textos como la candidata: la candidata es una fila de
+         datos de texto sobre una sección («Madrid | norte | 10», «SUR», «Sevilla | sur | 9»), no una cabecera.
+    En lo demás, la candidata es la cabecera: la banda del INE o de «Table 2b» va seguida de una etiqueta y números (pocos
+    textos), y una cabecera sobre datos todo texto lleva detrás más texto (sin nada tipado que la delate)."""
+    con_dato = [v for v in siguiente if not _vacia(v)]
+    if all(isinstance(v, str) for v in con_dato):
+        detras = next((f for f in h.filas[k_sig + 1:k_sig + 1 + _VACIAS_TRAS_CABECERA + 1]
+                       if sum(1 for v in f if not _vacia(v)) >= 2), [])
+        return any(j < len(siguiente) and _es_un_nombre(siguiente[j]) and not _vacia(v) and not isinstance(v, str)
+                   for j, v in enumerate(detras))
+    return _textos_distintos(siguiente) >= textos_de_la_candidata
 
 
 def _textos_distintos(fila: list) -> int:
@@ -549,6 +580,14 @@ def _banda_de_dos_niveles(h: _HojaLeida, cab: int) -> dict | None:
             # «Table 2b»), no un primer nivel.
             con_nombre = {h.col0 + j for j, v in enumerate(h.filas[i]) if not _vacia(v)}
             if len(grupos) == 1 and con_nombre <= set(range(grupos[0][0], grupos[0][1] + 1)):
+                continue
+            # Re-auditoría del 150-C7 (I-R2): un grupo que cubre la PRIMERA columna de la tabla (la de las etiquetas: provincia,
+            # región, grupo) no es un primer nivel: un primer nivel agrupa las columnas de DATOS que hay a la derecha de la
+            # etiqueta (INE IPC: «Índice» sobre los meses; «Table 2b»: «Number of detections» desde la 2.ª). Lo que empieza en
+            # la primera columna es un título («Ventas 2024» sobre A:C), unos metadatos («Empresa» A:B, «ACME» C:D; «Fecha: …»
+            # A:C, «Autor: …» D:F) o una sección bajo la cabecera («Zona norte» A:E): se avisaba de una cabecera de dos niveles
+            # que no lo es y se ofrecía componer «Ventas 2024 · region».
+            if any(c_ini <= h.col0 <= c_fin for c_ini, c_fin, _ in grupos):
                 continue
             return {"fila": fila, "posicion": posicion, "grupos": grupos}
     return None
@@ -999,8 +1038,13 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         # Se parte DESPUÉS de las comprobaciones de fórmulas y fechas (son de la columna A original). Las celdas partidas ya
         # no son celdas de Excel: sus hallazgos por columna (errores, %, columnas ocultas) no se miran; los de FILA, sí.
         sep = partir_columna_unica
+        # La primera línea del CSV pegado (la celda de su cabecera, tal cual): con ella se decide, como con un `.csv`, si es un CSV
+        # `;` al que se aplica la regla del decimal (re-auditoría del 150-C7, M-C: LA señal del C2, no «se ofreció por `;`»).
+        celda_de_la_cabecera = h.filas[fh - h.fila0][0] if h.filas[fh - h.fila0] else ""
+        texto_de_la_cabecera = celda_de_la_cabecera if isinstance(celda_de_la_cabecera, str) else valor_a_texto(celda_de_la_cabecera)[0]
         filas_partidas = _partir_filas(h, sep)
-        partida = {"separador": _CLAVE_DE[sep], "campos": max((len(f) for f in filas_partidas), default=0)}
+        partida = {"separador": _CLAVE_DE[sep], "campos": max((len(f) for f in filas_partidas), default=0),
+                   "primera_linea": (texto_de_la_cabecera.splitlines() or [""])[0]}
         anuladas = set()
         dias_cero = set()
         h = _HojaLeida(nombre=h.nombre, fila0=h.fila0, col0=h.col0, filas=filas_partidas, combinadas=[],
@@ -1273,6 +1317,13 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         if h.fila0 <= f <= fin:
             texto = next((_texto(v) for v in h.filas[f - h.fila0] if not _vacia(v)), "")
         filas_excluidas.append({"fila": f, "texto": texto})
+    if banda is not None and banda["posicion"] == "debajo" and banda["fila"] not in excluir:
+        # Re-auditoría del 150-C7 (M-B): al componer con la banda DEBAJO, su fila sale de los datos; quien lea `filas_excluidas` (el
+        # informe de «¿Funciona aquí?», el recibo) tiene que verla, con su MOTIVO (no la eligió la persona como fila a quitar: es
+        # parte de la cabecera compuesta). Las que eligió la persona siguen siendo `{fila, texto}`, como en el contrato.
+        filas_excluidas.append({"fila": banda["fila"], "motivo": "banda_de_dos_niveles",
+                                "texto": next((_texto(v) for v in h.filas[banda["fila"] - h.fila0] if not _vacia(v)), "")})
+        filas_excluidas.sort(key=lambda e: e["fila"])
     if excluir:
         declaraciones.append(declarar("filas_excluidas", cuantas=len(excluir), filas=excluir))
     if filas_vacias:
@@ -1294,10 +1345,15 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
     if partida is not None and partida["separador"] == "punto_y_coma":
         # Auditoría del 150-C7 (I1): un CSV `;` pegado y partido llega IGUAL que su `.csv`: el decimal coma (`18,72`) pasa a punto
         # con LA regla del C2 (`decimal_es`: por columna, todo o nada, y declarado), la misma que aplica `normalize_csv_text` a un
-        # `.csv` `;`. Aquí, y no en la entrada canónica: el CSV de una conversión pasa por ella tal cual (es su punto fijo).
-        # Con `,` o tabulador no se toca nada, como en el `.csv` (en inglés `1,234` son miles).
-        from matrixai.training.decimal_es import convertir_filas_de_un_csv_punto_y_coma  # noqa: PLC0415
-        declaraciones.extend(convertir_filas_de_un_csv_punto_y_coma([finales[j] for j in conserva], filas_csv))
+        # `.csv` `;`, recorrida por el MISMO código (`decimal_de_un_csv_punto_y_coma`) y con la MISMA señal (la primera línea sin
+        # `,` y con `;`; re-auditoría, M-C). Aquí, y no en la entrada canónica: el CSV de una conversión pasa por ella tal cual (es su
+        # punto fijo). Con `,` o tabulador no se toca nada, como en el `.csv` (en inglés `1,234` son miles).
+        from matrixai.training.decimal_es import (  # noqa: PLC0415
+            decimal_de_un_csv_punto_y_coma, es_la_cabecera_de_un_csv_punto_y_coma)
+        if es_la_cabecera_de_un_csv_punto_y_coma(partida["primera_linea"]):
+            convertidas, del_decimal = decimal_de_un_csv_punto_y_coma([finales[j] for j in conserva], lambda: filas_csv)
+            filas_csv = list(convertidas)
+            declaraciones.extend(del_decimal)
     csv_bytes = escribir_csv([finales[j] for j in conserva], filas_csv)
 
     primera_col, ultima_col = col0 + conserva[0], col0 + conserva[-1]

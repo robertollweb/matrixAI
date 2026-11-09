@@ -366,36 +366,27 @@ def normalize_csv_delimiter_declarando(csv_text: str) -> tuple[str, list[dict]]:
     """
     if not csv_text.strip():
         return csv_text, []
-    header_line = csv_text.splitlines()[0]
-    if "," in header_line or ";" not in header_line:
-        return csv_text, []
     from matrixai.training.decimal_es import (  # noqa: PLC0415
-        ClasificadorDeColumnas, convertir_celda_de_una_columna_decidida)
+        decimal_de_un_csv_punto_y_coma, es_la_cabecera_de_un_csv_punto_y_coma)
+    if not es_la_cabecera_de_un_csv_punto_y_coma(csv_text.splitlines()[0]):
+        return csv_text, []
     # Auditoría de las sugerencias (H-B): la reescritura lee de un StringIO,
     # NUNCA de `splitlines()` — partir en líneas ANTES de parsear rompe los
     # campos entrecomillados que contienen saltos de línea, y `csv.reader`
     # los re-unía SIN el salto ("linea1\nlinea2" → "linea1linea2": corrupción
     # silenciosa de datos). Con el stream intacto, el valor multilínea
     # sobrevive el round-trip entero (re-entrecomillado en la salida).
-    primera = csv.reader(io.StringIO(csv_text), delimiter=";")
-    cabecera = next(primera, [])
-    clasificador = ClasificadorDeColumnas(cabecera)
-    for fila in primera:
-        clasificador.ver(fila)
-    a_convertir = clasificador.a_convertir()
-    declaraciones = clasificador.declaraciones()
-    reader = csv.reader(io.StringIO(csv_text), delimiter=";")
+    cabecera = next(csv.reader(io.StringIO(csv_text), delimiter=";"), [])
+
+    def datos():   # las filas de datos, leídas otra vez del texto en cada pasada (no se guardan)
+        lector = csv.reader(io.StringIO(csv_text), delimiter=";")
+        next(lector, None)
+        return lector
+    filas, declaraciones = decimal_de_un_csv_punto_y_coma(cabecera, datos)
     out = io.StringIO()
     writer = csv.writer(out, delimiter=",", lineterminator="\n")
-    if not a_convertir:
-        writer.writerows(reader)
-        return out.getvalue(), declaraciones
-    writer.writerow(next(reader, []))
-    for fila in reader:
-        for i in a_convertir:
-            if i < len(fila):
-                fila[i] = convertir_celda_de_una_columna_decidida(fila[i])
-        writer.writerow(fila)
+    writer.writerow(cabecera)
+    writer.writerows(filas)
     return out.getvalue(), declaraciones
 
 

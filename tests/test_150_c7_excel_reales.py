@@ -17,6 +17,7 @@ arregle, la prueba pasa a ROJA y obliga a quitar la marca (no se queda tapado).
 from __future__ import annotations
 
 import csv
+import datetime as _dt
 import hashlib
 import io
 import json
@@ -501,13 +502,20 @@ def test_rep_c7_i1_partido_por_coma_o_tabulador_el_decimal_no_se_toca():
 
 
 def test_rep_c7_i1_la_regla_del_decimal_es_la_del_c2_no_una_segunda():
+    """La regla del decimal se RECORRE en un solo sitio (`decimal_es.decimal_de_un_csv_punto_y_coma`) y la llaman los dos caminos
+    (re-auditoría, M-C: `data.py` tenía su propio bucle y el partido otro). Ningún otro módulo del núcleo construye el clasificador
+    ni convierte celdas por su cuenta."""
     import inspect
     from matrixai.tablas import api
-    from matrixai.training import decimal_es
+    from matrixai.training import data, decimal_es
     fuente = inspect.getsource(api.convertir)
-    assert fuente.count("convertir_filas_de_un_csv_punto_y_coma(") == 1
-    assert "ClasificadorDeColumnas(" in inspect.getsource(decimal_es.convertir_filas_de_un_csv_punto_y_coma)
+    assert fuente.count("decimal_de_un_csv_punto_y_coma(") == 1
+    assert inspect.getsource(data.normalize_csv_delimiter_declarando).count("decimal_de_un_csv_punto_y_coma(") == 1
     assert "replace(\",\", \".\")" not in fuente and "_RE_D" not in fuente
+    raiz = pathlib.Path(decimal_es.__file__).parents[1]
+    quien = {str(f.relative_to(raiz)): f.read_text(encoding="utf-8").count(t) for f in raiz.rglob("*.py")
+             for t in ("ClasificadorDeColumnas(", "convertir_celda_de_una_columna_decidida(") if t in f.read_text(encoding="utf-8")}
+    assert set(quien) == {"training/decimal_es.py"}, quien
 
 
 def test_rep_c7_i1_un_csv_punto_y_coma_con_dos_columnas_de_decimal_coma_se_ofrece_partir_por_punto_y_coma():
@@ -720,6 +728,8 @@ def test_dos_niveles_a_una_banda_debajo_se_compone_y_deja_de_ser_un_dato_o_se_qu
     quitada = convertir(datos, "x.xlsx", fila_de_cabecera=1, filas_a_excluir=[2])
     assert [f[0] for f in csv.reader(io.StringIO(quitada.csv_text))][1:] == ["Robo", "Hurto", "Fraude"]
     assert quitada.origen["filas_excluidas"] == [{"fila": 2, "texto": "Number of detections"}]
+    # M-B (re-auditoría): al componer, la fila de la banda sale de los datos Y está en `filas_excluidas`, con su motivo
+    assert con.origen["filas_excluidas"] == [{"fila": 2, "motivo": "banda_de_dos_niveles", "texto": "Number of detections"}]
 
 
 def test_dos_niveles_a_solo_se_compone_lo_que_se_ofrece():
@@ -810,3 +820,168 @@ def test_pie_c_un_total_dentro_del_pie_sigue_siendo_un_total():
     from matrixai.tablas.api import _candidatas_a_total
     filas = [["a", "b", "c"]] + [[f"x{i}", i, i] for i in range(10)] + [["Notas: provisional"], ["Total"]]
     assert [(c["fila"], c["motivo"]) for c in _candidatas_a_total(_Hoja(filas), 2)] == [(12, "pie"), (13, "palabra")]
+
+
+# ═══ 2.ª reparación del 150-C7 (re-auditoría del 09-11: I-R1, I-R2, M-B, M-C) ═════════════════════════════════════════════
+# Informe y sondas en ~/.agentes/150/reauditoria-c7/; notas, medidas y sabotajes en ~/.agentes/150/reparacion2-c7/.
+
+# ── I-R1: la cabecera acierta por los DOS lados (lo de detrás del salto, por sus TIPOS) ───────────────────────────────────────
+_FORMAS_DE_CABECERA_2 = {
+    # las de la re-auditoría (`formas_cabecera.py`); F1 y F2 fallaban con la regla de «menos textos»
+    "F1_metadatos_3_textos_titulo_cabecera_de_2": ([["Empresa", "ACME", "T1 2024"], ["Ventas mensuales", _N, _N], ["mes", "importe", _N],
+                                                   ["ene", 10, _N], ["feb", 12, _N], ["mar", 9, _N]], 3),
+    "F2_cabecera_de_3_banda_y_datos_todo_texto": ([["nombre", "ciudad", "categoria"], ["Todas las categorías", _N, _N],
+                                                  ["Ana", "Madrid", "A"], ["Luis", "Bilbao", "B"], ["Eva", "Sevilla", "A"]], 1),
+    "F3_cabecera_de_2_banda_y_datos_mixtos": ([["provincia", "habitantes"], ["Ambos sexos", _N], ["Madrid", 100], ["Bilbao", 50],
+                                              ["Soria", 9]], 1),
+    "F4_metadatos_2_titulo_cabecera_de_5": ([["Fuente: SEPE", "Fecha: 2024-05"], ["Paro registrado", _N],
+                                            ["provincia", "sexo", "edad", "sector", "parados"], ["Madrid", "H", "<25", "servicios", 10],
+                                            ["Madrid", "M", "<25", "servicios", 12]], 3),
+    "F5_cabecera_de_4_vacia_banda_datos_de_3_textos": ([["pais", "region", "sexo", "valor"], [_N] * 4, ["Total", _N, _N, _N],
+                                                       ["ES", "Norte", "H", 1], ["ES", "Sur", "M", 2], ["FR", "Norte", "H", 3]], 1),
+    "F7_metadatos_2_titulo_cabecera_repetida": ([["Hospital", "Valdecilla", _N], ["Consultas", _N, _N], ["servicio", "servicio", "total"],
+                                                ["cardio", "c1", 10], ["neuro", "n1", 5]], 3),
+    # 4 formas NUEVAS de esta reparación (no estaban en ninguna prueba ni sonda); N1, N2 y N4 fallaban antes
+    "N1_metadatos_3_vacia_titulo_cabecera_de_2_con_fechas": ([["Hospital", "Valdecilla", "2024"], [_N] * 3, ["Consultas por servicio", _N, _N],
+                                                             ["fecha", "servicio", _N], [_dt.date(2024, 1, 1), "cardio", _N],
+                                                             [_dt.date(2024, 1, 2), "neuro", _N]], 4),
+    "N2_cabecera_de_3_banda_y_un_guion_de_ausencia_en_el_primer_dato": ([["ciudad", "zona", "habitantes"], ["Todas las zonas", _N, _N],
+                                                                        ["Madrid", "centro", "-"], ["Bilbao", "norte", 50],
+                                                                        ["Soria", "centro", 9]], 1),
+    "N3_metadatos_2_titulo_cabecera_de_4_con_el_numero_al_final": ([["Proyecto", "Alfa", _N, _N], ["Horas por persona", _N, _N, _N],
+                                                                   ["nombre", "equipo", "rol", "horas"], ["Ana", "A", "dev", 10],
+                                                                   ["Luis", "B", "qa", 12]], 3),
+    "N4_cabecera_de_2_banda_y_datos_todo_texto": ([["producto", "categoria"], ["Catálogo completo", _N], ["Tornillo", "ferretería"],
+                                                  ["Martillo", "herramienta"], ["Tuerca", "ferretería"]], 1),
+}
+
+
+@pytest.mark.parametrize("nombre", list(_FORMAS_DE_CABECERA_2))
+def test_rep2_c7_ir1_la_cabecera_propuesta_por_los_tipos_de_lo_que_hay_detras_del_salto(nombre):
+    """I-R1: tras saltar una fila de una celda, «lo de detrás tiene menos textos» fallaba por los dos lados (F1: metadatos de 3
+    textos sobre una cabecera de 2; F2: cabecera con banda y datos todo texto). Ahora decide el TIPO: lo de detrás es otra cabecera
+    si es todo nombres con un número o una fecha debajo de uno de ellos, o si mezcla tipos con al menos tantos textos."""
+    from matrixai.tablas.api import _proponer_cabecera
+    filas, correcta = _FORMAS_DE_CABECERA_2[nombre]
+    assert _proponer_cabecera(_Hoja(filas)) == correcta
+
+
+@pytest.mark.parametrize("nombre", ["F1_metadatos_3_textos_titulo_cabecera_de_2", "F2_cabecera_de_3_banda_y_datos_todo_texto",
+                                    "N1_metadatos_3_vacia_titulo_cabecera_de_2_con_fechas",
+                                    "N2_cabecera_de_3_banda_y_un_guion_de_ausencia_en_el_primer_dato",
+                                    "N4_cabecera_de_2_banda_y_datos_todo_texto"])
+def test_rep2_c7_ir1_y_por_inspeccionar_con_un_libro_de_verdad(nombre):
+    _requiere_calamine()
+    filas, correcta = _FORMAS_DE_CABECERA_2[nombre]
+    datos = _G.xlsx([_G.Hoja("H", [list(f) for f in filas])])
+    assert inspeccionar(datos, "x.xlsx")["hojas"][0]["fila_de_cabecera_propuesta"] == correcta
+
+
+def test_rep2_c7_ir1_una_marca_de_ausencia_no_cuenta_como_un_nombre():
+    """N2 sin la guarda de las marcas: «-» bajo «habitantes» en la 1.ª fila de datos haría de esa fila «todo nombres con un número
+    debajo» y se propondría como cabecera. Las marcas son las del análisis (`_NULL_TOKENS`), no una lista nueva."""
+    from matrixai.tablas.api import _es_un_nombre
+    for marca in ("-", "n/a", "NA", "null", "?", " nan "):
+        assert not _es_un_nombre(marca), marca
+    assert _es_un_nombre("habitantes") and not _es_un_nombre(10) and not _es_un_nombre("  ")
+
+
+# ── I-R2: un grupo que cubre la PRIMERA columna no es un primer nivel ─────────────────────────────────────────────────────────
+_BANDAS_2 = {
+    # SIN dos niveles (`bandas.py` de la re-auditoría): no se avisa ni se ofrece
+    "T1_titulo_combinado_sobre_parte": ([["Ventas 2024", _N, _N, _N, _N], ["region", "mes", "importe", "unidades", "iva"],
+                                         ["n", "ene", 1, 2, 3], ["s", "feb", 4, 5, 6], ["e", "mar", 7, 8, 9]], ("A1:C1",), None),
+    "T2_metadatos_combinados": ([["Empresa", _N, "ACME", _N, _N, _N], ["region", "mes", "importe", "unidades", "iva", "total"],
+                                 ["n", "ene", 1, 2, 3, 4], ["s", "feb", 4, 5, 6, 7], ["e", "mar", 7, 8, 9, 1]], ("A1:B1", "C1:D1"), None),
+    "T3_seccion_combinada_bajo_la_cabecera": ([["ciudad", "zona", "v", "w", "x", "y"], ["Zona norte", _N, _N, _N, _N, _N],
+                                               ["Bilbao", "n", 1, 2, 3, 4], ["Santander", "n", 5, 6, 7, 8], ["Oviedo", "n", 1, 1, 1, 1]],
+                                              ("A2:E2",), None),
+    "T5_fecha_y_autor_combinados": ([["Fecha: 2024-05-01", _N, _N, "Autor: Ana", _N, _N], ["a", "b", "c", "d", "e", "f"],
+                                     [1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6]], ("A1:C1", "D1:F1"), None),
+    # CON dos niveles: se sigue ofreciendo
+    "V2_banda_encima_desde_la_segunda_columna": ([[_N, "Ventas", _N, "Costes", _N], ["region", "ene", "feb", "ene", "feb"],
+                                                  ["n", 1, 2, 3, 4], ["s", 5, 6, 7, 8], ["e", 1, 1, 1, 1]], ("B1:C1", "D1:E1"),
+                                                 ("encima", "Ventas · ene")),
+    "titulo_parcial_encima_y_banda_de_verdad_debajo": ([["Delitos 2024", _N, _N, _N, _N], ["Grupo", "Total", "Cargos", "Avisos", "Otras"],
+                                                        ["", "Number of detections", _N, _N, _N], ["Robo", 5, 3, 1, 9],
+                                                        ["Hurto", 7, 4, 2, 8]], ("A1:C1", "B3:D3"),
+                                                       ("debajo", "Number of detections · Total")),
+}
+
+
+@pytest.mark.parametrize("nombre", list(_BANDAS_2))
+def test_rep2_c7_ir2_un_grupo_sobre_la_primera_columna_no_es_un_primer_nivel(nombre):
+    """I-R2: un título, unos metadatos o una sección combinados DESDE la primera columna se avisaban como «cabecera de dos niveles»
+    y se ofrecía componer «Ventas 2024 · region». Un primer nivel agrupa columnas de datos a la derecha de la etiqueta."""
+    _requiere_calamine()
+    filas, combinadas, esperada = _BANDAS_2[nombre]
+    h = inspeccionar(_G.xlsx([_G.Hoja("H", [list(f) for f in filas], combinadas=combinadas)]), "x.xlsx")["hojas"][0]
+    tipos = [a["tipo"] for a in h["avisos"]]
+    if esperada is None:
+        assert "cabecera_de_dos_niveles_ofrecida" not in h and "posible_cabecera_de_dos_niveles" not in tipos
+    else:
+        o = h["cabecera_de_dos_niveles_ofrecida"]
+        assert (o["posicion"], o["nombres_compuestos"][0]) == esperada and "posible_cabecera_de_dos_niveles" in tipos
+
+
+def test_rep2_c7_ir2_sin_oferta_componer_se_rechaza_en_convertir():
+    """La MISMA función decide la oferta y lo que `convertir` acepta: en T1 ya no hay nada que componer."""
+    _requiere_calamine()
+    filas, combinadas, _ = _BANDAS_2["T1_titulo_combinado_sobre_parte"]
+    with pytest.raises(TablaRechazada) as e:
+        convertir(_G.xlsx([_G.Hoja("H", [list(f) for f in filas], combinadas=combinadas)]), "x.xlsx", fila_de_cabecera=2,
+                  componer_cabecera_de_dos_niveles=True)
+    assert e.value.codigo == "parametro_invalido"
+
+
+# ── M-B: la banda de debajo, en `filas_excluidas` con su motivo ───────────────────────────────────────────────────────────────
+def test_rep2_c7_mb_la_banda_compuesta_esta_en_filas_excluidas_junto_a_las_que_elige_la_persona_sin_repetirse():
+    _requiere_calamine()
+    datos = _libro_banda_debajo()
+    con = convertir(datos, "x.xlsx", fila_de_cabecera=1, componer_cabecera_de_dos_niveles=True, filas_a_excluir=[5])
+    assert con.origen["filas_excluidas"] == [{"fila": 2, "motivo": "banda_de_dos_niveles", "texto": "Number of detections"},
+                                             {"fila": 5, "texto": "Fraude"}]
+    assert [f[0] for f in csv.reader(io.StringIO(con.csv_text))][1:] == ["Robo", "Hurto"]
+    # la que eligió la persona sigue declarada como suya («Se quitó 1 fila que elegiste»), la banda la declara lo compuesto
+    d = next(x for x in con.origen["declaraciones"] if x["tipo"] == "filas_excluidas")
+    assert d["cuantas"] == 1 and d["detalle"]["filas"] == [5]
+    # si la persona ADEMÁS marca la banda como fila a quitar, sale una vez (como suya)
+    doble = convertir(datos, "x.xlsx", fila_de_cabecera=1, componer_cabecera_de_dos_niveles=True, filas_a_excluir=[2])
+    assert doble.origen["filas_excluidas"] == [{"fila": 2, "texto": "Number of detections"}]
+    # con la banda ENCIMA no hay fila de datos que quitar: nada en `filas_excluidas`
+    assert convertir(_libro_banda_encima(), "x.xlsx", fila_de_cabecera=2,
+                     componer_cabecera_de_dos_niveles=True).origen["filas_excluidas"] == []
+
+
+# ── M-C: UNA señal y UN bucle para el decimal del CSV «;», por el `.csv` y por el partido ────────────────────────────────────
+_PARIDAD_PYC = {
+    **_CSV_PYC,
+    "cabecera_con_una_coma_en_un_nombre": ["nombre;importe, en euros;fecha"] + [f"x{i};{i},5;2024-01-{i % 28 + 1:02d}" for i in range(1, 12)],
+    "codigos_con_ceros": ["id;cod;v"] + [f"{i};0{i % 9},0{i % 7};{i}" for i in range(1, 12)],
+    "ingles_con_miles": ["item;price;qty"] + [f"a{i};{i},{i * 13 % 1000:03d}.50;{i}" for i in range(1, 12)],
+}
+
+
+@pytest.mark.parametrize("caso", list(_PARIDAD_PYC))
+def test_rep2_c7_mc_el_partido_y_el_csv_deciden_el_decimal_igual_con_la_misma_senal(caso):
+    """M-C: el `.csv` exigía la cabecera sin `,`; el partido, solo la oferta por `;`. Con `nombre;importe, en euros;fecha` el partido
+    convertía `1,5` y el `.csv` no. Ahora los dos usan `es_la_cabecera_de_un_csv_punto_y_coma` y `decimal_de_un_csv_punto_y_coma`:
+    las MISMAS declaraciones del decimal, y donde el `.csv` es un CSV «;», el mismo texto."""
+    _requiere_calamine()
+    from matrixai.training.decimal_es import es_la_cabecera_de_un_csv_punto_y_coma
+    lineas = _PARIDAD_PYC[caso]
+    texto = "\n".join(lineas) + "\n"
+    r = convertir(_libro_de_una_columna(lineas), "x.xlsx", fila_de_cabecera=1, partir_columna_unica=";")
+    canon, decl = normalize_csv_text_declarando(texto)
+    assert _decimales(r.origen["declaraciones"]) == _decimales(decl)
+    if es_la_cabecera_de_un_csv_punto_y_coma(lineas[0]):
+        assert r.csv_text == canon
+    else:
+        # el `.csv` no es un CSV «;» para la entrada canónica (sale tal cual); el partido se parte, pero su decimal queda como en él
+        assert canon == texto and _decimales(decl) == []
+        assert [f[1] for f in csv.reader(io.StringIO(r.csv_text))][1:3] == ["1,5", "2,5"]
+
+
+def test_rep2_c7_mc_la_senal_es_la_primera_linea_sin_comas_y_con_punto_y_coma():
+    from matrixai.training.decimal_es import es_la_cabecera_de_un_csv_punto_y_coma as es
+    assert es("a;b;c") and not es("a,b,c") and not es("a;b, c;d") and not es("abc") and not es("")

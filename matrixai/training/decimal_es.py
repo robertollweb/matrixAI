@@ -32,10 +32,11 @@ Cada declaración es `{tipo, columna, cuantas, detalle, texto: {es, en}}`, la mi
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
 __all__ = ["ClasificadorDeColumnas", "convertir_celda", "convertir_celda_de_una_columna_decidida",
-           "convertir_filas_de_un_csv_punto_y_coma", "TIPOS_DE_DECLARACION"]
+           "decimal_de_un_csv_punto_y_coma", "es_la_cabecera_de_un_csv_punto_y_coma", "TIPOS_DE_DECLARACION"]
 
 _ENTERO = r"(?:0|[1-9]\d*)"
 _CON_MILES = r"[1-9]\d{0,2}(?:\.\d{3})+"
@@ -224,20 +225,40 @@ class ClasificadorDeColumnas:
         return salida
 
 
-def convertir_filas_de_un_csv_punto_y_coma(cabecera: list[str], filas: list[list[str]]) -> list[dict[str, Any]]:
-    """LA regla (la misma de `normalize_csv_delimiter_declarando`) sobre las filas de DATOS ya leídas de un CSV `;`: decide con
-    `ClasificadorDeColumnas` mirando todas las filas, convierte EN SU SITIO las celdas de las columnas decididas y devuelve las
-    declaraciones. La usa `matrixai.tablas` al partir un CSV `;` pegado en una columna de Excel (auditoría del 150-C7, I1): sin
-    esto, el mismo CSV llegaba con el decimal convertido desde un `.csv` y como texto desde el libro."""
+def es_la_cabecera_de_un_csv_punto_y_coma(primera_linea: str) -> bool:
+    """LA SEÑAL de un CSV `;` (la de `normalize_csv_delimiter_declarando`): su primera línea, cruda y antes de leer nada, no
+    tiene ninguna `,` y tiene al menos un `;`. Solo con ella se aplica la regla del decimal.
+
+    Re-auditoría del 150-C7 (M-C): el CSV `;` pegado en una columna de Excel y partido (`matrixai.tablas`) usa ESTA señal sobre
+    la celda de su cabecera, no «se ofreció partirlo por `;`». Con `nombre;importe, en euros;fecha` el `.csv` no es un CSV `;`
+    para la entrada canónica (no se reescribe ni se toca el decimal); el partido, sí se parte (la persona lo vio y lo aceptó),
+    pero su decimal se deja como en el `.csv`: sin convertir. Una sola señal en los dos caminos: cambiar la del `.csv` no es
+    una opción barata, porque `verify` re-normaliza los paquetes ya firmados con ella."""
+    return "," not in primera_linea and ";" in primera_linea
+
+
+def decimal_de_un_csv_punto_y_coma(
+    cabecera: list[str], leer_filas: Callable[[], Iterable[list[str]]],
+) -> tuple[Iterator[list[str]], list[dict[str, Any]]]:
+    """LA REGLA, recorrida en UN sitio (re-auditoría del 150-C7, M-C): la usan `normalize_csv_delimiter_declarando` (un `.csv`)
+    y `matrixai.tablas` (un CSV `;` pegado en una columna de Excel y partido).
+
+    `leer_filas()` da las filas de DATOS (sin la cabecera) cada vez que se llama, y se llama DOS veces: la primera pasada decide
+    con `ClasificadorDeColumnas` mirando todas las filas (todo o nada, por columna); la segunda es el iterador que se devuelve,
+    con las celdas de las columnas decididas convertidas. Así quien lee un texto grande no guarda las filas (lo relee). Devuelve
+    `(filas convertidas, declaraciones)`; las declaraciones ya están completas antes de recorrer el iterador."""
     clasificador = ClasificadorDeColumnas(cabecera)
-    for fila in filas:
+    for fila in leer_filas():
         clasificador.ver(fila)
     a_convertir = clasificador.a_convertir()
-    for fila in filas:
-        for i in a_convertir:
-            if i < len(fila):
-                fila[i] = convertir_celda_de_una_columna_decidida(fila[i])
-    return clasificador.declaraciones()
+
+    def convertidas() -> Iterator[list[str]]:
+        for fila in leer_filas():
+            for i in a_convertir:
+                if i < len(fila):
+                    fila[i] = convertir_celda_de_una_columna_decidida(fila[i])
+            yield fila
+    return convertidas(), clasificador.declaraciones()
 
 
 def _declarar(tipo: str, columna: str, cuantas: int, detalle: dict[str, Any]) -> dict[str, Any]:
