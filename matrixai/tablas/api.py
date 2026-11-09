@@ -461,9 +461,35 @@ def _vista_de_la_partida(h: _HojaLeida, clave: str) -> dict:
     return {"separador": clave, "columnas": ancho, "columnas_mostradas": min(ancho, n), "primeras": filas}
 
 
+#: 150-C7 (decisión de Roberto, 09-11): lo que abre una NOTA AL PIE de una tabla de oficina («Notas:», «Fuente:», «1. …», «n/a …»,
+#: «- Indica …», «* …»). No es un total: se ofrece con su propio motivo, `pie`.
+_RE_PIE = re.compile(r"^(notas?|notes?|nota bene|fuentes?|sources?|elaboracion|footnotes?)\b|^\(?\d{1,2}[.)]\s|^n/a\b|^[-*\u2013\u2014]\s")
+
+
+def _filas_de_pie(h: _HojaLeida, inicio: int) -> set[int]:
+    """Las filas (índices) del PIE de la tabla: tras la última fila con ≥ 2 celdas, las de UNA celda de texto desde la primera que
+    abre una nota (`_RE_PIE`) — y las que la siguen, como el nombre del organismo bajo «Fuente:»."""
+    ultima_de_datos = max((i for i in range(inicio, len(h.filas)) if sum(1 for v in h.filas[i] if not _vacia(v)) >= 2),
+                          default=inicio - 1)
+    pie: set[int] = set()
+    abierto = False
+    for i in range(max(ultima_de_datos + 1, inicio), len(h.filas)):
+        con_dato = [v for v in h.filas[i] if not _vacia(v)]
+        if not con_dato:
+            continue
+        if len(con_dato) != 1 or not isinstance(con_dato[0], str):
+            abierto = False
+            continue
+        if _RE_PIE.match(_sin_tildes(con_dato[0]).strip().lower()):
+            abierto = True
+        if abierto:
+            pie.add(i)
+    return pie
+
+
 def _candidatas_a_total(h: _HojaLeida, desde: int) -> list[dict]:
-    """Filas que PARECEN un total: la palabra, o ser de las últimas con la mitad de celdas vacías.
-    Propone; la persona confirma."""
+    """Filas que PARECEN un total (`palabra`, o ser de las últimas con la mitad de celdas vacías: `mitad_vacia`) o una nota al pie
+    (`pie`: «Notas:», «Fuente:», el organismo debajo, «1. …»). Propone; la persona confirma: nada se quita solo."""
     candidatas: dict[int, str] = {}
     inicio = max(desde - h.fila0, 0)
     for i in range(inicio, len(h.filas)):
@@ -477,12 +503,79 @@ def _candidatas_a_total(h: _HojaLeida, desde: int) -> list[dict]:
             llenas = sum(1 for v in f if not _vacia(v))
             if 0 < llenas <= ancho / 2 and h.fila0 + i not in candidatas:
                 candidatas[h.fila0 + i] = "mitad_vacia"
+    for i in _filas_de_pie(h, inicio):
+        if candidatas.get(h.fila0 + i) != "palabra":
+            candidatas[h.fila0 + i] = "pie"
     resultado = []
     for fila in sorted(candidatas):
         celdas = h.filas[fila - h.fila0]
         primera = next((_texto(v) for v in celdas if not _vacia(v)), "")
         resultado.append({"fila": fila, "texto": primera, "motivo": candidatas[fila]})
     return resultado
+
+
+#: 150-C7 (decisión de Roberto, 09-11): cómo se componen los dos niveles de una cabecera con banda («Índice · 2025M12»).
+SEPARADOR_DE_NIVELES = " · "
+_NOMBRES_COMPUESTOS_PREVISTOS = 12
+
+
+def _banda_de_dos_niveles(h: _HojaLeida, cab: int) -> dict | None:
+    """150-C7 (decisión de Roberto, 09-11): ¿la fila de ENCIMA o de DEBAJO de la cabecera `cab` es una BANDA de primer nivel?
+
+    Lo es si cada celda con dato de esa fila es un TEXTO que abre un rango combinado HORIZONTAL de esa misma fila (≥ 2 columnas) y
+    tiene menos celdas con dato que la cabecera (INE IPC: «Índice» sobre los meses; Home Office «Table 2b»: «Number of detections»
+    bajo los nombres). -> `{fila, posicion: "encima"|"debajo", grupos: [(col_ini, col_fin, texto)]}` o `None`. Solo DICE; componer
+    o quitar la banda lo decide la persona en `convertir`."""
+    i = cab - h.fila0
+    if not 0 <= i < len(h.filas) or _textos_distintos(h.filas[i]) < 2:
+        return None
+    n_cab = sum(1 for v in h.filas[i] if not _vacia(v))
+    for posicion, fila in (("encima", cab - 1), ("debajo", cab + 1)):
+        k = fila - h.fila0
+        if not 0 <= k < len(h.filas):
+            continue
+        celdas = [(j, v) for j, v in enumerate(h.filas[k]) if not _vacia(v)]
+        if not celdas or len(celdas) >= n_cab:
+            continue
+        rangos = {c[1]: c for c in set(h.combinadas) if c[0] == fila and c[2] == fila and c[3] > c[1]}
+        grupos = []
+        for j, v in celdas:
+            c = rangos.get(h.col0 + j)
+            if not isinstance(v, str) or c is None:
+                break
+            grupos.append((c[1], c[3], _texto(v)))
+        else:
+            # Un rango que cubre TODAS las columnas con nombre no agrupa nada: es un título («England and Wales, …» encima de
+            # «Table 2b»), no un primer nivel.
+            con_nombre = {h.col0 + j for j, v in enumerate(h.filas[i]) if not _vacia(v)}
+            if len(grupos) == 1 and con_nombre <= set(range(grupos[0][0], grupos[0][1] + 1)):
+                continue
+            return {"fila": fila, "posicion": posicion, "grupos": grupos}
+    return None
+
+
+def _componer_con_la_banda(nombres: list[str], banda: dict, col0: int) -> dict[int, str]:
+    """Los nombres que se COMPONEN «nivel1 · nivel2» (índice de columna -> nombre): solo los de las columnas bajo un grupo de la
+    banda y con nombre propio. Una columna sin grupo encima, o sin nombre, se queda como está."""
+    compuestos: dict[int, str] = {}
+    for c_ini, c_fin, grupo in banda["grupos"]:
+        for c in range(c_ini, c_fin + 1):
+            j = c - col0
+            if 0 <= j < len(nombres) and nombres[j] and grupo:
+                compuestos[j] = f"{grupo}{SEPARADOR_DE_NIVELES}{nombres[j]}"
+    return compuestos
+
+
+def _vista_de_la_banda(h: _HojaLeida, cab: int, banda: dict) -> dict:
+    """Lo que se OFRECE (sin hacer nada): componer los nombres, con cómo quedarían los primeros; o, si la banda va DEBAJO de la
+    cabecera (entre los nombres y los datos), quitar esa fila."""
+    nombres = _nombres_propuestos(h, cab)
+    compuestos = _componer_con_la_banda(nombres, banda, h.col0)
+    primeros = [compuestos[j] for j in sorted(compuestos)][:_NOMBRES_COMPUESTOS_PREVISTOS]
+    return {"fila_de_cabecera": cab, "fila_de_la_banda": banda["fila"], "posicion": banda["posicion"],
+            "grupos": [g for _, _, g in banda["grupos"]][:_NOMBRES_COMPUESTOS_PREVISTOS],
+            "columnas_compuestas": len(compuestos), "nombres_compuestos": primeros,
+            "se_puede_quitar_la_banda": banda["posicion"] == "debajo"}
 
 
 def _vista(h: _HojaLeida, i: int) -> dict:
@@ -627,6 +720,14 @@ def _inspeccionar_hoja(libro: _Libro, meta: dict) -> dict:
                     isinstance(v, str) for v in no_vacias) and any(
                     c for c in h.combinadas if c[0] == cab and c[3] > c[1]):
                 avisos.append(declarar("posible_cabecera_de_dos_filas", fila=cab))
+        banda = _banda_de_dos_niveles(h, cab)
+        if banda is not None:
+            # Se OFRECE (componer o quitar la banda); nada se hace sin que la persona lo acepte en `convertir`.
+            ofrecida = _vista_de_la_banda(h, cab, banda)
+            if ofrecida["columnas_compuestas"]:
+                avisos.append(declarar("posible_cabecera_de_dos_niveles", fila=banda["fila"], posicion=banda["posicion"],
+                                       cabecera=cab, grupos=ofrecida["grupos"][:3]))
+                entrada["cabecera_de_dos_niveles_ofrecida"] = ofrecida
         _avisos_de_columnas(h, cab + 1, avisos)
     return entrada
 
@@ -789,6 +890,7 @@ def _combinadas_en_lo_convertido(h: _HojaLeida, fd: int, fin: int, excluir: list
 def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: int,
               filas_de_cabecera: int = 1, filas_a_excluir=(), rellenar_combinadas: bool = False,
               partir_columna_unica: str | None = None,
+              componer_cabecera_de_dos_niveles: bool = False,
               topes: Topes | None = None) -> TablaConvertida:
     """El CSV canónico de una hoja, con lo que la persona confirmó y el `origen` que lo declara.
 
@@ -797,7 +899,14 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
 
     `partir_columna_unica` (150-C7): `","`, `";"` o `"\\t"`. Solo lo manda quien ACEPTÓ la oferta que hace `inspeccionar` cuando la
     hoja es un CSV pegado en una columna; parte cada celda con un lector CSV y lo declara. `None` (lo normal): nada se parte.
+
+    `componer_cabecera_de_dos_niveles` (150-C7, decisión de Roberto del 09-11): solo lo manda quien ACEPTÓ la oferta de `inspeccionar`
+    (`cabecera_de_dos_niveles_ofrecida`): los nombres bajo cada grupo de la banda se escriben «grupo · nombre» y, si la banda va
+    debajo de la cabecera, esa fila deja de ser un dato. Se declara. `False` (lo normal): nada se compone.
     """
+    if not isinstance(componer_cabecera_de_dos_niveles, bool):
+        raise rechazar("parametro_invalido", parametro="componer_cabecera_de_dos_niveles debe ser verdadero o falso",
+                       parametro_en="componer_cabecera_de_dos_niveles must be true or false")
     if partir_columna_unica is not None and (not isinstance(partir_columna_unica, str)
                                               or partir_columna_unica not in _CLAVE_DE):
         raise rechazar("parametro_invalido", parametro="partir_columna_unica debe ser «,», «;» o un tabulador",
@@ -900,10 +1009,26 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
             raise rechazar("parametro_invalido",
                            parametro="la columna no tiene el separador pedido: no hay nada que partir",
                            parametro_en="the column does not contain the requested separator: nothing to split")
+    banda = None
+    if componer_cabecera_de_dos_niveles:
+        if partida is not None or nh != 1:
+            raise rechazar("parametro_invalido",
+                           parametro="componer_cabecera_de_dos_niveles no se junta con partir la columna ni con una cabecera de dos filas",
+                           parametro_en="componer_cabecera_de_dos_niveles cannot be combined with splitting the column or a two-row header")
+        # La MISMA función que hace la oferta en `inspeccionar`: solo se compone lo que se ofrece para ESTA cabecera.
+        banda = _banda_de_dos_niveles(h, fh)
+        if banda is None or not _componer_con_la_banda(_nombres_propuestos(h, fh), banda, h.col0):
+            raise rechazar("parametro_invalido",
+                           parametro=f"no hay una banda de dos niveles junto a la cabecera de la fila {fh}: no se compone nada",
+                           parametro_en=f"there is no two-level band next to the header in row {fh}: nothing is composed")
+        if banda["posicion"] == "debajo":
+            # La banda va entre los nombres y los datos: es parte de la cabecera, no un dato (se declara con lo compuesto).
+            excluidas = excluidas | {banda["fila"]}
+    excluir_combinadas = sorted(excluidas)
     ancho = h.ancho
     col0 = h.col0
     vacias_por_columna, rangos_vacias, rellenadas_por_columna, rangos_rellenadas = \
-        _combinadas_en_lo_convertido(h, fd, fin, excluir, rellenar_combinadas)
+        _combinadas_en_lo_convertido(h, fd, fin, excluir_combinadas, rellenar_combinadas)
 
     # ── cabecera ──
     def celda(r: int, j: int):
@@ -929,6 +1054,12 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         else:
             grupo_actual, nombre_col = None, ""
         nombres_crudos.append(nombre_col)
+    nombres_sin_banda = list(nombres_crudos)
+    compuestos_por_la_banda: dict[int, str] = {}
+    if banda is not None:
+        compuestos_por_la_banda = _componer_con_la_banda(nombres_crudos, banda, col0)
+        for j, n in compuestos_por_la_banda.items():
+            nombres_crudos[j] = n
 
     # ── datos ──
     filas_csv: list[list[str]] = []
@@ -1062,7 +1193,7 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
                                       original=base, letra=letras_de_columna(col0 + j)))
     for j in conserva:
         crudo_texto = valor_a_texto(celda(fh, j))[0] if nh == 1 else None
-        if nh == 1 and crudo_texto and crudo_texto != nombres_crudos[j]:
+        if nh == 1 and crudo_texto and crudo_texto != nombres_sin_banda[j]:
             declaraciones.append(declarar("nombre_normalizado", columna=finales[j], original=crudo_texto))
         if nh == 2 and j in compuestos:
             declaraciones.append(declarar("cabecera_compuesta", columna=finales[j],
@@ -1116,6 +1247,11 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
     if formulas_fuera[0]:
         declaraciones.append(declarar("formulas_sin_valor_fuera", cuantas=formulas_fuera[0],
                                       celdas=formulas_fuera[1], rango=_rango_a1(fh, h.col0, fin, h.col0 + h.ancho - 1)))
+    if banda is not None:
+        ejemplos = [finales[j] for j in conserva if j in compuestos_por_la_banda][:3]
+        declaraciones.append(declarar("cabecera_de_dos_niveles_compuesta",
+                                      cuantas=sum(1 for j in conserva if j in compuestos_por_la_banda),
+                                      fila=banda["fila"], posicion=banda["posicion"], ejemplos=ejemplos))
     if partida is not None:
         declaraciones.append(declarar("columna_unica_partida", cuantas=len(filas_csv) + 1,
                                       separador=partida["separador"], campos=partida["campos"]))
@@ -1125,7 +1261,8 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         declaraciones.append(declarar("macros_ignoradas"))
     if meta["estado"] != "visible":
         declaraciones.append(declarar("hoja_oculta", hoja=meta["nombre"]))
-    previas = [r for r in range(h.fila0, fh) if any(not _vacia(v) for v in h.filas[r - h.fila0])]
+    previas = [r for r in range(h.fila0, fh) if any(not _vacia(v) for v in h.filas[r - h.fila0])
+              and not (banda is not None and r == banda["fila"])]
     if previas:
         textos = [next((_texto(v) for v in h.filas[r - h.fila0] if not _vacia(v)), "") for r in previas[:3]]
         declaraciones.append(declarar("filas_previas_omitidas", cuantas=len(previas),

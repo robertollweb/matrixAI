@@ -650,3 +650,163 @@ def test_rep_c7_m7_los_textos_del_aviso_del_parametro_y_de_columna_mixta():
     with pytest.raises(TablaRechazada) as e:
         convertir(_libro_de_una_columna(["a,b,c", "1,2,3", "4,5,6"]), "x.xlsx", fila_de_cabecera=1, partir_columna_unica="|")
     assert "«" not in e.value.motivo_en and "»" not in e.value.motivo_en
+
+
+# ═══ 150-C7, decisión de Roberto del 09-11 (tarjeta 150-c7-cabecera-de-dos-niveles = A) ═══════════════════════════════════
+# (a) una banda combinada encima o debajo de los nombres se AVISA y se OFRECE componer «grupo · nombre» o quitarla; solo se hace
+# si la persona lo acepta (`componer_cabecera_de_dos_niveles`, o la fila de la banda en `filas_a_excluir`), y se declara.
+# (b) «Notas:», «Fuente:» y el organismo se ofrecen con su propio motivo, `pie`; (c) los totales, como estaban.
+def _libro_banda_encima() -> bytes:
+    return _G.xlsx([_G.Hoja("H", [["", "Índice", None, "Variación", None],
+                                  ["grupo", "2025M02", "2025M01", "2025M02", "2025M01"],
+                                  ["general", 1.5, 1.4, 0.1, 0.2], ["alimentos", 2.5, 2.4, 0.3, 0.4], ["vivienda", 3.5, 3.4, 0.5, 0.6]],
+                            combinadas=("B1:C1", "D1:E1"))])
+
+
+def _libro_banda_debajo() -> bytes:
+    return _G.xlsx([_G.Hoja("H", [["Grupo", "Total", "Cargos", "Avisos", "Otras"], ["", "Number of detections", None, None, None],
+                                  ["Robo", 5, 3, 1, 9], ["Hurto", 7, 4, 2, 8], ["Fraude", 9, 5, 3, 7]],
+                            combinadas=("B2:D2",))])
+
+
+def _tipos_de(r):
+    return [d["tipo"] for d in r.origen["declaraciones"]]
+
+
+def test_dos_niveles_a_una_banda_encima_de_los_nombres_se_avisa_y_se_ofrece_con_los_nombres_compuestos():
+    _requiere_calamine()
+    h = inspeccionar(_libro_banda_encima(), "x.xlsx")["hojas"][0]
+    assert h["fila_de_cabecera_propuesta"] == 2
+    o = h["cabecera_de_dos_niveles_ofrecida"]
+    assert o == {"fila_de_cabecera": 2, "fila_de_la_banda": 1, "posicion": "encima", "grupos": ["Índice", "Variación"],
+                 "columnas_compuestas": 4, "se_puede_quitar_la_banda": False,
+                 "nombres_compuestos": ["Índice · 2025M02", "Índice · 2025M01", "Variación · 2025M02", "Variación · 2025M01"]}
+    a = next(x for x in h["avisos"] if x["tipo"] == "posible_cabecera_de_dos_niveles")
+    assert "dos niveles" in a["texto"]["es"] and "Índice" in a["texto"]["es"]
+    assert "two-level header" in a["texto"]["en"] and "«" not in a["texto"]["en"] and "encima" not in a["texto"]["en"]
+
+
+def test_dos_niveles_a_sin_aceptar_nada_se_compone_y_aceptado_se_compone_y_se_declara():
+    _requiere_calamine()
+    datos = _libro_banda_encima()
+    sin = convertir(datos, "x.xlsx", fila_de_cabecera=2)
+    assert sin.csv_text.splitlines()[0] == "grupo,2025M02,2025M01,2025M02_2,2025M01_2"   # como antes: repetidos renombrados
+    assert "cabecera_de_dos_niveles_compuesta" not in _tipos_de(sin)
+    con = convertir(datos, "x.xlsx", fila_de_cabecera=2, componer_cabecera_de_dos_niveles=True)
+    assert con.csv_text.splitlines()[0] == "grupo,Índice · 2025M02,Índice · 2025M01,Variación · 2025M02,Variación · 2025M01"
+    assert con.csv_text.splitlines()[1:] == sin.csv_text.splitlines()[1:]                 # los datos, los mismos
+    d = next(x for x in con.origen["declaraciones"] if x["tipo"] == "cabecera_de_dos_niveles_compuesta")
+    assert d["cuantas"] == 4 and d["detalle"]["fila"] == 1 and d["detalle"]["posicion"] == "encima"
+    assert "grupo · nombre" in d["texto"]["es"] and "group · name" in d["texto"]["en"] and "aceptó" not in d["texto"]["en"]
+    tipos = _tipos_de(con)
+    assert "nombre_repetido_renombrado" not in tipos and "filas_previas_omitidas" not in tipos and "nombre_normalizado" not in tipos
+
+
+def test_dos_niveles_a_una_banda_debajo_se_compone_y_deja_de_ser_un_dato_o_se_quita_como_fila_excluida():
+    _requiere_calamine()
+    datos = _libro_banda_debajo()
+    h = inspeccionar(datos, "x.xlsx")["hojas"][0]
+    o = h["cabecera_de_dos_niveles_ofrecida"]
+    assert (o["fila_de_la_banda"], o["posicion"], o["se_puede_quitar_la_banda"], o["columnas_compuestas"]) == (2, "debajo", True, 3)
+    sin = list(csv.reader(io.StringIO(convertir(datos, "x.xlsx", fila_de_cabecera=1).csv_text)))
+    assert sin[1][1] == "Number of detections"                                             # sin aceptar, como antes
+    con = convertir(datos, "x.xlsx", fila_de_cabecera=1, componer_cabecera_de_dos_niveles=True)
+    filas = list(csv.reader(io.StringIO(con.csv_text)))
+    assert filas[0] == ["Grupo", "Number of detections · Total", "Number of detections · Cargos", "Number of detections · Avisos", "Otras"]
+    assert [f[0] for f in filas[1:]] == ["Robo", "Hurto", "Fraude"]
+    assert "celdas_combinadas_vacias" not in _tipos_de(con)
+    d = next(x for x in con.origen["declaraciones"] if x["tipo"] == "cabecera_de_dos_niveles_compuesta")
+    assert d["cuantas"] == 3 and "ya no es un dato" in d["texto"]["es"] and "no longer data" in d["texto"]["en"]
+    quitada = convertir(datos, "x.xlsx", fila_de_cabecera=1, filas_a_excluir=[2])
+    assert [f[0] for f in csv.reader(io.StringIO(quitada.csv_text))][1:] == ["Robo", "Hurto", "Fraude"]
+    assert quitada.origen["filas_excluidas"] == [{"fila": 2, "texto": "Number of detections"}]
+
+
+def test_dos_niveles_a_solo_se_compone_lo_que_se_ofrece():
+    _requiere_calamine()
+    with pytest.raises(TablaRechazada) as e:          # sin banda
+        convertir(_G.xlsx([_G.Hoja("H", [["a", "b"], [1, 2], [3, 4]])]), "x.xlsx", fila_de_cabecera=1,
+                  componer_cabecera_de_dos_niveles=True)
+    assert e.value.codigo == "parametro_invalido" and "no se compone" in e.value.motivo_es and "nothing is composed" in e.value.motivo_en
+    with pytest.raises(TablaRechazada):               # otra cabecera que la de la banda
+        convertir(_libro_banda_encima(), "x.xlsx", fila_de_cabecera=3, componer_cabecera_de_dos_niveles=True)
+    with pytest.raises(TablaRechazada):               # con una cabecera de dos filas
+        convertir(_libro_banda_encima(), "x.xlsx", fila_de_cabecera=1, filas_de_cabecera=2, componer_cabecera_de_dos_niveles=True)
+    with pytest.raises(TablaRechazada) as e:          # no es un booleano
+        convertir(_libro_banda_encima(), "x.xlsx", fila_de_cabecera=2, componer_cabecera_de_dos_niveles="true")
+    assert "«" not in e.value.motivo_en
+
+
+def test_dos_niveles_a_un_titulo_combinado_sobre_todas_las_columnas_no_es_una_banda():
+    from matrixai.tablas.api import _banda_de_dos_niveles
+    class H(_Hoja):
+        combinadas = [(1, 1, 1, 3)]
+        col0 = 1
+    assert _banda_de_dos_niveles(H([["Ventas de 2024", None, None], ["a", "b", "c"], [1, 2, 3]]), 2) is None
+    H.combinadas = [(1, 2, 1, 3)]
+    assert _banda_de_dos_niveles(H([[None, "Ventas", None], ["a", "b", "c"], [1, 2, 3]]), 2)["grupos"] == [(2, 3, "Ventas")]
+
+
+def test_dos_niveles_a_una_tabla_sin_banda_no_lo_ofrece_ni_lo_avisa():
+    """Un rango combinado VERTICAL (oficina_con_valor) o una cabecera de dos filas (la banda ES la cabecera) no son esto."""
+    _requiere_calamine()
+    for nombre in ("erp_totales.xlsx", "oficina_con_valor.xlsx", "cabecera_dos_filas.xlsx", "cabecera_en_fila_15.xlsx", "nombres.xlsx"):
+        for h in inspeccionar((pathlib.Path(__file__).parent / "fixtures" / "tablas" / nombre).read_bytes(), nombre)["hojas"]:
+            assert "cabecera_de_dos_niveles_ofrecida" not in h, (nombre, h["nombre"])
+            assert "posible_cabecera_de_dos_niveles" not in [a["tipo"] for a in h["avisos"]]
+
+
+@pytest.mark.parametrize("nombre,hoja,cab,banda,posicion,primero", [
+    ("ine_ipc_50902.xlsx", "tabla-50902", 8, 7, "encima", "Índice · 2025M12"),
+    ("uk_homeoffice_hosb0812.xls", "Table 2b", 4, 5, "debajo", "Number of detections · Total recorded crime"),
+    ("uk_homeoffice_hosb0812.xls", "Table 4", 6, 7, "debajo", "Number of detections · 2006/07"),
+])
+def test_dos_niveles_a_los_libros_publicos_con_banda(nombre, hoja, cab, banda, posicion, primero):
+    datos = _libro(nombre)
+    h = {x["nombre"]: x for x in inspeccionar(datos, nombre)["hojas"]}[hoja]
+    o = h["cabecera_de_dos_niveles_ofrecida"]
+    assert (o["fila_de_cabecera"], o["fila_de_la_banda"], o["posicion"]) == (cab, banda, posicion)
+    assert o["nombres_compuestos"][0] == primero
+    con = convertir(datos, nombre, hoja=hoja, fila_de_cabecera=cab, componer_cabecera_de_dos_niveles=True)
+    assert next(csv.reader(io.StringIO(con.csv_text)))[1] == primero
+    assert "nombre_repetido_renombrado" not in _tipos_de(con)   # INE IPC: sin componer, los meses se repetían 4 veces
+
+
+# ── (b) las notas al pie, con su motivo; (c) los totales, como estaban ────────────────────────────────────────────────────
+def test_pie_b_notas_fuente_y_organismo_se_ofrecen_como_pie_y_no_como_total():
+    _requiere_calamine()
+    filas = ([["k", "v", "w"]] + [[f"x{i}", i, i] for i in range(12)] + [["Total", 66, 66], [None, None, None], ["Notas:"],
+             [None], ["Fuente: INE"], ["Instituto Nacional de Estadística"]])
+    h = inspeccionar(_G.xlsx([_G.Hoja("H", filas)]), "x.xlsx")["hojas"][0]
+    assert [(c["fila"], c["motivo"]) for c in h["filas_candidatas_a_total"]] == [(14, "palabra"), (16, "pie"), (18, "pie"), (19, "pie")]
+    # nunca se quitan solas: sin `filas_a_excluir`, siguen en el CSV
+    r = convertir(_G.xlsx([_G.Hoja("H", filas)]), "x.xlsx", fila_de_cabecera=1)
+    assert "Notas:" in r.csv_text and "Instituto Nacional de Estadística" in r.csv_text and "Total,66,66" in r.csv_text
+
+
+def test_pie_b_una_ultima_fila_corta_que_no_es_una_nota_sigue_siendo_mitad_vacia():
+    from matrixai.tablas.api import _candidatas_a_total
+    filas = [["a", "b", "c", "d"]] + [[i, i, i, i] for i in range(10)] + [[None] * 4, [564, None, None, 23], ["sin datos"]]
+    assert [(c["fila"], c["motivo"]) for c in _candidatas_a_total(_Hoja(filas), 2)] == [(13, "mitad_vacia"), (14, "mitad_vacia")]
+
+
+@pytest.mark.parametrize("nombre,hoja,pie,palabras", [
+    ("ine_ipc_50902.xlsx", "tabla-50902", [24, 26, 27], []),
+    ("ine_poblacion_56934.xlsx", "tabla-56934", [446, 448], None),
+    ("uk_homeoffice_hosb0812.xls", "Table 2b", [30, 31, 32, 33, 34], [16, 28]),
+    ("uk_homeoffice_hosb0812.xls", "Table 1", [252, 253, 254, 255, 256, 257, 258], None),   # 252-253: notas que antes no se veían
+])
+def test_pie_b_c_los_libros_publicos_notas_como_pie_y_totales_como_palabra(nombre, hoja, pie, palabras):
+    h = {x["nombre"]: x for x in inspeccionar(_libro(nombre), nombre)["hojas"]}[hoja]
+    c = h["filas_candidatas_a_total"]
+    assert [x["fila"] for x in c if x["motivo"] == "pie"] == pie
+    if palabras is not None:
+        assert [x["fila"] for x in c if x["motivo"] == "palabra"] == palabras
+    else:
+        assert len([x for x in c if x["motivo"] == "palabra"]) >= 10   # los «Total» siguen ofreciéndose como total (c)
+
+
+def test_pie_c_un_total_dentro_del_pie_sigue_siendo_un_total():
+    from matrixai.tablas.api import _candidatas_a_total
+    filas = [["a", "b", "c"]] + [[f"x{i}", i, i] for i in range(10)] + [["Notas: provisional"], ["Total"]]
+    assert [(c["fila"], c["motivo"]) for c in _candidatas_a_total(_Hoja(filas), 2)] == [(12, "pie"), (13, "palabra")]

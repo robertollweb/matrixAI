@@ -222,6 +222,31 @@ TIPOS: dict[str, tuple] = {
                      "{n} celdas tienen fórmula (" + _lista(d['detalle'].get('celdas')) + ") y el libro pide recalcular al abrirlo: su valor guardado no es el resultado y esta hoja no se podrá convertir hasta que se abra y se guarde en Excel o LibreOffice."),
         lambda d: _p(d['cuantas'], f"1 cell has a formula ({_lista(d['detalle'].get('celdas'))}) and the workbook asks to be recalculated when opened: its saved value is not the result and this sheet cannot be converted until it is opened and saved in Excel or LibreOffice.",
                      "{n} cells have a formula (" + _lista(d['detalle'].get('celdas')) + ") and the workbook asks to be recalculated when opened: their saved values are not the result and this sheet cannot be converted until it is opened and saved in Excel or LibreOffice.")),
+    # 150-C7 (decisión de Roberto, 09-11): una banda combinada encima o debajo de los nombres. Se OFRECE componer o quitarla.
+    "posible_cabecera_de_dos_niveles": (
+        lambda d: (f"La fila {d['detalle'].get('fila')}, {'encima' if d['detalle'].get('posicion') == 'encima' else 'debajo'} de la "
+                   f"cabecera, parece una cabecera de dos niveles: agrupa varias columnas ({_lista(d['detalle'].get('grupos'), 3)}). "
+                   "Puedes componer los nombres «grupo · nombre»"
+                   + (" o quitar esa fila de los datos." if d['detalle'].get('posicion') == 'debajo' else "; si no, se queda fuera de la tabla.")),
+        lambda d: (f"Row {d['detalle'].get('fila')}, {'above' if d['detalle'].get('posicion') == 'encima' else 'below'} the header, "
+                   f"looks like a two-level header: it groups several columns ({_lista(d['detalle'].get('grupos'), 3)}). "
+                   "You can compose the names as “group · name”"
+                   + (" or remove that row from the data." if d['detalle'].get('posicion') == 'debajo' else "; otherwise it stays out of the table."))),
+    "cabecera_de_dos_niveles_compuesta": (
+        lambda d: _p(d['cuantas'],
+                     f"La persona aceptó componer la cabecera de dos niveles con la banda de la fila {d['detalle'].get('fila')}: 1 nombre "
+                     f"se escribió «grupo · nombre» ({_lista(d['detalle'].get('ejemplos'), 3)})"
+                     + ("; esa fila ya no es un dato." if d['detalle'].get('posicion') == 'debajo' else "."),
+                     f"La persona aceptó componer la cabecera de dos niveles con la banda de la fila {d['detalle'].get('fila')}: " + "{n}"
+                     + f" nombres se escribieron «grupo · nombre» (p. ej. {_lista(d['detalle'].get('ejemplos'), 3)})"
+                     + ("; esa fila ya no es un dato." if d['detalle'].get('posicion') == 'debajo' else ".")),
+        lambda d: _p(d['cuantas'],
+                     f"The person accepted composing the two-level header with the band in row {d['detalle'].get('fila')}: 1 name "
+                     f"was written as “group · name” ({_lista(d['detalle'].get('ejemplos'), 3)})"
+                     + ("; that row is no longer data." if d['detalle'].get('posicion') == 'debajo' else "."),
+                     f"The person accepted composing the two-level header with the band in row {d['detalle'].get('fila')}: " + "{n}"
+                     + f" names were written as “group · name” (e.g. {_lista(d['detalle'].get('ejemplos'), 3)})"
+                     + ("; that row is no longer data." if d['detalle'].get('posicion') == 'debajo' else "."))),
     "posible_cabecera_de_dos_filas": (
         lambda d: f"La fila {d['detalle'].get('fila')} y la siguiente parecen una cabecera de dos filas (grupo y subcolumna).",
         lambda d: f"Row {d['detalle'].get('fila')} and the next one look like a two-row header (group and sub-column)."),
