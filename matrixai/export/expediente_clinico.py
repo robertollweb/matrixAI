@@ -97,6 +97,9 @@ FUENTES: dict[str, str] = {
     "team_declaration.json": DECLARADO,
     "data_recipe.txt": MEDIDO,
     "model.mxai": MEDIDO,
+    # 149-C6: el banco de comportamiento, solo agregados (`matrixai.estudio.banco_en_el_paquete`). Lo medido por el core; que las
+    # monotonías las declarase una persona lo dice el propio texto de la línea (momento antes/después incluido).
+    "banco_de_comportamiento.json": MEDIDO,
 }
 
 #: La excepción, cerrada y escrita: campos que el perfil clínico REGISTRA pero
@@ -281,7 +284,7 @@ class ExpedienteClinico:
                 f"what the run recorded, and this package records nothing")
         contenido: dict[str, Any] = {}
         for nombre in ("reproduce.json", "clinical_profile.json",
-                       "team_declaration.json"):
+                       "team_declaration.json", "banco_de_comportamiento.json"):
             ruta = bundle / nombre
             if not ruta.is_file():
                 continue
@@ -345,6 +348,9 @@ class ExpedienteClinico:
                 lineas.append(CALIBRACION_DEL_ESTUDIO)
                 continue
             lineas.append(evidencia)
+            if evidencia.clave == "metricas" and self.tiene(BANCO_DE_COMPORTAMIENTO.ruta.split("#", 1)[0]):
+                # 149-C6: SOLO si el paquete trae el banco. Sin él, el inventario es el de siempre, línea por línea.
+                lineas.append(BANCO_DE_COMPORTAMIENTO)
             if evidencia.clave == "metricas":
                 lineas.append(MODO_DEL_ESTUDIO)
                 if estudio.get("mode") == "rapido":
@@ -992,6 +998,15 @@ CALIBRACION_DEL_ESTUDIO = _e(
     "(not the same as “it was not measured”)",
     "calibracion_medida")
 
+#: 149-C6 — el banco de comportamiento («qué hace este modelo si…»), solo agregados. SOLO entra en el inventario de un paquete que trae
+#: `banco_de_comportamiento.json`: sin banco no hay línea, ni hueco inventado, y el expediente es el de antes. La ruta es el fichero entero
+#: (sin camino): el valor es el resumen que `matrixai.estudio.banco_en_el_paquete.texto_del_banco` escribe, en los dos idiomas.
+BANCO_DE_COMPORTAMIENTO = _e(
+    "comportamiento", "analisis", "banco_de_comportamiento.json#",
+    "Comportamiento del modelo", "Model behaviour",
+    "el paquete no trae el banco de comportamiento",
+    "the package ships no behaviour bench", "comportamiento_del_modelo")
+
 #: El modo con que corrió el estudio (138-C1) y, si fue el rápido, quién no compitió por él.
 MODO_DEL_ESTUDIO = _e(
     "modo_del_estudio", "analisis", "reproduce.json#study.mode",
@@ -1531,6 +1546,10 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
         return _texto_del_entrenamiento_de_la_red(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "entrenamiento_del_entregado" and isinstance(valor, dict):
         return _texto_del_entrenamiento_del_entregado(valor, "es" if locale == "es" else "en")
+    if evidencia.resumen == "comportamiento_del_modelo" and isinstance(valor, dict):
+        from matrixai.estudio.banco_en_el_paquete import texto_del_banco  # noqa: PLC0415
+
+        return texto_del_banco(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "modo" and isinstance(valor, str):
         return _NOMBRE_DEL_MODO["es" if locale == "es" else "en"].get(valor, valor)
     if evidencia.resumen == "booleano":
