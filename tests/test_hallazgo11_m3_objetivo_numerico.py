@@ -98,3 +98,32 @@ def test_el_otro_lado_una_clasificacion_conserva_su_NA_de_excel_como_clase():
     texto = "x,y\n" + "".join(f"{x:.2f},{['Sí', 'NO', '#N/A'][i % 3]}\n" for i, x in enumerate(r.uniform(0, 10) for _ in range(90)))
     res = generate_project_from_dataset(texto, "y", unidad_de_observacion="una fila")
     assert res["provenance"]["task"] == "classification" and res["provenance"]["rows_dropped_null_target"] == 0
+
+
+def test_m1_con_la_ausencia_declarada_manda_la_declaracion_y_no_se_toca_el_objetivo():
+    """Menor m1 de la re-auditoría final: la guarda de `_objetivo_numerico_sin_textos_de_faltante` («con la ausencia
+    DECLARADA no se toca nada») no la sostenía ninguna prueba. Sin ella, «?» declarado (un ARFF) pasa a vacío, que con
+    tokens declarados ya NO es ausencia, y la regresión se rompe («target … is empty»)."""
+    r = random.Random(2)
+    filas = ["x1,y"] + [f"{round(r.uniform(0, 10), 2)},{'?' if i % 10 == 3 else round(r.uniform(1, 50), 2)}"
+                        for i in range(100)]
+    texto = "\n".join(filas) + "\n"
+    res = generate_project_from_dataset(texto, "y", tokens_de_ausencia={"?"})
+    p = res["provenance"]
+    assert p["preparation_spec"]["task"] == "regression"
+    assert p.get("rows_dropped_null_target") == 10
+    assert prepare_dataset_from_provenance(texto, p).csv_text == res["csv_text"]
+
+
+def test_m2_el_objetivo_corregido_a_integer_lee_el_n_a_de_excel_como_fila_sin_objetivo():
+    """Menor m2: la regla mira el tipo CORREGIDO del objetivo (`column_type_overrides`), no solo el inferido. Un 0/1 con
+    «#N/A» (la clásica deja corregirlo a `integer`) es una regresión con esas filas quitadas; con solo el tipo inferido
+    volvía el error de antes («no tiene un rango numérico calculable»)."""
+    r = random.Random(5)
+    filas = ["x1,y"] + [f"{round(r.uniform(0, 10), 2)},{'#N/A' if i % 7 == 3 else i % 2}" for i in range(120)]
+    texto = "\n".join(filas) + "\n"
+    res = generate_project_from_dataset(texto, "y", column_type_overrides={"y": "integer"})
+    p = res["provenance"]
+    assert p["preparation_spec"]["task"] == "regression"
+    assert p.get("rows_dropped_null_target") == 17
+    assert prepare_dataset_from_provenance(texto, p).csv_text == res["csv_text"]
