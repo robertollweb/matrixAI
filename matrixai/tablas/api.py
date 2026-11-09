@@ -359,7 +359,7 @@ def _proponer_cabecera(h: _HojaLeida) -> int | None:
             continue
         # Sin salto, la regla de siempre (lo que ya acertaba no cambia). Tras saltar una fila de UNA celda, ver
         # `_lo_de_detras_del_salto_es_otra_cabecera`.
-        if salto_de_una_celda and _lo_de_detras_del_salto_es_otra_cabecera(h, len(textos), siguiente, k_sig):
+        if salto_de_una_celda and _lo_de_detras_del_salto_es_otra_cabecera(h, len(textos), siguiente, k_sig, fila):
             continue
         return h.fila0 + i
     return None
@@ -374,7 +374,8 @@ def _es_un_nombre(v) -> bool:
     return v.strip().lower() not in _NULL_TOKENS
 
 
-def _lo_de_detras_del_salto_es_otra_cabecera(h: _HojaLeida, textos_de_la_candidata: int, siguiente: list, k_sig: int) -> bool:
+def _lo_de_detras_del_salto_es_otra_cabecera(h: _HojaLeida, textos_de_la_candidata: int, siguiente: list, k_sig: int,
+                                             candidata: list | None = None) -> bool:
     """¿La fila con datos que hay DETRÁS de una fila de una celda (un título, una banda) es la cabecera de verdad, y no los datos de
     la candidata? Entonces la candidata no es la cabecera.
 
@@ -389,6 +390,9 @@ def _lo_de_detras_del_salto_es_otra_cabecera(h: _HojaLeida, textos_de_la_candida
          en su misma columna porque sí; un nombre, sí.
       2. Lo de detrás mezcla textos con datos tipados y tiene AL MENOS tantos textos como la candidata: la candidata es una fila de
          datos de texto sobre una sección («Madrid | norte | 10», «SUR», «Sevilla | sur | 9»), no una cabecera.
+         NO se aplica si los números de la candidata son PERIODOS (`_numeros_de_periodos`): «Provincia | Sexo | 2022 | 2023» con
+         «(en miles)» debajo y «Cantabria | Mujeres | 300 | 301» tiene la forma de datos sobre una sección, pero es la cabecera
+         con los años tecleados como números (3.ª auditoría, IMPORTANTE-1).
     En lo demás, la candidata es la cabecera: la banda del INE o de «Table 2b» va seguida de una etiqueta y números (pocos
     textos), y una cabecera sobre datos todo texto lleva detrás más texto (sin nada tipado que la delate)."""
     con_dato = [v for v in siguiente if not _vacia(v)]
@@ -397,7 +401,29 @@ def _lo_de_detras_del_salto_es_otra_cabecera(h: _HojaLeida, textos_de_la_candida
                        if sum(1 for v in f if not _vacia(v)) >= 2), [])
         return any(j < len(siguiente) and _es_un_nombre(siguiente[j]) and not _vacia(v) and not isinstance(v, str)
                    for j, v in enumerate(detras))
+    if candidata is not None and _numeros_de_periodos(candidata):
+        return False
     return _textos_distintos(siguiente) >= textos_de_la_candidata
+
+
+def _numeros_de_periodos(fila: list) -> bool:
+    """¿Los NÚMEROS de la fila son nombres de periodo, y no datos? Dos o más enteros que son años seguidos y crecientes
+    (entre 1900 y 2100: 2022, 2023) o, a partir de tres, una numeración correlativa (1, 2, 3: meses, semanas, trimestres).
+    Un único número, o uno que no encaja («10», 1234), sigue siendo un dato."""
+    nums = []
+    for v in fila:
+        if _vacia(v) or isinstance(v, (str, bool)):
+            continue
+        if isinstance(v, float) and v.is_integer():
+            v = int(v)
+        if not isinstance(v, int):
+            return False
+        nums.append(v)
+    if len(nums) < 2 or any(b <= a for a, b in zip(nums, nums[1:])):
+        return False
+    if all(1900 <= n <= 2100 for n in nums):
+        return True
+    return len(nums) >= 3 and all(b - a == 1 for a, b in zip(nums, nums[1:]))
 
 
 def _textos_distintos(fila: list) -> int:

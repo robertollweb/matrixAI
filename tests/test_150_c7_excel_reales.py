@@ -886,6 +886,60 @@ def test_rep2_c7_ir1_una_marca_de_ausencia_no_cuenta_como_un_nombre():
     assert _es_un_nombre("habitantes") and not _es_un_nombre(10) and not _es_un_nombre("  ")
 
 
+# ── Remate de la 3.ª auditoría (IMPORTANTE-1, MENOR-1): años como números y la siguiente fila con ≥ 2 datos ───────────────────
+_FORMAS_PERIODOS = {
+    # la regla 2 proponía el primer DATO: «lo de detrás» (2 textos, números) tenía tantos textos como la cabecera de años numéricos
+    "A1_anios_numericos_y_una_banda": ([["Comunidad", "Sexo", 2023, 2024], ["Todas las edades", _N, _N, _N],
+                                       ["Andalucía", "Ambos sexos", 8500, 8600], ["Aragón", "Ambos sexos", 1300, 1310],
+                                       ["Asturias", "Hombres", 490, 488]], 1),
+    "A12_numeracion_correlativa_y_una_seccion": ([["servicio", "turno", 1, 2, 3], ["Enero", _N, _N, _N, _N],
+                                                 ["Urgencias", "Mañana", 10, 11, 12], ["UCI", "Noche", 3, 4, 5]], 1),
+    "A16_anios_numericos_y_una_unidad": ([["Provincia", "Sexo", 2022, 2023], ["(en miles)", _N, _N, _N],
+                                         ["Cantabria", "Mujeres", 300, 301], ["Cantabria", "Hombres", 280, 281]], 1),
+    # el otro lado: la hoja SIN cabecera, con números de 4 cifras que no son años seguidos, sigue sin proponer la fila de datos
+    "S1_sin_cabecera_numeros_de_4_cifras_que_no_son_anios": ([["NORTE", _N, _N, _N], ["Madrid", "norte", 1234, 1500],
+                                                             ["SUR", _N, _N, _N], ["Sevilla", "sur", 2900, 3100]], None),
+    "S2_sin_cabecera_un_solo_numero_de_anio": ([["NORTE", _N, _N], ["Madrid", "norte", 2023], ["SUR", _N, _N],
+                                               ["Sevilla", "sur", 2019]], None),
+    "S3_sin_cabecera_numeros_pequenos_no_correlativos": ([["NORTE", _N, _N, _N, _N], ["Madrid", "norte", 10, 12, 14],
+                                                         ["SUR", _N, _N, _N, _N], ["Sevilla", "sur", 9, 8, 7]], None),
+}
+
+
+@pytest.mark.parametrize("nombre", list(_FORMAS_PERIODOS))
+def test_rem3_c7_ir1_los_numeros_de_periodos_en_la_cabecera_no_la_descartan_y_los_datos_sin_cabecera_siguen_protegidos(nombre):
+    """IMPORTANTE-1: una cabecera con los años (o 1, 2, 3) como NÚMEROS, una fila de una celda debajo y datos de 2 textos se leía
+    como «datos sobre una sección» (regla 2) y se proponía el primer dato. Los números de periodos no la activan; los números
+    corrientes, sí (la hoja sin cabecera, de la que protegía, sigue igual)."""
+    from matrixai.tablas.api import _proponer_cabecera
+    filas, correcta = _FORMAS_PERIODOS[nombre]
+    assert _proponer_cabecera(_Hoja(filas)) == correcta
+
+
+def test_rem3_c7_ir1_que_son_numeros_de_periodos():
+    from matrixai.tablas.api import _numeros_de_periodos as p
+    assert p(["a", "b", 2022, 2023]) and p(["a", 1, 2, 3]) and p(["a", 2022.0, 2023.0, _N])
+    assert not p(["a", "b", 300, 301]) and not p(["a", "b", 2023]) and not p(["a", "b", 1234, 1500])
+    assert not p(["a", "b", 2023, 2022]) and not p(["a", 1, 2]) and not p(["a", "b", 2022, 1.5])
+
+
+_F1_BASE = [["Empresa", "ACME", "T1 2024"], ["Ventas mensuales", _N, _N], ["mes", "importe", _N]]
+_F1_DATOS = [["ene", 10, _N], ["feb", 12, _N], ["mar", 9, _N]]
+
+
+@pytest.mark.parametrize("nombre,entre", [
+    ("fila_vacia", [[_N, _N, _N]]),
+    ("fila_de_unidad", [["(euros)", _N, _N]]),
+    ("vacia_y_unidad", [[_N, _N, _N], ["(euros)", _N, _N]]),
+])
+def test_rem3_c7_ir1_la_siguiente_fila_con_dos_datos_no_la_inmediata(nombre, entre):
+    """MENOR-1: la cabecera «mes | importe» con metadatos de 3 textos y un título encima, y una fila vacía o de una celda ENTRE
+    ella y los datos. Lo de detrás del salto se busca en la siguiente fila con ≥ 2 datos (la de los datos), no en la inmediata
+    (vacía: «todo nombres» sin nada tipado debajo, y se proponían los metadatos). Correcta: la fila 3."""
+    from matrixai.tablas.api import _proponer_cabecera
+    assert _proponer_cabecera(_Hoja(_F1_BASE + entre + _F1_DATOS)) == 3
+
+
 # ── I-R2: un grupo que cubre la PRIMERA columna no es un primer nivel ─────────────────────────────────────────────────────────
 _BANDAS_2 = {
     # SIN dos niveles (`bandas.py` de la re-auditoría): no se avisa ni se ofrece
