@@ -759,7 +759,8 @@ def test_la_guarda_de_memoria_de_parquet_es_la_de_topes_y_no_una_copia(monkeypat
 def test_los_fixtures_de_parquet_son_pequenos_y_no_hay_de_mas():
     esperados = {"parquet_tipos.parquet", "parquet_anidados.parquet", "parquet_nombres.parquet", "parquet_enteros.parquet",
                  "parquet_grupos.parquet", "parquet_solo_anidados.parquet",
-                 "parquet_int96.parquet", "parquet_horas.parquet", "parquet_nombres_chocan.parquet"}
+                 "parquet_int96.parquet", "parquet_horas.parquet", "parquet_nombres_chocan.parquet",
+                 "parquet_nombres_columna_n.parquet", "parquet_horas_fuera.parquet"}
     assert {p.name for p in FIXTURES.glob("*.parquet")} == esperados
     for p in FIXTURES.glob("*.parquet"):
         assert p.stat().st_size < 10_000, p.name
@@ -826,3 +827,52 @@ def test_las_declaraciones_nuevas_de_parquet_no_dicen_1_valores_ni_2_valor():
                     assert not re.search(r"(?<![\d.,])1 (valores|instantes|fechas|values|instants|dates)\b", texto), texto
                 if n > 1:
                     assert not re.search(r"(?<![\d.,])[2-9] (valor|instante|fecha|value|instant|date)\b", texto), texto
+
+
+# ── Remate de la re-auditoría de 150-C8: m1, m2 y m3 ─────────────────────────────────────
+@requiere_pyarrow
+def test_m1_un_nombre_vacio_que_choca_con_columna_n_declara_el_nombre_final_y_no_miente_sobre_el_original():
+    """Las columnas son `columna_3`, `b` y una SIN nombre: la sin nombre queda `columna_3_2`. Antes: «se llamaba «», que sin
+    espacios sobrantes ... es «columna_3»» (falso: ese nombre lo puso el lector) y «ahora es «columna_3»» (es la otra)."""
+    t = convertir(leer("parquet_nombres_columna_n.parquet"), "n.parquet")
+    assert filas_de(t)[0] == ["columna_3", "b", "columna_3_2"]
+    vacio = decl(t, "parquet_nombre_vacio")
+    assert len(vacio) == 1 and vacio[0]["columna"] == "columna_3_2" and vacio[0]["detalle"]["posicion"] == 3
+    assert "«columna_3_2»" in vacio[0]["texto"]["es"] and "«columna_3_2»" in vacio[0]["texto"]["en"]
+    assert not decl(t, "parquet_nombre_repetido"), "un nombre vacío no «se llamaba» nada: lo dice su declaración de vacío"
+    todo = " ".join(d["texto"]["es"] + d["texto"]["en"] for d in t.origen["declaraciones"])
+    assert "se llamaba «»" not in todo and "was called «»" not in todo
+
+
+@requiere_pyarrow
+def test_m2_una_hora_fuera_del_dia_sale_vacia_con_su_propio_motivo_y_sin_contar_una_fraccion_perdida():
+    """24:00:00 y las negativas, en time32 (s, ms) y time64 (us, ns). Antes: «2 fechas quedan fuera de los años 1 a 9999» y la
+    fracción de lo que se dejaba vacío contaba como perdida (-1 ms)."""
+    t = convertir(leer("parquet_horas_fuera.parquet"), "h.parquet")
+    assert columna(t, "hora_s") == ["", "", "00:00:05", ""]
+    assert columna(t, "hora_ms") == ["", "", "00:00:01", ""]
+    assert columna(t, "hora_us") == ["", "", "00:00:00", "00:00:00"]
+    assert columna(t, "hora_ns") == ["", "", "00:00:00", "00:00:00"]
+    assert not decl(t, "parquet_fecha_fuera_de_rango"), "una hora no es una fecha"
+    for c in ("hora_s", "hora_ms", "hora_us", "hora_ns"):
+        d = decl(t, "parquet_hora_fuera_del_dia", c)
+        assert len(d) == 1 and d[0]["cuantas"] == 2, c
+        assert "fuera del día" in d[0]["texto"]["es"] and "outside the day" in d[0]["texto"]["en"], c
+        assert "años" not in d[0]["texto"]["es"] and "years" not in d[0]["texto"]["en"], c
+    # Solo cuenta fracción lo que se escribió: 0, 1, 1 y 1 (las dos fuera de rango de cada columna no cuentan).
+    assert [decl(t, "parquet_unidad_a_segundos", c)[0]["cuantas"] for c in ("hora_s", "hora_ms", "hora_us", "hora_ns")] == [0, 1, 1, 1]
+
+
+@requiere_pyarrow
+def test_m3_una_columna_int96_se_declara_leida_como_utc_en_los_dos_idiomas_y_sus_valores_no_cambian():
+    t = convertir(leer("parquet_int96.parquet"), "scd.parquet")
+    for c in ("alta", "baja", "con_ns", "lejos"):
+        d = decl(t, "parquet_int96_en_utc", c)
+        assert len(d) == 1, c
+        assert "INT96" in d[0]["texto"]["es"] and "UTC" in d[0]["texto"]["es"] and "no guarda la zona" in d[0]["texto"]["es"], c
+        assert "INT96" in d[0]["texto"]["en"] and "UTC" in d[0]["texto"]["en"] and "does not store the zone" in d[0]["texto"]["en"], c
+    assert not decl(t, "parquet_int96_en_utc", "importe"), "solo las columnas INT96"
+    # Un timestamp[us] normal (no INT96) no lleva la declaración, y los valores son los de siempre.
+    n = convertir(leer("parquet_tipos.parquet"), "t.parquet")
+    assert not decl(n, "parquet_int96_en_utc")
+    assert columna(t, "alta")[:2] == ["2020-03-01 00:00:00", "2021-06-15 08:30:00"]

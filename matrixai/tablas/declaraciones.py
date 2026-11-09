@@ -357,6 +357,16 @@ TIPOS: dict[str, tuple] = {
                      f"En «{_col(d)}», " + "{n} fechas quedan fuera de los años 1 a 9999 y se dejaron vacías."),
         lambda d: _p(d['cuantas'], f"In «{_col(d)}», 1 date falls outside the years 1 to 9999 and was left empty.",
                      f"In «{_col(d)}», " + "{n} dates fall outside the years 1 to 9999 and were left empty.")),
+    # m2 de la re-auditoría de 150-C8: una hora que no cabe en un día (24:00:00, negativa) tiene su motivo, no el de las fechas.
+    "parquet_hora_fuera_del_dia": (
+        lambda d: _p(d['cuantas'], f"En «{_col(d)}», 1 hora queda fuera del día (de 00:00:00 a 23:59:59) y se dejó vacía.",
+                     f"En «{_col(d)}», " + "{n} horas quedan fuera del día (de 00:00:00 a 23:59:59) y se dejaron vacías."),
+        lambda d: _p(d['cuantas'], f"In «{_col(d)}», 1 time of day falls outside the day (00:00:00 to 23:59:59) and was left empty.",
+                     f"In «{_col(d)}», " + "{n} times of day fall outside the day (00:00:00 to 23:59:59) and were left empty.")),
+    # m3: INT96 no guarda zona; se lee como UTC. Spark/Hive lo guardan en UTC e Impala en hora local: puede verse 1-2 h distinta.
+    "parquet_int96_en_utc": (
+        lambda d: f"«{_col(d)}» es un INT96 y se leyó como UTC: el formato no guarda la zona, así que puede verse 1 o 2 horas distinta de tu hora local.",
+        lambda d: f"«{_col(d)}» is an INT96 and was read as UTC: the format does not store the zone, so it may look 1 or 2 hours different from your local time."),
     "parquet_nombre_vacio": (
         lambda d: f"La columna n.º {d['detalle'].get('posicion')} del fichero no tenía nombre: ahora es «{_col(d)}».",
         lambda d: f"Column no. {d['detalle'].get('posicion')} in the file had no name: it is now «{_col(d)}»."),

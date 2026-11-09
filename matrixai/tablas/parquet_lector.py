@@ -331,6 +331,7 @@ class _Columna:
         self.no_finitos = 0
         self.con_fraccion = 0
         self.fuera_de_rango = 0
+        self.hora_fuera = 0
         self.instantes = 0
         t = _valor_del_tipo(pa, tipo)
         ty = pa.types
@@ -456,12 +457,14 @@ class _Columna:
                 salida.append("")
                 continue
             s, resto = divmod(v, por_s)
-            if resto:
-                self.con_fraccion += 1
+            # m2 de la re-auditoría de 150-C8: fuera del día (24:00:00, negativa) sale vacía con su PROPIO motivo, y se mira ANTES
+            # de contar la fracción: un valor que se deja vacío no perdió una fracción de nada.
             if not 0 <= s < 86_400:
-                self.fuera_de_rango += 1
+                self.hora_fuera += 1
                 salida.append("")
                 continue
+            if resto:
+                self.con_fraccion += 1
             salida.append(f"{s // 3600:02d}:{s % 3600 // 60:02d}:{s % 60:02d}")
         return salida
 
@@ -522,11 +525,15 @@ def convertir_parquet(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabe
         original = c["nombre"] if isinstance(c["nombre"], str) else str(c["nombre"])
         crudos.append(_texto(original))
     finales: list[str] = []
+    # m1 de la re-auditoría de 150-C8: un nombre vacío se llama `columna_N`, pero si ya había una `columna_N` queda `columna_N_2`.
+    # Su declaración se escribe DESPUÉS de resolver los choques (en el mismo sitio de la lista), con el nombre que de verdad queda.
+    vacios: dict[int, int] = {}          # índice en `quedan` → posición de la declaración puesta de reserva
     for c, t, original in zip(quedan, crudos, (c["nombre"] for c in quedan)):
         if not t:
             n = f"columna_{c['posicion']}"
+            vacios[len(finales)] = len(declaraciones)
             finales.append(n)
-            declaraciones.append(declarar("parquet_nombre_vacio", columna=n, posicion=c["posicion"]))
+            declaraciones.append(None)
         elif len(quedan) == 1 and ";" in t and "," not in t:
             finales.append(t.replace(";", "_"))
             declaraciones.append(declarar("punto_y_coma_en_el_nombre", columna=finales[-1], original=t))
@@ -545,9 +552,13 @@ def convertir_parquet(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabe
             k += 1
         usados.add(f"{base}_{k}")
         crudo = quedan[i]["nombre"] if isinstance(quedan[i]["nombre"], str) else base
-        declaraciones.append(declarar("parquet_nombre_repetido", columna=f"{base}_{k}", original=crudo,
-                                      posicion=quedan[i]["posicion"], **({"normalizado": base} if crudo != base else {})))
+        # Un nombre vacío no «se llamaba» nada: ya lo dice su declaración de nombre vacío, con el nombre final (m1).
+        if i not in vacios:
+            declaraciones.append(declarar("parquet_nombre_repetido", columna=f"{base}_{k}", original=crudo,
+                                          posicion=quedan[i]["posicion"], **({"normalizado": base} if crudo != base else {})))
         finales[i] = f"{base}_{k}"
+    for i, donde in vacios.items():
+        declaraciones[donde] = declarar("parquet_nombre_vacio", columna=finales[i], posicion=quedan[i]["posicion"])
     for c, t, fin in zip(quedan, crudos, finales):
         if t and isinstance(c["nombre"], str) and t != c["nombre"] and fin == t:
             declaraciones.append(declarar("nombre_normalizado", columna=fin, original=c["nombre"]))
@@ -587,6 +598,10 @@ def convertir_parquet(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabe
             declaraciones.append(declarar("no_finito", columna=fin, cuantas=col.no_finitos))
         if col.fuera_de_rango:
             declaraciones.append(declarar("parquet_fecha_fuera_de_rango", columna=fin, cuantas=col.fuera_de_rango))
+        if col.hora_fuera:
+            declaraciones.append(declarar("parquet_hora_fuera_del_dia", columna=fin, cuantas=col.hora_fuera))
+        if col.int96:
+            declaraciones.append(declarar("parquet_int96_en_utc", columna=fin))
 
     nombre_citado, quitados = nombre_citable.saneado(f.nombre)
     if quitados:

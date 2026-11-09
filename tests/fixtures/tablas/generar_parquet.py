@@ -35,6 +35,11 @@ Añadidos por la reparación de la auditoría de 150-C8 (los seis de arriba NO c
                                fracciones contadas a mano: 0, 2, 1 y 3.
 * `parquet_nombres_chocan.parquet`  « Año » junto a «Año» (chocan solo al quitar los espacios) y el índice de filas que pandas
                                guarda como columna (`__index_level_0__`, con sus metadatos `pandas` escritos a mano).
+
+Remate de la re-auditoría de 150-C8:
+
+* `parquet_nombres_columna_n.parquet`  `columna_3`, `b` y un nombre vacío en la posición 3 (el vacío acaba en `columna_3_2`).
+* `parquet_horas_fuera.parquet`        horas fuera del día (24:00:00 y negativas) en `time32` s y ms y en `time64` us y ns.
 """
 from __future__ import annotations
 
@@ -137,6 +142,15 @@ def todos() -> dict[str, bytes]:
         "hora_us": pa.array([30_600_000_001, 30_601_000_000, None, 0], pa.time64("us")),            # 1
         "hora_ns": pa.array([1, 3_600_000_000_000, 86_399_999_999_999, 500], pa.time64("ns")),      # 3
     })
+    # Remate de la re-auditoría: un nombre vacío en la posición 3 junto a una columna que ya se llama «columna_3».
+    columna_n = pa.table([pa.array([1, 2]), pa.array([3, 4]), pa.array([5, 6])], names=["columna_3", "b", ""])
+    # Horas fuera del día (24:00:00 y negativas), en las cuatro formas; con una hora buena con fracción por columna salvo hora_s.
+    horas_fuera = pa.table({
+        "hora_s": pa.array([86_400, -1, 5, None], pa.time32("s")),                                  # 2 fuera, 0 fracciones
+        "hora_ms": pa.array([86_400_000, -1, 1_500, None], pa.time32("ms")),                        # 2 fuera, 1 fracción
+        "hora_us": pa.array([86_400_000_000, -1, 1, 0], pa.time64("us")),                           # 2 fuera, 1 fracción
+        "hora_ns": pa.array([-1, 86_400_000_000_000, 1, 0], pa.time64("ns")),                       # 2 fuera, 1 fracción
+    })
     chocan = pa.table([pa.array([1, 2, 3]), pa.array([4, 5, 6]), pa.array([7, 9, 12])],
                       names=["Año", " Año ", "__index_level_0__"])
     # Lo que escribe `DataFrame.to_parquet` con un índice sin nombre que no es un RangeIndex (filas filtradas).
@@ -156,6 +170,8 @@ def todos() -> dict[str, bytes]:
         "parquet_int96.parquet": _con_int96(pa, pq),
         "parquet_horas.parquet": _escribir(pa, pq, horas),
         "parquet_nombres_chocan.parquet": _escribir(pa, pq, chocan),
+        "parquet_nombres_columna_n.parquet": _escribir(pa, pq, columna_n),
+        "parquet_horas_fuera.parquet": _escribir(pa, pq, horas_fuera),
     }
 
 
