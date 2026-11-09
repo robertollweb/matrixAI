@@ -344,9 +344,13 @@ def _proponer_cabecera(h: _HojaLeida) -> int | None:
             continue
         # 150-C7 H2: una cabecera con filas VACÍAS debajo sigue siendo cabecera si lo siguiente con contenido son
         # datos (CTG «Raw Data»: cabecera en la fila 1, fila 2 vacía): saltarla proponía un dato como cabecera.
+        # 150-C7 (libros públicos): una banda de segundo nivel («Number of detections», combinada sobre varias columnas, o
+        # «Todas las edades» del INE) deja UNA sola celda con contenido entre la cabecera y los datos: no es un dato ni
+        # cierra la búsqueda; se salta como las vacías. Sin esto la cabecera real se descartaba y se proponía el primer
+        # dato (UK Home Office «Table 2b»: fila 6) o ninguna (INE población, «Table 4»).
         siguiente = next((f for f in h.filas[i + 1:i + 1 + _VACIAS_TRAS_CABECERA + 1]
-                          if any(not _vacia(v) for v in f)), None)
-        if siguiente is not None and sum(1 for v in siguiente if not _vacia(v)) >= 2:
+                          if sum(1 for v in f if not _vacia(v)) >= 2), None)
+        if siguiente is not None:
             return h.fila0 + i
     return None
 

@@ -60,6 +60,135 @@
         "Visible": {"fila_de_cabecera": 1, "filas_a_excluir": [], "filas_csv": 4, "columnas": 2, "no_vacios": 5, "suma_numerica": 18.0,
                     "declaraciones": ["columna_mixta", "filas_vacias_quitadas"]}
       }
+    },
+    "ine_ipc_50902.xlsx": {
+      "origen": "INE, tabla 50902 (IPC nacional, índices) https://www.ine.es/jaxiT3/files/t/es/xlsx/50902.xlsx?nocab=1 ; CC BY 4.0 (aviso legal del INE, https://ine.es/dyngs/AYU/index.htm?cid=125)",
+      "sha256": "ca7888e9d240d1303e9b08c5c358193612b7de19de2f40c4cc0291df960e573a",
+      "forma": "título de 6 filas y notas/fuente al pie; cabecera de DOS niveles con celdas combinadas (B7:KC7 «Índice»…); 1153 columnas",
+      "conversiones": {
+        "tabla-50902": {
+          "fila_de_cabecera": 8,
+          "filas_a_excluir": [
+            24,
+            26,
+            27
+          ],
+          "filas_csv": 14,
+          "columnas": 1153,
+          "no_vacios": 14989,
+          "suma_numerica": 360886.166
+        }
+      },
+      "cabecera_esperada": {
+        "tabla-50902": 8
+      }
+    },
+    "ine_poblacion_56934.xlsx": {
+      "origen": "INE, tabla 56934 (población por fecha, sexo y edad) https://www.ine.es/jaxiT3/files/t/es/xlsx/56934.xlsx?nocab=1 ; CC BY 4.0 (aviso legal del INE)",
+      "sha256": "109eb2145a7704fad21092583d9454d555ab38d2e5b61b7f8faaa21ce01e5cb4",
+      "forma": "título combinado, cabecera de fechas, filas de agrupación («Todas las edades») y filas «Total» intercaladas, notas al pie",
+      "conversiones": {
+        "tabla-56934": {
+          "fila_de_cabecera": 7,
+          "filas_a_excluir": [],
+          "filas_csv": 439,
+          "columnas": 218,
+          "no_vacios": 71397,
+          "suma_numerica": 19805269383.0
+        }
+      },
+      "cabecera_esperada": {
+        "tabla-56934": 7
+      }
+    },
+    "uk_homeoffice_hosb0812.xls": {
+      "origen": "UK Home Office, Crimes detected in England and Wales 2011/12: data tables (xls) https://www.gov.uk/government/uploads/system/uploads/attachment_data/file/116436/hosb0812-tabs.xls ; Open Government Licence v3 (catálogo ckan.publishing.service.gov.uk)",
+      "sha256": "740fcc3c9ec0df52c58afd9b80566699929ecc28ea003aea7688df5f1a702d32",
+      "forma": "8 hojas (portada de texto), título, subtítulo, bandas combinadas de segundo nivel, fila «Total», notas al pie con TICs1/PNDs2",
+      "conversiones": {
+        "Table 2a": {
+          "fila_de_cabecera": 4,
+          "filas_a_excluir": [
+            17
+          ],
+          "filas_csv": 12,
+          "columnas": 10,
+          "no_vacios": 103,
+          "suma_numerica": 10356730.7985
+        },
+        "Table 2b": {
+          "fila_de_cabecera": 4,
+          "filas_a_excluir": [],
+          "filas_csv": 30,
+          "columnas": 9,
+          "no_vacios": 194,
+          "suma_numerica": 12365433.1413
+        },
+        "Table 1": {
+          "fila_de_cabecera": 4,
+          "filas_a_excluir": [],
+          "filas_csv": 193,
+          "columnas": 9,
+          "no_vacios": 1538,
+          "suma_numerica": 41352912.5901
+        },
+        "Table 4": {
+          "fila_de_cabecera": 6,
+          "filas_a_excluir": [],
+          "filas_csv": 223,
+          "columnas": 7,
+          "no_vacios": 1296,
+          "suma_numerica": 100948306.171
+        }
+      },
+      "cabecera_esperada": {
+        "Table 2a": 4,
+        "Table 2b": 4,
+        "Table 1": 4,
+        "Table 4": 6
+      }
+    },
+    "uk_dluhc_livetable208.xls": {
+      "origen": "UK MHCLG/DLUHC, Live Table 208 https://www.gov.uk/government/uploads/system/uploads/attachment_data/file/86128/LiveTable208.xls ; Open Government Licence v3",
+      "sha256": "c93d214ca57689dea24e9e835939178ea9c788ce2eb04bda6f333248213fc32d",
+      "forma": "EXTENSIÓN .xls CON CONTENIDO xlsx; aviso de tabla discontinuada en la fila 1, título, primera columna con etiquetas que no se repiten (celdas vacías debajo), pie de contacto",
+      "conversiones": {
+        "LiveTable208": {
+          "fila_de_cabecera": 5,
+          "filas_a_excluir": [
+            222,
+            230,
+            231,
+            232,
+            234
+          ],
+          "filas_csv": 216,
+          "columnas": 9,
+          "no_vacios": 1249,
+          "suma_numerica": 41811222.0
+        }
+      },
+      "cabecera_esperada": {
+        "LiveTable208": 5
+      }
+    },
+    "madrid_gastos_2026.xlsx": {
+      "origen": "Ayuntamiento de Madrid, Presupuesto General 2026, gastos https://datos.madrid.es/dataset/300666-0-presupuesto-general-curso/resource/300666-1-presupuesto-general-curso-xlsx/download/v40_ingresos_presupuesto_2026.xlsx (el fichero servido es el de gastos) ; CC BY 4.0 (datos.gob.es)",
+      "sha256": "69ce58f4cad1b6d3b1fd7809e88e977350d4fb78d777c4b61da4fb0b2eb24faf",
+      "forma": "tabla plana de 6244 filas con códigos de texto con ceros a la izquierda («001», «091»)",
+      "conversiones": {
+        "Ppto Gastos 2026 V40": {
+          "fila_de_cabecera": 1,
+          "filas_a_excluir": [],
+          "filas_csv": 6244,
+          "columnas": 11,
+          "no_vacios": 68673,
+          "suma_numerica": 7554289822.0
+        }
+      },
+      "cabecera_esperada": {
+        "Ppto Gastos 2026 V40": 1
+      }
     }
   }
 }

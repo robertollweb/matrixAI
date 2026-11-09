@@ -37,12 +37,19 @@ EXIGIR = os.environ.get("MATRIXAI_EXIGIR_REALES") == "1"
 FICHAS = json.loads((pathlib.Path(__file__).parent / "fixtures" / "tablas" / "reales" / "FICHAS.json").read_text(encoding="utf-8"))["libros"]
 HOME = pathlib.Path.home()
 _CAL = HOME / ".agentes/150/c7/dl_calamine_gh/x/python-calamine-0.9.0/tests/data"
+_PUB = HOME / ".agentes/150/c7-publicos/datos"
 RUTAS = {
     "liga_espanola.xlsx": HOME / "datos_150/liga_espanola.xlsx",
     "lluvia_ENRIQUECIDO.xlsx": HOME / "datos_150/lluvia_ENRIQUECIDO.xlsx",
     "CTG.xls": HOME / ".agentes/146/ctg/xls/CTG.xls",
     "table-multiple.xlsx": _CAL / "table-multiple.xlsx",
     "any_sheets.xlsx": _CAL / "any_sheets.xlsx",
+    # Libros de oficina PÚBLICOS (150-C7, 09-11): URL y licencia de cada uno en su ficha («origen»).
+    "ine_ipc_50902.xlsx": _PUB / "ine_ipc/t.xlsx",
+    "ine_poblacion_56934.xlsx": _PUB / "ine_pob/t.xlsx",
+    "uk_homeoffice_hosb0812.xls": _PUB / "uk_hosb/t.xls",
+    "uk_dluhc_livetable208.xls": _PUB / "uk_live208/t.xls",
+    "madrid_gastos_2026.xlsx": _PUB / "madrid_gastos/t.xlsx",
 }
 
 
@@ -375,3 +382,45 @@ def test_el_aviso_del_csv_pegado_ofrece_partirlo_y_no_dice_que_no_se_puede():
     es, en = d["texto"]["es"], d["texto"]["en"]
     assert "puedes partirlo aquí" in es and "No se ha partido." not in es
     assert "you can split it here" in en and "«" not in en and "»" not in en
+
+
+# ── 150-C7 (libros de oficina públicos): la cabecera con una BANDA de segundo nivel debajo ───────────────
+def test_la_banda_de_segundo_nivel_bajo_la_cabecera_no_descarta_la_cabecera():
+    """«Table 2b» del Home Office: cabecera en la fila 4, debajo una banda combinada («Number of detections», UNA celda con
+    contenido) y luego los datos. Se proponía la fila 6, el PRIMER DATO, como cabecera."""
+    from matrixai.tablas.api import _proponer_cabecera
+    h = _Hoja([["Table 2b"], [], ["England and Wales"], ["Grupo", "Total", "Cargos", "Avisos"],
+               ["", "Number of detections", "", ""], ["Robo", 5, 3, 1], ["Hurto", 7, 4, 2]])
+    assert _proponer_cabecera(h) == 4
+
+
+def test_una_cabecera_seguida_solo_de_bandas_de_una_celda_sigue_sin_proponerse():
+    from matrixai.tablas.api import _proponer_cabecera
+    assert _proponer_cabecera(_Hoja([["a", "b", "c"], ["banda"], ["otra"], ["y otra"], ["mas"], [1, 2, 3]])) is None
+
+
+@pytest.mark.parametrize("nombre,hoja,esperada", [
+    ("uk_homeoffice_hosb0812.xls", "Table 2b", 4), ("uk_homeoffice_hosb0812.xls", "Table 2a", 4),
+    ("uk_homeoffice_hosb0812.xls", "Table 4", 6), ("ine_poblacion_56934.xlsx", "tabla-56934", 7),
+    ("ine_ipc_50902.xlsx", "tabla-50902", 8), ("uk_dluhc_livetable208.xls", "LiveTable208", 5),
+    ("madrid_gastos_2026.xlsx", "Ppto Gastos 2026 V40", 1),
+])
+def test_publicos_la_cabecera_propuesta_es_la_de_la_ficha(nombre, hoja, esperada):
+    h = {x["nombre"]: x for x in inspeccionar(_libro(nombre), nombre)["hojas"]}[hoja]
+    assert h["fila_de_cabecera_propuesta"] == esperada == FICHAS[nombre]["cabecera_esperada"][hoja]
+
+
+def test_publicos_la_fila_total_de_la_tabla_2a_se_ofrece_como_candidata_a_excluir():
+    h = {x["nombre"]: x for x in inspeccionar(_libro("uk_homeoffice_hosb0812.xls"), "x.xls")["hojas"]}["Table 2a"]
+    assert [t["fila"] for t in h["filas_candidatas_a_total"]] == [17]
+
+
+def test_publicos_un_xls_con_contenido_xlsx_se_lee_por_su_contenido():
+    v = inspeccionar(_libro("uk_dluhc_livetable208.xls"), "LiveTable208.xls")
+    assert v["formato"] == "xlsx" and v["hoja_propuesta"] == "LiveTable208"
+
+
+def test_publicos_los_codigos_de_texto_con_ceros_a_la_izquierda_no_pierden_el_cero():
+    r = convertir(_libro("madrid_gastos_2026.xlsx"), "g.xlsx", hoja="Ppto Gastos 2026 V40", fila_de_cabecera=1)
+    filas = list(csv.reader(io.StringIO(r.csv_text)))
+    assert filas[1][0] == "001" and filas[1][2] == "100"
