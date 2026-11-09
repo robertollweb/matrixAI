@@ -30,6 +30,7 @@ import pytest
 from matrixai import limits
 from matrixai.tablas import CODIGOS, TablaRechazada, Topes, convertir, detectar_formato, inspeccionar
 from matrixai.tablas import parquet_lector as pl
+from matrixai.tablas import topes as topes_mod
 
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures" / "tablas"
@@ -520,7 +521,7 @@ def test_la_memoria_necesaria_es_la_mayor_de_la_cota_por_celda_y_la_cota_por_byt
 def test_el_techo_propio_del_proceso_se_mira_antes_de_leer(monkeypatch):
     """Con un techo (`RLIMIT_AS`, el del proceso de conversión del Studio) al que no le cabe, rechaza con las dos cifras."""
     _prohibir_leer(monkeypatch)
-    monkeypatch.setattr(pl, "hueco_bajo_el_techo_del_proceso", lambda *a: (2 << 30, 1000))
+    monkeypatch.setattr(topes_mod, "hueco_bajo_el_techo_del_proceso", lambda *a: (2 << 30, 1000))
     monkeypatch.setattr(limits, "_memoria_disponible_del_sistema", lambda: 1 << 40)
     e = rechazo(convertir, leer("parquet_tipos.parquet"), "t.parquet")
     assert e.codigo == "memoria_insuficiente" and "techo" in e.motivo_es and "limit" in e.motivo_en
@@ -640,10 +641,125 @@ def test_si_el_pie_declara_mas_filas_de_las_que_hay_se_rechaza_en_vez_de_dar_un_
     assert e.codigo == "parquet_danado" and "25" in e.detalle["tipo"]
 
 
+# ── Reparación de la auditoría de 150-C8: INT96, time32, la fracción de las horas, nombres y el índice de pandas ──────────
+@requiere_pyarrow
+def test_int96_fuera_de_1677_a_2262_conserva_sus_fechas_y_no_declara_fracciones_que_no_tenia():
+    """BLOQUEANTE-1: INT96 (Spark/Hive/Impala) se leía en ns y lo que no cabe en un `int64` de ns DABA LA VUELTA sin error:
+    9999-12-31 (el «sin fin» de una tabla de almacén) salía 1816-03-29, y el origen decía que «2 valores perdieron su fracción»."""
+    t = convertir(leer("parquet_int96.parquet"), "scd.parquet")
+    assert columna(t, "baja") == ["9999-12-31 00:00:00", "0001-01-01 00:00:00", "2262-04-11 00:00:00", ""]
+    assert columna(t, "alta") == ["2020-03-01 00:00:00", "2021-06-15 08:30:00", "2022-01-01 00:00:00", ""]
+    assert columna(t, "lejos") == ["3000-01-01 00:00:00", "3000-01-02 00:00:00", "", "0001-01-01 00:00:01"]
+    assert columna(t, "importe") == ["10.5", "20", "", "1"]
+    for c in ("alta", "baja"):
+        d, = decl(t, "parquet_unidad_a_segundos", c)
+        assert d["cuantas"] == 0 and "ningún valor perdió" in d["texto"]["es"] and "no value lost" in d["texto"]["en"], d
+    assert not decl(t, "parquet_fecha_fuera_de_rango"), "dentro de los años 1-9999 nada queda vacío"
+
+
+@requiere_pyarrow
+def test_int96_cuenta_la_fraccion_de_menos_de_un_microsegundo_dentro_y_fuera_del_rango_de_ns():
+    """Leer INT96 en `us` arregla las fechas, pero INT96 GUARDA ns: 500 ns se perderían sin contarse. Se cuentan (dentro de
+    1677-2262 y fuera, en `lejos`, con los 500 ns puestos en los bytes) y la unidad que se declara es la guardada."""
+    t = convertir(leer("parquet_int96.parquet"), "scd.parquet")
+    assert columna(t, "con_ns") == ["2020-01-01 00:00:00", "2020-01-01 00:00:01", "", "1970-01-01 00:00:00"]
+    for c in ("con_ns", "lejos"):
+        d, = decl(t, "parquet_unidad_a_segundos", c)
+        assert d["cuantas"] == 1 and d["detalle"]["unidad"] == "ns", d
+        assert "1 valor perdió su fracción" in d["texto"]["es"] and "nanosegundos" in d["texto"]["es"]
+    v = inspeccionar(leer("parquet_int96.parquet"), "scd.parquet")
+    unidades = {a["columna"]: a["detalle"]["unidad"] for a in v["avisos"] if a["tipo"] == "parquet_conversion_prevista"}
+    assert unidades == {"alta": "ns", "baja": "ns", "con_ns": "ns", "lejos": "ns"}
+    assert [c["tipo"] for c in v["columnas"]][:4] == ["timestamp[us]"] * 4
+
+
+@requiere_pyarrow
+def test_time32_en_segundos_y_en_milisegundos_se_convierte_y_no_tumba_el_fichero():
+    """IMPORTANTE-1: `time32` (TIME_MILLIS, el `time-millis` de Avro) no admite el cast a int64 en pyarrow, y el fichero
+    ENTERO se rechazaba como «vuelve a exportarlo con compresión estándar»."""
+    t = convertir(leer("parquet_horas.parquet"), "h.parquet")
+    assert filas_de(t)[0] == ["hora_s", "hora_ms", "hora_us", "hora_ns"]
+    assert columna(t, "hora_s") == ["00:00:00", "01:00:00", "23:59:59", ""]
+    assert columna(t, "hora_ms") == ["00:00:01", "01:00:00", "", "23:59:59"], "se TRUNCA, como los instantes"
+    assert columna(t, "hora_us") == ["08:30:00", "08:30:01", "", "00:00:00"]
+    assert columna(t, "hora_ns") == ["00:00:00", "01:00:00", "23:59:59", "00:00:00"]
+
+
+@requiere_pyarrow
+def test_la_cuenta_de_fracciones_de_las_horas_es_la_de_cada_columna():
+    """M4: quitar el recuento de `_horas` dejaba la suite VERDE y la declaración decía «ningún valor perdió fracción»."""
+    t = convertir(leer("parquet_horas.parquet"), "h.parquet")
+    cuentas = {c: decl(t, "parquet_unidad_a_segundos", c)[0]["cuantas"] for c in ("hora_s", "hora_ms", "hora_us", "hora_ns")}
+    assert cuentas == {"hora_s": 0, "hora_ms": 2, "hora_us": 1, "hora_ns": 3}
+    assert "2 valores perdieron su fracción" in decl(t, "parquet_unidad_a_segundos", "hora_ms")[0]["texto"]["es"]
+    # un `time32[s]` vuelve del disco como TIME_MILLIS: lo que se declara es lo que guarda el fichero
+    assert decl(t, "parquet_unidad_a_segundos", "hora_s")[0]["detalle"]["unidad"] == "ms"
+
+
+@requiere_pyarrow
+def test_inspeccionar_avisa_de_la_unidad_de_una_columna_time_como_de_un_timestamp():
+    """M4/IMPORTANTE-1: `convertir` declara la unidad de una hora y `inspeccionar` no la avisaba (sí la de los instantes)."""
+    v = inspeccionar(leer("parquet_horas.parquet"), "h.parquet")
+    unidades = {a["columna"]: a["detalle"]["unidad"] for a in v["avisos"]
+                if a["tipo"] == "parquet_conversion_prevista" and a["detalle"]["que"] == "unidad_a_segundos"}
+    assert unidades == {"hora_s": "ms", "hora_ms": "ms", "hora_us": "us", "hora_ns": "ns"}
+    assert ("hora_us", "unidad_a_segundos") in {(a["columna"], a["detalle"]["que"])
+                                               for a in inspeccionar(leer("parquet_tipos.parquet"), "t")["avisos"]
+                                               if a["tipo"] == "parquet_conversion_prevista"}
+
+
+@requiere_pyarrow
+def test_un_nombre_que_choca_solo_al_quitarle_los_espacios_se_declara_con_su_nombre_de_verdad():
+    """M5: « Año » junto a «Año» salía «se llamaba «Año», como otra»: se llamaba « Año », y no se decía que se normalizó."""
+    t = convertir(leer("parquet_nombres_chocan.parquet"), "c.parquet")
+    assert filas_de(t)[0] == ["Año", "Año_2", "__index_level_0__"]
+    d, = decl(t, "parquet_nombre_repetido", "Año_2")
+    assert d["detalle"]["original"] == " Año " and d["detalle"]["normalizado"] == "Año" and d["detalle"]["posicion"] == 2
+    assert "« Año »" in d["texto"]["es"] and "«Año»" in d["texto"]["es"] and "espacios" in d["texto"]["es"]
+    assert "« Año »" in d["texto"]["en"] and "spaces" in d["texto"]["en"]
+    # un repetido de verdad (sin normalizar) sigue diciéndose como antes, sin `normalizado`
+    r, = decl(convertir(leer("parquet_nombres.parquet"), "n.parquet"), "parquet_nombre_repetido", "Edad_2")
+    assert r["detalle"]["original"] == "Edad" and "normalizado" not in r["detalle"] and "espacios" not in r["texto"]["es"]
+
+
+@requiere_pyarrow
+def test_el_indice_de_filas_de_pandas_se_conserva_y_se_declara():
+    """M7: `__index_level_0__` entraba como una columna más sin decirse. Se CONSERVA (puede llevar datos) y se dice qué es; lo
+    dicen los metadatos `pandas` del fichero, no el nombre (sin ellos, una columna con ese nombre es una columna)."""
+    t = convertir(leer("parquet_nombres_chocan.parquet"), "c.parquet")
+    assert columna(t, "__index_level_0__") == ["7", "9", "12"]
+    d, = decl(t, "parquet_indice_de_pandas", "__index_level_0__")
+    assert "pandas" in d["texto"]["es"] and "se conserva" in d["texto"]["es"] and "is kept" in d["texto"]["en"]
+    import pyarrow as pa
+    sin_metadatos = escribir_parquet(pa.table({"__index_level_0__": [1, 2], "x": [3, 4]}))
+    assert not decl(convertir(sin_metadatos, "s.parquet"), "parquet_indice_de_pandas")
+    ilegibles = escribir_parquet(pa.table({"i": [1, 2]}).replace_schema_metadata({b"pandas": b"{no es json"}))
+    assert convertir(ilegibles, "s.parquet").csv_text.splitlines()[0] == "i"
+
+
+@requiere_pyarrow
+def test_la_guarda_de_memoria_de_parquet_es_la_de_topes_y_no_una_copia(monkeypatch):
+    """M7: `comprobar_memoria` de Parquet llama a `topes.comprobar_memoria` (la de Excel) con los motivos de Parquet y con
+    TODO lo necesario contra el techo (aquí no hay un hijo de lectura que se lleve dos tercios)."""
+    llamadas = []
+    monkeypatch.setattr(topes_mod, "comprobar_memoria", lambda *a, **k: llamadas.append((a, k)))
+    f = pl._Fichero(leer("parquet_tipos.parquet"), "t.parquet", Topes())
+    f.comprobar_memoria(19)
+    assert llamadas == [((f.memoria_necesaria(19), ""), {"variante": "parquet", "fraccion_del_proceso": 1})]
+    monkeypatch.undo()
+    # y con un techo que cabría el tercio de Excel pero no lo entero, se rechaza
+    necesario = f.memoria_necesaria(19)
+    monkeypatch.setattr(limits, "_memoria_disponible_del_sistema", lambda: 1 << 40)
+    monkeypatch.setattr(topes_mod, "hueco_bajo_el_techo_del_proceso", lambda *a: (2 << 30, necesario // 2))
+    e = rechazo(f.comprobar_memoria, 19)
+    assert e.codigo == "memoria_insuficiente" and "Parquet" in e.motivo_es and "techo" in e.motivo_es
+
+
 # ── Fixtures ────────────────────────────────────────────────────────────────────────────
 def test_los_fixtures_de_parquet_son_pequenos_y_no_hay_de_mas():
     esperados = {"parquet_tipos.parquet", "parquet_anidados.parquet", "parquet_nombres.parquet", "parquet_enteros.parquet",
-                 "parquet_grupos.parquet", "parquet_solo_anidados.parquet"}
+                 "parquet_grupos.parquet", "parquet_solo_anidados.parquet",
+                 "parquet_int96.parquet", "parquet_horas.parquet", "parquet_nombres_chocan.parquet"}
     assert {p.name for p in FIXTURES.glob("*.parquet")} == esperados
     for p in FIXTURES.glob("*.parquet"):
         assert p.stat().st_size < 10_000, p.name

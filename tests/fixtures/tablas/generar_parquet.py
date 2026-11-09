@@ -25,12 +25,23 @@ Qué lleva cada uno (todos de pocos KB, viven en git):
 * `parquet_enteros.parquet`    `int64` con nulos y valores por encima de 2^53 (lo que un paso por pandas redondearía).
 * `parquet_grupos.parquet`     tres grupos de filas (la lectura por lotes cruza sus bordes).
 * `parquet_solo_anidados.parquet`  todas las columnas son listas: no hay nada que convertir.
+
+Añadidos por la reparación de la auditoría de 150-C8 (los seis de arriba NO cambian ni un byte):
+
+* `parquet_int96.parquet`      timestamps INT96 (lo que escriben Spark/Hive/Impala): los centinelas 9999-12-31 y 0001-01-01
+                               (fuera de 1677-2262, lo que cabe en ns), una fracción de 500 ns dentro de ese rango y otra de
+                               500 ns FUERA de él (puesta a mano en los bytes del valor: pyarrow no sabe escribirla).
+* `parquet_horas.parquet`      `time32` en s y ms (TIME_MILLIS, el `time-millis` de Avro) y `time64` en us y ns, con
+                               fracciones contadas a mano: 0, 2, 1 y 3.
+* `parquet_nombres_chocan.parquet`  « Año » junto a «Año» (chocan solo al quitar los espacios) y el índice de filas que pandas
+                               guarda como columna (`__index_level_0__`, con sus metadatos `pandas` escritos a mano).
 """
 from __future__ import annotations
 
 import datetime as dt
 import decimal
 import io
+import json
 import pathlib
 import sys
 
@@ -48,6 +59,32 @@ def _escribir(pa, pq, tabla, **kw) -> bytes:
     buf = io.BytesIO()
     pq.write_table(tabla, buf, compression="snappy", use_dictionary=True, write_statistics=True, **kw)
     return buf.getvalue()
+
+
+#: Los bytes de un INT96: 8 de nanosegundos del día y 4 del día juliano (little endian). El 2440588 es el 1970-01-01.
+def _int96(dia: dt.date, nanos_del_dia: int) -> bytes:
+    return nanos_del_dia.to_bytes(8, "little") + (2_440_588 + (dia - dt.date(1970, 1, 1)).days).to_bytes(4, "little")
+
+
+def _con_int96(pa, pq) -> bytes:
+    us = pa.timestamp("us")
+    tabla = pa.table({
+        "alta": pa.array([dt.datetime(2020, 3, 1), dt.datetime(2021, 6, 15, 8, 30), dt.datetime(2022, 1, 1), None], us),
+        "baja": pa.array([dt.datetime(9999, 12, 31), dt.datetime(1, 1, 1), dt.datetime(2262, 4, 11), None], us),
+        # 2020-01-01 00:00:00.000000500: dentro del rango de ns; la fracción de 500 ns es MENOR que un microsegundo.
+        "con_ns": pa.array([1_577_836_800_000_000_500, 1_577_836_801_000_000_000, None, 0], pa.timestamp("ns")),
+        # 3000-01-01 00:00:00 se escribe sin fracción y luego se le ponen 500 ns en sus bytes (fuera del rango de ns).
+        "lejos": pa.array([dt.datetime(3000, 1, 1), dt.datetime(3000, 1, 2), None, dt.datetime(1, 1, 1, 0, 0, 1)], us),
+        "importe": pa.array([10.5, 20.0, None, 1.0], pa.float64()),
+    })
+    buf = io.BytesIO()
+    # Sin diccionario ni compresión: el valor que se toca está tal cual en los bytes (y solo una vez: se comprueba).
+    pq.write_table(tabla, buf, compression="none", use_dictionary=False, write_statistics=False,
+                   use_deprecated_int96_timestamps=True)
+    b = buf.getvalue()
+    viejo, nuevo = _int96(dt.date(3000, 1, 1), 0), _int96(dt.date(3000, 1, 1), 500)
+    assert b.count(viejo) == 1, "el valor INT96 a tocar no está una sola vez"
+    return b.replace(viejo, nuevo)
 
 
 def todos() -> dict[str, bytes]:
@@ -94,6 +131,21 @@ def todos() -> dict[str, bytes]:
                         "y": pa.array([1, 2, 3, 4, 5, 6], pa.int64())})
     grupos = pa.table({"i": pa.array(range(25), pa.int64()), "v": pa.array([h * 0.5 for h in range(25)])})
     solo_anidados = pa.table({"a": pa.array([[1], [2]]), "b": pa.array([{"q": 1}, {"q": 2}])})
+    horas = pa.table({
+        "hora_s": pa.array([0, 3_600, 86_399, None], pa.time32("s")),                               # 0 con fracción
+        "hora_ms": pa.array([1_500, 3_600_000, None, 86_399_999], pa.time32("ms")),                 # 2
+        "hora_us": pa.array([30_600_000_001, 30_601_000_000, None, 0], pa.time64("us")),            # 1
+        "hora_ns": pa.array([1, 3_600_000_000_000, 86_399_999_999_999, 500], pa.time64("ns")),      # 3
+    })
+    chocan = pa.table([pa.array([1, 2, 3]), pa.array([4, 5, 6]), pa.array([7, 9, 12])],
+                      names=["Año", " Año ", "__index_level_0__"])
+    # Lo que escribe `DataFrame.to_parquet` con un índice sin nombre que no es un RangeIndex (filas filtradas).
+    def _col(nombre, campo):
+        return {"name": nombre, "field_name": campo, "pandas_type": "int64", "numpy_type": "int64", "metadata": None}
+    chocan = chocan.replace_schema_metadata({b"pandas": json.dumps({
+        "index_columns": ["__index_level_0__"], "column_indexes": [],
+        "columns": [_col("Año", "Año"), _col(" Año ", " Año "), _col(None, "__index_level_0__")],
+        "creator": {"library": "pyarrow", "version": VERSION_DE_PYARROW}, "pandas_version": "3.0.5"}).encode("ascii")})
     return {
         "parquet_tipos.parquet": _escribir(pa, pq, tipos),
         "parquet_anidados.parquet": _escribir(pa, pq, anidados),
@@ -101,6 +153,9 @@ def todos() -> dict[str, bytes]:
         "parquet_enteros.parquet": _escribir(pa, pq, enteros),
         "parquet_grupos.parquet": _escribir(pa, pq, grupos, row_group_size=10),
         "parquet_solo_anidados.parquet": _escribir(pa, pq, solo_anidados),
+        "parquet_int96.parquet": _con_int96(pa, pq),
+        "parquet_horas.parquet": _escribir(pa, pq, horas),
+        "parquet_nombres_chocan.parquet": _escribir(pa, pq, chocan),
     }
 
 

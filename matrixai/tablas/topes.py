@@ -156,7 +156,8 @@ def comprobar_cadenas_compartidas(n_bytes: int, topes: "Topes") -> None:
                        tope=limits.human_bytes(topes.max_cadenas_compartidas), bytes=n_bytes)
 
 
-def comprobar_memoria(necesario: int, hoja: str, *, usado_al_empezar: int | None = None) -> None:
+def comprobar_memoria(necesario: int, hoja: str, *, usado_al_empezar: int | None = None, variante: str | None = None,
+                      fraccion_del_proceso: float | None = None) -> None:
     """Rechaza si esta máquina no tiene `necesario` bytes libres. Reutiliza la guarda de los CSV.
 
     `limits.memoria_insuficiente(csv_bytes)` multiplica por `FACTOR_RAM_POR_BYTE_DE_CSV`; se le
@@ -167,11 +168,15 @@ def comprobar_memoria(necesario: int, hoja: str, *, usado_al_empezar: int | None
     `usado_al_empezar`: la memoria virtual de este proceso ANTES de empezar a leer la hoja (`memoria_virtual_del_proceso`).
     Lo que la lectura ya ha gastado entre una comprobación y la siguiente es parte de `necesario`: medir el hueco con lo
     de ahora lo contaría dos veces.
+
+    `variante` (Parquet, 150-C8): los motivos son los de ESE formato (`(memoria_insuficiente, variante)` y
+    `(memoria_insuficiente, f"{variante}_techo_del_proceso")`). `fraccion_del_proceso`: la parte de `necesario` que gasta
+    ESTE proceso (por omisión `FRACCION_DEL_PROCESO_QUE_LLAMA`, un tercio, en Excel, que reparte con el hijo de calamine; toda en Parquet, que no tiene hijo).
     """
     equivalente = math.ceil(necesario / limits.FACTOR_RAM_POR_BYTE_DE_CSV)
     p = limits.memoria_insuficiente(equivalente)
     if p is not None:
-        raise rechazar("memoria_insuficiente", hoja=hoja,
+        raise rechazar("memoria_insuficiente", variante=variante, hoja=hoja,
                        necesario=limits.human_bytes(p["necesario_estimado"]),
                        disponible=limits.human_bytes(p["disponible"]))
     # Y lo que ESTE proceso puede pedir: con un techo propio (`RLIMIT_AS`, el que pone el Studio a su proceso de
@@ -188,9 +193,10 @@ def comprobar_memoria(necesario: int, hoja: str, *, usado_al_empezar: int | None
     if techo is None:
         return
     tope, hueco = techo
-    propio = int(necesario * FRACCION_DEL_PROCESO_QUE_LLAMA)
+    propio = int(necesario * (FRACCION_DEL_PROCESO_QUE_LLAMA if fraccion_del_proceso is None else fraccion_del_proceso))
     if propio > hueco:
-        raise rechazar("memoria_insuficiente", variante="techo_del_proceso", hoja=hoja,
+        raise rechazar("memoria_insuficiente", variante=f"{variante}_techo_del_proceso" if variante else "techo_del_proceso",
+                       hoja=hoja,
                        necesario=limits.human_bytes(propio), disponible=limits.human_bytes(hueco),
                        techo=limits.human_bytes(tope))
 

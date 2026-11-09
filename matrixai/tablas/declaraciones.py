@@ -360,9 +360,22 @@ TIPOS: dict[str, tuple] = {
     "parquet_nombre_vacio": (
         lambda d: f"La columna n.º {d['detalle'].get('posicion')} del fichero no tenía nombre: ahora es «{_col(d)}».",
         lambda d: f"Column no. {d['detalle'].get('posicion')} in the file had no name: it is now «{_col(d)}»."),
+    # M5 de la auditoría de 150-C8: «original» es el nombre TAL CUAL estaba; si choca con otra solo tras quitarle espacios o
+    # U+FEFF (` Año ` junto a `Año`), se dice también (`normalizado`), no «se llamaba «Año»».
     "parquet_nombre_repetido": (
-        lambda d: f"La columna n.º {d['detalle'].get('posicion')} se llamaba «{d['detalle'].get('original')}», como otra: ahora es «{_col(d)}».",
-        lambda d: f"Column no. {d['detalle'].get('posicion')} was called «{d['detalle'].get('original')}», like another one: it is now «{_col(d)}»."),
+        lambda d: (f"La columna n.º {d['detalle'].get('posicion')} se llamaba «{d['detalle'].get('original')}»"
+                   + (f", que sin espacios sobrantes ni marca U+FEFF es «{d['detalle']['normalizado']}»"
+                      if d['detalle'].get('normalizado') else "")
+                   + f", como otra: ahora es «{_col(d)}»."),
+        lambda d: (f"Column no. {d['detalle'].get('posicion')} was called «{d['detalle'].get('original')}»"
+                   + (f", which without extra spaces or a U+FEFF mark is «{d['detalle']['normalizado']}»"
+                      if d['detalle'].get('normalizado') else "")
+                   + f", like another one: it is now «{_col(d)}».")),
+    # M7 de la auditoría de 150-C8: el índice de filas que pandas guarda como columna (`__index_level_0__` si no tenía nombre).
+    # Se CONSERVA (puede llevar datos: un índice de fechas) y se dice qué es; quitarlo sería quitar algo sin que nadie lo pida.
+    "parquet_indice_de_pandas": (
+        lambda d: f"«{_col(d)}» es el índice de filas que pandas guardó al escribir el fichero, no una columna de los datos: se conserva como columna.",
+        lambda d: f"«{_col(d)}» is the row index pandas saved when writing the file, not a data column: it is kept as a column."),
     "parquet_conversion_prevista": (
         lambda d: _prevista_parquet(d, 0),
         lambda d: _prevista_parquet(d, 1)),

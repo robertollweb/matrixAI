@@ -29,7 +29,8 @@ from .. import limits
 from .declaraciones import declarar
 from .errores import TablaRechazada, rechazar
 from .formato import FIRMA_PARQUET, FIRMA_PARQUET_CIFRADO
-from .topes import TOPES_DE_FABRICA, Topes, hueco_bajo_el_techo_del_proceso
+from . import topes as _topes
+from .topes import TOPES_DE_FABRICA, Topes
 
 __all__ = ["es_parquet", "pyarrow_disponible", "inspeccionar_parquet", "convertir_parquet",
            "FACTOR_RAM_POR_BYTE_DESCOMPRIMIDO_DE_PARQUET", "BYTES_POR_CELDA_DE_PARQUET", "TAMANO_DE_LOTE"]
@@ -53,6 +54,8 @@ BYTES_POR_CELDA_DE_PARQUET = 40
 FACTOR_RAM_POR_BYTE_DESCOMPRIMIDO_DE_PARQUET = 5
 
 _EPOCA = _dt.datetime(1970, 1, 1)
+#: La unidad en que se LEE un INT96 (ver `_Fichero.__init__`); lo que GUARDA es nanosegundos.
+_UNIDAD_DE_INT96 = "us"
 _POR_SEGUNDO = {"s": 1, "ms": 1_000, "us": 1_000_000, "ns": 1_000_000_000}
 _UNIDAD_LEGIBLE = {"s": "segundos", "ms": "milisegundos", "us": "microsegundos", "ns": "nanosegundos"}
 
@@ -152,9 +155,24 @@ class _Fichero:
             raise rechazar("parquet_danado", tipo="el pie del fichero declara un tamaño imposible")
         self.pa, self.pq = _importar_pyarrow()
         try:
-            self.pf = self.pq.ParquetFile(self.pa.BufferReader(self.pa.py_buffer(self.datos)))
+            # INT96 (lo que escriben Spark, Hive e Impala) se lee en MICROSEGUNDOS, no en ns (lo que pyarrow hace por omisión):
+            # en ns un `int64` solo llega de 1677 a 2262 y lo que se sale DA LA VUELTA sin error (BLOQUEANTE-1 de la auditoría
+            # de 150-C8: 9999-12-31, el «sin fin» de una tabla de almacén, salía 1816-03-29). Con `us` cubre los años 1-9999.
+            self.pf = self.pq.ParquetFile(self.pa.BufferReader(self.pa.py_buffer(self.datos)),
+                                          coerce_int96_timestamp_unit=_UNIDAD_DE_INT96)
             self.meta = self.pf.metadata
             self.esquema = self.pf.schema_arrow
+            # Pero INT96 GUARDA nanosegundos: leído en `us`, una fracción de menos de 1 us se perdería sin contarse. Las
+            # columnas INT96 son las que cambian de tipo al abrir el MISMO fichero sin forzar la unidad; de esas, un segundo
+            # lector en ns da solo el resto de nanosegundos (ver `_Columna._instantes`). Solo si hay un `timestamp[us]`.
+            self.pf_ns = None
+            self.int96: frozenset[int] = frozenset()
+            if any(self.pa.types.is_timestamp(c.type) and c.type.unit == _UNIDAD_DE_INT96 for c in self.esquema):
+                pf_ns = self.pq.ParquetFile(self.pa.BufferReader(self.pa.py_buffer(self.datos)))
+                self.int96 = frozenset(i for i, (a, b) in enumerate(zip(self.esquema, pf_ns.schema_arrow))
+                                       if a.type != b.type)
+                if self.int96:
+                    self.pf_ns = pf_ns
             self.filas = int(self.meta.num_rows)
             self.grupos = int(self.meta.num_row_groups)
             # Lo que DECLARAN los metadatos: la suma de lo que ocupa cada grupo descomprimido y, por columna, lo que dice cada
@@ -205,24 +223,12 @@ class _Fichero:
                    self.descomprimido * FACTOR_RAM_POR_BYTE_DESCOMPRIMIDO_DE_PARQUET)
 
     def comprobar_memoria(self, columnas_que_se_convierten: int) -> None:
-        """La guarda de memoria que ya existe (la de los CSV) con los bytes «equivalentes», más el techo propio del proceso."""
-        import math  # noqa: PLC0415
-        necesario = self.memoria_necesaria(columnas_que_se_convierten)
-        p = limits.memoria_insuficiente(math.ceil(necesario / limits.FACTOR_RAM_POR_BYTE_DE_CSV))
-        if p is not None:
-            raise rechazar("memoria_insuficiente", variante="parquet", hoja="",
-                           necesario=limits.human_bytes(p["necesario_estimado"]),
-                           disponible=limits.human_bytes(p["disponible"]))
-        if not limits.guarda_de_memoria_activa():
-            return
-        techo = hueco_bajo_el_techo_del_proceso()
-        if techo is None:
-            return
-        tope, hueco = techo
-        if necesario > hueco:                  # aquí lee y escribe el MISMO proceso (no hay un hijo de lectura aparte)
-            raise rechazar("memoria_insuficiente", variante="parquet_techo_del_proceso", hoja="",
-                           necesario=limits.human_bytes(necesario), disponible=limits.human_bytes(hueco),
-                           techo=limits.human_bytes(tope))
+        """La guarda de memoria de Excel (`topes.comprobar_memoria`: la de los CSV con los bytes «equivalentes» y el techo
+        propio del proceso), no una copia de su rama (M7 de la auditoría de 150-C8). Con dos diferencias: los motivos son
+        los de Parquet, y el techo se compara con TODO lo necesario, porque aquí lee y escribe el MISMO proceso (no hay un
+        hijo de lectura aparte que se lleve su parte)."""
+        _topes.comprobar_memoria(self.memoria_necesaria(columnas_que_se_convierten), "", variante="parquet",
+                                fraccion_del_proceso=1)
 
     def columnas(self) -> list[dict]:
         """Por columna: nombre, tipo (texto de Arrow) y, si no cabe en un CSV, su categoría."""
@@ -230,15 +236,32 @@ class _Fichero:
         salida = []
         for i, campo in enumerate(self.esquema):
             salida.append({"posicion": i + 1, "nombre": campo.name, "tipo": str(campo.type),
-                           "categoria": _categoria_no_convertible(pa, campo.type), "_tipo": campo.type})
+                           "categoria": _categoria_no_convertible(pa, campo.type), "_tipo": campo.type,
+                           "_int96": i in self.int96})
         return salida
 
 
+def _indices_de_pandas(esquema) -> frozenset[str]:
+    """Los nombres de las columnas que son el ÍNDICE de filas de pandas (`index_columns` de sus metadatos, los que son
+    columna: un `RangeIndex` va como diccionario y no ocupa ninguna). Metadatos ilegibles: ninguno (no se adivina)."""
+    import json  # noqa: PLC0415
+    try:
+        crudo = (esquema.metadata or {}).get(b"pandas")
+        indices = json.loads(crudo)["index_columns"] if crudo else []
+        return frozenset(x for x in indices if isinstance(x, str))
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return frozenset()
+
+
 # ── inspeccionar: sin leer un dato ──────────────────────────────────────────────────────
-def _zona_y_unidad(pa, t):
+def _zona_y_unidad(pa, t, int96: bool = False):
+    """La zona y la unidad que GUARDA la columna. Un `time` también se escribe en segundos (IMPORTANTE-1 / M4 de la
+    auditoría de 150-C8: `convertir` lo declaraba y `inspeccionar` no lo avisaba), y un INT96 guarda ns aunque se lea en us."""
     t = _valor_del_tipo(pa, t)
     if pa.types.is_timestamp(t):
-        return t.tz, t.unit
+        return t.tz, ("ns" if int96 else t.unit)
+    if pa.types.is_time(t):
+        return None, t.unit
     return None, None
 
 
@@ -256,7 +279,7 @@ def inspeccionar_parquet(datos: bytes, nombre: str = "", *, topes: Topes | None 
         if not entra:
             avisos.append(declarar("parquet_columna_excluida", columna=c["nombre"], tipo_arrow=c["tipo"], categoria=c["categoria"]))
             continue
-        zona, unidad = _zona_y_unidad(f.pa, c["_tipo"])
+        zona, unidad = _zona_y_unidad(f.pa, c["_tipo"], c["_int96"])
         if zona:
             avisos.append(declarar("parquet_conversion_prevista", columna=c["nombre"], que="zona_horaria_a_utc", zona=zona))
         if unidad in ("ms", "us", "ns"):
@@ -301,7 +324,7 @@ def _texto_de_float(v: float, formato: str) -> str:
 class _Columna:
     """Cómo se escribe una columna y lo que hay que declarar de ella."""
 
-    def __init__(self, pa, nombre: str, tipo):
+    def __init__(self, pa, nombre: str, tipo, int96: bool = False):
         self.nombre = nombre
         self.tipo = tipo
         self.pa = pa
@@ -331,8 +354,11 @@ class _Columna:
             self.clase = "null"
         else:
             self.clase = "texto"
+        #: INT96 se lee en `us` y GUARDA ns: la unidad que se declara es la guardada, y su resto de ns lo da `arr_ns`.
+        self.int96 = bool(int96) and self.clase == "timestamp"
+        self.unidad_guardada = "ns" if self.int96 else self.unidad
 
-    def textos(self, arr) -> list[str]:
+    def textos(self, arr, arr_ns=None) -> list[str]:
         pa = self.pa
         if pa.types.is_dictionary(arr.type):
             arr = arr.dictionary_decode()
@@ -350,7 +376,7 @@ class _Columna:
         if c in ("f64", "f32", "f16"):
             return self._flotantes(arr, c)
         if c == "timestamp":
-            return self._instantes(arr)
+            return self._instantes(arr, arr_ns)
         if c in ("date32", "date64"):
             return self._fechas(arr, c)
         return self._horas(arr)
@@ -372,16 +398,21 @@ class _Columna:
                 salida.append(s)
         return salida
 
-    def _instantes(self, arr) -> list[str]:
+    def _instantes(self, arr, arr_ns=None) -> list[str]:
         pa = self.pa
         por_s = _POR_SEGUNDO[self.unidad]
         crudos = arr.cast(pa.int64()).to_pylist()           # los instantes tal cual están guardados (UTC si lleva zona)
+        # INT96: el MISMO valor leído en ns. Dentro de 1677-2262 es exacto; fuera, pyarrow lo calcula en `int64` y da la
+        # vuelta (módulo 2^64), pero el resto de nanosegundos sobre el valor en us sigue siendo `(ns - us*1000) mod 2^64`.
+        en_ns = arr_ns.cast(pa.int64()).to_pylist() if (self.int96 and arr_ns is not None) else None
         salida = []
-        for v in crudos:
+        for k, v in enumerate(crudos):
             if v is None:
                 salida.append("")
                 continue
             s, resto = divmod(v, por_s)
+            if en_ns is not None and en_ns[k] is not None and (en_ns[k] - v * 1_000) % (1 << 64) < 1_000:
+                resto = resto or (en_ns[k] - v * 1_000) % (1 << 64)
             try:
                 d = _EPOCA + _dt.timedelta(seconds=s)
             except OverflowError:
@@ -416,7 +447,9 @@ class _Columna:
     def _horas(self, arr) -> list[str]:
         pa = self.pa
         por_s = _POR_SEGUNDO[self.unidad]
-        crudos = arr.cast(pa.int64()).to_pylist()
+        # `time32` (s, ms: TIME_MILLIS de Parquet, el `time-millis` de Avro) no admite el cast a int64 en pyarrow: se pasa por
+        # int32, que es lo que guarda (IMPORTANTE-1 de la auditoría de 150-C8: tumbaba el fichero entero con un motivo falso).
+        crudos = arr.cast(pa.int32() if arr.type.bit_width == 32 else pa.int64()).to_pylist()
         salida = []
         for v in crudos:
             if v is None:
@@ -436,10 +469,23 @@ class _Columna:
 def _filas_de_los_lotes(f: _Fichero, columnas: list[_Columna], indices: list[int], proyeccion: list[str] | None, contador: list[int]):
     """Las filas del CSV, lote a lote: nunca están en memoria todos los valores de Python a la vez."""
     lotes = f.pf.iter_batches(batch_size=TAMANO_DE_LOTE, columns=proyeccion, use_threads=False)
+    # Las INT96 que se convierten, otra vez y en ns (solo ellas), con los MISMOS lotes: es lo que cuenta su fracción.
+    de_int96 = [k for k, c in enumerate(columnas) if c.int96]
+    lotes_ns = None
+    if de_int96 and f.pf_ns is not None:
+        proy_ns = [proyeccion[k] for k in de_int96] if proyeccion is not None else None
+        lotes_ns = f.pf_ns.iter_batches(batch_size=TAMANO_DE_LOTE, columns=proy_ns, use_threads=False)
     for lote in lotes:
         n = lote.num_rows
         contador[0] += n
-        cols = [c.textos(lote.column(k if proyeccion is not None else i))
+        ns_de: dict[int, object] = {}
+        if lotes_ns is not None:
+            lote_ns = next(lotes_ns, None)
+            if lote_ns is None or lote_ns.num_rows != n:
+                raise rechazar("parquet_danado", tipo="las dos lecturas de una columna INT96 no dan las mismas filas")
+            for j, k in enumerate(de_int96):
+                ns_de[k] = lote_ns.column(j if proyeccion is not None else indices[k])
+        cols = [c.textos(lote.column(k if proyeccion is not None else i), ns_de.get(k))
                 for k, (c, i) in enumerate(zip(columnas, indices))]
         yield from zip(*cols)
 
@@ -498,15 +544,21 @@ def convertir_parquet(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabe
         while f"{base}_{k}" in usados:
             k += 1
         usados.add(f"{base}_{k}")
-        declaraciones.append(declarar("parquet_nombre_repetido", columna=f"{base}_{k}", original=base,
-                                      posicion=quedan[i]["posicion"]))
+        crudo = quedan[i]["nombre"] if isinstance(quedan[i]["nombre"], str) else base
+        declaraciones.append(declarar("parquet_nombre_repetido", columna=f"{base}_{k}", original=crudo,
+                                      posicion=quedan[i]["posicion"], **({"normalizado": base} if crudo != base else {})))
         finales[i] = f"{base}_{k}"
     for c, t, fin in zip(quedan, crudos, finales):
         if t and isinstance(c["nombre"], str) and t != c["nombre"] and fin == t:
             declaraciones.append(declarar("nombre_normalizado", columna=fin, original=c["nombre"]))
 
+    de_pandas = _indices_de_pandas(f.esquema)
+    for c, fin in zip(quedan, finales):
+        if c["nombre"] in de_pandas:
+            declaraciones.append(declarar("parquet_indice_de_pandas", columna=fin, original=c["nombre"]))
+
     # ── lectura por lotes, solo de las columnas que se convierten ──
-    columnas = [_Columna(pa, c["nombre"], c["_tipo"]) for c in quedan]
+    columnas = [_Columna(pa, c["nombre"], c["_tipo"], c["_int96"]) for c in quedan]
     indices = [c["posicion"] - 1 for c in quedan]
     nombres_arrow = [c["nombre"] for c in info]
     unicos = len(set(nombres_arrow)) == len(nombres_arrow)
@@ -528,10 +580,9 @@ def convertir_parquet(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabe
     for col, fin in zip(columnas, finales):
         if col.zona:
             declaraciones.append(declarar("parquet_zona_horaria_a_utc", columna=fin, cuantas=col.instantes, zona=col.zona))
-        if col.unidad in ("ms", "us", "ns"):
-            declaraciones.append(declarar("parquet_unidad_a_segundos", columna=fin, cuantas=col.con_fraccion, unidad=col.unidad))
-        elif col.clase == "time" and col.con_fraccion:
-            declaraciones.append(declarar("parquet_unidad_a_segundos", columna=fin, cuantas=col.con_fraccion, unidad=col.unidad))
+        if col.unidad_guardada in ("ms", "us", "ns"):
+            declaraciones.append(declarar("parquet_unidad_a_segundos", columna=fin, cuantas=col.con_fraccion,
+                                          unidad=col.unidad_guardada))
         if col.no_finitos:
             declaraciones.append(declarar("no_finito", columna=fin, cuantas=col.no_finitos))
         if col.fuera_de_rango:
