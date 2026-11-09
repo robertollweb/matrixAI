@@ -37,6 +37,13 @@ torch = ["torch>=2.0"]
 # Firma asimétrica Ed25519 de los recibos (145-C1). Opcional: sin ella, el recibo se firma
 # con HMAC como siempre y la Ed25519 dice «falta cryptography».
 firma = ["cryptography>=41"]
+# Abrir Excel (.xlsx, .xlsm, .xls) como tabla (150-C1, `matrixai.tablas`). Opcional: sin él, el módulo se
+# importa y un libro de Excel dice «falta el lector». Versión medida en el Paso 0: 0.9.0 (MIT, ~3 MB).
+tablas = ["python-calamine>=0.9.0,<0.10"]
+# Abrir Parquet como tabla (150-C8, `matrixai.tablas.parquet_lector`). Opcional y APARTE de `tablas`: pyarrow pesa ~163 MB
+# instalado (calamine, ~3 MB), así que el Excel no lo arrastra. Sin él, un Parquet dice «instala pyarrow» y Excel sigue
+# funcionando. Versión medida en C8: 26.0.1 (Apache-2.0).
+parquet = ["pyarrow>=26.0.1,<27"]
 
 [project.scripts]
 matrixai = "matrixai.cli:main"

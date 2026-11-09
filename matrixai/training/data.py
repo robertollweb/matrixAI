@@ -340,10 +340,13 @@ def strip_csv_bom(csv_text: str) -> str:
     return csv_text.removeprefix("﻿")
 
 
-def normalize_csv_delimiter(csv_text: str) -> str:
+def normalize_csv_delimiter_declarando(csv_text: str) -> tuple[str, list[dict]]:
     """Si la cabecera usa ``;`` (Excel europeo) y no ``,``, reescribe a
     coma — el resto del producto (parser de columnas, `TrainingVerifier`,
-    `analyze_dataset_csv`) exige coma.
+    `analyze_dataset_csv`) exige coma — y, en ese mismo CSV, pasa a punto el
+    decimal con coma de las columnas que son números en español (150-C2).
+    Devuelve `(texto, declaraciones)`: lo que se convirtió y lo que se dejó
+    como estaba, con su motivo (ver `matrixai.training.decimal_es`).
 
     Señal deliberadamente conservadora (cero comas Y al menos un `;` en la
     CABECERA cruda, antes de parsear nada): un CSV de verdad delimitado por
@@ -352,33 +355,57 @@ def normalize_csv_delimiter(csv_text: str) -> str:
     `csv` (no `str.replace`) para que un valor que YA contenga una coma
     quede correctamente entrecomillado en la salida.
 
-    Límite documentado (NO resuelto aquí — llevaría a normalizar también el
-    separador DECIMAL, un problema distinto): un CSV europeo que además usa
-    la coma como separador decimal (``"12,5"``) sigue sin tipar numérico
-    tras esta reescritura — la celda queda entrecomillada intacta
-    (``"12,5"``) y `analyze_dataset_csv` la verá como texto. El usuario
-    puede corregir el tipo en el editor (invariante 8).
+    Un CSV que no es ``;`` sale con los MISMOS bytes y sin declaraciones.
+    Idempotente: el resultado ya no cumple la señal, así que normalizarlo
+    otra vez no cambia nada.
+
+    El decimal (150-C2) se decide por COLUMNA y TODO O NADA, mirando todas
+    las filas antes de escribir la primera: dos pasadas del lector sobre el
+    mismo texto, sin guardar las filas (la memoria es la de siempre). Ver
+    `decimal_es` para la regla, las clases de celda y los textos.
     """
     if not csv_text.strip():
-        return csv_text
-    header_line = csv_text.splitlines()[0]
-    if "," in header_line or ";" not in header_line:
-        return csv_text
+        return csv_text, []
+    from matrixai.training.decimal_es import (  # noqa: PLC0415
+        decimal_de_un_csv_punto_y_coma, es_la_cabecera_de_un_csv_punto_y_coma)
+    if not es_la_cabecera_de_un_csv_punto_y_coma(csv_text.splitlines()[0]):
+        return csv_text, []
     # Auditoría de las sugerencias (H-B): la reescritura lee de un StringIO,
     # NUNCA de `splitlines()` — partir en líneas ANTES de parsear rompe los
     # campos entrecomillados que contienen saltos de línea, y `csv.reader`
     # los re-unía SIN el salto ("linea1\nlinea2" → "linea1linea2": corrupción
     # silenciosa de datos). Con el stream intacto, el valor multilínea
     # sobrevive el round-trip entero (re-entrecomillado en la salida).
-    reader = csv.reader(io.StringIO(csv_text), delimiter=";")
+    cabecera = next(csv.reader(io.StringIO(csv_text), delimiter=";"), [])
+
+    def datos():   # las filas de datos, leídas otra vez del texto en cada pasada (no se guardan)
+        lector = csv.reader(io.StringIO(csv_text), delimiter=";")
+        next(lector, None)
+        return lector
+    filas, declaraciones = decimal_de_un_csv_punto_y_coma(cabecera, datos)
     out = io.StringIO()
     writer = csv.writer(out, delimiter=",", lineterminator="\n")
-    writer.writerows(reader)
-    return out.getvalue()
+    writer.writerow(cabecera)
+    writer.writerows(filas)
+    return out.getvalue(), declaraciones
+
+
+def normalize_csv_delimiter(csv_text: str) -> str:
+    """`normalize_csv_delimiter_declarando` sin las declaraciones (ver ahí)."""
+    return normalize_csv_delimiter_declarando(csv_text)[0]
+
+
+def normalize_csv_text_declarando(csv_text: str) -> tuple[str, list[dict]]:
+    """BOM + delimitador + decimal español, y lo que se convirtió o se dejó
+    (150-C2). Es `normalize_csv_text` con sus declaraciones: quien las
+    enseña (la pantalla de Datos, el recibo) llama a esta; quien solo
+    necesita el texto, a `normalize_csv_text`. Es la MISMA función."""
+    return normalize_csv_delimiter_declarando(strip_csv_bom(csv_text))
 
 
 def normalize_csv_text(csv_text: str) -> str:
-    """BOM + delimitador — la única función que un entry point externo debe
-    llamar (orden fijo: BOM antes que delimitador, para que el heurístico de
-    la cabecera no se confunda con el BOM pegado al primer nombre)."""
-    return normalize_csv_delimiter(strip_csv_bom(csv_text))
+    """BOM + delimitador + decimal español — la única función que un entry
+    point externo debe llamar (orden fijo: BOM antes que delimitador, para
+    que el heurístico de la cabecera no se confunda con el BOM pegado al
+    primer nombre; el decimal va con el delimitador, solo en un CSV ``;``)."""
+    return normalize_csv_text_declarando(csv_text)[0]

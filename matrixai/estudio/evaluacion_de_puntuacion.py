@@ -101,7 +101,7 @@ import unicodedata
 from collections import Counter
 from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from matrixai.estudio.calibracion import ajustar_recalibracion_logistica, curva_de_fiabilidad
 from matrixai.estudio.comparaciones import comparar_candidatos
@@ -1240,7 +1240,8 @@ def evaluar_puntuacion(
         semilla: int = 137, nombre_del_fichero: str | None = None, actor: str | None = None,
         clave: bytes | None = None, id_de_clave: str = "evaluate-score",
         creado_en: str | None = None,
-        al_progresar: Callable[[int, int, str], None] | None = None) -> ResultadoDeEvaluacion:
+        al_progresar: Callable[[int, int, str], None] | None = None,
+        origen_del_fichero: Mapping[str, Any] | None = None) -> ResultadoDeEvaluacion:
     """Evalúa una o dos puntuaciones ya registradas contra un desenlace binario observado.
 
     * `csv_contenido`: los bytes del fichero (UTF-8, o Windows-1252 si no lo es: se dice) o
@@ -1271,6 +1272,12 @@ def evaluar_puntuacion(
       fase. Si LANZA —`EvaluacionCancelada` para cancelar— la evaluación se detiene y esa
       excepción sale tal cual: no hay resultado a medias. No cambia ni un número del informe.
 
+    * `origen_del_fichero` (150-C5, I2 de la auditoría): el `origen` que devolvió la conversión de un
+      libro de Excel (`matrixai.tablas`). Si el CSV que se evalúa salió de un libro, el informe DICE de
+      qué libro, hoja y cabecera, y qué se quitó por el camino, con las frases del núcleo
+      (`informe.entrada.origen_del_fichero`). El `vinculo` lo escribe el núcleo: «comprobado» solo si la
+      huella del CSV recibido es la que el origen declara para el suyo. Un origen malformado se rechaza.
+
     Devuelve el informe (sin filas), el recibo y su nivel. Lo que no se puede evaluar tal
     como llega levanta `EvaluacionRechazada`, con su motivo en los dos idiomas."""
     if al_progresar is not None and not callable(al_progresar):
@@ -1288,7 +1295,32 @@ def evaluar_puntuacion(
             donde_se_calcula=donde_se_calcula, columnas_de_subgrupo=columnas_de_subgrupo,
             columna_de_paciente=columna_de_paciente, umbrales_de_decision=umbrales_de_decision,
             remuestras=remuestras, semilla=semilla, nombre_del_fichero=nombre_del_fichero,
-            actor=actor, clave=clave, id_de_clave=id_de_clave, creado_en=creado_en)
+            actor=actor, clave=clave, id_de_clave=id_de_clave, creado_en=creado_en,
+            origen_del_fichero=origen_del_fichero)
+
+
+def _origen_atado(crudo: Mapping[str, Any] | None, huella_del_csv: str) -> dict[str, Any] | None:
+    """El origen validado y con SU vínculo al CSV recibido, o `None` si no hay (150-C5, I2). Lo que el cliente traiga como
+    `vinculo`, `informativo` o `nota` se descarta: lo escribe el núcleo."""
+    if crudo is None:
+        return None
+    from matrixai.export.origen_del_fichero import normalizar_origen_del_fichero  # noqa: PLC0415
+    from matrixai.export.reproduce import ReproduceManifestError  # noqa: PLC0415
+    try:
+        origen = normalizar_origen_del_fichero(crudo)
+    except ReproduceManifestError as exc:
+        raise EvaluacionRechazada("origen_del_fichero_invalido", detalle=str(exc)[:300]) from exc
+    origen = {k: v for k, v in origen.items() if k not in ("informativo", "nota", "vinculo")}
+    origen["vinculo"] = "comprobado" if origen.get("sha256_del_csv") == huella_del_csv else "no_comprobado"
+    return origen
+
+
+def _texto_del_origen_en_los_dos_idiomas(origen: Mapping[str, Any]) -> dict[str, Any]:
+    """Lo que dice el informe del origen, redactado AQUÍ en los dos idiomas (las pantallas lo pintan, no lo componen):
+    `linea` (de qué fichero salió y su huella) y `frases` (lo que se hizo al convertir, las del propio núcleo)."""
+    from matrixai.export.origen_del_fichero import frases_bilingues_del_origen, texto_del_origen  # noqa: PLC0415
+    return {"linea": {i: texto_del_origen(origen, i, plano=True) for i in ("es", "en")},
+            "frases": frases_bilingues_del_origen(origen)}
 
 
 def _evaluar_puntuacion(
@@ -1299,7 +1331,8 @@ def _evaluar_puntuacion(
         columnas_de_subgrupo: Sequence[str], columna_de_paciente: str | None,
         umbrales_de_decision: Sequence[float] | None, remuestras: int, semilla: int,
         nombre_del_fichero: str | None, actor: str | None, clave: bytes | None,
-        id_de_clave: str, creado_en: str | None) -> ResultadoDeEvaluacion:
+        id_de_clave: str, creado_en: str | None,
+        origen_del_fichero: Mapping[str, Any] | None = None) -> ResultadoDeEvaluacion:
     """El cuerpo de `evaluar_puntuacion` (su docstring es el de la función pública), con el
     contador de progreso ya instalado como observador del remuestreo."""
     avance.fase("lectura")
@@ -1334,6 +1367,7 @@ def _evaluar_puntuacion(
 
     # -- el CSV ---------------------------------------------------------------
     tabla = _leer_csv(csv_contenido)
+    origen = _origen_atado(origen_del_fichero, tabla.huella)
     columnas = {nombre: j for j, nombre in enumerate(tabla.cabecera)}
 
     def celdas(nombre: str, papel: str) -> list[str]:
@@ -1597,6 +1631,9 @@ def _evaluar_puntuacion(
         "esquema": ESQUEMA_DEL_INFORME, "version_del_informe": VERSION_DEL_INFORME,
         "entrada": {
             "huella_csv": f"sha256:{tabla.huella}", "nombre_del_fichero": nombre_del_fichero,
+            # Solo si el CSV salió de la conversión de un libro: lo que no hay no se inventa (150-C4, regla 2).
+            **({"origen_del_fichero": origen, "origen_del_fichero_texto": _texto_del_origen_en_los_dos_idiomas(origen)}
+               if origen is not None else {}),
             "codificacion": tabla.codificacion, "bom": tabla.bom, "separador": tabla.separador,
             "filas_leidas": len(tabla.filas) + tabla.malformadas,
             "filas_malformadas_fuera": tabla.malformadas,

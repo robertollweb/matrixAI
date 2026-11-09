@@ -1,0 +1,194 @@
+{
+  "_nota": "150-C7. FICHA (no los datos) de los libros reales/publicos. Escrita A MANO contra el fichero abierto con openpyxl/xlrd en una sonda (~/.agentes/150/c7/oraculo.py), NO copiada de la salida del producto. Los libros de Roberto NO se commitean ni se copian: viven en ~/datos_150/.",
+  "libros": {
+    "liga_espanola.xlsx": {
+      "origen": "Roberto (anonimizado), ~/datos_150/",
+      "sha256": "1b131b227a85444f78cbb4ce9e70aba9db3665465490527b551bcd2677043c8c",
+      "hojas": {"liga_espanola": {"visible": true, "filas": 26723, "columnas": 1, "rango": "A1:A26723", "combinadas": 0, "formulas": 0}},
+      "forma": "UN CSV pegado en la columna A: cada celda es una fila entera del CSV, con sus comas dentro (la fila 1 son 230 nombres)",
+      "forma_que_la_persona_espera": {"filas_de_datos": 26722, "columnas": 230, "cabecera": 1},
+      "cabecera_esperada": 1,
+      "filas_de_total_esperadas": [],
+      "conversion": {"hoja": "liga_espanola", "fila_de_cabecera": 1, "filas_a_excluir": [], "filas_csv": 26723, "columnas": 1, "no_vacios": 26722, "suma_numerica": 0},
+      "declaraciones_esperadas": ["columna_unica_con_separadores"]
+    },
+    "lluvia_ENRIQUECIDO.xlsx": {
+      "origen": "Roberto (anonimizado), ~/datos_150/",
+      "sha256": "a4e6a7c903d515220a6d722b195d2b64d1200755e13597b89ad06b2a634b5472",
+      "hojas": {"lluvia_ENRIQUECIDO": {"visible": true, "filas": 2190, "columnas": 1, "rango": "A1:A2190", "combinadas": 0, "formulas": 0}},
+      "forma": "UN CSV pegado en la columna A (14 campos por celda)",
+      "forma_que_la_persona_espera": {"filas_de_datos": 2189, "columnas": 14, "cabecera": 1},
+      "cabecera_esperada": 1,
+      "filas_de_total_esperadas": [],
+      "conversion": {"hoja": "lluvia_ENRIQUECIDO", "fila_de_cabecera": 1, "filas_a_excluir": [], "filas_csv": 2190, "columnas": 1, "no_vacios": 2189, "suma_numerica": 0},
+      "declaraciones_esperadas": ["columna_unica_con_separadores"]
+    },
+    "CTG.xls": {
+      "origen": "UCI Cardiotocography (CC BY 4.0), ~/.agentes/146/ctg/xls/CTG.xls",
+      "sha256": "d6aa62e82625e59f9d5b05bc8fc52af9ea67bdf2a23f1faca8511d5618fcb421",
+      "hojas": {
+        "Description": {"visible": true, "filas": 49, "columnas": 14},
+        "Data": {"visible": true, "filas": 2131, "columnas": 46},
+        "Raw Data": {"visible": true, "filas": 2131, "columnas": 40}
+      },
+      "cabecera_esperada": {"Data": 2, "Raw Data": 1, "Description": 4},
+      "filas_de_total_esperadas": {"Data": [2130, 2131], "Raw Data": [2131], "Description": []},
+      "conversiones": {
+        "Data": {"fila_de_cabecera": 2, "filas_a_excluir": [2130, 2131], "filas_csv": 2127, "columnas": 42, "no_vacios": 89292, "suma_numerica": 7559754.8901,
+                 "declaraciones": ["columnas_vacias_quitadas", "nombre_repetido_renombrado", "no_comprobable_en_xls", "filas_previas_omitidas", "filas_excluidas", "filas_vacias_quitadas"]},
+        "Raw Data": {"fila_de_cabecera": 1, "filas_a_excluir": [2131], "filas_csv": 2128, "columnas": 40, "no_vacios": 85044, "suma_numerica": 7862252.4,
+                     "declaraciones": ["no_comprobable_en_xls", "filas_excluidas", "filas_vacias_quitadas"]}
+      }
+    },
+    "table-multiple.xlsx": {
+      "origen": "python-calamine 0.9.0, tests/data (MIT)",
+      "sha256": "8d39e98b17bcd2937171dacbae296c2f3cd975bbf41809738c05c7ffdccc977f",
+      "hojas": {"Sheet1": {"filas": 5, "columnas": 3}, "Sheet2": {"filas": 5, "columnas": 2}, "Sheet3": {"filas": 11, "columnas": 2}},
+      "cabecera_esperada": {"Sheet1": 1, "Sheet2": 1, "Sheet3": 1},
+      "conversiones": {
+        "Sheet1": {"fila_de_cabecera": 1, "filas_a_excluir": [], "filas_csv": 5, "columnas": 3, "no_vacios": 12, "suma_numerica": 420.0, "declaraciones": []},
+        "Sheet2": {"fila_de_cabecera": 1, "filas_a_excluir": [], "filas_csv": 5, "columnas": 2, "no_vacios": 8, "suma_numerica": 12.6, "declaraciones": []},
+        "Sheet3": {"fila_de_cabecera": 1, "filas_a_excluir": [], "filas_csv": 10, "columnas": 2, "no_vacios": 18, "suma_numerica": 3490.0,
+                   "declaraciones": ["columna_mixta", "filas_vacias_quitadas"]}
+      }
+    },
+    "any_sheets.xlsx": {
+      "origen": "python-calamine 0.9.0, tests/data (MIT)",
+      "sha256": "fba48e0141f847d80738a4417f0a336cba92e4ac692d8dd7516eac41e32c9e4f",
+      "hojas": {"Visible": {"estado": "visible"}, "Hidden": {"estado": "oculta"}, "VeryHidden": {"estado": "muy_oculta"}},
+      "conversiones": {
+        "Visible": {"fila_de_cabecera": 1, "filas_a_excluir": [], "filas_csv": 4, "columnas": 2, "no_vacios": 5, "suma_numerica": 18.0,
+                    "declaraciones": ["columna_mixta", "filas_vacias_quitadas"]}
+      }
+    },
+    "ine_ipc_50902.xlsx": {
+      "origen": "INE, tabla 50902 (IPC nacional, índices) https://www.ine.es/jaxiT3/files/t/es/xlsx/50902.xlsx?nocab=1 ; CC BY 4.0 (aviso legal del INE, https://ine.es/dyngs/AYU/index.htm?cid=125)",
+      "sha256": "ca7888e9d240d1303e9b08c5c358193612b7de19de2f40c4cc0291df960e573a",
+      "forma": "título de 6 filas y notas/fuente al pie; cabecera de DOS niveles con celdas combinadas (B7:KC7 «Índice»…); 1153 columnas",
+      "conversiones": {
+        "tabla-50902": {
+          "fila_de_cabecera": 8,
+          "filas_a_excluir": [
+            24,
+            26,
+            27
+          ],
+          "filas_csv": 14,
+          "columnas": 1153,
+          "no_vacios": 14989,
+          "suma_numerica": 360886.166
+        }
+      },
+      "cabecera_esperada": {
+        "tabla-50902": 8
+      }
+    },
+    "ine_poblacion_56934.xlsx": {
+      "origen": "INE, tabla 56934 (población por fecha, sexo y edad) https://www.ine.es/jaxiT3/files/t/es/xlsx/56934.xlsx?nocab=1 ; CC BY 4.0 (aviso legal del INE)",
+      "sha256": "109eb2145a7704fad21092583d9454d555ab38d2e5b61b7f8faaa21ce01e5cb4",
+      "forma": "título combinado, cabecera de fechas, filas de agrupación («Todas las edades») y filas «Total» intercaladas, notas al pie",
+      "conversiones": {
+        "tabla-56934": {
+          "fila_de_cabecera": 7,
+          "filas_a_excluir": [],
+          "filas_csv": 439,
+          "columnas": 218,
+          "no_vacios": 71397,
+          "suma_numerica": 19805269383.0
+        }
+      },
+      "cabecera_esperada": {
+        "tabla-56934": 7
+      }
+    },
+    "uk_homeoffice_hosb0812.xls": {
+      "origen": "UK Home Office, Crimes detected in England and Wales 2011/12: data tables (xls) https://www.gov.uk/government/uploads/system/uploads/attachment_data/file/116436/hosb0812-tabs.xls ; Open Government Licence v3 (catálogo ckan.publishing.service.gov.uk)",
+      "sha256": "740fcc3c9ec0df52c58afd9b80566699929ecc28ea003aea7688df5f1a702d32",
+      "forma": "8 hojas (portada de texto), título, subtítulo, bandas combinadas de segundo nivel, fila «Total», notas al pie con TICs1/PNDs2",
+      "conversiones": {
+        "Table 2a": {
+          "fila_de_cabecera": 4,
+          "filas_a_excluir": [
+            17
+          ],
+          "filas_csv": 12,
+          "columnas": 10,
+          "no_vacios": 103,
+          "suma_numerica": 10356730.7985
+        },
+        "Table 2b": {
+          "fila_de_cabecera": 4,
+          "filas_a_excluir": [],
+          "filas_csv": 30,
+          "columnas": 9,
+          "no_vacios": 194,
+          "suma_numerica": 12365433.1413
+        },
+        "Table 1": {
+          "fila_de_cabecera": 4,
+          "filas_a_excluir": [],
+          "filas_csv": 193,
+          "columnas": 9,
+          "no_vacios": 1538,
+          "suma_numerica": 41352912.5901
+        },
+        "Table 4": {
+          "fila_de_cabecera": 6,
+          "filas_a_excluir": [],
+          "filas_csv": 223,
+          "columnas": 7,
+          "no_vacios": 1296,
+          "suma_numerica": 100948306.171
+        }
+      },
+      "cabecera_esperada": {
+        "Table 2a": 4,
+        "Table 2b": 4,
+        "Table 1": 4,
+        "Table 4": 6
+      }
+    },
+    "uk_dluhc_livetable208.xls": {
+      "origen": "UK MHCLG/DLUHC, Live Table 208 https://www.gov.uk/government/uploads/system/uploads/attachment_data/file/86128/LiveTable208.xls ; Open Government Licence v3",
+      "sha256": "c93d214ca57689dea24e9e835939178ea9c788ce2eb04bda6f333248213fc32d",
+      "forma": "EXTENSIÓN .xls CON CONTENIDO xlsx; aviso de tabla discontinuada en la fila 1, título, primera columna con etiquetas que no se repiten (celdas vacías debajo), pie de contacto",
+      "conversiones": {
+        "LiveTable208": {
+          "fila_de_cabecera": 5,
+          "filas_a_excluir": [
+            222,
+            230,
+            231,
+            232,
+            234
+          ],
+          "filas_csv": 216,
+          "columnas": 9,
+          "no_vacios": 1249,
+          "suma_numerica": 41811222.0
+        }
+      },
+      "cabecera_esperada": {
+        "LiveTable208": 5
+      }
+    },
+    "madrid_gastos_2026.xlsx": {
+      "origen": "Ayuntamiento de Madrid, Presupuesto General 2026, gastos https://datos.madrid.es/dataset/300666-0-presupuesto-general-curso/resource/300666-1-presupuesto-general-curso-xlsx/download/v40_ingresos_presupuesto_2026.xlsx (el fichero servido es el de gastos) ; CC BY 4.0 (datos.gob.es)",
+      "sha256": "69ce58f4cad1b6d3b1fd7809e88e977350d4fb78d777c4b61da4fb0b2eb24faf",
+      "forma": "tabla plana de 6244 filas con códigos de texto con ceros a la izquierda («001», «091»)",
+      "conversiones": {
+        "Ppto Gastos 2026 V40": {
+          "fila_de_cabecera": 1,
+          "filas_a_excluir": [],
+          "filas_csv": 6244,
+          "columnas": 11,
+          "no_vacios": 68673,
+          "suma_numerica": 7554289822.0
+        }
+      },
+      "cabecera_esperada": {
+        "Ppto Gastos 2026 V40": 1
+      }
+    }
+  }
+}

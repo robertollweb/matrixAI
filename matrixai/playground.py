@@ -4217,6 +4217,11 @@ def _public_training_result(result: Any) -> Any:
 #: (`endpoints.py::_CAPTURA_SCHEMA`)—.
 RUN_PROVENANCE_SCHEMA_VERSION = "1.2"
 
+#: "1.3" (150-C4) es ADITIVA sobre "1.2" y la lleva SOLO un run con `origen_del_fichero` (un Excel convertido, un CSV
+#: con decimal español pasado a punto): una captura sin origen sigue siendo "1.2" byte a byte. Es el MISMO valor que
+#: `matrixai.export.origen_del_fichero.VERSION_DE_LA_CAPTURA_CON_ORIGEN` (que `reproduce.py` acepta); una prueba los iguala.
+RUN_PROVENANCE_SCHEMA_VERSION_CON_ORIGEN = "1.3"
+
 
 def _contar_filas_usadas(csv_text: str) -> int:
     """Filas que el ENTRENAMIENTO usa de un CSV, no líneas del fichero.
@@ -4374,8 +4379,16 @@ def _submit_training_job(
     recortar_objetivo: bool = True,
     capturar: Any = None,
     preferir_torch_en_cpu: bool = False,
+    origen_del_fichero: dict | None = None,
 ) -> dict[str, Any]:
     """Start async training job. Returns {ok, job_id} immediately.
+
+    CONTRATO 150-C4: `origen_del_fichero` (opcional, al final, como `dataset_mode` y `recipe_text`) es el `origen` que
+    declaró la conversión del libro de Excel de donde salió `csv_text` (`matrixai.tablas.convertir`). Entra en
+    `run_provenance` como el bloque `origen_del_fichero` (captura "1.3") y de ahí al manifiesto de reproducción y al
+    recibo. **El hash que se verifica sigue siendo el del CSV derivado** (`csv_text`); el del original es informativo.
+    Un origen mal formado se RECHAZA aquí, antes de crear el trabajo: un origen a medias en el recibo sería peor que
+    ninguno. Sin él, nada cambia: ni un byte de la captura.
 
     CONTRATO 133: `preferir_torch_en_cpu` (lo pide el laboratorio, apagado por omisión)
     solo afecta a la red DENSA: ver `_select_train_backend`.
@@ -4414,6 +4427,18 @@ def _submit_training_job(
     # Enforce 1 concurrent run (contract P9 §Límites operativos)
     if any(j["status"] == "running" for j in _training_jobs.values()):
         return {"ok": False, "error": "Ya hay un entrenamiento en curso. Espera a que termine o pulsa Detener."}
+
+    # CONTRATO 150-C4 — el origen del fichero, validado ANTES de crear nada: lo que llega mal formado no viaja al recibo
+    # (un origen a medias en un paquete firmado es peor que ninguno). `None`/ausente = un CSV de siempre: la captura no
+    # cambia ni un byte.
+    if origen_del_fichero is not None:
+        from matrixai.export.origen_del_fichero import normalizar_origen_del_fichero  # noqa: PLC0415
+        from matrixai.export.reproduce import ReproduceManifestError  # noqa: PLC0415
+        try:
+            origen_del_fichero = normalizar_origen_del_fichero(origen_del_fichero)
+        except ReproduceManifestError as exc:
+            return {"ok": False, "clave": "origen_del_fichero_no_valido",
+                    "error": f"origen_del_fichero no es válido: {exc}"}
 
     # CONTRATO 82 — el CSV **CRUDO**, tal como llega, antes de que lo toque
     # nadie. Es el que alguien REGENERARÍA con la receta y la semilla, y por
@@ -4566,7 +4591,9 @@ def _submit_training_job(
     _receta = recipe_text if (recipe_text and recipe_text.strip()) else None
     _split = getattr(training.dataset, "split", None)
     job["run_provenance"] = {
-        "schema_version": RUN_PROVENANCE_SCHEMA_VERSION,
+        # 150-C4: "1.3" SOLO si el run lleva el origen del fichero (ver `RUN_PROVENANCE_SCHEMA_VERSION_CON_ORIGEN`).
+        "schema_version": (RUN_PROVENANCE_SCHEMA_VERSION_CON_ORIGEN if origen_del_fichero
+                           else RUN_PROVENANCE_SCHEMA_VERSION),
         "mxai_sha256": _sha_mxai,
         "mxtrain_sha256": _hashlib.sha256((training_text or "").encode("utf-8")).hexdigest(),
         "mxtrain_text": training_text,
@@ -4729,6 +4756,16 @@ def _submit_training_job(
         "generator_version": generator_version,
         "csv_serialization_version": csv_serialization_version,
     }
+    if origen_del_fichero:
+        # 150-C4: DE QUÉ FICHERO salió `csv_text` (un libro de Excel convertido). Solo con origen: un CSV sin conversión
+        # NO lleva la clave —ni `None`—, así que su captura es la de siempre. La huella que ata estos pesos sigue siendo
+        # la de arriba (`dataset_sha256_raw`/`_prepared`, la del CSV derivado); la del original va DENTRO del bloque,
+        # informativa.
+        # I1 (reparación de 150-C4): aquí el CSV puede llegar PREPARADO (la pantalla aplica pasos tras convertir), así
+        # que un origen que no es de este CSV no se rechaza: se graba si el CSV que llega es, byte a byte, el que
+        # devolvió la conversión (`vinculo`), y la ficha lo dice. El `vinculo` del cliente, si lo trae, se descarta.
+        from matrixai.export.origen_del_fichero import atar_al_csv  # noqa: PLC0415
+        job["run_provenance"]["origen_del_fichero"] = atar_al_csv(origen_del_fichero, csv_text_crudo, exigir=False)
 
     # DE QUIÉN ES ESTE ENTRENAMIENTO.
     #

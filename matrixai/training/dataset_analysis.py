@@ -270,8 +270,13 @@ def analyze_dataset_csv(csv_text: str, *,
     # `_submit_training_job` en playground.py, para que validar/entrenar/
     # analizar vean SIEMPRE el mismo texto normalizado (ver docstring de
     # `normalize_csv_text`).
-    from matrixai.training.data import normalize_csv_text
-    csv_text = normalize_csv_text(csv_text)
+    #
+    # 150-C2: y el decimal español de un CSV `;` (`12,5` → `12.5`), por la
+    # MISMA función. Lo que convirtió o dejó como estaba viaja en el resultado
+    # (`declaraciones_de_entrada`, solo si hay algo que decir) para que la
+    # pantalla de Datos lo enseñe: «declarar lo que PASÓ».
+    from matrixai.training.data import normalize_csv_text_declarando
+    csv_text, declaraciones_de_entrada = normalize_csv_text_declarando(csv_text)
 
     try:
         reader = csv.DictReader(io.StringIO(csv_text))
@@ -359,6 +364,8 @@ def analyze_dataset_csv(csv_text: str, *,
     }
     if rows_capped_warning:
         result["rows_capped_warning"] = rows_capped_warning
+    if declaraciones_de_entrada:
+        result["declaraciones_de_entrada"] = declaraciones_de_entrada
     return result
 
 

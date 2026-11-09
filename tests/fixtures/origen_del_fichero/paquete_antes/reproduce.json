@@ -1,0 +1,143 @@
+{
+  "schema_version": "1.1",
+  "claim": "This manifest proves the package is internally consistent and reproducible: every artifact needed to rebuild this model travels here with its digest, and each one matches the authoritative capture the core recorded while training it. It does NOT prove authorship or authenticity: signatures are out of scope here.",
+  "reproducible": true,
+  "reproducible_reason": null,
+  "missing": [],
+  "conflicts": [],
+  "provenance": {
+    "source": "run_capture",
+    "run_capture": {
+      "present": true,
+      "schema_version": "1.2",
+      "sha256": "c11653bf031465a9198d63779c1991d75b7d35252899f17b8eb4ca4302277085"
+    },
+    "recipe_verification": {
+      "verified": true,
+      "code": "regenera_el_dataset"
+    },
+    "unverified_payload": null,
+    "ignored_payload_fields": []
+  },
+  "verifiable": {
+    "manifest": {
+      "possible": true,
+      "missing": [],
+      "conflicts": [],
+      "reason": null
+    },
+    "r1": {
+      "possible": true,
+      "missing": [],
+      "conflicts": [],
+      "reason": null
+    },
+    "training": {
+      "possible": true,
+      "missing": [],
+      "conflicts": [],
+      "reason": null
+    },
+    "r3": {
+      "possible": false,
+      "missing": [
+        "seed_init",
+        "backend",
+        "device",
+        "metrics"
+      ],
+      "conflicts": [],
+      "reason": "Cannot contrast the published metrics against their tolerance: the weight-initialisation seed is unknown, so a retrained model does not have to land on the same numbers; the training backend is not declared, and stdlib and torch do not produce the same numbers; the training device is not declared; no published metric carries what a comparison needs (split, the dataset sha256 it was measured on, a direction and a tolerance)."
+    }
+  },
+  "artifacts": {
+    "model": {
+      "path": "model.mxai",
+      "media_type": "text/mxai",
+      "sha256": "f7bca069c90804fccd07cdeb2b3e3305fdac421d41ea7e4a1c201da96a41c32b",
+      "matches_capture": true
+    },
+    "training": {
+      "path": "training.mxtrain",
+      "media_type": "text/mxtrain",
+      "sha256": "4b547271597b9f36264ebcb263d71c44251873e9a09ea5d1ab39738bd4440289",
+      "matches_capture": true
+    },
+    "recipe": {
+      "path": "recipe.txt",
+      "media_type": "text/plain",
+      "sha256": "4bd13c006f3c77b4cc1d00bc6763b850f09a268941ffe5e652f8e696792f1713",
+      "matches_capture": true
+    },
+    "dataset": {
+      "sha256": "8d54ef95f3dd93c48105c33a32b78c38465c67ad7d1da9a2298bae44be50b5ce",
+      "sha256_prepared": "8d54ef95f3dd93c48105c33a32b78c38465c67ad7d1da9a2298bae44be50b5ce",
+      "rows": 30,
+      "rows_used": 30
+    }
+  },
+  "weights": {
+    "source": "trained"
+  },
+  "problem": null,
+  "embedding_provider": null,
+  "generation": {
+    "generator_version": "matrixai.synthetic.v1",
+    "recipe_format_version": "matrixai.recipe.v1",
+    "csv_serialization_version": "matrixai.csv.v1",
+    "mode": "coherent",
+    "epochs_declared": 50,
+    "epochs_effective": 50,
+    "epochs_ran": 50,
+    "field_ranges": {
+      "centigrados": [
+        0.0,
+        29.0
+      ]
+    },
+    "target_range": null,
+    "warm_start": false,
+    "field_types": null,
+    "field_categories": null,
+    "one_hot_groups": null,
+    "excluded_identifiers": null,
+    "seeds": {
+      "dataset": 7,
+      "split": 42,
+      "init": null
+    },
+    "backend": null,
+    "device": null,
+    "deterministic_options": null
+  },
+  "environment": {
+    "matrixai_version": "1.21.0",
+    "python": {
+      "version": "3.12.3",
+      "implementation": "CPython",
+      "sys_version": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]"
+    },
+    "platform": {
+      "system": "Linux",
+      "release": "6.8.0-142-generic",
+      "machine": "x86_64",
+      "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.39"
+    },
+    "packages": {
+      "numpy": "2.4.4",
+      "onnx": "1.21.0",
+      "onnxruntime": "1.26.0",
+      "torch": "2.11.0+cpu"
+    },
+    "environment_sha256": "16a061327f4524944d844ce6972a31f0734d2f9304e3539a1f0eb24c3e1f14a1"
+  },
+  "metrics": [],
+  "manifest_canonicalization": "json:sort_keys=true,separators=(',',':'),ensure_ascii=true,utf-8",
+  "manifest_sha256": "13569daad41bdb5124ed0c52f726c58d84e9edf2df75bda064e53d9ec90a6095",
+  "files": {
+    "model.mxai": "f7bca069c90804fccd07cdeb2b3e3305fdac421d41ea7e4a1c201da96a41c32b",
+    "recipe.txt": "4bd13c006f3c77b4cc1d00bc6763b850f09a268941ffe5e652f8e696792f1713",
+    "training.mxtrain": "4b547271597b9f36264ebcb263d71c44251873e9a09ea5d1ab39738bd4440289"
+  },
+  "files_covered": 3
+}

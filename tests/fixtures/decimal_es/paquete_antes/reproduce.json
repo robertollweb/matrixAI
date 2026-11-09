@@ -1,0 +1,224 @@
+{
+  "schema_version": "1.1",
+  "claim": "This manifest proves the package is internally consistent: the artifacts that do travel here match their declared digests, and what it declares about the run comes from the capture the core recorded while training. It does NOT prove the model can be reproduced \u2014 see `reproducible_reason`. It does NOT prove authorship or authenticity: signatures are out of scope here.",
+  "reproducible": false,
+  "reproducible_reason": "Not reproducible: this model has no data recipe, so its dataset cannot be regenerated and compared; why there is none is not recorded in the package; the dataset generation seed is unknown.",
+  "missing": [
+    "recipe",
+    "seed_dataset"
+  ],
+  "conflicts": [],
+  "provenance": {
+    "source": "run_capture",
+    "run_capture": {
+      "present": true,
+      "schema_version": "1.2",
+      "sha256": "5a6b9df4b2ac41071e5619ccc85e1fcf4a23328a1d9e27985977739e6dfea024"
+    },
+    "recipe_verification": null,
+    "unverified_payload": null,
+    "ignored_payload_fields": []
+  },
+  "verifiable": {
+    "manifest": {
+      "possible": true,
+      "missing": [],
+      "conflicts": [],
+      "reason": null
+    },
+    "r1": {
+      "possible": false,
+      "missing": [
+        "recipe",
+        "seed_dataset"
+      ],
+      "conflicts": [],
+      "reason": "Cannot regenerate the dataset from the recipe and compare its full sha256: this model has no data recipe, so its dataset cannot be regenerated and compared; why there is none is not recorded in the package; the dataset generation seed is unknown."
+    },
+    "training": {
+      "possible": false,
+      "missing": [
+        "recipe",
+        "seed_dataset"
+      ],
+      "conflicts": [],
+      "reason": "Cannot retrain the model to completion: this model has no data recipe, so its dataset cannot be regenerated and compared; why there is none is not recorded in the package; the dataset generation seed is unknown."
+    },
+    "r3": {
+      "possible": false,
+      "missing": [
+        "recipe",
+        "seed_dataset"
+      ],
+      "conflicts": [],
+      "reason": "Cannot contrast the published metrics against their tolerance: this model has no data recipe, so its dataset cannot be regenerated and compared; why there is none is not recorded in the package; the dataset generation seed is unknown."
+    }
+  },
+  "artifacts": {
+    "model": {
+      "path": "model.mxai",
+      "media_type": "text/mxai",
+      "sha256": "f9d5228f0892879d51bccbfbd0d56431dc82537fb04890191c10aef4986957b8",
+      "matches_capture": true
+    },
+    "training": {
+      "path": "training.mxtrain",
+      "media_type": "text/mxtrain",
+      "sha256": "ed736739f5f8cb1eaa5ad4e21ffb7523116029bd69fc626503f171a32d4f9625",
+      "matches_capture": true
+    },
+    "recipe": null,
+    "dataset": {
+      "sha256": "9baea512fd56bf07cc9c654135d94fd915a4af4632a19408d7f4e3751bdbdd32",
+      "sha256_prepared": "47d2ffb6e139be87dea106bdc4e574f04980e7f76def772f563b29e8a0d1dd2a",
+      "rows": 40,
+      "rows_used": 40
+    }
+  },
+  "weights": {
+    "source": "trained"
+  },
+  "problem": null,
+  "embedding_provider": null,
+  "generation": {
+    "generator_version": "matrixai.synthetic.v1",
+    "recipe_format_version": "matrixai.recipe.v1",
+    "csv_serialization_version": "matrixai.csv.v1",
+    "mode": null,
+    "epochs_declared": 4,
+    "epochs_effective": 4,
+    "epochs_ran": 4,
+    "field_ranges": {
+      "peso_kg": [
+        40.0,
+        120.0
+      ],
+      "edad": [
+        18.0,
+        90.0
+      ]
+    },
+    "target_range": null,
+    "warm_start": false,
+    "field_types": null,
+    "field_categories": null,
+    "one_hot_groups": null,
+    "excluded_identifiers": null,
+    "seeds": {
+      "dataset": null,
+      "split": 42,
+      "init": 7
+    },
+    "backend": "stdlib",
+    "device": "cpu",
+    "deterministic_options": null
+  },
+  "environment": {
+    "matrixai_version": "1.21.0",
+    "python": {
+      "version": "3.12.3",
+      "implementation": "CPython",
+      "sys_version": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]"
+    },
+    "platform": {
+      "system": "Linux",
+      "release": "6.8.0-142-generic",
+      "machine": "x86_64",
+      "platform": "Linux-6.8.0-142-generic-x86_64-with-glibc2.39"
+    },
+    "packages": {
+      "numpy": "2.4.4",
+      "onnx": "1.21.0",
+      "onnxruntime": "1.26.0",
+      "torch": "2.11.0+cpu"
+    },
+    "environment_sha256": "16a061327f4524944d844ce6972a31f0734d2f9304e3539a1f0eb24c3e1f14a1"
+  },
+  "metrics": [
+    {
+      "name": "accuracy",
+      "value": 1.0,
+      "split": "validation",
+      "dataset_sha256": "47d2ffb6e139be87dea106bdc4e574f04980e7f76def772f563b29e8a0d1dd2a",
+      "evaluator": null,
+      "evaluator_version": null,
+      "aggregation": "global",
+      "direction": "higher_is_better",
+      "tolerance_abs": 0.0,
+      "tolerance_rel": null,
+      "tolerance_scope": "same_environment_same_seed",
+      "incomplete": [
+        "evaluator",
+        "evaluator_version",
+        "tolerance_rel"
+      ],
+      "comparable": true
+    },
+    {
+      "name": "macro_f1",
+      "value": 1.0,
+      "split": "validation",
+      "dataset_sha256": "47d2ffb6e139be87dea106bdc4e574f04980e7f76def772f563b29e8a0d1dd2a",
+      "evaluator": null,
+      "evaluator_version": null,
+      "aggregation": "macro",
+      "direction": "higher_is_better",
+      "tolerance_abs": 0.0,
+      "tolerance_rel": null,
+      "tolerance_scope": "same_environment_same_seed",
+      "incomplete": [
+        "evaluator",
+        "evaluator_version",
+        "tolerance_rel"
+      ],
+      "comparable": true
+    },
+    {
+      "name": "final_train_loss",
+      "value": 0.4357212803026134,
+      "split": "train",
+      "dataset_sha256": "47d2ffb6e139be87dea106bdc4e574f04980e7f76def772f563b29e8a0d1dd2a",
+      "evaluator": null,
+      "evaluator_version": null,
+      "aggregation": null,
+      "direction": "lower_is_better",
+      "tolerance_abs": 0.0,
+      "tolerance_rel": null,
+      "tolerance_scope": "same_environment_same_seed",
+      "incomplete": [
+        "evaluator",
+        "evaluator_version",
+        "aggregation",
+        "tolerance_rel"
+      ],
+      "comparable": true
+    },
+    {
+      "name": "best_validation_loss",
+      "value": 0.5311091183178277,
+      "split": "validation",
+      "dataset_sha256": "47d2ffb6e139be87dea106bdc4e574f04980e7f76def772f563b29e8a0d1dd2a",
+      "evaluator": null,
+      "evaluator_version": null,
+      "aggregation": null,
+      "direction": "lower_is_better",
+      "tolerance_abs": 0.0,
+      "tolerance_rel": null,
+      "tolerance_scope": "same_environment_same_seed",
+      "incomplete": [
+        "evaluator",
+        "evaluator_version",
+        "aggregation",
+        "tolerance_rel"
+      ],
+      "comparable": true
+    }
+  ],
+  "manifest_canonicalization": "json:sort_keys=true,separators=(',',':'),ensure_ascii=true,utf-8",
+  "manifest_sha256": "1a908300820cc2d79bd513a576b61c80d5ec00b09c244da07df241fe1f7024cc",
+  "files": {
+    "model.mxai": "f9d5228f0892879d51bccbfbd0d56431dc82537fb04890191c10aef4986957b8",
+    "training.mxtrain": "ed736739f5f8cb1eaa5ad4e21ffb7523116029bd69fc626503f171a32d4f9625"
+  },
+  "files_covered": 2
+}

@@ -1,0 +1,25 @@
+MODEL model.mxai
+
+DATASET D
+  SOURCE csv("d.train.csv")
+  INPUT V FROM COLUMNS [peso_kg, edad]
+  TARGET riesgo: Label[bajo, alto]
+  SPLIT train=0.8 validation=0.2 seed=42
+  BATCH size=8
+END
+
+LOSS L
+  TYPE cross_entropy
+  PREDICTION R
+  TARGET riesgo
+END
+
+OPTIMIZER O
+  TYPE sgd
+  LEARNING_RATE 0.05
+  UPDATE R.*
+END
+
+RUN
+  EPOCHS 4
+END

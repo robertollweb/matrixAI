@@ -43,6 +43,7 @@ from matrixai.export.expediente_clinico import (
     FUERA_POR_EL_MODO,
     MODO_DEL_ESTUDIO,
     MOTOR_ENTREGADO,
+    ORIGEN_DEL_FICHERO,
     POR_CLAVE,
     ExpedienteClinico,
     linea_de_campo,
@@ -50,6 +51,7 @@ from matrixai.export.expediente_clinico import (
     sin_veredicto_de_riesgo,
     texto_del_valor,
 )
+from matrixai.export.origen_del_fichero import texto_del_origen
 
 __all__ = ["FichaNoDisponible", "ficha_tripod"]
 
@@ -328,6 +330,13 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
     filas.append(_linea(t["huella_datos"], (art.get("dataset") or {}).get("sha256"),
                         t["sin_dato"],
                         ruta="reproduce.json#artifacts.dataset.sha256"))
+    # 150-C4: DE QUÉ FICHERO salió ese CSV. Solo si el paquete lo declara (un Excel convertido, un CSV con decimal español
+    # pasado a punto): un CSV sin conversión no tiene origen y «no disponible» sería un hueco inventado. Rótulo y ruta, los
+    # del inventario; el texto, el de `origen_del_fichero` (la misma redacción que el expediente).
+    if expediente.origen_del_fichero is not None:
+        filas.append(_linea(ORIGEN_DEL_FICHERO.rotulo[idioma],
+                            texto_del_origen(expediente.origen_del_fichero, idioma), t["sin_dato"],
+                            ruta=ORIGEN_DEL_FICHERO.ruta))
     # LOS PREDICTORES, DEL MODELO SI EL MANIFIESTO NO LOS TRAE.
     #
     # La primera ficha de la galería decía «Predictores: no disponible» sobre un

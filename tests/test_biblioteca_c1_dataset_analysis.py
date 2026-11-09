@@ -522,6 +522,13 @@ class TestAuditFindings:
         r = analyze_dataset_csv(csv_text)
         assert r["column_order"] == ["fecha", "temperatura", "viento"]
         assert r["columns"]["fecha"]["type"] == "date"
+        # 150-C2: el decimal con coma (`12,5`) es un NÚMERO, no texto (el test lo dejaba sin afirmar a propósito: era el
+        # límite documentado de `normalize_csv_delimiter`). `viento` sigue siendo entero.
+        assert r["columns"]["temperatura"]["type"] == "number"
+        assert r["columns"]["temperatura"]["observed_range"] == [9.2, 15.0]
+        assert r["columns"]["viento"]["type"] == "integer"
+        # y la pantalla de Datos puede decir lo que pasó
+        assert [d["columna"] for d in r["declaraciones_de_entrada"]] == ["temperatura"]
 
     def test_comma_delimited_csv_with_semicolon_in_a_value_untouched(self):
         """Señal conservadora: si la cabecera YA tiene coma, no se toca el

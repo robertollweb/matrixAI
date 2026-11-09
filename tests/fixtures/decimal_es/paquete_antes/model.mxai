@@ -1,0 +1,17 @@
+PROJECT P
+
+VECTOR V[2]
+  peso_kg: Scalar
+  edad: Scalar
+END
+
+NETWORK R
+  INPUT V
+  LAYER Dense units=8 activation=relu
+  LAYER Dense units=2 activation=softmax
+  OUTPUT riesgo: ProbabilityMap[bajo, alto]
+END
+
+GRAPH
+  V -> R
+END

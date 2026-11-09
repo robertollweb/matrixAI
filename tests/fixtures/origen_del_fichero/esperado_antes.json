@@ -1,0 +1,25 @@
+{
+  "dataset_sha256": "8d54ef95f3dd93c48105c33a32b78c38465c67ad7d1da9a2298bae44be50b5ce",
+  "etapas": {
+    "R1": [
+      "PASS",
+      null
+    ],
+    "R3": [
+      "NOT_RUN",
+      "las m\u00e9tricas solo se contrastan contra un entrenamiento nuevo (usa --retrain)"
+    ],
+    "manifest": [
+      "PASS",
+      null
+    ],
+    "training": [
+      "NOT_RUN",
+      "nadie pidi\u00f3 reentrenar (usa --retrain)"
+    ]
+  },
+  "exit": 0,
+  "fully": true,
+  "generado_con": "0f2c052",
+  "ok": true
+}
