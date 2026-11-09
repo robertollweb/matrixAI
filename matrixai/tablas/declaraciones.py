@@ -81,6 +81,43 @@ _SEPARADORES = {"coma": ("comas", "commas"), "punto_y_coma": ("puntos y coma", "
 
 _CARACTER = {"coma": ",", "punto_y_coma": ";", "tabulador": "tab"}
 
+
+#: 150-C8: categoría de una columna que un CSV no puede guardar (clave estable del detalle) -> (es, en).
+_CATEGORIAS_PARQUET = {"lista": ("lista", "list"), "estructura": ("estructura", "struct"), "mapa": ("mapa", "map"),
+                       "binario": ("binario", "binary"), "duracion": ("duración", "duration"),
+                       "intervalo": ("intervalo", "interval"), "union": ("unión", "union"), "otro": ("tipo no admitido", "unsupported type")}
+
+
+def _categoria_parquet(d: dict, i: int) -> str:
+    c = d["detalle"].get("categoria")
+    return _CATEGORIAS_PARQUET.get(c, (str(c), str(c)))[i] if isinstance(c, str) else str(c)
+
+
+_UNIDADES_PARQUET = {"s": ("segundos", "seconds"), "ms": ("milisegundos", "milliseconds"),
+                     "us": ("microsegundos", "microseconds"), "ns": ("nanosegundos", "nanoseconds")}
+
+
+def _unidad_parquet(d: dict, i: int) -> str:
+    u = d["detalle"].get("unidad")
+    return _UNIDADES_PARQUET.get(u, (str(u), str(u)))[i]
+
+
+def _prevista_parquet(d: dict, i: int) -> str:
+    que = d["detalle"].get("que")
+    if isinstance(que, str) and que in _PREVISTAS_PARQUET:
+        return _PREVISTAS_PARQUET[que][i](d)
+    return (f"«{_col(d)}» se convertirá al escribir el CSV.", f"«{_col(d)}» will be converted when the CSV is written.")[i]
+
+
+_PREVISTAS_PARQUET = {
+    "zona_horaria_a_utc": (
+        lambda d: f"«{_col(d)}» lleva zona horaria ({d['detalle'].get('zona')}): se escribirá en UTC, sin indicar la zona.",
+        lambda d: f"«{_col(d)}» carries a time zone ({d['detalle'].get('zona')}): it will be written in UTC, without the zone."),
+    "unidad_a_segundos": (
+        lambda d: f"«{_col(d)}» guarda hasta {_unidad_parquet(d, 0)}: se escribirá en segundos (la fracción de segundo se descartará).",
+        lambda d: f"«{_col(d)}» is stored down to {_unidad_parquet(d, 1)}: it will be written in seconds (the fraction of a second will be dropped)."),
+}
+
 TIPOS: dict[str, tuple] = {
     "columnas_vacias_quitadas": (
         lambda d: _p(d['cuantas'], f"Se quitó 1 columna totalmente vacía ({_lista(d['detalle'].get('letras'))}).",
@@ -296,6 +333,39 @@ TIPOS: dict[str, tuple] = {
         lambda d: "The sheet has no data."),
     # Remate de 150-C4 (menor 2): lo que se quita del NOMBRE del fichero o de la HOJA al componer el origen (el que
     # cita la ficha). `detalle.que` dice de cuál.
+    # ── 150-C8: Parquet ─────────────────────────────────────────────────────────────────────────────────────────────────
+    # Lo que se QUITA (columnas que un CSV no puede guardar), por nombre y tipo: la lista es visible antes de seguir.
+    "parquet_columna_excluida": (
+        lambda d: (f"La columna «{_col(d)}» no entra en el CSV: es de tipo {_categoria_parquet(d, 0)} ({d['detalle'].get('tipo_arrow')}) y un CSV "
+                   "no puede guardar ese tipo de valor. Si la necesitas, aplánala o conviértela a texto o números al exportar el fichero."),
+        lambda d: (f"Column «{_col(d)}» is not in the CSV: it is of type {_categoria_parquet(d, 1)} ({d['detalle'].get('tipo_arrow')}) and a CSV "
+                   "cannot hold that kind of value. If you need it, flatten it or turn it into text or numbers when exporting the file.")),
+    "parquet_zona_horaria_a_utc": (
+        lambda d: _p(d['cuantas'], f"En «{_col(d)}», 1 instante con zona horaria ({d['detalle'].get('zona')}) se escribió en UTC (sin indicar la zona).",
+                     f"En «{_col(d)}», " + "{n} instantes con zona horaria (" + str(d['detalle'].get('zona')) + ") se escribieron en UTC (sin indicar la zona)."),
+        lambda d: _p(d['cuantas'], f"In «{_col(d)}», 1 instant with a time zone ({d['detalle'].get('zona')}) was written in UTC (without the zone).",
+                     f"In «{_col(d)}», " + "{n} instants with a time zone (" + str(d['detalle'].get('zona')) + ") were written in UTC (without the zone).")),
+    "parquet_unidad_a_segundos": (
+        lambda d: (f"«{_col(d)}» guarda hasta {_unidad_parquet(d, 0)} y se escribió en segundos: "
+                   + ("ningún valor perdió fracción de segundo." if not d['cuantas'] else
+                      _p(d['cuantas'], "1 valor perdió su fracción de segundo.", "{n} valores perdieron su fracción de segundo."))),
+        lambda d: (f"«{_col(d)}» is stored down to {_unidad_parquet(d, 1)} and was written in seconds: "
+                   + ("no value lost a fraction of a second." if not d['cuantas'] else
+                      _p(d['cuantas'], "1 value lost its fraction of a second.", "{n} values lost their fraction of a second.")))),
+    "parquet_fecha_fuera_de_rango": (
+        lambda d: _p(d['cuantas'], f"En «{_col(d)}», 1 fecha queda fuera de los años 1 a 9999 y se dejó vacía.",
+                     f"En «{_col(d)}», " + "{n} fechas quedan fuera de los años 1 a 9999 y se dejaron vacías."),
+        lambda d: _p(d['cuantas'], f"In «{_col(d)}», 1 date falls outside the years 1 to 9999 and was left empty.",
+                     f"In «{_col(d)}», " + "{n} dates fall outside the years 1 to 9999 and were left empty.")),
+    "parquet_nombre_vacio": (
+        lambda d: f"La columna n.º {d['detalle'].get('posicion')} del fichero no tenía nombre: ahora es «{_col(d)}».",
+        lambda d: f"Column no. {d['detalle'].get('posicion')} in the file had no name: it is now «{_col(d)}»."),
+    "parquet_nombre_repetido": (
+        lambda d: f"La columna n.º {d['detalle'].get('posicion')} se llamaba «{d['detalle'].get('original')}», como otra: ahora es «{_col(d)}».",
+        lambda d: f"Column no. {d['detalle'].get('posicion')} was called «{d['detalle'].get('original')}», like another one: it is now «{_col(d)}»."),
+    "parquet_conversion_prevista": (
+        lambda d: _prevista_parquet(d, 0),
+        lambda d: _prevista_parquet(d, 1)),
     "texto_del_origen_saneado": (
         lambda d: _p(d['cuantas'], f"Se quitó 1 carácter de control o de dirección del {_donde(d, 0)}, que reordena o ensucia lo que se lee en el recibo.",
                      "Se quitaron {n} caracteres de control o de dirección del " + _donde(d, 0) + ", que reordenan o ensucian lo que se lee en el recibo."),

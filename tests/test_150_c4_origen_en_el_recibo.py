@@ -736,16 +736,18 @@ def test_I2_un_csv_con_bom_dice_huella_del_texto_recibido_y_no_del_original_en_e
 
 # ── I3: formato cerrado, nombre y hoja escapados, sin controles bidireccionales ─────────────────
 
-@pytest.mark.parametrize("formato", ["**VERIFICADO**", "XLSX", "ods", "csv ", "Excel", "parquet"])
+@pytest.mark.parametrize("formato", ["**VERIFICADO**", "XLSX", "ods", "csv ", "Excel", "Parquet", "PARQUET", "parquet "])
 def test_I3_un_formato_fuera_de_la_lista_cerrada_se_rechaza(formato):
     with pytest.raises(ReproduceManifestError, match="formato"):
         odf.normalizar_origen_del_fichero(_origen_a_mano(formato=formato))
 
 
 def test_I3_la_lista_cerrada_es_la_que_produce_la_conversion():
-    assert odf.FORMATOS == ("xlsx", "xls", "xlsm", "csv")
+    assert odf.FORMATOS == ("xlsx", "xls", "xlsm", "parquet", "csv")
     for formato in odf.FORMATOS:
         assert odf.normalizar_origen_del_fichero(_origen_a_mano(formato=formato))["formato"] == formato
+    # «parquet» lo produce `parquet_lector.convertir_parquet` (150-C8)
+    assert '"formato": "parquet"' in (RAIZ / "matrixai" / "tablas" / "parquet_lector.py").read_text(encoding="utf-8")
     # «xlsm» lo produce `Libro._clasificar` (con macros) y «xls» por firma OLE: mirado en el fuente, no supuesto
     fuente = (RAIZ / "matrixai" / "tablas" / "api.py").read_text(encoding="utf-8")
     assert 'return "xlsm" if self.macros else "xlsx"' in fuente and 'return "xls"' in fuente

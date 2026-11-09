@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from .. import limits
 from .errores import rechazar
 
-__all__ = ["Topes", "TOPES_DE_FABRICA", "BYTES_POR_CELDA_DEL_RANGO", "FACTOR_RAM_POR_BYTE_DE_XML",
+__all__ = ["Topes", "TOPES_DE_FABRICA", "MAX_FILAS_PARQUET_DE_FABRICA", "BYTES_POR_CELDA_DEL_RANGO", "FACTOR_RAM_POR_BYTE_DE_XML",
            "FACTOR_RAM_POR_BYTE_DE_CADENAS", "comprobar_memoria", "ram_estimada_de_una_hoja",
            "techo_del_lector", "comprobar_cadenas_compartidas", "hueco_bajo_el_techo_del_proceso",
            "memoria_virtual_del_proceso"]
@@ -44,6 +44,13 @@ MAX_CADENAS_COMPARTIDAS_DE_FABRICA = 256 << 20
 MAX_SEGUNDOS_DEL_LECTOR_DE_FABRICA = 120.0
 
 
+#: Parquet (150-C8): un tope de SEGURIDAD sobre las filas que DECLARAN los metadatos, no de producto («el Studio que se
+#: descarga no tiene tope»). Lo que de verdad acota es la guarda de memoria sobre los bytes descomprimidos; esto corta un
+#: pie de fichero que miente (miles de millones de filas en unos pocos KB) antes de planificar nada. El backend de la demo
+#: lo baja.
+MAX_FILAS_PARQUET_DE_FABRICA = 200_000_000
+
+
 @dataclass(frozen=True)
 class Topes:
     max_descomprimido: int = MAX_DESCOMPRIMIDO_DE_FABRICA
@@ -53,6 +60,8 @@ class Topes:
     max_segundos_lector: float = MAX_SEGUNDOS_DEL_LECTOR_DE_FABRICA
     #: Techo de memoria del proceso lector. `None` = el calculado (`techo_del_lector`).
     max_memoria_lector: int | None = None
+    #: Parquet: filas que declaran los metadatos (ver `MAX_FILAS_PARQUET_DE_FABRICA`).
+    max_filas_parquet: int = MAX_FILAS_PARQUET_DE_FABRICA
 
 
 TOPES_DE_FABRICA = Topes()

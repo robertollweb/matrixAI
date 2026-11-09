@@ -18,11 +18,14 @@ from .errores import rechazar
 from .topes import Topes
 
 __all__ = ["detectar_formato", "abrir_zip_de_excel", "es_ole_de_excel", "FIRMA_ZIP",
-           "FIRMA_OLE", "FIRMA_PARQUET", "FIRMA_PDF"]
+           "FIRMA_OLE", "FIRMA_PARQUET", "FIRMA_PARQUET_CIFRADO", "FIRMA_PDF"]
 
 FIRMA_ZIP = b"PK\x03\x04"
 FIRMA_OLE = bytes.fromhex("D0CF11E0A1B11AE1")
 FIRMA_PARQUET = b"PAR1"
+#: Parquet con el pie CIFRADO (Parquet Modular Encryption): empieza Y ACABA por PARE. No entra en `detectar_formato`
+#: (que solo ve el principio, y un CSV puede empezar por «PARE…»): lo mira `parquet_lector` con los dos extremos.
+FIRMA_PARQUET_CIFRADO = b"PARE"
 FIRMA_PDF = b"%PDF-"
 _MARCAS_HTML = ("<html", "<!doctype html", "<table", "<head", "<body", "<meta", "<div", "<span",
                 "<p>", "<p ", "<tr", "<td", "<br", "<style", "<script", "<title", "<a ", "<img")

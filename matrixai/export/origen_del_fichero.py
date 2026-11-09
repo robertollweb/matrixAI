@@ -61,7 +61,7 @@ from matrixai.export.reproduce import (
 __all__ = [
     "CLAVE", "VERSION_DE_LA_CAPTURA_CON_ORIGEN", "TOPE_DE_BYTES_DEL_ORIGEN", "FORMATOS", "VINCULOS",
     "OrigenDeOtroCsv", "normalizar_origen_del_fichero", "numero_de_declaraciones", "origen_de_un_csv",
-    "es_origen_de_excel", "entrada_canonica_de",
+    "es_origen_de_excel", "es_origen_convertido", "entrada_canonica_de",
     "origen_para_el_estudio", "atar_al_csv", "huella_del_texto", "bloque_del_manifiesto", "texto_del_origen",
     "codigo_en_linea", "ROTULO", "frases_del_origen", "frases_bilingues_del_origen",
 ]
@@ -83,12 +83,14 @@ TOPE_DE_BYTES_DEL_ORIGEN = 1_048_576
 _ESQUEMA_QUE_SE_SABE_LEER = 1
 
 _FORMATOS_DE_EXCEL = ("xlsx", "xls", "xlsm")
+#: Los formatos cuyo CSV lo escribe `matrixai.tablas.convertir` (150-C8: Parquet, además de Excel): ese CSV YA es canónico.
+_FORMATOS_CONVERTIDOS = (*_FORMATOS_DE_EXCEL, "parquet")
 
 #: Los formatos que un origen puede declarar: los que de verdad produce `matrixai.tablas.convertir`
 #: (`Libro._clasificar`: «xls» por firma OLE, «xlsx» o «xlsm» —con macros— por el ZIP) y el «csv» que compone
 #: `origen_de_un_csv` (150-C2). Lista CERRADA (I3): antes era texto libre y la ficha imprimía, en mayúsculas,
 #: lo que mandase el cliente («**VERIFICADO**»).
-FORMATOS = (*_FORMATOS_DE_EXCEL, "csv")
+FORMATOS = (*_FORMATOS_CONVERTIDOS, "csv")
 
 #: Lo que `vinculo` puede decir (I1): «comprobado» = el dataset coincide, byte a byte, con la huella que el origen declara
 #: para su CSV (`sha256_del_csv`, que la declara el cliente: el servidor no guarda lo que devolvió la conversión);
@@ -249,10 +251,15 @@ def es_origen_de_excel(origen: Any) -> bool:
     return isinstance(origen, Mapping) and origen.get("formato") in _FORMATOS_DE_EXCEL
 
 
+def es_origen_convertido(origen: Any) -> bool:
+    """¿Este origen (sin validar aún) dice que el CSV lo escribió la CONVERSIÓN de un fichero (Excel o Parquet, 150-C8)?"""
+    return isinstance(origen, Mapping) and origen.get("formato") in _FORMATOS_CONVERTIDOS
+
+
 def entrada_canonica_de(csv_text: str, origen_recibido: Any) -> tuple[str, list[dict]]:
     """La entrada canónica del estudio (150-C2) para ESTE CSV: `(texto, declaraciones_de_entrada)`.
 
-    Un CSV que viene de `convertir` (origen de formato xlsx, xls o xlsm) **ya es canónico**: coma, punto decimal, sin BOM
+    Un CSV que viene de `convertir` (origen de formato xlsx, xls, xlsm o parquet) **ya es canónico**: coma, punto decimal, sin BOM
     propio, escrito por nuestro escritor. Ese CSV pasa TAL CUAL y sin declaraciones, y el estudio guarda exactamente lo que
     devolvió la conversión (`dataset.sha256` = `sha256_del_csv`). Todo lo demás (un CSV `;` de verdad, con o sin origen propio)
     se canoniza como en el C2.
@@ -266,7 +273,7 @@ def entrada_canonica_de(csv_text: str, origen_recibido: Any) -> tuple[str, list[
 
     `normalize_csv_text_declarando` se importa aquí, no arriba: este módulo no necesita el entrenamiento para escribir un
     recibo."""
-    if es_origen_de_excel(origen_recibido):
+    if es_origen_convertido(origen_recibido):
         return csv_text, []
     from matrixai.training.data import normalize_csv_text_declarando  # noqa: PLC0415
     return normalize_csv_text_declarando(csv_text)

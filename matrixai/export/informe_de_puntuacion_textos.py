@@ -530,6 +530,8 @@ TEXTOS: dict[str, dict[str, str]] = {
                   "en": "CSV supplied by whoever evaluates: {f} ({n} rows read)"},
     "vi_fuente_excel": {"es": "Libro de Excel aportado por quien evalúa y convertido a CSV: {f} ({n} filas leídas)",
                         "en": "Excel workbook supplied by whoever evaluates and converted to CSV: {f} ({n} rows read)"},
+    "vi_fuente_parquet": {"es": "Fichero Parquet aportado por quien evalúa y convertido a CSV: {f} ({n} filas leídas)",
+                          "en": "Parquet file supplied by whoever evaluates and converted to CSV: {f} ({n} rows read)"},
     "vi_fuente_sin_nombre": {"es": "CSV aportado por quien evalúa, sin nombre de fichero ({n} filas leídas)",
                              "en": "CSV supplied by whoever evaluates, no file name ({n} rows read)"},
     "vi_tamano": {

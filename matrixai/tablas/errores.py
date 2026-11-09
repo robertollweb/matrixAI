@@ -42,13 +42,41 @@ CODIGOS: dict[str, tuple[str, str]] = {
     "formato_no_soportado": (
         "El formato {formato} no está soportado. Se abren .xlsx, .xlsm y .xls.",
         "The {formato} format is not supported. .xlsx, .xlsm and .xls files can be opened."),
-    "parquet_no_soportado": (
-        "Es un fichero Parquet: todavía no se abre. Se abren .xlsx, .xlsm, .xls y .csv.",
-        "This is a Parquet file: it cannot be opened yet. .xlsx, .xlsm, .xls and .csv files "
-        "can be opened."),
+    # 150-C8 (Parquet): el lector es `pyarrow`, extra opcional. Sin él, Parquet dice esto y Excel sigue funcionando.
+    "falta_pyarrow": (
+        "Falta pyarrow, el lector de Parquet: instálalo con «pip install pyarrow» (o con pip install "
+        "\"matrixai-core[parquet]\"). Los libros de Excel y los CSV se abren igual sin él.",
+        "pyarrow, the Parquet reader, is missing: install it with «pip install pyarrow» (or with pip install "
+        "\"matrixai-core[parquet]\"). Excel workbooks and CSV files open the same without it."),
+    "pyarrow_no_carga": (
+        "pyarrow está instalado pero no se ha podido cargar ({tipo}). Puede que falte memoria o que la instalación esté dañada: "
+        "reinstálalo con «pip install --force-reinstall pyarrow». Los libros de Excel y los CSV se abren igual.",
+        "pyarrow is installed but could not be loaded ({tipo}). The machine may be short of memory or the installation may be "
+        "damaged: reinstall it with «pip install --force-reinstall pyarrow». Excel workbooks and CSV files open the same."),
+    "parquet_danado": (
+        "El fichero Parquet está dañado o incompleto (no se puede leer: {tipo}). Puede que la descarga se "
+        "cortara: vuelve a descargarlo o a exportarlo.",
+        "The Parquet file is damaged or incomplete (it cannot be read: {tipo}). The download may have been "
+        "cut off: download or export it again."),
+    "parquet_cifrado": (
+        "El fichero Parquet está cifrado y no se puede leer aquí. Expórtalo sin cifrar desde donde salió.",
+        "The Parquet file is encrypted and cannot be read here. Export it unencrypted from wherever it came from."),
+    "parquet_no_legible": (
+        "El fichero Parquet usa algo que este lector no admite ({tipo}). Vuelve a exportarlo con compresión "
+        "estándar (snappy, zstd o sin comprimir).",
+        "The Parquet file uses something this reader does not support ({tipo}). Export it again with standard "
+        "compression (snappy, zstd or uncompressed)."),
+    "parquet_vacio": (
+        "El fichero Parquet no tiene filas o no tiene columnas.",
+        "The Parquet file has no rows or no columns."),
+    "parquet_sin_columnas_convertibles": (
+        "Ninguna de las {n_columnas} del fichero Parquet se puede convertir a CSV: todas son listas, estructuras, "
+        "mapas, binarios u otros tipos que un CSV no puede guardar.",
+        "None of the {n_columnas} in the Parquet file can be converted to CSV: they are all lists, structs, "
+        "maps, binaries or other types a CSV cannot hold."),
     "formato_desconocido": (
         "No se reconoce el formato del fichero (empieza por bytes que no son de un Excel). "
-        "Se abren .xlsx, .xlsm, .xls y .csv.",
+        "Se abren .xlsx, .xlsm, .xls, .parquet y .csv.",
         "The file format is not recognised (it does not start like an Excel file). .xlsx, "
         ".xlsm, .xls and .csv files can be opened."),
     "bomba": (
@@ -183,6 +211,37 @@ def _plural(n, es_uno: str, es_varios: str, en_uno: str, en_varios: str) -> tupl
 
 #: (código, variante) → (es, en): el MISMO código estable con otro motivo para quien lee.
 VARIANTES: dict[tuple[str, str], tuple[str, str]] = {
+    # 150-C8 (Parquet): las mismas guardas, dichas con las palabras de un fichero de columnas (sin «hoja»).
+    ("bomba", "parquet"): (
+        "Los datos del fichero Parquet ocuparían {descomprimido} descomprimidos (el fichero pesa {original}) y el "
+        "tope es {tope}. No se abre: podría agotar la memoria de este equipo.",
+        "The Parquet file's data would take {descomprimido} once uncompressed (the file is {original}) and the "
+        "limit is {tope}. It is not opened: it could exhaust this machine's memory."),
+    ("demasiadas_filas", "parquet"): (
+        "El fichero Parquet tiene {n_filas} y el tope es {tope}.",
+        "The Parquet file has {n_filas} and the limit is {tope}."),
+    ("demasiadas_columnas", "parquet"): (
+        "El fichero Parquet tiene {n_columnas} y el tope es {tope}.",
+        "The Parquet file has {n_columnas} and the limit is {tope}."),
+    ("memoria_insuficiente", "parquet"): (
+        "Convertir el fichero Parquet necesita unos {necesario} de memoria y este equipo tiene {disponible} "
+        "disponibles. No es un tope que se pueda cambiar: exporta menos filas o columnas.",
+        "Converting the Parquet file needs about {necesario} of memory and this machine has {disponible} "
+        "available. It is not a limit that can be changed: export fewer rows or columns."),
+    ("memoria_insuficiente", "parquet_techo_del_proceso"): (
+        "Convertir el fichero Parquet necesita que el proceso que lo convierte use unos {necesario} de memoria, y "
+        "solo puede usar {disponible} más (su techo es {techo}). No indica que el fichero esté dañado: exporta menos "
+        "filas o columnas.",
+        "Converting the Parquet file needs the process converting it to use about {necesario} of memory, and it can "
+        "only use {disponible} more (its limit is {techo}). It does not mean the file is damaged: export fewer rows "
+        "or columns."),
+    ("lector_sin_memoria", "parquet"): (
+        "El lector de Parquet se quedó sin memoria leyendo el fichero y se ha parado. O el fichero es demasiado "
+        "grande para este equipo, o pide mucha más memoria de la que su contenido justifica (dañado o fabricado a "
+        "propósito). Exporta menos filas o columnas.",
+        "The Parquet reader ran out of memory reading the file and was stopped. Either the file is too large for "
+        "this machine, or it asks for far more memory than its content justifies (damaged or crafted on purpose). "
+        "Export fewer rows or columns."),
     # I-R1 de 150-C1 (decisión del supervisor, revocable por Roberto): XlsxWriter guarda cada
     # fórmula con un valor 0 de relleno y `<calcPr fullCalcOnLoad="1"/>`; el 0 NO es el
     # resultado, así que se rechaza igual que una fórmula sin valor.

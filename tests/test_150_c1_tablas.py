@@ -130,12 +130,19 @@ def test_importar_el_modulo_no_arrastra_lo_pesado():
 
 
 def test_el_producto_no_usa_bibliotecas_de_excel_ni_de_csv_de_terceros():
-    """Criterio 8: el escritor es nuestro. Y `openpyxl`/`pandas`/`pyarrow` no están en el producto."""
+    """Criterio 8: el escritor es nuestro. Y `openpyxl`/`pandas`/`numpy` no están en el producto. `pyarrow` (150-C8) solo en
+    `parquet_lector.py` y siempre IMPORTADO DENTRO de una función (invariante 7: sin el extra, el módulo se importa)."""
     for f in (RAIZ / "matrixai" / "tablas").glob("*.py"):
         fuente = f.read_text(encoding="utf-8")
-        for malo in ("import openpyxl", "from openpyxl", "import pandas", "from pandas",
-                     "import pyarrow", "from pyarrow", "import xlrd", "import xlwt"):
+        for malo in ("import openpyxl", "from openpyxl", "import pandas", "from pandas", "import numpy", "from numpy",
+                     "import xlrd", "import xlwt"):
             assert malo not in fuente, f"{f.name}: {malo}"
+        if f.name != "parquet_lector.py":
+            for malo in ("import pyarrow", "from pyarrow"):
+                assert malo not in fuente, f"{f.name}: {malo}"
+        else:
+            for linea in fuente.splitlines():
+                assert not linea.startswith(("import pyarrow", "from pyarrow")), f"import de pyarrow a nivel de módulo: {linea}"
 
 
 # ── Criterio 1: formato por FIRMA ───────────────────────────────────────────────────────
@@ -186,10 +193,11 @@ def test_los_motivos_de_los_defectuosos_dicen_que_hacer():
     assert "password" in rechazo(inspeccionar, leer("cifrado.xlsx"), "a.xlsx").motivo_en
 
 
-def test_parquet_se_reconoce_y_dice_que_aun_no_se_abre():
+def test_parquet_ya_se_abre_y_uno_sin_pie_dice_que_esta_danado():
+    """150-C8: el Parquet ya no es «todavía no»: un fichero que empieza y acaba por PAR1 pero no tiene pie legible está dañado."""
     e = rechazo(inspeccionar, b"PAR1" + b"\0" * 50 + b"PAR1", "datos.parquet")
-    assert e.codigo == "parquet_no_soportado"
-    assert "todavía no" in e.motivo_es and "yet" in e.motivo_en
+    assert e.codigo in ("parquet_danado", "falta_pyarrow")
+    assert "todavía no" not in e.motivo_es and "yet" not in e.motivo_en
 
 
 def test_un_zip_con_contrasena_se_rechaza_como_protegido():

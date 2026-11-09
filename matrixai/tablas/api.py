@@ -31,6 +31,7 @@ from . import aislado
 from .declaraciones import declarar
 from .errores import TablaRechazada, lista_para_texto, rechazar
 from .formato import abrir_zip_de_excel, detectar_formato, es_ole_de_excel, xls_con_contrasena
+from .parquet_lector import es_parquet
 from .topes import (TOPES_DE_FABRICA, Topes, comprobar_cadenas_compartidas, comprobar_memoria,
                     memoria_virtual_del_proceso,
                     ram_estimada_de_una_hoja, techo_del_lector)
@@ -141,7 +142,8 @@ class _Libro:
         if familia == "xml_excel":
             raise rechazar("formato_no_soportado", formato="XML de Excel 2003")
         if familia == "parquet":
-            raise rechazar("parquet_no_soportado")
+            # Un Parquet no llega aquí: `inspeccionar` y `convertir` lo desvían a `parquet_lector` antes de abrir un libro.
+            raise rechazar("formato_desconocido")
         if familia == "desconocido":
             raise rechazar("formato_desconocido")
         if familia == "ole":
@@ -675,7 +677,13 @@ def _sin_excepciones_ajenas(f):
 # ── inspeccionar ────────────────────────────────────────────────────────────────────────
 @_sin_excepciones_ajenas
 def inspeccionar(datos: bytes, nombre: str = "", *, topes: Topes | None = None) -> dict:
-    """Qué hay en el libro, sin convertir nada. Propone la hoja, la cabecera y los totales."""
+    """Qué hay en el libro, sin convertir nada. Propone la hoja, la cabecera y los totales.
+
+    Un Parquet (por su FIRMA, no por su extensión) va a `parquet_lector`: no tiene hojas ni cabecera que proponer, y
+    enseña sus columnas, las que no entran en el CSV y lo que se hará con las fechas (150-C8)."""
+    if es_parquet(datos):
+        from .parquet_lector import inspeccionar_parquet  # noqa: PLC0415 — pyarrow, solo si hay un Parquet
+        return inspeccionar_parquet(datos, nombre, topes=topes)
     libro = _Libro(datos, nombre, topes or TOPES_DE_FABRICA)
     visibles = [h for h in libro.hojas if h["estado"] == "visible" and not h.get("grafico")]
     hojas = [_inspeccionar_hoja(libro, m) for m in libro.hojas]
@@ -952,7 +960,7 @@ def _combinadas_en_lo_convertido(h: _HojaLeida, fd: int, fin: int, excluir: list
 
 
 @_sin_excepciones_ajenas
-def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: int,
+def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: int | None = None,
               filas_de_cabecera: int = 1, filas_a_excluir=(), rellenar_combinadas: bool = False,
               partir_columna_unica: str | None = None,
               componer_cabecera_de_dos_niveles: bool = False,
@@ -968,7 +976,16 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
     `componer_cabecera_de_dos_niveles` (150-C7, decisión de Roberto del 09-11): solo lo manda quien ACEPTÓ la oferta de `inspeccionar`
     (`cabecera_de_dos_niveles_ofrecida`): los nombres bajo cada grupo de la banda se escriben «grupo · nombre» y, si la banda va
     debajo de la cabecera, esa fila deja de ser un dato. Se declara. `False` (lo normal): nada se compone.
+
+    Un Parquet (150-C8) va a `parquet_lector.convertir_parquet`: sin hojas ni cabecera, así que `fila_de_cabecera` puede omitirse
+    (con un libro de Excel es obligatoria) y lo demás de Excel se rechaza si se pide.
     """
+    if es_parquet(datos):
+        from .parquet_lector import convertir_parquet  # noqa: PLC0415
+        return convertir_parquet(datos, nombre, hoja=hoja, fila_de_cabecera=fila_de_cabecera, filas_de_cabecera=filas_de_cabecera,
+                                 filas_a_excluir=filas_a_excluir, rellenar_combinadas=rellenar_combinadas,
+                                 partir_columna_unica=partir_columna_unica,
+                                 componer_cabecera_de_dos_niveles=componer_cabecera_de_dos_niveles, topes=topes)
     if not isinstance(componer_cabecera_de_dos_niveles, bool):
         raise rechazar("parametro_invalido", parametro="componer_cabecera_de_dos_niveles debe ser verdadero o falso",
                        parametro_en="componer_cabecera_de_dos_niveles must be true or false")
