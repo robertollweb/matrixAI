@@ -348,11 +348,29 @@ def _proponer_cabecera(h: _HojaLeida) -> int | None:
         # «Todas las edades» del INE) deja UNA sola celda con contenido entre la cabecera y los datos: no es un dato ni
         # cierra la búsqueda; se salta como las vacías. Sin esto la cabecera real se descartaba y se proponía el primer
         # dato (UK Home Office «Table 2b»: fila 6) o ninguna (INE población, «Table 4»).
-        siguiente = next((f for f in h.filas[i + 1:i + 1 + _VACIAS_TRAS_CABECERA + 1]
-                          if sum(1 for v in f if not _vacia(v)) >= 2), None)
-        if siguiente is not None:
-            return h.fila0 + i
+        siguiente, salto_de_una_celda = None, False
+        for f in h.filas[i + 1:i + 1 + _VACIAS_TRAS_CABECERA + 1]:
+            con_dato = sum(1 for v in f if not _vacia(v))
+            if con_dato >= 2:
+                siguiente = f
+                break
+            salto_de_una_celda = salto_de_una_celda or con_dato == 1
+        if siguiente is None:
+            continue
+        # Auditoría del 150-C7 (I2): saltar una fila de UNA celda no puede convertir en cabecera lo que va ENCIMA de un título.
+        # Unos metadatos de dos textos («Empresa | ACME», «Fuente: INE | Unidad: personas»), luego un título de una celda y luego
+        # la cabecera de verdad: la «siguiente» tras el salto es esa cabecera, no un dato. Tras un salto, la candidata solo es
+        # cabecera si lo que viene detrás tiene MENOS textos que ella (datos, no otra cabecera): la banda del INE o de «Table
+        # 2b» va seguida de una etiqueta y números; una fila de datos de texto sobre una sección («Madrid | norte | 10», «SUR»,
+        # «Sevilla | sur | 9») tampoco es cabecera. Sin salto, la regla de siempre (lo que ya acertaba no cambia).
+        if salto_de_una_celda and _textos_distintos(siguiente) >= len(textos):
+            continue
+        return h.fila0 + i
     return None
+
+
+def _textos_distintos(fila: list) -> int:
+    return len({v.strip() for v in fila if isinstance(v, str) and v.strip()})
 
 
 _SEPARADORES_PEGADOS = (("coma", ","), ("punto_y_coma", ";"), ("tabulador", "\t"))
@@ -377,7 +395,12 @@ def _columna_unica_con_separadores(h: _HojaLeida) -> tuple[str, int] | None:
             break
     if len(celdas) < 3:
         return None
-    for clave, sep in _SEPARADORES_PEGADOS:
+    # Reparación de la auditoría del 150-C7 (I1): primero los separadores que lleva la PRIMERA celda (la cabecera del CSV pegado),
+    # como hace la entrada canónica con un `.csv` (la cabecera decide: sin comas y con `;` es un CSV `;`). Sin esto, un CSV `;`
+    # español con DOS columnas de decimal coma («2024-01-01;18,5;2,25;no») se partía por COMAS en 3 campos que no son nada.
+    primera = celdas[0]
+    orden = sorted(_SEPARADORES_PEGADOS, key=lambda cs: cs[1] not in primera)
+    for clave, sep in orden:
         cuentas: dict[int, int] = {}
         for c in celdas:
             if sep not in c:
@@ -778,7 +801,7 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
     if partir_columna_unica is not None and (not isinstance(partir_columna_unica, str)
                                               or partir_columna_unica not in _CLAVE_DE):
         raise rechazar("parametro_invalido", parametro="partir_columna_unica debe ser «,», «;» o un tabulador",
-                       parametro_en="partir_columna_unica must be «,», «;» or a tab")
+                       parametro_en="partir_columna_unica must be “,”, “;” or a tab")
     if isinstance(fila_de_cabecera, bool) or not isinstance(fila_de_cabecera, int) or fila_de_cabecera < 1:
         raise rechazar("parametro_invalido", parametro="fila_de_cabecera debe ser un entero ≥ 1",
                        parametro_en="fila_de_cabecera must be an integer ≥ 1")
@@ -856,6 +879,14 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
             raise rechazar("parametro_invalido",
                            parametro="partir_columna_unica solo vale para una hoja de UNA columna",
                            parametro_en="partir_columna_unica only applies to a single-column sheet")
+        # Auditoría del 150-C7 (M6): solo se parte lo que `inspeccionar` OFRECE, con su separador (la misma función decide).
+        # Sin esto, la API partía una columna que no es un CSV pegado (filas con distinto número de campos, sin oferta).
+        ofrecida = _columna_unica_con_separadores(h)
+        if ofrecida is None or _CARACTER_DE[ofrecida[0]] != partir_columna_unica:
+            raise rechazar("parametro_invalido",
+                           parametro="la hoja no es un CSV pegado con ese separador (no se ofrece partirla así): no se parte",
+                           parametro_en="the sheet is not a CSV pasted with that separator (splitting it that way is not offered): "
+                                        "it is not split")
         # Se parte DESPUÉS de las comprobaciones de fórmulas y fechas (son de la columna A original). Las celdas partidas ya
         # no son celdas de Excel: sus hallazgos por columna (errores, %, columnas ocultas) no se miran; los de FILA, sí.
         sep = partir_columna_unica
@@ -1110,10 +1141,26 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
     if filas_vacias:
         declaraciones.append(declarar("filas_vacias_quitadas", cuantas=len(filas_vacias),
                                       filas=filas_vacias[:10]))
+    if partida is not None:
+        # Auditoría del 150-C7 (M5): una fila partida con OTRO número de campos que la cabecera (un campo entre comillas con un
+        # salto de línea queda en dos filas de Excel; una fila corta se completa con vacías; una larga añade columnas) se DICE.
+        campos_cab = len(h.filas[fh - h.fila0])
+        desiguales = [r for r in range(fd, fin + 1) if r not in excluidas and h.filas[r - h.fila0]
+                      and len(h.filas[r - h.fila0]) != campos_cab]
+        if desiguales:
+            declaraciones.append(declarar("columna_unica_filas_desiguales", cuantas=len(desiguales),
+                                          filas=desiguales[:10], campos=campos_cab))
 
     # ── el CSV ──
     if len(conserva) < ancho:
         filas_csv = [[f[j] for j in conserva] for f in filas_csv]
+    if partida is not None and partida["separador"] == "punto_y_coma":
+        # Auditoría del 150-C7 (I1): un CSV `;` pegado y partido llega IGUAL que su `.csv`: el decimal coma (`18,72`) pasa a punto
+        # con LA regla del C2 (`decimal_es`: por columna, todo o nada, y declarado), la misma que aplica `normalize_csv_text` a un
+        # `.csv` `;`. Aquí, y no en la entrada canónica: el CSV de una conversión pasa por ella tal cual (es su punto fijo).
+        # Con `,` o tabulador no se toca nada, como en el `.csv` (en inglés `1,234` son miles).
+        from matrixai.training.decimal_es import convertir_filas_de_un_csv_punto_y_coma  # noqa: PLC0415
+        declaraciones.extend(convertir_filas_de_un_csv_punto_y_coma([finales[j] for j in conserva], filas_csv))
     csv_bytes = escribir_csv([finales[j] for j in conserva], filas_csv)
 
     primera_col, ultima_col = col0 + conserva[0], col0 + conserva[-1]

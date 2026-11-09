@@ -17,10 +17,16 @@ def _lista(v, n: int = 10) -> str:
     return s + (" …" if len(v) > n else "")
 
 
-def _tipos(v) -> str:
-    """`{"numero": 2, "texto": 1}` → «numero: 2, texto: 1»; una lista → sus elementos."""
+#: Los tipos de valor (`matrixai.tablas.valores.tipo_de_valor`) dichos en cada idioma. La CLAVE del detalle sigue siendo la estable
+#: (`numero`, `texto`…); solo el texto se traduce (auditoría del 150-C7, M7: en inglés salía «fecha: 1, numero: 1»).
+_TIPOS_DE_VALOR = {"numero": ("número", "number"), "texto": ("texto", "text"), "fecha": ("fecha", "date"),
+                   "hora": ("hora", "time"), "duracion": ("duración", "duration"), "booleano": ("booleano", "boolean")}
+
+
+def _tipos(v, idioma: int = 0) -> str:
+    """`{"numero": 2, "texto": 1}` → «número: 2, texto: 1» (`idioma` 0) o «number: 2, text: 1» (1); una lista → sus elementos."""
     if isinstance(v, dict):
-        return _lista(f"{k}: {n}" for k, n in v.items())
+        return _lista(f"{_TIPOS_DE_VALOR.get(k, (k, k))[idioma]}: {n}" for k, n in v.items())
     return _lista(v)
 
 
@@ -173,7 +179,7 @@ TIPOS: dict[str, tuple] = {
                      f"In «{_col(d)}», " + "{n} cells with a date format hold a number that is not a date (" + _motivos_fecha(d, 'en') + "; " + _lista(d['detalle'].get('celdas')) + "): they are left empty.")),
     "columna_mixta": (
         lambda d: f"«{_col(d)}» mezcla tipos de valor ({_tipos(d['detalle'].get('tipos'))}).",
-        lambda d: f"«{_col(d)}» mixes value types ({_tipos(d['detalle'].get('tipos'))})."),
+        lambda d: f"«{_col(d)}» mixes value types ({_tipos(d['detalle'].get('tipos'), 1)})."),
     "posible_fecha_en_serie": (
         lambda d: f"«{_col(d)}» son números entre 20.000 y 60.000 sin formato de fecha: ¿son fechas? No se han convertido.",
         lambda d: f"«{_col(d)}» holds numbers between 20,000 and 60,000 with no date format: are they dates? They were not converted."),
@@ -229,7 +235,7 @@ TIPOS: dict[str, tuple] = {
         lambda d: (f"La hoja tiene UNA sola columna y casi todas sus celdas llevan {d['detalle'].get('campos')} campos separados por "
                    f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[0]}: parece un CSV pegado entero en la columna A, no una tabla. "
                    "Todavía no se ha partido: puedes partirlo aquí, viendo antes cómo queda, subir el fichero CSV original o, en Excel, usar «Datos > Texto en columnas» "
-                   f"({_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[0]}) y guarda el libro de nuevo."),
+                   f"({_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[0]}) y guardar el libro de nuevo."),
         lambda d: (f"The sheet has a SINGLE column and almost every cell holds {d['detalle'].get('campos')} fields separated by "
                    f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[1]}: it looks like a whole CSV pasted into column A, not a table. "
                    "It has not been split yet: you can split it here, seeing first how it looks, upload the original CSV file or, in Excel, use “Data > Text to Columns” "
@@ -244,6 +250,22 @@ TIPOS: dict[str, tuple] = {
                    f"{_SEPARADORES.get(d['detalle'].get('separador'), ('?', '?'))[1]} (split by “{_CARACTER.get(d['detalle'].get('separador'), '?')}” from a single column) "
                    f"with a CSV reader (quotes and quoted separators respected): {d['detalle'].get('campos')} columns, "
                    f"{_p(d['cuantas'], '1 row', '{n} rows')} (header included).")),
+    # Auditoría del 150-C7 (M5): al partir, filas con OTRO número de campos que la cabecera (no se cuentan las vacías ni las excluidas).
+    "columna_unica_filas_desiguales": (
+        lambda d: _p(d['cuantas'],
+                     f"1 fila partida no tiene los {d['detalle'].get('campos')} campos de la cabecera (fila {_lista(d['detalle'].get('filas'))}): "
+                     "si tiene menos, sus últimas celdas quedan vacías; si tiene más, añade columnas. Suele ser un campo entre comillas con "
+                     "un salto de línea, que en Excel queda partido en dos filas: compruébala.",
+                     "{n} filas partidas no tienen los " + str(d['detalle'].get('campos')) + " campos de la cabecera (filas "
+                     + _lista(d['detalle'].get('filas')) + "): si tienen menos, sus últimas celdas quedan vacías; si tienen más, "
+                     "añaden columnas. Suele ser un campo entre comillas con un salto de línea, que en Excel queda partido en dos filas: compruébalas."),
+        lambda d: _p(d['cuantas'],
+                     f"1 split row does not have the header's {d['detalle'].get('campos')} fields (row {_lista(d['detalle'].get('filas'))}): "
+                     "if it has fewer, its last cells are left empty; if it has more, it adds columns. It is usually a quoted field with a "
+                     "line break, which Excel keeps split across two rows: check it.",
+                     "{n} split rows do not have the header's " + str(d['detalle'].get('campos')) + " fields (rows "
+                     + _lista(d['detalle'].get('filas')) + "): if they have fewer, their last cells are left empty; if they have more, "
+                     "they add columns. It is usually a quoted field with a line break, which Excel keeps split across two rows: check them.")),
     "hoja_sin_datos": (
         lambda d: "La hoja no tiene datos.",
         lambda d: "The sheet has no data."),

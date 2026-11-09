@@ -424,3 +424,229 @@ def test_publicos_los_codigos_de_texto_con_ceros_a_la_izquierda_no_pierden_el_ce
     r = convertir(_libro("madrid_gastos_2026.xlsx"), "g.xlsx", hoja="Ppto Gastos 2026 V40", fila_de_cabecera=1)
     filas = list(csv.reader(io.StringIO(r.csv_text)))
     assert filas[1][0] == "001" and filas[1][2] == "100"
+
+
+# ═══ Reparación de la auditoría del 150-C7 (09-11): I1, I2 y los menores ═══════════════════════════════════════════════════
+# Informe y sondas en ~/.agentes/150/auditoria-c7/; notas de la reparación en ~/.agentes/150/reparacion-c7/.
+from test_150_c1_tablas import G as _G  # noqa: E402
+
+from matrixai.training.data import normalize_csv_text, normalize_csv_text_declarando  # noqa: E402
+
+_N = None
+
+
+def _requiere_calamine():
+    if not HAY_CALAMINE:
+        (pytest.fail if EXIGIR or os.environ.get("MATRIXAI_EXIGIR_TABLAS") == "1" else pytest.skip)("falta python-calamine")
+
+
+def _decimales(declaraciones):
+    """Las declaraciones del decimal (las del C2), sin el texto: tipo, columna, cuántas y detalle."""
+    return [(d["tipo"], d["columna"], d["cuantas"], d["detalle"]) for d in declaraciones
+            if d["tipo"] in ("decimal_coma_convertido", "decimal_coma_no_convertido")]
+
+
+_CSV_PYC = {
+    "un_decimal": ["fecha;precio;unidades;compra", "2024-01-01;18,72;2;no", "2024-01-02;3,50;1;si", "2024-01-03;73,58;4;no",
+                   "2024-01-04;12;3;si"],
+    "dos_decimales_y_miles": ["fecha;precio;peso;compra", "2024-01-01;1.234,5;2,25;no", "2024-01-02;13,75;0,5;si",
+                              "2024-01-03;9,5;1,75;no"],
+    "ambigua_mezcla_porcentaje_y_texto": ["id;miles;mezcla;pct;cod", "1;1.234;1,5;12,5 %;0,5", "2;2.345;2.5;3,5 %;n/d",
+                                          "3;3.456;3,5;1,0 %;0,7"],
+    "comillas_y_coma_dentro": ["nombre;importe;nota", '"Perez, Ana";18,72;"dice ""hola"""', "Luis;3,5;x", "Eva;7;y"],
+}
+
+
+@pytest.mark.parametrize("caso", list(_CSV_PYC))
+def test_rep_c7_i1_un_csv_punto_y_coma_partido_llega_igual_que_su_csv_con_el_decimal_convertido_y_declarado(caso):
+    """I1: partir por «;» un CSV pegado en la columna A da EL MISMO texto que `normalize_csv_text` sobre su `.csv`, con las MISMAS
+    declaraciones del decimal (la regla del C2: por columna, todo o nada; lo ambiguo, lo mezclado y el % se dejan y se dicen)."""
+    _requiere_calamine()
+    lineas = _CSV_PYC[caso]
+    texto = "\n".join(lineas) + "\n"
+    r = convertir(_libro_de_una_columna(lineas), "x.xlsx", fila_de_cabecera=1, partir_columna_unica=";")
+    canon, decl = normalize_csv_text_declarando(texto)
+    assert r.csv_text == canon == normalize_csv_text(texto)
+    assert _decimales(r.origen["declaraciones"]) == _decimales(decl) != []
+    for d in r.origen["declaraciones"]:
+        if d["tipo"].startswith("decimal_coma"):
+            assert d["texto"]["es"] and d["texto"]["en"]
+
+
+def test_rep_c7_i1_el_analisis_del_partido_ve_el_precio_como_numero_igual_que_el_del_csv():
+    """I1 por el análisis del núcleo (el que usa `analyze-dataset`): antes, el partido daba `precio: identifier`."""
+    _requiere_calamine()
+    from matrixai.training.dataset_analysis import analyze_dataset_csv
+    lineas = _CSV_PYC["un_decimal"]
+    r = convertir(_libro_de_una_columna(lineas), "x.xlsx", fila_de_cabecera=1, partir_columna_unica=";")
+    del_partido = {k: v["type"] for k, v in analyze_dataset_csv(r.csv_text)["columns"].items()}
+    del_csv = {k: v["type"] for k, v in analyze_dataset_csv("\n".join(lineas) + "\n")["columns"].items()}
+    assert del_partido == del_csv and del_partido["precio"] == "number"
+    assert next(csv.reader(io.StringIO(r.csv_text.splitlines()[1]))) == ["2024-01-01", "18.72", "2", "no"]
+    # y es un PUNTO FIJO de la entrada canónica (la conversión de un libro pasa por ella tal cual)
+    assert normalize_csv_text(r.csv_text) == r.csv_text
+
+
+def test_rep_c7_i1_partido_por_coma_o_tabulador_el_decimal_no_se_toca():
+    """La regla del C2 solo vale en un CSV «;» (en un CSV de comas, `1,234` son miles): como el `.csv`, nada se convierte."""
+    _requiere_calamine()
+    r = convertir(_libro_de_una_columna(["a,precio,c", '1,"18,72",x', '2,"3,5",y', '3,"7,25",z']), "x.xlsx",
+                  fila_de_cabecera=1, partir_columna_unica=",")
+    assert [f[1] for f in csv.reader(io.StringIO(r.csv_text))][1:] == ["18,72", "3,5", "7,25"]
+    assert _decimales(r.origen["declaraciones"]) == []
+    r = convertir(_libro_de_una_columna(["a\tprecio\tc", "1\t18,72\tx", "2\t3,5\ty", "3\t7,25\tz"]), "x.xlsx",
+                  fila_de_cabecera=1, partir_columna_unica="\t")
+    assert [f[1] for f in csv.reader(io.StringIO(r.csv_text))][1:] == ["18,72", "3,5", "7,25"]
+    assert _decimales(r.origen["declaraciones"]) == []
+
+
+def test_rep_c7_i1_la_regla_del_decimal_es_la_del_c2_no_una_segunda():
+    import inspect
+    from matrixai.tablas import api
+    from matrixai.training import decimal_es
+    fuente = inspect.getsource(api.convertir)
+    assert fuente.count("convertir_filas_de_un_csv_punto_y_coma(") == 1
+    assert "ClasificadorDeColumnas(" in inspect.getsource(decimal_es.convertir_filas_de_un_csv_punto_y_coma)
+    assert "replace(\",\", \".\")" not in fuente and "_RE_D" not in fuente
+
+
+def test_rep_c7_i1_un_csv_punto_y_coma_con_dos_columnas_de_decimal_coma_se_ofrece_partir_por_punto_y_coma():
+    """Con DOS columnas de decimal coma, cada fila se parte por comas en 3 trozos y se ofrecía partir por COMAS. La cabecera manda
+    (como en el `.csv`): sin comas y con «;», es un CSV «;»."""
+    from matrixai.tablas.api import _columna_unica_con_separadores
+    filas = [["fecha;precio;peso;compra"]] + [[f"2024-01-{i % 28 + 1:02d};{i},5;{i % 7},25;no"] for i in range(60)]
+    assert _columna_unica_con_separadores(_Hoja(filas)) == ("punto_y_coma", 4)
+    # y lo de antes sigue: una cabecera con comas se parte por comas aunque los datos lleven «;» entre comillas
+    filas = [["a,b,c"]] + [['1,"x;y;z",2']] * 20
+    assert _columna_unica_con_separadores(_Hoja(filas)) == ("coma", 3)
+
+
+# ── I2: la banda de una celda no convierte en cabecera lo que va ENCIMA de un título ───────────────────────────────────────
+_FORMAS_DE_CABECERA = {
+    # nombre: (filas, cabecera correcta)
+    "kpi_2textos_titulo_cabecera_estrecha": ([["Empresa", "ACME", _N], ["Ventas por región", _N, _N], ["región", "mes", "importe"],
+                                              ["norte", "ene", 10], ["sur", "ene", 12]], 3),
+    "kpi_2textos_titulo_cabecera_ancha": ([["Empresa", "ACME", _N, _N], ["Ventas por región", _N, _N, _N],
+                                           ["región", "mes", "importe", "unidades"], ["norte", "ene", 10, 1], ["sur", "ene", 12, 2]], 3),
+    "kpi_4textos_titulo_cabecera": ([["Empresa", "ACME", "Periodo", "2024", _N, _N], ["Ventas", _N, _N, _N, _N, _N],
+                                     ["a", "b", "c", "d", "e", "f"], [1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6]], 3),
+    "fuente_unidad_titulo_cabecera": ([["Fuente: INE", "Unidad: personas", _N], [_N, _N, _N], ["Total nacional", _N, _N],
+                                       ["provincia", "sexo", "valor"], ["Madrid", "H", 1], ["Madrid", "M", 2]], 4),
+    "nota_texto2_titulo_cabecera": ([["Nota:", "ver anexo", _N], ["Tabla 1", _N, _N], ["x", "y", "z"], [1, 2, 3], [4, 5, 6]], 3),
+    "cuadro_kpi_texto": ([["Cuadro de mando", _N, _N], [_N, _N, _N], ["Responsable", "Ana García", _N], [_N, _N, _N],
+                          ["Detalle por región", _N, _N], ["región", "mes", "importe"], ["norte", "ene", 10], ["sur", "ene", 12]], 6),
+    "datos_texto_con_secciones_sin_cabecera": ([["NORTE", _N, _N], ["Madrid", "norte", 10], ["SUR", _N, _N], ["Sevilla", "sur", 9]],
+                                               None),
+    # el otro lado (lo que arregló e0978df y tiene que seguir): la banda de segundo nivel bajo la cabecera
+    "banda_2nivel_INE": ([["provincia", "2023", "2022"], ["Todas las edades", _N, _N], ["Madrid", 1, 2], ["Bilbao", 3, 4]], 1),
+    "cabecera_y_seccion": ([["ciudad", "zona", "v"], ["NORTE", _N, _N], ["Madrid", "norte", 10], ["Bilbao", "norte", 12]], 1),
+    "banda_combinada_table_2b": ([["Table 2b"], [], ["England and Wales"], ["Grupo", "Total", "Cargos", "Avisos"],
+                                  ["", "Number of detections", "", ""], ["Robo", 5, 3, 1], ["Hurto", 7, 4, 2]], 4),
+    "cabecera_y_un_dato_suelto_ceros_y_vacios": ([["a", "b"], [1.0, _N], [_N, _N], [3.0, 4.0], [10.0, 2.5]], 1),
+}
+
+
+@pytest.mark.parametrize("nombre", list(_FORMAS_DE_CABECERA))
+def test_rep_c7_i2_la_cabecera_propuesta_acierta_los_dos_lados_de_la_banda(nombre):
+    """I2: `e0978df` saltaba una fila de UNA celda tras la candidata y proponía como cabecera unos metadatos de dos textos que van
+    encima de un título (7 formas de oficina que antes acertaba). Tras un salto, la candidata solo es cabecera si lo de detrás
+    tiene MENOS textos que ella. Las bandas de 2.º nivel (INE, Table 2b, una sección) siguen acertando."""
+    from matrixai.tablas.api import _proponer_cabecera
+    filas, correcta = _FORMAS_DE_CABECERA[nombre]
+    assert _proponer_cabecera(_Hoja(filas)) == correcta
+
+
+@pytest.mark.parametrize("nombre", ["kpi_2textos_titulo_cabecera_estrecha", "fuente_unidad_titulo_cabecera", "cuadro_kpi_texto",
+                                    "datos_texto_con_secciones_sin_cabecera", "banda_2nivel_INE"])
+def test_rep_c7_i2_y_por_inspeccionar_con_un_libro_de_verdad(nombre):
+    _requiere_calamine()
+    filas, correcta = _FORMAS_DE_CABECERA[nombre]
+    datos = _G.xlsx([_G.Hoja("H", [list(f) for f in filas])])
+    assert inspeccionar(datos, "x.xlsx")["hojas"][0]["fila_de_cabecera_propuesta"] == correcta
+
+
+# ── M2: la vista previa de «;» y tabulador es lo que parte `convertir` ─────────────────────────────────────────────────────
+@pytest.mark.parametrize("sep,clave,lineas", [
+    (";", "punto_y_coma", ["nombre;ciudad;nota", '"Perez, Ana";"Lyon, FR";7', "Luis;Bilbao, ES;8", "Eva;Roma, IT;9"]),
+    ("\t", "tabulador", ["nombre\tciudad\tnota", "Perez, Ana\tLyon; FR\t7", "Luis\tBilbao, ES\t8", "Eva\tRoma; IT\t9"]),
+])
+def test_rep_c7_m2_la_vista_previa_de_punto_y_coma_y_tabulador_es_lo_que_parte_convertir(sep, clave, lineas):
+    _requiere_calamine()
+    datos = _libro_de_una_columna(lineas)
+    p = inspeccionar(datos, "x.xlsx")["hojas"][0]["partida_ofrecida"]
+    assert p["separador"] == clave and p["columnas"] == 3
+    r = convertir(datos, "x.xlsx", fila_de_cabecera=1, partir_columna_unica=sep)
+    assert [f["celdas"] for f in p["primeras"]] == list(csv.reader(io.StringIO(r.csv_text)))
+    assert p["primeras"][1]["celdas"][0] == "Perez, Ana"
+
+
+# ── M3: el umbral del 90 % de la oferta ────────────────────────────────────────────────────────────────────────────────────
+def test_rep_c7_m3_se_ofrece_partir_con_el_90_por_ciento_de_las_celdas_y_no_con_menos():
+    from matrixai.tablas.api import _columna_unica_con_separadores
+    def hoja(buenas, malas):
+        return _Hoja([["a,b,c"]] + [["1,2,3"]] * (buenas - 1) + [["una nota suelta"]] * malas)
+    assert _columna_unica_con_separadores(hoja(9, 1)) == ("coma", 3)       # 90 %: se ofrece
+    assert _columna_unica_con_separadores(hoja(18, 2)) == ("coma", 3)
+    assert _columna_unica_con_separadores(hoja(8, 2)) is None               # 80 %: no
+    assert _columna_unica_con_separadores(hoja(17, 3)) is None              # 85 %: no
+    assert _columna_unica_con_separadores(hoja(6, 4)) is None               # 60 %: no
+
+
+# ── M4: el BOM del CSV pegado se quita sin declararlo, como en el `.csv` ─────────────────────────────────────────────────────
+def test_rep_c7_m4_el_bom_del_csv_pegado_se_quita_como_en_el_csv_sin_declarar_un_renombre():
+    """`strip_csv_bom` quita el U+FEFF de un `.csv` sin decir nada: es la marca de la codificación, no un nombre. Al partir, igual
+    (sin la línea de `_partir_filas`, `nombre_normalizado` lo quitaba y declaraba un renombre que la persona no hizo)."""
+    _requiere_calamine()
+    lineas = ["﻿id,x,y", "1,2,3", "4,5,6"]
+    r = convertir(_libro_de_una_columna(lineas), "x.xlsx", fila_de_cabecera=1, partir_columna_unica=",")
+    assert r.csv_text == normalize_csv_text("\n".join(lineas) + "\n")
+    assert [d["tipo"] for d in r.origen["declaraciones"]] == ["columna_unica_partida"]
+
+
+# ── M5: las filas con otro número de campos se dicen ──────────────────────────────────────────────────────────────────────
+def test_rep_c7_m5_las_filas_partidas_con_otro_numero_de_campos_se_declaran_con_su_numero_de_fila():
+    _requiere_calamine()
+    lineas = ["id,txt,v", '1,"hola', 'mundo",2'] + [f"{i},x{i},{i}" for i in range(2, 50)] + ["99,corta"]
+    r = convertir(_libro_de_una_columna(lineas), "x.xlsx", fila_de_cabecera=1, partir_columna_unica=",")
+    d = [x for x in r.origen["declaraciones"] if x["tipo"] == "columna_unica_filas_desiguales"]
+    assert len(d) == 1 and d[0]["cuantas"] == 3 and d[0]["detalle"]["filas"] == [2, 3, 52] and d[0]["detalle"]["campos"] == 3
+    assert "salto de línea" in d[0]["texto"]["es"] and "line break" in d[0]["texto"]["en"]
+    assert "filas" not in d[0]["texto"]["en"] and "«" not in d[0]["texto"]["en"]
+    # una partición sin filas desiguales no lo dice
+    r = convertir(_libro_de_una_columna(["a,b,c", "1,2,3", "4,5,6"]), "x.xlsx", fila_de_cabecera=1, partir_columna_unica=",")
+    assert "columna_unica_filas_desiguales" not in [x["tipo"] for x in r.origen["declaraciones"]]
+
+
+# ── M6: solo se parte lo que se ofrece ────────────────────────────────────────────────────────────────────────────────────
+def test_rep_c7_m6_convertir_no_parte_lo_que_inspeccionar_no_ofrece():
+    _requiere_calamine()
+    irregular = _libro_de_una_columna(["a,b,c", "1,2", "2,3,4,5", "3,4,5"])   # 2 de 4 con 3 campos: no se ofrece
+    assert "partida_ofrecida" not in inspeccionar(irregular, "x.xlsx")["hojas"][0]
+    with pytest.raises(TablaRechazada) as e:
+        convertir(irregular, "x.xlsx", fila_de_cabecera=1, partir_columna_unica=",")
+    assert e.value.codigo == "parametro_invalido" and "no se parte" in e.value.motivo_es and "not split" in e.value.motivo_en
+    # ofrecido por «;», pedido por «,»: tampoco
+    pyc = _libro_de_una_columna(["fecha;precio;peso", "2024-01-01;1,5;2,5", "2024-01-02;3,5;4,5", "2024-01-03;5,5;6,5"])
+    assert inspeccionar(pyc, "x.xlsx")["hojas"][0]["partida_ofrecida"]["separador"] == "punto_y_coma"
+    with pytest.raises(TablaRechazada):
+        convertir(pyc, "x.xlsx", fila_de_cabecera=1, partir_columna_unica=",")
+
+
+# ── M7: textos ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+def test_rep_c7_m7_los_textos_del_aviso_del_parametro_y_de_columna_mixta():
+    from matrixai.tablas.declaraciones import declarar
+    es = declarar("columna_unica_con_separadores", campos=4, separador="coma")["texto"]["es"]
+    assert "y guardar el libro de nuevo" in es and "y guarda el libro" not in es
+    mixta = declarar("columna_mixta", columna="fecha", cuantas=3, tipos={"fecha": 1, "numero": 1, "texto": 1})
+    assert mixta["texto"]["en"] == "«fecha» mixes value types (date: 1, number: 1, text: 1)."
+    assert mixta["texto"]["es"] == "«fecha» mezcla tipos de valor (fecha: 1, número: 1, texto: 1)."
+    assert mixta["detalle"]["tipos"] == {"fecha": 1, "numero": 1, "texto": 1}   # la clave estable no cambia
+    from matrixai.tablas.valores import tipo_de_valor
+    import datetime as dt
+    from matrixai.tablas.declaraciones import _TIPOS_DE_VALOR
+    for v in (1.5, "x", dt.date(2024, 1, 1), dt.time(1), dt.timedelta(1), True):
+        assert tipo_de_valor(v) in _TIPOS_DE_VALOR       # un tipo nuevo sin traducir lo caza
+    _requiere_calamine()
+    with pytest.raises(TablaRechazada) as e:
+        convertir(_libro_de_una_columna(["a,b,c", "1,2,3", "4,5,6"]), "x.xlsx", fila_de_cabecera=1, partir_columna_unica="|")
+    assert "«" not in e.value.motivo_en and "»" not in e.value.motivo_en

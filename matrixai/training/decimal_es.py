@@ -35,7 +35,7 @@ import re
 from typing import Any
 
 __all__ = ["ClasificadorDeColumnas", "convertir_celda", "convertir_celda_de_una_columna_decidida",
-           "TIPOS_DE_DECLARACION"]
+           "convertir_filas_de_un_csv_punto_y_coma", "TIPOS_DE_DECLARACION"]
 
 _ENTERO = r"(?:0|[1-9]\d*)"
 _CON_MILES = r"[1-9]\d{0,2}(?:\.\d{3})+"
@@ -222,6 +222,22 @@ class ClasificadorDeColumnas:
                 detalle["ejemplo_decimal"] = ej[_D][0]
             salida.append(_declarar("decimal_coma_no_convertido", nombre, cuantas, detalle))
         return salida
+
+
+def convertir_filas_de_un_csv_punto_y_coma(cabecera: list[str], filas: list[list[str]]) -> list[dict[str, Any]]:
+    """LA regla (la misma de `normalize_csv_delimiter_declarando`) sobre las filas de DATOS ya leídas de un CSV `;`: decide con
+    `ClasificadorDeColumnas` mirando todas las filas, convierte EN SU SITIO las celdas de las columnas decididas y devuelve las
+    declaraciones. La usa `matrixai.tablas` al partir un CSV `;` pegado en una columna de Excel (auditoría del 150-C7, I1): sin
+    esto, el mismo CSV llegaba con el decimal convertido desde un `.csv` y como texto desde el libro."""
+    clasificador = ClasificadorDeColumnas(cabecera)
+    for fila in filas:
+        clasificador.ver(fila)
+    a_convertir = clasificador.a_convertir()
+    for fila in filas:
+        for i in a_convertir:
+            if i < len(fila):
+                fila[i] = convertir_celda_de_una_columna_decidida(fila[i])
+    return clasificador.declaraciones()
 
 
 def _declarar(tipo: str, columna: str, cuantas: int, detalle: dict[str, Any]) -> dict[str, Any]:
