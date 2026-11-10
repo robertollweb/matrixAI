@@ -58,6 +58,7 @@ from typing import Any, Mapping, Sequence
 
 from matrixai.training.fechas import (RecetaDeFecha, detectar_fechas, expandir_fila,
                                      variables_de_fecha)
+from matrixai.training.codigos_con_ceros import codigos_con_ceros_de, es_un_codigo_con_ceros
 from matrixai.training.diagnostico import Limite
 from matrixai.training.textos_de_faltante import (es_texto_de_faltante, recuento_por_texto,
                                                   sin_dato_en_un_objetivo_numerico, textos_leidos_como_faltante)
@@ -159,6 +160,17 @@ def limite_de_textos_leidos_como_faltante(columna: str, por_texto: Mapping[str, 
     return Limite(clave="textos_leidos_como_faltante", campo=columna,
                   motivo=motivo(frase, campo=columna, celdas=celdas, textos=textos),
                   medida={"textos": list(por_texto), "celdas": celdas, "por_texto": dict(por_texto)})
+
+
+def limite_de_codigo_con_ceros(columna: str, ejemplos: Sequence[str], celdas: int) -> Limite:
+    """LA declaración de una columna que el estudio dejó como TEXTO porque trae códigos con ceros a la izquierda («08001»,
+    «007»; la regla es `codigos_con_ceros.es_un_codigo_con_ceros`, decisión A de Roberto, 09-11). `ejemplos`: hasta tres
+    valores tal como están escritos; `celdas`: cuántas celdas llevan el cero delante. Misma forma que las demás del grupo
+    (`a_json()`), para que Progreso y Resultados la pinten con la frase del núcleo sin tocar nada."""
+    lista = ", ".join(f"«{e}»" for e in ejemplos)
+    return Limite(clave="codigo_con_ceros_a_la_izquierda", campo=columna,
+                  motivo=motivo("codigo_con_ceros_a_la_izquierda", campo=columna, celdas=celdas, ejemplos=lista),
+                  medida={"celdas": celdas, "ejemplos": list(ejemplos)})
 
 
 def limite_de_textos_del_objetivo_sin_dato(objetivo: str, valores: Sequence[Any]) -> Limite | None:
@@ -354,7 +366,9 @@ class PoliticaDePreparacion:
 
 def tipar_columnas_numericas(filas: list[dict[str, Any]],
                              columnas: Sequence[str], *,
-                             leidos_como_faltante: dict[str, dict[str, Any]] | None = None) -> tuple[str, ...]:
+                             leidos_como_faltante: dict[str, dict[str, Any]] | None = None,
+                             conservar_ceros_a_la_izquierda: bool = False,
+                             codigos_con_ceros: dict[str, dict[str, Any]] | None = None) -> tuple[str, ...]:
     """Convierte EN SITIO a `float` las columnas cuyo texto parsea entero, y
     devuelve cuáles tocó.
 
@@ -395,6 +409,15 @@ def tipar_columnas_numericas(filas: list[dict[str, Any]],
     rellena con `{columna: {"textos": [...], "celdas": n, "por_texto": {texto: celdas}}}`, cada texto UNA vez (recortado),
     para que quien llama DIGA lo que se leyó así (`limite_de_textos_leidos_como_faltante`); lo vacío, los espacios y el NaN
     no se declaran: ya eran faltantes.
+
+    **Los códigos con ceros a la izquierda** (decisión A de Roberto, 09-11; la regla es `codigos_con_ceros`): con
+    `conservar_ceros_a_la_izquierda=True`, una columna que SE HABRÍA convertido pero en la que ALGÚN valor es «08001», «007»,
+    «0012»… es un código (postal, de producto…), no un número: se deja como texto —categórica— y NO se declara tocada
+    (`float("08001")` da 8001.0 y perdería el cero para siempre). Si se pasa `codigos_con_ceros`, se rellena con
+    `{columna: {"celdas": n, "ejemplos": [hasta 3]}}` para que quien llama lo DIGA (`limite_de_codigo_con_ceros`).
+    **Por omisión NO** (`False`), y es a propósito: la Fase 0 mide con su protocolo sellado (`benchmarks/fase0`) y las
+    mediciones de fechas llaman sin ello; cambiar lo que tipan sería medir otra cosa sin decirlo. Lo pide el estudio del
+    Studio, igual que el análisis ya trata esas columnas como no numéricas.
     """
     # 10-10 (medido en el arranque de APSFailure, 76.000 × 171: 19,5 → 12,9 s, salida IDÉNTICA): cada columna se lee UNA
     # vez (`valores`), los vacíos se quitan sobre el CONJUNTO de valores distintos y no sobre cada fila, y se escribe con
@@ -429,6 +452,14 @@ def tipar_columnas_numericas(filas: list[dict[str, Any]],
                 continue  # columna categórica de verdad -- se deja tal cual
         if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in distintos):
             continue  # ya estaba tipada: no se toca ni se declara tocada
+        if conservar_ceros_a_la_izquierda:
+            con_ceros = codigos_con_ceros_de(valores)  # en orden de aparición: sin depender del azar de los `set`
+            if con_ceros:
+                if codigos_con_ceros is not None:
+                    codigos_con_ceros[columna] = {
+                        "celdas": sum(1 for v in valores if es_un_codigo_con_ceros(v)),
+                        "ejemplos": con_ceros[:3]}
+                continue  # un código: se queda como texto (categoría), con sus ceros
         por_texto = recuento_por_texto(valores, {t for t in textos if t.strip() != ""})
         if por_texto and leidos_como_faltante is not None:
             leidos_como_faltante[columna] = {"textos": list(por_texto), "celdas": sum(por_texto.values()),

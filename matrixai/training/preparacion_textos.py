@@ -45,6 +45,13 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "{campo} is numeric and {celdas} of its cells say {textos}: they are read as missing values "
               "(not as categories), with the same imputation and indicator as an empty cell",
     },
+    # Decisión A de Roberto (09-11): «08001» no es 8001. La columna se queda como texto (categoría) y se dice.
+    "codigo_con_ceros_a_la_izquierda": {
+        "es": "{campo} lleva ceros a la izquierda en {celdas} celdas ({ejemplos}): se lee como un código (categoría), no como "
+              "un número, para no perder esos ceros",
+        "en": "{campo} has leading zeros in {celdas} cells ({ejemplos}): it is read as a code (a category), not as a "
+              "number, so those zeros are not lost",
+    },
     # Re-auditoría del hallazgo 11 (M1): en una FECHA la frase de arriba decía «es numérica». La suya, aquí.
     "textos_leidos_como_faltante_en_una_fecha": {
         "es": "{campo} es una fecha y {celdas} de sus celdas dicen {textos}: se leen como valores faltantes "
