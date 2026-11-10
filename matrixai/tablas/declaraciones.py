@@ -114,8 +114,8 @@ _PREVISTAS_PARQUET = {
         lambda d: f"«{_col(d)}» lleva zona horaria ({d['detalle'].get('zona')}): se escribirá en UTC, sin indicar la zona.",
         lambda d: f"«{_col(d)}» carries a time zone ({d['detalle'].get('zona')}): it will be written in UTC, without the zone."),
     "unidad_a_segundos": (
-        lambda d: f"«{_col(d)}» guarda hasta {_unidad_parquet(d, 0)}: se escribirá en segundos (la fracción de segundo se descartará).",
-        lambda d: f"«{_col(d)}» is stored down to {_unidad_parquet(d, 1)}: it will be written in seconds (the fraction of a second will be dropped)."),
+        lambda d: f"«{_col(d)}» guarda hasta {_unidad_parquet(d, 0)}: se escribirá en segundos (si algún valor tiene fracción de segundo, se descartará).",
+        lambda d: f"«{_col(d)}» is stored down to {_unidad_parquet(d, 1)}: it will be written in seconds (if any value has a fraction of a second, it will be dropped)."),
 }
 
 TIPOS: dict[str, tuple] = {
@@ -363,10 +363,10 @@ TIPOS: dict[str, tuple] = {
                      f"En «{_col(d)}», " + "{n} horas quedan fuera del día (de 00:00:00 a 23:59:59) y se dejaron vacías."),
         lambda d: _p(d['cuantas'], f"In «{_col(d)}», 1 time of day falls outside the day (00:00:00 to 23:59:59) and was left empty.",
                      f"In «{_col(d)}», " + "{n} times of day fall outside the day (00:00:00 to 23:59:59) and were left empty.")),
-    # m3: INT96 no guarda zona; se lee como UTC. Spark/Hive lo guardan en UTC e Impala en hora local: puede verse 1-2 h distinta.
+    # m3: INT96 no guarda zona; se lee como UTC. Spark/Hive lo guardan en UTC e Impala en hora local: puede verse desplazada (la diferencia depende de la zona).
     "parquet_int96_en_utc": (
-        lambda d: f"«{_col(d)}» es un INT96 y se leyó como UTC: el formato no guarda la zona, así que puede verse 1 o 2 horas distinta de tu hora local.",
-        lambda d: f"«{_col(d)}» is an INT96 and was read as UTC: the format does not store the zone, so it may look 1 or 2 hours different from your local time."),
+        lambda d: f"«{_col(d)}» es un INT96 y se leyó como UTC: el formato no guarda la zona, así que puede verse desplazada respecto a tu hora local (la diferencia depende de la zona en que se escribió).",
+        lambda d: f"«{_col(d)}» is an INT96 and was read as UTC: the format does not store the zone, so it may look shifted from your local time (the difference depends on the zone it was written in)."),
     "parquet_nombre_vacio": (
         lambda d: f"La columna n.º {d['detalle'].get('posicion')} del fichero no tenía nombre: ahora es «{_col(d)}».",
         lambda d: f"Column no. {d['detalle'].get('posicion')} in the file had no name: it is now «{_col(d)}»."),

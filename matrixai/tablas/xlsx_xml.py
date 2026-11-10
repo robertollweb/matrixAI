@@ -106,7 +106,7 @@ class _LectorSeguro:
 
 
 def _prohibido(*_a):
-    raise rechazar("lector_fallo", tipo="xml con DTD o entidades")
+    raise rechazar("lector_fallo", tipo="xml con DTD o entidades", tipo_en="XML with a DTD or entities")
 
 
 def _expat_seguro() -> expat.XMLParserType:
@@ -128,7 +128,7 @@ def _leer_pequeno(zf: zipfile.ZipFile, ruta: str) -> bytes:
     except KeyError:
         raise rechazar("zip_danado") from None
     if tam > _MAX_XML_PEQUENO:
-        raise rechazar("lector_fallo", tipo="parte demasiado grande")
+        raise rechazar("lector_fallo", tipo="parte demasiado grande", tipo_en="part too large")
     lector = _LectorSeguro(zf, ruta)
     try:
         partes = []
@@ -159,7 +159,7 @@ def _parsear(b: bytes) -> ET.Element:
         return tb.close()
     except (expat.ExpatError, LookupError, ValueError, UnicodeError):
         # LookupError: una declaración `encoding="…"` que no existe (cazado por el fuzz).
-        raise rechazar("lector_fallo", tipo="xml mal formado") from None
+        raise rechazar("lector_fallo", tipo="xml mal formado", tipo_en="malformed XML") from None
 
 
 def _relaciones(zf: zipfile.ZipFile, nombres: set) -> list[tuple[str, str, str]]:
@@ -702,7 +702,7 @@ class _Explorador:
     def _una_columna(self, attrs: dict) -> None:
         self.n_col += 1
         if self.n_col > MAX_DEFINICIONES_DE_COLUMNA:
-            raise rechazar("lector_fallo", tipo="más de 16.384 definiciones de columna")
+            raise rechazar("lector_fallo", tipo="más de 16.384 definiciones de columna", tipo_en="more than 16,384 column definitions")
         if attrs.get("hidden") in ("1", "true"):
             lo, hi = attrs.get("min") or "", attrs.get("max") or ""
             if lo.isdigit() and hi.isdigit() and 0 < int(lo) <= int(hi):
@@ -792,7 +792,7 @@ def explorar_hoja(zf: zipfile.ZipFile, ruta: str, estilos: Estilos | None = None
                 break
     except (expat.ExpatError, LookupError, ValueError, UnicodeError):
         # LookupError: una declaración `encoding="…"` que no existe (cazado por el fuzz).
-        raise rechazar("lector_fallo", tipo="xml mal formado") from None
+        raise rechazar("lector_fallo", tipo="xml mal formado", tipo_en="malformed XML") from None
     except TablaRechazada:
         raise
     except (RecursionError, MemoryError) as e:

@@ -149,10 +149,12 @@ class _Fichero:
             raise rechazar("parquet_cifrado")
         if len(self.datos) < 12 or self.datos[-4:] != FIRMA_PARQUET:
             # Empieza por PAR1 y no acaba por PAR1: una descarga cortada (el pie, que es lo que dice dónde está todo, va al final).
-            raise rechazar("parquet_danado", tipo="no acaba con la marca PAR1: el fichero está cortado")
+            raise rechazar("parquet_danado", tipo="no acaba con la marca PAR1: el fichero está cortado",
+                           tipo_en="it does not end with the PAR1 marker: the file is cut off")
         largo_pie = int.from_bytes(self.datos[-8:-4], "little")
         if largo_pie <= 0 or largo_pie > len(self.datos) - 12:
-            raise rechazar("parquet_danado", tipo="el pie del fichero declara un tamaño imposible")
+            raise rechazar("parquet_danado", tipo="el pie del fichero declara un tamaño imposible",
+                           tipo_en="the file footer declares an impossible size")
         self.pa, self.pq = _importar_pyarrow()
         try:
             # INT96 (lo que escriben Spark, Hive e Impala) se lee en MICROSEGUNDOS, no en ns (lo que pyarrow hace por omisión):
@@ -485,7 +487,8 @@ def _filas_de_los_lotes(f: _Fichero, columnas: list[_Columna], indices: list[int
         if lotes_ns is not None:
             lote_ns = next(lotes_ns, None)
             if lote_ns is None or lote_ns.num_rows != n:
-                raise rechazar("parquet_danado", tipo="las dos lecturas de una columna INT96 no dan las mismas filas")
+                raise rechazar("parquet_danado", tipo="las dos lecturas de una columna INT96 no dan las mismas filas",
+                                   tipo_en="the two reads of an INT96 column do not give the same rows")
             for j, k in enumerate(de_int96):
                 ns_de[k] = lote_ns.column(j if proyeccion is not None else indices[k])
         cols = [c.textos(lote.column(k if proyeccion is not None else i), ns_de.get(k))
@@ -585,7 +588,8 @@ def convertir_parquet(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabe
     except Exception as e:  # noqa: BLE001 — ninguna excepción de la biblioteca llega a la persona
         raise f._rechazo_de(e) from e
     if contador[0] != f.filas:
-        raise rechazar("parquet_danado", tipo=f"el pie declara {f.filas} filas y se leyeron {contador[0]}")
+        raise rechazar("parquet_danado", tipo=f"el pie declara {f.filas} filas y se leyeron {contador[0]}",
+                       tipo_en=f"the footer declares {f.filas} rows and {contador[0]} were read")
 
     # ── lo que se hizo, dicho ──
     for col, fin in zip(columnas, finales):

@@ -658,6 +658,46 @@ def _nombres_propuestos(h: _HojaLeida, fila_cab: int) -> list[str]:
     return nombres + [""] * (h.ancho - len(nombres))
 
 
+def _nombres_de_dos_filas(h: _HojaLeida, fh: int) -> tuple[list[str], dict[int, tuple[str, str]]]:
+    """Los nombres de una cabecera que ocupa DOS filas (`fh` y la siguiente): «grupo subnombre». Los usan `convertir` y los avisos
+    de `inspeccionar` para esa cabecera (la misma función, para que lo que se avisa sea lo que se hace)."""
+    def celda(r: int, j: int):
+        fila = h.filas[r - h.fila0]
+        return fila[j] if j < len(fila) else ""
+    nombres: list[str] = []
+    compuestos: dict[int, tuple[str, str]] = {}
+    grupo_actual = None
+    for j in range(h.ancho):
+        g, s = _texto(celda(fh, j)), _texto(celda(fh + 1, j))
+        if g and s:
+            grupo_actual, nombre_col = g, f"{g} {s}"
+            compuestos[j] = (g, s)
+        elif g:
+            grupo_actual, nombre_col = None, g
+        elif s:
+            nombre_col = f"{grupo_actual} {s}" if grupo_actual else s
+            if grupo_actual:
+                compuestos[j] = (grupo_actual, s)
+        else:
+            grupo_actual, nombre_col = None, ""
+        nombres.append(nombre_col)
+    return nombres, compuestos
+
+
+def _avisos_de_nombres(h: _HojaLeida, nombres: list[str], primera_de_datos: int, avisos: list) -> None:
+    """Nombres repetidos o vacíos con datos debajo (de la fila `primera_de_datos` en adelante)."""
+    vistos, problemas = set(), []
+    for j, t in enumerate(nombres):
+        if not t:
+            if any(not _vacia(f[j]) for f in h.filas[max(primera_de_datos - h.fila0, 0):] if j < len(f)):
+                problemas.append(f"({letras_de_columna(h.col0 + j)})")
+        elif t in vistos:
+            problemas.append(t)
+        vistos.add(t)
+    if problemas:
+        avisos.append(declarar("nombres_repetidos", cuantas=len(problemas), nombres=problemas))
+
+
 def _sin_excepciones_ajenas(f):
     """Invariante 10: ninguna excepción de una biblioteca llega a la persona. Lo que no es ya una
     `TablaRechazada` (un fallo NUESTRO que se escapó a las guardas) sale como `error_interno`, que
@@ -775,16 +815,7 @@ def _inspeccionar_hoja(libro: _Libro, meta: dict) -> dict:
         _avisos_de_hallazgos(hz, letras_de_columna, avisos)
     if cab:
         nombres = _nombres_propuestos(h, cab)
-        vistos, problemas = set(), []
-        for j, t in enumerate(nombres):
-            if not t:
-                if any(not _vacia(f[j]) for f in h.filas[cab - h.fila0 + 1:] if j < len(f)):
-                    problemas.append(f"({letras_de_columna(h.col0 + j)})")
-            elif t in vistos:
-                problemas.append(t)
-            vistos.add(t)
-        if problemas:
-            avisos.append(declarar("nombres_repetidos", cuantas=len(problemas), nombres=problemas))
+        _avisos_de_nombres(h, nombres, cab + 1, avisos)
         i = cab - h.fila0
         if i + 1 < len(h.filas):
             sig = h.filas[i + 1]
@@ -802,6 +833,14 @@ def _inspeccionar_hoja(libro: _Libro, meta: dict) -> dict:
                                        cabecera=cab, grupos=ofrecida["grupos"][:3]))
                 entrada["cabecera_de_dos_niveles_ofrecida"] = ofrecida
         _avisos_de_columnas(h, cab + 1, avisos)
+        # Si la persona marca que la cabecera ocupa DOS filas, los avisos que dependen de la cabecera y de dónde empiezan los
+        # datos (nombres repetidos, tipos mezclados, serie de fechas) son otros: los dice el núcleo, la pantalla no los compone.
+        if cab + 1 < h.ultima_fila:
+            dos: list = []
+            nombres2, _c = _nombres_de_dos_filas(h, cab)
+            _avisos_de_nombres(h, nombres2, cab + 2, dos)
+            _avisos_de_columnas(h, cab + 2, dos)
+            entrada["avisos_con_cabecera_de_dos_filas"] = dos
     return entrada
 
 
@@ -928,7 +967,7 @@ def _combinadas_en_lo_convertido(h: _HojaLeida, fd: int, fin: int, excluir: list
             continue
         total += n_filas * (b - a + 1)
         if total > zona:
-            raise rechazar("lector_fallo", tipo="celdas combinadas que se solapan")
+            raise rechazar("lector_fallo", tipo="celdas combinadas que se solapan", tipo_en="overlapping merged cells")
         origen_dentro = lo <= r0 <= hi and r0 not in excl
         valor = ""
         if rellenar and 0 <= r0 - h.fila0 < len(h.filas):
@@ -1123,24 +1162,10 @@ def convertir(datos: bytes, nombre: str = "", *, hoja=None, fila_de_cabecera: in
         return fila[j] if j < len(fila) else ""
     nombres_crudos: list[str] = []
     compuestos: dict[int, tuple[str, str]] = {}
-    grupo_actual = None
-    for j in range(ancho):
-        if nh == 1:
-            nombres_crudos.append(_texto(celda(fh, j)))
-            continue
-        g, s = _texto(celda(fh, j)), _texto(celda(fh + 1, j))
-        if g and s:
-            grupo_actual, nombre_col = g, f"{g} {s}"
-            compuestos[j] = (g, s)
-        elif g:
-            grupo_actual, nombre_col = None, g
-        elif s:
-            nombre_col = f"{grupo_actual} {s}" if grupo_actual else s
-            if grupo_actual:
-                compuestos[j] = (grupo_actual, s)
-        else:
-            grupo_actual, nombre_col = None, ""
-        nombres_crudos.append(nombre_col)
+    if nh == 1:
+        nombres_crudos = [_texto(celda(fh, j)) for j in range(ancho)]
+    else:
+        nombres_crudos, compuestos = _nombres_de_dos_filas(h, fh)
     nombres_sin_banda = list(nombres_crudos)
     compuestos_por_la_banda: dict[int, str] = {}
     if banda is not None:

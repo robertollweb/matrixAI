@@ -173,7 +173,8 @@ class Lectura:
         if rutas is None:
             raise rechazar("falta_lector")
         if not sys.executable:
-            raise rechazar("lector_fallo", tipo="no se encuentra el intérprete de Python")
+            raise rechazar("lector_fallo", tipo="no se encuentra el intérprete de Python",
+                           tipo_en="the Python interpreter was not found")
         self.memoria, self.segundos = memoria, segundos
         args = dict(args, rutas=rutas, padre=os.getpid(), memoria=int(memoria) if memoria else 0,
                     cpu=int(segundos) + 5 if segundos else 0)
@@ -185,7 +186,8 @@ class Lectura:
                 close_fds=True)
         except OSError as e:
             raise rechazar("lector_fallo",
-                           tipo=f"no se pudo arrancar el lector ({type(e).__name__})") from None
+                           tipo=f"no se pudo arrancar el lector ({type(e).__name__})",
+                           tipo_en=f"the reader could not be started ({type(e).__name__})") from None
         self._salida = None
         self._fallo = None
         self._hilo = threading.Thread(target=self._comunicar, args=(datos,), daemon=True)

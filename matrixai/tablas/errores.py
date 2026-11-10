@@ -78,7 +78,7 @@ CODIGOS: dict[str, tuple[str, str]] = {
         "No se reconoce el formato del fichero (empieza por bytes que no son de un Excel). "
         "Se abren .xlsx, .xlsm, .xls, .parquet y .csv.",
         "The file format is not recognised (it does not start like an Excel file). .xlsx, "
-        ".xlsm, .xls and .csv files can be opened."),
+        ".xlsm, .xls, .parquet and .csv files can be opened."),
     "bomba": (
         "El libro descomprimido ocuparía {descomprimido} (el fichero pesa {original}) y el "
         "tope es {tope}. No se abre: podría agotar la memoria de este equipo.",
