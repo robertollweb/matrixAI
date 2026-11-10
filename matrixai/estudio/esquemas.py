@@ -393,6 +393,12 @@ class ProblemSpec:
     constraints: tuple[Restriccion, ...] = ()
     current_process: ProcesoActual | None = None
     migracion: dict[str, Any] | None = None
+    #: ceros2 (10-11): los `predictors` que la PREPARACIÓN declaró categóricos (`PoliticaDePreparacion.
+    #: categoricas_de_salida`). Lo pone quien traduce la política al motor (`_spec_para_el_motor` del Studio) y lo lee
+    #: `tipos_de_columna.tipificar` de los motores: una columna así es categórica aunque su texto parsee («03» de un
+    #: código no es 3.0). NO es parte del problema confirmado: fuera de `CLAVES`, del JSON y del digest (como
+    #: `migracion`). Vacío = nadie lo declaró y el motor decide como siempre (la Fase 0, sin cambios).
+    predictores_categoricos: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         exigir_texto(self.problem_id, "problem_id")
@@ -403,6 +409,11 @@ class ProblemSpec:
         exigir_texto_o_nulo(self.prediction_time, "prediction_time")
         object.__setattr__(self, "predictors",
                            exigir_tupla_de_textos(self.predictors, "predictors"))
+        object.__setattr__(self, "predictores_categoricos",
+                           exigir_tupla_de_textos(self.predictores_categoricos, "predictores_categoricos"))
+        for nombre in self.predictores_categoricos:
+            if nombre not in self.predictors:
+                raise EsquemaInvalido("categorico_de_desconocido", valor=repr(nombre))
 
         if self.task == "regression":
             if self.classes is not None:

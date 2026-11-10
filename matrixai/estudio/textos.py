@@ -134,6 +134,12 @@ MOTIVOS: dict[str, dict[str, str]] = {
         "en": "availability is declared for {valor}, which is not among the "
               "declared predictors",
     },
+    "categorico_de_desconocido": {
+        "es": "se declara categórico {valor}, que no está entre los "
+              "predictores declarados",
+        "en": "{valor} is declared categorical, and it is not among the "
+              "declared predictors",
+    },
     "horizonte_sin_momento": {
         "es": "hay horizonte ({valor}) y no hay momento de predicción: un "
               "horizonte sin ancla no dice desde cuándo se cuenta",

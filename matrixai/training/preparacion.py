@@ -343,6 +343,26 @@ class PoliticaDePreparacion:
                     salida.append(nombre)
         return tuple(salida)
 
+    def categoricas_de_salida(self) -> tuple[str, ...]:
+        """Las columnas de `columnas_de_salida()` que `transformar_fila` emite como CATEGORÍA (su texto, `__faltante__`
+        o `__desconocida__`), en ese orden. Del MISMO bucle: si un indicador `x__faltante` pisa una columna categórica
+        del mismo nombre, lo que sale es el indicador (un número) y aquí no se declara.
+
+        Existe por el choque de `tipar_columnas_numericas` («los motores SÍ parsean texto»), reabierto por los códigos
+        con ceros (decisión A, 09-11; medido en ceros2): esta política dice categórica TODO lo que llega como texto
+        —«03», «09» de `cpv_division` incluidos—, pero `tipos_de_columna.tipificar` de los motores re-decidía por el
+        CONTENIDO: en un pliegue sin texto que no parsee, «03» era 3.0 (numérica) y la categoría no vista de la
+        validación, `__desconocida__`, reventaba como «no numérico». La decisión es ESTA; el motor la recibe
+        (`ProblemSpec.predictores_categoricos`) en vez de adivinarla otra vez."""
+        ultima: dict[str, str] = {}
+        emitidas = [p for propuesta in self.columnas
+                    for p in (self.derivadas_de(propuesta) if propuesta.tipo == "fecha" else (propuesta,))]
+        for propuesta in emitidas:
+            ultima[propuesta.columna] = propuesta.tipo
+            if propuesta.tipo == "numerica":
+                ultima[nombre_de_indicador(propuesta.columna)] = "indicador"
+        return tuple(n for n in self.columnas_de_salida() if ultima.get(n) == "categorica")
+
     def a_json(self) -> dict[str, Any]:
         return {
             "columnas": [c.a_json() for c in self.columnas],
