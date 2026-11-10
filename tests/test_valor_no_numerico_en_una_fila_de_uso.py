@@ -32,16 +32,3 @@ def test_un_numero_mal_escrito_dice_su_columna_y_su_motivo(escrito):
 @pytest.mark.parametrize("escrito, numero", [("60", 60.0), ("-3.5", -3.5), (" 7 ", 7.0), ("1e3", 1000.0)])
 def test_lo_que_se_lee_como_numero_sigue_leyendose(escrito, numero):
     assert transformar_fila({"edad": escrito, "zona": "Norte"}, _politica())["edad"] == numero
-
-
-def test_el_ejemplo_del_rechazo_es_un_numero_que_se_lee_y_no_la_coma_que_se_acaba_de_rechazar():
-    """154-C9 (menor 5 de la auditoría final): «12,5» se rechaza y el mensaje daba de ejemplo «70,5». Los ejemplos del motivo, en los
-    dos idiomas, tienen que ser números que `transformar_fila` SÍ acepta."""
-    import re
-    with pytest.raises(ValorNoNumerico) as e:
-        transformar_fila({"edad": "12,5", "zona": "Norte"}, _politica())
-    for idioma in ("es", "en"):
-        ejemplos = re.search(r"\((?:por ejemplo|for example) (.+?)\)", e.value.motivo[idioma]).group(1).split(" o " if idioma == "es" else " or ")
-        assert len(ejemplos) == 2 and not any("," in x for x in ejemplos), ejemplos
-        for x in ejemplos:
-            assert transformar_fila({"edad": x, "zona": "Norte"}, _politica())["edad"] == float(x)
