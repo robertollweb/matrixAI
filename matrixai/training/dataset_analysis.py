@@ -63,6 +63,7 @@ from collections import Counter
 from typing import Any
 
 from matrixai import limits as _limits
+from matrixai.training.codigos_con_ceros import es_un_codigo_con_ceros
 from matrixai.training.dense_generator import _ONEHOT_MAX, parece_identificador
 from matrixai.training.textos_de_faltante import TEXTOS_DE_FALTANTE_GENERALES, textos_leidos_como_faltante
 
@@ -845,8 +846,10 @@ def _has_significant_leading_zero(value: str) -> bool:
     """"08001"/"007" → True (código con cero significativo); "0"/"0.5"/"8001"
     → False. Deliberadamente estricto (solo dígitos tras el 0 inicial, sin
     signo ni punto decimal) para no atrapar "0.5" ni "-08" como falsos
-    positivos de una columna que SÍ es numérica de verdad."""
-    return len(value) > 1 and value[0] == "0" and value[1:].isdigit()
+    positivos de una columna que SÍ es numérica de verdad. La regla vive en
+    `codigos_con_ceros` (la comparten el análisis, el proyecto y la
+    preparación del estudio)."""
+    return es_un_codigo_con_ceros(value)
 
 
 def _numeric_kind(values: list[str]) -> str | None:
