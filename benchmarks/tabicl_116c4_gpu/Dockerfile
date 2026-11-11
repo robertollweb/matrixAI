@@ -10,8 +10,10 @@ ARG TORCH_INDEX=https://download.pytorch.org/whl/cu124
 
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir torch --index-url ${TORCH_INDEX} \
-    && pip install --no-cache-dir "tabicl==2.2.0" numpy pandas scipy scikit-learn
+# 11-11: torch FIJADO a la del paquete GPU del Studio (2.6.0, `bundle-gpu/Dockerfile.gpu`): sin fijarlo resolvía la última (2.15.0
+# medido aquí), y el kit no mediría lo que lleva el producto. Y aguante en la descarga (~3 GB): runbook 53, invariante 7c.
+RUN pip install --no-cache-dir --retries 10 --timeout 60 "torch==2.6.0" --index-url ${TORCH_INDEX} \
+    && pip install --no-cache-dir --retries 10 --timeout 60 "tabicl==2.2.0" numpy pandas scipy scikit-learn
 
 # Los pesos ANTES que los guiones de medir: retocar un guion no vuelve a bajar 215 MB.
 # Verificados por sha256 (los de 116-C0 y del adaptador): si no casan, la imagen NO se construye.
