@@ -7,6 +7,148 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.22.0] — 2026-11-11
+
+The core can now open an Excel workbook (`.xlsx`, `.xlsm`, `.xls`) or a Parquet file as a table and write the canonical CSV
+from it, declaring everything it does on the way; a study can carry a behaviour bank (does the score move the way the
+person declared it should?) whose verdict is by amplitude and fraction of rows, and it travels in the exported package and
+in the signed receipt; the exported service can write a signed, chained trace that anyone with the public key can check
+(`matrixai trace verify`); and the preparation reads "NA", "#N/A" and similar texts as declared missing values, and codes
+with leading zeros as codes. Figures that change: a numeric column with "NA" written in it used to turn categorical and
+now stays numeric with those cells declared as missing; a numeric target with "#N/A" used to stop the study and now drops
+those rows and says so; a `;` CSV with a Spanish decimal comma (`12,5`) used to be rejected by training and now enters as
+a number; a regression whose column names or categories contained words like "classified" was inferred as multiclass and
+no longer is.
+
+### Added
+- **Opening an Excel workbook as a table** (`matrixai.tablas`, contract 150-C1/C2/C7): `inspeccionar` and `convertir`.
+  The format is recognised by signature (zip / OLE / Parquet / HTML / text / empty / encrypted; each refusal has its own
+  reason in es/en), limits are applied to the original before opening it (declared and decompressed zip sizes, rows,
+  columns, memory through the existing guard in `limits.py`, and the process's own `RLIMIT_AS` ceiling), and the reader
+  (`python-calamine`) runs in a child process under `python -I` with an address-space limit, no core dumps and a wall-clock
+  limit, which dies with its parent. `inspeccionar` lists visible and hidden sheets, the first 8 and last 5 rows, a PROPOSED
+  header and totals, and warnings; `convertir` converts only the rows the person lists, uses the stored value (never a
+  calculated one), refuses a formula with no stored value and a workbook that asks to recalculate on open, and writes the
+  canonical CSV with its own deterministic writer. What calamine does not give (cell errors, percentages, hidden rows and
+  columns, the real rectangle) is read from the XML with the standard library. Dates follow the workbook's 1900 or 1904
+  system. New optional extra `matrixai[tablas]` (`python-calamine>=0.9.0,<0.10`); without it the module imports and a workbook
+  says the reader is missing.
+- **Real-world workbooks, declared** (150-C7): a workbook that is a CSV pasted into one column is OFFERED to be split, with a
+  preview, and is only split if the person accepts (`convertir(partir_columna_unica=...)`, declared as
+  `columna_unica_partida`); a two-level header (a band of merged group cells above or below the header row) is offered to be
+  composed as "group · name" or removed (`componer_cabecera_de_dos_niveles`, declared), and `inspeccionar` gives per sheet
+  the warnings of a two-row header (`avisos_con_cabecera_de_dos_filas`); a header made of years as numbers is no longer
+  discarded; a one-cell row after the header (a merged band) is skipped like an empty one; footnotes have their own reason;
+  password-protected workbooks and `.xls` get their own messages in es/en. Measured against independent readers (openpyxl,
+  xlrd) on public office workbooks, with zero differences.
+- **Opening a Parquet file as a table** (`matrixai.tablas.parquet_lector`, contract 150-C8): any file that STARTS with `PAR1`
+  (the signature, not the extension) is routed to it by `inspeccionar` and `convertir`. `pyarrow` is a separate optional
+  extra (`matrixai[parquet]`, `pyarrow>=26.0.1,<27`), imported inside the function; without it the module imports, a Parquet
+  says "install pyarrow" and Excel and CSV keep working. It reads in batches of 65,536 rows, only the columns that are
+  converted, without pandas (an `int64` with nulls above 2^53 comes out exact). Guards run on the footer metadata before
+  reading any data (impossible footer or cut file, encryption, decompression bomb, rows, columns, memory). Declared in es/en:
+  time zone converted to UTC, ms/us/ns truncated to seconds with the count of values that lost a fraction, NaN and infinity
+  as empty, dates outside years 1-9999, empty, repeated or space-padded names, and lists, structs, maps and binaries
+  EXCLUDED by name and type, visible in `inspeccionar` before converting. Excel-only parameters asked of a Parquet are
+  refused, not ignored.
+- **The decimal comma of a `;` CSV enters as a number** (`matrixai.training.decimal_es`, 150-C2): inside
+  `normalize_csv_delimiter`, and so in analysis, training, verification, study and batch. Only in a CSV that is already `;`,
+  and per column, all or nothing: every cell with data is an integer or a decimal with comma (`12,5`, `-3,25`, `1.234,56`)
+  and some has the comma. Left alone: a mixed column, `1.234` without a comma (ambiguous), codes with leading zeros,
+  percentages, and CSVs with commas. A CSV that needs nothing comes out with the same bytes. `normalize_csv_text_declarando`
+  returns the text and the declarations (`declaraciones_de_entrada`), which `analyze_dataset_csv` reports.
+- **The origin of a converted file in the receipt and the reproduction manifest** (150-C4, `matrixai.export.origen_del_fichero`):
+  the `origen` of a converted workbook or of a `;` CSV turned to dots enters `run_provenance` (capture 1.3, only when the run
+  has one; without it the capture is still 1.2 byte for byte), `artifacts.dataset.origen_del_fichero` of the manifest
+  (informative), and the TRIPOD+AI card and clinical dossier ("Origin: Excel `x`, sheet `h`, fingerprint of the original,
+  N declarations", es/en). The hash that is verified is still that of the derived CSV; the fingerprint of the original never
+  enters it. The "Does it work here?" report with a workbook says which Excel, which sheet and which rows were removed.
+- **Behaviour bank** (`matrixai.estudio.comportamiento`, `comportamiento_textos`, contract 149): for a column the person
+  declared monotonic, an increasing grid, the setback against the running maximum, the total end-to-end effect, the worst
+  independent counterexamples and a three-word verdict (`sin_contraejemplos` / `con_contraejemplos` /
+  `no_se_pudo_comprobar`); sensitivity and aggregation across folds carry no verdict key. The verdict is by AMPLITUDE and
+  FRACTION OF ROWS V'(epsilon, q): "with counterexamples" means at least a fraction `q` of the checked rows setback more
+  than epsilon (exact decimal-against-rational comparison, not floating point), and the median per-row amplitude is looked
+  at first: if it does not exceed epsilon the answer is "could not be checked" (`amplitud_no_distingue`). Default tolerance
+  per task, chosen by a measurement fixed before running it: regression epsilon 5 % / q 5 %, binary epsilon 20 % /
+  q 20 % (with a warning that in binary the starting tolerance is high, and why); multiclass without values is out.
+  `con_tolerancia` / `con_epsilon` re-evaluate without predicting again. es/en texts with the fixed limits sentence next to
+  every verdict and a closed vocabulary.
+- **The behaviour bank travels** (149-C6, `matrixai.estudio.banco_en_el_paquete`): the exported package carries
+  `banco_de_comportamiento.json` built from a whitelist (aggregates only, no row), with a second lock
+  (`exigir_sin_filas`) that refuses any row-like key; the TRIPOD and PROBAST cards get a "Model behaviour" line.
+- **Declared monotonicities in the SIGNED receipt** (149-C7, `matrixai.estudio.comportamiento_en_el_recibo`): the
+  monotonicities declared when the study was set up are computed inside the study, on the development sample, with a wall
+  clock limit of 120 s (a timeout or failure is written as "could not be checked" with its reason; it does not bring the
+  receipt down) and enter the signed receipt as an optional root section `comportamiento`. Without declarations the body is
+  byte for byte the previous one (key absent, not null); changing one byte of the section, or removing it, breaks the
+  signature; level and scope are the same with and without it. Declaring a monotonicity on a non-numeric column is refused
+  when the study is set up.
+- **Signed trace of the exported service** (`matrixai.pipelines.traza`, contract 153): format `matrixai.traza/v1` (JSONL, one
+  block per line, canonical JSON), Ed25519 signature with domain separation, chained by `prev` (a genesis of 64 zeros; a
+  restart declares `sin_previo`), with the public key and the minimum count `k` inside every block and the histogram of the
+  predicted value in regression; `comprobar_traza` gives the three states and the reasons
+  `firma|clave|cadena|ancla|formato|version`. `ventana.desde` is the start of a UTC hour and `hasta` the end of one (the exact
+  time of the first request of a person is not stored); a new chain is valid if its `desde` is >= the previous `hasta` minus
+  one hour; keys of mixed order are refused. Truncating the tail is not detected, and the output says so. A dependency-free
+  JavaScript checker gives the same verdict as the Python one on the 65+ written-by-hand test vectors.
+  - `matrixai.continual.drift.psi_desde_recuentos` and `recuentos_en_casillas`: the PSI from counts, equal bit for bit to
+    `compute_psi`; `None`, not 0.0, with an empty side or a constant reference.
+  - CLI: `matrixai trace verify <file> [--huella H] [--desde-genesis] [--locale es|en] [--json]` (exit 0/2/3 like
+    `receipt verify`), documented in `docs/en|es/api/CLI_REFERENCE.md`.
+- **Codes with leading zeros are codes** (`matrixai.training.codigos_con_ceros`): one rule, `es_un_codigo_con_ceros`: starts
+  with 0, more than one character, the rest ASCII digits (`08001`, `007`, `00`; not `0`, `0.5`, `0e3`, `-08`).
+  `tipar_columnas_numericas(..., conservar_ceros_a_la_izquierda=False, codigos_con_ceros=None)`: with `True` a column that
+  would have been converted but carries some code stays as text (a category), with `{column: {cells, examples}}` filled
+  and the limit sentence in es/en. Off by default, so the sealed Phase 0 protocol types as before; a caller opts in (the MatrixAI Studio study does).
+- **The preparation declares its categorical columns**: `PoliticaDePreparacion.categoricas_de_salida()` (what
+  `transformar_fila` emits as a category) and `ProblemSpec.predictores_categoricos`, which carries them to the engine (outside
+  the keys, the JSON and the digest; validated as a subset of the predictors, key `categorico_de_desconocido`; empty means
+  nobody declared it, so Phase 0 does not change).
+
+### Changed
+- **"NA", "N/A", "-", "#N/A"... in a numeric (or date) column are declared missing values**, not a reason to make it
+  categorical (`textos_de_faltante`, used by typing, preparation, dates, analysis and `generate_project_from_dataset`).
+  Only in a column that is numeric or a date without them ("NA" = North America in a text column stays a category);
+  studies already trained keep their recipe. The declaration (`limite_de_textos_leidos_como_faltante`, es/en, each text once
+  with its count) is reported. A numeric column with "NA" written in it used to become categorical (395 / 288 / 41
+  categories at 1 / 30 / 90 %); it stays numeric now.
+- **In a NUMERIC target, "#N/A", ".", " na "... are rows without a target**: dropped and declared
+  (`sin_dato_en_un_objetivo_numerico`, `textos_del_objetivo_sin_dato`), where "NA" used to be dropped and Excel's "#N/A"
+  stopped the whole study with "not a number". Classification is unchanged.
+- **Leading-zero codes can stay text**: with the opt-in above, a column that has some (`cpv_division` "03", "09", "45") is a
+  category and no longer a number, in the study and in the delivered model; without it, typing is unchanged.
+- **`matrixai.estudio.comportamiento`** moves to `VERSION_DEL_COMPORTAMIENTO` 2.0.0: the verdict needs a fraction of rows
+  (before, one row was enough) and the amplitude replaces the signed effect as the gate; the counterexamples are shown only
+  with the verdict "with counterexamples". A low-tolerance warning in regression and a warning for binary in scale points.
+- **Memory guard** (`comprobar_memoria`): also rejects what does not fit under the calling process's soft `RLIMIT_AS`
+  (`memoria_insuficiente/techo_del_proceso`, with its figures); measured with the Studio at 180 MiB, from a
+  "damaged or forged" after 14.6 s to a memory refusal in 0.4 s. Long lists in a reason are trimmed ("and N more").
+- Every `rechazar(..., tipo="<Spanish phrase>")` of `matrixai.tablas` carries its English `tipo_en`; singular and plural in
+  all its texts ("1 cell", never "1 celdas").
+
+### Fixed
+- **The task of the network is no longer guessed from the DATA** (finding 13): `_detect_task` and `_porque_esa_tarea` looked
+  for their words in the whole prompt, and the one of `dataset_project` carries the column names and categories in its
+  `FEATURES: ... SALIDA:` block. A category such as "Actividades Clasificadas" in one row of 30,462 turned a regression
+  into a softmax model (`predicted_class`) and the generation failed with `DatasetProjectError` (4 of 5 folds lost). Both now
+  read the sentence without that block; a human prompt without the pair stays as before.
+- **`verificar_sobre` reads the `nombre` of the steps of a study receipt** (finding 12): the independent verifier only read
+  `id` and answered `ok=False` ("a step with no id") for ANY study receipt while `verificar_recibo` accepted it. It reads
+  `id` and, if missing, `nombre`; a step with neither is still a problem, and two with the same name are ambiguous.
+- **Parquet INT96** (Spark/Hive/Impala) outside 1677-2262 no longer wraps around: 9999-12-31 came out 1816-03-29. It is
+  read at microseconds (years 1-9999) with a second nanosecond reader for the sub-microsecond remainder, which is counted.
+  `time32` no longer brings the file down, INT96 is declared as UTC, and a name "Año" next to " Año " is declared.
+- **Excel:** `<v/>` self-closed has no text; `inspeccionar` counts overlapping merged ranges and hidden columns once; chart
+  sheets are not data sheets; in the 1904 system serial 0 is 1904-01-01 and in 1900 "day 0" is not `####`; an XML encoding
+  that does not exist is "malformed XML", not `error_interno`; a number above 2^53 as text; the memory estimate covers the
+  parent and the child and the sheets with long texts; formulas are checked only in the range that is converted; hours
+  outside the day have their own reason; an empty name gets its final name.
+- **Behaviour bank:** the figure no longer contradicts the verdict; the binary warning says what was measured; rows that go
+  backwards are kept apart; the confirmation of a study returns on time; the receipt does not carry real values of x.
+- **Signed trace:** checked without splitting the file, `--desde-genesis` requires the real genesis, fingerprints built
+  with dict/Set instead of `not in` over a list, `pd.NA` handled.
+
 ## [1.21.0] — 2026-11-02
 
 A receipt can now carry a second, asymmetric signature (Ed25519) that anyone holding the public key can check without any

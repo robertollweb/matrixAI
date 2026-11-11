@@ -185,6 +185,21 @@ matrixai --help
   `space/` folder for a **static** Hugging Face Space that runs the model in the visitor's
   browser (no paid account needed; it states that it does not verify the package)
 - **Studio**: browser-based model development environment — a separate product at [matrixaistudio.org](https://matrixaistudio.org), built on this core
+- **Excel and Parquet as a table, with everything declared**: `matrixai.tablas` opens an `.xlsx` / `.xls` workbook
+  (`python-calamine`, extra `matrixai[tablas]`) or a Parquet file (`pyarrow`, extra `matrixai[parquet]`) and writes the
+  canonical CSV from only the rows you list. The stored value is used, never a calculated one; a pasted-CSV sheet or a
+  two-level header is offered to be split or composed, never done silently; time zones, truncated seconds, excluded
+  columns and removed rows are stated in es/en and travel with the receipt as the origin of the file
+- **Does the score move the way it should?**: declare that a column must push the score up (or down) and the study
+  checks it on a grid, with a verdict by amplitude and fraction of rows — «without counterexamples», «with
+  counterexamples» or «could not be checked» — a fixed limits sentence next to it, and no row in the exported package.
+  The checks enter the signed receipt as an optional section
+- **A signed, chained trace of the service you exported**: `matrixai trace verify <file>` checks, offline and with only the
+  public key, that a trace of the exported service has not been edited, reordered or re-signed (Ed25519, hour-level
+  windows, drift as PSI from counts), and says what it cannot see (a truncated tail)
+- **Messy columns are read as people write them**: `12,5` in a `;` CSV is a number, «NA» or «#N/A» in a numeric column is a
+  declared missing value, and `08001` is a code, not the number 8001 — each rule is one function, and each case is
+  reported
 
 ---
 
@@ -355,7 +370,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 11074 passed, 130 skipped
+# 12086 passed, 387 skipped
 ```
 
 ---
