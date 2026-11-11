@@ -5,10 +5,19 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import tempfile
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+try:  # el candado ENTRE PROCESOS es POSIX; sin `fcntl` queda el de hilos
+    import fcntl as _fcntl
+except ImportError:  # pragma: no cover - Windows
+    _fcntl = None  # type: ignore[assignment]
 
 from matrixai.registry.entry_hash import compute_entry_hash
 from matrixai.registry.layout import RegistryLayout
@@ -17,8 +26,62 @@ from matrixai.registry.schema import HASH_SIN_MODELO, MATRIXAI_REGISTRY_SCHEMA_V
 from matrixai.registry.signing import (
     build_signature_record,
     get_signing_key,
+    sign_entry_hash,
+    signing_key_fingerprint,
     verify_entry_signature,
 )
+
+#: La etiqueta que dice cuál es la versión vigente de un modelo, y el fichero
+#: donde queda constancia de QUIÉN la movió y CUÁNDO (contrato 83, §5.2).
+CURRENT_TAG = "current"
+PROMOTIONS_FILE = "promotions.jsonl"
+_PROMOTION_SEAL_KEYS = ("record_hash", "signature", "signing_key_fingerprint", "signature_ok")
+
+
+#: Fichero del candado de `promote` (dentro del registro): lo comparten los
+#: PROCESOS que usen el mismo registro (dos Studios, un CI); entre hilos de un
+#: mismo proceso manda `_CANDADOS_DE_HILO`.
+PROMOTE_LOCK_FILE = ".promote.lock"
+_CANDADOS_DE_HILO: dict[str, threading.Lock] = {}
+_CANDADO_DEL_DICCIONARIO = threading.Lock()
+
+
+def _escribir_atomico(path: Path, texto: str, dir_temporal: Path) -> None:
+    """Escribe ``texto`` en ``path`` sin que nadie pueda leerlo A MEDIAS.
+
+    ``write_text`` trunca y luego escribe: quien lee entre las dos cosas ve un
+    fichero vacío o cortado (``JSONDecodeError``). Medido el 2026-11-11 con 4
+    hilos promoviendo y 4 leyendo ``current``: 717 lecturas rotas de 3.189.
+    Es la carrera del 14-09 (``_persistir_seleccion``) y el arreglo es el
+    mismo: un temporal en el MISMO sistema de ficheros y ``os.replace``, que es
+    atómico. El temporal va en ``dir_temporal`` (la raíz del registro) y NO junto
+    a la etiqueta: quien enumera las etiquetas lee cada fichero de
+    ``tags/<nombre>/`` (``matrixai/server.py``, el Studio) y vería el temporal
+    como una etiqueta más.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    dir_temporal.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(dir_temporal))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(texto)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _promotion_hash(record: dict[str, Any]) -> str:
+    import hashlib
+
+    body = {k: v for k, v in record.items() if k not in _PROMOTION_SEAL_KEYS}
+    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class ModelRegistryError(Exception):
@@ -118,8 +181,172 @@ class ModelRegistry:
         self._ensure_structure()
         self.get(name, version)  # validates entry exists
         tag_path = self.layout.tag_path(name, tag_name)
-        tag_path.parent.mkdir(parents=True, exist_ok=True)
-        tag_path.write_text(json.dumps({"name": name, "version": version}))
+        # ATÓMICO: un lector de la etiqueta (`get(name, "current")`) nunca ve el
+        # fichero a medias. Ver `_escribir_atomico`.
+        _escribir_atomico(tag_path, json.dumps({"name": name, "version": version}), self.path)
+
+    # ── promote ───────────────────────────────────────────────────────────────
+
+    def current_version(self, name: str) -> str | None:
+        """La versión a la que apunta la etiqueta ``current``; ``None`` si NO HAY etiqueta.
+
+        Una etiqueta que existe y no se puede leer NO es «no hay vigente»: se
+        devolvía ``None`` y ``promote`` lo grababa como ``previous_version``
+        («no había ninguna vigente»), una constancia falsa (87 de 241 en la
+        sonda de la auditoría del 11-11). Con la escritura atómica no debería
+        verse nunca; si se ve, se dice (``ModelRegistryError``).
+        """
+        tag_path = self.layout.tag_path(name, CURRENT_TAG)
+        try:
+            texto = tag_path.read_text()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise ModelRegistryError(f"The `current` tag of {name} cannot be read: {exc}") from exc
+        try:
+            version = json.loads(texto)["version"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ModelRegistryError(
+                f"The `current` tag of {name} is unreadable ({type(exc).__name__}); "
+                "it was not treated as «no current version»."
+            ) from exc
+        if not isinstance(version, str) or not version:
+            raise ModelRegistryError(f"The `current` tag of {name} does not name a version.")
+        return version
+
+    @contextmanager
+    def _candado_de_promover(self) -> Iterator[None]:
+        """Leer la vigente anterior, mover ``current`` y anotar la constancia, SIN NADIE EN MEDIO.
+
+        Sin esto, dos promociones a la vez leían la MISMA anterior y las dos
+        constancias decían haberla sustituido (140 de 241 con un
+        ``previous_version`` que no era la versión de la anterior, sonda de la
+        auditoría del 11-11). Un candado de hilo por registro (el backend es
+        ``ThreadingHTTPServer``) y, donde hay ``fcntl``, uno de FICHERO para
+        otros procesos con el mismo registro.
+        """
+        clave = str(self.path.resolve())
+        with _CANDADO_DEL_DICCIONARIO:
+            candado = _CANDADOS_DE_HILO.setdefault(clave, threading.Lock())
+        with candado:
+            if _fcntl is None:
+                yield
+                return
+            self.path.mkdir(parents=True, exist_ok=True)
+            with open(self.path / PROMOTE_LOCK_FILE, "a+") as fh:
+                _fcntl.flock(fh.fileno(), _fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    _fcntl.flock(fh.fileno(), _fcntl.LOCK_UN)
+
+    def promote(self, name: str, version: str, *, by: str, note: str = "",
+                ya_vigente_sin_cambios: bool = False) -> dict[str, Any]:
+        """Promueve ``name@version`` a vigente: mueve ``current`` y deja constancia.
+
+        Contrato 83, invariante 5.2: promover es un acto HUMANO y queda
+        registrado con quién y cuándo. Por eso ``by`` es obligatorio y no
+        vacío: un registro anónimo no sirve. La constancia es una línea de
+        ``promotions.jsonl`` con la versión anterior, la nueva, el hash de la
+        entrada y una firma HMAC con la misma clave que firma las entradas.
+
+        Se niega (``ModelRegistryError``) si la entrada no existe, si
+        ``version`` es una etiqueta y no una versión, o si ``verify`` no la da
+        por íntegra: no se promueve lo que no se puede comprobar. Si no se
+        puede escribir la constancia, la etiqueta vuelve a como estaba.
+
+        ``ya_vigente_sin_cambios``: si ``version`` YA es la vigente, no se mueve
+        nada ni se anota otra línea, y se devuelve ``{"already": True, ...}``.
+        Se decide DENTRO del candado (re-auditoría del 11-11, N-M3): mirarlo
+        antes, fuera, dejaba que dos promociones simultáneas de la misma
+        versión (un doble clic, dos pestañas) vieran las dos la vigente
+        anterior y anotaran DOS constancias, la segunda con
+        ``previous_version`` igual a la versión. Toda constancia devuelta lleva
+        ``already: False`` (la clave no se escribe en la línea).
+        """
+        who = (by or "").strip()
+        if not who:
+            raise ModelRegistryError(
+                "Cannot promote: who is promoting is required (a promotion is a human act "
+                "and is recorded with who and when)."
+            )
+        if not any(i["name"] == name and i["version"] == version for i in self._load_index()):
+            raise EntryNotFoundError(f"{name}@{version} not found in registry (a version is required, not a tag)")
+        self.verify(name, version)
+        entry = self.get(name, version)
+        with self._candado_de_promover():
+            return self._promover_con_el_candado(name, version, entry, who, note, ya_vigente_sin_cambios)
+
+    def _promover_con_el_candado(self, name: str, version: str, entry: RegistryEntry,
+                                 who: str, note: str, ya_vigente_sin_cambios: bool = False) -> dict[str, Any]:
+        previous = self.current_version(name)
+        if ya_vigente_sin_cambios and previous == version:
+            return {"already": True, "name": name, "version": version, "previous_version": previous,
+                    "entry_hash": entry.entry_hash}
+        record: dict[str, Any] = {
+            "name": name,
+            "version": version,
+            "previous_version": previous,
+            "entry_hash": entry.entry_hash,
+            "promoted_by": who,
+            "promoted_at": datetime.now(tz=timezone.utc).isoformat(),
+            "note": (note or "").strip(),
+        }
+        record_hash = _promotion_hash(record)
+        key = get_signing_key(registry_path=self.path)
+        record["record_hash"] = record_hash
+        record["signature"] = sign_entry_hash(record_hash, key) if key else ""
+        record["signing_key_fingerprint"] = signing_key_fingerprint(key) if key else ""
+
+        self.tag(name, version, CURRENT_TAG)
+        try:
+            with open(self.path / PROMOTIONS_FILE, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            tag_path = self.layout.tag_path(name, CURRENT_TAG)
+            if previous is None:
+                tag_path.unlink(missing_ok=True)
+            else:
+                _escribir_atomico(tag_path, json.dumps({"name": name, "version": previous}), self.path)
+            raise ModelRegistryError(
+                f"Cannot promote: the record could not be written ({exc}); `current` was left as it was"
+            ) from exc
+        return {**record, "already": False}
+
+    def promotions(self, name: str | None = None) -> list[dict[str, Any]]:
+        """Las promociones registradas (la más reciente al final), con ``signature_ok``.
+
+        ``signature_ok`` es ``True`` si el hash del registro y su firma
+        cuadran con la clave activa, ``False`` si no, y ``None`` solo si NO
+        HAY clave con la que comprobar. Con clave activa, una línea SIN firma
+        es ``False``: ``promote`` siempre firma cuando hay clave (con una ruta
+        de registro, siempre la hay), así que una línea sin firma solo puede
+        ser una manipulación, y ``None`` la hacía pasar por «no iba firmada»
+        (auditoría del 11-11, I5). Las líneas ilegibles se saltan.
+        """
+        path = self.path / PROMOTIONS_FILE
+        if not path.exists():
+            return []
+        key = get_signing_key(registry_path=self.path)
+        salida: list[dict[str, Any]] = []
+        for linea in path.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(linea)
+            except ValueError:
+                continue
+            if not isinstance(r, dict) or (name is not None and r.get("name") != name):
+                continue
+            firma = r.get("signature") or ""
+            if key:
+                r["signature_ok"] = bool(
+                    firma
+                    and r.get("record_hash") == _promotion_hash(r)
+                    and verify_entry_signature(str(r.get("record_hash", "")), firma, key)
+                )
+            else:
+                r["signature_ok"] = None
+            salida.append(r)
+        return salida
 
     # ── verify ────────────────────────────────────────────────────────────────
 

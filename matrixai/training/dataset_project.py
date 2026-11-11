@@ -136,6 +136,7 @@ import json
 import math
 import re
 import unicodedata
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -3132,6 +3133,51 @@ def _ajustar_politica_de_faltantes(
     )
 
 
+def categoria_como_al_preparar(
+    raw: str | None,
+    vocabulario: Collection[str],
+    *,
+    renombres: Mapping[str, str] | None = None,
+    tokens_de_ausencia: set[str] | None = None,
+    huecos_no_vistos_como_la_marca: bool = False,
+) -> tuple[str | None, bool]:
+    """`(valor USADO, hueco_de_la_marca_vista)`: cómo lee `_prepare_training_csv` UNA celda de una categórica.
+
+    LA ÚNICA DECISIÓN, y la usa también quien predice fila a fila (la prueba
+    por lote del Studio, Ola 4 / idea 18): dos sitios leyendo la misma celda
+    acaban divergiendo. Lo que hace, en este orden: quita los espacios, aplica
+    el renombrado de categorías inseguras de la receta (el vocabulario está
+    indexado por el valor USADO), y un hueco (`_is_null`, con la marca de
+    ausencia del origen) es `__faltante__` si el vocabulario la trae —y
+    entonces el segundo valor es `True`, porque se rellenó con una categoría
+    vista—, o la marca sin escribir si `huecos_no_vistos_como_la_marca` (una
+    receta posterior a la política de faltantes; ver `_prepare_v1`). Lo demás,
+    tal cual: si no está en el vocabulario, decide quien llama (one-hot: el
+    grupo a 0; embedding: `indice_de_embedding`)."""
+    raw = raw.strip() if raw is not None else raw
+    if raw is not None and renombres:
+        raw = renombres.get(raw, raw)
+    if _is_null(raw, tokens_de_ausencia) and CATEGORIA_FALTANTE in vocabulario:
+        return CATEGORIA_FALTANTE, True
+    if _is_null(raw, tokens_de_ausencia) and huecos_no_vistos_como_la_marca:
+        return CATEGORIA_FALTANTE, False
+    return raw, False
+
+
+def indice_de_embedding(usado: str | None, indices: Mapping[str, int]) -> int | None:
+    """El ÍNDICE que escribe `_prepare_training_csv` para el valor `usado` de una
+    categórica por EMBEDDING (`indices`: valor -> posición en el vocabulario),
+    o `None` si no tiene ninguno (el CSV lleva `""` y el modelo lo rechaza).
+
+    Un hueco que el entrenamiento no tuvo (`__faltante__` fuera del
+    vocabulario) va al código reservado de lo no visto, `__desconocida__`: en
+    embedding no hay «todo a 0». Sin código reservado, `None`."""
+    idx = indices.get(usado) if usado is not None else None
+    if idx is None and usado == CATEGORIA_FALTANTE:
+        idx = indices.get(CATEGORIA_DESCONOCIDA)
+    return idx
+
+
 def _prepare_training_csv(
     rows: list[dict[str, str]],
     feature_columns: list[str],
@@ -3292,8 +3338,6 @@ def _prepare_training_csv(
             info = columns[col]
             safe_name = feature_safe_names[col]
             if info["type"] == "categorical":
-                raw = row.get(col)
-                raw = raw.strip() if raw is not None else raw
                 # EL MISMO RENOMBRADO QUE EL PROMPT, sobre la celda cruda.
                 # Una fila nueva (re-preparación / predicción, ver
                 # `prepare_dataset_from_provenance`) trae el valor TAL COMO
@@ -3303,8 +3347,6 @@ def _prepare_training_csv(
                 # esta traducción, "asian, pacific islander" nunca
                 # encontraría su columna one-hot ni su índice de embedding,
                 # aunque el entrenamiento SÍ conociera ese valor.
-                if raw is not None and category_value_renames:
-                    raw = category_value_renames.get(col, {}).get(raw, raw)
                 vocabulario = onehot_columns.get(col) or embedding_columns.get(col) or {}
                 # EL TERCER ESTADO DEL NÚCLEO, cuando el vocabulario lo declara.
                 # Un hueco en una categórica no es «ninguna de las categorías»
@@ -3316,15 +3358,17 @@ def _prepare_training_csv(
                 # en una receta nueva el hueco va como la marca (la rama de
                 # abajo); una vieja se sigue reproduciendo con el criterio de
                 # entonces.
-                if _is_null(raw, tokens_de_ausencia) and CATEGORIA_FALTANTE in vocabulario:
-                    raw = CATEGORIA_FALTANTE
-                    missing_category_cells[safe_name] = missing_category_cells.get(safe_name, 0) + 1
-                elif _is_null(raw, tokens_de_ausencia) and huecos_no_vistos_como_la_marca:
+                raw, marca_vista = categoria_como_al_preparar(
+                    row.get(col), vocabulario,
+                    renombres=(category_value_renames or {}).get(col),
+                    tokens_de_ausencia=tokens_de_ausencia,
                     # Una receta posterior a la política de faltantes cuyo
                     # entrenamiento no tuvo huecos AQUÍ: es la marca sin escribir
                     # (ver `prepare_dataset_from_provenance`), y va por el mismo
                     # camino que ella — grupo a 0 o código reservado.
-                    raw = CATEGORIA_FALTANTE
+                    huecos_no_vistos_como_la_marca=huecos_no_vistos_como_la_marca)
+                if marca_vista:
+                    missing_category_cells[safe_name] = missing_category_cells.get(safe_name, 0) + 1
                 if col in onehot_columns:
                     value_to_column = onehot_columns[col]
                     for onehot_col in value_to_column.values():
@@ -3332,15 +3376,13 @@ def _prepare_training_csv(
                     if raw in value_to_column:
                         prepared[value_to_column[raw]] = "1"
                 elif col in embedding_columns:
-                    idx = embedding_columns[col].get(raw)
-                    if idx is None and raw == CATEGORIA_FALTANTE:
-                        # Un hueco que el entrenamiento no tuvo (el vocabulario no
-                        # trae `__faltante__`) va al código reservado de lo no
-                        # visto, que es lo que es para el modelo: en embedding no
-                        # hay «todo a 0». Ver `prepare_dataset_from_provenance`,
-                        # que lo declara. Sin código reservado ni se llega aquí:
-                        # aquella lo rechaza antes, diciendo qué falta.
-                        idx = embedding_columns[col].get(CATEGORIA_DESCONOCIDA)
+                    # Un hueco que el entrenamiento no tuvo (el vocabulario no
+                    # trae `__faltante__`) va al código reservado de lo no
+                    # visto (`indice_de_embedding`): en embedding no hay «todo
+                    # a 0». Ver `prepare_dataset_from_provenance`, que lo
+                    # declara. Sin código reservado ni se llega aquí: aquella lo
+                    # rechaza antes, diciendo qué falta.
+                    idx = indice_de_embedding(raw, embedding_columns[col])
                     prepared[safe_name] = str(idx) if idx is not None else ""
                 # cardinalidad<2 -> columna excluida arriba, nada que escribir
             elif safe_name in imputadas:
