@@ -527,6 +527,18 @@ class DenseNetworkGenerator:
         )
         return text[:corte] if corte > 0 else text
 
+    # H13 (11-11) — el bloque `FEATURES:` … `SALIDA:` que compone `dataset_project` NO es una frase: son
+    # los NOMBRES de columna y sus CATEGORÍAS, datos del usuario. Una categoría «… Actividades Clasificadas …»
+    # (1 fila de 30.462) casaba con «clasifica» y volvía multiclase una regresión, y el CSV preparado
+    # (`predicted_value`) dejaba de pasar la validación del modelo. La tarea de ese camino ya la decidió el
+    # tipo del objetivo (verbo `clasificar`/`predecir` antes del bloque): aquí solo se lee lo que queda fuera.
+    # (Llega con los saltos de línea ya aplastados a espacios: de ahí `\s` y no un ancla de línea.)
+    _BLOQUE_FEATURES_RE = re.compile(r"\bfeatures:\s.*?(?=\bsalida:)", re.DOTALL)
+
+    def _texto_de_la_frase(self, prompt: str) -> str:
+        text = _norm(prompt).lower()
+        return self._BLOQUE_FEATURES_RE.sub("", text)
+
     def _porque_esa_tarea(self, prompt: str, labels: list[str] | None, task: str) -> str:
         """CONTRATO 70 C3 — POR QUE se eligio esa tarea, y como cambiarla.
 
@@ -535,7 +547,7 @@ class DenseNetworkGenerator:
         cayo en el valor por defecto — y son cosas muy distintas cuando
         la tarea equivocada devuelve un numero en vez de un si/no.
         """
-        text = _norm(prompt).lower()
+        text = self._texto_de_la_frase(prompt)
         if _any(text, self._PREGUNTA_SI_NO) or _any(text, ["clasificar si ", "classify if "]):
             return "la frase pregunta SI o NO"
         if _any(text, self._STRONG_CLASSIFICATION_KEYWORDS):
@@ -564,7 +576,7 @@ class DenseNetworkGenerator:
         # —el caso «predict price» es lo que protege el contrato 59— pero
         # ahora (C1) solo mira el OBJETIVO, no las columnas, y (C2) una
         # pregunta de si/no gana sobre ella.
-        text = _norm(prompt).lower()
+        text = self._texto_de_la_frase(prompt)
         if _any(text, self._STRONG_CLASSIFICATION_KEYWORDS):
             # UNA etiqueta no es una multiclase: es que no se sabe cuantas
             # clases hay. Antes esto era `if labels is not None:` y el
