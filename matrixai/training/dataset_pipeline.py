@@ -60,8 +60,8 @@ _OP_PARAM_KEYS: dict[str, frozenset[str]] = {
     "missing_values": frozenset({"strategy", "columns"}),
     "rename": frozenset({"mapping"}),
     "cast": frozenset({"column", "to"}),
-    "lag_window": frozenset({"columns", "window"}),
-    "shift_target": frozenset({"column", "horizon", "as"}),
+    "lag_window": frozenset({"columns", "window", "group_by"}),
+    "shift_target": frozenset({"column", "horizon", "as", "group_by"}),
     "binarize": frozenset({"column", "threshold", "as"}),
     "drop_columns": frozenset({"columns"}),
 }
@@ -500,6 +500,26 @@ def _op_cast(rows: list[dict[str, str]], params: dict[str, Any], columns_order: 
             row[column] = _fmt_num(value)
 
 
+def _posiciones_por_serie(rows: list[dict[str, str]], group_by: Any, columns_order: list[str],
+                          op: str) -> list[list[int]]:
+    """164-C1. Las posiciones de fila de cada SERIE, en el orden en que aparecen las filas
+    (que, tras `sort_temporal`, es el orden del tiempo). Un retardo o un desplazamiento
+    «por serie» se cuenta DENTRO de esta lista, nunca por posición global: con varias series
+    (ciudades, tiendas) el último valor de una no es el retardo 1 de la siguiente.
+    Una serie sin nombre no se adivina: es un error con la fila."""
+    _require_column(group_by, columns_order, op, "group_by")
+    series: dict[str, list[int]] = {}
+    for idx, row in enumerate(rows):
+        valor = row.get(group_by)
+        if valor is None or str(valor).strip() == "":
+            raise PipelineError(
+                f"{op}: la fila {idx} no tiene valor en la columna de serie {group_by!r} — "
+                "no se sabe de qué serie es y no se adivina."
+            )
+        series.setdefault(str(valor), []).append(idx)
+    return list(series.values())
+
+
 def _op_lag_window(
     rows: list[dict[str, str]], params: dict[str, Any], columns_order: list[str],
     column_offsets: dict[str, int],
@@ -533,11 +553,22 @@ def _op_lag_window(
             new_cols.append(c)
 
     base_offsets = {column: column_offsets.get(column, 0) for column in columns}
-    for idx, row in enumerate(rows):
-        for column in columns:
-            for i in range(1, window + 1):
-                src_idx = idx - i
-                row[f"{column}_lag{i}"] = rows[src_idx][column] if src_idx >= 0 else ""
+    group_by = params.get("group_by")
+    if group_by is None:
+        for idx, row in enumerate(rows):
+            for column in columns:
+                for i in range(1, window + 1):
+                    src_idx = idx - i
+                    row[f"{column}_lag{i}"] = rows[src_idx][column] if src_idx >= 0 else ""
+    else:
+        # Lee de una COPIA de los valores de origen: las columnas `*_lagN` se escriben en las
+        # mismas filas y una de ellas podría ser también origen.
+        origen = {column: [r[column] for r in rows] for column in columns}
+        for posiciones in _posiciones_por_serie(rows, group_by, columns_order, "lag_window"):
+            for k, idx in enumerate(posiciones):
+                for column in columns:
+                    for i in range(1, window + 1):
+                        rows[idx][f"{column}_lag{i}"] = origen[column][posiciones[k - i]] if k - i >= 0 else ""
     for column in columns:
         for i in range(1, window + 1):
             column_offsets[f"{column}_lag{i}"] = base_offsets[column] - i
@@ -617,9 +648,17 @@ def _op_shift_target(
     if as_name in columns_order:
         raise PipelineError(f"shift_target: la columna {as_name!r} ya existe.")
     n = len(rows)
-    for idx, row in enumerate(rows):
-        src_idx = idx + horizon
-        row[as_name] = rows[src_idx][column] if src_idx < n else ""
+    group_by = params.get("group_by")
+    if group_by is None:
+        for idx, row in enumerate(rows):
+            src_idx = idx + horizon
+            row[as_name] = rows[src_idx][column] if src_idx < n else ""
+    else:
+        origen = [r[column] for r in rows]
+        for posiciones in _posiciones_por_serie(rows, group_by, columns_order, "shift_target"):
+            m = len(posiciones)
+            for k, idx in enumerate(posiciones):
+                rows[idx][as_name] = origen[posiciones[k + horizon]] if k + horizon < m else ""
     column_offsets[as_name] = column_offsets.get(column, 0) + horizon
     return columns_order + [as_name]
 
