@@ -177,7 +177,17 @@ _SECCIONES_POR_TIPO = {
     # distinguir de "solo se puede recalcular la métrica".
     "study_execution": ("dataset", "protocolo", "candidatos", "seleccion",
                         "pipeline_final", "calibrador_umbral", "entorno"),
+    # 165-C3 — «Filas a revisar»: un CSV SIN columna objetivo puntuado por un detector. No hay candidatos ni selección ni
+    # evaluación final, y por eso no cabe en `study_execution`: lo que lo hace valer es QUÉ datos (huella), QUÉ columnas se
+    # miraron y cuáles no, QUÉ detector y semilla, cuánto cambia la lista con la semilla, los LÍMITES medidos (`limits`),
+    # lo que NO afirma (`no_claims`) y si hubo etiquetas (`labels`). Las cifras de acierto (`metrics`) NO son una sección
+    # exigida: solo existen con etiquetas aportadas, y `_problemas_de_filas_a_revisar` prohíbe que aparezcan sin ellas.
+    "anomaly_review": ("dataset", "detector", "columns", "stability", "limits", "no_claims", "labels"),
 }
+
+#: Las cifras que solo tienen sentido con etiquetas (165, invariante 1). Un recibo sin etiquetas que lleve alguna, donde sea, es falso.
+_CIFRAS_DE_ACIERTO = frozenset({"auroc", "average_precision", "precision_at_k", "accuracy", "sensitivity", "specificity",
+                                "recall", "precision", "f1", "roc_auc", "ap"})
 
 #: §14.2 bis / P23-R-0015: «El recibo **DEBE** comprometer el camino
 #: ejecutado». Sin `executed_path_digest`, dos ejecuciones que recorren
@@ -217,6 +227,9 @@ def problemas_de_esquema(recibo: Any) -> list[str]:
                     f"falta {seccion!r}, que §14.2 pide en un recibo "
                     f"de tipo {tipo!r}")
 
+    if tipo == "anomaly_review":
+        problemas.extend(_problemas_de_filas_a_revisar(recibo))
+
     if tipo == "pipeline_execution":
         grafo = recibo.get("pipeline")
         if isinstance(grafo, dict):
@@ -226,6 +239,74 @@ def problemas_de_esquema(recibo: Any) -> list[str]:
                         f"falta pipeline.{campo}, que P23-R-0015 declara DEBE "
                         "(§14.2 bis): sin el camino ejecutado, dos recorridos "
                         "distintos del mismo grafo dan recibos idénticos")
+    return problemas
+
+
+def _nombres_de_cifras(valor: Any) -> list[str]:
+    """Toda CLAVE del recibo que sea una cifra de acierto, a cualquier profundidad."""
+    hallados: list[str] = []
+    if isinstance(valor, dict):
+        for k, v in valor.items():
+            if isinstance(k, str) and k.lower() in _CIFRAS_DE_ACIERTO:
+                hallados.append(k)
+            hallados.extend(_nombres_de_cifras(v))
+    elif isinstance(valor, list):
+        for v in valor:
+            hallados.extend(_nombres_de_cifras(v))
+    return hallados
+
+
+def _bilingue_lleno(v: Any) -> bool:
+    return isinstance(v, dict) and all(isinstance(v.get(i), str) and v[i].strip() for i in ("es", "en"))
+
+
+def _problemas_de_filas_a_revisar(recibo: dict[str, Any]) -> list[str]:
+    """Lo que hace falso un recibo `anomaly_review` aunque lleve todas sus secciones (165-C3).
+
+    1. `labels.source` es `none` o `provided`. Con `none`, NINGUNA cifra de acierto en ningún sitio del recibo (ni `metrics`).
+    2. Con `provided`, `metrics` existe y cada cifra trae valor o motivo —nunca un cero por un valor ausente— y su intervalo, o el
+       motivo de que no lo haya.
+    3. Los límites y lo que no afirma están en los dos idiomas y no vacíos: un recibo sin ellos describe una lista como un veredicto.
+    4. La estabilidad es un solape entre 0 y 1."""
+    problemas: list[str] = []
+    etiquetas = recibo.get("labels")
+    fuente = etiquetas.get("source") if isinstance(etiquetas, dict) else None
+    if fuente not in ("none", "provided"):
+        problemas.append("labels.source tiene que ser 'none' o 'provided'")
+    if fuente == "none":
+        sobran = sorted(set(_nombres_de_cifras(recibo)))
+        if "metrics" in recibo or sobran:
+            problemas.append("un recibo sin etiquetas aportadas no puede llevar cifras de acierto "
+                             f"(metrics / {sobran or 'metrics'}): sin etiquetas esas cifras no existen")
+    elif fuente == "provided":
+        metricas = recibo.get("metrics")
+        if not isinstance(metricas, list) or not metricas:
+            problemas.append("con etiquetas aportadas falta 'metrics'")
+        else:
+            for m in metricas:
+                if not isinstance(m, dict) or not isinstance(m.get("name"), str):
+                    problemas.append("cada cifra de 'metrics' lleva su nombre")
+                    continue
+                valor, motivo = m.get("value"), m.get("undefined_reason")
+                if (valor is None) == (motivo in (None, {}, "")):
+                    problemas.append(f"{m['name']}: valor o motivo de que no lo haya, exactamente uno (un ausente no vale cero)")
+                if valor is not None and (isinstance(valor, bool) or not isinstance(valor, (int, float))
+                                          or not 0.0 <= valor <= 1.0):
+                    problemas.append(f"{m['name']}: un valor entre 0 y 1")
+                if valor is not None and m.get("ci_low") is None and m.get("ci_unavailable") in (None, {}, ""):
+                    problemas.append(f"{m['name']}: sin intervalo tiene que decir por qué")
+    if not _bilingue_lleno(recibo.get("limits")):
+        problemas.append("limits tiene que traer el texto de límites en es y en")
+    nc = recibo.get("no_claims")
+    if not (isinstance(nc, dict) and all(isinstance(nc.get(i), list) and nc[i]
+                                         and all(isinstance(x, str) and x.strip() for x in nc[i]) for i in ("es", "en"))):
+        problemas.append("no_claims tiene que traer lo que no afirma, en es y en")
+    est = recibo.get("stability")
+    if isinstance(est, dict):
+        for c in ("mean_overlap", "min_overlap"):
+            v = est.get(c)
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:
+                problemas.append(f"stability.{c} tiene que ser un número entre 0 y 1")
     return problemas
 
 
