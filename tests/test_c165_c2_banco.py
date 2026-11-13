@@ -102,13 +102,13 @@ def test_el_instrumento_recupera_lo_obvio_y_no_el_azar():
     f = _sintetico(600)
     for tipo in ("extremo", "rara"):
         n, s, _ = banco.sembrar(f, tipo, 0.05, 0, "x")
-        m = banco.metricas(banco.ordenar(n, banco.HOY_VARIANTE), s)
+        m = banco.metricas(banco.ordenar(n, banco.HOY), s)
         assert m["recuperacion_doble"] > 0.9, (tipo, m)
     azar = banco.metricas(np.random.default_rng(0).permutation(len(n)), s)
     assert azar["recuperacion_doble"] < 0.4
     # la combinación imposible (cada columna normal) es lo difícil para ejes alineados: con cuantiles se recupera MÁS que sin escalar
     c, sc, _ = banco.sembrar(f, "combinacion", 0.05, 0, "x")
-    sin = banco.metricas(banco.ordenar(c, banco.HOY_VARIANTE), sc)["recuperacion_doble"]
+    sin = banco.metricas(banco.ordenar(c, banco.HOY), sc)["recuperacion_doble"]
     con = banco.metricas(banco.ordenar(c, {**banco.HOY, "escalado": "cuantiles"}), sc)["recuperacion_doble"]
     assert con > sin + 0.2, (sin, con)
     azar = banco.metricas(np.random.default_rng(0).permutation(len(n)), s)
@@ -125,6 +125,8 @@ def test_las_12_variantes_son_la_rejilla_y_hoy_es_la_primera_de_cada_eje():
 
 
 def test_la_variante_hoy_reproduce_el_producto_y_contamination_no_cambia_el_orden():
+    """Desde el 13-11 el producto lleva la variante elegida por este banco, no la `HOY` de referencia."""
+    assert banco.PRODUCTO_VARIANTE == {"escalado": "ninguno", "categoricas": "ordinal", "max_samples": "todas"}
     f = _sintetico(300)
     assert banco.control_hoy_igual_al_producto(f)
     assert banco.control_contamination_invariante(f)
@@ -132,7 +134,7 @@ def test_la_variante_hoy_reproduce_el_producto_y_contamination_no_cambia_el_orde
 
 def test_el_control_de_hoy_se_pone_rojo_si_la_variante_hoy_no_es_la_del_producto(monkeypatch):
     f = _sintetico(300)
-    monkeypatch.setattr(banco, "HOY_VARIANTE", {"escalado": "cuantiles", "categoricas": "onehot", "max_samples": "todas"})
+    monkeypatch.setattr(banco, "PRODUCTO_VARIANTE", {"escalado": "cuantiles", "categoricas": "onehot", "max_samples": "todas"})
     assert not banco.control_hoy_igual_al_producto(f)
 
 

@@ -254,16 +254,20 @@ def metricas(orden: Sequence[int], sembradas: Sequence[int]) -> dict:
 
 
 def control_hoy_igual_al_producto(filas: list[dict]) -> bool:
-    """La variante «hoy» da el MISMO orden que `puntuar_filas` del producto (semilla 0)."""
+    """La variante del PRODUCTO (`PRODUCTO_VARIANTE`) da el MISMO orden que `puntuar_filas` (semilla 0). Hasta el 13-11 era
+    también la «hoy» del banco; el nombre de la clave del JSON se mantiene por compatibilidad con lo ya medido."""
     res = _an.puntuar_filas(filas, None, 0, n_semillas=2)
     producto = [e["fila"] - 1 for e in res["filas_a_revisar"]]
-    return [int(i) for i in ordenar(filas, HOY_VARIANTE)] == producto
+    return [int(i) for i in ordenar(filas, PRODUCTO_VARIANTE)] == producto
 
 
 def control_contamination_invariante(filas: list[dict]) -> bool:
-    a = puntuaciones(filas, HOY_VARIANTE, 0)
-    b = puntuaciones(filas, HOY_VARIANTE, 0, contamination=0.05)
+    a = puntuaciones(filas, PRODUCTO_VARIANTE, 0)
+    b = puntuaciones(filas, PRODUCTO_VARIANTE, 0, contamination=0.05)
     return bool(np.array_equal(a, b))
 
 
-HOY_VARIANTE = dict(HOY)
+# El detector que hoy lleva el PRODUCTO (`matrixai_engines.anomalias`). Hasta el 13-11 era `HOY`; desde entonces, la variante
+# que eligió este banco (regla bab0a2c7…). `HOY` se queda como la REFERENCIA con la que se midió el C2 y no se toca: la regla
+# sellada y el analizador comparan contra ella. Los controles comprueban que el banco mide EL MISMO detector que el producto.
+PRODUCTO_VARIANTE = {"escalado": "ninguno", "categoricas": "ordinal", "max_samples": "todas"}
