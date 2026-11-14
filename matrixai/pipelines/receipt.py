@@ -267,8 +267,19 @@ def _problemas_de_filas_a_revisar(recibo: dict[str, Any]) -> list[str]:
     2. Con `provided`, `metrics` existe y cada cifra trae valor o motivo —nunca un cero por un valor ausente— y su intervalo, o el
        motivo de que no lo haya.
     3. Los límites y lo que no afirma están en los dos idiomas y no vacíos: un recibo sin ellos describe una lista como un veredicto.
-    4. La estabilidad es un solape entre 0 y 1."""
+    4. La estabilidad es un solape entre 0 y 1.
+    5. El detector declara su VERSIÓN y las de scikit-learn y numpy (invariante 3; auditoría 2 del 165, I3): sin ellas el recibo no
+       permite saber con qué se calculó una lista que, con la misma semilla, cambia con la versión de scikit-learn."""
     problemas: list[str] = []
+    det = recibo.get("detector")
+    det = det if isinstance(det, dict) else {}
+    if not (isinstance(det.get("engine_version"), str) and det["engine_version"].strip()):
+        problemas.append("detector.engine_version tiene que decir la versión del detector")
+    versiones = det.get("versions")
+    for biblioteca in ("scikit_learn", "numpy"):
+        v = versiones.get(biblioteca) if isinstance(versiones, dict) else None
+        if not (isinstance(v, str) and v.strip()):
+            problemas.append(f"detector.versions.{biblioteca} tiene que decir la versión con que se calculó la lista")
     etiquetas = recibo.get("labels")
     fuente = etiquetas.get("source") if isinstance(etiquetas, dict) else None
     if fuente not in ("none", "provided"):

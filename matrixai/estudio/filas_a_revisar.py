@@ -58,17 +58,25 @@ TEXTO_DE_LIMITES = {
            f"categoría rara, el {_pc(LIMITES_MEDIDOS['categoria_rara']['1 %'])} y el {_pc(LIMITES_MEDIDOS['categoria_rara']['5 %'])} "
            "(en un conjunto real y cinco con categorías puestas por nosotros); y con una combinación imposible de valores que por "
            f"separado son normales, el {_pc(LIMITES_MEDIDOS['combinacion_imposible']['1 %'])} y el "
-           f"{_pc(LIMITES_MEDIDOS['combinacion_imposible']['5 %'])}: eso es lo que el detector apenas ve. Las categorías se ordenan por "
+           f"{_pc(LIMITES_MEDIDOS['combinacion_imposible']['5 %'])}: eso es lo que el detector apenas ve. Las cifras del valor extremo "
+           "y de la combinación se midieron con la forma anterior de ordenar las categorías (por su nombre) y la de la categoría rara "
+           "con la de ahora; solo cambia algo en el conjunto con categorías. Las categorías se ordenan por "
            "lo frecuentes que son, no por su nombre, y una celda vacía cuenta como un valor del centro: no sube la fila por estar "
-           "vacía. No dice nada de lo que hay en tu fichero. Una lista que no destaca una fila no prueba que esa fila esté bien."),
+           "vacía. Dos categorías igual de frecuentes van por cuál aparece antes en el fichero, así que con empates el mismo CSV con "
+           "las filas en otro orden puede dar una lista algo distinta (medido en un conjunto real: dentro de lo que cambia con la "
+           "semilla). No dice nada de lo que hay en tu fichero. Una lista que no destaca una fila no prueba que esa fila esté bien."),
     "en": ("Measured by MatrixAI on anomalies SEEDED by us, not on yours: if a dataset has n rows with an extreme value, the "
            f"detector puts {_pc(LIMITES_MEDIDOS['extremo']['1 %'])} of them in the first 2n of the list when they are 1 % of the "
            f"rows and {_pc(LIMITES_MEDIDOS['extremo']['5 %'])} when they are 5 %; with a rare category, "
            f"{_pc(LIMITES_MEDIDOS['categoria_rara']['1 %'])} and {_pc(LIMITES_MEDIDOS['categoria_rara']['5 %'])} (on one real dataset "
            "and five with categories put in by us); and with an impossible combination of values that are each normal on their own, "
            f"{_pc(LIMITES_MEDIDOS['combinacion_imposible']['1 %'])} and {_pc(LIMITES_MEDIDOS['combinacion_imposible']['5 %'])}: "
-           "that is what the detector barely sees. Categories are ordered by how frequent they are, not by their name, and an empty "
-           "cell counts as a value in the middle: a row does not go up for being empty. It says nothing about what is in your file. "
+           "that is what the detector barely sees. The extreme-value and combination figures were measured with the previous way of "
+           "ordering categories (by name) and the rare-category one with the current way; it only changes anything in the dataset "
+           "with categories. Categories are ordered by how frequent they are, not by their name, and an empty "
+           "cell counts as a value in the middle: a row does not go up for being empty. Two equally frequent categories go by which "
+           "appears first in the file, so with ties the same CSV with its rows in another order can give a slightly different list "
+           "(measured on a real dataset: within what changes with the seed). It says nothing about what is in your file. "
            "A list that does not highlight a row does not prove the row is fine."),
 }
 
@@ -105,6 +113,14 @@ _ATESTIGUA = {
 _NO_ATESTIGUA = {
     "es": "Que las filas señaladas sean anómalas, ni que las no señaladas estén bien: ver `no_claims` y `limits`.",
     "en": "That the flagged rows are anomalous, nor that the unflagged ones are fine: see `no_claims` and `limits`.",
+}
+#: De QUÉ es la huella del recibo (auditoría 2 del 165, menor 2): del texto que se puntuó, no de los bytes del fichero. Coinciden con
+#: `sha256sum` en un CSV UTF-8 sin BOM; con el BOM de Excel o en Windows-1252, no.
+_HUELLA_DE = {
+    "es": ("sha256 del texto del CSV tal como llegó, en UTF-8 (la pantalla del Studio lo manda ya leído y sin BOM). Es el del fichero "
+           "si este es UTF-8 sin BOM; con el BOM de Excel o en Windows-1252 no coincide con el de los bytes del fichero."),
+    "en": ("sha256 of the CSV text as received, in UTF-8 (the Studio screen sends it already read and without BOM). It is the file's "
+           "own if the file is UTF-8 without BOM; with Excel's BOM or in Windows-1252 it does not match the hash of the file's bytes."),
 }
 _PROPOSITO = {
     "es": "Lista ordenada de filas a revisar de un CSV sin columna objetivo",
@@ -149,6 +165,24 @@ def _t_casi_vacia(p, i):
 def _t_constante(p, i):
     return ("Constante: un solo valor, no distingue unas filas de otras." if i == "es"
             else "Constant: a single value, it does not tell rows apart.")
+
+
+def _t_fecha(p, i):
+    if i == "es":
+        return (f"Es una fecha (formato {p['formato']}, {_n(p['distintos'], i)} valores distintos): como categoría cada día sería un "
+                "nivel y todas las filas saldrían «raras»; como número, la lista señalaría los primeros y últimos días del fichero. "
+                "No se mira.")
+    return (f"It is a date (format {p['formato']}, {_n(p['distintos'], i)} distinct values): as a category each day would be a level "
+            "and every row would come out «rare»; as a number, the list would point at the first and last days of the file. It is "
+            "not looked at.")
+
+
+def _t_csv_no_se_parte(p, i):
+    if i == "es":
+        return ("El fichero no se puede partir en columnas: ni la coma, ni el punto y coma, ni el tabulador, ni la barra «|» separan "
+                f"la cabecera en más de una ({_n(p['columnas'], i)}). Con una sola columna no se lee: guárdalo como CSV con un separador.")
+    return ("The file cannot be split into columns: neither comma, semicolon, tab nor bar «|» splits the header into more than one "
+            f"({_n(p['columnas'], i)}). A single column is not read: save it as a CSV with a separator.")
 
 
 def _t_categorica_casi_unica(p, i):
@@ -253,7 +287,9 @@ _TEXTOS_DE_MOTIVO = {
     "vacia": _t_vacia, "casi_vacia": _t_casi_vacia, "constante": _t_constante,
     "categorica_casi_unica": _t_categorica_casi_unica, "identificador_numerico": _t_identificador_numerico,
     "numeros_con_formato": _t_numeros_con_formato, "numerica_con_textos": _t_numerica_con_textos,
-    "numero_ambiguo": _t_numero_ambiguo, "columna_de_etiquetas": _t_columna_de_etiquetas,
+    "numero_ambiguo": _t_numero_ambiguo, "columna_de_etiquetas": _t_columna_de_etiquetas, "fecha": _t_fecha,
+    # por qué el CSV no se lee
+    "csv_no_se_parte": _t_csv_no_se_parte,
     # avisos del detector
     "pocas_filas": _t_pocas_filas, "cambia_con_la_semilla": _t_cambia_con_la_semilla, "filas_sin_dato": _t_filas_sin_dato,
     "numerica_casi_unica": _t_numerica_casi_unica, "textos_leidos_como_faltante": _t_textos_leidos_como_faltante,
@@ -379,10 +415,15 @@ def recibo_de_filas_a_revisar(resultado: Mapping[str, Any], *, huella_del_csv: s
         "schema_version": "1.0", "receipt_id": id_, "event_type": "anomaly_review",
         "created_at": creado_en,
         "subject": {"purpose": dict(_PROPOSITO), "actor": actor or "—"},
-        "dataset": {"name": nombre or "csv", "digest": f"sha256:{huella_del_csv}", "rows_total": d["filas"],
+        "dataset": {"name": nombre or "csv", "digest": f"sha256:{huella_del_csv}", "digest_of": dict(_HUELLA_DE),
+                    "rows_total": d["filas"],
                     "rows_scored": d["filas_puntuadas"], "rows_ignored": len(d["filas_ignoradas"])},
         "detector": {"name": det["nombre"], "seed": det["semilla"], "n_estimators": det["n_estimadores"],
-                     "contamination": None, "encoding": det["codificacion"], "engine_version": version_de_motores},
+                     "contamination": None, "encoding": det["codificacion"],
+                     # Lo que de verdad corrió (invariante 3; auditoría 2 del 165, I3): lo MIDE motores al ejecutar
+                     # (`versiones_del_detector`) y el verificador lo exige. `version_de_motores` explícita manda si llega.
+                     "engine_version": version_de_motores or (det.get("versiones") or {}).get("detector"),
+                     "versions": {k: v for k, v in (det.get("versiones") or {}).items() if k != "detector"}},
         "columns": {"used": [dict(c) for c in resultado["columnas_usadas"]],
                     "excluded": [dict(c) for c in resultado["columnas_excluidas"]]},
         "stability": {"seeds": list(est["semillas"]), "k": est["k"], "mean_overlap": est["solape_medio"],

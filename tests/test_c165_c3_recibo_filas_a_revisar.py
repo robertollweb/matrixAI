@@ -271,8 +271,43 @@ def test_menor2_la_precision_en_k_sin_dos_clases_dice_su_motivo_no_el_del_auroc(
 @pytest.mark.parametrize("clave", fr.CLAVES_DE_MOTIVO)
 def test_cada_clave_de_motivo_tiene_texto_en_los_dos_idiomas(clave):
     p = {"sin_dato": 9, "filas": 10, "distintos": 9, "presentes": 10, "por": "tramo", "celdas": 3, "ejemplo": "1.234",
-         "textos": {"NA": 2}, "motivo_de_la_lectura": "ambigua", "minimo": 200, "columna": "c", "columnas": ["c"]}
+         "textos": {"NA": 2}, "motivo_de_la_lectura": "ambigua", "minimo": 200, "columna": "c", "columnas": ["c"],
+         "formato": "%Y-%m-%d"}
     t = fr.texto_de_motivo(clave, p)
     assert t["es"].strip() and t["en"].strip() and t["es"] != t["en"]
     with pytest.raises(KeyError):
         fr.texto_de_motivo("no_existe", {})
+
+
+# ---------------------------------------------------------------------------------------------------------- auditoría 2 del 165
+def test_aud2_i3_el_recibo_declara_la_version_medida_del_detector_y_de_sklearn_y_numpy(resultado):
+    import numpy  # noqa: PLC0415
+    import sklearn  # noqa: PLC0415
+    det = _recibo(resultado)["detector"]
+    assert det["engine_version"] == resultado["detector"]["versiones"]["detector"]
+    assert det["versions"]["scikit_learn"] == sklearn.__version__ and det["versions"]["numpy"] == numpy.__version__
+    assert R.problemas_de_esquema(_recibo(resultado)) == []
+
+
+@pytest.mark.parametrize("quitar", ["engine_version", "versions.scikit_learn", "versions.numpy", "versions"])
+@pytest.mark.parametrize("como", ["falta", "nulo", "vacio"])
+def test_aud2_i3_el_verificador_exige_las_versiones(resultado, quitar, como):
+    recibo = _recibo(resultado)
+    sitio, _, hoja = quitar.partition(".")
+    padre, clave = (recibo["detector"], sitio) if not hoja else (recibo["detector"][sitio], hoja)
+    if como == "falta":
+        del padre[clave]
+    else:
+        padre[clave] = None if como == "nulo" else ""
+    problemas = R.problemas_de_esquema(recibo)
+    assert any("detector." in p and "versi" in p for p in problemas), problemas
+
+
+def test_aud2_los_textos_de_limites_dicen_las_dos_codificaciones_y_los_empates():
+    es, en = fr.TEXTO_DE_LIMITES["es"], fr.TEXTO_DE_LIMITES["en"]
+    assert "forma anterior de ordenar las categorías" in es and "previous way of ordering categories" in en
+    assert "con empates" in es and "with ties" in en
+
+
+def test_aud2_el_recibo_dice_de_que_es_la_huella():
+    assert "sin BOM" in fr._HUELLA_DE["es"] and "without BOM" in fr._HUELLA_DE["en"]
