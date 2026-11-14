@@ -285,3 +285,61 @@ def test_la_huella_de_los_pesos_tras_la_epoca_1_es_la_del_entrenador():
     assert huella_de_los_pesos([0.0] + tras_la_1[1:]) != huella_de_los_pesos(tras_la_1)
     assert huella_de_los_pesos([float("nan")]) == huella_de_los_pesos([-float("nan")])
     del torch
+
+
+@needs_torch
+def test_aud2_la_tolerancia_de_paridad_es_la_declarada_1e7_mas_1e6_por_el_peso(monkeypatch):
+    """Auditoría 2 del 167 (sabotaje VERDE): multiplicar la tolerancia por 50 pasaba las 24 pruebas — los desvíos probados
+    (1e-3, 1e-5) quedaban fuera de las dos. Aquí el paso de torch se desvía 3 veces la tolerancia DECLARADA de cada peso
+    (`1e-7 + 1e-6·|w|`, invariante 2: «a 1e-7»): se rechaza. Y 0,3 veces: se acepta (no es más estricta de lo dicho)."""
+    import torch
+    from matrixai.training import paso_de_un_peso as m
+
+    original = torch.optim.SGD.step
+
+    def con_desvio(factor):
+        def paso(self, *a, **kw):
+            salida = original(self, *a, **kw)
+            with torch.no_grad():
+                for grupo in self.param_groups:
+                    for p in grupo["params"]:
+                        p.add_(factor * (1e-7 + 1e-6 * p.abs()))
+            return salida
+        return paso
+
+    monkeypatch.setattr(torch.optim.SGD, "step", con_desvio(3.0))
+    r = _mini(capa=1, fila=0, columna=0)
+    assert r["ok"] is False and r["motivo"] == m.MOTIVO_PARIDAD and not any(p["cuadra"] for p in r["pasos"])
+    monkeypatch.setattr(torch.optim.SGD, "step", con_desvio(0.3))
+    assert _mini(capa=1, fila=0, columna=0)["ok"] is True
+
+
+@needs_torch
+def test_aud2_tras_un_paso_no_finito_la_epoca_sigue_sumando_su_perdida(monkeypatch):
+    """Auditoría 2 del 167 (sabotaje VERDE): dejar de sumar la pérdida de la época tras un paso no finito pasaba las 24
+    pruebas. El entrenador no para: su pérdida de la época 1 incluye TODOS los lotes, y es con la que el cinturón compara.
+    Aquí el gradiente del lote 3 es NaN con su pérdida FINITA (la trampa de `torch.where`), así que lo único que hace NaN
+    la pérdida de la época son los lotes SIGUIENTES (pesos ya NaN): si no se suman, sale finita."""
+    from matrixai.training import dense_torch_trainer as dtt
+    from matrixai.training import paso_de_un_peso as m
+    import torch
+
+    real = dtt._loss_on_probabilities
+    llamadas = {"n": 0}
+
+    def perdida(out, y, fn, torch_):
+        llamadas["n"] += 1
+        L = real(out, y, fn, torch_)
+        if llamadas["n"] != 3:
+            return L
+        # Valor 0, gradiente NaN: la rama no elegida de `where` (raíz de un negativo) envenena el gradiente.
+        return L + torch.where(torch.tensor(True), torch.zeros(()), torch.sqrt(-(out.abs().sum() + 1.0)))
+
+    monkeypatch.setattr(dtt, "_loss_on_probabilities", perdida)
+    r = _mini(capa=1, fila=0, columna=0)
+    assert r["ok"] is False and r["motivo"] == m.MOTIVO_NO_FINITO
+    assert r["pasos"][-1]["paso"] == 3 and r["pasos"][-1]["no_finito"] is True
+    e = r["primera_epoca"]
+    assert e["lotes"] == r["lotes_por_epoca"] > 3
+    assert e["perdida"] != e["perdida"], e["perdida"]          # NaN: los lotes tras el no finito también cuentan
+    del torch
