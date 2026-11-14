@@ -63,9 +63,12 @@ def _clase(celda: str) -> int:
             return _PCT
         return _X
     if "." in celda:
-        if not _RE_P.match(celda):
-            return _X
-        return _M if _RE_M.match(celda) else _P
+        # Los miles ANTES que el decimal con punto: `1.234.567` y `12.345.678` tienen varios puntos y `_RE_P` (un solo punto)
+        # los daba por «otra cosa» antes de mirar si eran miles — la columna se quedaba como texto SIN el aviso de ambigua,
+        # contra lo que dice el docstring (hallazgo del 14-11, reparación del 165).
+        if _RE_M.match(celda):
+            return _M
+        return _P if _RE_P.match(celda) else _X
     return _E if _RE_E.match(celda) else _X
 
 

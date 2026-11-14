@@ -487,3 +487,20 @@ def test_forma_y_tamano_reales_20000x30_con_su_tope():
     # lo convertido se re-lee como número
     fila = next(csv.reader(io.StringIO(salida.split("\n", 2)[1])))
     float(fila[0])
+
+
+def test_los_miles_de_varios_grupos_son_ambiguos_y_se_dice():
+    """14-11: `1.234.567` y `12.345.678` se clasificaban `X` (el decimal con punto, de UN solo punto, se miraba antes que los
+    miles): una columna de habitantes con millones se quedaba como texto y SIN el aviso de ambigua que promete el docstring."""
+    from matrixai.training.decimal_es import ClasificadorDeColumnas, _CLASES, _clase
+    esperado = {"1.234": "M", "1.234.567": "M", "12.345.678": "M", "-1.234.567": "M", "1.234.567,89": "D", "12.5": "P",
+                "1.23.456": "X", "1.2345.678": "X", "0.123.456": "X", "1.234.56": "X", "1..234": "X"}
+    assert {c: _CLASES[_clase(c)] for c in esperado} == esperado
+    cl = ClasificadorDeColumnas(["habitantes", "renta"])
+    for fila in (["1.234.567", "12,5"], ["987.654", "9,9"], ["12.345.678", "13,1"], ["45", "7"]):
+        cl.ver(fila)
+    d = {x["columna"]: x for x in cl.declaraciones()}
+    assert d["renta"]["tipo"] == "decimal_coma_convertido"
+    assert d["habitantes"]["tipo"] == "decimal_coma_no_convertido" and d["habitantes"]["detalle"]["motivo"] == "ambigua"
+    assert d["habitantes"]["cuantas"] == 3 and d["habitantes"]["texto"]["es"] != d["habitantes"]["texto"]["en"]
+    assert 0 not in cl.a_convertir()          # ambigua: NO se convierte, se avisa
