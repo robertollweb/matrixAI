@@ -93,13 +93,16 @@ def test_el_texto_de_limites_va_en_los_dos_idiomas_con_lo_medido(resultado):
         for tipo in fr.LIMITES_MEDIDOS.values():
             for tasa, v in (tipo or {}).items():
                 assert f"{round(100 * v)} %" in recibo["limits"][idioma]
-    # aud1 I4: la cifra de la categoría rara salió de una siembra que caía al final del alfabeto. Hasta el C2b: EN REVISIÓN, sin cifra,
-    # y diciendo que la lista depende del nombre de las categorías.
-    assert fr.LIMITES_MEDIDOS["categoria_rara"] is None
-    assert "EN REVISIÓN" in recibo["limits"]["es"] and "UNDER REVIEW" in recibo["limits"]["en"]
-    assert "cómo se llamen" in recibo["limits"]["es"] and "what the categories are called" in recibo["limits"]["en"]
+    # aud1 I4 -> C2b (regla 845586e7…, DECIDIDO 14-11): la categoría rara con la siembra NEUTRA (11 % / 29 %), no la del C2 (7 % / 37 %,
+    # que caía al final del alfabeto); ya no «en revisión» ni «depende del nombre» (con el orden por frecuencia no depende: lo prueba
+    # motores, `test_c2b_renombrar_un_nivel_no_cambia_la_lista_en_un_conjunto_real`); y lo que sí queda: la vacía es un valor del centro.
+    assert fr.LIMITES_MEDIDOS["categoria_rara"] == {"1 %": 0.111, "5 %": 0.294}
+    assert "categoría rara, el 11 % y el 29 %" in recibo["limits"]["es"] and "rare category, 11 % and 29 %" in recibo["limits"]["en"]
+    assert "una celda vacía cuenta como un valor del centro" in recibo["limits"]["es"]
+    assert "an empty cell counts as a value in the middle" in recibo["limits"]["en"]
     for idioma in ("es", "en"):
-        assert "7 %" not in recibo["limits"][idioma] and "37 %" not in recibo["limits"][idioma]
+        for viejo in ("7 %", "37 %", "REVISIÓN", "REVIEW", "cómo se llamen", "what the categories are called"):
+            assert viejo not in recibo["limits"][idioma], viejo
     for quitado in ({}, {"es": recibo["limits"]["es"]}, {"es": recibo["limits"]["es"], "en": " "}):
         malo = copy.deepcopy(recibo)
         malo["limits"] = quitado if quitado else {"es": "", "en": ""}

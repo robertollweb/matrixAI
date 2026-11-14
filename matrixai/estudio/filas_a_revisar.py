@@ -30,17 +30,19 @@ __all__ = ["CIFRAS_CON_ETIQUETAS", "CLAVES_DE_MOTIVO", "LIMITES_MEDIDOS", "NO_AF
 #: Las cifras que solo existen con etiquetas. El verificador las prohíbe sin ellas.
 CIFRAS_CON_ETIQUETAS = ("auroc", "average_precision", "precision_at_k")
 
-#: LO MEDIDO por el banco del 165-C2 (regla sellada `bab0a2c7…`; `benchmarks/c165/`): de las n filas SEMBRADAS por MatrixAI, qué
-#: parte pone el detector vigente en las 2n primeras de la lista, con tasas de siembra del 1 % y del 5 %. El valor extremo, de los 6
-#: conjuntos del banco; la combinación imposible, de los 4 que tienen una pareja de columnas correlacionadas; la categoría rara, de UNO.
-#: NO es acierto sobre las anomalías de nadie: es lo que el detector apenas ve.
+#: LO MEDIDO por los bancos del 165 (`benchmarks/c165/`): de las n filas SEMBRADAS por MatrixAI, qué parte pone el detector vigente en
+#: las 2n primeras de la lista, con tasas de siembra del 1 % y del 5 %. NO es acierto sobre las anomalías de nadie: es lo que el detector
+#: apenas ve.
 #:
-#: `categoria_rara` está EN REVISIÓN (auditoría 165, I4): su 7 % / 37 % salió de una siembra (`valor_nuevo_…`) que cae al FINAL del
-#: orden alfabético —el extremo del eje ordinal—, y con un nombre de mitad de alfabeto la cifra baja. Hasta que el C2b
-#: (`benchmarks/c165/REGLA_C2B.md`) mida con nombres neutros, NO se enseña ninguna cifra de la categoría rara (`None`), y el texto lo dice.
+#: * `extremo` y `combinacion_imposible`: el C2 (regla `bab0a2c7…`), el extremo en los 6 conjuntos del banco y la combinación en los 4 que
+#:   tienen una pareja de columnas correlacionadas. Medidos con la codificación de categóricas de entonces (alfabética), que solo cambia
+#:   algo en `dresses-sales`, el único de los 6 con categóricas.
+#: * `categoria_rara`: el C2b (regla `845586e7…`, DECIDIDO el 14-11, `frecuencia|centro`), con siembras de nombre NEUTRO (en mitad del
+#:   alfabeto o al azar) en 1 conjunto real y 5 derivados con categorías puestas por nosotros: 0,111 y 0,294. La del C2 (7 % / 37 %) salía
+#:   de una siembra que caía al FINAL del alfabeto (auditoría 165, I4) y ya no se usa.
 LIMITES_MEDIDOS = {
     "extremo": {"1 %": 0.16, "5 %": 0.55},
-    "categoria_rara": None,
+    "categoria_rara": {"1 %": 0.111, "5 %": 0.294},
     "combinacion_imposible": {"1 %": 0.01, "5 %": 0.13},
 }
 
@@ -52,21 +54,22 @@ def _pc(x: float) -> str:
 TEXTO_DE_LIMITES = {
     "es": ("Medido por MatrixAI sobre anomalías SEMBRADAS por nosotros, no sobre las tuyas: si en un conjunto hay n filas "
            f"con un valor extremo, el detector pone en las 2n primeras de la lista el {_pc(LIMITES_MEDIDOS['extremo']['1 %'])} "
-           f"de ellas cuando son el 1 % de las filas y el {_pc(LIMITES_MEDIDOS['extremo']['5 %'])} cuando son el 5 %; y con una "
-           "combinación imposible de valores que por separado son normales, "
-           f"el {_pc(LIMITES_MEDIDOS['combinacion_imposible']['1 %'])} y el {_pc(LIMITES_MEDIDOS['combinacion_imposible']['5 %'])}: "
-           "eso es lo que el detector apenas ve. Lo que recupera con una categoría rara está EN REVISIÓN y no se da ninguna cifra: "
-           "con columnas de categorías la lista depende de cómo se llamen (se codifican por orden alfabético, y renombrar una "
-           "categoría puede cambiar la lista). No dice nada de lo que hay en tu fichero. Una lista que no destaca una fila "
-           "no prueba que esa fila esté bien."),
+           f"de ellas cuando son el 1 % de las filas y el {_pc(LIMITES_MEDIDOS['extremo']['5 %'])} cuando son el 5 %; con una "
+           f"categoría rara, el {_pc(LIMITES_MEDIDOS['categoria_rara']['1 %'])} y el {_pc(LIMITES_MEDIDOS['categoria_rara']['5 %'])} "
+           "(en un conjunto real y cinco con categorías puestas por nosotros); y con una combinación imposible de valores que por "
+           f"separado son normales, el {_pc(LIMITES_MEDIDOS['combinacion_imposible']['1 %'])} y el "
+           f"{_pc(LIMITES_MEDIDOS['combinacion_imposible']['5 %'])}: eso es lo que el detector apenas ve. Las categorías se ordenan por "
+           "lo frecuentes que son, no por su nombre, y una celda vacía cuenta como un valor del centro: no sube la fila por estar "
+           "vacía. No dice nada de lo que hay en tu fichero. Una lista que no destaca una fila no prueba que esa fila esté bien."),
     "en": ("Measured by MatrixAI on anomalies SEEDED by us, not on yours: if a dataset has n rows with an extreme value, the "
            f"detector puts {_pc(LIMITES_MEDIDOS['extremo']['1 %'])} of them in the first 2n of the list when they are 1 % of the "
-           f"rows and {_pc(LIMITES_MEDIDOS['extremo']['5 %'])} when they are 5 %; and with an impossible combination of values that "
-           f"are each normal on their own, {_pc(LIMITES_MEDIDOS['combinacion_imposible']['1 %'])} and "
-           f"{_pc(LIMITES_MEDIDOS['combinacion_imposible']['5 %'])}: that is what the detector barely sees. What it recovers with a "
-           "rare category is UNDER REVIEW and no figure is given: with category columns the list depends on what the categories "
-           "are called (they are encoded in alphabetical order, and renaming a category can change the list). It says nothing "
-           "about what is in your file. A list that does not highlight a row does not prove the row is fine."),
+           f"rows and {_pc(LIMITES_MEDIDOS['extremo']['5 %'])} when they are 5 %; with a rare category, "
+           f"{_pc(LIMITES_MEDIDOS['categoria_rara']['1 %'])} and {_pc(LIMITES_MEDIDOS['categoria_rara']['5 %'])} (on one real dataset "
+           "and five with categories put in by us); and with an impossible combination of values that are each normal on their own, "
+           f"{_pc(LIMITES_MEDIDOS['combinacion_imposible']['1 %'])} and {_pc(LIMITES_MEDIDOS['combinacion_imposible']['5 %'])}: "
+           "that is what the detector barely sees. Categories are ordered by how frequent they are, not by their name, and an empty "
+           "cell counts as a value in the middle: a row does not go up for being empty. It says nothing about what is in your file. "
+           "A list that does not highlight a row does not prove the row is fine."),
 }
 
 NO_AFIRMA = {
@@ -237,20 +240,12 @@ def _t_textos_leidos_como_faltante(p, i):
             "Studio; the column is still numeric.")
 
 
-def _t_categorias_por_nombre(p, i):
-    if i == "es":
-        return (f"Con columnas de categorías ({_cols(p['columnas'])}) la lista depende de cómo se llamen: se codifican por orden "
-                "alfabético y renombrar una categoría puede cambiar la lista. Está en revisión.")
-    return (f"With category columns ({_cols(p['columnas'])}) the list depends on what the categories are called: they are encoded "
-            "in alphabetical order and renaming a category can change the list. This is under review.")
-
-
 def _t_categorias_con_vacias(p, i):
     if i == "es":
-        return (f"En {_cols(p['columnas'])} hay celdas vacías: se codifican en un extremo del eje y pueden subir esas filas en la "
-                "lista (cada fila lo dice en su motivo). Está en revisión.")
-    return (f"{_cols(p['columnas'])} have empty cells: they are encoded at one end of the axis and can push those rows up the "
-            "list (each row says so in its reason). This is under review.")
+        return (f"En {_cols(p['columnas'])} hay celdas vacías: cuentan como un valor del centro de su columna (como la mediana de las "
+                "numéricas), así que una fila no sube en la lista por tener una vacía.")
+    return (f"{_cols(p['columnas'])} have empty cells: they count as a value in the middle of their column (like the median of the "
+            "numeric ones), so a row does not go up the list for having an empty one.")
 
 
 _TEXTOS_DE_MOTIVO = {
@@ -262,7 +257,7 @@ _TEXTOS_DE_MOTIVO = {
     # avisos del detector
     "pocas_filas": _t_pocas_filas, "cambia_con_la_semilla": _t_cambia_con_la_semilla, "filas_sin_dato": _t_filas_sin_dato,
     "numerica_casi_unica": _t_numerica_casi_unica, "textos_leidos_como_faltante": _t_textos_leidos_como_faltante,
-    "categorias_por_nombre": _t_categorias_por_nombre, "categorias_con_vacias": _t_categorias_con_vacias,
+    "categorias_con_vacias": _t_categorias_con_vacias,
 }
 
 #: Las claves que existen (la pantalla y las pruebas las leen de aquí, no de una copia).

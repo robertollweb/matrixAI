@@ -36,9 +36,15 @@ def _con_categorias(n=300, semilla=1):
 
 
 # ---------------------------------------------------------------- la codificación
-def test_alfabetico_menos_uno_es_el_producto_y_el_control_lo_comprueba():
+def test_hoy_es_la_referencia_y_el_producto_lleva_la_elegida_frecuencia_centro():
+    """`HOY` (alfabético, −1) es la REFERENCIA con la que se midió; desde el veredicto del 14-11 el producto lleva `frecuencia|centro`
+    (`control_c165_c2b`, fichero aparte para no tocar el banco sellado). Volver el producto a alfabético o a −1 pone esto en rojo."""
+    import control_c165_c2b as ctl
     assert b2.HOY == {"orden": "alfabetico", "vacia": "menos_uno"} and b2.VARIANTES[0] == b2.HOY and len(b2.VARIANTES) == 6
-    assert b2.control_hoy_igual_al_producto(_con_categorias())
+    assert ctl.ELEGIDA == {"orden": "frecuencia", "vacia": "centro"} and ctl.ELEGIDA in b2.VARIANTES
+    f = _con_categorias()
+    assert ctl.control_elegida_igual_al_producto(f)
+    assert not b2.control_hoy_igual_al_producto(f)
 
 
 def test_los_codigos_de_cada_variante():
@@ -279,7 +285,8 @@ def test_medir_en_pequeno_graba_todo_y_el_analizador_lo_lee(tmp_path, monkeypatc
     monkeypatch.setattr(b2, "cargar", lambda nombre: (filas, {"derivado": False}))
     monkeypatch.setattr(b2, "VARIANTES", [b2.HOY, {"orden": "frecuencia", "vacia": "centro"}])
     p = med.medir(["dresses-sales"], (0,), (0.05,), tmp_path / "s.json", True, escribir=None)
-    assert p["parcial"] is False and p["conjuntos"][0]["control_hoy_igual_al_producto"] is True
+    # el guion graba el control de la REFERENCIA, que desde el veredicto ya no es el producto (lo es la elegida)
+    assert p["parcial"] is False and p["conjuntos"][0]["control_hoy_igual_al_producto"] is False
     assert {r["tipo"] for r in p["resultados"]} == set(b2.TIPOS) and len(p["resultados"]) == 8
     assert len(p["semillas"]) == 8 and len(p["inflacion"]) == 2 and p["renombres"]
     for r in p["resultados"]:
@@ -287,3 +294,10 @@ def test_medir_en_pequeno_graba_todo_y_el_analizador_lo_lee(tmp_path, monkeypatc
     assert all(0 <= r["jaccard"] <= 1 for r in p["renombres"] + p["semillas"])
     # con la codificación por frecuencia, renombrar NO mueve nada (es la propiedad que se mide)
     assert all(r["jaccard"] == 1.0 for r in p["renombres"] if r["variante"] == "frecuencia|centro")
+
+
+def test_la_elegida_es_el_producto_en_el_conjunto_real_y_en_un_derivado():
+    import control_c165_c2b as ctl
+    for nombre in ("dresses-sales", "breast-cancer-wisconsin-diagnostic"):
+        filas, _ = b2.cargar(nombre)
+        assert ctl.control_elegida_igual_al_producto(filas), nombre

@@ -125,15 +125,19 @@ def test_las_12_variantes_son_la_rejilla_y_hoy_es_la_primera_de_cada_eje():
 
 
 def test_la_variante_hoy_reproduce_el_producto_y_contamination_no_cambia_el_orden():
-    """Desde el 13-11 el producto lleva la variante elegida por este banco, no la `HOY` de referencia."""
+    """Desde el 13-11 el producto lleva la variante elegida por este banco, no la `HOY` de referencia. Desde el 14-11 (C2b, regla
+    845586e7…) las CATEGÓRICAS del producto van por frecuencia y con la vacía en el centro, que este banco sellado no sabe expresar: su
+    control vale ya solo SIN categóricas (escalado y `max_samples`, lo que decidió el C2), y con ellas el control es el del C2b
+    (`control_c165_c2b`, probado en `test_c165_c2b_codificacion`)."""
     assert banco.PRODUCTO_VARIANTE == {"escalado": "ninguno", "categoricas": "ordinal", "max_samples": "todas"}
-    f = _sintetico(300)
+    f = [{k: v for k, v in x.items() if not k.startswith("cat")} for x in _sintetico(300)]
     assert banco.control_hoy_igual_al_producto(f)
     assert banco.control_contamination_invariante(f)
+    assert not banco.control_hoy_igual_al_producto(_sintetico(300))     # con categóricas, el producto ya no es el ordinal alfabético
 
 
 def test_el_control_de_hoy_se_pone_rojo_si_la_variante_hoy_no_es_la_del_producto(monkeypatch):
-    f = _sintetico(300)
+    f = [{k: v for k, v in x.items() if not k.startswith("cat")} for x in _sintetico(300)]
     monkeypatch.setattr(banco, "PRODUCTO_VARIANTE", {"escalado": "cuantiles", "categoricas": "onehot", "max_samples": "todas"})
     assert not banco.control_hoy_igual_al_producto(f)
 
@@ -330,7 +334,9 @@ def test_medir_en_pequeno_graba_lo_sembrado_y_el_analizador_lo_lee(tmp_path, mon
     monkeypatch.setattr(an.banco, "TASAS", (0.05,))
     monkeypatch.setattr(banco, "VARIANTES", banco.VARIANTES[:2])
     p = med.medir(["dresses-sales"], (0,), tmp_path / "s.json", True, escribir=None)
-    assert p["parcial"] is False and p["conjuntos"][0]["control_hoy_igual_al_producto"] and p["conjuntos"][0]["control_contamination_invariante"]
+    # dresses-sales tiene categóricas: desde el C2b el producto no es la variante del C2 (ver arriba); el guion lo graba tal cual
+    assert p["parcial"] is False and p["conjuntos"][0]["control_hoy_igual_al_producto"] is False
+    assert p["conjuntos"][0]["control_contamination_invariante"]
     assert {r["tipo"] for r in p["resultados"]} == {"extremo", "rara"} and len(p["resultados"]) == 4
     for r in p["resultados"]:
         assert len(r["sembradas"]) == r["metricas"]["n_sembradas"] == 25
