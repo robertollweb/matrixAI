@@ -91,8 +91,15 @@ def test_el_texto_de_limites_va_en_los_dos_idiomas_con_lo_medido(resultado):
     assert "SEMBRADAS" in recibo["limits"]["es"] and "SEEDED" in recibo["limits"]["en"]
     for idioma in ("es", "en"):
         for tipo in fr.LIMITES_MEDIDOS.values():
-            for tasa, v in tipo.items():
+            for tasa, v in (tipo or {}).items():
                 assert f"{round(100 * v)} %" in recibo["limits"][idioma]
+    # aud1 I4: la cifra de la categoría rara salió de una siembra que caía al final del alfabeto. Hasta el C2b: EN REVISIÓN, sin cifra,
+    # y diciendo que la lista depende del nombre de las categorías.
+    assert fr.LIMITES_MEDIDOS["categoria_rara"] is None
+    assert "EN REVISIÓN" in recibo["limits"]["es"] and "UNDER REVIEW" in recibo["limits"]["en"]
+    assert "cómo se llamen" in recibo["limits"]["es"] and "what the categories are called" in recibo["limits"]["en"]
+    for idioma in ("es", "en"):
+        assert "7 %" not in recibo["limits"][idioma] and "37 %" not in recibo["limits"][idioma]
     for quitado in ({}, {"es": recibo["limits"]["es"]}, {"es": recibo["limits"]["es"], "en": " "}):
         malo = copy.deepcopy(recibo)
         malo["limits"] = quitado if quitado else {"es": "", "en": ""}
@@ -195,3 +202,74 @@ def test_una_cifra_sin_intervalo_tiene_que_decir_por_que(resultado):
     m["ci_low"] = None
     m.pop("ci_unavailable", None)
     assert any(f"{con_valor['name']}: sin intervalo tiene que decir por qué" in p for p in R.problemas_de_esquema(malo))
+
+
+# ---------------------------------------------------------------------------------------------------------------------------
+# aud1 B1: el recibo verifica con EL VERIFICADOR (`verificar_sobre` y la CLI), no solo su firma
+# ---------------------------------------------------------------------------------------------------------------------------
+
+def _hojas(o, ruta=()):
+    if isinstance(o, dict):
+        for k, v in o.items():
+            yield from _hojas(v, ruta + (k,))
+    elif isinstance(o, list):
+        for i, v in enumerate(o):
+            yield from _hojas(v, ruta + (i,))
+    else:
+        yield ruta
+
+
+def _con_payload(sobre, cuerpo):
+    return dict(sobre, payload=base64.b64encode(json.dumps(cuerpo, separators=(",", ":"), sort_keys=True).encode()).decode())
+
+
+@pytest.mark.parametrize("con_etiquetas", [False, True])
+def test_b1_el_recibo_pasa_el_verificador_entero_y_deja_de_pasar_al_tocar_cualquier_campo(resultado, con_etiquetas):
+    """aud1 B1: `steps[0].entry_hash` salía sin `sha256:` y `verificar_sobre` daba ok=False SIEMPRE («no es un sha256 completo»),
+    con la firma buena. Las pruebas solo miraban la firma. Ahora: ok=True sin un solo problema, y cada hoja tocada lo rompe."""
+    from matrixai.pipelines.verifier import verificar_sobre  # noqa: PLC0415
+    recibo = _recibo(resultado, _etiquetadas(resultado) if con_etiquetas else None)
+    assert recibo["steps"][0]["entry_hash"] == recibo["dataset"]["digest"] == f"sha256:{HUELLA}"
+    sobre = fr.firmar_recibo_de_filas_a_revisar(recibo, clave=CLAVE, key_id="t")
+    v = verificar_sobre(sobre, clave=CLAVE)
+    assert v["ok"] is True and v["problems"] == [] and "schema" in v["verified"] and "signature" in v["verified"], v
+    cuerpo = json.loads(base64.b64decode(sobre["payload"]))
+    tocadas = 0
+    for ruta in _hojas(cuerpo):
+        c = copy.deepcopy(cuerpo)
+        d = c
+        for k in ruta[:-1]:
+            d = d[k]
+        viejo = d[ruta[-1]]
+        d[ruta[-1]] = (viejo + "x") if isinstance(viejo, str) else ("x" if viejo is None or isinstance(viejo, bool) else viejo + 1)
+        assert verificar_sobre(_con_payload(sobre, c), clave=CLAVE)["ok"] is False, ruta
+        tocadas += 1
+    assert tocadas > 40
+
+
+def test_b1_un_entry_hash_sin_prefijo_lo_rechaza_el_verificador(resultado):
+    """El control del instrumento: el verificador SÍ caza el defecto de antes (si no, la prueba de arriba no mediría nada)."""
+    from matrixai.pipelines.verifier import verificar_sobre  # noqa: PLC0415
+    recibo = _recibo(resultado)
+    recibo["steps"][0]["entry_hash"] = HUELLA
+    v = verificar_sobre(fr.firmar_recibo_de_filas_a_revisar(recibo, clave=CLAVE, key_id="t"), clave=CLAVE)
+    assert v["ok"] is False and any("entry_hash" in x for x in v["problems"])
+
+
+def test_menor2_la_precision_en_k_sin_dos_clases_dice_su_motivo_no_el_del_auroc(resultado):
+    c = fr.cifras_con_etiquetas([0.1, 0.5, 0.9], [False, False, False], remuestras=20)
+    pk = next(m for m in c["metrics"] if m["name"] == "precision_at_k")
+    assert pk["value"] is None and "precisión en las k primeras" in pk["undefined_reason"]["es"]
+    assert "precision at k" in pk["undefined_reason"]["en"]
+    todas = fr.cifras_con_etiquetas([0.1, 0.5, 0.9], [True, True, True], remuestras=20)
+    assert "ninguna normal" in next(m for m in todas["metrics"] if m["name"] == "precision_at_k")["undefined_reason"]["es"]
+
+
+@pytest.mark.parametrize("clave", fr.CLAVES_DE_MOTIVO)
+def test_cada_clave_de_motivo_tiene_texto_en_los_dos_idiomas(clave):
+    p = {"sin_dato": 9, "filas": 10, "distintos": 9, "presentes": 10, "por": "tramo", "celdas": 3, "ejemplo": "1.234",
+         "textos": {"NA": 2}, "motivo_de_la_lectura": "ambigua", "minimo": 200, "columna": "c", "columnas": ["c"]}
+    t = fr.texto_de_motivo(clave, p)
+    assert t["es"].strip() and t["en"].strip() and t["es"] != t["en"]
+    with pytest.raises(KeyError):
+        fr.texto_de_motivo("no_existe", {})
