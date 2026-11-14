@@ -162,6 +162,8 @@ def test_pocos_lotes_no_inventa_pasos():
     r = paso_de_un_peso(net, ps, _ejemplos(30), "cross_entropy", capa=1, fila=0, columna=0, lr=0.05,
                         seed=3, batch_size=8, validation_examples=_ejemplos(5))
     assert r["lotes_por_epoca"] == 4 and len(r["pasos"]) == 4 and r["ok"]
+    # Auditoría 167 (M2): «pasos aplicados» son los que hubo, no los 20 pedidos.
+    assert r["pasos_pedidos"] == 20 and r["pasos_aplicados"] == 4
 
 
 @needs_torch
@@ -216,3 +218,70 @@ def test_si_torch_no_cuadra_con_la_cuenta_no_se_da_por_buena(monkeypatch, desvio
     assert r["motivo"] == m.MOTIVO_PARIDAD
     assert r["pasos"] and not any(p["cuadra"] for p in r["pasos"])
     assert r["paridad"]["error_maximo"] >= desvio * 0.9
+
+
+@needs_torch
+@pytest.mark.parametrize("raro", [float("inf"), float("nan")])
+def test_una_perdida_no_finita_con_el_gradiente_finito_tambien_se_declara(monkeypatch, raro):
+    """Auditoría 167 (sabotaje VERDE): «… and True» en la comprobación de la PÉRDIDA pasaba las 19 pruebas, porque la
+    única prueba de no finito tenía también el gradiente no finito. Aquí la pérdida es `L + inf` (o `+ nan`): su
+    gradiente respecto a los pesos es el de `L`, FINITO, y aun así el paso no se enseña."""
+    from matrixai.training import dense_torch_trainer as dtt
+    from matrixai.training import paso_de_un_peso as m
+
+    real = dtt._loss_on_probabilities
+    monkeypatch.setattr(dtt, "_loss_on_probabilities", lambda out, y, fn, torch: real(out, y, fn, torch) + raro)
+    r = _mini(capa=1, fila=0, columna=0)
+    assert r["ok"] is False and r["motivo"] == m.MOTIVO_NO_FINITO
+    assert r["pasos"] == [{"paso": 1, "peso_antes": r["pasos"][0]["peso_antes"], "gradiente": None, "perdida": None,
+                           "no_finito": True}]
+
+
+@needs_torch
+@pytest.mark.parametrize("con_validacion", [False, True])
+def test_primera_epoca_es_la_que_deja_escrita_el_entrenador(con_validacion):
+    """Auditoría 167 (B1): el cinturón de quien llama compara `primera_epoca` con lo que la ejecución real dejó escrito
+    (`batch_size`, `train_rows`, y la pérdida de su época 1). Tiene que salir IGUAL, bit a bit, del entrenador real en CPU
+    con los mismos argumentos; si no, el cinturón apagaría ejecuciones buenas."""
+    from matrixai.training.dense_torch_trainer import train_dense_network_torch
+    ejemplos = _ejemplos()
+    val = ejemplos[:40] if con_validacion else None
+    net, ps = _setup()
+    r = _mini(2, 1, 4, weight_decay=0.1, validation_examples=val)
+    real = train_dense_network_torch(net, ps, ejemplos, "cross_entropy", lr=0.05, epochs=2, device="cpu", seed=3,
+                                     batch_size=8, materialize=True, weight_decay=0.1, validation_examples=val)
+    e = r["primera_epoca"]
+    assert e["tamano_de_lote"] == real["batch_size"] and e["filas_de_entrenamiento"] == real["train_rows"]
+    assert e["lotes"] == r["lotes_por_epoca"] == -(-real["train_rows"] // real["batch_size"])
+    assert e["perdida"] == real["epochs"][0]["loss"]       # igualdad EXACTA
+
+
+@needs_torch
+def test_la_huella_de_los_pesos_tras_la_epoca_1_es_la_del_entrenador():
+    """Los pesos al acabar la época 1 de la repetición son los del entrenador real tras su época 1 (que el bloque del
+    laboratorio guarda como listas): la misma huella, calculada con la misma función a los dos lados."""
+    import torch
+    from matrixai.training.dense_torch_trainer import train_dense_network_torch
+    from matrixai.training.paso_de_un_peso import huella_de_los_pesos
+    net, ps = _setup()
+    r = _mini(1, 0, 0)
+    tras_la_1: list = []
+
+    def apuntar(e):
+        if e["epoch"] == 1:
+            tras_la_1.extend(v for p in modulo["m"].parameters() for v in p.detach().flatten().tolist())
+
+    from matrixai.training import dense_torch_trainer as dtt
+    modulo: dict = {}
+    real_m = dtt.dense_network_to_torch_module
+    dtt.dense_network_to_torch_module = lambda *a, **k: modulo.setdefault("m", real_m(*a, **k))
+    try:
+        train_dense_network_torch(net, ps, _ejemplos(), "cross_entropy", lr=0.05, epochs=2, device="cpu", seed=3,
+                                  batch_size=8, materialize=True, epoch_callback=apuntar)
+    finally:
+        dtt.dense_network_to_torch_module = real_m
+    assert tras_la_1 and r["primera_epoca"]["huella_de_los_pesos"] == huella_de_los_pesos(tras_la_1)
+    # Y la huella distingue: otros pesos (los de partida) dan otra.
+    assert huella_de_los_pesos([0.0] + tras_la_1[1:]) != huella_de_los_pesos(tras_la_1)
+    assert huella_de_los_pesos([float("nan")]) == huella_de_los_pesos([-float("nan")])
+    del torch

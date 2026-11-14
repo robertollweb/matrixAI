@@ -12,10 +12,20 @@ del invariante 2: si no cuadra, `ok` es False con motivo y no se dibuja.
 
 No toca `dense_torch_trainer.py` ni el generador de nadie más: es una ejecución aparte.
 Solo SGD (D1 = A): con Adam/AdamW el paso depende de momentos y se declara `ok: False`.
-Se ejecuta en CPU (la mini-ejecución no usa el dispositivo del estudio).
+
+SOLO EN CPU, y eso es una condición, no un detalle (auditoría 167, B1): en CUDA el entrenador
+real usa otro lote (`effective_batch_size("cuda", 8, 160)` = 160, no 8) y otra aritmética
+(TF32), así que esta repetición NO es la de una ejecución en GPU. Quien llama solo la lanza si
+la ejecución real entrenó en CPU, y además compara `primera_epoca` (lote efectivo, filas de
+entrenamiento, lotes y pérdida media de la época 1, calculados igual que el entrenador) con lo
+que la ejecución real DEJÓ ESCRITO: si algo no coincide, no se enseña nada. Por eso la
+mini-ejecución recorre la PRIMERA ÉPOCA ENTERA (anota solo los primeros `n_pasos` lotes): la
+pérdida de la época 1 del entrenador es la media de todos sus lotes.
+La paridad en GPU (repetir en el dispositivo de la ejecución) NO está hecha: es otro corte.
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 TOPE_PASOS = 20                 # D3: los 20 primeros lotes de la primera época
@@ -42,6 +52,17 @@ MOTIVO_SIN_TORCH = {
     "es": "PyTorch no está instalado: no hay mini-ejecución.",
     "en": "PyTorch is not installed: there is no mini-run.",
 }
+
+
+def huella_de_los_pesos(valores: Any) -> str:
+    """Huella de una lista de pesos (W1, b1, W2, b2… aplanados, en ese orden) como float32: la de la repetición y la de los
+    pesos que la ejecución real guardó en su bloque del laboratorio se calculan con ESTA función, a los dos lados. Un NaN
+    vale siempre lo mismo (sus bits de carga no dicen nada)."""
+    import hashlib
+    from array import array
+    nan = float("nan")
+    datos = array("f", (nan if v != v else v for v in valores))
+    return hashlib.sha256(datos.tobytes()).hexdigest()
 
 
 def _fallo(motivo: dict[str, str], **extra: Any) -> dict[str, Any]:
@@ -115,50 +136,64 @@ def paso_de_un_peso(
     optim_ = torch.optim.SGD(module.parameters(), lr=lr, weight_decay=weight_decay)
     bs = effective_batch_size("cpu", batch_size, len(train_ex))
     n_lotes_epoca = -(-train_x.shape[0] // bs)
+    # Los pasos que se enseñan son los que HAY: con 1 o 4 lotes en la primera época, 1 o 4
+    # (auditoría 167, M2: decía 20). `pasos_pedidos` sigue diciendo lo que se pidió.
+    n_pasos = min(n_pasos, n_lotes_epoca)
 
     module.train(True)
     perm = torch.randperm(train_x.shape[0])
     pasos: list[dict[str, Any]] = []
     motivo: dict[str, str] | None = None
     max_err = 0.0
+    # La época 1 ENTERA, con la misma cuenta de la pérdida que el entrenador (`epoch_loss +=
+    # float(loss.detach())` lote a lote, y la media al final): es lo que se compara con lo que
+    # dejó escrito la ejecución real. Tras un paso no finito se deja de anotar, pero la época
+    # sigue como en el entrenador (que tampoco para).
+    perdida_epoca = 0.0
+    n_lotes = 0
     for k, i in enumerate(range(0, train_x.shape[0], bs)):
-        if k >= n_pasos:
-            break
         idx = perm[i:i + bs]
         xb, yb = train_x[idx], train_y[idx]
         optim_.zero_grad()
         loss = _loss_on_probabilities(module(xb), yb, loss_fn, torch)
         loss.backward()
-        w0 = peso[fila, columna].detach().clone()
-        g = peso.grad[fila, columna].detach().clone()
         perdida = float(loss.detach())
-        if not (bool(torch.isfinite(g)) and perdida == perdida and abs(perdida) != float("inf")):
-            pasos.append({"paso": k + 1, "peso_antes": float(w0), "gradiente": None,
-                          "perdida": None, "no_finito": True})
-            motivo = MOTIVO_NO_FINITO
-            break
-        g_ef = g + weight_decay * w0                   # lo que SGD usa con decaimiento
-        a_mano = w0 - lr * g_ef                        # w ← w − tasa × gradiente efectivo
+        anotar = k < n_pasos and motivo is None
+        a_mano = None
+        if anotar:
+            w0 = peso[fila, columna].detach().clone()
+            g = peso.grad[fila, columna].detach().clone()
+            if not (bool(torch.isfinite(g)) and math.isfinite(perdida)):
+                pasos.append({"paso": k + 1, "peso_antes": float(w0), "gradiente": None,
+                              "perdida": None, "no_finito": True})
+                motivo = MOTIVO_NO_FINITO
+                anotar = False
+            else:
+                g_ef = g + weight_decay * w0               # lo que SGD usa con decaimiento
+                a_mano = w0 - lr * g_ef                    # w ← w − tasa × gradiente efectivo
         optim_.step()
-        real = peso[fila, columna].detach().clone()
-        err = abs(float(a_mano) - float(real))
-        max_err = max(max_err, err)
-        pasos.append({
-            "paso": k + 1,
-            "filas_del_lote": int(idx.numel()),
-            "perdida": perdida,
-            "peso_antes": float(w0),
-            "gradiente": float(g),
-            "decaimiento": float(weight_decay),
-            "gradiente_efectivo": float(g_ef),
-            "tasa": float(lr),
-            "paso_aplicado": float(lr * g_ef),
-            "peso_despues": float(a_mano),
-            "peso_despues_torch": float(real),
-            "error": err,
-            "cuadra": err <= TOLERANCIA_ABS + TOLERANCIA_REL * abs(float(real)),
-        })
-    paridad_ok = motivo is None and all(p["cuadra"] for p in pasos)
+        perdida_epoca += perdida
+        n_lotes += 1
+        if anotar and a_mano is not None:
+            real = peso[fila, columna].detach().clone()
+            err = abs(float(a_mano) - float(real))
+            max_err = max(max_err, err)
+            pasos.append({
+                "paso": k + 1,
+                "filas_del_lote": int(idx.numel()),
+                "perdida": perdida,
+                "peso_antes": float(w0),
+                "gradiente": float(g),
+                "decaimiento": float(weight_decay),
+                "gradiente_efectivo": float(g_ef),
+                "tasa": float(lr),
+                "paso_aplicado": float(lr * g_ef),
+                "peso_despues": float(a_mano),
+                "peso_despues_torch": float(real),
+                "error": err,
+                "cuadra": err <= TOLERANCIA_ABS + TOLERANCIA_REL * abs(float(real)),
+            })
+    paridad_ok = motivo is None and bool(pasos) and all(p["cuadra"] for p in pasos)
     if motivo is None and not paridad_ok:
         motivo = MOTIVO_PARIDAD
     return {
@@ -172,5 +207,14 @@ def paso_de_un_peso(
         "tamano_de_lote": bs,
         "paridad": {"tolerancia_abs": TOLERANCIA_ABS, "tolerancia_rel": TOLERANCIA_REL,
                     "error_maximo": max_err},
+        # Lo que la ejecución real también deja escrito (`effort` y `epochs[0]` de su resultado):
+        # el cinturón de quien llama. `perdida` es la media de la época 1, sumada como el
+        # entrenador (no finita si el entrenamiento divergió en ella: se compara igual).
+        # `huella_de_los_pesos`: TODOS los pesos al acabar la época 1, para compararlos con los que el bloque del
+        # laboratorio guardó de esa época (cuando los guardó).
+        "primera_epoca": {"tamano_de_lote": bs, "filas_de_entrenamiento": len(train_ex),
+                          "lotes": n_lotes, "perdida": perdida_epoca / max(1, n_lotes),
+                          "huella_de_los_pesos": huella_de_los_pesos(
+                              v for p in module.parameters() for v in p.detach().flatten().tolist())},
         "pasos": pasos,
     }
