@@ -323,3 +323,158 @@ def evaluar_hacia_delante(
         "limites": [l.clave for l in prop.limites],
     }
     return resultado
+
+
+# --------------------------------------------------------------------------------------------------
+# Predecir con datos nuevos (contrato 164, C4): el contexto que el modelo necesita
+# --------------------------------------------------------------------------------------------------
+
+def contexto_necesario(*, retardos: int, columnas_con_retardo: Sequence[str], columnas_sin_retardo: Sequence[str] = (),
+                       tiempo: str, serie: str | None, objetivo: str, horizonte: int) -> dict[str, Any]:
+    """Lo que hay que TENER para pronosticar con datos nuevos, dicho con números (D4 = A, invariante 7). Para predecir
+    el instante `t` el modelo lee los `retardos` valores anteriores de cada columna con retardo y los valores de `t`
+    mismo (las entradas «actuales»): por serie hacen falta, pues, `retardos + 1` filas, las últimas. Con menos no se
+    rellena: esa serie no se predice."""
+    columnas = [tiempo, *([serie] if serie else []), objetivo]
+    for c in (*columnas_con_retardo, *columnas_sin_retardo):
+        if c not in columnas:
+            columnas.append(c)
+    return {"filas_por_serie": retardos + 1, "filas_de_historial": retardos, "fila_de_origen": 1,
+            "columnas": columnas, "columna_de_tiempo": tiempo, "columna_de_serie": serie, "objetivo": objetivo,
+            "columnas_con_retardo": list(dict.fromkeys([objetivo, *columnas_con_retardo])),
+            "columnas_sin_retardo": list(columnas_sin_retardo), "horizonte_pasos": horizonte,
+            "una_fila_suelta": False}
+
+
+@dataclass(frozen=True)
+class SerieSinContexto:
+    """Una serie que NO se predice, y por qué: `clave` más los números (el redactor es quien llama, en es/en)."""
+    serie: str | None
+    clave: str                      # historial_corto | valores_ausentes | instantes_repetidos | sin_serie
+    tiene: int = 0                  # filas de la serie en el fichero
+    necesita: int = 0
+    columnas: tuple[str, ...] = ()  # las que faltan (valores_ausentes)
+    filas: int = 0                  # sin_serie: cuántas filas
+
+
+@dataclass(frozen=True)
+class SeriePredecible:
+    serie: str | None
+    entradas: dict[str, str]        # justo las columnas con las que se entrenó, listas para el modelo
+    origen: str                     # el valor de la columna de tiempo en la última fila, tal cual llegó
+    origen_segundos: float
+    filas_usadas: int
+    calendario_irregular: bool
+
+
+@dataclass(frozen=True)
+class ContextoDePrediccion:
+    predecibles: list[SeriePredecible]
+    rechazadas: list[SerieSinContexto]
+    series: int
+    es_fecha: bool
+    formato_de_fecha: str | None
+
+
+def construir_contexto_de_prediccion(
+    filas: Sequence[Mapping[str, Any]], *, tiempo: str, objetivo: str, retardos: int, serie: str | None = None,
+    columnas_con_retardo: Sequence[str] = (), columnas_sin_retardo: Sequence[str] = (),
+    formato_de_fecha: str | None = None, tokens_de_ausencia: set[str] | None = None,
+) -> ContextoDePrediccion:
+    """Para CADA serie del fichero, la fila de entradas del ÚLTIMO instante: los retardos se arman con el MISMO
+    `lag_window` por serie que el estudio (`construir_ventanas`), sin `shift_target` (no hay objetivo futuro que
+    conocer). Una serie sin las `retardos + 1` filas completas que hacen falta, con un valor ausente en lo que el
+    modelo lee, o con dos filas en el mismo instante, NO se predice y sale en `rechazadas` con su porqué: ni se rellena
+    con ceros ni se completa con filas de otra serie. Las demás se predicen."""
+    from datetime import datetime
+
+    from matrixai.training.particion_por_diseno_tiempo import Rechazo, _ORIGEN, convertir_tiempos
+
+    if not filas:
+        raise PronosticoError("construir_contexto_de_prediccion necesita al menos una fila.")
+    if not isinstance(retardos, int) or isinstance(retardos, bool) or retardos < 1:
+        raise PronosticoError(f"retardos debe ser un entero >= 1 (recibido {retardos!r}).")
+    cols = list(filas[0].keys())
+    extras = [c for c in columnas_con_retardo if c != objetivo]
+    for c, rol in ((tiempo, "tiempo"), (objetivo, "objetivo"), *(((serie, "serie"),) if serie else ()),
+                   *((x, "retardo") for x in extras), *((x, "entrada") for x in columnas_sin_retardo)):
+        if c not in cols:
+            raise PronosticoError(f"La columna de {rol} {c!r} no existe. Columnas: {cols}.")
+    lag_cols = [objetivo, *extras]
+
+    sin_serie = 0
+    utiles: list[int] = []
+    for i, f in enumerate(filas):
+        if serie is not None and _is_null(f.get(serie), tokens_de_ausencia):
+            sin_serie += 1
+        else:
+            utiles.append(i)
+    rechazadas: list[SerieSinContexto] = []
+    if sin_serie:
+        rechazadas.append(SerieSinContexto(None, "sin_serie", filas=sin_serie))
+    if not utiles:
+        return ContextoDePrediccion([], rechazadas, 0, False, None)
+
+    crudas = {str(i): filas[i].get(tiempo) for i in utiles}
+    try:
+        if formato_de_fecha:      # el formato con que se ENTRENÓ: un lote de pocas filas puede ser ambiguo por sí solo
+            segundos = {k: (datetime.strptime(str(v).strip(), formato_de_fecha) - _ORIGEN).total_seconds()
+                        for k, v in crudas.items()}
+            es_fecha, formato = True, formato_de_fecha
+        else:
+            conv = convertir_tiempos(crudas, tiempo)
+            segundos, es_fecha, formato = conv.valores, conv.es_fecha, getattr(conv, "formato", None)
+    except Rechazo as rechazo:
+        raise PronosticoError(rechazo.bloqueo().motivo) from None
+    except (ValueError, TypeError):
+        raise PronosticoError(f"La columna de tiempo {tiempo!r} trae valores que no se leen con el formato "
+                              f"{formato_de_fecha!r} con el que se entrenó el modelo.") from None
+
+    orden = sorted(utiles, key=lambda i: (segundos[str(i)], i))
+    clave_serie = serie if serie is not None else _SEGUNDOS_POR_DEFECTO_DE_SERIE_UNICA
+    base: list[dict[str, str]] = []
+    t_base: list[float] = []
+    for i in orden:
+        fila = {k: ("" if v is None else str(v)) for k, v in filas[i].items()}
+        fila["_fila"] = str(i)
+        if serie is None:
+            fila[clave_serie] = "unica"
+        base.append(fila)
+        t_base.append(segundos[str(i)])
+    try:
+        resultado = run_pipeline(base, [{"op": "lag_window", "columns": lag_cols, "window": retardos,
+                                         "group_by": clave_serie}], tokens_de_ausencia=tokens_de_ausencia)
+    except PipelineError as e:
+        raise PronosticoError(str(e)) from None
+    cols_retardo = [f"{c}_lag{i}" for c in lag_cols for i in range(1, retardos + 1)]
+    fugas = check_anti_leakage(resultado, cols_retardo)
+    if fugas:
+        raise PronosticoError("Fuga de información temporal en las entradas: " + " | ".join(fugas))
+    filas_p = resultado.rows
+    posiciones = _posiciones_por_serie(base, clave_serie, list(base[0].keys()), "construir_contexto_de_prediccion")
+
+    necesita = retardos + 1
+    entradas = [*cols_retardo, *lag_cols, *[c for c in columnas_sin_retardo if c not in lag_cols]]
+    predecibles: list[SeriePredecible] = []
+    for pos in posiciones:
+        nombre = None if serie is None else base[pos[0]][serie]
+        ts = [t_base[i] for i in pos]
+        if any(b == a for a, b in zip(ts, ts[1:])):
+            rechazadas.append(SerieSinContexto(nombre, "instantes_repetidos", tiene=len(pos), necesita=necesita))
+            continue
+        if len(pos) < necesita:
+            rechazadas.append(SerieSinContexto(nombre, "historial_corto", tiene=len(pos), necesita=necesita))
+            continue
+        ultima = filas_p[pos[-1]]
+        faltan = tuple(c for c in entradas if _is_null(ultima.get(c), tokens_de_ausencia))
+        if faltan:
+            rechazadas.append(SerieSinContexto(nombre, "valores_ausentes", tiene=len(pos), necesita=necesita,
+                                               columnas=faltan))
+            continue
+        ventana = ts[-necesita:]
+        irregular = len({b - a for a, b in zip(ventana, ventana[1:])}) > 1
+        origen = filas[int(ultima["_fila"])].get(tiempo)
+        predecibles.append(SeriePredecible(
+            serie=nombre, entradas={c: str(ultima[c]) for c in entradas}, origen=str(origen).strip(),
+            origen_segundos=ts[-1], filas_usadas=necesita, calendario_irregular=irregular))
+    return ContextoDePrediccion(predecibles, rechazadas, len(posiciones), es_fecha, formato)
