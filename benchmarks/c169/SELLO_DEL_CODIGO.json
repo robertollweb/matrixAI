@@ -1,0 +1,16 @@
+{
+ "que_es": "sha256 del analizador, del medidor y de las dependencias del veredicto del 169 (analiza_c169.codigo_de_ahora). Lo escribe sellar_codigo_c169.py; nulo = sin sellar. El medidor no mide (salvo --sonda) y el analizador no da veredicto si falta, es nulo o no cuadra. No se incluye a sí mismo.",
+ "regla_sha256_sellada": null,
+ "sha256": {
+  "benchmarks/c160/analiza_c160.py": null,
+  "benchmarks/c163/analiza_c163_c2.py": null,
+  "benchmarks/c169/analiza_c169.py": null,
+  "benchmarks/c169/conjuntos_c169.json": null,
+  "benchmarks/c169/conjuntos_c169.py": null,
+  "benchmarks/c169/medir_c169.py": null,
+  "benchmarks/fase0/pasada_amplia_101_c5.py": null,
+  "benchmarks/fase0/protocolo.py": null,
+  "matrixai/estudio/incertidumbre.py": null,
+  "matrixai/estudio/metricas.py": null
+ }
+}

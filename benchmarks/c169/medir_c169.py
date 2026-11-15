@@ -8,12 +8,21 @@ de brazo): referencia primero y rejilla inmediatamente después, cada uno en un 
 mediano), 4 hilos, misma preparación y semilla. LightGBM no se mide. Lo único propio: el catálogo (`conjuntos_c169`, los 6 SIN tocar el protocolo
 v2 firmado), la descarga verificada por sha256 y el sello de ESTE contrato.
 
-SELLO. `analiza_c169.REGLA_SHA256_SELLADA` es el sha256 de `REGLA.md`. Una medida real se NIEGA a empezar si es None o si el fichero ya no es ése.
-`--sonda` (1 conjunto pequeño, 1 pliegue) se salta ese sello y marca la salida como SONDA: no decide nada.
+SELLO. `analiza_c169.REGLA_SHA256_SELLADA` es el sha256 de `REGLA.md`, y `SELLO_DEL_CODIGO.json` el del analizador, este medidor y las dependencias
+del veredicto (rep1, I1; lo escribe `sellar_codigo_c169.py`). Una medida real se NIEGA a empezar si falta cualquiera de los dos, es nulo o ya no
+cuadra. `--sonda` (1 conjunto pequeño, 1 pliegue) se salta los sellos y marca la salida como SONDA: no decide nada.
 La partición de los 6 no tiene una «v2 registrada» con la que compararla (no estaban en la Fase 0): se DECLARA en la salida (plan_digest, límites).
 
     python3 benchmarks/c169/medir_c169.py --salida <ruta absoluta fuera del árbol>        # la medida (a la COLA)
     python3 benchmarks/c169/medir_c169.py --sonda --salida <ruta>                        # 1 conjunto, 1 pliegue
+
+AL ENCOLAR (rep1, aud1 M-7). Estimada ~20 min de cómputo (~30 con la preparación), NO medida; tope 3.600 s y 5 GB del contrato §5. El peor caso
+(todos los intentos al tope de su cubo: 4 x 5 x 2 x 120 s + 2 x 5 x 2 x 300 s) son 3 h: saldría PARCIAL (SIN VEREDICTO) y se reanuda por la caché.
+El techo blando por omisión (`--memoria-max-mb`, 4.000 MB) queda por DEBAJO de los 5 GB de `MemoryMax`, para que el corte suave (que guarda lo
+medido) llegue antes que el duro:
+
+    ESTIMADA_S=1800 ~/encolar.sh c169 3600 5G matrixAI python3 benchmarks/c169/medir_c169.py \
+        --salida ~/cola-nocturna/resultados/c169/resultado_c169.json
 """
 from __future__ import annotations
 
@@ -52,7 +61,7 @@ RUTA_DEL_ANALIZADOR = an.RUTA_DEL_ANALIZADOR
 CONJUNTOS_DE_LA_SONDA = ("blood-transfusion-service-center",)   # 748 filas, 4 predictores: el más pequeño
 PLIEGUES_DE_LA_SONDA = 1
 PRESUPUESTO_DE_LA_SONDA_S = 30.0
-MEMORIA_MAX_MB_POR_OMISION = 6000.0
+MEMORIA_MAX_MB_POR_OMISION = 4000.0      # por DEBAJO del `MemoryMax=5G` de la cola (aud1 M-7): con 6.000 el corte suave no llegaba nunca
 SEGUNDOS_ENTRE_PUNTOS_DE_CONTROL = 60.0
 
 
@@ -99,7 +108,8 @@ def _argumentos(argv):
 
 
 def comprobar_el_sello(es_sonda: bool, sha_regla: str | None) -> None:
-    """Una medida real se NIEGA a empezar sin el sello o con una regla que ya no es la sellada. Una sonda no."""
+    """Una medida real se NIEGA a empezar sin el sello o con una regla que ya no es la sellada, y sin el sello del CÓDIGO o con un fichero sellado
+    que ya no cuadra (analizador, este medidor, dependencias del veredicto). Una sonda no."""
     if es_sonda:
         return
     if an.REGLA_SHA256_SELLADA is None:
@@ -108,6 +118,15 @@ def comprobar_el_sello(es_sonda: bool, sha_regla: str | None) -> None:
     if sha_regla != an.REGLA_SHA256_SELLADA:
         raise SystemExit(f"REGLA.md ({str(sha_regla)[:12]}) no es la sellada ({an.REGLA_SHA256_SELLADA[:12]}): cambiar la regla es una "
                          f"enmienda con su sello, no una edición. No se mide")
+    problemas = an.problemas_del_sello_del_codigo()
+    if problemas:
+        raise SystemExit("el sello del CÓDIGO no cuadra, no se mide: " + " | ".join(problemas))
+
+
+def _mismo_protocolo(previo: dict | None, metric_id: str, semilla: int) -> bool:
+    """Lo que `_reutilizable` del 163-C2 no mira y la regla fija: misma métrica de cierre, misma semilla y los mismos hilos GRABADOS."""
+    return bool(previo) and previo.get("metrica_de_cierre") == metric_id and previo.get("semilla") == semilla \
+        and previo.get("hilos") == c3.HILOS_POR_INTENTO
 
 
 def main(argv=None) -> None:
@@ -170,6 +189,7 @@ def main(argv=None) -> None:
     ultimo_control = [inicio]
     sha_analizador = _sha256_fichero(RUTA_DEL_ANALIZADOR)
     sha_dependencias = dependencias_sha256()
+    sello_del_codigo = (an.leer_sello_del_codigo() or {}).get("sha256")
 
     def guardar(parcial: bool) -> None:
         ultimo_control[0] = time.perf_counter()
@@ -186,7 +206,8 @@ def main(argv=None) -> None:
             "digest_de_la_cache": {"entorno": entorno_digest, "motores": digest_motor, "componentes": componentes},
             "regla_sha256_sellada": an.REGLA_SHA256_SELLADA, "regla_sha256_al_medir": sha_regla,
             "analizador_sha256_al_medir": sha_analizador, "dependencias_sha256_al_medir": sha_dependencias,
-            "guion_sha256": _sha256_fichero(Path(__file__)), "procedencia": procedencia,
+            "guion_sha256": _sha256_fichero(Path(__file__)), "sello_del_codigo_al_medir": sello_del_codigo,
+            "procedencia": procedencia,
             "sha256_de_los_datos_registrados": cj.sha256_registrado(),
             "total_wall_s": round(time.perf_counter() - inicio, 1), "n_reusados": reusados[0],
             "rss_pico_del_padre_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
@@ -224,7 +245,7 @@ def main(argv=None) -> None:
             "n_test": len(test_ids), "datos_sha256": datos_sha256, "particion_declarada": particion,
             "lectura_declarada": c3.LECTURA_DECLARADA.get(str(ds.data_id)),
             "columnas_ignoradas_por_openml": (c3.LECTURA_DECLARADA.get(str(ds.data_id)) or {}).get("columnas_ignoradas_por_openml"),
-            "n_predictores": len(predictores)})
+            "n_predictores": len(predictores), "predictores": list(predictores)})
         print(f"\n=== {ds.nombre} ({ds.cubo}, {ds.tarea}, n={len(por_id)}, metrica={metric_id}, pliegues={len(plan)}, carga={carga_s:.1f}s) ===", flush=True)
 
         for ip in plan:
@@ -233,6 +254,8 @@ def main(argv=None) -> None:
             for brazo in los_motores:
                 k = (ds.nombre, brazo, REPETICION, ip.pliegue)
                 p = previo.get(k)
+                if not _mismo_protocolo(p, metric_id, ip.semilla):
+                    p = None
                 if m163._reutilizable(p, entorno_digest, digest_motor[brazo], wall_s, datos_sha256):
                     registros[k] = dict(p, reusado=True)
                     reusados[0] += 1
@@ -274,6 +297,7 @@ def main(argv=None) -> None:
                     "engine_version": intento.engine_version, "split_plan_digest": propuesta.plan.digest(),
                     "entorno_digest": entorno_digest, "motor_digest": digest_motor[brazo], "datos_sha256": datos_sha256,
                     "procedencia_id": procedencia["procedencia_id"], "reusado": False, "n_test": len(test_ids),
+                    "hilos": presupuesto.hilos,
                 }
                 c5.aplanar_metricas_en_el_registro(registro, metricas)
                 registros[clave(registro)] = registro

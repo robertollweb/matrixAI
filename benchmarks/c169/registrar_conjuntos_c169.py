@@ -7,6 +7,9 @@ El sha256 sale de la tabla de `benchmarks/c163/CONFIRMACION_C2.md` (apartada ANT
 escribe nada. Los campos medidos (cardinalidad, desbalance) salen del propio ARFF con las mismas funciones que la v1/v2.
 
     python3 benchmarks/c169/registrar_conjuntos_c169.py --escribir
+
+El bloque `ignore_attribute` (REGLA.md §1) sale TAMBIÉN de aquí (rep1, aud1 M-3): el campo `ignore_attribute` de la descripción de OpenML de cada
+conjunto. Sin él para los 6 no se escribe nada (`conjuntos_c169.ignorados_registrados` pararía igualmente al medir).
 """
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ import argparse
 import json
 import re
 import sys
+import time
 from pathlib import Path
 
 _AQUI = Path(__file__).resolve().parent
@@ -40,13 +44,40 @@ def sha256_de_la_tabla(ruta: Path = RUTA_DE_LA_TABLA) -> dict[int, str]:
     return out
 
 
-def construir(directorio: Path | None = None) -> list[dict]:
+ORIGEN_DEL_IGNORE = ("campo `ignore_attribute` de https://www.openml.org/api/v1/json/data/<data_id>, consultado el {fecha} (REGLA.md §1); "
+                     "el sha256 del ARFF no cambia: se quitan al leer")
+
+
+def ignorados_de_openml(info: dict) -> list[str]:
+    """`ignore_attribute` de la descripción de OpenML: ausente -> [], una cadena -> [ella], una lista -> la lista."""
+    v = info.get("ignore_attribute")
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, list) and all(isinstance(x, str) for x in v):
+        return list(v)
+    raise SystemExit(f"`ignore_attribute` de OpenML con una forma que no se sabe leer: {v!r}")
+
+
+def texto_del_catalogo(filas: list[dict], ignorados: dict[int, list[str]], fecha: str) -> str:
+    """El fichero ENTERO, con su bloque `ignore_attribute`. Se niega sin la exclusión de alguno de los 6 (aunque sea vacía)."""
+    if set(ignorados) != set(cj.DATA_IDS):
+        raise SystemExit(f"`ignore_attribute` no está para los 6: hay {sorted(ignorados)}, faltan {sorted(set(cj.DATA_IDS) - set(ignorados))}. "
+                         f"No se escribe un catálogo sin él")
+    return json.dumps({"que_es": "los 6 conjuntos de benchmarks/c163/CONFIRMACION_C2.md como DatasetRegistrado (169-C1)", "datasets": filas,
+                       "ignore_attribute": {"origen": ORIGEN_DEL_IGNORE.format(fecha=fecha),
+                                            "por_data_id": {str(i): list(ignorados[i]) for i in cj.DATA_IDS}}},
+                      indent=1, ensure_ascii=False) + "\n"
+
+
+def construir(directorio: Path | None = None) -> tuple[list[dict], dict[int, list[str]]]:
     tabla = sha256_de_la_tabla()
     if set(tabla) != set(cj.DATA_IDS):
         raise SystemExit(f"la tabla trae {sorted(tabla)}, no {cj.DATA_IDS}")
     # La regla de selección del 163-C2 admite `CC BY 4.0`/`CC BY`/`CC0` además de `Public`; el generador de la v1 solo `Public` y alguna más.
     g1.LICENCIAS_PERMITIDAS = frozenset(set(g1.LICENCIAS_PERMITIDAS) | {"public", "cc by 4.0", "cc by", "cc0", "cc 0: public domain"})
-    filas = []
+    filas, ignorados = [], {}
     for i in cj.DATA_IDS:
         es_regresion = i in (44960, 44962)
         c = g1._candidato(i, es_clasificacion=not es_regresion)
@@ -67,6 +98,7 @@ def construir(directorio: Path | None = None) -> list[dict]:
         ruta = cj.asegurar_arff(provisional, destino.parent)
         import hashlib
         info = g1._info(i)
+        ignorados[i] = ignorados_de_openml(info)
         if hashlib.md5(ruta.read_bytes()).hexdigest() != info.get("md5_checksum"):
             raise SystemExit(f"{i}: el md5 del fichero no es el que declara OpenML")
         niveles = g1.cardinalidad_nominal_declarada(ruta, c["objetivo"])
@@ -85,16 +117,15 @@ def construir(directorio: Path | None = None) -> list[dict]:
             desbalanceado=desbalanceado, solo_numericas=c["solo_numericas"], licencia=provisional.licencia, sellado=False,
             file_id=provisional.file_id)
         filas.append(d.a_json())
-    return filas
+    return filas, ignorados
 
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--escribir", action="store_true")
     a = ap.parse_args(argv)
-    filas = construir()
-    texto = json.dumps({"que_es": "los 6 conjuntos de benchmarks/c163/CONFIRMACION_C2.md como DatasetRegistrado (169-C1)", "datasets": filas},
-                       indent=1, ensure_ascii=False) + "\n"
+    filas, ignorados = construir()
+    texto = texto_del_catalogo(filas, ignorados, time.strftime("%Y-%m-%d"))
     if a.escribir:
         cj.RUTA_DEL_CATALOGO.write_text(texto, encoding="utf-8")
         print(f"escrito {cj.RUTA_DEL_CATALOGO}")

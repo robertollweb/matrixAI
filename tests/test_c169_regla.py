@@ -2,8 +2,8 @@
 # Copyright (C) 2026 Roberto Llamosas Conde
 """169-C1 — el ANALIZADOR de `benchmarks/c169/analiza_c169.py` contra `REGLA.md`: una prueba por condición, con su nombre.
 
-Todo con salidas SINTÉTICAS: ninguna prueba llama a `main()`, descarga ni mide. El sello se simula con monkeypatch de `REGLA_SHA256_SELLADA`
-(el real lo pone el supervisor).
+Todo con salidas SINTÉTICAS: ninguna prueba descarga ni mide (`main()` del analizador sí, sobre JSON escritos aquí). El sello de la regla se
+simula con monkeypatch de `REGLA_SHA256_SELLADA` y el del CÓDIGO con un `SELLO_DEL_CODIGO.json` temporal (los reales los pone el supervisor).
 """
 from __future__ import annotations
 
@@ -25,6 +25,12 @@ TAREA = {d.nombre: d.tarea for d in cj.conjuntos()}
 METRICA = {"binary_classification": "auroc", "multiclass_classification": "accuracy", "regression": "r2"}
 SHA = {d.nombre: d.sha256_arff for d in cj.conjuntos()}
 ID = {d.nombre: d.data_id for d in cj.conjuntos()}
+CUBO = {d.nombre: d.cubo_de_tamano for d in cj.conjuntos()}
+FILAS = {d.nombre: d.n_filas for d in cj.conjuntos()}
+N_TEST = {n: round(0.2 * FILAS[n]) for n in FILAS}
+PRESUPUESTO = {"pequeno": 120.0, "mediano": 300.0}
+ENTORNO = "e1"
+MOTOR_DIGEST = {an.REFERENCIA: "m-hgb_hoy", an.REJILLA: "m-hgb_rejilla"}
 # Cinco pliegues de referencia con algo de dispersión (para que el IC no sea degenerado salvo que se pida).
 HOY_BASE = [0.80, 0.82, 0.78, 0.81, 0.79]
 RUIDO = [0.0, 0.01, -0.01, 0.005, -0.005]
@@ -41,7 +47,9 @@ def _registro(nombre, brazo, f, valor, coste, *, elegida=1):
                                          "configuraciones": cfgs, "elegida": 0}
     return {"dataset": nombre, "data_id": ID[nombre], "motor": brazo, "repeticion": 0, "pliegue": f, "estado": "completed",
             "metrica_de_cierre": metric, metric: valor, "tiempo_de_ajuste": coste, "hiperparametros": hip,
-            "entorno_digest": "e1", "motor_digest": f"m-{brazo}", "datos_sha256": SHA[nombre], "sellado": False}
+            "entorno_digest": ENTORNO, "motor_digest": MOTOR_DIGEST[brazo], "datos_sha256": SHA[nombre], "sellado": False,
+            "tarea": TAREA[nombre], "cubo": CUBO[nombre], "semilla": 0, "presupuesto_wall_s": PRESUPUESTO[CUBO[nombre]], "hilos": 4,
+            "n_test": N_TEST[nombre]}
 
 
 def construir(especificacion: dict | None = None, *, coste_hoy=1.0, coste_rej=3.0) -> dict:
@@ -51,22 +59,34 @@ def construir(especificacion: dict | None = None, *, coste_hoy=1.0, coste_rej=3.
     for n in NOMBRES:
         hoy, rej = especificacion.get(n, (HOY_BASE, HOY_BASE))
         conjuntos.append({"nombre": n, "data_id": ID[n], "tarea": TAREA[n], "metrica_de_cierre": METRICA[TAREA[n]], "sellado": False,
-                          "pliegues_esperados": [0, 1, 2, 3, 4],
+                          "pliegues_esperados": [0, 1, 2, 3, 4], "cubo": CUBO[n], "n_filas": FILAS[n], "n_test": N_TEST[n],
                           "columnas_ignoradas_por_openml": cj.ignorados_registrados()[ID[n]]})
         for f in range(5):
             resultados.append(_registro(n, an.REFERENCIA, f, hoy[f], coste_hoy))
             resultados.append(_registro(n, an.REJILLA, f, rej[f], coste_rej))
-    payload = {"es_sonda": False, "parcial": False, "conjuntos": conjuntos, "resultados": resultados}
+    payload = {"es_sonda": False, "parcial": False, "conjuntos": conjuntos, "resultados": resultados,
+               "digest_de_la_cache": {"entorno": ENTORNO, "motores": dict(MOTOR_DIGEST)}}
     s = an.sellos_de_ahora()
     payload.update(regla_sha256_sellada=an.REGLA_SHA256_SELLADA, regla_sha256_al_medir=s["regla_sha256"],
-                   analizador_sha256_al_medir=s["analizador_sha256"], dependencias_sha256_al_medir=s["dependencias_sha256"])
+                   analizador_sha256_al_medir=s["analizador_sha256"], dependencias_sha256_al_medir=s["dependencias_sha256"],
+                   sello_del_codigo_al_medir=s["sello_del_codigo"])
     return payload
 
 
+def escribir_sello_del_codigo(ruta: Path, sha: dict | None = None, regla: str | None = "auto") -> Path:
+    import json
+    sello = {"regla_sha256_sellada": an.REGLA_SHA256_SELLADA if regla == "auto" else regla,
+             "sha256": dict(an.codigo_de_ahora()) if sha is None else sha}
+    ruta.write_text(json.dumps(sello), encoding="utf-8")
+    return ruta
+
+
 @pytest.fixture(autouse=True)
-def sellada(monkeypatch):
-    """La regla «sellada» = el REGLA.md de ahora. Las pruebas de la negativa la vuelven a poner a None."""
+def sellada(monkeypatch, tmp_path):
+    """La regla «sellada» = el REGLA.md de ahora, y el código «sellado» = el de ahora (un SELLO_DEL_CODIGO.json temporal). Las pruebas de
+    la negativa los vuelven a romper."""
     monkeypatch.setattr(an, "REGLA_SHA256_SELLADA", an.sellos_de_ahora()["regla_sha256"])
+    monkeypatch.setattr(an, "RUTA_DEL_SELLO_DEL_CODIGO", escribir_sello_del_codigo(tmp_path / "SELLO_DEL_CODIGO.json"))
 
 
 def _con_sello(payload):
@@ -421,6 +441,21 @@ def test_codigos_de_salida_de_main(tmp_path):
     inc = tmp_path / "inc.json"
     inc.write_text(json.dumps(p))
     assert an.main([str(inc)]) == 2
+    sat = ([0.99] * 5, [0.99] * 5)
+    nc = tmp_path / "nc.json"
+    nc.write_text(json.dumps(construir({n: sat for n in NOMBRES[:4]})))
+    assert an.main([str(nc)]) == 3
+
+
+def test_codigo_de_salida_una_SONDA_no_sale_con_el_0_de_una_CONFIRMADA(tmp_path):
+    """aud1 M-5: una sonda salía con 0, igual que CONFIRMADA; una cola que mire el código no las distinguía."""
+    import json
+    p = construir({n: _mejora() for n in NOMBRES})
+    p["es_sonda"] = True
+    sonda = tmp_path / "sonda.json"
+    sonda.write_text(json.dumps(p))
+    assert an.main([str(sonda)]) == 4 and an.CODIGOS_DE_SALIDA["SONDA"] != an.CODIGOS_DE_SALIDA["CONFIRMADA"]
+    assert len(set(an.CODIGOS_DE_SALIDA.values())) == len(an.CODIGOS_DE_SALIDA)
 
 
 # ---------------------------------------------------------------- (a) solo sobre los NO saturados, y en el umbral exacto
@@ -488,3 +523,315 @@ def test_ignore_attribute_un_resultado_que_no_declara_la_exclusion_de_cooling_lo
             c["columnas_ignoradas_por_openml"] = []
     v = veredicto(p)
     assert v["veredicto"] == "SIN VEREDICTO" and any("cooling_load" in x for x in v["problemas"])
+
+
+# ================================================================ rep1 (aud1): I1, I2 y los menores, una prueba por nombre
+def _problemas(p, *, sonda=False):
+    p["es_sonda"] = sonda
+    return an.analizar(_con_sello(p))
+
+
+def _de(v, trozo):
+    return [x for x in v["problemas"] if trozo in x]
+
+
+# ---------------------------------------------------------------- I1: el sello del CÓDIGO en el analizador
+def test_sello_del_codigo_sin_el_fichero_el_analizador_no_da_veredicto(monkeypatch, tmp_path):
+    p = construir({n: _mejora() for n in NOMBRES})
+    monkeypatch.setattr(an, "RUTA_DEL_SELLO_DEL_CODIGO", tmp_path / "no_existe.json")
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "falta el sello del código")
+
+
+def test_sello_del_codigo_NULO_el_analizador_no_da_veredicto(monkeypatch, tmp_path):
+    p = construir({n: _mejora() for n in NOMBRES})
+    escribir_sello_del_codigo(an.RUTA_DEL_SELLO_DEL_CODIGO, sha={k: None for k in an.codigo_de_ahora()}, regla=None)
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "SIN SELLAR")
+
+
+def test_sello_del_codigo_el_analizador_cambiado_despues_de_SELLAR_no_da_veredicto_aunque_midiera_con_el():
+    """El sabotaje A7 de la aud1: el analizador cambiado ANTES de medir pasaba (el medidor grababa su sha ya cambiado). Con el sello, no."""
+    p = construir({n: _mejora() for n in NOMBRES})
+    sha = dict(an.codigo_de_ahora())
+    sha["benchmarks/c169/analiza_c169.py"] = "0" * 64               # sellado OTRO analizador; la salida se midió con el de ahora
+    escribir_sello_del_codigo(an.RUTA_DEL_SELLO_DEL_CODIGO, sha=sha)
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "cambió DESPUÉS de sellar el código")
+
+
+def test_sello_del_codigo_una_salida_medida_con_otro_sello_no_da_veredicto():
+    p = construir({n: _mejora() for n in NOMBRES})
+    p["sello_del_codigo_al_medir"] = {k: "0" * 64 for k in an.codigo_de_ahora()}
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "otro sello del código")
+
+
+# ---------------------------------------------------------------- I2: lo declarado por cada registro NO se cree
+def test_declarado_una_binaria_medida_con_accuracy_y_no_con_AUROC_es_SIN_VEREDICTO():
+    p = construir({n: _mejora() for n in NOMBRES})
+    assert veredicto(copy.deepcopy(p))["veredicto"] == "CONFIRMADA"
+    for r in p["resultados"]:
+        if TAREA[r["dataset"]] == "binary_classification":
+            r["accuracy"] = r.pop("auroc")
+            r["metrica_de_cierre"] = "accuracy"
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "métrica de cierre distinta de la de su tarea")
+
+
+def test_declarado_un_conjunto_que_declara_otra_metrica_otra_tarea_o_otro_cubo_es_SIN_VEREDICTO():
+    for campo, valor in (("metrica_de_cierre", "accuracy"), ("tarea", "multiclass_classification"), ("cubo", "mediano"), ("n_filas", 3)):
+        p = construir({n: _mejora() for n in NOMBRES})
+        c = next(c for c in p["conjuntos"] if c["nombre"] == "blood-transfusion-service-center")
+        c[campo] = valor
+        v = veredicto(p)
+        assert v["veredicto"] == "SIN VEREDICTO" and _de(v, f"declara {campo}="), campo
+
+
+def test_declarado_un_presupuesto_que_no_es_el_de_su_cubo_es_SIN_VEREDICTO():
+    p = construir({n: _mejora() for n in NOMBRES})
+    for r in p["resultados"]:
+        r["presupuesto_wall_s"] = 5.0
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "presupuesto de pared distinto del de su cubo")
+    p = construir({n: _mejora() for n in NOMBRES})
+    for r in p["resultados"]:                                    # 120 s en un mediano (kc1) tampoco
+        if CUBO[r["dataset"]] == "mediano":
+            r["presupuesto_wall_s"] = 120.0
+    assert _de(veredicto(p), "presupuesto de pared distinto del de su cubo")
+
+
+def test_declarado_en_una_SONDA_el_presupuesto_no_se_exige_porque_mide_con_el_suyo():
+    p = construir({n: _mejora() for n in NOMBRES})
+    for r in p["resultados"]:
+        r["presupuesto_wall_s"] = 30.0
+    assert not _de(_problemas(p, sonda=True), "presupuesto")
+
+
+@pytest.mark.parametrize("semilla", [7, 1, -1, "0", 0.5, None, True])   # supervisor 15-11: con solo el 7, admitir la 1 salía verde
+def test_declarado_una_semilla_que_no_es_0_es_SIN_VEREDICTO(semilla):
+    p = construir({n: _mejora() for n in NOMBRES})
+    for r in p["resultados"]:
+        if r["motor"] == an.REJILLA:
+            r["semilla"] = semilla                                # semillas distintas entre brazos
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "semilla distinta de 0")
+
+
+def test_declarado_los_hilos_se_GRABAN_y_tienen_que_ser_4():
+    for hilos in (None, 1, True):
+        p = construir({n: _mejora() for n in NOMBRES})
+        for r in p["resultados"]:
+            if hilos is None:
+                r.pop("hilos")
+            else:
+                r["hilos"] = hilos
+        v = veredicto(p)
+        assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "no graba 4 hilos"), hilos
+
+
+def test_declarado_registros_de_OTRO_codigo_que_el_de_la_salida_son_SIN_VEREDICTO_aunque_coincidan_entre_ellos():
+    """El caso de la aud1: TODOS los registros con un `entorno_digest` igual entre sí pero distinto del de la salida (caché de otro código)."""
+    p = construir({n: _mejora() for n in NOMBRES})
+    for r in p["resultados"]:
+        r["entorno_digest"] = "otro-codigo"
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "`entorno_digest` distinto del de la salida")
+    assert not _de(v, "CÓDIGO DISTINTO")                          # entre ellos coinciden: lo caza SOLO la comparación con la salida
+
+
+def test_declarado_un_motor_digest_que_no_es_el_de_su_brazo_en_la_salida_es_SIN_VEREDICTO():
+    p = construir({n: _mejora() for n in NOMBRES})
+    for r in p["resultados"]:
+        if r["motor"] == an.REJILLA:
+            r["motor_digest"] = "otro-motor"
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "`motor_digest` distinto del de su brazo")
+
+
+def test_declarado_la_salida_sin_digest_de_la_cache_es_SIN_VEREDICTO():
+    p = construir({n: _mejora() for n in NOMBRES})
+    p.pop("digest_de_la_cache")
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "no declara `digest_de_la_cache.entorno`")
+
+
+def test_declarado_n_test_distinto_del_de_su_conjunto_o_que_no_es_la_prueba_fija_es_SIN_VEREDICTO():
+    p = construir({n: _mejora() for n in NOMBRES})
+    p["resultados"][0]["n_test"] += 7
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "`n_test` distinto del de su conjunto")
+    p = construir({n: _mejora() for n in NOMBRES})
+    for c in p["conjuntos"]:
+        c["n_test"] = round(0.16 * FILAS[c["nombre"]])           # el tamaño de una validación, no de la prueba
+    for r in p["resultados"]:
+        r["n_test"] = round(0.16 * FILAS[r["dataset"]])
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "no es la prueba fija de la Fase 0")
+
+
+def test_declarado_los_valores_de_la_regla_son_los_de_REGLA_md_y_los_del_protocolo_v2_que_usa_el_medidor():
+    import inspect
+    import pasada_amplia_101_c5 as c5
+    import pasada_exploratoria_101_c3 as c3
+    import protocolo as protocolo_mod
+    txt = an.RUTA_DE_LA_REGLA.read_text(encoding="utf-8")
+    assert "(120 s pequeño, 300 s mediano), con 4 hilos" in txt
+    assert "AUROC en binaria, accuracy en multiclase, R² en regresión" in txt
+    base = protocolo_mod.ProtocoloExploratorio.cargar(_C169.parent / "fase0" / "protocolo_exploratorio_v2.json")
+    amp = cj.protocolo_ampliado(base)
+    por_ds = c5.metrica_de_cierre_por_dataset(amp, cj.conjuntos())
+    assert {n: an.METRICA_POR_TAREA[TAREA[n]] for n in NOMBRES} == por_ds
+    assert {cubo: c3.wall_seconds_del_cubo(cubo, amp) for cubo in ("pequeno", "mediano")} == an.PRESUPUESTO_POR_CUBO_S
+    assert an.HILOS_POR_INTENTO == c3.HILOS_POR_INTENTO == amp.presupuesto.hilos == 4
+    assert an.SEMILLA == amp.particion.semillas[0] == 0
+    assert "test_fraction=0.2," in inspect.getsource(c5.particiones_base) and an.FRACCION_DE_PRUEBA == 0.2
+
+
+# ---------------------------------------------------------------- aud1 M-2: NaN, inf y coste negativo
+def test_una_metrica_NaN_es_SIN_VEREDICTO_y_no_NO_CUMPLE():
+    p = construir({n: _mejora() for n in NOMBRES})
+    p["resultados"][4][p["resultados"][4]["metrica_de_cierre"]] = float("nan")
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "no es un número finito")
+
+
+def test_un_coste_negativo_o_infinito_es_SIN_VEREDICTO_y_no_CONFIRMADA():
+    for coste in (-1.0, float("inf"), float("nan")):
+        p = construir({n: _mejora() for n in NOMBRES})
+        p["resultados"][1]["tiempo_de_ajuste"] = coste
+        v = veredicto(p)
+        assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "`tiempo_de_ajuste` no es un número finito y >= 0"), coste
+
+
+# ---------------------------------------------------------------- aud1 A1–A6: comprobaciones del analizador, cada una con su nombre
+def test_A1_una_salida_que_declara_otro_sello_de_regla_es_SIN_VEREDICTO():
+    p = construir({n: _mejora() for n in NOMBRES})
+    p["regla_sha256_sellada"] = "ab" * 32
+    v = an.analizar(p)                                           # sin `_con_sello`, que lo pisaría
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "la salida declara otro sello de regla")
+
+
+def test_A2_brazos_medidos_con_codigo_distinto_ENTRE_ellos_es_SIN_VEREDICTO():
+    p = construir({n: _mejora() for n in NOMBRES})
+    for r in p["resultados"]:
+        if r["motor"] == an.REJILLA:
+            r["entorno_digest"] = "e2"                            # coherente DENTRO de cada brazo, distinto ENTRE brazos
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "los brazos se midieron con CÓDIGO DISTINTO (entorno_digest)")
+
+
+def test_A3_pliegues_esperados_que_no_son_0_a_4_es_SIN_VEREDICTO_aunque_esten_todos_los_declarados():
+    p = construir({n: _mejora() for n in NOMBRES})
+    p["conjuntos"][0]["pliegues_esperados"] = [0, 1, 2, 3]
+    p["resultados"] = [r for r in p["resultados"] if not (r["dataset"] == NOMBRES[0] and r["pliegue"] == 4)]
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "pliegues declarados [0, 1, 2, 3]")
+
+
+def test_A4_un_data_id_que_no_es_el_registrado_es_SIN_VEREDICTO():
+    p = construir({n: _mejora() for n in NOMBRES})
+    p["conjuntos"][0]["data_id"] = 31
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "data_id 31 != el registrado")
+
+
+def test_A5_registros_de_otra_repeticion_que_la_0_son_SIN_VEREDICTO():
+    p = construir({n: _mejora() for n in NOMBRES})
+    for r in p["resultados"]:
+        r["repeticion"] = 1
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "un registro de la repetición 1")
+
+
+def test_A6_un_conjunto_marcado_como_sellado_es_SIN_VEREDICTO():
+    p = construir({n: _mejora() for n in NOMBRES})
+    p["conjuntos"][2]["sellado"] = True
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "está marcado como SELLADO")
+
+
+# ---------------------------------------------------------------- D: MEDIA (no mediana) y su IC con semilla 0 y 1.000 remuestras
+#: Diferencias asimétricas (y distintas, para que el IC dependa de la semilla): media -0,01126 (< -0,01, empeora) y mediana -0,0021 (no).
+DIFERENCIAS_ASIMETRICAS = [-0.0013, -0.0021, -0.0007, -0.0032, -0.0490]
+
+
+def _saturado_con_diferencias(dif):
+    hoy = [0.99, 0.991, 0.989, 0.992, 0.988]
+    esp = {n: _mejora(frac=0.30) for n in NOMBRES}
+    esp[NOMBRES[0]] = (hoy, [h + d for h, d in zip(hoy, dif)])
+    e = next(x for x in veredicto(construir(esp))["conjuntos"] if x["nombre"] == NOMBRES[0])
+    return e, [b - a for a, b in zip(hoy, esp[NOMBRES[0]][1])]
+
+
+def test_D_es_la_MEDIA_de_las_diferencias_por_pliegue_no_la_mediana():
+    import statistics
+    e, dif = _saturado_con_diferencias(DIFERENCIAS_ASIMETRICAS)
+    assert statistics.median(dif) > -0.01 > statistics.fmean(dif)        # la prueba tiene dientes: media y mediana caen a lados distintos
+    assert e["saturado"] and e["d"] == statistics.fmean(dif)
+    assert e["empeora_de_verdad"]                                          # con la mediana NO empeoraría
+
+
+def _bootstrap_de_percentiles(dif, semilla, remuestras, nivel=0.95):
+    """Implementación INDEPENDIENTE de REGLA.md §2 (bootstrap de percentiles de pliegues, interpolación lineal)."""
+    import math
+    import random
+    azar = random.Random(semilla)
+    n = len(dif)
+    medias = sorted(sum(dif[i] for i in azar.choices(range(n), k=n)) / n for _ in range(remuestras))
+
+    def pct(q):
+        pos = q * (len(medias) - 1)
+        lo, hi = math.floor(pos), math.ceil(pos)
+        return medias[lo] + (medias[hi] - medias[lo]) * (pos - lo)
+    cola = (1 - nivel) / 2
+    return [pct(cola), pct(1 - cola)]
+
+
+def test_IC_de_D_es_el_bootstrap_de_percentiles_con_semilla_0_y_1000_remuestras():
+    e, dif = _saturado_con_diferencias(DIFERENCIAS_ASIMETRICAS)
+    esperado = _bootstrap_de_percentiles(dif, semilla=0, remuestras=1000)
+    assert e["ic_d"] == pytest.approx(esperado, abs=1e-15)
+    for otro in (_bootstrap_de_percentiles(dif, semilla=1, remuestras=1000), _bootstrap_de_percentiles(dif, semilla=0, remuestras=200)):
+        assert otro != pytest.approx(esperado, abs=1e-12)                 # dientes: otra semilla u otras remuestras dan otro IC
+
+
+# ---------------------------------------------------------------- aud1 M-4 y BookID: lo que el veredicto DICE de los datos
+def _con_lectura(p):
+    for c in p["conjuntos"]:
+        c["lectura_declarada"] = {"columnas_excluidas": [], "motivos_de_exclusion": {}, "avisos": []}
+        c["predictores"] = ["x"]
+        if c["nombre"] == "forest_fires":
+            c["lectura_declarada"] = {"columnas_excluidas": ["month", "day"],
+                                      "motivos_de_exclusion": {"month": "atributo STRING", "day": "atributo STRING"},
+                                      "avisos": ["el fichero trae 11 columnas y el catálogo declara 13: FALTAN 2, no sobran."]}
+        if c["nombre"] == "energy_efficiency":
+            c["lectura_declarada"]["avisos"] = ["el catálogo declara 9 columnas y el fichero trae 10: sobran 1, pero …"]
+        if c["nombre"] == "analcatdata_authorship":
+            c["predictores"] = ["a", "BookID"]
+    return p
+
+
+def test_el_veredicto_DICE_que_forest_fires_se_midio_sin_month_ni_day_y_que_authorship_lleva_BookID():
+    v = veredicto(_con_lectura(construir({n: _mejora() for n in NOMBRES})))
+    dice = v["lo_que_se_dice_de_los_datos"]
+    assert any(f.startswith("forest_fires se midió SIN ['month', 'day']") and "STRING" in f for f in dice)
+    assert any(f.startswith("analcatdata_authorship lleva `BookID` como predictor") and "ignore_attribute" in f for f in dice)
+    assert any(f.startswith("energy_efficiency se midió SIN ['cooling_load']") for f in dice)
+    texto = an.informe_en_texto(v)
+    assert "DATOS: forest_fires se midió SIN ['month', 'day']" in texto and "BookID" in texto
+
+
+def test_los_avisos_de_lectura_ya_explicados_se_separan_de_los_NUEVOS():
+    p = _con_lectura(construir({n: _mejora() for n in NOMBRES}))
+    dice = veredicto(copy.deepcopy(p))["lo_que_se_dice_de_los_datos"]
+    assert sum("aviso de lectura ya explicado" in f for f in dice) == 2 and not any("NUEVO" in f for f in dice)
+    next(c for c in p["conjuntos"] if c["nombre"] == "kc1")["lectura_declarada"]["avisos"] = ["algo que no se esperaba"]
+    dice = veredicto(p)["lo_que_se_dice_de_los_datos"]
+    assert any(f == "kc1: aviso de lectura NUEVO: algo que no se esperaba" for f in dice)
+
+
+def test_BookID_que_falta_de_los_predictores_declarados_tambien_se_dice():
+    p = _con_lectura(construir({n: _mejora() for n in NOMBRES}))
+    next(c for c in p["conjuntos"] if c["nombre"] == "analcatdata_authorship")["predictores"] = ["a"]
+    assert any("`BookID` NO está entre sus predictores" in f for f in veredicto(p)["lo_que_se_dice_de_los_datos"])

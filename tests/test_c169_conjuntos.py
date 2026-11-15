@@ -123,12 +123,146 @@ def test_negativa_el_medidor_se_niega_a_medir_si_REGLA_md_ya_no_es_la_sellada(mo
         m.comprobar_el_sello(False, "cd" * 32)
 
 
-def test_el_medidor_con_la_regla_sellada_y_cuadrando_pasa_y_una_sonda_se_salta_el_sello(monkeypatch):
+def _sello_del_codigo(tmp_path, monkeypatch, *, sha=None, regla="auto", crudo=None):
+    """Un SELLO_DEL_CODIGO.json temporal (por omisión, el del código de AHORA sobre la regla sellada de `an`)."""
+    ruta = tmp_path / "SELLO_DEL_CODIGO.json"
+    if crudo is not None:
+        ruta.write_text(crudo, encoding="utf-8")
+    else:
+        ruta.write_text(json.dumps({"regla_sha256_sellada": an.REGLA_SHA256_SELLADA if regla == "auto" else regla,
+                                    "sha256": dict(an.codigo_de_ahora()) if sha is None else sha}), encoding="utf-8")
+    monkeypatch.setattr(an, "RUTA_DEL_SELLO_DEL_CODIGO", ruta)
+    return ruta
+
+
+def test_el_medidor_con_la_regla_sellada_y_cuadrando_pasa_y_una_sonda_se_salta_el_sello(monkeypatch, tmp_path):
     import medir_c169 as m
     monkeypatch.setattr(an, "REGLA_SHA256_SELLADA", "ab" * 32)
+    _sello_del_codigo(tmp_path, monkeypatch)
     m.comprobar_el_sello(False, "ab" * 32)
     monkeypatch.setattr(an, "REGLA_SHA256_SELLADA", None)
+    monkeypatch.setattr(an, "RUTA_DEL_SELLO_DEL_CODIGO", tmp_path / "no_existe.json")
     m.comprobar_el_sello(True, None)
+
+
+# ---------------------------------------------------------------- I1 (aud1): el sello del CÓDIGO
+def test_sello_del_codigo_el_medidor_se_niega_sin_el_fichero_del_sello(monkeypatch, tmp_path):
+    import medir_c169 as m
+    monkeypatch.setattr(an, "REGLA_SHA256_SELLADA", "ab" * 32)
+    monkeypatch.setattr(an, "RUTA_DEL_SELLO_DEL_CODIGO", tmp_path / "no_existe.json")
+    with pytest.raises(SystemExit, match="sello del CÓDIGO.*falta el sello"):
+        m.comprobar_el_sello(False, "ab" * 32)
+
+
+def test_sello_del_codigo_el_medidor_se_niega_con_el_sello_NULO_que_se_commitea(monkeypatch, tmp_path):
+    import medir_c169 as m
+    import sellar_codigo_c169 as sc
+    monkeypatch.setattr(an, "REGLA_SHA256_SELLADA", "ab" * 32)
+    _sello_del_codigo(tmp_path, monkeypatch, crudo=json.dumps(sc.sello_sin_sellar()))
+    with pytest.raises(SystemExit, match="SIN SELLAR"):
+        m.comprobar_el_sello(False, "ab" * 32)
+    _sello_del_codigo(tmp_path, monkeypatch, crudo="{esto no es json")
+    with pytest.raises(SystemExit, match="falta el sello"):
+        m.comprobar_el_sello(False, "ab" * 32)
+
+
+@pytest.mark.parametrize("etiqueta", ["benchmarks/c169/analiza_c169.py", "benchmarks/c169/medir_c169.py",
+                                      "benchmarks/fase0/protocolo.py", "matrixai/estudio/metricas.py"])
+def test_sello_del_codigo_el_medidor_se_niega_si_el_analizador_el_medidor_o_una_dependencia_no_es_el_sellado(monkeypatch, tmp_path, etiqueta):
+    """El sabotaje A7 de la aud1 (D por mediana) pasaba porque el analizador no estaba sellado: aquí un sha sellado distinto del de ahora."""
+    import medir_c169 as m
+    monkeypatch.setattr(an, "REGLA_SHA256_SELLADA", "ab" * 32)
+    sha = dict(an.codigo_de_ahora())
+    sha[etiqueta] = "0" * 64
+    _sello_del_codigo(tmp_path, monkeypatch, sha=sha)
+    with pytest.raises(SystemExit, match="cambió DESPUÉS de sellar"):
+        m.comprobar_el_sello(False, "ab" * 32)
+
+
+def test_sello_del_codigo_el_medidor_se_niega_si_el_sello_no_cubre_todo_o_es_de_otra_regla(monkeypatch, tmp_path):
+    import medir_c169 as m
+    monkeypatch.setattr(an, "REGLA_SHA256_SELLADA", "ab" * 32)
+    sha = dict(an.codigo_de_ahora())
+    sha.pop("benchmarks/c169/medir_c169.py")
+    _sello_del_codigo(tmp_path, monkeypatch, sha=sha)
+    with pytest.raises(SystemExit, match="no cubre exactamente"):
+        m.comprobar_el_sello(False, "ab" * 32)
+    _sello_del_codigo(tmp_path, monkeypatch, regla="cd" * 32)
+    with pytest.raises(SystemExit, match="otra regla"):
+        m.comprobar_el_sello(False, "ab" * 32)
+
+
+def test_sello_del_codigo_cubre_EXACTAMENTE_analizador_medidor_y_dependencias_y_no_a_si_mismo():
+    """Lista ESCRITA A MANO (no sacada del código que se prueba): el sabotaje A14 (quitar el catálogo json de las dependencias) la rompe."""
+    assert set(an.dependencias_de_ahora()) == {
+        "benchmarks/fase0/protocolo.py", "benchmarks/fase0/pasada_amplia_101_c5.py", "matrixai/estudio/metricas.py",
+        "matrixai/estudio/incertidumbre.py", "benchmarks/c160/analiza_c160.py", "benchmarks/c163/analiza_c163_c2.py",
+        "benchmarks/c169/conjuntos_c169.py", "benchmarks/c169/conjuntos_c169.json"}
+    assert set(an.codigo_de_ahora()) == set(an.dependencias_de_ahora()) | {"benchmarks/c169/analiza_c169.py", "benchmarks/c169/medir_c169.py"}
+    assert not any("SELLO_DEL_CODIGO" in k for k in an.codigo_de_ahora())
+    # cada etiqueta es la ruta real del fichero (relativa a la raíz del núcleo) y su sha es el de ese fichero
+    for etiqueta, sha in an.codigo_de_ahora().items():
+        assert hashlib.sha256((_RAIZ / etiqueta).read_bytes()).hexdigest() == sha, etiqueta
+
+
+def test_sello_del_codigo_el_del_repo_o_es_NULO_o_cuadra_con_el_codigo_de_ahora():
+    """Antes de sellar: nulo (y con las mismas etiquetas). Después: cualquier edición de un fichero sellado pone ESTA prueba en rojo."""
+    sello = json.loads((_RAIZ / "benchmarks" / "c169" / "SELLO_DEL_CODIGO.json").read_text(encoding="utf-8"))
+    assert set(sello["sha256"]) == set(an.codigo_de_ahora())
+    if all(v is None for v in sello["sha256"].values()):
+        assert sello["regla_sha256_sellada"] is None
+    else:
+        assert an.problemas_del_sello_del_codigo() == []
+
+
+def test_sellar_codigo_escribe_un_sello_que_el_medidor_acepta_y_se_niega_sin_la_regla_sellada(monkeypatch, tmp_path):
+    import medir_c169 as m
+    import sellar_codigo_c169 as sc
+    regla = an.sellos_de_ahora()["regla_sha256"]
+    ruta = tmp_path / "SELLO_DEL_CODIGO.json"
+    monkeypatch.setattr(an, "RUTA_DEL_SELLO_DEL_CODIGO", ruta)
+    monkeypatch.setattr(an, "REGLA_SHA256_SELLADA", None)
+    with pytest.raises(SystemExit, match="primero la regla"):
+        sc.main(["--escribir"])
+    monkeypatch.setattr(an, "REGLA_SHA256_SELLADA", "ab" * 32)          # REGLA.md ya no es la sellada
+    with pytest.raises(SystemExit, match="no se sella el código sobre otra regla"):
+        sc.main(["--escribir"])
+    assert not ruta.exists()
+    monkeypatch.setattr(an, "REGLA_SHA256_SELLADA", regla)
+    assert sc.main(["--escribir"]) == 0
+    escrito = json.loads(ruta.read_text(encoding="utf-8"))
+    assert escrito["sha256"] == an.codigo_de_ahora() and escrito["regla_sha256_sellada"] == regla
+    m.comprobar_el_sello(False, regla)                                  # el medidor lo acepta
+
+
+# ---------------------------------------------------------------- aud1 M-3: el catálogo ENTERO sale de su guion
+def test_registrar_el_catalogo_entero_ignore_attribute_incluido_sale_de_su_guion():
+    import registrar_conjuntos_c169 as rg
+    texto = rg.texto_del_catalogo(cj.entradas_json(), cj.ignorados_registrados(), "2026-11-15")
+    assert texto == cj.RUTA_DEL_CATALOGO.read_text(encoding="utf-8")
+
+
+def test_registrar_se_niega_a_escribir_sin_el_ignore_attribute_de_los_6():
+    import registrar_conjuntos_c169 as rg
+    ign = cj.ignorados_registrados()
+    ign.pop(44960)
+    with pytest.raises(SystemExit, match="No se escribe un catálogo sin él"):
+        rg.texto_del_catalogo(cj.entradas_json(), ign, "2026-11-15")
+
+
+def test_registrar_lee_el_ignore_attribute_de_openml_en_sus_tres_formas():
+    import registrar_conjuntos_c169 as rg
+    assert rg.ignorados_de_openml({}) == []
+    assert rg.ignorados_de_openml({"ignore_attribute": "cooling_load"}) == ["cooling_load"]
+    assert rg.ignorados_de_openml({"ignore_attribute": ["a", "b"]}) == ["a", "b"]
+    with pytest.raises(SystemExit):
+        rg.ignorados_de_openml({"ignore_attribute": 3})
+
+
+# ---------------------------------------------------------------- aud1 M-7: el techo blando por debajo del duro
+def test_el_techo_blando_de_memoria_queda_por_debajo_de_los_5_GB_del_contrato():
+    import medir_c169 as m
+    assert m.MEMORIA_MAX_MB_POR_OMISION < 5 * 1024
 
 
 def test_el_medidor_solo_mide_los_dos_brazos_de_hgb_y_sus_piezas_son_las_del_163():
