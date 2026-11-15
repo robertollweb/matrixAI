@@ -30,7 +30,7 @@ FILAS = {d.nombre: d.n_filas for d in cj.conjuntos()}
 N_TEST = {n: round(0.2 * FILAS[n]) for n in FILAS}
 PRESUPUESTO = {"pequeno": 120.0, "mediano": 300.0}
 ENTORNO = "e1"
-MOTOR_DIGEST = {an.REFERENCIA: "m-hgb_hoy", an.REJILLA: "m-hgb_rejilla"}
+MOTOR_DIGEST = {an.REFERENCIA: an.MOTOR_DIGEST_DEL_163_C2, an.REJILLA: an.MOTOR_DIGEST_DEL_163_C2}   # aud2 I-1: el del 163-C2, en los dos
 # Cinco pliegues de referencia con algo de dispersión (para que el IC no sea degenerado salvo que se pida).
 HOY_BASE = [0.80, 0.82, 0.78, 0.81, 0.79]
 RUIDO = [0.0, 0.01, -0.01, 0.005, -0.005]
@@ -65,7 +65,9 @@ def construir(especificacion: dict | None = None, *, coste_hoy=1.0, coste_rej=3.
             resultados.append(_registro(n, an.REFERENCIA, f, hoy[f], coste_hoy))
             resultados.append(_registro(n, an.REJILLA, f, rej[f], coste_rej))
     payload = {"es_sonda": False, "parcial": False, "conjuntos": conjuntos, "resultados": resultados,
-               "digest_de_la_cache": {"entorno": ENTORNO, "motores": dict(MOTOR_DIGEST)}}
+               "digest_de_la_cache": {"entorno": ENTORNO, "motores": dict(MOTOR_DIGEST)},
+               "politica_de_la_referencia": {"l2": 1.0, "arboles_fijos": None, "arboles_de_la_busqueda": [], "perfiles_de_la_busqueda": [],
+                                             "tamanos": ["pequeno", "mediano", "grande"]}}
     s = an.sellos_de_ahora()
     payload.update(regla_sha256_sellada=an.REGLA_SHA256_SELLADA, regla_sha256_al_medir=s["regla_sha256"],
                    analizador_sha256_al_medir=s["analizador_sha256"], dependencias_sha256_al_medir=s["dependencias_sha256"],
@@ -835,3 +837,40 @@ def test_BookID_que_falta_de_los_predictores_declarados_tambien_se_dice():
     p = _con_lectura(construir({n: _mejora() for n in NOMBRES}))
     next(c for c in p["conjuntos"] if c["nombre"] == "analcatdata_authorship")["predictores"] = ["a"]
     assert any("`BookID` NO está entre sus predictores" in f for f in veredicto(p)["lo_que_se_dice_de_los_datos"])
+
+
+# ---------------------------------------------------------------- aud2 I-1 (supervisor, 15-11): los brazos del 163-C2 se COMPRUEBAN
+def test_aud2_i1_un_motor_digest_que_no_es_el_del_163_C2_es_SIN_VEREDICTO_aunque_coincida_con_sus_registros():
+    p = construir({n: _mejora(frac=0.30) for n in NOMBRES})
+    otro = "f" * 64
+    p["digest_de_la_cache"]["motores"][an.REJILLA] = otro
+    for r in p["resultados"]:
+        if r["motor"] == an.REJILLA:
+            r["motor_digest"] = otro                              # coherente entre registros y salida: solo lo caza el valor esperado
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "no es el del 163-C2")
+
+
+@pytest.mark.parametrize("politica", [{"l2": 0.0, "arboles_fijos": None}, {"l2": 1.0, "arboles_fijos": 100}, {"arboles_fijos": None}, None, "x"])
+def test_aud2_i1_una_politica_de_la_referencia_que_no_es_PoliticaPorTamano_1_es_SIN_VEREDICTO(politica):
+    p = construir({n: _mejora(frac=0.30) for n in NOMBRES})
+    p["politica_de_la_referencia"] = politica
+    v = veredicto(p)
+    assert v["veredicto"] == "SIN VEREDICTO" and _de(v, "política de la referencia")
+
+
+def test_aud2_i1_el_motor_digest_esperado_es_el_que_grabo_el_163_C2():
+    import json
+    ruta = Path.home() / "cola-nocturna" / "resultados" / "c163-c2" / "resultado_c163_c2.json"
+    if not ruta.exists():
+        pytest.skip("la salida del 163-C2 no está en esta máquina")
+    d = json.loads(ruta.read_text(encoding="utf-8"))
+    assert {r["motor_digest"] for r in d["resultados"] if r["motor"].startswith("hgb")} == {an.MOTOR_DIGEST_DEL_163_C2}
+
+
+def test_aud2_m5_una_salida_malformada_sale_con_el_codigo_de_SIN_VEREDICTO_y_no_con_el_de_NO_CUMPLE(tmp_path):
+    p = construir({n: _mejora(frac=0.30) for n in NOMBRES})
+    p["resultados"][0]["pliegue"] = None                          # revienta dentro del análisis
+    f = tmp_path / "malformada.json"
+    f.write_text(__import__("json").dumps(p), encoding="utf-8")
+    assert an.main([str(f)]) == an.CODIGOS_DE_SALIDA["SIN VEREDICTO"] != an.CODIGOS_DE_SALIDA["NO CUMPLE"]

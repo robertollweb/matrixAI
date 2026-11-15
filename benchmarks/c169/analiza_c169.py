@@ -63,6 +63,11 @@ METRICA_POR_TAREA = {"binary_classification": "auroc", "multiclass_classificatio
 PRESUPUESTO_POR_CUBO_S = {"pequeno": 120.0, "mediano": 300.0}
 HILOS_POR_INTENTO = 4
 SEMILLA = 0                          # la semilla de la repetición 0 (`particion.semillas[0]` del v2)
+#: aud2 I-1 (15-11, supervisor): «los mismos brazos del 163-C2, con el mismo código» (REGLA §1) se COMPRUEBA, no se declara. El
+#: `motor_digest` de HGB es el que graba `resultado_c163_c2.json` (y midieron la aud1, la aud2 y las 6 sondas); la referencia es
+#: `PoliticaPorTamano(1.0)` sin árboles fijos. El `entorno` NO se fija aquí: este fichero entra en él (sería circular); lo comprueba el C3.
+MOTOR_DIGEST_DEL_163_C2 = "14cd305dae66a76a5988685e2c16485c8d2be6e3b67cfac528cc3b352cb4adbe"
+POLITICA_DE_LA_REFERENCIA_ESPERADA = {"l2": 1.0, "arboles_fijos": None}
 FRACCION_DE_PRUEBA = 0.2             # la prueba fija de la Fase 0 (`particiones_base`: test_fraction=0.2); n_test = 0,2 x n_filas, ±1 por redondeo
 TOLERANCIA_N_TEST = 1
 
@@ -303,6 +308,11 @@ def problemas_de_lo_declarado(payload: dict, es_sonda: bool) -> list[str]:
     for b in BRAZOS:
         if not motores_d.get(b):
             p.append(f"la salida no declara `digest_de_la_cache.motores.{b}`")
+        elif motores_d.get(b) != MOTOR_DIGEST_DEL_163_C2:
+            p.append(f"el `motor_digest` de {b} ({str(motores_d.get(b))[:12]}) no es el del 163-C2 ({MOTOR_DIGEST_DEL_163_C2[:12]}): otro código de motor")
+    politica = payload.get("politica_de_la_referencia")
+    if not isinstance(politica, dict) or any(politica.get(k, "falta") != v for k, v in POLITICA_DE_LA_REFERENCIA_ESPERADA.items()):
+        p.append(f"la política de la referencia no es `PoliticaPorTamano(1.0)` sin árboles fijos: {politica!r}")
     n_test_de: dict[str, object] = {}
     for c in payload.get("conjuntos", []):
         d = catalogo.get(c.get("nombre"))
@@ -494,8 +504,13 @@ def main(argv=None) -> int:
     p.add_argument("resultado")
     p.add_argument("--json", default=None, help="escribe el veredicto completo en este JSON")
     a = p.parse_args(argv)
-    payload = json.loads(Path(a.resultado).resolve().read_text(encoding="utf-8"))
-    r = analizar(payload)
+    # aud2 M-5 (supervisor, 15-11): una salida malformada que revienta el análisis NO puede salir con el código de NO CUMPLE (1).
+    try:
+        payload = json.loads(Path(a.resultado).resolve().read_text(encoding="utf-8"))
+        r = analizar(payload)
+    except Exception as e:  # noqa: BLE001
+        print(f"SIN VEREDICTO: el análisis no se pudo completar ({type(e).__name__}: {e})")
+        return CODIGOS_DE_SALIDA["SIN VEREDICTO"]
     print(informe_en_texto(r))
     if a.json:
         Path(a.json).write_text(json.dumps(r, indent=2, ensure_ascii=False, default=float), encoding="utf-8")
