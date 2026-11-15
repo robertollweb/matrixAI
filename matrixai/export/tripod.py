@@ -38,6 +38,7 @@ from matrixai.export.expediente_clinico import (
     DOMINIOS,
     ENTRENAMIENTO_DE_LA_RED,
     ENTRENAMIENTO_DEL_ENTREGADO,
+    PRONOSTICO_DEL_ESTUDIO,
     REPARTO_POR_DISENO,
     FUENTE_EN_ESTUDIO,
     FUERA_POR_EL_MODO,
@@ -421,6 +422,10 @@ def ficha_tripod(bundle_dir: str | Path, *, locale: str = "en") -> str:
         # inventario (PROBAST). Solo si el estudio lo declaró.
         if expediente.diseno_del_reparto is not None:
             _lineas_del_modo.insert(0, REPARTO_POR_DISENO)
+        # 164-C4b: y, si es un PRONÓSTICO, cómo se planteó (horizonte, retardos, serie, hueco) y cómo salió la prueba junto a su
+        # referencia ingenua. Justo detrás del reparto; solo si el estudio lo declaró.
+        if expediente.pronostico_del_estudio is not None:
+            _lineas_del_modo.insert(1 if expediente.diseno_del_reparto is not None else 0, PRONOSTICO_DEL_ESTUDIO)
         # 149-C6: el banco de comportamiento, SOLO si el paquete lo trae (sin él, ni línea ni hueco: el expediente es el de antes).
         if expediente.tiene("banco_de_comportamiento.json"):
             _lineas_del_modo.append(BANCO_DE_COMPORTAMIENTO)

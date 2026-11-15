@@ -751,6 +751,123 @@ def _metricas(metricas: Sequence[Mapping[str, Any]] | None) -> list[dict[str, An
     return _normalize_metrics([dict(m) for m in metricas])
 
 
+def _pronostico_del_estudio(declarado: Mapping[str, Any]) -> dict[str, Any]:
+    """El bloque `study.forecast` (164-C4b): lo que el estudio de PRONÓSTICO declaró en su sobre (horizonte, retardos, serie, hueco,
+    estación, filas quitadas por los bordes, contexto necesario para predecir, límites) y la nota de la PRUEBA junto a sus dos
+    referencias ingenuas. Validado y SIN rellenar: `None` = no consta y se omite; una referencia que no se calculó NO es un cero."""
+    from matrixai.estudio.vocabulario import UNIDADES_DE_TIEMPO  # noqa: PLC0415
+
+    if not isinstance(declarado, Mapping):
+        raise ReproduceManifestError(f"pronostico must be an object, got {declarado!r}")
+    nombre = "pronostico"
+
+    def entero(clave: str, *, minimo: int) -> int:
+        valor = declarado.get(clave)
+        if type(valor) is not int or valor < minimo:
+            raise ReproduceManifestError(f"{nombre}.{clave} must be an integer >= {minimo}, got {valor!r}")
+        return valor
+
+    def finito(valor: Any, ruta: str) -> float:
+        if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not math.isfinite(valor):
+            raise ReproduceManifestError(f"{ruta} must be a finite number, got {valor!r}")
+        return float(valor)
+
+    bloque: dict[str, Any] = {
+        "horizon_steps": entero("horizonte_pasos", minimo=1),
+        "lags": entero("retardos", minimo=1),
+        "time_column": _require_text(declarado.get("columna_de_tiempo"), f"{nombre}.columna_de_tiempo"),
+        "target": _require_text(declarado.get("objetivo"), f"{nombre}.objetivo"),
+    }
+    if declarado.get("columna_de_serie") is not None:
+        bloque["series_column"] = _require_text(declarado["columna_de_serie"], f"{nombre}.columna_de_serie")
+    if declarado.get("columnas_con_retardo") is not None:
+        bloque["lagged_columns"] = _require_str_list(list(declarado["columnas_con_retardo"]), f"{nombre}.columnas_con_retardo")
+    hueco = declarado.get("hueco")
+    if hueco is not None:
+        magnitud = hueco.get("magnitud") if isinstance(hueco, Mapping) else None
+        if (isinstance(magnitud, bool) or not isinstance(magnitud, (int, float)) or not math.isfinite(magnitud)
+                or not magnitud >= 0 or hueco.get("unidad") not in UNIDADES_DE_TIEMPO):
+            raise ReproduceManifestError(
+                f"{nombre}.hueco must be {{magnitud >= 0, unidad in {tuple(UNIDADES_DE_TIEMPO)}}}, got {hueco!r}")
+        bloque["gap"] = {"magnitude": magnitud, "unit": hueco["unidad"]}
+    if declarado.get("estacion") is not None:
+        bloque["seasonal_period"] = entero("estacion", minimo=1)
+    filas = declarado.get("filas")
+    if filas is not None:
+        if not isinstance(filas, Mapping):
+            raise ReproduceManifestError(f"{nombre}.filas must be an object, got {filas!r}")
+        cuentas = {}
+        for clave_del_sobre, clave in (("de_entrada", "input"), ("quitadas_por_el_borde_de_la_serie", "dropped_at_series_edges"),
+                                       ("quitadas_por_valores_ausentes", "dropped_for_missing_values"),
+                                       ("resultantes", "resulting"), ("series", "series")):
+            if filas.get(clave_del_sobre) is not None:
+                valor = filas[clave_del_sobre]
+                if type(valor) is not int or valor < 0:
+                    raise ReproduceManifestError(f"{nombre}.filas.{clave_del_sobre} must be a non-negative integer, got {valor!r}")
+                cuentas[clave] = valor
+        if cuentas:
+            bloque["rows"] = cuentas
+    contexto = declarado.get("contexto_para_predecir")
+    if contexto is not None:
+        if (not isinstance(contexto, Mapping) or type(contexto.get("filas_por_serie")) is not int
+                or contexto["filas_por_serie"] < 1):
+            raise ReproduceManifestError(f"{nombre}.contexto_para_predecir must carry filas_por_serie >= 1, got {contexto!r}")
+        bloque["context_to_predict"] = {
+            "rows_per_series": contexto["filas_por_serie"],
+            **({"columns": _require_str_list(list(contexto["columnas"]), f"{nombre}.contexto_para_predecir.columnas")}
+               if contexto.get("columnas") is not None else {}),
+            "single_row_allowed": False}
+    prueba = declarado.get("prueba")
+    if prueba is not None:
+        if not isinstance(prueba, Mapping):
+            raise ReproduceManifestError(f"{nombre}.prueba must be an object, got {prueba!r}")
+        ref: dict[str, Any] = {}
+        for clave_del_sobre, clave in (("modelo", "model"), ("persistencia", "persistence"), ("estacional", "seasonal")):
+            medida = prueba.get(clave_del_sobre)
+            if medida is None:
+                continue
+            if not isinstance(medida, Mapping) or medida.get("mae") is None:
+                raise ReproduceManifestError(f"{nombre}.prueba.{clave_del_sobre} must carry an mae, got {medida!r}")
+            ref[clave] = {"mae": finito(medida["mae"], f"{nombre}.prueba.{clave_del_sobre}.mae"),
+                          **({"n": medida["n"]} if type(medida.get("n")) is int and medida["n"] >= 0 else {})}
+        for clave_del_sobre, clave in (("mejora_mae_sobre_persistencia", "improvement_over_persistence"),
+                                       ("mejora_mae_sobre_estacional", "improvement_over_seasonal"), ("mase", "mase")):
+            if prueba.get(clave_del_sobre) is not None:
+                ref[clave] = finito(prueba[clave_del_sobre], f"{nombre}.prueba.{clave_del_sobre}")
+        if ref:
+            bloque["reference_on_test"] = ref
+    pliegues = declarado.get("veredicto_por_pliegue")
+    if pliegues is not None:
+        if not isinstance(pliegues, Mapping):
+            raise ReproduceManifestError(f"{nombre}.veredicto_por_pliegue must be an object, got {pliegues!r}")
+        veredicto: dict[str, Any] = {}
+        for clave_del_sobre, clave in (("persistencia", "persistence"), ("estacional", "seasonal")):
+            cuenta = pliegues.get(clave_del_sobre)
+            if cuenta is None:
+                continue
+            if (not isinstance(cuenta, Mapping)
+                    or any(type(cuenta.get(k)) is not int or cuenta[k] < 0 for k in ("gana", "pierde", "empata", "medidos"))):
+                raise ReproduceManifestError(f"{nombre}.veredicto_por_pliegue.{clave_del_sobre} must count gana/pierde/empata/medidos")
+            veredicto[clave] = {"wins": cuenta["gana"], "loses": cuenta["pierde"], "ties": cuenta["empata"],
+                                "measured": cuenta["medidos"]}
+        if veredicto:
+            bloque["fold_verdict"] = veredicto
+    limites = declarado.get("limites")
+    if limites:
+        if not isinstance(limites, (list, tuple)):
+            raise ReproduceManifestError(f"{nombre}.limites must be a list, got {limites!r}")
+        salida = []
+        for i, limite in enumerate(limites):
+            motivo = limite.get("motivo") if isinstance(limite, Mapping) else None
+            if not isinstance(motivo, Mapping) or set(motivo) != {"es", "en"}:
+                raise ReproduceManifestError(f"{nombre}.limites[{i}] must be {{clave, motivo: {{es, en}}, medida?}}, got {limite!r}")
+            salida.append({"key": _require_text(limite.get("clave"), f"{nombre}.limites[{i}].clave"),
+                           "reason": {idioma: _require_text(motivo[idioma], f"{nombre}.limites[{i}].motivo.{idioma}")
+                                      for idioma in ("es", "en")}})
+        bloque["limits"] = salida
+    return bloque
+
+
 def manifiesto_de_estudio(
     *,
     filas: int | None = None,
@@ -774,6 +891,7 @@ def manifiesto_de_estudio(
     entrenamiento_del_entregado: Mapping[str, Any] | None = None,
     curvas_de_la_evaluacion: Mapping[str, Any] | None = None,
     origen_del_fichero: Mapping[str, Any] | None = None,
+    pronostico: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """El manifiesto de un estudio, con SOLO lo que el estudio sabe.
 
@@ -801,6 +919,9 @@ def manifiesto_de_estudio(
       (no entrenan; con una red de épocas fijas tampoco deciden nada). Con `filas_que_entrenaron_el_modelo` no pueden pasar de las de desarrollo.
     * `curvas_de_la_evaluacion` (Ola 2): el campo del mismo nombre del sobre de selección (141); de él se lee SOLO la calibración
       (`study.evaluation_calibration`). Sin curvas (`None`, `{disponible: false}`), el bloque no se escribe.
+    * `pronostico` (164-C4b): lo que declara un estudio de PRONÓSTICO (`pronostico_del_estudio`: horizonte, retardos, serie, hueco,
+      estación, filas quitadas, contexto para predecir, límites, y en `prueba` el MAE del modelo junto a sus dos referencias). Va en
+      `study.forecast`; sin él, el manifiesto es el de siempre byte a byte.
     * `origen_del_fichero` (150-C4): DE QUÉ FICHERO salió el CSV (el `origen` de un libro de Excel convertido, o el de un CSV
       `;` al que la entrada canónica le pasó el decimal a punto; ver `matrixai.export.origen_del_fichero`). Va en
       `artifacts.dataset.origen_del_fichero`, INFORMATIVO: `artifacts.dataset.sha256` sigue siendo el del CSV derivado, que es lo
@@ -928,6 +1049,9 @@ def manifiesto_de_estudio(
             estudio["network_training"] = _entrenamiento_de_la_red(calibracion_y_umbral["entrenamiento_de_la_red"])
     if entrenamiento_del_entregado is not None:
         estudio["delivered_network_training"] = _entrenamiento_del_entregado(entrenamiento_del_entregado)
+    if pronostico is not None:
+        # 164-C4b: un estudio de PRONÓSTICO declara su horizonte, retardos, serie, hueco y la nota junto a sus referencias.
+        estudio["forecast"] = _pronostico_del_estudio(pronostico)
     calibracion_medida = _calibracion_de_la_evaluacion(curvas_de_la_evaluacion)
     if calibracion_medida is not None:
         estudio["evaluation_calibration"] = calibracion_medida

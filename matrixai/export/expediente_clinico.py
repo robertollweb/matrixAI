@@ -346,6 +346,8 @@ class ExpedienteClinico:
                 # al 140 no lo registró y «no disponible» sería un hueco que no sabemos si lo es.
                 if self.diseno_del_reparto is not None:
                     lineas.append(REPARTO_POR_DISENO)
+                if self.pronostico_del_estudio is not None:
+                    lineas.append(PRONOSTICO_DEL_ESTUDIO)
                 continue
             if evidencia.clave == "calibracion":
                 lineas.append(CALIBRACION_DEL_ESTUDIO)
@@ -405,6 +407,12 @@ class ExpedienteClinico:
     def diseno_del_reparto(self) -> dict[str, Any] | None:
         """`study.split` del manifiesto (140-C2: diseño del reparto, columnas, hueco, cobertura y límites), o `None`."""
         bloque = ((self._contenido.get("reproduce.json") or {}).get("study") or {}).get("split")
+        return bloque if isinstance(bloque, dict) else None
+
+    @property
+    def pronostico_del_estudio(self) -> dict[str, Any] | None:
+        """`study.forecast` del manifiesto (164-C4b: horizonte, retardos, serie, hueco, nota y referencias), o `None`."""
+        bloque = ((self._contenido.get("reproduce.json") or {}).get("study") or {}).get("forecast")
         return bloque if isinstance(bloque, dict) else None
 
     @property
@@ -981,6 +989,16 @@ REPARTO_POR_DISENO = _e(
     "the study did not record how it split the exam rows",
     "reparto_por_diseno")
 
+#: EL PRONÓSTICO DEL ESTUDIO (164-C4b): horizonte, retardos, serie, hueco y la nota de la prueba junto a su referencia ingenua.
+#: Solo va en el inventario si el estudio es de pronóstico (`study.forecast`).
+PRONOSTICO_DEL_ESTUDIO = _e(
+    "pronostico_del_estudio", "analisis", "reproduce.json#study.forecast",
+    "Pronóstico (horizonte, retardos, serie, hueco y nota frente a la referencia ingenua)",
+    "Forecast (horizon, lags, series, gap and score against the naive reference)",
+    "el estudio no registró cómo planteó el pronóstico",
+    "the study did not record how the forecast was set up",
+    "pronostico")
+
 #: LAS ÉPOCAS DE UNA RED ENTREGADA (reparación de la re-auditoría del 139, I1): cuántas se fijaron, de dónde salen y si el
 #: plazo cortó el ajuste de selección (entonces el número lo puso ese reloj). Solo en el inventario si el estudio lo dijo.
 ENTRENAMIENTO_DE_LA_RED = _e(
@@ -1299,6 +1317,68 @@ def _texto_del_reparto(bloque: dict[str, Any], idioma: str) -> str:
     return texto
 
 
+def _texto_del_pronostico(bloque: dict[str, Any], idioma: str) -> str:
+    """164-C4b — cómo se planteó el pronóstico y cómo salió la prueba junto a su referencia, en el idioma pedido. Solo lo que el
+    bloque trae: una referencia que no se calculó no se escribe (ni como cero), y «pierde» se dice cuando pierde."""
+    es = idioma == "es"
+    h, w = bloque.get("horizon_steps"), bloque.get("lags")
+    texto = (f"horizonte de {h} paso(s), {w} retardo(s), objetivo «{bloque.get('target')}», columna de tiempo «{bloque.get('time_column')}»"
+             if es else
+             f"horizon of {h} step(s), {w} lag(s), target “{bloque.get('target')}”, time column “{bloque.get('time_column')}”")
+    if bloque.get("series_column"):
+        texto += (f", serie «{bloque['series_column']}»" if es else f", series “{bloque['series_column']}”")
+    gap = bloque.get("gap")
+    if isinstance(gap, dict) and gap.get("magnitude") is not None:
+        uno = gap["magnitude"] == 1
+        unidad = {"seconds": ("segundo", "segundos", "second", "seconds"), "minutes": ("minuto", "minutos", "minute", "minutes"),
+                  "hours": ("hora", "horas", "hour", "hours"), "days": ("día", "días", "day", "days"),
+                  "weeks": ("semana", "semanas", "week", "weeks"), "months": ("mes", "meses", "month", "months"),
+                  "years": ("año", "años", "year", "years")}.get(gap.get("unit"))
+        nombre_de_la_unidad = (unidad[(0 if uno else 1) if es else (2 if uno else 3)] if unidad else str(gap.get("unit")))
+        cuanto = _decimal(f"{gap['magnitude']:g}", es)
+        texto += (f"; hueco de {cuanto} {nombre_de_la_unidad} entre lo que entrena y lo que se mide" if es
+                  else f"; gap of {cuanto} {nombre_de_la_unidad} between what trains and what is measured")
+    if bloque.get("seasonal_period") is not None:
+        texto += (f"; estación de {bloque['seasonal_period']} paso(s)" if es else f"; season of {bloque['seasonal_period']} step(s)")
+    filas = bloque.get("rows")
+    if isinstance(filas, dict) and filas.get("dropped_at_series_edges") is not None:
+        texto += (f"; {filas['dropped_at_series_edges']} fila(s) quitadas por el borde de cada serie (sin retardos completos)" if es
+                  else f"; {filas['dropped_at_series_edges']} row(s) dropped at each series' edge (incomplete lags)")
+    contexto = bloque.get("context_to_predict")
+    if isinstance(contexto, dict) and contexto.get("rows_per_series") is not None:
+        texto += (f"; para predecir hacen falta las últimas {contexto['rows_per_series']} filas de cada serie, no una fila suelta"
+                  if es else f"; predicting needs the last {contexto['rows_per_series']} rows of each series, not a single row")
+    ref = bloque.get("reference_on_test")
+    if isinstance(ref, dict):
+        piezas = []
+        for clave, nombre in (("persistence", ("persistencia (repetir el último valor)", "persistence (repeat the last value)")),
+                              ("seasonal", ("estacional ingenua", "seasonal naive"))):
+            mejora = ref.get(f"improvement_over_{clave}")
+            if isinstance(mejora, (int, float)) and not isinstance(mejora, bool):
+                signo = (("mejora" if mejora >= 0 else "pierde") if es else ("improves" if mejora >= 0 else "loses"))
+                piezas.append(f"{nombre[0]}: {signo} {_decimal(f'{abs(mejora) * 100:.1f}', True)} %" if es else
+                              f"{nombre[1]}: {signo} {abs(mejora) * 100:.1f} %")
+            elif isinstance(ref.get(clave), dict):
+                piezas.append(f"{nombre[0] if es else nombre[1]}: MAE {_decimal(_numero(ref[clave]['mae']), es)}")
+        if piezas:
+            texto += ("; en la prueba reservada, el MAE del modelo frente a " if es
+                      else "; on the held-out test, the model's MAE against ") + " · ".join(piezas)
+        if isinstance(ref.get("mase"), (int, float)):
+            texto += f" · MASE {_decimal(_numero(ref['mase']), es)}"
+    veredicto = bloque.get("fold_verdict")
+    if isinstance(veredicto, dict) and isinstance(veredicto.get("persistence"), dict):
+        v = veredicto["persistence"]
+        texto += (f"; frente a la persistencia gana en {v['wins']} de {v['measured']} pliegues" if es
+                  else f"; against persistence it wins on {v['wins']} of {v['measured']} folds")
+    limites = bloque.get("limits")
+    if isinstance(limites, list) and limites:
+        dichos = [(l.get("reason") or {}).get(idioma) for l in limites if isinstance(l, dict)]
+        dichos = [d for d in dichos if d]
+        if dichos:
+            texto += ("; límites declarados: " if es else "; declared limits: ") + " · ".join(dichos)
+    return texto
+
+
 def _porcentaje_sin_ceros(valor: Any) -> str | None:
     if isinstance(valor, bool) or not isinstance(valor, (int, float)):
         return None
@@ -1576,6 +1656,8 @@ def texto_del_valor(evidencia: Evidencia, campo: Campo, locale: str) -> str:
         return _texto_de_las_filas_sin_rol(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "reparto_por_diseno" and isinstance(valor, dict):
         return _texto_del_reparto(valor, "es" if locale == "es" else "en")
+    if evidencia.resumen == "pronostico" and isinstance(valor, dict):
+        return _texto_del_pronostico(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "entrenamiento_de_la_red" and isinstance(valor, dict):
         return _texto_del_entrenamiento_de_la_red(valor, "es" if locale == "es" else "en")
     if evidencia.resumen == "entrenamiento_del_entregado" and isinstance(valor, dict):
