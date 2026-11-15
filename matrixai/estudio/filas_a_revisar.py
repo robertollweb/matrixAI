@@ -64,7 +64,11 @@ TEXTO_DE_LIMITES = {
            "lo frecuentes que son, no por su nombre, y una celda vacía cuenta como un valor del centro: no sube la fila por estar "
            "vacía. Dos categorías igual de frecuentes van por cuál aparece antes en el fichero, así que con empates el mismo CSV con "
            "las filas en otro orden puede dar una lista algo distinta (medido en un conjunto real: dentro de lo que cambia con la "
-           "semilla). No dice nada de lo que hay en tu fichero. Una lista que no destaca una fila no prueba que esa fila esté bien."),
+           "semilla). Una fecha no se mira (ni como número ni como categoría) cuando se reconoce, también con celdas vacías o con «NA», "
+           "«-» o «?»: se reconocen 2024-03-15 (también con la hora, 2024-03-15 09:00), 15/03/2024, 03/15/2024, 2024/03/15 y "
+           "15-03-2024. Otras formas NO se reconocen y se miran como una categoría: la fecha con la hora al estilo de Excel "
+           "(15/03/2024 09:00) o con el año en dos cifras (15/03/24). Si tu fichero trae una así, desmárcala. "
+           "No dice nada de lo que hay en tu fichero. Una lista que no destaca una fila no prueba que esa fila esté bien."),
     "en": ("Measured by MatrixAI on anomalies SEEDED by us, not on yours: if a dataset has n rows with an extreme value, the "
            f"detector puts {_pc(LIMITES_MEDIDOS['extremo']['1 %'])} of them in the first 2n of the list when they are 1 % of the "
            f"rows and {_pc(LIMITES_MEDIDOS['extremo']['5 %'])} when they are 5 %; with a rare category, "
@@ -76,7 +80,11 @@ TEXTO_DE_LIMITES = {
            "with categories. Categories are ordered by how frequent they are, not by their name, and an empty "
            "cell counts as a value in the middle: a row does not go up for being empty. Two equally frequent categories go by which "
            "appears first in the file, so with ties the same CSV with its rows in another order can give a slightly different list "
-           "(measured on a real dataset: within what changes with the seed). It says nothing about what is in your file. "
+           "(measured on a real dataset: within what changes with the seed). A date is not looked at (neither as a number nor as a "
+           "category) when it is recognised, also with empty cells or with «NA», «-» or «?»: 2024-03-15 (also with the time, "
+           "2024-03-15 09:00), 15/03/2024, 03/15/2024, 2024/03/15 and 15-03-2024 are recognised. Other forms are NOT recognised "
+           "and are looked at as a category: the date with the time in the Spanish Excel style (15/03/2024 09:00) or with a "
+           "two-digit year (15/03/24). If your file has one like that, untick it. It says nothing about what is in your file. "
            "A list that does not highlight a row does not prove the row is fine."),
 }
 
@@ -185,6 +193,20 @@ def _t_csv_no_se_parte(p, i):
             f"({_n(p['columnas'], i)}). A single column is not read: save it as a CSV with a separator.")
 
 
+def _t_cabecera_invalida(p, i):
+    """Auditoría 3 del 165, I1: los nombres de columna se leen SIN los espacios de alrededor (la regla del lector del 137 y de la
+    pantalla); dos que quedan iguales, o uno vacío, no se pueden distinguir: el fichero no se lee, como en la pantalla."""
+    repetidas = list(p.get("repetidas") or [])
+    vacias = int(p.get("vacias") or 0)
+    if i == "es":
+        partes = ([f"repite {_cols(repetidas)}"] if repetidas else []) + ([f"tiene {_n(vacias, i)} sin nombre"] if vacias else [])
+        return ("La cabecera " + " y ".join(partes or ["no se puede leer"]) + " (los nombres se comparan sin los espacios de "
+                "alrededor). Pon a cada columna un nombre distinto.")
+    partes = ([f"repeats {_cols(repetidas)}"] if repetidas else []) + ([f"has {_n(vacias, i)} without a name"] if vacias else [])
+    return ("The header " + " and ".join(partes or ["cannot be read"]) + " (names are compared without the surrounding spaces). "
+            "Give each column a different name.")
+
+
 def _t_categorica_casi_unica(p, i):
     if i == "es":
         return (f"Identificador o casi única: {_n(p['distintos'], i)} valores distintos en {_n(p['presentes'], i)} filas. "
@@ -267,11 +289,14 @@ def _t_numerica_casi_unica(p, i):
 
 
 def _t_textos_leidos_como_faltante(p, i):
+    # `como` (auditoría 3 del 165, I2): «fecha» cuando lo que queda sin esas marcas es una FECHA (la regla del análisis del núcleo,
+    # «numérica o fecha»); sin el parámetro, «numerica», como antes. Una fecha con «NA» no «sigue siendo numérica».
+    fecha = p.get("como") == "fecha"
     if i == "es":
         return (f"En «{p['columna']}», {_textos(p['textos'], i)} se leyeron como «sin dato», con la misma lista que el resto del "
-                "Studio; la columna sigue siendo numérica.")
+                "Studio; " + ("la columna sigue siendo una fecha." if fecha else "la columna sigue siendo numérica."))
     return (f"In «{p['columna']}», {_textos(p['textos'], i)} were read as «no value», with the same list as the rest of the "
-            "Studio; the column is still numeric.")
+            "Studio; " + ("the column is still a date." if fecha else "the column is still numeric."))
 
 
 def _t_categorias_con_vacias(p, i):
@@ -289,7 +314,7 @@ _TEXTOS_DE_MOTIVO = {
     "numeros_con_formato": _t_numeros_con_formato, "numerica_con_textos": _t_numerica_con_textos,
     "numero_ambiguo": _t_numero_ambiguo, "columna_de_etiquetas": _t_columna_de_etiquetas, "fecha": _t_fecha,
     # por qué el CSV no se lee
-    "csv_no_se_parte": _t_csv_no_se_parte,
+    "csv_no_se_parte": _t_csv_no_se_parte, "cabecera_invalida": _t_cabecera_invalida,
     # avisos del detector
     "pocas_filas": _t_pocas_filas, "cambia_con_la_semilla": _t_cambia_con_la_semilla, "filas_sin_dato": _t_filas_sin_dato,
     "numerica_casi_unica": _t_numerica_casi_unica, "textos_leidos_como_faltante": _t_textos_leidos_como_faltante,

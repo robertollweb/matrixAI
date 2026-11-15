@@ -272,7 +272,7 @@ def test_menor2_la_precision_en_k_sin_dos_clases_dice_su_motivo_no_el_del_auroc(
 def test_cada_clave_de_motivo_tiene_texto_en_los_dos_idiomas(clave):
     p = {"sin_dato": 9, "filas": 10, "distintos": 9, "presentes": 10, "por": "tramo", "celdas": 3, "ejemplo": "1.234",
          "textos": {"NA": 2}, "motivo_de_la_lectura": "ambigua", "minimo": 200, "columna": "c", "columnas": ["c"],
-         "formato": "%Y-%m-%d"}
+         "formato": "%Y-%m-%d", "repetidas": ["c"], "vacias": 1}
     t = fr.texto_de_motivo(clave, p)
     assert t["es"].strip() and t["en"].strip() and t["es"] != t["en"]
     with pytest.raises(KeyError):
@@ -311,3 +311,33 @@ def test_aud2_los_textos_de_limites_dicen_las_dos_codificaciones_y_los_empates()
 
 def test_aud2_el_recibo_dice_de_que_es_la_huella():
     assert "sin BOM" in fr._HUELLA_DE["es"] and "without BOM" in fr._HUELLA_DE["en"]
+
+
+# ---------------------------------------------------------------------------------------------------------- auditoría 3 del 165
+def test_aud3_i2_los_limites_dicen_que_formas_de_fecha_reconoce_el_nucleo_y_cuales_no():
+    """Lo que el texto de límites cita como fecha reconocida lo reconoce `_detect_date_format` (la regla que usa motores), y lo que cita
+    como NO reconocida no lo reconoce: si el núcleo aprende una forma nueva, este texto miente y la prueba se pone roja. (El lado del
+    detector, que esas columnas se excluyan o se miren, lo ata `test_aud3_i2_lo_que_los_limites_dicen_de_las_fechas_es_lo_que_hace_
+    el_detector` en motores.)"""
+    from matrixai.training.dataset_analysis import _detect_date_format  # noqa: PLC0415
+    for forma in ("2024-03-15", "2024-03-15 09:00", "15/03/2024", "03/15/2024", "2024/03/15", "15-03-2024"):
+        assert _detect_date_format([forma]) is not None, forma
+        assert all(forma in fr.TEXTO_DE_LIMITES[i] for i in ("es", "en")), forma
+    for forma in ("15/03/2024 09:00", "15/03/24"):
+        assert _detect_date_format([forma]) is None, forma
+        assert all(forma in fr.TEXTO_DE_LIMITES[i] for i in ("es", "en")), forma
+    assert "NO se reconocen" in fr.TEXTO_DE_LIMITES["es"] and "NOT recognised" in fr.TEXTO_DE_LIMITES["en"]
+
+
+def test_aud3_i2_el_aviso_de_marcas_en_una_fecha_no_dice_numerica():
+    t = fr.texto_de_motivo("textos_leidos_como_faltante", {"columna": "alta", "textos": {"NA": 3}, "como": "fecha"})
+    assert "sigue siendo una fecha" in t["es"] and "numérica" not in t["es"] and "still a date" in t["en"]
+    viejo = fr.texto_de_motivo("textos_leidos_como_faltante", {"columna": "x", "textos": {"NA": 3}})
+    assert "sigue siendo numérica" in viejo["es"] and "still numeric" in viejo["en"]
+
+
+def test_aud3_i1_la_cabecera_invalida_dice_cual_se_repite_y_cuantas_no_tienen_nombre():
+    t = fr.texto_de_motivo("cabecera_invalida", {"repetidas": ["importe"], "vacias": 0})
+    assert "«importe»" in t["es"] and "«importe»" in t["en"] and "sin nombre" not in t["es"]
+    t = fr.texto_de_motivo("cabecera_invalida", {"repetidas": [], "vacias": 2})
+    assert "2 sin nombre" in t["es"] and "2 without a name" in t["en"]
