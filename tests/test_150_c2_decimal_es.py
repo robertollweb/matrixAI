@@ -305,11 +305,14 @@ def test_todos_los_csv_de_los_tres_repos_y_del_catalogo_salen_con_los_mismos_byt
     # Los ÚNICOS que cambian hoy son cuatro fixtures `;` con decimal coma del «¿Funciona aquí?» del Studio
     # (`lectura_compartida`): son justo el caso que la regla existe para convertir (`0,3` es 0,3 y su propio lector, el de
     # TS y el del núcleo, ya lo lee así). Si aparece otro, o falta uno, esta lista se mira a mano.
+    # 16-11 (rojo de la nocturna): un quinto, `filasARevisar/fixtures/cabeceras/punto_y_coma_con_espacios.csv` (165,
+    # 2ad6bb36): `;` con espacios y `91,94`, el mismo caso. Mirado a mano y añadido, con su carpeta.
     assert sorted(r.name for r, _ in cambiados) == [
-        "ausentes.csv", "cabecera_vacia.csv", "etiquetas_numericas.csv", "filas_solo_separadores.csv"], \
+        "ausentes.csv", "cabecera_vacia.csv", "etiquetas_numericas.csv", "filas_solo_separadores.csv",
+        "punto_y_coma_con_espacios.csv"], \
         [str(r) for r, _ in cambiados]
     for ruta, declaraciones in cambiados:
-        assert ruta.parent.name == "lectura_compartida"
+        assert ruta.parent.name == ("cabeceras" if ruta.name == "punto_y_coma_con_espacios.csv" else "lectura_compartida")
         assert ruta.read_text(encoding="utf-8").splitlines()[0].count(";") >= 1  # solo un CSV `;` puede cambiar
         assert any(d["tipo"] == "decimal_coma_convertido" for d in declaraciones)
 
