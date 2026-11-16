@@ -1,0 +1,425 @@
+=== kit 116-C5 · 2026-11-16 11:14:18 · {"python": "3.12.16", "plataforma": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.41", "cpus": 28, "ram_mb": 48171, "torch": "2.6.0+cu124", "cuda_de_torch": "12.4", "hay_gpu": true, "gpu": "NVIDIA RTX 2000 Ada Generation Laptop GPU", "vram_total_mb": 8188, "tabicl": "2.2.0"}
+protocolo 113-C0.v2, digest 1b4e902e61e06edc; 1 conjunto(s)
+
+=== [1/1] dresses-sales (data_id=23381, binary_classification, cubo=pequeno, columnas=12, filas_ctx=321, test=100, tope por intento=120s, métrica=auroc) · estimado 8.4 min, tope del conjunto 25 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.4942528735632184 wall=3.5s dispositivo=cuda
+  RESUMEN dresses-sales: 1 completados, 0 fallidos, 0 no lanzados por el tope, 4 s (estimado 506 s)
+
+=== TERMINADO: 1 intentos (0 reusados) en 0.1 min. Guardado en /salida/prueba.json. Mándame ese fichero (y log_acierto_gpu.txt). ===
+=== kit 116-C5 · 2026-11-16 11:38:08 · {"python": "3.12.16", "plataforma": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.41", "cpus": 28, "ram_mb": 48171, "torch": "2.6.0+cu124", "cuda_de_torch": "12.4", "hay_gpu": true, "gpu": "NVIDIA RTX 2000 Ada Generation Laptop GPU", "vram_total_mb": 8188, "tabicl": "2.2.0"}
+  COLUMNA EXCLUIDA en data_id=42563: Id -- identificador de fila: el catálogo declara 80 columnas y el ARFF trae 81; el núcleo la clasifica `identifier` con 1460 valores distintos en 1460 filas (unique_ratio=1.0)
+  COLUMNA EXCLUIDA en data_id=42730: communityname -- atributo STRING: `scipy` no lo soporta y convertirlo en categórica sería meterle al modelo texto libre que identifica la fila
+  COLUMNA EXCLUIDA en data_id=42731: id -- identificador de fila: el catálogo declara 22 columnas y el ARFF trae 23; el núcleo la clasifica `identifier` con 21436 valores distintos en 21613 filas (unique_ratio=0.9918)
+  COLUMNA EXCLUIDA en data_id=41980: row_id -- atributo STRING: `scipy` no lo soporta y convertirlo en categórica sería meterle al modelo texto libre que identifica la fila
+protocolo 113-C0.v2, digest 1b4e902e61e06edc; 24 conjunto(s)
+
+=== [1/24] balance-scale (data_id=11, multiclass_classification, cubo=pequeno, columnas=4, filas_ctx=400, test=126, tope por intento=120s, métrica=accuracy) · estimado 8.4 min, tope del conjunto 25 min ===
+  rep=0 pliegue=0: estado=completed accuracy=0.9920634920634921 wall=3.9s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed accuracy=0.9841269841269841 wall=3.3s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed accuracy=0.9841269841269841 wall=3.4s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed accuracy=0.9682539682539683 wall=3.3s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed accuracy=0.9841269841269841 wall=3.3s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed accuracy=0.9761904761904762 wall=3.5s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed accuracy=0.9841269841269841 wall=3.8s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed accuracy=0.9761904761904762 wall=3.4s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed accuracy=0.9841269841269841 wall=3.5s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed accuracy=0.9841269841269841 wall=3.5s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed accuracy=0.9761904761904762 wall=3.5s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed accuracy=0.9682539682539683 wall=3.6s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed accuracy=0.9841269841269841 wall=3.5s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed accuracy=0.9761904761904762 wall=3.5s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed accuracy=0.9761904761904762 wall=3.6s dispositivo=cuda
+  RESUMEN balance-scale: 15 completados, 0 fallidos, 0 no lanzados por el tope, 53 s (estimado 506 s)
+
+=== [2/24] dresses-sales (data_id=23381, binary_classification, cubo=pequeno, columnas=12, filas_ctx=321, test=100, tope por intento=120s, métrica=auroc) · estimado 8.4 min, tope del conjunto 25 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.4942528735632184 wall=3.3s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed auroc=0.5833333333333334 wall=3.5s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed auroc=0.6001642036124795 wall=3.3s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed auroc=0.5406403940886699 wall=3.4s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed auroc=0.5726600985221675 wall=3.4s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed auroc=0.5812807881773399 wall=3.4s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed auroc=0.562807881773399 wall=3.3s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed auroc=0.4363711001642036 wall=3.4s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed auroc=0.5849753694581281 wall=3.4s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed auroc=0.5394088669950738 wall=3.4s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed auroc=0.5886699507389163 wall=3.8s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed auroc=0.5127257799671593 wall=3.6s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed auroc=0.5558292282430214 wall=3.5s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed auroc=0.5381773399014779 wall=3.6s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed auroc=0.583743842364532 wall=3.6s dispositivo=cuda
+  RESUMEN dresses-sales: 15 completados, 0 fallidos, 0 no lanzados por el tope, 52 s (estimado 506 s)
+
+=== [3/24] diabetes (data_id=37, binary_classification, cubo=pequeno, columnas=8, filas_ctx=492, test=154, tope por intento=120s, métrica=auroc) · estimado 8.4 min, tope del conjunto 25 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.7964814814814815 wall=3.6s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed auroc=0.8046296296296296 wall=3.7s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed auroc=0.8140740740740741 wall=3.6s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed auroc=0.8051851851851852 wall=3.5s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed auroc=0.8194444444444444 wall=3.7s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed auroc=0.8081481481481482 wall=3.7s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed auroc=0.8138888888888889 wall=3.6s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed auroc=0.7998148148148149 wall=3.5s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed auroc=0.8087037037037037 wall=3.9s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed auroc=0.804074074074074 wall=3.6s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed auroc=0.8044444444444444 wall=3.5s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed auroc=0.8166666666666667 wall=3.7s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed auroc=0.8085185185185185 wall=3.6s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed auroc=0.8074074074074075 wall=3.6s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed auroc=0.8074074074074075 wall=3.5s dispositivo=cuda
+  RESUMEN diabetes: 15 completados, 0 fallidos, 0 no lanzados por el tope, 55 s (estimado 506 s)
+
+=== [4/24] climate-model-simulation-crashes (data_id=40994, binary_classification, cubo=pequeno, columnas=20, filas_ctx=346, test=108, tope por intento=120s, métrica=auroc) · estimado 8.4 min, tope del conjunto 25 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.978675645342312 wall=3.7s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed auroc=0.978675645342312 wall=3.6s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed auroc=0.9618406285072951 wall=3.7s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed auroc=0.9730639730639731 wall=3.7s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed auroc=0.9696969696969697 wall=3.6s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed auroc=0.9797979797979798 wall=3.7s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed auroc=0.9797979797979798 wall=3.7s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed auroc=0.9753086419753086 wall=3.7s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed auroc=0.9708193041526375 wall=3.6s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed auroc=0.9775533108866442 wall=3.6s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed auroc=0.9764309764309764 wall=3.7s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed auroc=0.9797979797979798 wall=3.7s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed auroc=0.9775533108866442 wall=3.6s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed auroc=0.9607182940516273 wall=3.7s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed auroc=0.9719416386083053 wall=3.7s dispositivo=cuda
+  RESUMEN climate-model-simulation-crashes: 15 completados, 0 fallidos, 0 no lanzados por el tope, 55 s (estimado 506 s)
+
+=== [5/24] kc2 (data_id=1063, binary_classification, cubo=pequeno, columnas=21, filas_ctx=335, test=104, tope por intento=120s, métrica=auroc) · estimado 8.4 min, tope del conjunto 25 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.9248422260470454 wall=3.6s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed auroc=0.9380378657487092 wall=3.7s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed auroc=0.9328743545611016 wall=3.7s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed auroc=0.9282845668387837 wall=3.6s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed auroc=0.9271371199082042 wall=3.7s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed auroc=0.9242685025817556 wall=3.7s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed auroc=0.9334480780263913 wall=3.7s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed auroc=0.9259896729776248 wall=3.6s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed auroc=0.9259896729776248 wall=3.7s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed auroc=0.9311531841652324 wall=3.7s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed auroc=0.927710843373494 wall=3.6s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed auroc=0.9288582903040734 wall=3.7s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed auroc=0.9294320137693631 wall=3.6s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed auroc=0.9300057372346529 wall=3.7s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed auroc=0.9311531841652324 wall=3.7s dispositivo=cuda
+  RESUMEN kc2: 15 completados, 0 fallidos, 0 no lanzados por el tope, 56 s (estimado 506 s)
+
+=== [6/24] yeast (data_id=181, multiclass_classification, cubo=pequeno, columnas=8, filas_ctx=893, test=298, tope por intento=120s, métrica=accuracy) · estimado 6.7 min, tope del conjunto 20 min ===
+  rep=0 pliegue=0: estado=completed accuracy=0.6174496644295302 wall=3.9s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed accuracy=0.6174496644295302 wall=3.9s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed accuracy=0.6174496644295302 wall=3.8s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed accuracy=0.6040268456375839 wall=3.9s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed accuracy=0.610738255033557 wall=3.9s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed accuracy=0.6140939597315436 wall=3.8s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed accuracy=0.6174496644295302 wall=3.8s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed accuracy=0.5939597315436241 wall=4.0s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed accuracy=0.6073825503355704 wall=4.0s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed accuracy=0.6040268456375839 wall=4.1s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed accuracy=0.5939597315436241 wall=3.9s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed accuracy=0.6140939597315436 wall=4.0s dispositivo=cuda
+  RESUMEN yeast: 12 completados, 0 fallidos, 0 no lanzados por el tope, 47 s (estimado 404 s)
+
+=== [7/24] Moneyball (data_id=41021, regression, cubo=pequeno, columnas=14, filas_ctx=789, test=246, tope por intento=120s, métrica=r2) · estimado 8.4 min, tope del conjunto 25 min ===
+  rep=0 pliegue=0: estado=completed r2=0.9448394153835512 wall=4.1s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed r2=0.9420575642239915 wall=4.0s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed r2=0.943571118040901 wall=4.0s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed r2=0.9435049617992356 wall=3.9s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed r2=0.9441108570227242 wall=4.1s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed r2=0.9437347640314119 wall=4.0s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed r2=0.9440712126992351 wall=3.9s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed r2=0.9430434415542951 wall=3.9s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed r2=0.9443595699749955 wall=4.0s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed r2=0.9426824375076613 wall=4.0s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed r2=0.9423376175195826 wall=4.2s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed r2=0.9448854944621521 wall=3.9s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed r2=0.9445353268583073 wall=4.0s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed r2=0.9437435776244251 wall=4.1s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed r2=0.9433423744436024 wall=4.2s dispositivo=cuda
+  RESUMEN Moneyball: 15 completados, 0 fallidos, 0 no lanzados por el tope, 61 s (estimado 506 s)
+
+=== [8/24] pc1 (data_id=1068, binary_classification, cubo=pequeno, columnas=21, filas_ctx=711, test=221, tope por intento=120s, métrica=auroc) · estimado 8.4 min, tope del conjunto 25 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.8773462783171521 wall=4.1s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed auroc=0.8773462783171521 wall=4.0s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed auroc=0.8446601941747572 wall=4.5s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed auroc=0.870873786407767 wall=4.1s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed auroc=0.883495145631068 wall=4.3s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed auroc=0.8588996763754045 wall=4.0s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed auroc=0.8786407766990292 wall=4.3s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed auroc=0.8686084142394822 wall=4.1s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed auroc=0.8822006472491909 wall=4.0s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed auroc=0.8491909385113269 wall=4.1s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed auroc=0.8750809061488674 wall=4.1s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed auroc=0.8381877022653722 wall=4.1s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed auroc=0.8702265372168285 wall=3.9s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed auroc=0.8718446601941747 wall=4.2s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed auroc=0.8964401294498382 wall=4.0s dispositivo=cuda
+  RESUMEN pc1: 15 completados, 0 fallidos, 0 no lanzados por el tope, 62 s (estimado 506 s)
+
+=== [9/24] wilt (data_id=40983, binary_classification, cubo=mediano, columnas=5, filas_ctx=3098, test=968, tope por intento=300s, métrica=auroc) · estimado 8.4 min, tope del conjunto 25 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.9991602284178703 wall=4.4s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed auroc=0.9994961370507222 wall=4.2s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed auroc=0.9990762512596574 wall=4.4s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed auroc=0.9992442055760833 wall=4.2s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed auroc=0.9990972455492106 wall=4.1s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed auroc=0.9991812227074236 wall=4.3s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed auroc=0.9993701713134028 wall=4.3s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed auroc=0.9992651998656366 wall=4.1s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed auroc=0.9994121598925092 wall=4.3s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed auroc=0.9992861941551898 wall=4.1s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed auroc=0.9992861941551898 wall=4.1s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed auroc=0.9993491770238495 wall=4.1s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed auroc=0.999307188444743 wall=4.2s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed auroc=0.9993806684581794 wall=4.3s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed auroc=0.9992022169969769 wall=4.2s dispositivo=cuda
+  RESUMEN wilt: 15 completados, 0 fallidos, 0 no lanzados por el tope, 64 s (estimado 506 s)
+
+=== [10/24] pc4 (data_id=1049, binary_classification, cubo=pequeno, columnas=37, filas_ctx=934, test=292, tope por intento=120s, métrica=auroc) · estimado 8.4 min, tope del conjunto 25 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.9498697916666666 wall=4.6s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed auroc=0.9614800347222222 wall=4.4s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed auroc=0.9603949652777778 wall=4.6s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed auroc=0.9519314236111112 wall=4.4s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed auroc=0.9554036458333334 wall=4.5s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed auroc=0.9572482638888888 wall=4.4s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed auroc=0.9513888888888888 wall=4.5s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed auroc=0.9568142361111112 wall=4.5s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed auroc=0.9519314236111112 wall=4.9s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed auroc=0.9593098958333334 wall=4.5s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed auroc=0.9563802083333334 wall=4.4s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed auroc=0.9564887152777778 wall=4.4s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed auroc=0.9452039930555556 wall=4.5s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed auroc=0.9608289930555556 wall=4.4s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed auroc=0.9598524305555556 wall=4.5s dispositivo=cuda
+  RESUMEN pc4: 15 completados, 0 fallidos, 0 no lanzados por el tope, 68 s (estimado 506 s)
+
+=== [11/24] wine_quality (data_id=287, regression, cubo=mediano, columnas=11, filas_ctx=4159, test=1299, tope por intento=300s, métrica=r2) · estimado 8.4 min, tope del conjunto 25 min ===
+  rep=0 pliegue=0: estado=completed r2=0.5512667620814857 wall=4.7s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed r2=0.5534189871468295 wall=4.8s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed r2=0.5338274448542267 wall=4.7s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed r2=0.5508625339630928 wall=4.9s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed r2=0.5660903278362588 wall=4.7s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed r2=0.5526584571576667 wall=4.7s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed r2=0.5544718854432684 wall=4.7s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed r2=0.5468016106893073 wall=4.7s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed r2=0.55448610228785 wall=4.7s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed r2=0.5524605538285507 wall=4.8s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed r2=0.5497845201815978 wall=4.7s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed r2=0.5598723205923852 wall=4.7s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed r2=0.559455771349356 wall=4.7s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed r2=0.5529844171319585 wall=5.4s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed r2=0.5473162313313571 wall=4.8s dispositivo=cuda
+  RESUMEN wine_quality: 15 completados, 0 fallidos, 0 no lanzados por el tope, 73 s (estimado 506 s)
+
+=== [12/24] sick (data_id=38, binary_classification, cubo=mediano, columnas=29, filas_ctx=2415, test=754, tope por intento=300s, métrica=auroc) · estimado 9.6 min, tope del conjunto 29 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.998894620486367 wall=4.7s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed auroc=0.998894620486367 wall=4.6s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed auroc=0.9986796855809383 wall=4.7s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed auroc=0.9985261606484893 wall=4.7s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed auroc=0.9984647506755097 wall=4.8s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed auroc=0.9977585359862442 wall=4.7s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed auroc=0.9983419307295505 wall=4.6s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed auroc=0.9985568656349791 wall=4.8s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed auroc=0.9991095553917956 wall=4.7s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed auroc=0.9986796855809383 wall=4.7s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed auroc=0.9990788504053059 wall=4.7s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed auroc=0.9979734708916728 wall=4.8s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed auroc=0.998741095553918 wall=4.6s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed auroc=0.9984954556619995 wall=4.7s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed auroc=0.9976664210267747 wall=4.6s dispositivo=cuda
+  RESUMEN sick: 15 completados, 0 fallidos, 0 no lanzados por el tope, 71 s (estimado 576 s)
+
+=== [13/24] house_prices_nominal (data_id=42563, regression, cubo=pequeno, columnas=79, filas_ctx=935, test=292, tope por intento=120s, métrica=r2) · estimado 9.6 min, tope del conjunto 29 min ===
+  rep=0 pliegue=0: estado=completed r2=0.9290597206411748 wall=4.9s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed r2=0.9282561223649236 wall=5.1s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed r2=0.9336153423909482 wall=4.9s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed r2=0.9303368520184125 wall=4.8s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed r2=0.9275234622498624 wall=4.9s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed r2=0.9301596921163964 wall=5.1s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed r2=0.9332298424662651 wall=5.0s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed r2=0.9298581960752146 wall=4.8s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed r2=0.9266664319361702 wall=4.9s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed r2=0.9336418387034536 wall=4.9s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed r2=0.9320213320676365 wall=4.8s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed r2=0.9343706168674921 wall=4.8s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed r2=0.9326807604807634 wall=4.8s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed r2=0.9299434449163047 wall=4.9s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed r2=0.9310048647735006 wall=4.8s dispositivo=cuda
+  RESUMEN house_prices_nominal: 15 completados, 0 fallidos, 0 no lanzados por el tope, 75 s (estimado 576 s)
+
+=== [14/24] pendigits (data_id=32, multiclass_classification, cubo=mediano, columnas=16, filas_ctx=7040, test=2199, tope por intento=300s, métrica=accuracy) · estimado 9.6 min, tope del conjunto 29 min ===
+  rep=0 pliegue=0: estado=completed accuracy=0.9959072305593452 wall=6.1s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed accuracy=0.9963619827194179 wall=5.9s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed accuracy=0.9968167348794906 wall=6.0s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed accuracy=0.9949977262391997 wall=6.0s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed accuracy=0.9972714870395635 wall=6.0s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed accuracy=0.9968167348794906 wall=6.0s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed accuracy=0.9972714870395635 wall=6.1s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed accuracy=0.9963619827194179 wall=6.2s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed accuracy=0.9963619827194179 wall=6.0s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed accuracy=0.9963619827194179 wall=6.0s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed accuracy=0.9963619827194179 wall=6.0s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed accuracy=0.9963619827194179 wall=6.0s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed accuracy=0.9972714870395635 wall=6.0s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed accuracy=0.9959072305593452 wall=6.1s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed accuracy=0.9968167348794906 wall=6.1s dispositivo=cuda
+  RESUMEN pendigits: 15 completados, 0 fallidos, 0 no lanzados por el tope, 93 s (estimado 576 s)
+
+=== [15/24] ozone-level-8hr (data_id=1487, binary_classification, cubo=mediano, columnas=72, filas_ctx=1623, test=507, tope por intento=300s, métrica=auroc) · estimado 9.6 min, tope del conjunto 29 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.9503289473684211 wall=5.5s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed auroc=0.9442763157894737 wall=5.6s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed auroc=0.9437171052631579 wall=5.5s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed auroc=0.9325986842105263 wall=5.5s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed auroc=0.948125 wall=5.4s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed auroc=0.953125 wall=5.5s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed auroc=0.9454605263157895 wall=5.5s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed auroc=0.95375 wall=5.6s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed auroc=0.9433552631578948 wall=5.6s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed auroc=0.9305921052631579 wall=5.5s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed auroc=0.9444736842105264 wall=5.5s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed auroc=0.935592105263158 wall=5.6s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed auroc=0.9470394736842105 wall=5.5s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed auroc=0.9475657894736842 wall=5.6s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed auroc=0.9461184210526316 wall=5.6s dispositivo=cuda
+  RESUMEN ozone-level-8hr: 15 completados, 0 fallidos, 0 no lanzados por el tope, 85 s (estimado 576 s)
+
+=== [16/24] jm1 (data_id=1053, binary_classification, cubo=mediano, columnas=21, filas_ctx=6967, test=2177, tope por intento=300s, métrica=auroc) · estimado 13.1 min, tope del conjunto 39 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.7713343866160947 wall=6.5s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed auroc=0.7822328873113695 wall=6.8s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed auroc=0.7786469464719536 wall=6.7s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed auroc=0.7839866301624833 wall=6.6s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed auroc=0.758774801292075 wall=6.5s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed auroc=0.7725856107867698 wall=6.7s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed auroc=0.7678945346528225 wall=6.5s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed auroc=0.7770616116308389 wall=6.7s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed auroc=0.7814747130976794 wall=6.6s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed auroc=0.7730022346187351 wall=6.6s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed auroc=0.776626050351966 wall=6.7s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed auroc=0.7765043096218462 wall=6.6s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed auroc=0.7768282752314426 wall=6.5s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed auroc=0.7819569416564315 wall=6.6s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed auroc=0.7739930688944319 wall=6.7s dispositivo=cuda
+  RESUMEN jm1: 15 completados, 0 fallidos, 0 no lanzados por el tope, 102 s (estimado 788 s)
+
+=== [17/24] us_crime (data_id=42730, regression, cubo=pequeno, columnas=126, filas_ctx=1276, test=399, tope por intento=120s, métrica=r2) · estimado 13.1 min, tope del conjunto 39 min ===
+  rep=0 pliegue=0: estado=completed r2=0.7228075211344258 wall=6.5s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed r2=0.7359430841551922 wall=6.4s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed r2=0.734752084727792 wall=6.9s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed r2=0.7394186078831783 wall=6.6s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed r2=0.7377804692432894 wall=6.6s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed r2=0.7394079112744185 wall=6.6s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed r2=0.7381566866197006 wall=6.4s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed r2=0.7297561155549873 wall=6.7s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed r2=0.7247984924104665 wall=6.6s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed r2=0.735024799644096 wall=6.5s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed r2=0.7232355226671522 wall=6.6s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed r2=0.7292061296760162 wall=6.7s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed r2=0.7405152075801127 wall=6.7s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed r2=0.7370771724152879 wall=6.5s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed r2=0.72755315907906 wall=6.4s dispositivo=cuda
+  RESUMEN us_crime: 15 completados, 0 fallidos, 0 no lanzados por el tope, 101 s (estimado 788 s)
+
+=== [18/24] PhishingWebsites (data_id=4534, binary_classification, cubo=mediano, columnas=30, filas_ctx=7076, test=2211, tope por intento=300s, métrica=auroc) · estimado 13.1 min, tope del conjunto 39 min ===
+  rep=0 pliegue=0: estado=completed auroc=0.9979417762230807 wall=7.3s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed auroc=0.9981183375055952 wall=7.4s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed auroc=0.9978605414545997 wall=7.4s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed auroc=0.9982111772410021 wall=7.2s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed auroc=0.9980379316633233 wall=7.5s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed auroc=0.9980138928032627 wall=7.3s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed auroc=0.997993169648038 wall=7.4s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed auroc=0.9982252689865548 wall=7.4s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed auroc=0.9981411329763424 wall=7.3s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed auroc=0.9979910973325155 wall=7.3s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed auroc=0.9982584260349143 wall=7.4s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed auroc=0.9979500654851705 wall=7.4s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed auroc=0.9979811502180076 wall=7.3s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed auroc=0.9979525522637975 wall=7.5s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed auroc=0.9977751620550739 wall=7.6s dispositivo=cuda
+  RESUMEN PhishingWebsites: 15 completados, 0 fallidos, 0 no lanzados por el tope, 114 s (estimado 788 s)
+
+=== [19/24] optdigits (data_id=28, multiclass_classification, cubo=mediano, columnas=64, filas_ctx=3601, test=1124, tope por intento=300s, métrica=accuracy) · estimado 13.1 min, tope del conjunto 39 min ===
+  rep=0 pliegue=0: estado=completed accuracy=0.99644128113879 wall=6.9s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed accuracy=0.99644128113879 wall=6.9s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed accuracy=0.9973309608540926 wall=6.9s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed accuracy=0.9955516014234875 wall=6.9s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed accuracy=0.9973309608540926 wall=6.8s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed accuracy=0.99644128113879 wall=7.3s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed accuracy=0.998220640569395 wall=7.0s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed accuracy=0.998220640569395 wall=6.8s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed accuracy=0.99644128113879 wall=7.2s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed accuracy=0.9973309608540926 wall=6.9s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed accuracy=0.9973309608540926 wall=7.2s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed accuracy=0.9973309608540926 wall=6.8s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed accuracy=0.9973309608540926 wall=6.9s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed accuracy=0.99644128113879 wall=6.8s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed accuracy=0.998220640569395 wall=6.9s dispositivo=cuda
+  RESUMEN optdigits: 15 completados, 0 fallidos, 0 no lanzados por el tope, 108 s (estimado 788 s)
+
+=== [20/24] house_16H (data_id=574, regression, cubo=grande, columnas=16, filas_ctx=14582, test=4557, tope por intento=600s, métrica=r2) · estimado 4.4 min, tope del conjunto 13 min ===
+  rep=0 pliegue=0: estado=completed r2=0.7472921996604494 wall=9.8s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed r2=0.754991937217024 wall=9.6s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed r2=0.7592337027171201 wall=9.9s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed r2=0.762594956341377 wall=10.5s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed r2=0.7550658680152261 wall=9.8s dispositivo=cuda
+  RESUMEN house_16H: 5 completados, 0 fallidos, 0 no lanzados por el tope, 51 s (estimado 263 s)
+
+=== [21/24] mfeat-factors (data_id=12, multiclass_classification, cubo=pequeno, columnas=216, filas_ctx=1280, test=400, tope por intento=120s, métrica=accuracy) · estimado 13.1 min, tope del conjunto 39 min ===
+  rep=0 pliegue=0: estado=completed accuracy=0.995 wall=8.1s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed accuracy=0.995 wall=8.0s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed accuracy=0.9925 wall=8.2s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed accuracy=0.9925 wall=7.8s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed accuracy=0.995 wall=7.9s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed accuracy=0.9975 wall=7.9s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed accuracy=0.995 wall=7.8s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed accuracy=0.9925 wall=7.8s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed accuracy=0.9975 wall=7.8s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed accuracy=0.995 wall=8.3s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed accuracy=0.9975 wall=7.9s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed accuracy=0.99 wall=8.2s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed accuracy=0.9925 wall=8.2s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed accuracy=0.9975 wall=8.3s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed accuracy=0.99 wall=8.6s dispositivo=cuda
+  RESUMEN mfeat-factors: 15 completados, 0 fallidos, 0 no lanzados por el tope, 125 s (estimado 788 s)
+
+=== [22/24] house_sales (data_id=42731, regression, cubo=grande, columnas=21, filas_ctx=13832, test=4323, tope por intento=600s, métrica=r2) · estimado 4.4 min, tope del conjunto 13 min ===
+  rep=0 pliegue=0: estado=completed r2=0.8925126624100524 wall=10.0s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed r2=0.88816206233625 wall=10.0s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed r2=0.8911345893902761 wall=10.1s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed r2=0.8903477878813524 wall=9.8s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed r2=0.8941505136522313 wall=9.8s dispositivo=cuda
+  RESUMEN house_sales: 5 completados, 0 fallidos, 0 no lanzados por el tope, 51 s (estimado 263 s)
+
+=== [23/24] SAT11-HAND-runtime-regression (data_id=41980, regression, cubo=mediano, columnas=116, filas_ctx=2842, test=888, tope por intento=300s, métrica=r2) · estimado 13.1 min, tope del conjunto 39 min ===
+  rep=0 pliegue=0: estado=completed r2=0.7048115880858882 wall=8.7s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed r2=0.7120490403312014 wall=8.8s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed r2=0.7101004455933111 wall=8.7s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed r2=0.7171381448019298 wall=8.7s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed r2=0.7048621807397664 wall=8.7s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed r2=0.7199244834192253 wall=8.7s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed r2=0.7187109437376047 wall=8.7s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed r2=0.7157729183673258 wall=8.7s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed r2=0.7278499973157635 wall=8.6s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed r2=0.7124658498857696 wall=8.7s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed r2=0.7076239750815587 wall=8.8s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed r2=0.696966229824258 wall=8.9s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed r2=0.6996639320896603 wall=8.9s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed r2=0.7057911682941518 wall=8.9s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed r2=0.7286845364245791 wall=8.7s dispositivo=cuda
+  RESUMEN SAT11-HAND-runtime-regression: 15 completados, 0 fallidos, 0 no lanzados por el tope, 136 s (estimado 788 s)
+
+=== [24/24] micro-mass (data_id=1515, multiclass_classification, cubo=pequeno, columnas=1300, filas_ctx=374, test=113, tope por intento=120s, métrica=accuracy) · estimado 13.1 min, tope del conjunto 39 min ===
+  rep=0 pliegue=0: estado=completed accuracy=0.8584070796460177 wall=15.4s dispositivo=cuda
+  rep=0 pliegue=1: estado=completed accuracy=0.8672566371681416 wall=15.4s dispositivo=cuda
+  rep=0 pliegue=2: estado=completed accuracy=0.8584070796460177 wall=15.4s dispositivo=cuda
+  rep=0 pliegue=3: estado=completed accuracy=0.8672566371681416 wall=15.9s dispositivo=cuda
+  rep=0 pliegue=4: estado=completed accuracy=0.8584070796460177 wall=16.3s dispositivo=cuda
+  rep=1 pliegue=0: estado=completed accuracy=0.8584070796460177 wall=16.3s dispositivo=cuda
+  rep=1 pliegue=1: estado=completed accuracy=0.8938053097345132 wall=15.6s dispositivo=cuda
+  rep=1 pliegue=2: estado=completed accuracy=0.8230088495575221 wall=15.1s dispositivo=cuda
+  rep=1 pliegue=3: estado=completed accuracy=0.9026548672566371 wall=15.5s dispositivo=cuda
+  rep=1 pliegue=4: estado=completed accuracy=0.8407079646017699 wall=15.4s dispositivo=cuda
+  rep=2 pliegue=0: estado=completed accuracy=0.8584070796460177 wall=15.6s dispositivo=cuda
+  rep=2 pliegue=1: estado=completed accuracy=0.8584070796460177 wall=15.9s dispositivo=cuda
+  rep=2 pliegue=2: estado=completed accuracy=0.8407079646017699 wall=16.3s dispositivo=cuda
+  rep=2 pliegue=3: estado=completed accuracy=0.831858407079646 wall=16.0s dispositivo=cuda
+  rep=2 pliegue=4: estado=completed accuracy=0.8672566371681416 wall=16.1s dispositivo=cuda
+  RESUMEN micro-mass: 15 completados, 0 fallidos, 0 no lanzados por el tope, 242 s (estimado 788 s)
+
+=== TERMINADO: 337 intentos (0 reusados) en 33.4 min. Guardado en /salida/resultado_116c5_acierto_gpu.json. Mándame ese fichero (y log_acierto_gpu.txt). ===
