@@ -112,8 +112,10 @@ def test_ventanas_por_serie_valores_linaje_y_declaracion():
                            columnas_con_retardo=["x"], estacion=7)
     d = v.declaracion
     assert d["series"] == 2 and d["filas_de_entrada"] == 60
-    # por serie: 5 de borde por delante (la estacional mira 5 atrás, más que los 3 retardos) y 2 por detrás
-    assert d["filas_resultantes"] == 46 and d["filas_quitadas_por_el_borde_de_la_serie"] == 14
+    # por serie: 3 de borde por delante (los 3 retardos) y 2 por detrás (el objetivo); la estacional mira 5 atrás, así que PEDIR la
+    # estación quita otras 2 por serie, y se dicen por esa causa (164-rep1, I-4), no como borde
+    assert d["filas_resultantes"] == 46 and d["filas_quitadas_por_el_borde_de_la_serie"] == 10
+    assert d["filas_quitadas_por_la_estacion"] == 4
     for f in v.filas:
         base = int(f["y"])
         assert int(f["y_lag1"]) == base - 1 and int(f["y_lag3"]) == base - 3     # misma serie, hacia atrás

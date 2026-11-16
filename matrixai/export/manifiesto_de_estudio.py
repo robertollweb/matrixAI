@@ -799,6 +799,9 @@ def _pronostico_del_estudio(declarado: Mapping[str, Any]) -> dict[str, Any]:
         cuentas = {}
         for clave_del_sobre, clave in (("de_entrada", "input"), ("quitadas_por_el_borde_de_la_serie", "dropped_at_series_edges"),
                                        ("quitadas_por_valores_ausentes", "dropped_for_missing_values"),
+                                       # 164-rep1: la causa real de las demás (pedir la estación; un corte del calendario)
+                                       ("quitadas_por_la_estacion", "dropped_for_the_season"),
+                                       ("quitadas_por_cortes_del_calendario", "dropped_at_calendar_breaks"),
                                        ("resultantes", "resulting"), ("series", "series")):
             if filas.get(clave_del_sobre) is not None:
                 valor = filas[clave_del_sobre]

@@ -1342,8 +1342,19 @@ def _texto_del_pronostico(bloque: dict[str, Any], idioma: str) -> str:
         texto += (f"; estación de {bloque['seasonal_period']} paso(s)" if es else f"; season of {bloque['seasonal_period']} step(s)")
     filas = bloque.get("rows")
     if isinstance(filas, dict) and filas.get("dropped_at_series_edges") is not None:
-        texto += (f"; {filas['dropped_at_series_edges']} fila(s) quitadas por el borde de cada serie (sin retardos completos)" if es
-                  else f"; {filas['dropped_at_series_edges']} row(s) dropped at each series' edge (incomplete lags)")
+        texto += (f"; {filas['dropped_at_series_edges']} fila(s) quitadas por el borde de cada serie (al principio sin retardos "
+                  "completos, al final sin objetivo)" if es
+                  else f"; {filas['dropped_at_series_edges']} row(s) dropped at each series' edge (incomplete lags at the start, "
+                  "no target at the end)")
+    # 164-rep1: las demás causas, cada una con su nombre (y solo si quitó algo: un cero no se escribe como si fuera una causa)
+    for clave, es_txt, en_txt in (
+            ("dropped_for_missing_values", "por valores ausentes", "for missing values"),
+            ("dropped_for_the_season", "por la estación (sin un valor de una estación antes para la referencia)",
+             "because of the season (no value from one season earlier for the reference)"),
+            ("dropped_at_calendar_breaks", "porque su objetivo cae tras un corte del calendario de su serie",
+             "because their target falls after a break in their series' calendar")):
+        if isinstance(filas, dict) and filas.get(clave):
+            texto += (f"; {filas[clave]} fila(s) quitadas {es_txt}" if es else f"; {filas[clave]} row(s) dropped {en_txt}")
     contexto = bloque.get("context_to_predict")
     if isinstance(contexto, dict) and contexto.get("rows_per_series") is not None:
         texto += (f"; para predecir hacen falta las últimas {contexto['rows_per_series']} filas de cada serie, no una fila suelta"

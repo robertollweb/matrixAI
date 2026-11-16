@@ -38,7 +38,23 @@ _SEGUNDOS_POR_DEFECTO_DE_SERIE_UNICA = "__serie_unica__"
 
 
 class PronosticoError(ValueError):
-    """Un pronóstico que no se puede plantear tal como se pidió: error accionable, nunca un resultado a medias."""
+    """Un pronóstico que no se puede plantear tal como se pidió: error accionable, nunca un resultado a medias.
+
+    El mensaje (`str(exc)`) es castellano. 164-rep1 (M-2): los rechazos que la persona provoca con datos normales llevan además
+    su `clave` y el motivo en inglés (`en`), redactados AQUÍ (lo que redacta el núcleo se traduce en el núcleo), y su `medida`
+    con los números; los demás llevan `clave = None` y quien llama no inventa traducción."""
+
+    def __init__(self, mensaje: str, *, clave: str | None = None, en: str | None = None,
+                 medida: Mapping[str, Any] | None = None) -> None:
+        super().__init__(mensaje)
+        self.clave = clave
+        self.en = en
+        self.medida = dict(medida or {})
+
+    @property
+    def motivo(self) -> dict[str, str] | None:
+        """`{es, en}` cuando el núcleo lo redactó en los dos idiomas; `None` si solo hay castellano."""
+        return {"es": str(self), "en": self.en} if self.clave and self.en else None
 
 
 @dataclass(frozen=True)
@@ -123,19 +139,33 @@ def construir_ventanas(
     t_por_id = {f[campo_id]: t for f, t in zip(base, t_base)}
     posiciones = _posiciones_por_serie(base, clave_serie, list(base[0].keys()), "construir_ventanas")
     duplicados = 0
+    primer_duplicado: tuple[str | None, str] | None = None
     pasos: list[float] = []
     irregulares = 0
     for pos in posiciones:
         ts = [t_base[i] for i in pos]
         d = [b - a for a, b in zip(ts, ts[1:])]
         duplicados += sum(1 for x in d if x == 0)
+        if primer_duplicado is None:
+            for j, x in enumerate(d):
+                if x == 0:     # 164-rep1 (M-2): la serie y el instante, tal como vienen en el fichero (no segundos desde 1970)
+                    primer_duplicado = (None if serie is None else base[pos[j]][serie], base[pos[j + 1]][tiempo])
+                    break
         pasos.extend(x for x in d if x > 0)
         if d and len({x for x in d}) > 1:
             irregulares += 1
     if duplicados:
+        nombre, instante = primer_duplicado or (None, "")
+        donde_es = f"la serie «{nombre}»" if nombre is not None else "la serie"
+        donde_en = f"series “{nombre}”" if nombre is not None else "the series"
         raise PronosticoError(
-            f"{duplicados} par(es) de filas de la misma serie comparten instante en {tiempo!r}: no tienen orden "
-            "entre sí y el retardo dependería de cuál va primero. Quita o agrega los duplicados.")
+            f"{duplicados} par(es) de filas de la misma serie comparten instante en «{tiempo}» (el primero, en {donde_es}, "
+            f"«{instante}»): no tienen orden entre sí y el retardo dependería de cuál va primero. Quita o agrega los duplicados.",
+            clave="instantes_repetidos",
+            en=(f"{duplicados} pair(s) of rows of the same series share an instant in “{tiempo}” (the first one, in {donde_en}, "
+                f"“{instante}”): they have no order between them and the lag would depend on which comes first. Remove or "
+                "aggregate the duplicates."),
+            medida={"pares": duplicados, "serie": nombre, "instante": instante, "columna_de_tiempo": tiempo})
     paso_mediano = float(statistics.median(pasos)) if pasos else 0.0
     if paso_mediano <= 0:
         raise PronosticoError("Ninguna serie tiene dos filas: no hay paso de tiempo que medir ni retardo que construir.")
@@ -181,24 +211,90 @@ def construir_ventanas(
         raise PronosticoError("Fuga de información temporal en las entradas: " + " | ".join(fugas))
 
     generadas = [col_objetivo, *cols_retardo] + ([col_est] if retraso_est is not None else [])
+    # 164-rep1 — POR QUÉ se quita cada fila, dicho por su CAUSA REAL (I-4 y M-4 de la auditoría 1): la causa sale de la POSICIÓN
+    # de la fila en su serie, no de qué columna quedó vacía. «Borde» = le faltan pasos de su propia serie para los retardos (al
+    # principio) o para el objetivo (al final); «estación» = tiene retardos y objetivo pero no la referencia estacional (la serie
+    # no lleva aún `retraso_estacional` pasos): la quita PEDIR la estación, no los retardos; «ausentes» = un valor ausente en el
+    # dato, en esa fila o en una de las que mira (retardos, objetivo, referencia).
+    serie_de: dict[int, tuple[int, int, int]] = {}
+    for n_serie, pos in enumerate(posiciones):
+        for k, idx in enumerate(pos):
+            serie_de[idx] = (n_serie, k, len(pos))
+    arranque_est = retraso_est if retraso_est is not None else 0
     quitadas_borde = 0
     quitadas_hueco = 0
-    quedan: list[dict[str, str]] = []
-    for fila in filas_p:
+    quitadas_estacion = 0
+    candidatas: list[int] = []
+    for idx, fila in enumerate(filas_p):
+        _, k, largo = serie_de[idx]
         if any(_is_null(fila.get(c), tokens_de_ausencia) for c in lag_cols):
-            quitadas_hueco += 1       # un valor ausente en el dato original (no un borde)
+            quitadas_hueco += 1       # un valor ausente en el dato original de ESTA fila
+        elif k < retardos or k + horizonte >= largo:
+            quitadas_borde += 1       # el arranque (sin retardos completos) o el final (sin objetivo) de su serie
+        elif k < arranque_est:
+            quitadas_estacion += 1    # tiene retardos y objetivo: solo le falta la referencia estacional
         elif any(_is_null(fila.get(c), tokens_de_ausencia) for c in generadas):
-            quitadas_borde += 1       # solo faltan columnas desplazadas: el arranque o el final de su serie
+            quitadas_hueco += 1       # un valor ausente en una fila que esta mira (un retardo, el objetivo o la referencia)
         else:
-            quedan.append(fila)
+            candidatas.append(idx)
+
+    # 164-rep1 (I-1) — LOS CORTES DEL CALENDARIO. El objetivo «h pasos» va por posición: tras un corte de una serie (días que
+    # faltan) cae más lejos que h × paso. Esa fila no es una fuga por sí misma, pero el reparto solo deja h × paso de hueco y
+    # OTRA serie puede poner un origen validado entre su origen y su objetivo: entrenaría con un valor que, en ese origen, aún no
+    # ha ocurrido. Se quita EXACTAMENTE la fila en que eso puede pasar (algún instante del fichero cae estrictamente entre su
+    # origen + h × paso y su objetivo, que es la condición del hueco de `particion_por_diseno_tiempo`), y se declara por serie
+    # con las fechas tal como vienen. Un calendario de días laborables común a todas las series no pierde nada (ningún origen
+    # cae en el fin de semana); una serie sola, tampoco (su siguiente instante ES su objetivo).
+    import bisect
+
+    hueco_minimo = horizonte * paso_mediano
+    instantes = sorted(set(t_base))
+    quedan: list[dict[str, str]] = []
+    cortes_por_serie: dict[int, dict[str, Any]] = {}
+    quitadas_corte = 0
+    for idx in candidatas:
+        fila = filas_p[idx]
+        n_serie, k, _ = serie_de[idx]
+        pos = posiciones[n_serie]
+        t0, t1 = t_base[idx], t_base[pos[k + horizonte]]
+        j = bisect.bisect_right(instantes, t0 + hueco_minimo)
+        if t1 - t0 > hueco_minimo and j < len(instantes) and instantes[j] < t1:
+            quitadas_corte += 1
+            c = cortes_por_serie.setdefault(n_serie, {
+                "serie": None if serie is None else base[pos[0]][serie], "filas": 0,
+                "primer_origen": base[idx][tiempo], "primer_objetivo": base[pos[k + horizonte]][tiempo]})
+            c["filas"] += 1
+            continue
+        quedan.append(fila)
     if not quedan:
-        raise PronosticoError(
-            f"Con horizonte {horizonte}, {retardos} retardos y las series dadas no queda ninguna fila "
-            f"completa de {len(filas)}.")
+        causas = [(quitadas_borde, "por el borde de cada serie", "at the edge of each series"),
+                  (quitadas_estacion, "por la estación", "because of the season"),
+                  (quitadas_hueco, "por valores ausentes", "for missing values"),
+                  (quitadas_corte, "porque su objetivo cae tras un corte del calendario",
+                   "because their target falls after a break in the calendar")]
+        dichas = [c for c in causas if c[0]]      # un cero no es una causa: no se enumera
+
+        def _juntar(trozos: list[str], y: str) -> str:
+            return trozos[0] if len(trozos) == 1 else ", ".join(trozos[:-1]) + f" {y} " + trozos[-1]
+        es = (f"Con horizonte {horizonte}, {retardos} retardos"
+              + (f" y estación {estacion}" if estacion is not None else "")
+              + f" no queda ninguna fila completa de {len(filas)}: "
+              + _juntar([f"{n} {t}" for n, t, _ in dichas], "y") + ".")
+        en = (f"With horizon {horizonte}, {retardos} lags"
+              + (f" and season {estacion}" if estacion is not None else "")
+              + f" not a single complete row is left of {len(filas)}: "
+              + _juntar([f"{n} {t}" for n, _, t in dichas], "and") + ".")
+        raise PronosticoError(es, clave="sin_filas_completas", en=en, medida={
+            "filas_de_entrada": len(filas), "borde": quitadas_borde, "estacion": quitadas_estacion,
+            "ausentes": quitadas_hueco, "cortes_del_calendario": quitadas_corte})
     persist_ok = sum(1 for f in quedan if not _is_null(f[col_pers], tokens_de_ausencia))
     if persist_ok != len(quedan):
         raise PronosticoError("La persistencia (el valor actual del objetivo) está ausente en filas que quedan.")
-    series_cortas = sum(1 for pos in posiciones if len(pos) <= retardos + horizonte)
+    # Una serie no aporta ninguna fila si su largo no pasa de lo que piden los retardos (o la estación, si mira más atrás) más
+    # el horizonte. Con la estación, la cuenta es la de la estación: la que de verdad la deja sin filas (I-4).
+    series_cortas = sum(1 for pos in posiciones if len(pos) <= max(retardos, arranque_est) + horizonte)
+    series_cortas_por_la_estacion = sum(1 for pos in posiciones
+                                        if retardos + horizonte < len(pos) <= max(retardos, arranque_est) + horizonte)
     declaracion = {
         "horizonte_pasos": horizonte, "retardos": retardos, "serie": serie, "objetivo": objetivo,
         "columnas_con_retardo": lag_cols, "estacion": estacion, "retraso_estacional": retraso_est,
@@ -206,7 +302,11 @@ def construir_ventanas(
         "filas_de_entrada": len(filas), "filas_resultantes": len(quedan),
         "filas_quitadas_por_el_borde_de_la_serie": quitadas_borde,
         "filas_quitadas_por_valores_ausentes": quitadas_hueco,
+        "filas_quitadas_por_la_estacion": quitadas_estacion,
+        "filas_quitadas_por_cortes_del_calendario": quitadas_corte,
+        "cortes_del_calendario": [cortes_por_serie[n] for n in sorted(cortes_por_serie)],
         "series": len(posiciones), "series_sin_filas_completas": series_cortas,
+        "series_sin_filas_completas_por_la_estacion": series_cortas_por_la_estacion,
         "series_con_calendario_irregular": irregulares, "paso_mediano_segundos_o_unidades": paso_mediano,
         "linaje": {c: linaje[c] for c in (*entradas, col_objetivo, col_pers) if c in linaje},
     }
@@ -253,19 +353,32 @@ def verificar_sin_fuga(v: Ventanas, pliegues: Sequence[tuple[Sequence[str], Sequ
     origen más temprano de lo que se valida (sería entrenar con un valor que, en ese origen, aún no ha ocurrido), ni
     puede solaparse una fila en los dos lados. Devuelve las violaciones, con números."""
     problemas = []
+    for f in fugas_detalladas(v, pliegues):
+        if f["tipo"] == "solape":
+            problemas.append(f"pliegue {f['pliegue']}: {f['filas']} fila(s) en entrena y valida")
+        else:
+            problemas.append(f"pliegue {f['pliegue']}: {f['filas']} fila(s) de entrenamiento con objetivo en "
+                             f"{f['peor_objetivo']:g}, después del primer origen validado ({f['primer_origen_validado']:g})")
+    return problemas
+
+
+def fugas_detalladas(v: Ventanas, pliegues: Sequence[tuple[Sequence[str], Sequence[str]]]) -> list[dict[str, Any]]:
+    """Lo mismo que `verificar_sin_fuga`, con los números sueltos (164-rep1): quien lo enseña escribe la fecha en el formato de
+    la persona en vez de segundos desde 1970. `tipo` = `solape` (filas a los dos lados) u `objetivo_del_futuro`."""
+    detalle: list[dict[str, Any]] = []
     for k, (entrena, valida) in enumerate(pliegues):
         if not entrena or not valida:
             continue
         comunes = set(entrena) & set(valida)
         if comunes:
-            problemas.append(f"pliegue {k}: {len(comunes)} fila(s) en entrena y valida")
+            detalle.append({"pliegue": k, "tipo": "solape", "filas": len(comunes)})
         origen_min = min(v.tiempo_por_id[i] for i in valida)
         peor = max(v.tiempo_del_objetivo_por_id[i] for i in entrena)
         if peor > origen_min:
             n = sum(1 for i in entrena if v.tiempo_del_objetivo_por_id[i] > origen_min)
-            problemas.append(f"pliegue {k}: {n} fila(s) de entrenamiento con objetivo en {peor:g}, "
-                             f"después del primer origen validado ({origen_min:g})")
-    return problemas
+            detalle.append({"pliegue": k, "tipo": "objetivo_del_futuro", "filas": n, "peor_objetivo": peor,
+                            "primer_origen_validado": origen_min})
+    return detalle
 
 
 def evaluar_hacia_delante(
