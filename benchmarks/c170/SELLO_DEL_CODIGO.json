@@ -1,0 +1,21 @@
+{
+ "que_es": "sha256 del analizador, del medidor, del motor y de las dependencias del veredicto del 170 (analiza_c170.codigo_de_ahora). Lo escribe sellar_codigo_c170.py; nulo = sin sellar. El medidor no mide (salvo --sonda) y el analizador no da veredicto si falta, es nulo o no cuadra. No se incluye a sí mismo.",
+ "regla_sha256_sellada": "e485d0844e61ce61ef363a22ca47297ab40cb9baad5b076188c7274085e68a6b",
+ "sha256": {
+  "benchmarks/c170/analiza_c170.py": "7d2283171193a6a855ba2c7148acf92f253595002538a7f8d0a217b88558872a",
+  "benchmarks/c170/medir_c170.py": "a2ae6e83eb9a3aab5ed8ce1dd083a2c66b4fd2f53721df2da64832d88456ac5a",
+  "benchmarks/fase0/pasada_116c2_tabicl.py": "39f541966d5466f0d684f20cdd435ba73193024f903de650902ac0189e2b9a02",
+  "benchmarks/fase0/pasada_amplia_101_c5.py": "b4dcc0aee80e68957823f1cb511d701ddfaea9b9d849d32bcb8d87e6d0d6e333",
+  "benchmarks/fase0/pasada_exploratoria_101_c3.py": "ca75442043ef08b751d6d1c774ab2e8bea9c1c832642ca0d24490f98b83668ad",
+  "benchmarks/fase0/pasada_v2_113.py": "50247ae7393621ccdf72c335c8ec2ac2ca220ddac6a3f4767e893d785d1f816b",
+  "benchmarks/fase0/pasada_v2_113_resultado.json": "3ab8bd3589855e074f1bf21e0f82993f12c08553d8b1950396eaa8a565eecfb1",
+  "benchmarks/fase0/protocolo.py": "54e519ddd08611dc292ddbd0c9ebd40fe9472eebd8892fbe5d5ba922c5aa6255",
+  "benchmarks/fase0/protocolo_exploratorio_v2.json": "40ef7614d12bc5f727779d878ad430db9eb340b79d40894e4f174125d1f85b22",
+  "benchmarks/fase0/resultado_pasada_119_c3.json": "40029421c095292fd77490cca4ac8c664df797cd3b1424c931a3826806537912",
+  "matrixai-engines/motor.py": "ab6078546370333e91a863b461cc80a567df4a8a0dd20ac71c264fc226ba6bda",
+  "matrixai-engines/motores/interpret_ebm.py": "c039683d50f77416e7aed74c0c1692182d0fedb188cd4cab7a36d51aceaf1220",
+  "matrixai-engines/registro_de_motores.py": "cc15c4a3b829bccf3682e49d91a0536a8614c8a5ee3172347c56626e5bb75693",
+  "matrixai-engines/subproceso.py": "59dee6242312a71e9b6b9e8c0f682b1c1df644b687c26294b04402e4a4d018c5",
+  "matrixai-engines/tipos_de_columna.py": "c760217cc01147b4ee7222571d32bd1740776f9d9b14e65ab2db8d78fff11483"
+ }
+}
