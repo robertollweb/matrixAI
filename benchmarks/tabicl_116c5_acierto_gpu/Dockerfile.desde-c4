@@ -1,0 +1,19 @@
+# 116-C5 — VARIANTE para cuando la descarga de PyTorch falla (16-11: «THESE PACKAGES DO NOT MATCH THE HASHES» en el portátil
+# de Roberto, una descarga corrupta). Parte de la imagen del kit 116-C4 (`medicion-tabicl-gpu:2.2.0`), que ya está en su PC con
+# torch 2.6.0 + CUDA 12.4, tabicl 2.2.0 y los pesos en /pesos verificados por sha256 con el MISMO `bajar_pesos.py` (idéntico
+# byte a byte). No baja nada grande: solo copia el código, los datos y el guion.
+#
+#   docker build -f Dockerfile.desde-c4 -t medicion-tabicl-acierto-gpu:2.2.0 .
+#   .\lanzar.ps1 -Prueba      (ve que la imagen ya existe y no la construye otra vez)
+FROM medicion-tabicl-gpu:2.2.0
+
+# Comprobación: lo que trae la base es lo que mide el kit (si no, la construcción falla con el motivo).
+RUN python3 -c "import importlib.metadata as m, sys; t=m.version('torch'); i=m.version('tabicl'); print('torch', t, 'tabicl', i); sys.exit(0 if t.startswith('2.6.0') and i == '2.2.0' else 1)" \
+    && test -d /pesos
+
+COPY codigo /kit/codigo
+COPY datos /kit/datos
+COPY conjuntos.json REGLA.md medir_acierto.py /kit/
+ENV HF_HUB_OFFLINE=1 MATRIXAI_TABICL_PESOS_DIR=/pesos PYTHONDONTWRITEBYTECODE=1
+WORKDIR /kit
+CMD ["python3", "medir_acierto.py", "--salida", "/salida/resultado_116c5_acierto_gpu.json"]

@@ -101,6 +101,19 @@ de TabICL (215 MB), **verificados por su huella**: si Hugging Face sirviera otro
 La primera línea del log trae `"hay_gpu": true` y el nombre de tu GPU, y cada pliegue dice `dispositivo=cuda`. **Sin GPU se
 niega a empezar** (en CPU serían días): casi siempre es un `--gpus all` olvidado.
 
+### Si la construcción falla con «THESE PACKAGES DO NOT MATCH THE HASHES»
+
+Es una descarga de PyTorch (~2,5 GB) que llegó corrupta: pip la compara con la huella publicada y se niega. Repetir suele bastar
+(Docker guarda lo ya construido). Si vuelve a pasar, NO hace falta bajar nada grande: tu PC ya tiene la imagen del kit del 12-11
+(`medicion-tabicl-gpu:2.2.0`, con torch 2.6.0 + CUDA, tabicl 2.2.0 y los pesos verificados con el mismo `bajar_pesos.py`).
+Construye encima de ella y luego lanza como siempre (`lanzar.ps1` ve que la imagen ya existe y no la construye):
+
+    docker build -f Dockerfile.desde-c4 -t medicion-tabicl-acierto-gpu:2.2.0 .
+    .\lanzar.ps1 -Prueba
+
+La variante comprueba que la base trae torch 2.6.0 y tabicl 2.2.0; si no, se niega con el motivo. Probada aquí el 16-11 (sin GPU):
+construye, y el primer pliegue de dresses-sales da el mismo AUROC que la pasada de CPU (0,4942528735632184).
+
 ## 4. Cuánto tarda — ESTIMADO, NO MEDIDO
 
 Sale de la tabla de tiempos de **tu** tarjeta del contrato 116 (§ «MEDIDO EN GPU», 12-11): un intento (ajuste + validación)
