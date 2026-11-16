@@ -96,7 +96,8 @@ def test_un_calendario_laborable_comun_con_h_mayor_que_1_no_quita_filas_y_ensanc
     assert d["filas_resultantes"] == d["filas_de_entrada"] - d["filas_quitadas_por_el_borde_de_la_serie"]
     assert v.hueco == hueco_en_dias * DIA
     assert d["hueco"] == {"segundos_o_unidades": hueco_en_dias * DIA, "minimo": h * DIA, "eleccion": "calendario",
-                          "filas_que_quitaria_el_minimo": quitaria_el_minimo}
+                          "filas_que_quitaria_el_minimo": quitaria_el_minimo,
+                          "otro_conservaria": None}      # 164-rep3 (aud3 M-2): solo con un hueco PEDIDO
     # quedan orígenes en LOS CINCO días de la semana (antes, con h = 5, solo lunes)
     dias = Counter(datetime.strptime(f["fecha"], "%Y-%m-%d").weekday() for f in v.filas)
     assert set(dias) == {0, 1, 2, 3, 4} and min(dias.values()) >= 100

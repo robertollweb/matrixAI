@@ -151,9 +151,12 @@ def construir_ventanas(
     primer_duplicado: tuple[str | None, str] | None = None
     pasos: list[float] = []
     irregulares = 0
+    paso_de_la_serie: list[float] = []        # 164-rep3 (aud3 M-3): el paso mediano de CADA serie
     for pos in posiciones:
         ts = [t_base[i] for i in pos]
         d = [b - a for a, b in zip(ts, ts[1:])]
+        positivos = [x for x in d if x > 0]
+        paso_de_la_serie.append(float(statistics.median(positivos)) if positivos else 0.0)
         duplicados += sum(1 for x in d if x == 0)
         if primer_duplicado is None:
             for j, x in enumerate(d):
@@ -270,8 +273,20 @@ def construir_ventanas(
         t0, t1 = t_base[idx], t_base[posiciones[n_serie][k + horizonte]]
         j = bisect.bisect_left(instantes, t1) - 1          # el último instante del fichero ANTES del objetivo
         necesita_por_idx[idx] = max(0.0, instantes[j] - t0) if j >= 0 else 0.0
+    otro_hueco_conservaria: dict[str, Any] | None = None
     if hueco is not None:
         hueco_usado, eleccion = max(float(hueco), hueco_minimo), "pedido"
+        # 164-rep3 (aud3 M-2): el hueco PEDIDO se respeta, pero si uno MÁS ANCHO quitaría menos filas (la misma cuenta de
+        # `_elegir_hueco`, partiendo del pedido), se dice con sus números: un hueco de h × paso en un calendario laborable
+        # quitaba 884 de 1.128 filas sin pista de que con 8 días se conservaban.
+        mas_ancho, _ = _elegir_hueco(
+            hueco_usado, [necesita_por_idx[i] for i in candidatas], [t_base[i] for i in candidatas])
+        if mas_ancho > hueco_usado:
+            con_pedido = sum(1 for i in candidatas if necesita_por_idx[i] > hueco_usado)
+            con_otro = sum(1 for i in candidatas if necesita_por_idx[i] > mas_ancho)
+            if con_otro < con_pedido:
+                otro_hueco_conservaria = {"segundos_o_unidades": mas_ancho, "filas_que_quitaria": con_otro,
+                                          "filas_que_quita_el_pedido": con_pedido}
     else:
         hueco_usado, eleccion = _elegir_hueco(
             hueco_minimo, [necesita_por_idx[i] for i in candidatas], [t_base[i] for i in candidatas])
@@ -291,6 +306,20 @@ def construir_ventanas(
             c["filas"] += 1
             continue
         quedan.append(fila)
+    # 164-rep3 (aud3 M-3) — UNA SERIE DE OTRO PASO que se pierde ENTERA: su paso mediano es más largo que el hueco del examen
+    # (una serie diaria entre series horarias), así que cada objetivo suyo cae con momentos de predecir de otras series en medio
+    # y se quitan TODAS sus filas. No es «un corte o un salto»: es otra frecuencia. Cuenta entre las series sin filas completas
+    # (el modelo no la ve) y se marca en su corte, para que quien lo redacte lo diga como lo que es.
+    quedan_por_serie: dict[int, int] = {}
+    for idx in candidatas:
+        if necesita_por_idx[idx] <= hueco_usado:
+            n_serie = serie_de[idx][0]
+            quedan_por_serie[n_serie] = quedan_por_serie.get(n_serie, 0) + 1
+    series_de_otro_paso: list[dict[str, Any]] = []
+    for n_serie, c in sorted(cortes_por_serie.items()):
+        if not quedan_por_serie.get(n_serie) and paso_de_la_serie[n_serie] > hueco_usado:
+            c["por_su_paso"] = True
+            series_de_otro_paso.append({"serie": c["serie"], "paso_mediano": paso_de_la_serie[n_serie], "filas": c["filas"]})
     if not quedan:
         causas = [(quitadas_borde, "por el borde de cada serie", "at the edge of each series"),
                   (quitadas_estacion, "por la estación", "because of the season"),
@@ -317,7 +346,7 @@ def construir_ventanas(
         raise PronosticoError("La persistencia (el valor actual del objetivo) está ausente en filas que quedan.")
     # Una serie no aporta ninguna fila si su largo no pasa de lo que piden los retardos (o la estación, si mira más atrás) más
     # el horizonte. Con la estación, la cuenta es la de la estación: la que de verdad la deja sin filas (I-4).
-    series_cortas = sum(1 for pos in posiciones if len(pos) <= max(retardos, arranque_est) + horizonte)
+    series_cortas = sum(1 for pos in posiciones if len(pos) <= max(retardos, arranque_est) + horizonte) + len(series_de_otro_paso)
     series_cortas_por_la_estacion = sum(1 for pos in posiciones
                                         if retardos + horizonte < len(pos) <= max(retardos, arranque_est) + horizonte)
     declaracion = {
@@ -332,12 +361,16 @@ def construir_ventanas(
         "cortes_del_calendario": [cortes_por_serie[n] for n in sorted(cortes_por_serie)],
         "series": len(posiciones), "series_sin_filas_completas": series_cortas,
         "series_sin_filas_completas_por_la_estacion": series_cortas_por_la_estacion,
+        # 164-rep3 (aud3 M-3): las que no aportan filas porque su paso es más largo que el hueco del examen (ya contadas arriba).
+        "series_sin_filas_por_su_paso": series_de_otro_paso,
         "series_con_calendario_irregular": irregulares, "paso_mediano_segundos_o_unidades": paso_mediano,
         # 164-rep2 (aud2 A-1): el hueco del reparto y por qué es ese. `eleccion`: `minimo` (h × paso), `calendario` (más ancho
         # porque el calendario lo pide: cuesta menos filas que quitarlas) o `pedido`. `filas_que_quitaria_el_minimo`: las que
         # se habrían quitado con h × paso (con `calendario`, las que el hueco más ancho conserva).
         "hueco": {"segundos_o_unidades": hueco_usado, "minimo": hueco_minimo, "eleccion": eleccion,
-                  "filas_que_quitaria_el_minimo": quitaria_el_minimo},
+                  "filas_que_quitaria_el_minimo": quitaria_el_minimo,
+                  # 164-rep3 (aud3 M-2): con `pedido`, un hueco más ancho que quitaría menos filas (`None` = no lo hay).
+                  "otro_conservaria": otro_hueco_conservaria},
         "linaje": {c: linaje[c] for c in (*entradas, col_objetivo, col_pers) if c in linaje},
     }
     return Ventanas(
@@ -660,6 +693,8 @@ class SeriePredecible:
     origen_segundos: float
     filas_usadas: int
     calendario_irregular: bool
+    #: 164-rep3 (aud3 I-3): el paso de la ventana si es UNO solo (todos los pasos iguales); `None` si son desiguales o no hay.
+    paso_de_la_ventana: float | None = None
 
 
 @dataclass(frozen=True)
@@ -767,9 +802,11 @@ def construir_contexto_de_prediccion(
                                                columnas=faltan))
             continue
         ventana = ts[-necesita:]
-        irregular = len({b - a for a, b in zip(ventana, ventana[1:])}) > 1
+        pasos_de_la_ventana = {b - a for a, b in zip(ventana, ventana[1:])}
+        irregular = len(pasos_de_la_ventana) > 1
         origen = filas[int(ultima["_fila"])].get(tiempo)
         predecibles.append(SeriePredecible(
             serie=nombre, entradas={c: str(ultima[c]) for c in entradas}, origen=str(origen).strip(),
-            origen_segundos=ts[-1], filas_usadas=necesita, calendario_irregular=irregular))
+            origen_segundos=ts[-1], filas_usadas=necesita, calendario_irregular=irregular,
+            paso_de_la_ventana=next(iter(pasos_de_la_ventana)) if len(pasos_de_la_ventana) == 1 else None))
     return ContextoDePrediccion(predecibles, rechazadas, len(posiciones), es_fecha, formato)
