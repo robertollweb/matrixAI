@@ -75,6 +75,13 @@ class Ventanas:
     tiempo_del_objetivo_por_id: dict[str, float]
     paso_mediano: float
     declaracion: dict[str, Any] = field(default_factory=dict)
+    #: 164-rep2 (aud2 A-1): el hueco que el reparto tiene que dejar (segundos o unidades): `horizonte × paso_mediano` o MÁS, si el
+    #: calendario lo pide (ver `_elegir_hueco`). `0.0` = el de siempre (`horizonte × paso_mediano`), por compatibilidad.
+    hueco: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not self.hueco:
+            object.__setattr__(self, "hueco", self.horizonte * self.paso_mediano)
 
 
 def _numero(valor: Any) -> float:
@@ -84,9 +91,11 @@ def _numero(valor: Any) -> float:
 def construir_ventanas(
     filas: Sequence[Mapping[str, Any]], *, tiempo: str, objetivo: str, horizonte: int, retardos: int,
     serie: str | None = None, columnas_con_retardo: Sequence[str] = (), estacion: int | None = None,
-    campo_id: str = "_fila", tokens_de_ausencia: set[str] | None = None,
+    campo_id: str = "_fila", tokens_de_ausencia: set[str] | None = None, hueco: float | None = None,
 ) -> Ventanas:
-    """`horizonte` y `retardos` son pasos de la serie (no unidades de tiempo). El objetivo siempre lleva retardos."""
+    """`horizonte` y `retardos` son pasos de la serie (no unidades de tiempo). El objetivo siempre lleva retardos.
+
+    `hueco` (segundos o unidades): el que PIDIÓ la persona para el reparto; `None` = lo elige `_elegir_hueco` (164-rep2)."""
     from matrixai.training.particion_por_diseno_tiempo import Rechazo, convertir_tiempos
 
     if not filas:
@@ -238,27 +247,43 @@ def construir_ventanas(
         else:
             candidatas.append(idx)
 
-    # 164-rep1 (I-1) — LOS CORTES DEL CALENDARIO. El objetivo «h pasos» va por posición: tras un corte de una serie (días que
-    # faltan) cae más lejos que h × paso. Esa fila no es una fuga por sí misma, pero el reparto solo deja h × paso de hueco y
-    # OTRA serie puede poner un origen validado entre su origen y su objetivo: entrenaría con un valor que, en ese origen, aún no
-    # ha ocurrido. Se quita EXACTAMENTE la fila en que eso puede pasar (algún instante del fichero cae estrictamente entre su
-    # origen + h × paso y su objetivo, que es la condición del hueco de `particion_por_diseno_tiempo`), y se declara por serie
-    # con las fechas tal como vienen. Un calendario de días laborables común a todas las series no pierde nada (ningún origen
-    # cae en el fin de semana); una serie sola, tampoco (su siguiente instante ES su objetivo).
+    # 164-rep1 (I-1) y 164-rep2 (aud2 A-1) — LOS CORTES DEL CALENDARIO. El objetivo «h pasos» va por posición: si entre el origen
+    # y el objetivo de una fila su serie da pasos más largos que el mediano (un corte, un fin de semana, un festivo), el objetivo
+    # cae más lejos que h × paso. El reparto deja un hueco `G` entre lo que entrena y lo que valida (`inicio − t > G` en los
+    # pliegues, `particion_por_diseno_tiempo`; `t < corte − G/2` y `t ≥ corte + G/2` en la prueba): una fila entrena con un
+    # valor aún no ocurrido si ALGÚN instante del fichero (de su serie o de otra) cae estrictamente entre su origen + G y su
+    # objetivo. Con `necesita` = el último instante del fichero anterior a su objetivo, menos su origen, eso es `necesita > G`.
+    #
+    # rep1 fijaba G = h × paso mediano y quitaba toda fila con `necesita > G`. En un calendario LABORABLE común con h > 1 eso
+    # quitaba del 19 % (h = 2) al 76 % (h = 5) de las filas (aud2 A-1, medido): 5 pasos laborables son 7 días naturales, no 5.
+    # Ahora G se ELIGE (`_elegir_hueco`): el que menos filas cuesta, contando cada fila quitada una vez y cada día (o unidad)
+    # de hueco por encima de h × paso como las filas que caben en él en cada examen. Con un calendario laborable común sale un
+    # hueco de 3 días (h = 2) o 6 (h = 5) y no se quita ninguna fila; con un corte de UNA serie (o un cierre común de semanas) sale
+    # más barato quitar sus pocas filas. Si la persona pidió el hueco, es el suyo (nunca menos que h × paso).
     import bisect
 
     hueco_minimo = horizonte * paso_mediano
     instantes = sorted(set(t_base))
+    necesita_por_idx: dict[int, float] = {}
+    for idx in candidatas:
+        n_serie, k, _ = serie_de[idx]
+        t0, t1 = t_base[idx], t_base[posiciones[n_serie][k + horizonte]]
+        j = bisect.bisect_left(instantes, t1) - 1          # el último instante del fichero ANTES del objetivo
+        necesita_por_idx[idx] = max(0.0, instantes[j] - t0) if j >= 0 else 0.0
+    if hueco is not None:
+        hueco_usado, eleccion = max(float(hueco), hueco_minimo), "pedido"
+    else:
+        hueco_usado, eleccion = _elegir_hueco(
+            hueco_minimo, [necesita_por_idx[i] for i in candidatas], [t_base[i] for i in candidatas])
     quedan: list[dict[str, str]] = []
     cortes_por_serie: dict[int, dict[str, Any]] = {}
     quitadas_corte = 0
+    quitaria_el_minimo = sum(1 for i in candidatas if necesita_por_idx[i] > hueco_minimo)
     for idx in candidatas:
         fila = filas_p[idx]
         n_serie, k, _ = serie_de[idx]
         pos = posiciones[n_serie]
-        t0, t1 = t_base[idx], t_base[pos[k + horizonte]]
-        j = bisect.bisect_right(instantes, t0 + hueco_minimo)
-        if t1 - t0 > hueco_minimo and j < len(instantes) and instantes[j] < t1:
+        if necesita_por_idx[idx] > hueco_usado:
             quitadas_corte += 1
             c = cortes_por_serie.setdefault(n_serie, {
                 "serie": None if serie is None else base[pos[0]][serie], "filas": 0,
@@ -308,6 +333,11 @@ def construir_ventanas(
         "series": len(posiciones), "series_sin_filas_completas": series_cortas,
         "series_sin_filas_completas_por_la_estacion": series_cortas_por_la_estacion,
         "series_con_calendario_irregular": irregulares, "paso_mediano_segundos_o_unidades": paso_mediano,
+        # 164-rep2 (aud2 A-1): el hueco del reparto y por qué es ese. `eleccion`: `minimo` (h × paso), `calendario` (más ancho
+        # porque el calendario lo pide: cuesta menos filas que quitarlas) o `pedido`. `filas_que_quitaria_el_minimo`: las que
+        # se habrían quitado con h × paso (con `calendario`, las que el hueco más ancho conserva).
+        "hueco": {"segundos_o_unidades": hueco_usado, "minimo": hueco_minimo, "eleccion": eleccion,
+                  "filas_que_quitaria_el_minimo": quitaria_el_minimo},
         "linaje": {c: linaje[c] for c in (*entradas, col_objetivo, col_pers) if c in linaje},
     }
     return Ventanas(
@@ -316,7 +346,159 @@ def construir_ventanas(
         horizonte=horizonte, estacion=estacion, retraso_estacional=retraso_est, linaje=linaje,
         tiempo_por_id={f[campo_id]: t_por_id[f[campo_id]] for f in quedan},
         tiempo_del_objetivo_por_id={f[campo_id]: t_obj[f[campo_id]] for f in quedan},
-        paso_mediano=paso_mediano, declaracion=declaracion)
+        paso_mediano=paso_mediano, declaracion=declaracion, hueco=hueco_usado)
+
+
+def _elegir_hueco(minimo: float, necesita: Sequence[float], origenes: Sequence[float]) -> tuple[float, str]:
+    """164-rep2 (aud2 A-1) — el hueco del reparto que MENOS filas cuesta. Con el hueco `G`, se quitan las filas con
+    `necesita > G` (ver `construir_ventanas`); ensanchar el hueco por encima del mínimo (`h × paso`) cuesta, en cada examen
+    (cada pliegue y la prueba), las filas cuyo origen cae en lo ensanchado: `densidad × (G − mínimo)`, con `densidad` = filas por
+    segundo (o unidad) entre el primer y el último origen. Coste(G) = filas quitadas + densidad × (G − mínimo); los candidatos
+    son el mínimo y cada `necesita` que lo supera; a igual coste, el más estrecho. Devuelve `(G, "minimo" | "calendario")`."""
+    import bisect
+
+    por_encima = sorted(x for x in necesita if x > minimo)
+    if not por_encima:
+        return minimo, "minimo"
+    lapso = max(origenes) - min(origenes)
+    densidad = len(origenes) / lapso if lapso > 0 else math.inf
+    mejor, coste_mejor = minimo, float(len(por_encima))
+    for g in dict.fromkeys(por_encima):
+        coste = (len(por_encima) - bisect.bisect_right(por_encima, g)) + densidad * (g - minimo)
+        if coste < coste_mejor:
+            mejor, coste_mejor = g, coste
+    return mejor, ("minimo" if mejor == minimo else "calendario")
+
+
+# --------------------------------------------------------------------------------------------------
+# 164-rep2 (aud2 A-2) — LAS ENTRADAS QUE DESCRIBEN EL FUTURO
+# --------------------------------------------------------------------------------------------------
+
+#: Una entrada «describe el futuro» si su valor en una fila explica el objetivo `k` pasos DESPUÉS (k = 1 o k = h) al menos
+#: `_FUTURO_DIFERENCIA` mejor Y al menos `_FUTURO_RAZON` veces mejor que el objetivo de SU PROPIA fila. Medido el 16-11 (rep2,
+#: `medir_futuro.py`, η² sobre rangos dentro de cada serie): `llueve_manana` de lluvia_MUNDIAL, 0,48 frente a 0,15 (+0,33, ×3,2);
+#: con un 10 % de sus valores cambiados, +0,21 (×3,3); con un 20 %, +0,12 (×3,2). Las columnas legítimas de lluvia (16), Avocado
+#: (10) y Uber (10, h = 1 y h = 6): la mayor diferencia, +0,010 (`spd` de Uber con h = 6).
+_FUTURO_DIFERENCIA = 0.10
+_FUTURO_RAZON = 2.0
+#: Con menos pares no se mide (el η² de 10 grupos tiene un sesgo de ~9/n): se DECLARA que no se comprobó, no se da por buena.
+_FUTURO_MIN_PARES = 50
+
+
+def _rangos(valores: Any) -> Any:
+    """Rangos medios (empates con el rango medio), con numpy."""
+    import numpy as np
+
+    v = np.asarray(valores, float)
+    orden = np.argsort(v, kind="mergesort")
+    r = np.empty(len(v), float)
+    vs = v[orden]
+    i = 0
+    n = len(v)
+    while i < n:
+        j = i
+        while j + 1 < n and vs[j + 1] == vs[i]:
+            j += 1
+        r[orden[i:j + 1]] = (i + j) / 2.0
+        i = j + 1
+    return r
+
+
+def _grupos(valores: Sequence[str]) -> Any:
+    """Los grupos de una columna para la razón de correlación: sus valores si tiene 20 o menos distintos (o no es numérica);
+    si no, sus deciles."""
+    import numpy as np
+
+    try:
+        x = np.asarray([float(a) for a in valores], float)
+    except ValueError:
+        etiquetas = {a: i for i, a in enumerate(sorted(set(valores)))}
+        return np.asarray([etiquetas[a] for a in valores], int)
+    if len(set(x.tolist())) <= 20:
+        return x
+    return np.minimum(9, (10 * _rangos(x) / len(x)).astype(int))
+
+
+def _eta2(grupos: Any, y: Any) -> float | None:
+    import numpy as np
+
+    total = float(((y - y.mean()) ** 2).sum())
+    if total == 0:
+        return None
+    entre = 0.0
+    for g in np.unique(grupos):
+        sel = y[grupos == g]
+        entre += len(sel) * (float(sel.mean()) - float(y.mean())) ** 2
+    return entre / total
+
+
+def entradas_que_describen_el_futuro(
+    filas: Sequence[Mapping[str, Any]], *, tiempo: str, objetivo: str, horizonte: int, columnas: Sequence[str],
+    serie: str | None = None, tokens_de_ausencia: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """164-rep2 (aud2 A-2): una entrada que entra «con su valor en el momento de predecir» tiene linaje 0, pero puede DESCRIBIR el
+    futuro (`llueve_manana` = «mañana llueve»): el linaje mira de qué fila sale el valor, no qué dice. Esto lo MIDE.
+
+    El criterio: un valor anotado en una fila describe esa fila. Si explica el objetivo `k` pasos después (k = 1 y k = h) mucho
+    mejor que el objetivo de su propia fila, lo que describe es el futuro. «Explica» = la razón de correlación η² del RANGO del
+    objetivo (normalizado dentro de cada serie, para que el nivel de cada serie no cuente) agrupado por los valores de la entrada
+    (sus deciles si es numérica con más de 20 valores). Se compara con su propia fila y no con la persistencia: en una serie con
+    ciclo (Uber con h = 6) la persistencia explica casi nada y cualquier entrada la superaría.
+
+    Devuelve, por columna: `columna`, `pares`, `ahora` (η² con el objetivo de su fila), `futuro` (el mayor de k = 1 y k = h),
+    `k`, y `describe_el_futuro` (`True`/`False`; `None` = no se pudo medir: menos de `_FUTURO_MIN_PARES` pares o el objetivo
+    no varía). No lanza: si el tiempo no se lee, devuelve `[]` y quien llama deja que `construir_ventanas` lo rechace."""
+    import numpy as np
+    from matrixai.training.particion_por_diseno_tiempo import convertir_tiempos
+
+    columnas = [c for c in dict.fromkeys(columnas) if c not in (tiempo, objetivo, serie)]
+    if not filas or not columnas:
+        return []
+    try:
+        segundos = convertir_tiempos({str(i): f.get(tiempo) for i, f in enumerate(filas)}, tiempo).valores
+    except Exception:  # noqa: BLE001 -- lo ilegible lo rechaza `construir_ventanas` con su motivo
+        return []
+    por_serie: dict[Any, list[int]] = {}
+    for i, f in enumerate(filas):
+        clave = None if serie is None else f.get(serie)
+        if serie is not None and _is_null(clave, tokens_de_ausencia):
+            continue
+        por_serie.setdefault(clave, []).append(i)
+    pasos = sorted({1, horizonte})
+    # Por serie, en orden de tiempo: el rango normalizado del objetivo, y los pares (fila de origen, fila k pasos después).
+    y_norm: dict[int, float] = {}
+    origenes: list[tuple[int, dict[int, int]]] = []
+    for idx in por_serie.values():
+        idx = sorted(idx, key=lambda i: (segundos[str(i)], i))
+        validas = []
+        for i in idx:
+            try:
+                validas.append((i, float(str(filas[i].get(objetivo)).strip())))
+            except (TypeError, ValueError):
+                validas.append((i, None))
+        con_y = [(i, y) for i, y in validas if y is not None and math.isfinite(y)]
+        if len(con_y) >= 2:
+            r = _rangos([y for _, y in con_y])
+            for (i, _), ri in zip(con_y, r):
+                y_norm[i] = float(ri) / (len(con_y) - 1)
+        for p in range(len(idx) - horizonte):
+            if idx[p] in y_norm and all(idx[p + k] in y_norm for k in pasos):
+                origenes.append((idx[p], {k: idx[p + k] for k in pasos}))
+    salida: list[dict[str, Any]] = []
+    for c in columnas:
+        pares = [(o, d) for o, d in origenes if not _is_null(filas[o].get(c), tokens_de_ausencia)]
+        medida: dict[str, Any] = {"columna": c, "pares": len(pares), "ahora": None, "futuro": None, "k": None,
+                                  "describe_el_futuro": None}
+        if len(pares) >= _FUTURO_MIN_PARES:
+            g = _grupos([str(filas[o].get(c)).strip() for o, _ in pares])
+            ahora = _eta2(g, _rangos([y_norm[o] for o, _ in pares]))
+            futuros = {k: _eta2(g, _rangos([y_norm[d[k]] for _, d in pares])) for k in pasos}
+            if ahora is not None and all(v is not None for v in futuros.values()):
+                k, fut = max(futuros.items(), key=lambda kv: (kv[1], -kv[0]))
+                medida.update(ahora=ahora, futuro=fut, k=k, describe_el_futuro=bool(
+                    fut - ahora >= _FUTURO_DIFERENCIA and fut >= _FUTURO_RAZON * ahora))
+        salida.append(medida)
+    return salida
 
 
 # --------------------------------------------------------------------------------------------------
@@ -397,7 +579,7 @@ def evaluar_hacia_delante(
         linea = v.linaje.get(c, 0)
         if linea > 0:
             raise PronosticoError(f"La entrada {c!r} tiene linaje +{linea}: es del futuro.")
-    hueco = Horizonte(v.horizonte * v.paso_mediano, "seconds")
+    hueco = Horizonte(v.hueco, "seconds")      # 164-rep2: el de las ventanas (h × paso, o más si el calendario lo pide)
     prop = proponer_particion(
         v.filas, plan_id=plan_id, observation_id_field=v.campo_id, split_type="temporal", seed=seed,
         test_fraction=test_fraction, folds=folds, time_column=v.campo_tiempo, gap=hueco)

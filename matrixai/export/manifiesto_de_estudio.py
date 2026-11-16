@@ -854,6 +854,9 @@ def _pronostico_del_estudio(declarado: Mapping[str, Any]) -> dict[str, Any]:
             veredicto[clave] = {"wins": cuenta["gana"], "loses": cuenta["pierde"], "ties": cuenta["empata"],
                                 "measured": cuenta["medidos"]}
         if veredicto:
+            # 164-rep2 (aud2 M-1): la métrica en que se contaron (la de la selección), si el sobre la trae: no se adivina.
+            if pliegues.get("metrica") is not None:
+                veredicto["metric"] = _require_text(pliegues["metrica"], f"{nombre}.veredicto_por_pliegue.metrica")
             bloque["fold_verdict"] = veredicto
     limites = declarado.get("limites")
     if limites:

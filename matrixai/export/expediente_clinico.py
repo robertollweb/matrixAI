@@ -1379,8 +1379,17 @@ def _texto_del_pronostico(bloque: dict[str, Any], idioma: str) -> str:
     veredicto = bloque.get("fold_verdict")
     if isinstance(veredicto, dict) and isinstance(veredicto.get("persistence"), dict):
         v = veredicto["persistence"]
-        texto += (f"; frente a la persistencia gana en {v['wins']} de {v['measured']} pliegues" if es
-                  else f"; against persistence it wins on {v['wins']} of {v['measured']} folds")
+        # 164-rep2 (aud2 M-1): justo detrás de «el MAE del modelo frente a…», sin su métrica se leía como MAE. Los pliegues se
+        # cuentan con la métrica de la selección (el RMSE en regresión), y se dice; si el sobre no la trae, se dice que es otra.
+        metrica = veredicto.get("metric")
+        if isinstance(metrica, str) and metrica:
+            cual_es = f"medido con el {metrica.upper()}, la métrica con que se eligió el campeón"
+            cual_en = f"measured with the {metrica.upper()}, the metric the champion was chosen by"
+        else:
+            cual_es, cual_en = ("medido con la métrica con que se eligió el campeón, no con el MAE de la prueba",
+                                "measured with the metric the champion was chosen by, not the test's MAE")
+        texto += (f"; frente a la persistencia gana en {v['wins']} de {v['measured']} pliegues de la búsqueda ({cual_es})" if es
+                  else f"; against persistence it wins on {v['wins']} of {v['measured']} folds of the search ({cual_en})")
     limites = bloque.get("limits")
     if isinstance(limites, list) and limites:
         dichos = [(l.get("reason") or {}).get(idioma) for l in limites if isinstance(l, dict)]
