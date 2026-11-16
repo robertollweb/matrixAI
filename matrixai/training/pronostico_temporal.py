@@ -406,6 +406,12 @@ def _elegir_hueco(minimo: float, necesita: Sequence[float], origenes: Sequence[f
 # --------------------------------------------------------------------------------------------------
 # 164-rep2 (aud2 A-2) — LAS ENTRADAS QUE DESCRIBEN EL FUTURO
 # --------------------------------------------------------------------------------------------------
+#
+# DESDE LA DECISIÓN A DE ROBERTO (16-11) ESTO ES UN AVISO, NO UNA GUARDA: en un pronóstico solo entran por omisión los valores
+# pasados del objetivo, y una columna más entra porque quien plantea la marca como «se conoce en el momento de predecir». La medida
+# de aquí se enseña junto a esa columna («se parece mucho al valor futuro del objetivo: ¿seguro?») y no la saca. No protege: la
+# aud3 (I-1) midió que con un objetivo con memoria no caza ni la copia exacta del objetivo de mañana (`temp_max(t+1)`: ×1,31), y
+# (I-2) que entre 50 y ~150 pares señala columnas legítimas del 7 al 28 % de las veces.
 
 #: Una entrada «describe el futuro» si su valor en una fila explica el objetivo `k` pasos DESPUÉS (k = 1 o k = h) al menos
 #: `_FUTURO_DIFERENCIA` mejor Y al menos `_FUTURO_RAZON` veces mejor que el objetivo de SU PROPIA fila. Medido el 16-11 (rep2,
@@ -471,6 +477,9 @@ def entradas_que_describen_el_futuro(
 ) -> list[dict[str, Any]]:
     """164-rep2 (aud2 A-2): una entrada que entra «con su valor en el momento de predecir» tiene linaje 0, pero puede DESCRIBIR el
     futuro (`llueve_manana` = «mañana llueve»): el linaje mira de qué fila sale el valor, no qué dice. Esto lo MIDE.
+
+    Es un AVISO para quien marcó la columna (decisión A, 16-11), no una garantía: con un objetivo con memoria deja pasar fugas y
+    con pocas filas señala columnas legítimas (aud3 I-1, I-2; ver el bloque de arriba). Quien llama no debe quitar nada con ella.
 
     El criterio: un valor anotado en una fila describe esa fila. Si explica el objetivo `k` pasos después (k = 1 y k = h) mucho
     mejor que el objetivo de su propia fila, lo que describe es el futuro. «Explica» = la razón de correlación η² del RANGO del
