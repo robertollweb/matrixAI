@@ -1,0 +1,147 @@
+{
+ "conjunto": "lluvia",
+ "config": {
+  "objetivo": "rain",
+  "unidad": "una ciudad y un día",
+  "tiempo": "dia",
+  "serie": "ciudad",
+  "horizon": 1,
+  "lags": 7,
+  "season": 7,
+  "lag_columns": [
+   "temp_mean",
+   "pressure",
+   "humidity",
+   "cloud_cover"
+  ],
+  "extra_inputs": [],
+  "datos": "lluvia"
+ },
+ "datos": {
+  "ciudades": 56,
+  "ciudades_con_menos_dias_descartadas": 0,
+  "dias_por_ciudad": 730,
+  "calendario": "reconstruido: 2020-01-01 + posición (el CSV no trae fecha)",
+  "filas_dadas_al_estudio": 40880,
+  "fichero": "/home/deployer/lluvia_MUNDIAL.csv",
+  "sha256_del_fichero": "016da00d51b245bd06f68527bdddc93901d228aff65c3288fbbef6adb5169a69",
+  "sha256_del_csv_dado": "7e07d92d0edbca3f57407d60d14c20ae4e32efff29b6b8b2084762fa114a2c09"
+ },
+ "parametros": {
+  "folds": 3,
+  "repeats": 1,
+  "modo": "completo",
+  "tope_estudio_s": 2400.0
+ },
+ "estado": "completed",
+ "segundos": 248.2,
+ "error": null,
+ "rechazo": null,
+ "ru_maxrss_hijos_mb": 882.2,
+ "ru_maxrss_proceso_mb": 630.1,
+ "resultado": {
+  "campeon": "lightgbm",
+  "decision": "selected",
+  "horizonte_pasos": 1,
+  "retardos": 7,
+  "estacion": 7,
+  "hueco": {
+   "magnitud": 1.0,
+   "minimo_segundos": 86400.0,
+   "origen": "horizonte_del_pronostico",
+   "unidad": "days"
+  },
+  "filas": {
+   "de_entrada": 40880,
+   "quitadas_por_el_borde_de_la_serie": 448,
+   "quitadas_por_valores_ausentes": 0,
+   "resultantes": 40432,
+   "series": 56,
+   "series_con_calendario_irregular": 0,
+   "series_sin_filas_completas": 0
+  },
+  "reparto": {
+   "diseno": "temporal",
+   "gap": {
+    "magnitud": 1.0,
+    "unidad": "days"
+   },
+   "gap_origen": "horizonte_declarado"
+  },
+  "prueba": {
+   "n": 8064,
+   "mae_modelo": 2.765158690395701,
+   "mae_persistencia": 2.8393353174603178,
+   "mae_estacional": 3.7215773809523807,
+   "mejora_mae_sobre_persistencia": 0.026124644950693998,
+   "mejora_mae_sobre_estacional": 0.2569928266040581,
+   "mase": 0.6794541085667759
+  },
+  "escala_de_la_mase": 4.069676900222827,
+  "pliegues": [
+   {
+    "pliegue": 0,
+    "n": 8064,
+    "mejora_sobre_persistencia": 0.21646389879705652,
+    "mejora_sobre_estacional": 0.3201714413973126
+   },
+   {
+    "pliegue": 1,
+    "n": 8120,
+    "mejora_sobre_persistencia": 0.1797764757183935,
+    "mejora_sobre_estacional": 0.3017344428110633
+   },
+   {
+    "pliegue": 2,
+    "n": 8064,
+    "mejora_sobre_persistencia": 0.191882637381795,
+    "mejora_sobre_estacional": 0.29152360872876626
+   }
+  ],
+  "veredicto_por_pliegue": {
+   "estacional": {
+    "empata": 0,
+    "gana": 3,
+    "medidos": 3,
+    "pierde": 0
+   },
+   "persistencia": {
+    "empata": 0,
+    "gana": 3,
+    "medidos": 3,
+    "pierde": 0
+   },
+   "pliegues": 3
+  },
+  "intervalo": {
+   "disponible": true,
+   "cobertura_nominal": 0.9,
+   "n_calibracion": 12096,
+   "cuantil": 6.785060903690016,
+   "cobertura_medida_en_la_prueba": {
+    "cobertura_nominal": 0.9,
+    "cobertura_observada": 0.9166666666666666,
+    "compatible_con_la_nominal": false,
+    "cubiertas": 7392,
+    "garantia": {
+     "en": "Coverage on average over rows, not row by row, and only if new cases resemble the calibration ones: it does not withstand drift.",
+     "es": "Cobertura en promedio sobre las filas, no fila a fila, y solo si los casos nuevos se parecen a los de calibración: no resiste la deriva."
+    },
+    "intervalo_95": [
+     0.910434077719717,
+     0.9225024684803723
+    ],
+    "n": 8064,
+    "tamano_medio": 13.570121807380032,
+    "vacios": 0
+   },
+   "sin_intercambiabilidad": {
+    "en": "In a time-based split the rows are not exchangeable (the future is not a mix of what was seen), so the interval's nominal conformal coverage is not a guarantee: the one that counts is the coverage measured on the held-out test, which comes after development.",
+    "es": "En un reparto por el tiempo las filas no son intercambiables (el futuro no es una mezcla de lo ya visto), así que la cobertura nominal del intervalo conforme no es una garantía: la que cuenta es la medida en la prueba reservada, que es posterior al desarrollo."
+   },
+   "motivo_si_no": null
+  },
+  "limites": [],
+  "motivo_de_la_nota": null
+ }
+}

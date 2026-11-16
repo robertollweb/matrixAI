@@ -1,0 +1,12 @@
+{
+ "nucleo": "/home/deployer/worktrees/cola-c164-c5/matrixAI/matrixai/__init__.py",
+ "motores": "/home/deployer/worktrees/cola-c164-c5/matrixai-engines/src/matrixai_engines/__init__.py",
+ "backend": "/home/deployer/worktrees/cola-c164-c5/matrixaistudio/studio-backend/matrixai_studio/estudio_job.py",
+ "commits": {
+  "nucleo": "08fdfee32d619c3758f1569b43d1d19bb892cab9",
+  "motores": "b374727d160331678da5e99041b7789753bdf6d9",
+  "studio": "017d396a600d933893aa4f0f097f66f9e977a8f5"
+ },
+ "script_sha256": "b23cffba6d17129be00f8f536fa202a7d3d0b36ab4a80a9ffad563f5826f7bd6",
+ "pythonpath": "/home/deployer/worktrees/cola-c164-c5/matrixAI:/home/deployer/worktrees/cola-c164-c5/matrixai-engines/src:/home/deployer/worktrees/cola-c164-c5/matrixaistudio/studio-backend"
+}

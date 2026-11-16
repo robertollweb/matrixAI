@@ -1,0 +1,144 @@
+{
+ "conjunto": "avocado",
+ "config": {
+  "objetivo": "AveragePrice",
+  "unidad": "una región, un tipo y una semana",
+  "tiempo": "Date",
+  "serie": "serie",
+  "horizon": 1,
+  "lags": 4,
+  "season": 52,
+  "lag_columns": [
+   "Total_Volume"
+  ],
+  "extra_inputs": [],
+  "datos": "avocado"
+ },
+ "datos": {
+  "series": 108,
+  "serie": "region|type",
+  "filas_dadas_al_estudio": 18249,
+  "fichero": "/home/deployer/fechas_114c5_datos/43820.arff",
+  "sha256_del_fichero": "4f42988d35b8ae6418e7a84b5629b644279f87dcd27ffa2ed57fcb1493acf585",
+  "sha256_del_csv_dado": "590ec47a5cc751785ab1e11f5a6eb2b6319e1bb0601acf1aca0e1f8d05937468"
+ },
+ "parametros": {
+  "folds": 3,
+  "repeats": 1,
+  "modo": "completo",
+  "tope_estudio_s": 2400.0
+ },
+ "estado": "completed",
+ "segundos": 326.4,
+ "error": null,
+ "rechazo": null,
+ "ru_maxrss_hijos_mb": 882.2,
+ "ru_maxrss_proceso_mb": 630.1,
+ "resultado": {
+  "campeon": "matrixai.dense.tabm_cpu",
+  "decision": "selected",
+  "horizonte_pasos": 1,
+  "retardos": 4,
+  "estacion": 52,
+  "hueco": {
+   "magnitud": 7.0,
+   "minimo_segundos": 604800.0,
+   "origen": "horizonte_del_pronostico",
+   "unidad": "days"
+  },
+  "filas": {
+   "de_entrada": 18249,
+   "quitadas_por_el_borde_de_la_serie": 5616,
+   "quitadas_por_valores_ausentes": 0,
+   "resultantes": 12633,
+   "series": 108,
+   "series_con_calendario_irregular": 1,
+   "series_sin_filas_completas": 0
+  },
+  "reparto": {
+   "diseno": "temporal",
+   "gap": {
+    "magnitud": 7.0,
+    "unidad": "days"
+   },
+   "gap_origen": "horizonte_declarado"
+  },
+  "prueba": {
+   "n": 2484,
+   "mae_modelo": 0.1097794855537117,
+   "mae_persistencia": 0.11774959742351047,
+   "mae_estacional": 0.26747987117552335,
+   "mejora_mae_sobre_persistencia": 0.06768695642442535,
+   "mejora_mae_sobre_estacional": 0.58957851642723,
+   "mase": 0.4120593379829535
+  },
+  "escala_de_la_mase": 0.2664166915645852,
+  "pliegues": [
+   {
+    "pliegue": 0,
+    "n": 2482,
+    "mejora_sobre_persistencia": 0.011404893633897073,
+    "mejora_sobre_estacional": 0.6315141293698667
+   },
+   {
+    "pliegue": 1,
+    "n": 2592,
+    "mejora_sobre_persistencia": 0.00745483504390998,
+    "mejora_sobre_estacional": 0.39116364299097683
+   },
+   {
+    "pliegue": 2,
+    "n": 2484,
+    "mejora_sobre_persistencia": 0.059680181354472395,
+    "mejora_sobre_estacional": 0.4446035905148389
+   }
+  ],
+  "veredicto_por_pliegue": {
+   "estacional": {
+    "empata": 0,
+    "gana": 3,
+    "medidos": 3,
+    "pierde": 0
+   },
+   "persistencia": {
+    "empata": 0,
+    "gana": 3,
+    "medidos": 3,
+    "pierde": 0
+   },
+   "pliegues": 3
+  },
+  "intervalo": {
+   "disponible": true,
+   "cobertura_nominal": 0.9,
+   "n_calibracion": 3778,
+   "cuantil": 0.26809271415940983,
+   "cobertura_medida_en_la_prueba": {
+    "cobertura_nominal": 0.9,
+    "cobertura_observada": 0.9166666666666666,
+    "compatible_con_la_nominal": false,
+    "cubiertas": 2277,
+    "garantia": {
+     "en": "Coverage on average over rows, not row by row, and only if new cases resemble the calibration ones: it does not withstand drift.",
+     "es": "Cobertura en promedio sobre las filas, no fila a fila, y solo si los casos nuevos se parecen a los de calibración: no resiste la deriva."
+    },
+    "intervalo_95": [
+     0.905143704310242,
+     0.926902884776362
+    ],
+    "n": 2484,
+    "tamano_medio": 0.5361854283188197,
+    "vacios": 0
+   },
+   "sin_intercambiabilidad": {
+    "en": "In a time-based split the rows are not exchangeable (the future is not a mix of what was seen), so the interval's nominal conformal coverage is not a guarantee: the one that counts is the coverage measured on the held-out test, which comes after development.",
+    "es": "En un reparto por el tiempo las filas no son intercambiables (el futuro no es una mezcla de lo ya visto), así que la cobertura nominal del intervalo conforme no es una garantía: la que cuenta es la medida en la prueba reservada, que es posterior al desarrollo."
+   },
+   "motivo_si_no": null
+  },
+  "limites": [
+   "calendario_irregular"
+  ],
+  "motivo_de_la_nota": null
+ }
+}
