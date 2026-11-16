@@ -1,0 +1,146 @@
+{
+ "1049": {
+  "bytes_del_arff": 184294,
+  "dataset": "pc4",
+  "sha256_de_hashes_json": "a257bbf9d05df9b6a12675e5a74da2b138c59591f24bc3866c68f8abc67624c1",
+  "sha256_del_arff": "a257bbf9d05df9b6a12675e5a74da2b138c59591f24bc3866c68f8abc67624c1"
+ },
+ "1053": {
+  "bytes_del_arff": 861589,
+  "dataset": "jm1",
+  "sha256_de_hashes_json": "8f3795e84e8755f1b21b4820c9f3286e60843d3f0a9751c595e0c47e786a7b52",
+  "sha256_del_arff": "8f3795e84e8755f1b21b4820c9f3286e60843d3f0a9751c595e0c47e786a7b52"
+ },
+ "1063": {
+  "bytes_del_arff": 55315,
+  "dataset": "kc2",
+  "sha256_de_hashes_json": "832b27ed0b34faddd8d4b3c23cdc65e5118bd7694f016b449f3d0b70c8575fd5",
+  "sha256_del_arff": "832b27ed0b34faddd8d4b3c23cdc65e5118bd7694f016b449f3d0b70c8575fd5"
+ },
+ "1068": {
+  "bytes_del_arff": 105904,
+  "dataset": "pc1",
+  "sha256_de_hashes_json": "a22470def91454aa442e54104e2856c53725e8c9108bdfaac867504982483f97",
+  "sha256_del_arff": "a22470def91454aa442e54104e2856c53725e8c9108bdfaac867504982483f97"
+ },
+ "11": {
+  "bytes_del_arff": 8724,
+  "dataset": "balance-scale",
+  "sha256_de_hashes_json": "87d3943cea423bb376be52b5dfec17f79c63108dddcf40e0a46e5ba7196a5c24",
+  "sha256_del_arff": "87d3943cea423bb376be52b5dfec17f79c63108dddcf40e0a46e5ba7196a5c24"
+ },
+ "12": {
+  "bytes_del_arff": 1475655,
+  "dataset": "mfeat-factors",
+  "sha256_de_hashes_json": "609d8f01dbf3f34a953617cc3586ddbb897d98013eba4ef4a4bf73791205ae5c",
+  "sha256_del_arff": "609d8f01dbf3f34a953617cc3586ddbb897d98013eba4ef4a4bf73791205ae5c"
+ },
+ "1487": {
+  "bytes_del_arff": 901788,
+  "dataset": "ozone-level-8hr",
+  "sha256_de_hashes_json": "2d5cd15a541f72a46ececf2332e611944752cce78a79d1a3311bec8fbb51d10e",
+  "sha256_del_arff": "2d5cd15a541f72a46ececf2332e611944752cce78a79d1a3311bec8fbb51d10e"
+ },
+ "1515": {
+  "bytes_del_arff": 2098230,
+  "dataset": "micro-mass",
+  "sha256_de_hashes_json": "b4109c3ac28c6d248993fb1936df6137414c9d90efb46179880948e4cb46aa9f",
+  "sha256_del_arff": "b4109c3ac28c6d248993fb1936df6137414c9d90efb46179880948e4cb46aa9f"
+ },
+ "181": {
+  "bytes_del_arff": 65603,
+  "dataset": "yeast",
+  "sha256_de_hashes_json": "ae97eccd3ad5f9a998efec8acb2026f1748df6c8a392a5b2b0f321c2ef053933",
+  "sha256_del_arff": "ae97eccd3ad5f9a998efec8acb2026f1748df6c8a392a5b2b0f321c2ef053933"
+ },
+ "23381": {
+  "bytes_del_arff": 37842,
+  "dataset": "dresses-sales",
+  "sha256_de_hashes_json": null,
+  "sha256_del_arff": "44057bb677eb4a144d01816262fc164f923a46fdda019a026e83e0c44b58ee95"
+ },
+ "28": {
+  "bytes_del_arff": 832899,
+  "dataset": "optdigits",
+  "sha256_de_hashes_json": "e86f102c957f41c7022b187766b0f9949a54ae8cedc492de1cc29765f060358a",
+  "sha256_del_arff": "e86f102c957f41c7022b187766b0f9949a54ae8cedc492de1cc29765f060358a"
+ },
+ "287": {
+  "bytes_del_arff": 352098,
+  "dataset": "wine_quality",
+  "sha256_de_hashes_json": "a06ffbd99a40aaf09315f914a3a681f7d6d757a614c5d414410a4877f5709093",
+  "sha256_del_arff": "a06ffbd99a40aaf09315f914a3a681f7d6d757a614c5d414410a4877f5709093"
+ },
+ "32": {
+  "bytes_del_arff": 742221,
+  "dataset": "pendigits",
+  "sha256_de_hashes_json": "5be0ce5f618a248a15e953bb63bd2c6bd99c1b9cdcd59c0a6abf06ae58758bca",
+  "sha256_del_arff": "5be0ce5f618a248a15e953bb63bd2c6bd99c1b9cdcd59c0a6abf06ae58758bca"
+ },
+ "37": {
+  "bytes_del_arff": 37419,
+  "dataset": "diabetes",
+  "sha256_de_hashes_json": "4eddd5b2b64679e8888348e306520a393d6a28e1ddc9643cfb76fc5d912d6d40",
+  "sha256_del_arff": "4eddd5b2b64679e8888348e306520a393d6a28e1ddc9643cfb76fc5d912d6d40"
+ },
+ "38": {
+  "bytes_del_arff": 305843,
+  "dataset": "sick",
+  "sha256_de_hashes_json": "85c39615380ca4c05c17a53c3faad9523924958d1e9bc5af0dcbefc6339e7800",
+  "sha256_del_arff": "85c39615380ca4c05c17a53c3faad9523924958d1e9bc5af0dcbefc6339e7800"
+ },
+ "40983": {
+  "bytes_del_arff": 256523,
+  "dataset": "wilt",
+  "sha256_de_hashes_json": "e29d2b9c08fbd21fe7104df37f16eed8fd0d3a9c782cbb8efada0cf7ebb8d6bb",
+  "sha256_del_arff": "e29d2b9c08fbd21fe7104df37f16eed8fd0d3a9c782cbb8efada0cf7ebb8d6bb"
+ },
+ "40994": {
+  "bytes_del_arff": 180762,
+  "dataset": "climate-model-simulation-crashes",
+  "sha256_de_hashes_json": "5be0901079f4d3317631ad9e955cd5e45d5eb8c753565b197e49e461524085b8",
+  "sha256_del_arff": "5be0901079f4d3317631ad9e955cd5e45d5eb8c753565b197e49e461524085b8"
+ },
+ "41021": {
+  "bytes_del_arff": 87591,
+  "dataset": "Moneyball",
+  "sha256_de_hashes_json": "1ef7013b57ff2ce89a0b8b25dc643ce7eca4b24d6b93785c2945983b2e8364e2",
+  "sha256_del_arff": "1ef7013b57ff2ce89a0b8b25dc643ce7eca4b24d6b93785c2945983b2e8364e2"
+ },
+ "41980": {
+  "bytes_del_arff": 3461819,
+  "dataset": "SAT11-HAND-runtime-regression",
+  "sha256_de_hashes_json": null,
+  "sha256_del_arff": "1ab43811428dfbd685e41edd34fd63222d4da768ab5060c8ee820268740a848b"
+ },
+ "42563": {
+  "bytes_del_arff": 469596,
+  "dataset": "house_prices_nominal",
+  "sha256_de_hashes_json": "1e83c38ec2f33615fc3308a641e6f3a1fe4a7b4fbb8dd54913c6082799602bdc",
+  "sha256_del_arff": "1e83c38ec2f33615fc3308a641e6f3a1fe4a7b4fbb8dd54913c6082799602bdc"
+ },
+ "42730": {
+  "bytes_del_arff": 1142321,
+  "dataset": "us_crime",
+  "sha256_de_hashes_json": "17d04c67182f1f522752946cbf6ada34b145ca0705c0e396eab6ffcda1552507",
+  "sha256_del_arff": "17d04c67182f1f522752946cbf6ada34b145ca0705c0e396eab6ffcda1552507"
+ },
+ "42731": {
+  "bytes_del_arff": 2382041,
+  "dataset": "house_sales",
+  "sha256_de_hashes_json": "86508fd41de8e54786c8bb61527ddd8163a740390dbc9028fc104ca2e52f9928",
+  "sha256_del_arff": "86508fd41de8e54786c8bb61527ddd8163a740390dbc9028fc104ca2e52f9928"
+ },
+ "4534": {
+  "bytes_del_arff": 800920,
+  "dataset": "PhishingWebsites",
+  "sha256_de_hashes_json": "3bcf93b1612306537ee2737751f1bac185b2a77886ab376644c3bf0c7f7cb3e6",
+  "sha256_del_arff": "3bcf93b1612306537ee2737751f1bac185b2a77886ab376644c3bf0c7f7cb3e6"
+ },
+ "574": {
+  "bytes_del_arff": 4393861,
+  "dataset": "house_16H",
+  "sha256_de_hashes_json": "c9d4c46cb5f598fd9e3e1993a1ff06d85c662e50a9fe1fef9c1dc7d067d3b311",
+  "sha256_del_arff": "c9d4c46cb5f598fd9e3e1993a1ff06d85c662e50a9fe1fef9c1dc7d067d3b311"
+ }
+}
