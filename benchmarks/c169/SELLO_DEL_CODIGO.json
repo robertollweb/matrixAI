@@ -1,16 +1,17 @@
 {
  "que_es": "sha256 del analizador, del medidor y de las dependencias del veredicto del 169 (analiza_c169.codigo_de_ahora). Lo escribe sellar_codigo_c169.py; nulo = sin sellar. El medidor no mide (salvo --sonda) y el analizador no da veredicto si falta, es nulo o no cuadra. No se incluye a sí mismo.",
- "regla_sha256_sellada": "eb65a7e92013fc3992072fdd66cd908f0ccf8844c26f12c6828229e964e3390e",
+ "regla_sha256_sellada": null,
  "sha256": {
-  "benchmarks/c160/analiza_c160.py": "61473a6ecd80acefe2641272d0a1777bfa0db4efd0b836873869e3b075d0a796",
-  "benchmarks/c163/analiza_c163_c2.py": "6be38675d0f7f913d80a4148aefc89ae05c67f8baf709d3d90ba082939941e4b",
-  "benchmarks/c169/analiza_c169.py": "dddab8fae7c19cacd762af706d983fd4d73200ffa69c6725640d9b3c58a70e3e",
-  "benchmarks/c169/conjuntos_c169.json": "cc34d6375bd9141cc02c243b51ea62e33134537be860b352be3a610c8be2b852",
-  "benchmarks/c169/conjuntos_c169.py": "929a775c92e481848c6f6c0277e7e599fbfe1bb12914f7e8fd7654b54af31a93",
-  "benchmarks/c169/medir_c169.py": "788731b600c9a15e285cc66cb73fba56f956d248ae899fa583df3195cc888e0d",
-  "benchmarks/fase0/pasada_amplia_101_c5.py": "b4dcc0aee80e68957823f1cb511d701ddfaea9b9d849d32bcb8d87e6d0d6e333",
-  "benchmarks/fase0/protocolo.py": "54e519ddd08611dc292ddbd0c9ebd40fe9472eebd8892fbe5d5ba922c5aa6255",
-  "matrixai/estudio/incertidumbre.py": "58a319cb2401a358d7891c049b970f0f9097ab83fabddbdd51bb66f612b226e7",
-  "matrixai/estudio/metricas.py": "687b446351770551c79935f8d24ea9064a4bb6a918f2653b8dca7be45b122c72"
- }
+  "benchmarks/c160/analiza_c160.py": null,
+  "benchmarks/c163/analiza_c163_c2.py": null,
+  "benchmarks/c169/analiza_c169.py": null,
+  "benchmarks/c169/conjuntos_c169.json": null,
+  "benchmarks/c169/conjuntos_c169.py": null,
+  "benchmarks/c169/medir_c169.py": null,
+  "benchmarks/fase0/pasada_amplia_101_c5.py": null,
+  "benchmarks/fase0/protocolo.py": null,
+  "matrixai/estudio/incertidumbre.py": null,
+  "matrixai/estudio/metricas.py": null
+ },
+ "retirado": "16-11 tras el veredicto (C3, NO CUMPLE; analizado en un worktree en 01ca4f5): una sola vez (§4.2), y para no dejar rojo a quien toque metricas.py (aud2 M-2). El sello medido sigue en la salida (`sello_del_codigo_al_medir`) y en git (01ca4f5)."
 }

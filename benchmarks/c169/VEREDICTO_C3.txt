@@ -1,0 +1,19 @@
+=== 169: rejilla de HGB en 6 conjuntos nuevos — NO CUMPLE ===
+  (0) no saturados: 4 (>= 3) -> ok  saturados: ['analcatdata_authorship', 'energy_efficiency']
+  (a) media de R sobre los no saturados: -0.0049 (>= 0.03) -> NO
+  (b) mejoras claras: 0 (>= 2) [] -> NO
+  (c) empeoran de verdad: [] -> ok
+  (d) razón de sumas de ajuste: 5.76 (<= 8.0); mediana 5.57, máxima 6.40 -> ok
+  conjunto                           sat      R        IC95 de R            D        IC95 de D           mejora empeora
+  analcatdata_authorship             S    +0.0000  [0.000, 0.000]   +0.0000  [0.0000, 0.0000]          
+  kc1                                     -0.0295  [-0.085, 0.015]   -0.0050  [-0.0138, 0.0027]          
+  blood-transfusion-service-center        +0.0044  [-0.008, 0.021]   +0.0015  [-0.0028, 0.0070]          
+  first-order-theorem-proving             +0.0012  [-0.016, 0.014]   +0.0005  [-0.0062, 0.0056]          
+  energy_efficiency                  S    +0.1507  [0.086, 0.219]   +0.0003  [0.0001, 0.0004]          
+  forest_fires                            +0.0042  [-0.045, 0.048]   +0.0046  [-0.0484, 0.0559]          
+  DATOS: analcatdata_authorship lleva `BookID` como predictor: OpenML NO lo marca como `ignore_attribute`, así que la regla (§1) manda incluirlo; es un identificador del libro, y el conjunto está cerca del umbral de saturación (0,98)
+  DATOS: energy_efficiency se midió SIN ['cooling_load']: OpenML las marca `ignore_attribute` (REGLA.md §1)
+  DATOS: energy_efficiency: aviso de lectura ya explicado: el catálogo declara 9 columnas y el fichero trae 10: sobran 1, pero el núcleo llama identificador a 0 (ninguna). No se excluye nada: cuál sobra no se adivina.
+  DATOS: forest_fires se midió SIN ['month', 'day']: las excluyó el lector único de la Fase 0, igual en los dos brazos (atributo STRING: `scipy` no lo soporta y convertirlo en categórica sería meterle al modelo texto libre que identifica la fila)
+  DATOS: forest_fires: aviso de lectura ya explicado: el fichero trae 11 columnas y el catálogo declara 13: FALTAN 2, no sobran. No se excluye nada.
+  NOTA: El umbral de -0,01 de los saturados se fijó DESPUÉS de ver `sick` (163-C2), donde habría quedado dentro (-0,42 puntos). Con 6 conjuntos pequeños la potencia es baja: un NO CUMPLE no demuestra que la rejilla sea mala y una CONFIRMADA no la integra (decisión de Roberto).
