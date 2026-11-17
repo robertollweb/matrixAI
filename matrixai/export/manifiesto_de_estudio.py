@@ -874,6 +874,41 @@ def _pronostico_del_estudio(declarado: Mapping[str, Any]) -> dict[str, Any]:
     return bloque
 
 
+def _eleccion_de_motores(eleccion: Any) -> dict[str, Any]:
+    """171 — `study.engine_selection` desde la `eleccion_de_motores` del sobre del estudio, comprobada entera (fail-closed: una
+    declaración a medias no se publica). Las listas conservan el orden en que se dan."""
+    nombre = "eleccion_de_motores"
+    if not isinstance(eleccion, Mapping):
+        raise ReproduceManifestError(f"{nombre} must be an object, got {eleccion!r}")
+    desconocidas = set(eleccion) - {"pedida", "compiten", "fuera_por_la_eleccion", "no_pudieron_competir"}
+    if desconocidas:
+        raise ReproduceManifestError(f"{nombre} has unknown keys {sorted(desconocidas)}")
+    salida: dict[str, Any] = {}
+    for clave, publicada in (("pedida", "requested"), ("compiten", "competed"), ("fuera_por_la_eleccion", "left_out_by_choice")):
+        valor = eleccion.get(clave)
+        if isinstance(valor, (str, bytes)) or not isinstance(valor, (list, tuple)):
+            raise ReproduceManifestError(f"{nombre}.{clave} must be a list of engine ids, got {valor!r}")
+        salida[publicada] = _require_str_list(list(valor), f"{nombre}.{clave}")
+    if not salida["competed"]:
+        raise ReproduceManifestError(f"{nombre}.compiten cannot be empty: a study that ran compared some engine")
+    no_pudieron = eleccion.get("no_pudieron_competir")
+    if no_pudieron is not None:
+        if not isinstance(no_pudieron, (list, tuple)):
+            raise ReproduceManifestError(f"{nombre}.no_pudieron_competir must be a list, got {no_pudieron!r}")
+        filas = []
+        for i, entrada in enumerate(no_pudieron):
+            motivo = entrada.get("motivo") if isinstance(entrada, Mapping) else None
+            if not isinstance(motivo, Mapping) or set(motivo) != {"es", "en"}:
+                raise ReproduceManifestError(
+                    f"{nombre}.no_pudieron_competir[{i}] must be {{motor, motivo: {{es, en}}}}, got {entrada!r}")
+            filas.append({"engine": _require_text(entrada.get("motor"), f"{nombre}.no_pudieron_competir[{i}].motor"),
+                          "reason": {idioma: _require_text(motivo[idioma], f"{nombre}.no_pudieron_competir[{i}].motivo.{idioma}")
+                                     for idioma in ("es", "en")}})
+        if filas:
+            salida["could_not_compete"] = filas
+    return salida
+
+
 def manifiesto_de_estudio(
     *,
     filas: int | None = None,
@@ -898,6 +933,7 @@ def manifiesto_de_estudio(
     curvas_de_la_evaluacion: Mapping[str, Any] | None = None,
     origen_del_fichero: Mapping[str, Any] | None = None,
     pronostico: Mapping[str, Any] | None = None,
+    eleccion_de_motores: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """El manifiesto de un estudio, con SOLO lo que el estudio sabe.
 
@@ -947,6 +983,11 @@ def manifiesto_de_estudio(
       tal cual lo declara el sobre del estudio (`reparto`); `diseno` en `DISENOS_DEL_REPARTO`. Va en `study.split`. Con
       `groups_and_time` (140b-C2) EXIGE además `estricto` (la declaración del reparto estricto del núcleo, `RepartoEstricto.a_json()`
       con `unidades_de_prueba` como número), que va en `study.split.strict`; en cualquier otro diseño, `estricto` se rechaza.
+    * `eleccion_de_motores` (171, Studio): la ELECCIÓN de motores con que la persona planteó el estudio, tal cual la declara el
+      sobre: `{pedida, compiten, fuera_por_la_eleccion, no_pudieron_competir?}` (las tres primeras, listas de ids de motor; la cuarta,
+      `[{motor, motivo: {es, en}}]`, los pedidos que no compitieron aquí y por qué). Va en `study.engine_selection`, en el orden en que
+      se da (el del estudio). Es lo que la persona ELIGIÓ, no algo medido. Sin ella (`None`, el estudio de siempre), el manifiesto es el
+      de siempre byte a byte.
     * `entrenamiento_del_entregado` (auditoría de Roberto del 139, P3-5): cómo terminó el entrenamiento de la red ENTREGADA, tal
       cual lo declara el sobre (`{parado_por_plazo, epocas_ejecutadas?, epocas_completas?, mejor_epoca?, ultima_epoca_parcial?,
       plazo_antes_de_la_primera_epoca_completa?, plazo_de_entrenamiento_segundos?}`). Va en `study.delivered_network_training`.
@@ -1023,11 +1064,15 @@ def manifiesto_de_estudio(
         fuera_por_el_modo = sorted(set(_require_str_list(list(motores_fuera_por_el_modo),
                                                          "motores_fuera_por_el_modo")))
 
+    seleccion_de_motores = _eleccion_de_motores(eleccion_de_motores) if eleccion_de_motores is not None else None
+
     estudio: dict[str, Any] = {}
     if modo is not None:
         estudio["mode"] = modo
     if fuera_por_el_modo:
         estudio["engines_left_out_by_mode"] = fuera_por_el_modo
+    if seleccion_de_motores is not None:
+        estudio["engine_selection"] = seleccion_de_motores
     reparto = {clave: valor for clave, valor in (
         ("development", filas_de_desarrollo), ("holdout_test", filas_de_prueba_reservada),
         ("trained_the_delivered_model", filas_que_entrenaron_el_modelo),
