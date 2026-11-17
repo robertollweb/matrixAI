@@ -200,6 +200,17 @@ matrixai --help
 - **Messy columns are read as people write them**: `12,5` in a `;` CSV is a number, «NA» or «#N/A» in a numeric column is a
   declared missing value, and `08001` is a code, not the number 8001 — each rule is one function, and each case is
   reported
+- **Forecast a time series, honestly examined**: `pronostico_temporal` builds windows per series with the same code for
+  training and for the batch to predict, compares the model with persistence and the seasonal value, and examines it
+  walking forward in time with a calendar-chosen gap; columns that describe the future only enter when you declare them
+  known at prediction time, and the guard against future inputs is said to be a warning, not a protection
+- **Rows to review, without labels**: `anomaly_review` orders the rows of a table from the most unusual, says why each one
+  stands out, and signs a receipt that carries no accuracy figure — without labels there is none to give
+- **One weight, step by step**: the SGD step of a single weight, compared with `optimizer.step()` to a stated tolerance
+- **Promote a model to current, with a signed record**: `ModelRegistry.promote` appends who and when to `promotions.jsonl`
+  atomically, under a thread and file lock
+- **The engines the person chose, declared**: the study manifest can carry `study.engine_selection` (requested, competing,
+  left out by choice, unable to compete); without it the manifest is byte-for-byte the same as before
 
 ---
 
@@ -370,7 +381,7 @@ python -m matrixai playground --open
 
 ```bash
 python -m pytest tests/
-# 12086 passed, 387 skipped
+# 12857 passed, 387 skipped
 ```
 
 ---

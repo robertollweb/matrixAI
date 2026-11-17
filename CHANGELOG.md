@@ -7,6 +7,42 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.23.0] — 2026-11-17
+
+The core can now forecast a time series h steps ahead per series against persistence and seasonal references, with a
+walk-forward exam (`pronostico_temporal`); review rows that stand out without any label (`anomaly_review`, IsolationForest,
+with a signed and verified receipt that carries no accuracy figure, because without labels there is none); show one weight
+taking one SGD step and compare it with `optimizer.step()`; promote a model to current in the registry with a signed record;
+and declare in the study manifest which engines the person chose to compete. Nothing that existed changes its figures: a
+study without an engine selection writes the same manifest byte for byte.
+
+### Added
+- **Time-series forecasting** (`matrixai.training.pronostico_temporal`, contract 164): windows per series built with the same
+  code for the study and for the batch to predict, persistence and seasonal references, a walk-forward exam whose gap is chosen
+  by the calendar, series with another step declared, and every dropped row with its real cause. Columns that describe the
+  future are only used when the person marks them as known at prediction time; the guard against future inputs is a WARNING,
+  not a protection (it does not catch leaks through targets with memory). The forecast goes into the study file
+  (`study.forecast`, validated and never filled in), into the TRIPOD sheet and the PROBAST gaps, es/en.
+- **Rows to review, without labels** (`anomaly_review`, contract 165): IsolationForest with the encoding of categories chosen by
+  a sealed internal bench; the receipt carries the versions of the detector and the verifier requires them; the limits say which
+  date formats are recognised and which are not.
+- **One weight, step by step** (contract 167): the step of one weight with SGD, compared with `optimizer.step()`, with the
+  parity tolerance and the loss after a non-finite step tested; the mini-run covers epoch 1 entire.
+- **Promote to current in the registry** (`ModelRegistry.promote`, contract 156): a signed record in `promotions.jsonl`, atomic
+  write, thread and file lock, and "it was already current" decided inside the lock; `categoria_como_al_preparar` and
+  `indice_de_embedding` extracted so a batch reads exactly as at training time.
+- **Engine selection in the manifest** (`study.engine_selection`, contract 171): optional; requested, competing, left out by the
+  person's choice and unable to compete. Without it the manifest is identical byte for byte.
+
+### Fixed
+- `decimal_es`: thousands with several groups (`1.234.567`) are ambiguous, as the docstring said, and now a warning says so.
+- A fifth Studio CSV changed when normalised (the same `;` with a decimal comma case of 1.22.0).
+
+### Measured and not shipped
+- Benchmarks with rules sealed before measuring (in `benchmarks/`, not in the package): the TabM–LightGBM ensemble, TabM
+  inside (stopping, k = 32, chunked input), tree configuration and the HGB grid confirmation (169), and EBM (170): none met its
+  rule. TabICL measured on a GPU (116): it competes in the Studio GPU package, not in the core.
+
 ## [1.22.0] — 2026-11-11
 
 The core can now open an Excel workbook (`.xlsx`, `.xlsm`, `.xls`) or a Parquet file as a table and write the canonical CSV
