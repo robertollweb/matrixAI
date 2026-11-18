@@ -77,8 +77,10 @@ for m in ("numpy", "pandas", "scipy", "sklearn", "joblib", "threadpoolctl", "int
           "matrixai_engines.motores.interpret_ebm"):
     importlib.import_module(m); print("  OK   ", m)
 print("interpret-core", md.version("interpret-core"))
-from matrixai_engines.registro_de_motores import motor_para
-m = motor_para("interpret.ebm")
+# 172-C1-bis: por su NOMBRE, motor_para("interpret.ebm") da el perfil LIGERO (el del estudio); el 170 midio el COMPLETO (valores por
+# omision de interpret-core). Se pide el completo de forma explicita: MotorEBM() sin perfil. NO volver a pedirlo por nombre.
+from matrixai_engines.motores.interpret_ebm import MotorEBM
+m = MotorEBM()
 print("motor", m.nombre, m.version, "| no disponible:", m.motivo_si_no_puede_entrenar())
 ' &
   wait $!
